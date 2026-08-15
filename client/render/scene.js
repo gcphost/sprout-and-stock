@@ -703,7 +703,6 @@ export class Scene {
     this.syncDeliveries(state.deliveries ?? []);
     this.syncStations(state.stations ?? []);
     this.syncActionRings(state.players, myId);
-    this.syncGhost(state, myId);
     this.syncLifted(state.players.find((p) => p.id === myId));
     this.syncActionTarget(state.players.find((p) => p.id === myId));
 
@@ -941,46 +940,6 @@ export class Scene {
   stationSlotY(st) {
     const model = this.fixtureModel({ kind: 'station', station: st?.station });
     return (model ? modelHeight(partsAt(model, 1)) : 1) + 0.42;
-  }
-
-  /**
-   * Show the held seed as a ghost on the plot you're standing at. Replaces the
-   * popup entirely: you're always holding something, and the plot tells you
-   * what would go in it.
-   */
-  syncGhost(state, myId) {
-    const me = state.players.find((p) => p.id === myId);
-    const plotId = me?.atBarePlot ?? null;
-    const cropId = me?.selectedCrop ?? null;
-    const key = plotId && cropId ? `${plotId}:${cropId}` : null;
-
-    if (this.ghostKey === key) {
-      if (this.ghost) {
-        // Gentle breathing so it reads as a preview, not a planted crop.
-        const t = performance.now() / 1000;
-        this.ghost.position.y = 0.18 + Math.sin(t * 2.6) * 0.04;
-        this.ghost.rotation.y = t * 0.7;
-      }
-      return;
-    }
-    this.ghostKey = key;
-
-    if (this.ghost) {
-      this.actorRoot.remove(this.ghost);
-      disposeGroup(this.ghost);
-      this.ghost = null;
-    }
-    if (!key) return;
-
-    const crop = this.catalog.crops[cropId];
-    const plot = this.storeLayout?.plots?.find((p) => p.id === plotId);
-    if (!crop?.model || !plot) return;
-
-    const g = buildGhost(crop.model);
-    g.position.set(plot.x, 0.18, plot.z);
-    g.scale.setScalar(0.9);
-    this.actorRoot.add(g);
-    this.ghost = g;
   }
 
   // -------------------------------------------------------------------------
@@ -1304,9 +1263,10 @@ export class Scene {
   }
 
   /**
-   * Light up whatever your hold would act on. Armed is not the same as running:
-   * the marker appears the moment something is in range, and the progress ring
-   * only shows once you actually commit.
+   * Light up whatever is about to be acted on. The marker appears the tick
+   * something comes into range, and pulls taut once the charge is actually
+   * running — which is a frame later, but the two states are still distinct
+   * for anything the sim refuses.
    */
   syncActionTarget(me) {
     const at = me?.action?.at ?? null;
@@ -1323,12 +1283,12 @@ export class Scene {
       this.actorRoot.add(this.targetMarker);
     }
     this.targetMarker.position.set(at.x, 0, at.z);
-    this.targetMarker.userData.held = !!me.action.holding;
+    this.targetMarker.userData.held = (me.action.progress ?? 0) > 0;
   }
 
   /**
-   * The charge-up ring, shown only once you're actually holding. It sits over
-   * the player; the marker above says which thing it's aimed at.
+   * The charge-up ring — how long you have to walk away. It sits over the
+   * player; the marker above says which thing it's aimed at.
    */
   syncActionRings(players, myId) {
     const seen = new Set();
@@ -1689,9 +1649,8 @@ export class Scene {
     if (this.targetMarker) {
       const t = now / 1000;
       const held = this.targetMarker.userData.held;
-      // Bobbing while it's waiting for you, and pulled taut once you commit —
-      // so pressing the button has an immediate answer even before the ring
-      // has visibly moved.
+      // Bobbing while it's only in range, and pulled taut once the charge is
+      // running — so the marker answers before the ring has visibly moved.
       this.targetMarker.userData.arrow.position.y = held ? 1.5 : 1.62 + Math.sin(t * 4) * 0.11;
       this.targetMarker.userData.ring.scale.setScalar(held ? 1.12 : 1 + Math.sin(t * 4) * 0.045);
       this.targetMarker.userData.ring.rotation.z = t * (held ? 1.8 : 0.5);

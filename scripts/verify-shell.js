@@ -69,12 +69,15 @@ const fingerprint = (g) => fixturesOf(g.layout)
 function fresh() {
   const g = Game.create({ worldId: 'verify-shell', seed: 'shell', ephemeral: true });
   g.placements = [];
-  g.fixtures = { ...SHOP };
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
   g.edits = [];
   g.shell = null;
-  g.regenerateLayout();
+  // A shop of a stated shape, unstamped — which is what this sweep is here to
+  // stamp. `want` replaced `g.fixtures = {...SHOP}` when step 9 retired the
+  // stored ledger: the generator is handed the base shop or whatever is already
+  // standing, and there is no third thing for a sweep to pin.
+  g.regenerateLayout(null, {}, { want: SHOP });
   g.cash = 20000;
   g.addPlayer('me', 'Tester');
   g.players.me.build = { on: true, tool: 'shelf' };

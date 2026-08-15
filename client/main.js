@@ -71,12 +71,6 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   keys.add(k);
 
-  // The keyboard equivalent of holding the button, so both routes feel the
-  // same rather than one of them firing instantly.
-  if (k === 'e' || k === ' ') {
-    e.preventDefault();
-    sendHold(true);
-  }
   // Every menu key is read off the same array the rail draws itself from, so a
   // new section is bound and labelled the moment it exists. Pressing the key of
   // the menu already open shuts it — the key that opened it has to close it.
@@ -89,8 +83,7 @@ addEventListener('keydown', (e) => {
   // Build *mode* is a state of the world, not a menu, so it keeps its own key.
   if (k === 'g') ui.toggleBuild();
 
-  // Spin the camera a quarter turn. Not E — that's hold-to-act, and a key that
-  // does two jobs is how you harvest a crop while trying to look behind a shelf.
+  // Spin the camera a quarter turn.
   if (k === ',') scene.rotateView(-1);
   if (k === '.') scene.rotateView(1);
 
@@ -109,9 +102,7 @@ addEventListener('keydown', (e) => {
   // mode in the same press.
 });
 addEventListener('keyup', (e) => {
-  const k = e.key.toLowerCase();
-  keys.delete(k);
-  if (k === 'e' || k === ' ') sendHold(false);
+  keys.delete(e.key.toLowerCase());
 });
 
 // Where the pointer is, so the build ghost knows what it is being aimed at.
@@ -228,8 +219,6 @@ const STICK_DEADZONE = 8;
 
 /** Under this much travel, a press was a tap — which in build mode means place. */
 const TAP_SLOP = 7;
-/** Past this, you're steering, so any action you were charging is abandoned. */
-const HOLD_SLOP = 14;
 
 const stick = { active: false, id: null, ox: 0, oy: 0, dx: 0, dy: 0, travel: 0 };
 
@@ -265,21 +254,14 @@ function showEdgeDrag(cx, cy) {
 }
 
 // ---------------------------------------------------------------------------
-// Press and hold
+// The drag joystick
 //
-// One button does three things, separated by how far and how long you move it:
-// a drag steers, a tap places (in build mode), and holding still charges
-// whatever standing here has armed. Only the transitions go to the server —
-// it's a latch, not a stream.
+// One button does two things, separated by how far it moves: a drag steers,
+// and a tap places (in build mode) or opens what you tapped. It used to do a
+// third — holding still charged whatever standing there had armed — and that
+// went away when actions started charging on proximity alone. Standing still
+// is the input now, so there is nothing left to send.
 // ---------------------------------------------------------------------------
-
-let holdSent = false;
-
-function sendHold(on) {
-  if (on === holdSent) return;
-  holdSent = on;
-  net.send('hold', { on });
-}
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
@@ -304,7 +286,6 @@ canvas.addEventListener('pointerdown', (e) => {
   stick.dy = 0;
   stick.travel = 0;
   canvas.setPointerCapture(e.pointerId);
-  sendHold(true);
 });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -322,9 +303,6 @@ canvas.addEventListener('pointermove', (e) => {
   const ny = len ? (dy / len) * clamped : 0;
   stick.dx = len < STICK_DEADZONE ? 0 : nx / STICK_RADIUS;
   stick.dy = len < STICK_DEADZONE ? 0 : ny / STICK_RADIUS;
-  // Once this is clearly a steer rather than a hold, drop the charge. A little
-  // drift from a thumb resting still doesn't count.
-  if (stick.travel > HOLD_SLOP) sendHold(false);
 });
 
 function endStick(e) {
@@ -356,14 +334,11 @@ function endStick(e) {
   stick.active = false;
   stick.dx = 0;
   stick.dy = 0;
-  sendHold(false);
   if (tapped) tapAtPointer(e.clientX, e.clientY);
 }
 canvas.addEventListener('pointerup', endStick);
 canvas.addEventListener('pointercancel', endStick);
-addEventListener('blur', () => { endStick(); sendHold(false); });
-// A pointer released outside the canvas still has to let go of the action.
-addEventListener('pointerup', () => sendHold(false));
+addEventListener('blur', () => endStick());
 
 /**
  * What a tap in build mode means, decided by what is on the tile you tapped.

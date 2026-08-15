@@ -239,10 +239,12 @@ export function createApi() {
     const g = await gameFor(req);
     // Hand-placed fixtures survive a reseed by default — that's the point of
     // placing them. `clearPlacements` is the way back to a purely procedural
-    // shop without touching what the shop owns.
+    // shop, keeping the same *number* of everything: since step 9 the shop is
+    // its placements, so emptying the list and regenerating would hand back an
+    // empty building rather than a tidy one. `reflow` counts first.
     const cleared = req.body?.clearPlacements ? g.placements.length : 0;
-    if (cleared) g.placements = [];
-    const layout = g.regenerateLayout(req.body?.seed ?? `re-${Date.now()}`);
+    const seed = req.body?.seed ?? `re-${Date.now()}`;
+    const layout = cleared ? g.reflow(null, seed) : g.regenerateLayout(seed);
     res.json({
       ok: true, world: g.worldId, seed: g.seed, version: g.layoutVersion,
       shelves: layout.shelves.length, plots: layout.plots.length,

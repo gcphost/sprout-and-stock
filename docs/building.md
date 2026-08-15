@@ -1,6 +1,6 @@
 # Building — design
 
-Status: **steps 1–8 built. 9 and 11 are still a plan. 10 is cancelled.**
+Status: **steps 1–9 and 11 built. 10 is cancelled. 12 is what step 9 left.**
 There is also a working interactive mockup —
 [turn the shop around here](https://claude.ai/code/artifact/1aac9d71-46fc-4e78-9f93-d54a6e6d2467).
 
@@ -352,14 +352,69 @@ here and `simulate` reports the damage under `deadStock`.
 
 ### Where costs come from
 
-Today `fixtureUnitCost` in [`server/sim/index.js`](../server/sim/index.js)
-derives a price by scanning upgrade payloads, which works because every fixture
-kind has an upgrade that sells it. A planter won't.
+**Built.** `fixtureUnitCost` used to derive a price by scanning upgrade payloads
+— find whichever row sells this kind, divide its cost by how many it granted,
+take the cheapest — which worked only because every fixture kind had exactly
+such a row. A planter never will, and neither will the fourth shelf design
+somebody authors this afternoon, so a catalog that couldn't name its own prices
+was a catalog with five entries in it.
 
-So `cost` moves onto the piece, and upgrades become **unlocks and discounts**
-rather than the thing that grants you a countable fixture. `space` upgrades
-become land. The `world.fixtures` ledger retires — you buy a piece when you
-place it and get `FIXTURE_REFUND` of it back when you tear it out.
+`cost` is on the piece now and the scan is gone. Four things came with it.
+
+**The move itself was worth nothing, on purpose.** The five shipped rows were
+filled in at exactly the numbers the scan was already deriving — 45, 260, 300,
+30 — and `cost > 0` had short-circuited to the row since step 7, so the content
+change landed first and the code change found nothing left to do. The build-mode
+price table is byte-identical across both. That is the whole reason to build an
+on-ramp a step early: the day you delete the old thing, you already know it
+agrees.
+
+**The five old fixture upgrades became discounts.** They had been dead rows for
+two steps — `buyUpgrade` refused them because build mode replaced buying a lump
+of shelving the generator sites for you, and they survived purely as the price
+list the scan read. With the price on the piece they did nothing at all, so they
+sell a *rate*: own "Trade Account" and every shelf you ever put down is 30% off.
+Best-of rather than stacked, capped at `MAX_FIXTURE_DISCOUNT` — same shape
+`foldModifiers` uses for two copies of one world event, and for the same reason.
+
+**Not unlocks, and this is the deliberate half.** The plan said "unlocks and
+discounts". An unlock is a *refusal* — you may not build a freezer until you buy
+a licence — and this codebase already decided that argument: **impossible
+refuses, inadvisable warns**, and "you have not bought the paperwork" is not
+physics. It would also have been a new gate on something you can do today, so it
+makes the game smaller in exchange for making a row meaningful, when a discount
+makes the row meaningful for nothing. The one genuine unlock in the game already
+exists and always did: an appliance, which cannot be placed unless an upgrade
+names that machine. It stays the exemplar rather than the pattern.
+
+**`space` is the last upgrade that grants anything**, and what it grants is
+land. It was already the only one that made the building bigger rather than
+fuller; it is now the only structural upgrade at all, which is why `buyUpgrade`
+re-flows for `space` and for nothing else.
+
+The `world.fixtures` ledger retired. You pay when you place and get
+`FIXTURE_REFUND` back when you tear out — both of which were already true — and
+the count is now a recount over `placements` (`Game.fixtureCounts`). It could
+not have been one before step 4: while the generator furnished the shop itself,
+"six shelves" was a number nothing in the world could be read back from. A
+stamped shop *is* its placements, so a stored count was a second opinion about a
+fact, and a second opinion is a thing that drifts — it double-counted a freezer
+on every server restart once.
+
+### Appliances are the one thing left, and that is step 12
+
+An appliance is still priced by its own upgrade row, and it is not the scan:
+`station-blender` sells one machine, so its cost is already a unit price and
+nothing is being divided. What it means is that the palette builds its appliance
+entries out of the *upgrade* table while everything else comes from the catalog,
+which is one table too many.
+
+Moving them across needs a piece per machine — `blender`, `coffee-machine`,
+`toaster`, each naming kind `station` — and then `placeFixture` can read the
+machine off the piece instead of off the placement, `buildTools` loses its
+special case, and the upgrade rows become unlocks or go away. That is a content
+migration with models in it, and doing it inside the ledger's retirement would
+have made two risky things one commit.
 
 ---
 
@@ -432,14 +487,33 @@ the number.
    `prop-floor` / `prop-wall` / `prop-ceiling`. `create_fixture` grows a `kind`
    argument. Decorations become authorable.
 8. **Lights.** `emits`, the renderer, and the cap.
-9. **Economy swap.** Upgrades become unlocks and discounts, `space` becomes
-   land, `cost` moves onto pieces, the ledger retires.
+9. **Economy swap.** *Built.* `cost` is on the piece, the upgrade-payload scan
+   is gone, the five fixture upgrades sell discounts instead of packs, `space`
+   is the last upgrade that grants anything, and `world.fixtures` retired in
+   favour of a recount over `placements`. See "Where costs come from" above for
+   what was deliberately *not* done (unlocks) and why.
+
+   Two things this step needed that were not in the plan. The **balance bot had
+   to learn to build**, because the shop used to grow by buying packs from a
+   menu and now grows by putting things down — a bot that never built would have
+   measured a shop frozen at its opening-day shelving while buying discounts on
+   fixtures it never used. And **`/regenerate?clearPlacements` needed a verb of
+   its own** (`Game.reflow`): it used to get "put the shop back procedurally"
+   for free, because the ledger knew how many shelves you owned independently of
+   where they were, and with the shop *being* its placements, emptying the list
+   and regenerating hands back an empty building.
 10. **~~Camera occlusion.~~ Cancelled.** Built once, narrowed to proximity, then
     deleted as overkill — turning the camera is enough, and the fade cost more
     in draw-order complexity (see the translucency notes below) than it bought.
     Do not re-add it. The notes are kept as history, not as a plan.
-11. **Fields.** Fences are already an edge kind by now, so they become
-    player-drawn and the auto-bbox fence in `layout.js` retires.
+11. **Fields.** *Built.* Fence and Gate are build tools, and the auto-bbox fence
+    in `layout.js` is gone. Smaller than it looks and it took a set with it:
+    `editedEdges` existed only so the generated fence wouldn't re-draw itself
+    over fencing you had built on the same line, which is the shape of an
+    argument you are losing. Nothing else read the fence — a fence never
+    encloses, so removing it moves no `indoor` mask and no tile.
+12. **Appliances become pieces.** The last thing priced off an upgrade, and the
+    last place the palette reads a table that isn't the catalog. See above.
 
 ---
 
@@ -458,15 +532,22 @@ guess.
   number that differs, not a picture that happens to match. It caught the layout
   generator dropping `piece` on the way through, which nothing else would have.
 
-- **The ledger keys fixtures by kind and props by piece, and that asymmetry is
-  load-bearing.** `world.fixtures` is the generator's shopping list —
-  `regenerateLayout` passes `shelves: fixtures.shelf` and expects one placement
-  per unit owned. Key a second shelf design under its own name and the budget it
-  needs is never asked for, so `compose` drops the placement on the next re-flow,
-  one shelf at a time, silently. Props have no budget because nothing procedural
-  places one, which is exactly what frees them to count by piece. `ledgerKey` in
-  `shared/pieces.js`, and the client imports the same function — a palette that
-  spelled a count differently would read 0 next to eleven shelves.
+- **The ledger keyed fixtures by kind and props by piece, and that asymmetry was
+  load-bearing right up until it wasn't.** `world.fixtures` was the generator's
+  shopping list — `regenerateLayout` passed `shelves: fixtures.shelf` and
+  expected one placement per unit owned — so a second shelf design counted under
+  its own name would have had no budget asked for it, and `compose` would drop
+  the placement on the next re-flow, one shelf at a time, silently. Props had no
+  budget because nothing procedural places one, which is exactly what freed them
+  to count by piece.
+
+  Step 9 retired the ledger and the asymmetry went with it: nothing is asked of
+  the generator any more, so `countKey` counts everything by piece and the
+  palette can finally say how many of *this* design you own. The claim the old
+  key was protecting is still the claim — a second design has to survive a
+  re-flow — and `verify:catalog` now asserts it directly, three re-flows deep,
+  rather than by asserting the mechanism that used to guarantee it. Which is the
+  better test anyway: it would have caught the original bug too.
 
 - **Pathing is strictly 4-way.** `NEIGHBOURS = [[1,0],[-1,0],[0,1],[0,-1]]` in
   `server/sim/pathing.js`. This is the single luckiest fact in the migration:
@@ -532,15 +613,45 @@ guess.
 
 ## Open questions
 
-- **Does a wall cost per edge or per run?** Per edge is honest and makes long
-  walls expensive; per run is kinder and harder to price.
+- ~~**Does a wall cost per edge or per run?**~~ **Answered: per edge.** It
+  already was — `buildEdge` charges inside the segment loop — and this is the
+  decision to keep it, because the alternative is worse in a way that isn't
+  obvious. Per run makes a long wall cheaper per metre than a short one, so the
+  cheapest way to build a shop becomes one enormous drag, and the pricing quietly
+  argues against the L-shapes and annexes that enclosure exists to allow. Per
+  edge also makes the swap arithmetic fall out for free: a window over a wall
+  charges the difference, knocking through refunds `FIXTURE_REFUND` of whatever
+  was there, and none of that needs to know what a "run" was.
+
+  What the run *is* for is the gesture. A drag is one action, it is validated as
+  a whole (no single segment of a wall across the aisle seals anything), and if
+  you run out of money halfway it builds what you could afford rather than
+  refusing the lot — losing a whole drag to the last segment being a dollar
+  short is the kind of thing you cannot see coming. `verify:economy` pins the
+  pricing: a five-segment run costs five segments.
 - **Do rooms mean anything?** The enclosure fill can cheaply label *distinct*
   enclosed regions, not just enclosed-vs-not. That would give "the cold room",
   "the back office" as addressable things. Worth having, not worth building
   until something wants to read it.
-- **Can you demolish a wall that would strand a fixture?** `whatThisBlocks`
-  already answers this for placement. Removal needs the same check and doesn't
-  have it.
+- ~~**Can you demolish a wall that would strand a fixture?**~~ **Answered: yes,
+  and it now says so — but not in the way the question assumed.** Removal
+  genuinely cannot strand a fixture the way placement can. A hole only ever
+  opens the way through, so every reachability check `whatThisBlocks` runs is
+  vacuous for a demolition, and that is why the early return saying "taking
+  something away can't strand anybody" was correct as far as it went.
+
+  What it misses is *enclosure*. Since step 3, "indoors" means whatever the walls
+  close in — so knocking one segment out of the shell breaks the loop, the fill
+  walks straight in, and every shelf in the building is outdoors without one of
+  them moving. That is the same class of answer as walling a shelf in: a
+  consequence you are told about and allowed to cause, not a refusal.
+
+  So `canPlaceEdges` now runs `whatThisUnroofs` on both directions, and it is
+  symmetric — placing walls can *roof* a plot, which strands it just as surely,
+  because nothing grows indoors. Two details that matter: it reports only what
+  the action **changes**, or a shop that already had a shelf on the patio would
+  warn about it on every wall you ever drew; and it stays `ok: true`, because
+  putting your shelving out in the weather is a move the sim copes with.
 - **Roofs.** Nothing here draws one, and the 45° camera means you probably never
   want to. But "enclosed" currently implies a roof that is never modelled, and
   someone will eventually ask why rain doesn't come in.

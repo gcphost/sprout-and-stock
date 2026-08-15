@@ -264,9 +264,9 @@
              box-shadow: 0 2px 7px rgba(58,49,40,.09); }
     #carry:empty { display: none; }
 
-    /* "Click & hold to Harvest" — the affordance for held actions. Sits low
-       and centre, near where your hand already is, and vanishes the moment
-       nothing is in range. */
+    /* "Harvesting…" — what standing here is about to do. Sits low and centre,
+       near where your hand already is, and vanishes the moment nothing is in
+       range. */
     #prompt {
       bottom: 62px; left: 50%; transform: translate(-50%, 8px); opacity: 0;
       background: rgba(58,49,40,.86); color: #fff; padding: 7px 16px;
@@ -277,10 +277,6 @@
     #prompt.show { opacity: 1; transform: translate(-50%, 0); }
     #prompt.going { background: #ffd66b; color: var(--ink); }
     #prompt b { font-weight: 800; }
-    #prompt .hk {
-      background: rgba(255,255,255,.18); border-radius: 6px;
-      padding: 1px 7px; font-weight: 700; font-size: 12px;
-    }
     body.building #prompt { bottom: 140px; }
 
     /* toast */

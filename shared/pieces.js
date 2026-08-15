@@ -20,8 +20,6 @@
  * is standing in them.
  */
 
-import { PROP_KINDS } from './build.js';
-
 /** Every piece of one kind, in catalog order. */
 export function piecesOf(rows, kind) {
   return (rows ?? []).filter((p) => kindOf(p) === kind);
@@ -70,23 +68,23 @@ export function pieceFor(rows, f) {
 }
 
 /**
- * How the fixture ledger names one of these.
+ * How a count of these is named — to the palette, and over the wire.
  *
- * Three namespaces in one table, and the split is not cosmetic — it follows
- * from what the ledger is *for*, which is the generator's shopping list.
+ * `ledgerKey` used to live here and had to answer this three different ways.
+ * A tile fixture keyed by KIND, because `world.fixtures` doubled as the
+ * generator's shopping list and `regenerateLayout` handed it `shelves:
+ * fixtures.shelf`: key a second shelf design under its own name and the budget
+ * it needed was never asked for, so the placement was dropped on the next
+ * re-flow, silently, one at a time. A prop keyed by PIECE, because nothing
+ * procedural ever places one and there was no budget to protect. That asymmetry
+ * was load-bearing for exactly as long as the ledger was.
  *
- * - A tile fixture keys by KIND, because `regenerateLayout` hands the generator
- *   `shelves: fixtures.shelf` and it has to place one per unit owned. Key a
- *   second shelf design separately and the budget it needs is never asked for,
- *   so the placement is dropped the next time the shop re-flows.
- * - An appliance keys by machine, because a blender is not a toaster and the
- *   generator needs the list by name to put the right one back.
- * - A prop keys by PIECE, because nothing procedural ever places one: a prop
- *   exists only where somebody put it, so its count is free to mean what you
- *   would expect it to mean.
+ * Step 9 retired the ledger — a stamped shop *is* its placements, so the count
+ * is a recount (`Game.fixtureCounts`) and nothing is asked of the generator any
+ * more. So this can be the one obvious rule: a thing is counted as the design it
+ * is, and an appliance as the machine it is, because a blender is not a toaster
+ * and no catalog row tells them apart yet.
  */
-export function ledgerKey(kind, { station = null, piece = null } = {}) {
-  if (kind === 'station') return `station:${station}`;
-  if (PROP_KINDS.includes(kind)) return `prop:${piece || kind}`;
-  return kind;
+export function countKey(kind, { station = null, piece = null } = {}) {
+  return kind === 'station' ? `station:${station}` : (piece || kind);
 }

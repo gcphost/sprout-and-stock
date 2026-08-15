@@ -433,10 +433,10 @@ function removeBlockedReason(ui, f, live) {
  * get is worse than no number at all.
  */
 function refundFor(ui, f) {
-  if (f.kind === 'station') {
-    const up = (ui.catalog.upgrades ?? []).find((u) => u.kind === 'station'
-      && u.payload?.station === f.station && (ui.ownedUpgrades ?? []).includes(u.id));
-    return (up?.cost ?? 0) * FIXTURE_REFUND;
-  }
-  return (ui.buildCosts[f.kind] ?? 0) * FIXTURE_REFUND;
+  // Keyed the way the palette and the server both key a price: by piece, and by
+  // machine for an appliance. Looking it up by KIND was right only while every
+  // design of a kind cost the same — since step 9 a price is a property of the
+  // row, so a shelf that cost $200 would have offered half of $45 back.
+  const key = f.kind === 'station' ? `station:${f.station}` : (f.piece || f.kind);
+  return (ui.buildCosts?.[key] ?? 0) * FIXTURE_REFUND;
 }

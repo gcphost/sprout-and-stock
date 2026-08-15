@@ -141,12 +141,6 @@ export class MartRoom extends Room {
       this.game.setInput(client.sessionId, Number(m?.dx) || 0, Number(m?.dz) || 0);
     });
 
-    // Press and hold to commit to whatever standing here has armed. Sent on
-    // press and on release only, not per frame — it's a latch, not a stream.
-    this.onMessage('hold', (client, m) => {
-      this.game.setHold(client.sessionId, !!m?.on);
-    });
-
     this.onMessage('interact', (client, m) => {
       const res = this.game.interact(client.sessionId, m ?? {});
       client.send('action-result', res);

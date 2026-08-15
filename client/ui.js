@@ -89,10 +89,6 @@ export class UI {
       search: document.getElementById('panel-search'),
       filter: document.getElementById('panel-filter'),
     };
-    // Touch devices don't have a mouse button to name, and "click" is wrong on
-    // a phone. Decided once at boot rather than per frame.
-    this.holdWord = matchMedia('(hover: none)').matches ? 'Hold' : 'Click &amp; hold';
-
     // Per-section, and wiped when the section closes — a filter you can't see
     // the cause of is worse than no filter at all.
     this.query = '';
@@ -820,14 +816,14 @@ export class UI {
   }
 
   /**
-   * "Click & hold to Harvest", pinned under the HUD.
+   * "Harvesting…", pinned under the HUD.
    *
-   * Being in range no longer does anything on its own, so the game has to say
-   * out loud that there's something here and that holding is what does it —
-   * otherwise standing next to a ripe plot just looks broken.
+   * Standing in range is the whole input, so this is the only warning you get
+   * that something is about to happen to the thing you are stood next to. It
+   * says what, while the ring says how long you have to walk away.
    */
   updatePrompt(action) {
-    const key = action ? `${action.kind}:${action.target}:${action.holding}` : null;
+    const key = action ? `${action.kind}:${action.target}` : null;
     if (key === this._promptKey) return;
     this._promptKey = key;
 
@@ -835,12 +831,10 @@ export class UI {
       this.el.prompt.className = 'hud';
       return;
     }
-    this.el.prompt.innerHTML = action.holding
-      ? `<b>${action.label}…</b>`
-      : `<span class="hk">${this.holdWord}</span> to <b>${action.label}</b>`;
+    this.el.prompt.innerHTML = `<b>${action.label}…</b>`;
     // Keep `hud` — it carries position:fixed, and dropping it drops the
     // element out of the overlay and into the document flow, invisible.
-    this.el.prompt.className = `hud show${action.holding ? ' going' : ''}`;
+    this.el.prompt.className = 'hud show going';
   }
 
   /**

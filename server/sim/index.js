@@ -26,7 +26,7 @@ import { spoilRate, requiredFixture, desireFor } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
 import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf } from '../../shared/build.js';
-import { pieceFor, kindOf, defaultPiece, ledgerKey } from '../../shared/pieces.js';
+import { pieceFor, kindOf, defaultPiece, countKey } from '../../shared/pieces.js';
 
 /** Real seconds in one in-game day. */
 export const DAY_SECONDS = 360;
@@ -127,31 +127,43 @@ const ACTION_TIMES = {
   stow: 0.8,
 };
 
-/** Fallback prices for building a fixture when no upgrade grants that kind. */
+/**
+ * What a fixture costs when its catalog row doesn't say.
+ *
+ * A floor rather than a price list: a kind is buildable whether or not anybody
+ * has drawn one, and a shelf that fell out of the catalog must not become free
+ * shelving. Content is what actually prices things — see `fixtureUnitCost`.
+ */
 const FALLBACK_FIXTURE_COST = { shelf: 60, freezer: 260, checkout: 300, plot: 40, station: 200 };
 
-// Where a fixture is counted in the ledger now lives in `shared/pieces.js`,
-// because the palette on the client has to look a count up by exactly the same
-// name the server files it under — and two spellings of "how many of these do
-// I own" is a button that says 0 next to eleven shelves.
+/** How much of a fixture's price a discount deal may ever take off. */
+const MAX_FIXTURE_DISCOUNT = 0.6;
 
-/** The appliance names the ledger says you own, expanded one per machine. */
-function stationList(fixtures) {
-  const out = [];
-  for (const [key, n] of Object.entries(fixtures ?? {})) {
-    if (!key.startsWith('station:')) continue;
-    for (let i = 0; i < n; i++) out.push(key.slice('station:'.length));
-  }
-  return out;
-}
-
-/** Which upgrade payload field grants each countable fixture. */
-const FIXTURE_PAYLOAD_KEY = {
-  shelf: 'shelves', freezer: 'freezers', checkout: 'checkouts', plot: 'plots',
-};
-
-/** What a brand new shop starts with, before any upgrade. */
+/** What a brand new shop is furnished with, before anybody has built anything. */
 const BASE_FIXTURES = { shelf: 6, freezer: 0, checkout: 1, plot: 4 };
+
+/**
+ * What the generator is asked to furnish, for a shop that is already stamped.
+ *
+ * The placements, counted. Step 4 made every fixture in a stamped shop a
+ * placement, which turned `world.fixtures` from a shopping list into a second
+ * opinion about a fact — and a second opinion is a thing that drifts. So the
+ * question "how many shelves does this shop want" is answered by looking at the
+ * shop, and the generator lays nothing of its own because every budget is
+ * already spent by the time it gets there.
+ *
+ * Appliances come back as a list rather than a count because `compose` matches
+ * each placement against a named machine: a blender is not a toaster, and the
+ * generator has to put the right one back.
+ */
+function budgetOf(placements) {
+  const b = { shelf: 0, freezer: 0, checkout: 0, plot: 0, stations: [] };
+  for (const p of placements ?? []) {
+    if (p.kind === 'station') b.stations.push(p.station);
+    else if (b[p.kind] !== undefined) b[p.kind]++;
+  }
+  return b;
+}
 
 export class Game {
   constructor(state) {
@@ -168,10 +180,16 @@ export class Game {
     // the world without stepping it first sees an empty shop, not `undefined`.
     this.occupancy = 0;
     this.turningAway = false;
-    // How many of each fixture the shop owns, and where the player has chosen
-    // to put some of them. See `fixtureLedger` for why this is a stored count
-    // rather than something recomputed from upgrades every boot.
-    this.fixtures = { ...BASE_FIXTURES, ...(state.fixtures ?? {}) };
+    /**
+     * Everything standing in the shop, and where.
+     *
+     * The only record of it there is. There used to be a second one —
+     * `world.fixtures`, a stored count per kind — and it was necessary right up
+     * until step 4 stamped the shop: while the generator furnished the place
+     * itself, "six shelves" was a number nothing in the world could be read back
+     * from. Every fixture is a placement now, so the count is a recount
+     * (`fixtureCounts`) and the two can no longer disagree.
+     */
     this.placements = state.placements ?? [];
     this.nextFixtureId = state.nextFixtureId ?? 1;
     this.grow = state.grow ?? { w: 0, h: 0 };
@@ -202,19 +220,23 @@ export class Game {
     if (!worldId) throw new Error('Game.create needs a worldId — see server/worlds.js');
     const w = loadWorld(worldId);
     const useSeed = seed ?? w.seed;
-    const fixtures = fixtureLedger(w);
     const placements = w.placements ?? [];
     const grow = w.storeGrow ?? { w: 0, h: 0 };
     const doorShift = w.doorShift ?? 0;
     const edits = w.edits ?? [];
     const shell = w.shell ?? null;
+    // A stamped shop asks for what is standing in it; one nobody has opened yet
+    // asks for a starter shop. `starterShop` is the second case only, and it is
+    // read at most once per save ever, because `freezeShell` at the bottom of
+    // this function stamps the shop before anybody can look at it.
+    const want = shell ? budgetOf(placements) : starterShop(w);
     const layout = generateLayout({
       seed: useSeed,
-      shelves: fixtures.shelf,
-      freezers: fixtures.freezer,
-      checkouts: fixtures.checkout,
-      plots: fixtures.plot,
-      stations: stationList(fixtures),
+      shelves: want.shelf,
+      freezers: want.freezer,
+      checkouts: want.checkout,
+      plots: want.plot,
+      stations: want.stations,
       placements,
       grow,
       doorShift,
@@ -242,7 +264,6 @@ export class Game {
       // save that predates the roster, and authoritative from then on.
       roster,
       nextWorkerId: w.nextWorkerId ?? roster.length + 1,
-      fixtures,
       placements,
       nextFixtureId: w.nextFixtureId ?? 1,
       grow,
@@ -286,7 +307,6 @@ export class Game {
       ownedUpgrades: this.ownedUpgrades,
       roster: this.roster,
       nextWorkerId: this.nextWorkerId,
-      fixtures: this.fixtures,
       placements: this.placements,
       nextFixtureId: this.nextFixtureId,
       grow: this.grow,
@@ -331,17 +351,20 @@ export class Game {
       ownedUpgrades: this.ownedUpgrades,
       roster: this.roster,
       nextWorkerId: this.nextWorkerId,
-      // The ledger is authoritative. `plots`/`shelves` are only still written
-      // so an older build could still boot this save.
-      fixtures: this.fixtures,
+      // `placements` is what the shop *is*. The three counts under it are
+      // written and never read back: a build from before step 9 boots a save by
+      // way of `fixtureLedger`, and handed nothing it would furnish someone's
+      // sixteen-shelf shop with six. Derived on the way out, so they cannot go
+      // stale the way a stored ledger could.
       placements: this.placements,
+      fixtures: legacyLedger(this.placements),
       nextFixtureId: this.nextFixtureId,
       storeGrow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
       shell: this.shell,
-      plots: this.fixtures.plot,
-      shelves: this.fixtures.shelf,
+      plots: budgetOf(this.placements).plot,
+      shelves: budgetOf(this.placements).shelf,
     });
   }
 
@@ -415,10 +438,15 @@ export class Game {
       layoutVersion: this.layoutVersion,
       stats: this.stats,
       // The upgrades panel needs this to grey out what you already own, and
-      // build mode needs the ledger to price the palette.
+      // the palette needs it to know which deals you have bought — a discount
+      // has to show on the button before you press it, or the price you are
+      // quoted and the price you pay are two different numbers.
       ownedUpgrades: this.ownedUpgrades,
       roster: this.roster,
-      fixtures: this.fixtures,
+      // How many of each thing is standing in the shop, under the name the
+      // palette calls it. Keyed by *piece* throughout, which the old stored
+      // ledger could not be — see `fixtureCounts`.
+      fixtures: this.fixtureCounts(),
       players: Object.values(this.players).map((p) => ({
         id: p.id, name: p.name, x: r2(p.x), z: r2(p.z), facing: r2(p.facing),
         carry: p.carry, color: p.color, staff: p.staff ?? null,
@@ -445,8 +473,10 @@ export class Game {
         selectedCrop: p.selectedCrop ?? null,
         build: p.build?.on ? (p.build.tool ?? null) : null,
         holding: p.holding ?? null,
-        // Sent whenever an action is *available*, not just while it's running,
-        // so the client can light the target up and say what holding would do.
+        // Sent from the tick it arms, before there is any progress on it, so
+        // the client can light the target up and name what is about to happen.
+        // `progress` is the whole story now that nothing gates the charge: if
+        // it's moving, this is going to fire unless you walk away.
         action: p.action
           ? {
             kind: p.action.kind,
@@ -454,11 +484,8 @@ export class Game {
             label: p.action.label,
             at: p.action.at ? { x: r2(p.action.at.x), z: r2(p.action.at.z) } : null,
             progress: r2(Math.min(1, p.action.elapsed / (p.action.time || ACTION_TIME))),
-            holding: !!p.holdInput,
           }
           : null,
-        // Standing at a turned-over plot with no seed chosen pops the picker.
-        atBarePlot: this.barePlotNear(p)?.id ?? null,
       })),
       customers: Object.values(this.customers).map((c) => ({
         id: c.id, x: r2(c.x), z: r2(c.z), facing: r2(c.facing),
@@ -656,8 +683,14 @@ export class Game {
       if (!p.input) continue;
       const { dx, dz } = p.input;
       if (dx === 0 && dz === 0) continue;
-      // Moving is what clears the "don't pick that straight back up" lock.
-      p.stowLock = false;
+      // Walking away is what clears the "don't pick that straight back up"
+      // lock — and *away* has to mean out of reach, not one step. It used to
+      // clear on any movement at all, which was fine while a finger had to be
+      // on the button: you shuffled, and nothing happened until you pressed.
+      // With the charge running on its own, that same shuffle re-arms the
+      // pallet you are still stood on and you stow, pick up, stow, pick up,
+      // for as long as you stand there.
+      if (p.stowLock && !this.nearest(this.deliveries, p, UNLOAD_REACH)) p.stowLock = false;
 
       const len = Math.hypot(dx, dz) || 1;
       // A drag-joystick sends a partial vector for a small nudge, so honour the
@@ -679,26 +712,27 @@ export class Game {
   }
 
   // -------------------------------------------------------------------------
-  // Held actions
+  // Actions
   //
-  // Standing next to something works out *what* you'd do; holding the button
-  // is what actually does it. Proximity alone used to fire things at you —
-  // walk past a ripe plot and you'd harvest it whether you meant to or not,
-  // and the only way to say no was to keep walking.
+  // Standing next to something works out *what* you'd do — and then does it,
+  // after a charge you can watch. There was a button in between for a while:
+  // proximity armed the action and you pressed and held to commit, because the
+  // version before that fired the instant you were in range and harvested
+  // crops at you as you walked past.
   //
-  // So: being in range arms an action and lights the thing up, and you press
-  // and hold to commit. Same charge-up, same ring, same "let go and nothing
-  // happened" — it just needs your consent now.
+  // The ring is what makes proximity safe on its own, and it's the same ring.
+  // An action takes a second (a destructive one longer), the target lights up,
+  // the HUD says what is about to happen, and leaving the range throws the
+  // charge away — so you still get to say no, you just say it by not standing
+  // there. That is the same answer the button version wanted anyway. At
+  // PLAYER_SPEED a walk straight through a target's REACH lasts about three
+  // quarters of a second, so passing a ripe plot doesn't pick it and stopping
+  // at one does.
+  //
+  // What this does cost: anything that can pair with its own opposite now
+  // needs its latch to actually hold, because there is no finger to lift. See
+  // `stowLock` below and where it's cleared in `stepPlayers`.
   // -------------------------------------------------------------------------
-
-  /** Press and hold. Releasing — or walking off — abandons the charge. */
-  setHold(playerId, on) {
-    const p = this.players[playerId];
-    if (!p) return err('no such player');
-    p.holdInput = !!on;
-    if (!on && p.action) p.action.elapsed = 0;
-    return ok({ holding: p.holdInput });
-  }
 
   stepActions(dt) {
     for (const p of Object.values(this.players)) {
@@ -706,23 +740,22 @@ export class Game {
 
       const candidate = this.actionFor(p);
 
-      // Nothing in range, or the target changed out from under us.
+      // Nothing in range, or the target changed out from under us. Either way
+      // the charge starts again from zero next time — walking off mid-ring is
+      // how you decline, so it must never bank.
       if (!candidate) { p.action = null; continue; }
       if (!p.action || p.action.kind !== candidate.kind || p.action.target !== candidate.target) {
-        // Armed but not started. It still goes in the snapshot, because the
-        // client has to be able to highlight the thing and say what holding
-        // would do — an action you can't see coming is worse than a keybind.
         p.action = { ...candidate, elapsed: 0 };
       }
-
-      if (!p.holdInput) { p.action.elapsed = 0; continue; }
 
       p.action.elapsed += dt;
       if (p.action.elapsed < (p.action.time || ACTION_TIME)) continue;
 
       const res = candidate.run();
       p.action = null;
-      // A failed attempt shouldn't instantly retry in a loop — let them move.
+      // A refusal costs a whole fresh ring before it is tried again, which is
+      // the only thing stopping a race between `actionFor` and `run` from
+      // retrying every tick.
       if (!res?.ok) p.actionBlocked = res?.error ?? null;
       else p.actionBlocked = null;
     }
@@ -758,8 +791,8 @@ export class Game {
     // `stowLock` is why this isn't just an if/else. Both actions re-arm the
     // moment they finish, so putting an armful down next to a crate of the same
     // thing would pick it straight back up, put it down, pick it back up —
-    // forever. Stowing therefore locks pickup until you actually walk somewhere,
-    // which is the same "move to cancel" rule the rest of the ring already uses.
+    // forever. Stowing therefore locks pickup until you walk out of reach of
+    // the goods, which is the same "leave to cancel" rule the ring already uses.
     const pallet = this.nearest(this.deliveries, p, UNLOAD_REACH);
     const canTake = pallet && !p.stowLock
       && (!p.carry || (p.carry.item_id === pallet.item_id && p.carry.qty < this.carryCapacity()));
@@ -795,32 +828,26 @@ export class Game {
       if (plot.ready && (!p.carry || p.carry.item_id === content().byId.crops[plot.crop_id]?.item_id)) {
         return { kind: 'harvest', target: plot.id, label: 'Harvest', at: plot, run: () => this.harvest(p.id, plot.id) };
       }
-      // Seed goes into broken soil, never into turf. Harvesting exhausts a plot
-      // back to untilled, so a field has a rhythm: turn it, sow it, pick it.
+      // Seed goes into broken soil, never into turf, so turning it over is a
+      // job standing here can do. Turf costs nothing to break and nothing to
+      // put back, which is what makes it safe to fire on its own.
       if (!plot.crop_id && plot.soil !== 'tilled') {
         return {
           kind: 'till', target: plot.id, label: 'Till the soil', time: ACTION_TIMES.till, at: plot,
           run: () => this.till(p.id, plot.id),
         };
       }
-      if (!plot.crop_id && p.selectedCrop) {
-        const crop = content().byId.crops[p.selectedCrop];
-        const inSeason = !crop?.seasons?.length || crop.seasons.includes(this.season);
-        if (crop && inSeason && this.cash >= crop.seed_cost) {
-          return {
-            kind: 'plant', target: plot.id, label: `Plant ${crop.name}`, at: plot,
-            run: () => this.plant(p.id, plot.id, p.selectedCrop),
-          };
-        }
-      }
+      // Sowing is *not* here, deliberately, and it is the one thing proximity
+      // does not get to do. Every other action in this list moves goods you
+      // already own; a seed is a purchase, and a purchase you did not choose is
+      // one you keep making — stand at a bed, pay, walk to the next bed, pay.
+      // Choosing a crop is a choice, so it happens where choices are made: tap
+      // the bed and pick from its menu, which `sow` does in one go (turns the
+      // soil, charges once, plants). Harvesting still puts the same crop back
+      // in, because carrying on with the bed you already chose is not a new
+      // decision.
     }
     return null;
-  }
-
-  /** The plot this player could sow right now, if any. */
-  barePlotNear(p) {
-    const plot = this.nearest(this.layout.plots, p, REACH);
-    return plot && !plot.crop_id && plot.soil === 'tilled' ? plot : null;
   }
 
   /** Would this shelf take that item right now? */
@@ -1374,13 +1401,14 @@ export class Game {
   /**
    * Every appliance the shop owns, by name, one entry per machine.
    *
-   * Read off the ledger rather than off `ownedUpgrades`, which is what made an
-   * appliance a permanent single thing you could never buy a second of and
-   * never really tear out — the upgrade now grants the first one and sets the
-   * price, exactly as a shelf upgrade does.
+   * Read off what is standing in the shop rather than off `ownedUpgrades`,
+   * which is what made an appliance a permanent single thing you could never
+   * buy a second of and never really tear out. It was a stored count in between;
+   * the count and the machines can't disagree now because there is only one of
+   * them.
    */
   ownedStations() {
-    return stationList(this.fixtures);
+    return budgetOf(this.placements).stations;
   }
 
   /** Is this item the output of some recipe? Then it can't be bought in. */
@@ -1919,31 +1947,98 @@ export class Game {
     return ok({ dumped: moved, station: st.id });
   }
 
-  /** What one more of this fixture costs, priced off whatever upgrade sells it. */
+  /**
+   * What one more of these costs to put down.
+   *
+   * The price is on the piece. It used to be reverse-engineered — scan the
+   * upgrade table for whichever row sold this kind, divide its cost by how many
+   * it granted, take the cheapest — which worked only because every kind had
+   * exactly such a row. A planter never will, and neither will the fourth shelf
+   * design somebody authors this afternoon, so a catalog entry that could not
+   * name its own price was a catalog with five entries in it.
+   *
+   * `FALLBACK_FIXTURE_COST` is a floor rather than a second price list: a kind
+   * is buildable whether or not anybody has drawn one, and a shelf whose row got
+   * tidied out of the catalog must not become free shelving. A prop is the
+   * exception and deliberately so — a decoration *is* its row, so one authored
+   * at 0 is free rather than mysteriously priced at a hundred dollars.
+   *
+   * Appliances are the one kind still priced elsewhere, and it is not the old
+   * scan: a station upgrade is one machine rather than a pack, so its cost is
+   * already a unit price and nothing is being divided. Moving those onto the
+   * catalog needs a piece per machine, which is its own change — see step 12 of
+   * docs/building.md.
+   */
   fixtureUnitCost(kind, station = null, piece = null) {
-    // A piece that names its own price is worth exactly that, whatever kind it
-    // is. This is the only way a decoration can be priced at all — nothing
-    // sells a planter — and it is the on-ramp for moving every price onto the
-    // catalog later. Left at 0 everywhere today, so no existing thing moved.
-    const row = piece ? pieceFor(content().fixtures ?? [], { kind, piece }) : null;
-    if (row?.cost > 0) return round2(row.cost);
-
-    // An appliance is priced by the upgrade that sells *that* appliance. There
-    // is nothing to divide by the way a pack of shelves has: one upgrade, one
-    // machine, and a blender and a coffee machine are not the same purchase.
     if (kind === 'station') {
       const up = this.stationUpgrade(station);
-      return round2(up?.cost ?? FALLBACK_FIXTURE_COST.station);
+      return round2((up?.cost ?? FALLBACK_FIXTURE_COST.station) * this.fixtureDiscount(kind));
     }
+    const row = pieceFor(content().fixtures ?? [], { kind, piece: piece ?? null });
+    const listed = row?.cost > 0 ? row.cost : (isProp(kind) ? 0 : FALLBACK_FIXTURE_COST[kind] ?? 100);
+    return round2(listed * this.fixtureDiscount(kind));
+  }
 
-    const key = FIXTURE_PAYLOAD_KEY[kind];
-    if (!key) return 0;
-    const per = content().upgrades
-      .filter((u) => u.kind === kind && (u.payload?.[key] ?? 0) > 0)
-      .map((u) => u.cost / u.payload[key]);
-    // Priced from content rather than a constant here, so an upgrade added via
-    // MCP tomorrow reprices build mode with it and nothing needs recompiling.
-    return round2(per.length ? Math.min(...per) : FALLBACK_FIXTURE_COST[kind] ?? 100);
+  /**
+   * The best deal you have bought on this kind of fixture, as a multiplier.
+   *
+   * This is what the five old fixture upgrades became. They used to grant you
+   * "two more shelf units" and have the generator decide where those went,
+   * which is the blind half of a purchase build mode replaced — so between step
+   * 4 and here they were rows that could not be bought at all, kept alive only
+   * because `fixtureUnitCost` read them as a price list. Now they sell a rate.
+   *
+   * The best of them rather than all of them multiplied together, and that is a
+   * rule rather than an optimisation: the ladder is already ordered — a trade
+   * account is strictly better than a standing order and costs four times as
+   * much — so owning both should read as owning the better one, not as 40% off.
+   * Same shape `foldModifiers` uses when two copies of one world event land on
+   * the same day. `MAX_FIXTURE_DISCOUNT` is the backstop for a deal authored via
+   * MCP at 0.95, which is a typo away from free shelving.
+   */
+  fixtureDiscount(kind) {
+    let best = 0;
+    for (const u of content().upgrades) {
+      if (u.kind !== kind || !this.ownedUpgrades.includes(u.id)) continue;
+      const d = Number(u.payload?.discount ?? 0);
+      if (d > best) best = d;
+    }
+    return 1 - clamp(best, 0, MAX_FIXTURE_DISCOUNT);
+  }
+
+  /**
+   * How many of each thing the shop has, under the name the palette calls it.
+   *
+   * A recount over `placements`, which is the whole of the ledger's retirement.
+   * `world.fixtures` was a stored count because it had to be: it was the
+   * generator's shopping list, and while the generator furnished the shop
+   * itself "six shelves" was a number nothing in the world could be read back
+   * from. A stamped shop *is* its placements, so this is a fact about the world
+   * rather than a second opinion about it — and it cannot double-count a
+   * freezer on a server restart or forget one you tore out, both of which the
+   * thing before it managed.
+   *
+   * Keyed by *piece* for everything except an appliance, and that uniformity is
+   * the other half. `ledgerKey` had to spell a shelf by its KIND, because a
+   * second shelf design counted under its own name would have had no budget
+   * asked for it and the next re-flow would drop it, silently, one at a time.
+   * Nothing is asked for any more, so the asymmetry that protected the budget
+   * retires with the budget, and the palette can finally say how many of *this*
+   * design you own.
+   */
+  fixtureCounts() {
+    const out = {};
+    for (const p of this.placements) {
+      // Through `pieceId` rather than off the placement, because a placement
+      // written before the catalog split has no `piece` at all and would count
+      // under nothing. The client spells the same key with the same function.
+      const key = countKey(p.kind, {
+        station: p.station,
+        piece: p.kind === 'station' ? null : this.pieceId(p.kind, p.piece),
+      });
+      out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
   }
 
   /** The upgrade that sells a named appliance, or undefined. */
@@ -1954,17 +2049,24 @@ export class Game {
   /**
    * Build-mode prices, for the client's palette.
    *
-   * Appliances are keyed the same way the ledger keys them, so the palette
-   * looks up a price and a count with one id and needs to know nothing about
-   * appliances being a special case. Add one via MCP and it appears, priced.
+   * Keyed exactly the way `fixtureCounts` is, so the palette looks a price and a
+   * count up with one id and needs to know nothing about appliances being a
+   * special case. Add a piece or an appliance via MCP and it appears, priced.
+   *
+   * Discounts are already folded in, because this is the number printed on the
+   * button and `placeFixture` is the number actually charged. Two ways of
+   * working out one price is two different amounts of money.
    */
   buildCosts() {
-    const costs = Object.fromEntries(Object.keys(FIXTURE_PAYLOAD_KEY)
+    // A kind with no row in the catalog is still buildable — an undrawn shelf
+    // renders as a plain block and always has — so every kind gets an entry
+    // under its own name whether or not anybody has designed one.
+    const costs = Object.fromEntries(FIXTURE_KINDS
+      .filter((k) => k !== 'station')
       .map((k) => [k, this.fixtureUnitCost(k)]));
-    // ...and one per piece, keyed by piece id, because a price belongs to a
-    // design now rather than to a kind. The five pieces that predate the split
-    // are named after their kind, so those entries land on exactly the keys the
-    // line above already wrote and nothing about them moved.
+    // ...and one per piece, because a price belongs to a design now rather than
+    // to a kind. The five pieces that predate the split are named after their
+    // kind, so those entries land on exactly the keys the line above wrote.
     for (const row of content().fixtures ?? []) {
       const k = kindOf(row);
       if (!FIXTURES[k]) continue;
@@ -1972,7 +2074,7 @@ export class Game {
     }
     for (const u of content().upgrades) {
       if (u.kind !== 'station' || !u.payload?.station) continue;
-      costs[ledgerKey('station', { station: u.payload.station })] = round2(u.cost);
+      costs[`station:${u.payload.station}`] = this.fixtureUnitCost('station', u.payload.station);
     }
     // The shell, priced per segment. Same reason fixture prices are shared: the
     // palette prints the number on the button and the server is what charges
@@ -1980,6 +2082,8 @@ export class Game {
     costs.wall = EDGE_COST[E.WALL];
     costs.window = EDGE_COST[E.WINDOW];
     costs.door = EDGE_COST[E.DOOR];
+    costs.fence = EDGE_COST[E.FENCE];
+    costs.gate = EDGE_COST[E.GATE];
     costs.knock = 0;
     return costs;
   }
@@ -2026,8 +2130,6 @@ export class Game {
 
     this.cash -= cost;
     this.stats.spent += cost;
-    const key = ledgerKey(kind, { station, piece });
-    this.fixtures[key] = (this.fixtures[key] ?? 0) + 1;
     this.nextFixtureId++;
     this.placements.push(placement);
     this.regenerateLayout();
@@ -2180,10 +2282,12 @@ export class Game {
   /**
    * Tear a fixture out and get some money back.
    *
-   * Countable fixtures come off the ledger and refund half of what one costs.
-   * An appliance isn't countable — it exists because you own an upgrade — so
-   * removing it sells that upgrade back instead, which keeps the two systems
-   * honest and lets you re-buy and re-site it later.
+   * Half of what one costs *today*, which is a decision worth naming: the shop
+   * doesn't remember what you paid, so a deal you bought since makes your old
+   * shelving worth less to sell back. That is the right way round — the refund
+   * tracks what the thing is worth rather than what it cost you — and it also
+   * means a discount can never be laundered into free money by buying one, then
+   * the deal, then selling it back.
    */
   removeFixture(playerId, id) {
     const { p, f, error } = this.buildTarget(playerId, id);
@@ -2193,13 +2297,11 @@ export class Game {
       return err('you need at least one till to take money');
     }
 
-    // One path for everything now. Tearing out an appliance used to un-own its
+    // One path for everything. Tearing out an appliance used to un-own its
     // upgrade — the only way a boolean can count down — which meant selling one
     // back put it up for sale again at full price and re-buying it was the only
-    // way to get a second.
-    const key = ledgerKey(f.kind, { station: f.station, piece: f.piece });
-    if ((this.fixtures[key] ?? 0) <= 0) return err('nothing to remove');
-    this.fixtures[key] -= 1;
+    // way to get a second. There is no count to check against either: the
+    // fixture is standing there, which is the whole of "is there one to remove".
     const refund = round2(this.fixtureUnitCost(f.kind, f.station, f.piece) * FIXTURE_REFUND);
 
     this.placements = this.placements.filter((pl) => pl.id !== id);
@@ -2306,11 +2408,17 @@ export class Game {
     const next = clamp(Math.trunc(Number(shift) || 0), -8, 8);
     if (next === this.doorShift) return ok({ doorShift: next });
     const before = this.doorShift;
+    // A trial run, so the drop is not paid for. This one refuses rather than
+    // warns — moving the door is a nudge you can simply not make, and there is
+    // nothing to weigh up — which means the drop it provokes never happens, and
+    // compensating for it would be paying you for a shelf you still have.
+    const kept = this.placements;
     this.doorShift = next;
-    this.regenerateLayout();
+    this.regenerateLayout(null, {}, { compensate: false });
     if (this.layout.droppedPlacements?.length) {
       // Moving the door re-flows the shop; if that orphaned things, put it back.
       this.doorShift = before;
+      this.placements = kept;
       this.regenerateLayout();
       return err('that would displace something you have placed');
     }
@@ -2329,13 +2437,12 @@ export class Game {
       // letting one go. Selling this again would be a second way in.
       return err('take people on from the Staff menu');
     }
-    if (FIXTURE_KINDS.includes(up.kind)) {
-      // Same story: anything you can put down is bought in build mode, one at a
-      // time, on a tile you chose. This row still exists as the price list —
-      // `fixtureUnitCost` reads it — but buying it would hand you a lump of
-      // fixtures the generator sites for you, which is the thing build mode
-      // replaced.
-      return err('build that from the Build menu');
+    if (up.kind === 'station') {
+      // An appliance is still bought per machine, in build mode, on a tile you
+      // chose — and this row is the price of that machine rather than something
+      // you own. It is the last kind priced off an upgrade; see `fixtureUnitCost`
+      // and step 12 of docs/building.md.
+      return err('an appliance is bought in the Build menu, one machine at a time');
     }
     if (this.ownedUpgrades.includes(upgradeId)) return err('already owned');
     const missing = up.requires.filter((r) => !this.ownedUpgrades.includes(r));
@@ -2346,18 +2453,11 @@ export class Game {
     this.stats.spent += up.cost;
     this.ownedUpgrades.push(upgradeId);
 
-    // Fixture upgrades top up the ledger. It's a stored count rather than a
-    // recount of what you own, because build mode has to be able to take one
-    // back off again — and because the old recount quietly double-counted
-    // freezers on every server restart.
-    const key = FIXTURE_PAYLOAD_KEY[up.kind];
-    if (key) this.fixtures[up.kind] = (this.fixtures[up.kind] ?? 0) + (up.payload[key] ?? 0);
-    // An appliance upgrade grants the first machine and sets what another one
-    // costs in build mode — the same deal a shelf upgrade offers.
-    if (up.kind === 'station' && up.payload?.station) {
-      const sk = ledgerKey('station', { station: up.payload.station });
-      this.fixtures[sk] = (this.fixtures[sk] ?? 0) + 1;
-    }
+    // A fixture upgrade grants nothing you can stand on. It used to hand you
+    // "two more shelf units" and let the generator decide where they went,
+    // which is the blind half of a purchase that build mode replaced — so what
+    // these sell now is a rate, read at the moment you place something. See
+    // `fixtureDiscount`. Nothing to do here: owning it *is* the effect.
     if (up.kind === 'space') {
       const dw = Math.max(0, Math.trunc(up.payload.width ?? 0));
       const dh = Math.max(0, Math.trunc(up.payload.depth ?? 0));
@@ -2372,13 +2472,39 @@ export class Game {
       if (this.shell) this.shell = { w: this.shell.w + dw, h: this.shell.h + dh };
     }
 
-    // Structural upgrades re-flow the building. Appliances count — they occupy
-    // floor tiles, so buying one without regenerating leaves it unplaced.
-    if (['plot', 'shelf', 'freezer', 'checkout', 'station', 'space'].includes(up.kind)) {
-      this.regenerateLayout();
-    }
+    // Land is the only upgrade left that changes the shape of the world. Every
+    // other structural one used to, because buying shelving moved shelving;
+    // buying a deal on shelving moves nothing until you go and build something.
+    if (up.kind === 'space') this.regenerateLayout();
     this.pushLog(`Bought ${up.name}.`);
     return ok({ upgrade: upgradeId });
+  }
+
+  /**
+   * Throw the arrangement away and let the generator lay the shop out again.
+   *
+   * The way back to a procedurally furnished shop once one has been stamped,
+   * and it has to exist as its own verb now. `clearPlacements` on the regenerate
+   * endpoint used to get this for free: the ledger said how many shelves you
+   * owned quite independently of where any of them were, so dropping every
+   * placement left the generator a list to work from. With the shop *being* its
+   * placements, dropping them without saying what to put back is how you end up
+   * standing in an empty building.
+   *
+   * So the count is taken first. The shell goes with them — a stored shell means
+   * "build exactly this size and place nothing", which is the opposite of what
+   * is being asked for — and what comes out is re-stamped on the way, exactly
+   * the way a brand-new world is.
+   *
+   * @param {object} [want] what to furnish with; defaults to what is there now.
+   */
+  reflow(want = null, newSeed = null) {
+    const spec = want ?? budgetOf(this.placements);
+    this.placements = [];
+    this.shell = null;
+    this.regenerateLayout(newSeed, {}, { want: spec });
+    this.freezeShell();
+    return this.layout;
   }
 
   /**
@@ -2453,20 +2579,36 @@ export class Game {
    * @param {object} [alias] old fixture id -> new one, for a fixture that just
    *   moved. Contents follow the id, so a stocked shelf keeps its stock when
    *   you pick it up and put it down somewhere else.
+   * @param {object} [opts]
+   * @param {boolean} [opts.compensate] pay a dropped placement back. False for a
+   *   caller that is only asking "what would this look like" and intends to put
+   *   the placements back itself — see `moveDoor`.
+   * @param {object} [opts.want] furnish an *unstamped* shop with this, rather
+   *   than with the base shop: `{shelf, freezer, checkout, plot, stations}`.
+   *   The only way left to hand the generator a shopping list, because there
+   *   isn't one any more — see `reflow`, which is the one caller in the game,
+   *   and the verify sweeps, which need a shop of a stated shape to drive.
    */
-  regenerateLayout(newSeed, alias = {}) {
+  regenerateLayout(newSeed, alias = {}, { compensate = true, want: asked = null } = {}) {
     const oldShelves = this.layout.shelves;
     const oldPlots = this.layout.plots;
     const oldStations = this.layout.stations ?? [];
     const c = content();
 
+    // What to furnish with. A stamped shop asks for exactly what is standing in
+    // it, so every budget is spent on placements before the generator reaches
+    // its own loops and it lays nothing — which is what "the shop stays where
+    // you put it" is, from the generator's side of the fence.
+    const want = this.shell
+      ? budgetOf(this.placements)
+      : { ...BASE_FIXTURES, stations: [], ...(asked ?? {}) };
     const layout = generateLayout({
       seed: newSeed ?? this.seed,
-      shelves: this.fixtures.shelf,
-      freezers: this.fixtures.freezer,
-      checkouts: this.fixtures.checkout,
-      plots: this.fixtures.plot,
-      stations: this.ownedStations(),
+      shelves: want.shelf,
+      freezers: want.freezer,
+      checkouts: want.checkout,
+      plots: want.plot,
+      stations: want.stations,
       placements: this.placements,
       grow: this.grow,
       doorShift: this.doorShift,
@@ -2474,12 +2616,24 @@ export class Game {
       shell: this.shell,
     });
 
-    // A placement the re-flow could no longer honour goes back to the generator
-    // rather than lingering as a ghost that silently eats a fixture.
+    // A placement the re-flow could no longer honour is paid back rather than
+    // put back. It used to go back to the generator, which re-sited it wherever
+    // it fancied — possible only while the ledger said you owned one regardless
+    // of where it was. With the shop being its placements, "put it back" has
+    // nowhere to put it, and quietly destroying something you bought is worse
+    // than either. So you get the money, at full price rather than the tear-out
+    // rate: you didn't choose to sell it, the building did.
     if (layout.droppedPlacements?.length) {
       const gone = new Set(layout.droppedPlacements);
+      const lost = this.placements.filter((p) => gone.has(p.id));
       this.placements = this.placements.filter((p) => !gone.has(p.id));
-      this.pushLog(`${gone.size} placed fixture(s) no longer fit — put back automatically.`);
+      if (compensate) {
+        const back = round2(lost.reduce(
+          (s, p) => s + this.fixtureUnitCost(p.kind, p.station, p.piece), 0,
+        ));
+        this.cash = round2(this.cash + back);
+        this.pushLog(`${gone.size} placed fixture(s) no longer fit — $${back.toFixed(2)} refunded.`);
+      }
     }
 
     // Appliances keep whatever was in them across a re-flow.
@@ -3120,15 +3274,22 @@ function copyKeys(from, to, keys) {
 }
 
 /**
- * How many of each fixture the shop owns.
+ * What to furnish a shop that has never been stamped with.
  *
- * Stored rather than derived, for two reasons. Build mode has to be able to
- * remove one, which a recount from `ownedUpgrades` can't express. And the old
- * derivation was wrong: it persisted `shelves` as the *total* unit count while
- * separately re-adding the freezer upgrade each boot, so a shop with a freezer
- * grew a phantom shelf on every server restart.
+ * The last thing that reads `world.fixtures`, and it reads it at most once per
+ * save ever: `Game.create` stamps the shop (`freezeShell`) the moment it has
+ * built one, and from then on the shop *is* its placements and this is never
+ * consulted again. A read-time default rather than a migration script — the same
+ * shape `kindOf` uses for a piece with no kind — so an old save, a fresh seed
+ * and a world created five minutes ago all boot with nobody having to run
+ * anything.
+ *
+ * Three generations of save land here and all three have to come out right:
+ * one with a stored ledger (use it), one from before the ledger with staff and
+ * fixtures as upgrade ownership (count them), and a brand new world (the base
+ * shop). Hand a sixteen-shelf save the base shop and it opens with six.
  */
-function fixtureLedger(w) {
+function starterShop(w) {
   const led = w.fixtures ? { ...BASE_FIXTURES, ...w.fixtures } : {
     shelf: BASE_FIXTURES.shelf + countUpgrade(w, 'shelf', 'shelves'),
     freezer: BASE_FIXTURES.freezer + countUpgrade(w, 'freezer', 'freezers'),
@@ -3137,20 +3298,42 @@ function fixtureLedger(w) {
   };
 
   // Appliances were upgrade *ownership* — one of each, forever, sited by the
-  // generator — until they joined the ledger like everything else you can put
-  // down. A save from before that keeps what it bought.
+  // generator — before they became things you put down. A save from either side
+  // of that keeps what it bought.
   //
-  // The presence of any `station:` key is what says the migration has happened,
-  // not the counts: they can all legitimately be zero once you tear the last
-  // one out, and re-deriving from `ownedUpgrades` would hand it straight back.
-  if (!Object.keys(led).some((k) => k.startsWith('station:'))) {
+  // The presence of any `station:` key is what says the ledger generation had
+  // already happened, not the counts: they can all legitimately be zero once you
+  // tear the last one out, and re-deriving from `ownedUpgrades` would hand it
+  // straight back.
+  const stations = [];
+  if (Object.keys(led).some((k) => k.startsWith('station:'))) {
+    for (const [key, n] of Object.entries(led)) {
+      if (!key.startsWith('station:')) continue;
+      for (let i = 0; i < n; i++) stations.push(key.slice('station:'.length));
+    }
+  } else {
     const owned = w.ownedUpgrades ?? [];
     for (const u of content().upgrades) {
       if (u.kind !== 'station' || !u.payload?.station) continue;
-      if (owned.includes(u.id)) led[ledgerKey('station', { station: u.payload.station })] = 1;
+      if (owned.includes(u.id)) stations.push(u.payload.station);
     }
   }
-  return led;
+  return { ...led, stations };
+}
+
+/**
+ * The stored ledger, rebuilt on the way out to disk and never read back in.
+ *
+ * Purely so a build from before step 9 can still boot a save written by one
+ * after it: that build calls `fixtureLedger(w)`, and handed nothing it would
+ * furnish a sixteen-shelf shop with six. Derived from the placements at write
+ * time, so unlike the thing it replaces it cannot drift out of step with them.
+ */
+function legacyLedger(placements) {
+  const out = { ...budgetOf(placements) };
+  for (const s of out.stations) out[`station:${s}`] = (out[`station:${s}`] ?? 0) + 1;
+  delete out.stations;
+  return out;
 }
 
 /**

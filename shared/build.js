@@ -11,7 +11,7 @@
  */
 
 import { T, WALKABLE, BUILDABLE_INDOOR, BUILDABLE_OUTDOOR } from './tiles.js';
-import { E, SOLID, edgeBetween, reachable, withEdge } from './edges.js';
+import { E, SOLID, edgeBetween, reachable, withEdge, computeIndoor } from './edges.js';
 
 /**
  * What each buildable thing is. `anchor` is the tile you have to be able to
@@ -254,31 +254,88 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
     if (x < 1 || z < 1 || x > maxX - 1 || z > maxZ - 1) return no('off the edge of the world');
   }
 
-  // Taking something away can't strand anybody, so there is nothing to warn on.
-  if (!kind) return { ok: true };
-
   let probe = L;
   for (const s of segs) probe = withEdge(probe, s, kind);
-  const from = L.spawn ?? L.door;
-  const seen = reachable(probe, from.x, from.z);
-  const at = (p) => seen.has(`${Math.round(p.x)},${Math.round(p.z)}`);
 
-  if (!at(L.door)) return { ok: true, warn: 'that seals the shop — nobody can get in' };
+  // Taking a wall out can't strand anybody — a hole only ever opens the way —
+  // so a demolition skips every reachability question below. What it can still
+  // do is un-roof, which is the half neither check used to cover.
+  if (kind) {
+    const from = L.spawn ?? L.door;
+    const seen = reachable(probe, from.x, from.z);
+    const at = (p) => seen.has(`${Math.round(p.x)},${Math.round(p.z)}`);
 
-  const stranded = fixturesOf(L)
-    .map((f) => ({ f, spot: f.browseAt ?? f.serveAt ?? f.useAt }))
-    .filter(({ spot }) => spot && !at(spot));
-  if (stranded.length) {
-    const what = FIXTURES[stranded[0].f.kind]?.label.toLowerCase() ?? 'fixture';
-    return {
-      ok: true,
-      warn: stranded.length === 1
-        ? `that walls off a ${what} — nobody will reach it`
-        : `that walls off ${stranded.length} fixtures — nobody will reach them`,
-    };
+    if (!at(L.door)) return { ok: true, warn: 'that seals the shop — nobody can get in' };
+
+    const stranded = fixturesOf(L)
+      .map((f) => ({ f, spot: f.browseAt ?? f.serveAt ?? f.useAt }))
+      .filter(({ spot }) => spot && !at(spot));
+    if (stranded.length) {
+      const what = FIXTURES[stranded[0].f.kind]?.label.toLowerCase() ?? 'fixture';
+      return {
+        ok: true,
+        warn: stranded.length === 1
+          ? `that walls off a ${what} — nobody will reach it`
+          : `that walls off ${stranded.length} fixtures — nobody will reach them`,
+      };
+    }
   }
 
-  return { ok: true };
+  const roof = whatThisUnroofs(L, probe);
+  return roof ? { ok: true, warn: roof } : { ok: true };
+}
+
+/**
+ * What changing these edges would do to what counts as indoors.
+ *
+ * The half of "what will this cost me" that reachability cannot see. A shelf
+ * has to be indoors and a plot has to be outdoors, and neither of those is about
+ * being able to *walk* anywhere: knock the back wall through and a shelf nobody
+ * touched is standing in a yard, wall the farm in and a bed nobody touched is in
+ * a room. Both follow from `insideStore` meaning "whatever the walls close in",
+ * so both arrived the day enclosure did and neither had anything watching for
+ * it.
+ *
+ * This is also the answer to the demolition question docs/building.md left open.
+ * Removal genuinely cannot strand a fixture the way placement can — that is why
+ * it warned about nothing at all — but it can un-roof half the shop, and that is
+ * worth being told before you swing rather than after.
+ *
+ * A consequence, not a refusal, exactly as everything else here is: putting your
+ * shelving out in the weather is allowed, and the sim copes with it (a shelf
+ * outdoors keeps its stock and keeps selling; what you lose is the right to
+ * build another one beside it).
+ */
+function whatThisUnroofs(L, probe) {
+  const after = computeIndoor(probe);
+  const inside = (x, z) => (x < 0 || z < 0 || x >= L.w || z >= L.h
+    ? false
+    : after[z * L.w + x] === 1);
+
+  const evicted = [];
+  const roofed = [];
+  for (const f of fixturesOf(L)) {
+    const def = FIXTURES[f.kind];
+    // `any` is a decoration, which is at home either way and has no opinion.
+    if (!def || def.where === 'any') continue;
+    const x = Math.round(f.x);
+    const z = Math.round(f.z);
+    // Only what this *changes*. Reported absolutely, a shop that already has a
+    // shelf out on the patio would warn about it on every wall you ever drew,
+    // and a warning that fires whatever you do is one nobody reads.
+    const was = insideStore(L, x, z);
+    const isIn = inside(x, z);
+    if (was === isIn) continue;
+    if (def.where === 'indoor' && !isIn) evicted.push(f);
+    else if (def.where === 'outdoor' && isIn) roofed.push(f);
+  }
+
+  const label = (list) => FIXTURES[list[0].kind]?.label.toLowerCase() ?? 'fixture';
+  if (evicted.length === 1) return `that leaves a ${label(evicted)} standing outside`;
+  if (evicted.length) return `that leaves ${evicted.length} fixtures standing outside`;
+  if (roofed.length === 1) return `that roofs over a ${label(roofed)} — nothing grows indoors`;
+  if (roofed.length) return `that roofs over ${roofed.length} plots — nothing grows indoors`;
+  return null;
 }
 
 /** Every fixture currently in the layout, as uniform placement specs. */

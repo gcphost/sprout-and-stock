@@ -317,10 +317,9 @@ function buildMoneyLabel(amount) {
 
 let ghostMat = null;
 /**
- * A translucent preview of what you'd plant here. This is the actual UI for
- * choosing a seed — the plot shows the answer, so nothing has to pop up and
- * ask. Materials are swapped for one shared ghost material rather than tinting
- * the cached originals, which every other prop is still using.
+ * A translucent preview of a thing where it would go. Materials are swapped for
+ * one shared ghost material rather than tinting the cached originals, which
+ * every other prop is still using.
  */
 export function buildGhost(model) {
   if (!ghostMat) {

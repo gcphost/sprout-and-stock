@@ -262,14 +262,15 @@ function compose(req, storeW, storeH, allowDrops = true) {
   // ---- what the player has drawn by hand ----------------------------------
   // Applied over the generated shell, so knocking a wall through or adding a
   // back room survives every later re-flow.
-  const editedEdges = new Set();
+  // Nothing generated is laid after this point, so an edit is simply the last
+  // word on its line. The set of edited lines used to be kept as well, purely so
+  // the procedural farm fence could avoid re-drawing itself over one — that
+  // fence retired in step 11 and took the bookkeeping with it.
   for (const e of req.edits) {
     const ex = Math.round(e.x);
     const ez = Math.round(e.z);
     if (e.o === 'v') setV(ex, ez, e.k);
     else if (e.o === 'h') setH(ex, ez, e.k);
-    else continue;
-    editedEdges.add(`${e.o}:${ex},${ez}`);
   }
 
   // What the walls close in. Computed once, here, rather than per query: the
@@ -564,31 +565,24 @@ function compose(req, storeW, storeH, allowDrops = true) {
   }
   if (budget.plot > 0) return incomplete(layoutSoFar(), 'h');
 
-  // ---- a fence hugging the actual plots, purely for looks -------------------
-  // Bound this to where the plots really are. Fencing the whole map (an easy
-  // mistake) reads as an empty field with a shed in it rather than a farm.
-  if (plotsOut.length > 0) {
-    const xs = plotsOut.map((p) => p.x);
-    const zs = plotsOut.map((p) => p.z);
-    const fenceLeft = Math.max(1, Math.min(...xs) - 2);
-    const fenceRight = Math.min(worldW - 2, Math.max(...xs) + 2);
-    const fenceTop = Math.max(1, Math.min(...zs) - 2);
-    const fenceBottom = Math.min(worldH - 2, Math.max(...zs) + 2);
-
-    // A fence is edges too, so it costs the farm no ground at all. It never
-    // encloses (see ENCLOSING in shared/edges.js) — fencing a field must not
-    // quietly roof it.
-    for (let x = fenceLeft; x <= fenceRight; x++) {
-      // Leave a gap where the path runs out of the shop.
-      if (x === doorX || x === doorX + 1) continue;
-      if (!editedEdges.has(`h:${x},${fenceTop}`)) setH(x, fenceTop, E.FENCE);
-      if (!editedEdges.has(`h:${x},${fenceBottom + 1}`)) setH(x, fenceBottom + 1, E.FENCE);
-    }
-    for (let z = fenceTop; z <= fenceBottom; z++) {
-      if (!editedEdges.has(`v:${fenceLeft},${z}`)) setV(fenceLeft, z, E.FENCE);
-      if (!editedEdges.has(`v:${fenceRight + 1},${z}`)) setV(fenceRight + 1, z, E.FENCE);
-    }
-  }
+  // ---- no fence ------------------------------------------------------------
+  //
+  // STEP 11. There used to be one here: a ring of fence edges hugging the
+  // bounding box of wherever the plots had landed, drawn purely for looks. It
+  // retires, and this note is the reason it isn't simply missing.
+  //
+  // A fence is an edge kind you can draw (`BUILD_TOOLS`, client/sections.js), and
+  // the moment that was true the generated one stopped being scenery and started
+  // being something in the way. It was derived from the plots, so it moved every
+  // time you dug a bed and re-drew itself over anything you had built on that
+  // line — `editedEdges` had to exist purely to stop it eating your own fencing,
+  // which is the shape of an argument you are losing. And a fence you cannot own
+  // is one you cannot take down: the one thing you would want to do to the ring
+  // around your farm is put a gate in it.
+  //
+  // Nothing else read it. A fence never encloses (`ENCLOSING`, shared/edges.js),
+  // so removing it moves no `indoor` mask and no tile; it is SOLID, so what
+  // changes is that the way round the farm is open until you fence it yourself.
 
   const layout = layoutSoFar();
   return {

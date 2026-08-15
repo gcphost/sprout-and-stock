@@ -36,7 +36,7 @@ import { remove } from '../server/db.js';
 import {
   BUILD_KINDS, FIXTURE_KINDS, PROP_KINDS, FIXTURES, isProp, canPlace,
 } from '../shared/build.js';
-import { kindOf, pieceFor, defaultPiece, piecesOf, ledgerKey } from '../shared/pieces.js';
+import { kindOf, pieceFor, defaultPiece, piecesOf, countKey } from '../shared/pieces.js';
 import { WALKABLE } from '../shared/tiles.js';
 
 const failures = [];
@@ -53,18 +53,20 @@ const SHOP = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
 function fresh() {
   const g = Game.create({ worldId: 'verify', seed: 'catalog', ephemeral: true });
   g.placements = [];
-  g.fixtures = { ...SHOP };
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
   g.edits = [];
   // The stored shell goes too, and this one is the subtlest of the lot. With a
   // shell set, the building is the size it already is and the generator stops
-  // growing one to fit — so pinning the ledger above and leaving the shell alone
-  // asks a 10x9 shop to hold a 10x11 shop's worth of shelving, and `compose`
-  // hands back a layout with no shelves in it at all. Clearing it puts this
-  // sweep back on a shop generated for exactly the ledger it just pinned.
+  // growing one to fit — so asking for the shop below and leaving the shell
+  // alone asks a 10x9 shop to hold a 10x11 shop's worth of shelving, and
+  // `compose` hands back a layout with no shelves in it at all.
   g.shell = null;
-  g.regenerateLayout();
+  // `want` is how a shop of a stated shape is asked for now. It used to be
+  // `g.fixtures = {...SHOP}` — the stored ledger, which step 9 retired: the
+  // generator is handed either the base shop or whatever is already standing,
+  // and neither of those is a sweep's pinned six-and-a-freezer.
+  g.regenerateLayout(null, {}, { want: SHOP });
   // ...and re-stamp, so what the sweep drives is a stamped shop like any other.
   g.freezeShell();
   g.cash = 5000;
@@ -229,14 +231,26 @@ for (const p of TEST_PIECES) {
   check(moved.ok, 'and set down again', moved.error ?? '');
   eq(g.findFixture(moved.moved)?.piece, 'zz-test-shelf', 'and it is still the design it was');
 
-  // The ledger keys by KIND for a fixture, because that count is the generator's
-  // shopping list. Key it by piece and the placement loses its budget and gets
-  // dropped on the next re-flow — silently, and one shelf at a time.
-  eq(ledgerKey('shelf', { piece: 'zz-test-shelf' }), 'shelf',
-    'a second shelf design still counts as a shelf');
-  eq(g.fixtures.shelf, SHOP.shelf + 1, 'so the ledger went up by one shelf');
-  g.regenerateLayout();
-  check(!!g.findFixture(moved.moved), 'and it survives a re-flow');
+  // Counting. The old stored ledger had to file this under `shelf`, because it
+  // doubled as the generator's shopping list and a design counted under its own
+  // name got no budget asked for it — so `compose` dropped the placement on the
+  // next re-flow, silently, one shelf at a time. Nothing is asked for any more,
+  // so a piece counts as itself.
+  eq(countKey('shelf', { piece: 'zz-test-shelf' }), 'zz-test-shelf',
+    'a second shelf design counts under its own name');
+  const counts = g.fixtureCounts();
+  eq(counts['zz-test-shelf'], 1, 'one of the new design is standing in the shop');
+  eq(counts.shelf, SHOP.shelf, '...and the originals still count as the original');
+  eq(Object.values(counts).reduce((s, n) => s + n, 0), SHOP.shelf + SHOP.freezer
+    + SHOP.checkout + SHOP.plot + 1, 'and nothing was counted twice');
+
+  // The claim the old ledger key existed to protect, asserted directly rather
+  // than through the mechanism that used to guarantee it: it has to still be
+  // there afterwards. Three re-flows, because "dropped one at a time" is what
+  // the failure looked like and once is not a trend.
+  for (let i = 0; i < 3; i++) g.regenerateLayout();
+  check(!!g.findFixture(moved.moved), 'and it survives being re-flowed three times');
+  eq(g.fixtureCounts()['zz-test-shelf'], 1, 'still exactly one of it');
 }
 
 // ---------------------------------------------------------------------------
@@ -264,9 +278,8 @@ let exercisedProp = false;
   eq(g.layout.tiles[spot.z * g.layout.w + spot.x], before.tile, 'it stamps no tile');
   eq(g.layout.shelves.length, before.shelves, 'and displaces no shelving');
   check(g.walk.every((v, i) => v === before.walk[i]), 'the walk grid is untouched — you walk past a plant');
-  eq(g.fixtures.shelf, SHOP.shelf, 'and it is not counted as a shelf');
-  eq(g.fixtures[ledgerKey('prop-floor', { piece: 'zz-test-planter' })], 1,
-    'a prop counts under its own name, because nothing procedural ever places one');
+  eq(g.fixtureCounts().shelf, SHOP.shelf, 'and it is not counted as a shelf');
+  eq(g.fixtureCounts()['zz-test-planter'], 1, 'a prop counts under its own name');
   eq(Math.round(before.cash - g.cash), 25, 'the piece\'s own price is what was charged');
 
   // The cell is still floor, so a shopper can stand on it — but nothing else may
@@ -283,7 +296,7 @@ let exercisedProp = false;
   const sold = g.removeFixture('me', id);
   check(sold.ok, 'and can be sold back', sold.error ?? '');
   eq(g.layout.props.length, 0, 'which takes it out of the world');
-  eq(g.fixtures[ledgerKey('prop-floor', { piece: 'zz-test-planter' })], 0, 'and off the ledger');
+  eq(g.fixtureCounts()['zz-test-planter'], undefined, 'and stops being counted at all');
 }
 
 // ---------------------------------------------------------------------------

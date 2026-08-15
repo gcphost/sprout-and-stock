@@ -54,7 +54,6 @@ function fresh() {
   // tile came back as "that walls something off", and the sweep failed with
   // "there is nowhere to build" in a shop that was 125 legal spots empty.
   g.placements = [];
-  g.fixtures = { ...SHOP };
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
   g.edits = [];
@@ -65,7 +64,11 @@ function fresh() {
   // hands back a layout with no shelves in it at all. Clearing it puts this
   // sweep back on a shop generated for exactly the ledger it just pinned.
   g.shell = null;
-  g.regenerateLayout();
+  // `want` is how a shop of a stated shape is asked for since step 9 retired the
+  // stored ledger. It used to be `g.fixtures = {...SHOP}` on the line above the
+  // placements; the generator is handed either the base shop or whatever is
+  // already standing, and a sweep's pinned six-and-a-freezer is neither.
+  g.regenerateLayout(null, {}, { want: SHOP });
   // ...and re-stamp, so what the sweep drives is a stamped shop like any other.
   g.freezeShell();
   g.cash = 5000;
@@ -314,9 +317,20 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // half of the co-op happened to build near the loading pad.
   check(g.actionFor(g.players.me)?.kind !== 'unload',
     'and does not immediately offer to unload it again');
+
+  // Any movement at all used to clear the lock, which was enough while a
+  // button had to fire the pickup. Nothing has to be pressed now, so a shuffle
+  // beside the crate would put it straight back in your hands: *away* has to
+  // mean out of reach of the goods.
   g.setInput('me', 1, 0);
   g.stepPlayers(0.1);
-  eq(g.actionFor(g.players.me)?.kind, 'unload', 'walking clears the lock, so pickup works again');
+  check(g.actionFor(g.players.me)?.kind !== 'unload',
+    'nor after a step on the spot, which still leaves you stood over it');
+  stand(g, { x: 1, z: 1 });
+  g.stepPlayers(0.1);
+  check(!g.players.me.stowLock, 'walking out of reach of the goods clears the lock');
+  stand(g, g.layout.bay);
+  eq(g.actionFor(g.players.me)?.kind, 'unload', 'so coming back picks them up again');
 }
 
 // ---------------------------------------------------------------------------
@@ -341,13 +355,16 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   // Emptying an appliance.
   const g2 = fresh();
-  // Appliances are counted in the ledger by name, not derived from upgrade
-  // ownership — owning the upgrade is what sold you the first one, and is no
-  // longer what makes it exist.
+  // An appliance exists because one is standing there, not because an upgrade
+  // is owned and not because a ledger says so. Which means putting one in the
+  // test shop means *building* one, exactly as a player does.
+  g2.setBuildMode('me', true, 'shelf');
+  g2.cash += 10000;
   for (const u of c.upgrades.filter((x) => x.kind === 'station')) {
-    if (u.payload?.station) g2.fixtures[`station:${u.payload.station}`] = 1;
+    if (!u.payload?.station) continue;
+    const at = findFreeFloor(g2);
+    g2.placeFixture('me', { kind: 'station', station: u.payload.station, x: at.x, z: at.z, rot: at.rot });
   }
-  g2.regenerateLayout();
   const st = g2.layout.stations[0];
   if (st) {
     st.contents = { [anyItem.id]: 5 };
@@ -428,13 +445,13 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     gs.cash += sold.cost * 2;
 
     const had = gs.layout.stations.length;
-    const owned = gs.fixtures[key] ?? 0;
+    const owned = gs.fixtureCounts()[key] ?? 0;
     const cashWas = gs.cash;
     const spotS = findFreeFloor(gs);
     const built = gs.placeFixture('me', { kind: 'station', station: name, x: spotS.x, z: spotS.z, rot: spotS.rot });
     check(built.ok, 'buying a second appliance works', built.error);
     eq(gs.layout.stations.length, had + 1, 'the shop has one more appliance');
-    eq(gs.fixtures[key], owned + 1, 'and the ledger counted it by name');
+    eq(gs.fixtureCounts()[key], owned + 1, 'and it is counted under the machine it is');
     eq(round2(cashWas - gs.cash), round2(sold.cost), 'charged what the upgrade sells it for');
     const madeIt = gs.layout.stations.find((s) => s.id === built.placed);
     eq(madeIt?.station, name, 'and it is the appliance that was asked for');
@@ -445,7 +462,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     stand(gs, madeIt.useAt);
     const soldBack = gs.removeFixture('me', built.placed);
     check(soldBack.ok, 'selling an appliance back works', soldBack.error);
-    eq(gs.fixtures[key], owned, 'the ledger came back down');
+    eq(gs.fixtureCounts()[key] ?? 0, owned, 'and the count came back down');
     eq(gs.layout.stations.length, had, 'and the shop is back to where it started');
     eq(gs.ownedUpgrades.includes(sold.id), ownedUpgradeBefore,
       'and tearing one out did not un-buy the upgrade that sells them');
@@ -490,9 +507,8 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // to pick a target here, and in a dense aisle it picked the wrong one.
   g.setBuildMode('me', true);
   eq(g.actionFor(g.players.me), null, 'build mode arms no proximity action at all');
-  g.setHold('me', true);
   for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  eq(shelf.qty, 5, 'and holding the button next to a shelf does nothing to it');
+  eq(shelf.qty, 5, 'and standing next to a shelf does nothing to it');
   eq(g.players.me.holding ?? null, null, 'nor picks anything up');
 
   g.setBuildMode('me', false);
@@ -575,7 +591,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(now.browseAt.x !== browse0.x || now.browseAt.z !== browse0.z,
     'shoppers now browse it from a different side');
   // `layout.shelves` holds freezers too, so count against both ledgers.
-  eq(g.layout.shelves.length, g.fixtures.shelf + g.fixtures.freezer,
+  eq(g.layout.shelves.length, g.fixtureCounts().shelf + (g.fixtureCounts().freezer ?? 0),
     'turning did not create or destroy a shelf');
   eq(g.layout.shelves.reduce((s, o) => s + (o.qty ?? 0), 0), stockBefore,
     'and no stock migrated to another shelf on the way');
@@ -598,23 +614,24 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 {
   const g = fresh();
   g.setBuildMode('me', true, 'plot');
-  const before = { ...g.fixtures };
+  const before = { ...g.fixtureCounts() };
   const spot = findFreeGrass(g);
   check(!!spot, 'there is somewhere to dig a plot');
   const res = g.placeFixture('me', { kind: 'plot', x: spot.x, z: spot.z, rot: 0 });
   check(res.ok, 'digging a new plot works', res.error);
-  eq(g.fixtures.plot, before.plot + 1, 'the ledger counts the new plot');
-  eq(g.layout.plots.length, g.fixtures.plot, 'and the layout matches the ledger');
+  eq(g.fixtureCounts().plot, before.plot + 1, 'the shop counts one more plot');
+  eq(g.layout.plots.length, g.fixtureCounts().plot, 'and the layout matches the count');
 
   const restored = Game.restore(g.serialize());
-  eq(restored.fixtures.plot, g.fixtures.plot, 'the ledger survives serialisation');
+  eq(restored.fixtureCounts().plot, g.fixtureCounts().plot, 'the count survives serialisation');
   eq(restored.placements.length, g.placements.length, 'so do the placements');
   restored.regenerateLayout();
-  eq(restored.layout.plots.length, g.fixtures.plot, 'and regenerate still honours them');
+  eq(restored.layout.plots.length, g.fixtureCounts().plot, 'and regenerate still honours them');
 }
 
 // ---------------------------------------------------------------------------
-// 7. Hold to act. Standing next to something arms it; only the button fires it.
+// 7. Stand to act. Being in range is the whole input; the ring is the window
+//    you have to change your mind, and leaving is how you take it.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -626,35 +643,84 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(!!armed?.at, 'an armed action says where its target is');
   check(armed.at.x === plot.x && armed.at.z === plot.z, 'and points at the right tile');
 
-  // Not holding: the action stays armed forever and never fires.
-  for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  eq(plot.soil, 'untilled', 'proximity alone never fires the action');
-  eq(g.players.me.action?.kind, 'till', 'but it stays armed so the UI can show it');
-  eq(g.players.me.action?.elapsed, 0, 'with no progress on the clock');
-
-  // Holding: it charges, and only fires once the full time has elapsed.
-  g.setHold('me', true);
+  // The charge runs on its own, and still takes the full time.
   g.stepActions(0.5);
   eq(plot.soil, 'untilled', 'half way through, nothing has happened yet');
-  check(g.players.me.action.elapsed > 0, 'but the charge is running');
+  check(g.players.me.action.elapsed > 0, 'but the charge is already running');
 
-  // Letting go throws the charge away rather than banking it.
-  g.setHold('me', false);
-  eq(g.players.me.action.elapsed, 0, 'releasing discards the progress');
-  g.stepActions(0.5);
-  eq(plot.soil, 'untilled', 'and two half-holds do not add up to one action');
-
-  g.setHold('me', true);
   for (let i = 0; i < 30; i++) g.stepActions(0.1);
-  eq(plot.soil, 'tilled', 'holding it through fires the action');
+  eq(plot.soil, 'tilled', 'standing there through the ring fires it');
 
-  // Walking out of range drops it entirely. Corner of the map, because the
-  // farm is laid out in rows and "twelve tiles east" lands on another plot.
-  g.setHold('me', false);
+  // Walking out of range drops it entirely, part-charged or not. Corner of the
+  // map, because the farm is laid out in rows and "twelve tiles east" lands on
+  // another plot.
+  const rough = g.layout.plots.find((p) => p.soil !== 'tilled' && p !== plot);
+  check(!!rough, 'there is a second rough plot to try this on');
+  stand(g, rough);
+  g.stepActions(0.5);
+  check(g.players.me.action.elapsed > 0, 'the next plot starts charging too');
   g.players.me.x = 1;
   g.players.me.z = 1;
   g.stepActions(0.1);
   eq(g.players.me.action, null, 'walking away disarms it');
+  eq(rough.soil, 'untilled', 'and the part-charge did nothing');
+
+  // ...and none of it is banked: coming back starts from zero.
+  stand(g, rough);
+  g.stepActions(0.5);
+  eq(rough.soil, 'untilled', 'two half-visits do not add up to one action');
+}
+
+// ---------------------------------------------------------------------------
+// 7c. Standing on a bed never buys a seed. Everything else proximity fires
+//     moves goods that are already yours; sowing is a purchase, and a purchase
+//     nobody chose is one you keep making — a bed per bed, down the row.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const plot = g.layout.plots[0];
+  const crop = cropFor(g);
+  stand(g, plot);
+  check(g.till('me', plot.id).ok, 'the bed is turned over');
+  g.players.me.selectedCrop = crop.id;
+
+  const cashBefore = g.cash;
+  for (let i = 0; i < 60; i++) g.stepActions(0.1);
+  eq(g.actionFor(g.players.me), null, 'a turned bed with a seed chosen arms nothing');
+  eq(plot.crop_id, null, 'so standing on it plants nothing');
+  eq(g.cash, cashBefore, 'and costs nothing');
+
+  // The menu route is the one that sows, and it does the whole job.
+  const g2 = fresh();
+  const bed = g2.layout.plots[0];
+  const seed = cropFor(g2);
+  const before2 = g2.cash;
+  check(g2.sow('me', bed.id, seed.id).ok, 'tapping the bed and picking a seed sows it');
+  eq(bed.crop_id, seed.id, 'the crop you picked is what is growing');
+  eq(round2(before2 - g2.cash), round2(seed.seed_cost), 'charged once, for that seed');
+}
+
+// ---------------------------------------------------------------------------
+// 7b. Put an armful down at the bay and it stays down. Both halves of the bay
+//     re-arm the instant they finish, so with nothing to hold this is a stow
+//     and a pickup on a loop until the goods are worn out.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const me = g.players.me;
+  me.carry = { item_id: anyItem.id, qty: 4 };
+  stand(g, g.layout.bay);
+
+  eq(g.actionFor(me)?.kind, 'stow', 'standing at the bay with full hands stows');
+  for (let i = 0; i < 200; i++) {
+    g.stepActions(0.1);
+    // A shuffle on the spot, going nowhere — which is what used to clear it.
+    me.input = { dx: i % 2 ? 1 : -1, dz: 0 };
+    g.stepPlayers(0.02);
+  }
+  eq(me.carry, null, 'the goods went down and stayed down');
+  eq(g.deliveries.length, 1, 'as exactly one pallet');
+  eq(g.deliveries[0].qty, 4, 'holding all of it');
 }
 
 // ---------------------------------------------------------------------------

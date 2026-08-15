@@ -23,7 +23,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -40,7 +42,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             }
           ]
         },
@@ -63,7 +67,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -80,7 +86,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -97,7 +105,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -114,7 +124,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             }
           ]
         }
@@ -137,8 +149,8 @@
       }
     ],
     "variants": [],
-    "kind": "",
-    "cost": 0,
+    "kind": "checkout",
+    "cost": 300,
     "emits": null,
     "tags": []
   },
@@ -166,7 +178,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -183,7 +197,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -200,7 +216,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -217,7 +235,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -234,7 +254,9 @@
               ],
               "rot": 0,
               "surface": true,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -251,7 +273,9 @@
               ],
               "rot": 0,
               "surface": true,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -268,7 +292,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 0.33
+              "seam": false,
+              "alpha": 0.33,
+              "drift": false
             },
             {
               "shape": "box",
@@ -285,7 +311,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             }
           ]
         },
@@ -308,7 +336,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -325,7 +355,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -342,7 +374,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -359,7 +393,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -376,7 +412,9 @@
               ],
               "rot": 0,
               "surface": true,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -393,7 +431,9 @@
               ],
               "rot": 0,
               "surface": true,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -410,7 +450,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 0.3
+              "seam": false,
+              "alpha": 0.3,
+              "drift": false
             },
             {
               "shape": "box",
@@ -427,7 +469,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             }
           ]
         },
@@ -450,7 +494,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -467,7 +513,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -484,7 +532,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -501,7 +551,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -518,7 +570,9 @@
               ],
               "rot": 0,
               "surface": true,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -535,7 +589,9 @@
               ],
               "rot": 0,
               "surface": true,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -552,7 +608,9 @@
               ],
               "rot": 0,
               "surface": true,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -569,7 +627,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 0.26
+              "seam": false,
+              "alpha": 0.26,
+              "drift": false
             }
           ]
         }
@@ -619,7 +679,9 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -636,7 +698,9 @@
               ],
               "rot": 0,
               "surface": true,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -653,14 +717,16 @@
               ],
               "rot": 0,
               "surface": false,
-              "alpha": 1
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             }
           ]
         }
       }
     ],
-    "kind": "",
-    "cost": 0,
+    "kind": "freezer",
+    "cost": 260,
     "emits": null,
     "tags": []
   },
@@ -769,7 +835,11 @@
                 0.05,
                 0.06
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             }
           ]
         },
@@ -790,7 +860,11 @@
                 0.12,
                 0.08
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -805,7 +879,11 @@
                 0.12,
                 0.08
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -820,7 +898,11 @@
                 0.12,
                 0.98
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             },
             {
               "shape": "box",
@@ -835,7 +917,11 @@
                 0.12,
                 0.98
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
             }
           ]
         }
@@ -858,8 +944,8 @@
       }
     ],
     "variants": [],
-    "kind": "",
-    "cost": 0,
+    "kind": "plot",
+    "cost": 30,
     "emits": null,
     "tags": []
   },
@@ -1960,8 +2046,8 @@
         }
       }
     ],
-    "kind": "",
-    "cost": 0,
+    "kind": "shelf",
+    "cost": 45,
     "emits": null,
     "tags": []
   },

@@ -1,6 +1,6 @@
 import { ICONS, icon } from './icons.js';
-import { FIXTURE_KINDS, FIXTURES, isProp } from '../shared/build.js';
-import { kindOf, ledgerKey } from '../shared/pieces.js';
+import { FIXTURES, isProp } from '../shared/build.js';
+import { kindOf, countKey } from '../shared/pieces.js';
 import { variantsOf } from '../shared/model.js';
 import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
 
@@ -79,12 +79,32 @@ export const BUILD_TOOLS = [
     name: 'Doorway',
     blurb: 'A way through. Still counts as part of the enclosure.',
   },
+  // Fences. Same tool, same drag, same lattice — and deliberately not the same
+  // *meaning*: a fence never encloses (`ENCLOSING`, shared/edges.js), so fencing
+  // a field can't accidentally roof it and turn every bed in it indoors. That is
+  // why the farm can be fenced at all, and it is the whole of step 11: the shop
+  // used to draw one for you, hugging the bounding box of wherever your plots
+  // happened to be, which meant it moved every time you dug a bed.
+  {
+    id: 'fence',
+    edge: 5,
+    icon: ICONS.plot,
+    name: 'Fence',
+    blurb: 'Marks out the farm. Blocks the way, but never makes a room.',
+  },
+  {
+    id: 'gate',
+    edge: 4,
+    icon: ICONS.build,
+    name: 'Gate',
+    blurb: 'A way through a fence.',
+  },
   {
     id: 'knock',
     edge: 0,
     icon: ICONS.remove,
     name: 'Knock through',
-    blurb: 'Take a wall out. Refunds half of whatever was there.',
+    blurb: 'Take a wall or a fence out. Refunds half of whatever was there.',
   },
 ];
 
@@ -144,28 +164,27 @@ export function buildTools(ui) {
   return [...pieces, ...BUILD_TOOLS, ...stations];
 }
 
-/** How many of this palette entry the shop owns, under the ledger's own name. */
+/** How many of this palette entry are standing in the shop. */
 export function ownedCount(ui, t) {
   if (t.edge !== undefined) return null;
-  return ui.fixtureCounts?.[ledgerKey(t.kind, { station: t.station, piece: t.piece })] ?? null;
+  return ui.fixtureCounts?.[countKey(t.kind, { station: t.station, piece: t.piece })] ?? null;
 }
 
 /**
  * The upgrades still worth listing: the ones build mode cannot sell you.
  *
- * A shelf, a freezer, a till, a plot and an appliance are all things you put
- * down somewhere, priced per unit and refundable — so they belong on the
- * palette, where you choose the spot, and nowhere else. Buying "Extra Shelving"
- * from a menu and having the generator decide where three shelves went was the
- * older, blinder half of the same purchase.
+ * A shelf, a freezer, a till and a plot used to be here as packs — buy "Extra
+ * Shelving" from a menu and let the generator decide where three shelves went,
+ * which is the blinder half of a purchase build mode replaced. Those rows are
+ * back on this list and they sell something else now: a standing rate on every
+ * one of that kind you ever put down. See `fixtureDiscount` on the server.
  *
- * They stay in the database regardless: the palette reads them for its prices,
- * which is why adding a cheaper shelf upgrade via MCP still reprices build mode.
- * `FIXTURE_KINDS` rather than a list spelled out again here, so a new buildable
- * kind leaves this menu on the day it becomes buildable.
+ * An appliance is the exception, and the only one. Its row is not something you
+ * own — it is the price of that machine, and you buy machines in build mode, one
+ * at a time, on a tile you chose. Listing it here would sell you a number.
  */
 export function buyableUpgrades(ui) {
-  return (ui?.catalog?.upgrades ?? []).filter((u) => !FIXTURE_KINDS.includes(u.kind));
+  return (ui?.catalog?.upgrades ?? []).filter((u) => u.kind !== 'station');
 }
 
 /** Shelves at or under this fraction of a stack are worth restocking. */
@@ -494,8 +513,8 @@ export const SECTIONS = [
       },
       { sep: 'Getting about', icon: ICONS.walk },
       { name: 'Walk', sub: 'or drag the world', right: 'WASD', plain: true },
-      { name: 'Use a thing', sub: 'standing near only arms it', right: 'hold E', plain: true },
-      { name: 'Open its menu', sub: 'tap looks, hold uses', right: 'tap', plain: true },
+      { name: 'Use a thing', sub: 'stand by it — walk off to stop', right: 'wait', plain: true },
+      { name: 'Open its menu', sub: 'tapping only ever looks', right: 'tap', plain: true },
       { sep: 'Camera', icon: ICONS.camera },
       { name: 'Zoom', sub: 'or pinch', right: 'scroll', plain: true },
       { name: 'Turn the view', sub: 'a quarter turn each way', right: ', .', plain: true },

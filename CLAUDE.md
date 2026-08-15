@@ -59,7 +59,7 @@ its canvas and hands you the PNG. Look at it. `stock_shop` first if you want
 the shelves full rather than an empty building.
 
 **After touching `layout.js`, `shared/build.js` or an action — run `npm run verify`.**
-Five sweeps, about three seconds:
+Six sweeps, about five seconds:
 
 - `verify:layout` generates ~100k layouts across seeds × counts and asserts the
   generator placed *exactly* what it was asked for, that every fixture has a
@@ -79,6 +79,15 @@ Five sweeps, about three seconds:
 - `verify:shell` stamps a shop, builds in it and sells out of it, and asserts
   that nothing else moved. That claim is a negative and invisible by eye — you
   would have to notice a shelf you weren't looking at is one tile over.
+- `verify:economy` guards what a fixture costs and how many of them there are:
+  that the price comes off the catalog row and not off an upgrade payload, that
+  a build-and-sell round trip always loses money rather than printing it, that a
+  discount moves its own kind and nothing else, and that the count is a recount
+  of the shop rather than a number kept beside it. Every expected figure is
+  arithmetic on a deliberately odd authored price, never on `fixtureUnitCost` —
+  asserting a charge against the function that computes it passes whatever that
+  function does. It authors rows into the live content database and removes them
+  on exit, the same way `verify:catalog` does.
 
 Each found real bugs the day it was written. None is visible in a screenshot of
 one seed — which is exactly why they exist.
@@ -165,7 +174,7 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, and the kinds-vs-pieces catalog that makes lights and decorations authorable | steps 1–3, 6–8 built |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, and prices that live on the catalog | steps 1–9 and 11 built; 10 cancelled; 12 next |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks and the props that make them visible | steps 1–6 and 8 built |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
@@ -256,20 +265,33 @@ what the next step was meant to be.
   find that a 9×9 holds everything asked of it and shrink the building back,
   stranding every placement outside. Which also means **`fresh()` in the verify
   scripts has to clear `g.shell`**, or the sweep asks a 10×9 shop to hold a
-  10×11 shop's shelving and gets a layout with no shelves in it.
+  10×11 shop's shelving and gets a layout with no shelves in it. It also has to
+  say what to furnish *with*: `regenerateLayout(null, {}, { want })`, since the
+  ledger it used to pin (`g.fixtures = {...SHOP}`) is gone.
+- **The `fresh()` trap has a second form: state that isn't new, but newly
+  matters.** Every sweep resets what `Game.create` reads off the save, and the
+  list grew by `edits`, then `shell`. `ownedUpgrades` never needed resetting
+  because owning one couldn't change what anything *cost* — since step 9 it can,
+  so `verify:economy` clears it, and a run that didn't would measure a
+  discounted shelf against an undiscounted literal and call it a pricing bug.
+  Ask what a save could now leak into your assertions, not just what fields you
+  added.
 - **A decoration weighs nothing, on purpose.** `prop-floor` and `prop-ceiling`
   stamp no tile, take no generator budget and reserve no working spot, so people
   walk past them and no shop that was walkable stops being so. That is why there
   is no authored `blocks` flag: a barrel that stops nobody is a lie you can see,
   and one that stops people needs to own its cell — which a tile cannot say
   alongside "floor". Anything that must be walked around is a shelf today.
-- **The ledger keys fixtures by kind and props by piece.** `world.fixtures` is
-  the *generator's shopping list* — `regenerateLayout` asks for one placement per
-  shelf owned — so a second shelf design that counted under its own name would
-  have no budget and get dropped on the next re-flow, silently, one at a time.
-  Props have no budget because nothing procedural places one, which is what frees
-  them to count by piece. `ledgerKey` in `shared/pieces.js`; the client imports
-  the same function, or the palette would print 0 next to eleven shelves.
+- **What the shop owns is the shop, not a number beside it.** `world.fixtures`
+  was a stored count per kind, and it had to be while the generator furnished the
+  place itself: "six shelves" was a number nothing in the world could be read
+  back from. Step 4 made every fixture a placement and step 9 retired the ledger,
+  so the count is `Game.fixtureCounts()` — a recount — and it cannot double-count
+  a freezer on a restart or forget one you tore out, both of which the ledger
+  managed. `countKey` in `shared/pieces.js` is the one spelling of the key, and
+  the client imports it, or the palette would print 0 next to eleven shelves.
+  Its predecessor `ledgerKey` had to spell a fixture by KIND and a prop by PIECE
+  — the budget needed it — and that asymmetry retired with the budget.
 - **Eight lights, and the cap is not a tuning knob.** three.js forward-renders
   every light against every fragment, so lights multiply the cost of the scene
   rather than adding to it. `client/render/lights.js` keeps a fixed pool, aims it
@@ -324,9 +346,28 @@ what the next step was meant to be.
   where you simply never see it. The toast had this from the beginning, which
   is why no error message has ever appeared on screen. Use
   `` `hud show${…}` `` or `classList`.
-- **How many fixtures you own is a stored ledger, not a recount.** `world.fixtures`.
-  Recounting from `ownedUpgrades` can't express "the player tore one out", and
-  the old recount also double-counted freezers on every server restart.
+- **A fixture is priced by its catalog row, and only an appliance isn't.**
+  `fixtureUnitCost` used to reverse-engineer a price by scanning upgrade payloads
+  for whichever row sold that kind and dividing. That works only while every kind
+  has such a row, which a planter never will. `cost` on the piece is the price
+  now; `FALLBACK_FIXTURE_COST` is a *floor* for a kind nobody has drawn, not a
+  second price list; and a prop authored at 0 is genuinely free, because a
+  decoration is only ever its row. An appliance is still priced by its upgrade —
+  that upgrade sells one machine, so it was never a division — and moving it onto
+  the catalog is step 12 of docs/building.md.
+- **A fixture upgrade grants nothing you can stand on.** `shelf-2`, `plot-3`,
+  `checkout-2` and friends sell a *discount* on every one of that kind you build
+  from then on. Best-of, never stacked, capped at `MAX_FIXTURE_DISCOUNT` — two
+  multiplied discounts spiral toward free and the ladder is already ordered.
+  `space` is the last upgrade that grants a thing, and the thing is land, which
+  is why `buyUpgrade` re-flows the layout for `space` and nothing else.
+- **Cheapest-first only works if you keep going when it fails.** The balance bot
+  took the head of its spend queue on faith, and `buyUpgrade` refuses a whole
+  class of row — so one refusal wedged it permanently: it bought a rucksack on
+  day two and then nothing, ever, for the remaining fifty-eight days. Every
+  balance number measured a shop that never hired and never grew, and nothing in
+  the output said so. It walks the queue until something works now, and the
+  numbers moved a lot when it did.
 - **Fixture ids live in two namespaces.** The generator mints `shelf-p0`,
   `till-p0`…; anything the player positioned keeps an `fx-N` id. They must never
   collide, or a re-flow hands a shelf someone else's stock.

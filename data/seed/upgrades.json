@@ -23,45 +23,45 @@
   },
   {
     "id": "checkout-2",
-    "name": "Second Till",
-    "description": "A second checkout. Queues move twice as fast when both are staffed.",
+    "name": "Till Supplier",
+    "description": "A deal on registers. Every till you install costs 25% less.",
     "cost": 300,
     "kind": "checkout",
     "payload": {
-      "checkouts": 1
+      "discount": 0.25
     },
     "requires": []
   },
   {
     "id": "freezer-1",
-    "name": "Chest Freezer",
-    "description": "Unlocks selling anything tagged needs-freezer. Ice cream money.",
+    "name": "Cold Chain Deal",
+    "description": "The refrigeration people know you now. 20% off every freezer you build. Ice cream money.",
     "cost": 260,
     "kind": "freezer",
     "payload": {
-      "freezers": 1
+      "discount": 0.2
     },
     "requires": []
   },
   {
     "id": "plot-2",
     "name": "Second Field",
-    "description": "Clear the scrub behind the shop. Four more growing plots.",
+    "description": "Clear the scrub behind the shop. Breaking new ground costs 20% less from here on.",
     "cost": 120,
     "kind": "plot",
     "payload": {
-      "plots": 4
+      "discount": 0.2
     },
     "requires": []
   },
   {
     "id": "plot-3",
     "name": "Back Forty",
-    "description": "Buy the strip along the fence line. Six more plots.",
+    "description": "Buy the strip along the fence line. 35% off every bed you dig.",
     "cost": 480,
     "kind": "plot",
     "payload": {
-      "plots": 6
+      "discount": 0.35
     },
     "requires": [
       "plot-2"
@@ -69,23 +69,23 @@
   },
   {
     "id": "shelf-2",
-    "name": "Extra Shelving",
-    "description": "Two more shelf units for the shop floor.",
+    "name": "Shelving Contract",
+    "description": "A standing order with the shopfitter. Every shelf you build from now on is 15% cheaper.",
     "cost": 90,
     "kind": "shelf",
     "payload": {
-      "shelves": 2
+      "discount": 0.15
     },
     "requires": []
   },
   {
     "id": "shelf-3",
-    "name": "Aisle Expansion",
-    "description": "Knock through the back wall. Three more shelf units.",
+    "name": "Trade Account",
+    "description": "Buy shelving at trade. 30% off every shelf you put down.",
     "cost": 360,
     "kind": "shelf",
     "payload": {
-      "shelves": 3
+      "discount": 0.3
     },
     "requires": [
       "shelf-2"

@@ -18,6 +18,8 @@ import { Game, DAY_SECONDS, OPEN_HOUR, CLOSE_HOUR } from './index.js';
 import { content } from '../content.js';
 import { wholesalePrice, suggestedPrice } from './economy.js';
 import { requiredFixture } from '../../shared/tags.js';
+import { canPlaceCleanly } from '../../shared/build.js';
+import { WALKABLE } from '../../shared/tiles.js';
 
 /**
  * @param {object} opts
@@ -64,11 +66,6 @@ export function simulate({
   game.autoServe = true;
 
   const bot = game.addPlayer('bot', 'Bot');
-  // Actions need the button held now. The bot is a stand-in for someone working
-  // flat out, so it holds permanently — without this it silently loses every
-  // action it used to get from proximity alone, and the numbers move for a
-  // reason that has nothing to do with the economy.
-  bot.holdInput = true;
 
   const daily = [];
   let dayCursor = game.day;
@@ -157,6 +154,15 @@ export function simulate({
     ],
   };
 }
+
+/**
+ * What the bot keeps in the till whatever else it wants.
+ *
+ * The shop opens with $250 and restocking is the thing that has to keep
+ * happening; everything else — a hire, an extension, another aisle — can wait
+ * a day. Spending past this is how a good shop becomes an empty one.
+ */
+const FLOAT = 250;
 
 /**
  * A plain-language read on the run, so an agent doesn't have to interpret
@@ -312,7 +318,8 @@ function runBot(game, bot, priceMult) {
     if (item) game.setPrice(shelf.id, suggestedPrice(item, folded, game.season) * priceMult);
   }
 
-  // 5. Spend surplus on ONE thing, cheapest first — a hire or an upgrade.
+  // 5. Spend surplus on ONE thing, cheapest first — a hire, an upgrade, or a
+  //    fixture put down somewhere.
   //
   //    Staff and upgrades have to compete in a single queue. When hiring was an
   //    upgrade they did automatically; splitting them into two steps quietly
@@ -323,6 +330,12 @@ function runBot(game, bot, priceMult) {
   //    does not need a second person whose only trick is serving. Without this
   //    the bot's wage bill grows every time anyone authors a new kind of
   //    worker, and every balance run since would read as a regression.
+  //
+  //    Building joined the same queue in step 9, and it had to: shelves and
+  //    plots used to arrive as upgrade *packs*, so a shop grew by buying from a
+  //    menu. It grows by building now, and a bot that never built would have
+  //    measured a shop frozen at its opening-day shelving for a hundred days —
+  //    while cheerfully buying discounts on fixtures it never put down.
   const covered = new Set((game.roster ?? [])
     .flatMap((e) => e.jobs ?? [])
     .map((j) => j.job));
@@ -335,11 +348,133 @@ function runBot(game, bot, priceMult) {
       .filter((u) => !game.ownedUpgrades.includes(u.id))
       .filter((u) => u.requires.every((r) => game.ownedUpgrades.includes(r)))
       .map((u) => ({ cost: u.cost, buy: () => game.buyUpgrade(u.id) })),
+    ...buildOptions(game, bot),
   ]
-    .filter((o) => o.cost < game.cash * 0.4)
+    // A fraction of the till, and never into the float. The fraction was the
+    // only gate for a long time and it was enough only because the bot could
+    // barely spend: with the queue unwedged, one $650 extension on a slow seed
+    // took a shop below zero, and below zero it can no longer buy stock — so
+    // the shelves empty, nobody finds anything, and it never comes back. That
+    // read as "the shop cannot sustain itself" on 1 seed in 10, which is a bot
+    // with no working capital rather than an economy that doesn't work.
+    .filter((o) => o.cost < game.cash * 0.4 && game.cash - o.cost > FLOAT)
     .sort((a, b) => a.cost - b.cost);
-  if (options.length) options[0].buy();
+
+  //    Down the list until something works, rather than at the cheapest and no
+  //    further. That is not tidiness: `buyUpgrade` refuses a whole class of row
+  //    (an appliance is bought in build mode), and taking the head of the queue
+  //    on faith meant one refusal wedged the bot's entire progression — it
+  //    bought a rucksack on day two and then nothing, ever, because the next
+  //    cheapest thing was one it could never have. A hundred days of a shop
+  //    that never hires and never grows, reported as the economy.
+  for (const o of options) {
+    if (o.buy()?.ok) break;
+  }
 }
+
+/**
+ * What the bot could build, and where it would put it.
+ *
+ * A deliberately dim shopkeeper: it wants more shelves than anything, digs a
+ * bed when the farm is smaller than the shop floor, and adds a till when one is
+ * visibly not keeping up. It never tears anything out, never rearranges, and
+ * never buys a decoration — a bot that redecorated would measure taste.
+ *
+ * Priced through `fixtureUnitCost` rather than off the catalog, so a discount
+ * the bot has bought changes what it thinks a shelf costs and therefore when it
+ * buys one, which is the whole point of the deals it can now own.
+ */
+function buildOptions(game, bot) {
+  const out = [];
+  const shelves = game.layout.shelves.length;
+  const plots = game.layout.plots.length;
+  const tills = game.layout.checkouts.length;
+
+  // Yesterday's complaints, which is the only honest reason to build anything.
+  // The first version of this built whatever was cheapest whenever it could
+  // afford it — a shelf every in-game second, because a shelf is the cheapest
+  // thing in the game — and by day sixty the shop was a hundred-and-forty
+  // aisles nobody could walk down, stocked at random. Sales fell by three
+  // quarters and the run reported a catastrophe that was entirely the bot's
+  // doing. A shopkeeper extends the shop when the shop ran out, so:
+  const last = game._lastDayStats ?? {};
+  const sold = last.sold ?? 0;
+  const empties = game.layout.shelves.filter((s) => s.qty === 0).length;
+
+  // Shoppers who wanted something and found nothing. More shelving is only an
+  // answer to that once the shelving you have is full — otherwise the problem
+  // is stocking, and another empty unit makes it worse.
+  if (empties === 0 && (last.leftEmpty ?? 0) > Math.max(3, sold * 0.05)) want('shelf');
+  // Beds, when every one you have is in the ground and the shop has room for
+  // what they grow. Half the shelving is the farm's share — the rest is bought
+  // in, and a farm bigger than that just rots.
+  if (plots * 2 < shelves && game.layout.plots.every((p) => p.crop_id)) want('plot');
+  // A till, when the queues are visibly costing sales.
+  if (tills < 4 && (last.abandoned ?? 0) > Math.max(3, sold * 0.08)) want('checkout');
+
+  // The *price* is cheap to know and the *spot* is not, so the option carries
+  // the price and finds the spot only if it wins. Scanning up front instead
+  // looked identical and ran a full-map reachability flood per candidate cell,
+  // several times per in-game second — a sixty-day run stopped finishing.
+  function want(kind) {
+    out.push({
+      cost: game.fixtureUnitCost(kind),
+      buy: () => {
+        const spot = buildSpot(game, kind);
+        if (!spot) return { ok: false, error: 'nowhere to put one' };
+        // Build mode is consent, and the bot has to give it the same way a
+        // player does — `placeFixture` refuses outright otherwise, which would
+        // wedge the queue exactly the way a refused upgrade used to.
+        game.setBuildMode(bot.id, true, kind);
+        const res = game.placeFixture(bot.id, { kind, x: spot.x, z: spot.z, rot: spot.rot });
+        game.setBuildMode(bot.id, false);
+        return res;
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * The first place a fixture of this kind would legally go, or null.
+ *
+ * Cleanly, so the bot never talks itself into walling off its own aisle — a
+ * warning is a choice a player gets to make, and this one is not equipped to
+ * make it. Scanned in reading order rather than packed optimally: a bot that
+ * tessellated its shop would measure a layout nobody plays.
+ *
+ * The memo is not a micro-optimisation. A full shop answers "nowhere" only
+ * after walking every cell, and it answers it again a second later, and a
+ * second after that, for the rest of the run — the answer can only change when
+ * the layout does, so it is cached against `layoutVersion` and one entry deep.
+ */
+const spotMemo = new Map();
+let spotMemoVersion = -1;
+
+function buildSpot(game, kind) {
+  if (game.layoutVersion !== spotMemoVersion) {
+    spotMemo.clear();
+    spotMemoVersion = game.layoutVersion;
+  } else if (spotMemo.has(kind)) {
+    return spotMemo.get(kind);
+  }
+
+  const L = game.layout;
+  let found = null;
+  outer:
+  for (let z = 1; z < L.h - 1 && !found; z++) {
+    for (let x = 1; x < L.w - 1; x++) {
+      if (!WALKABLE.has(L.tiles[z * L.w + x])) continue;
+      for (const rot of ROTATIONS) {
+        if (canPlaceCleanly(L, { kind, x, z, rot }).ok) { found = { x, z, rot }; break outer; }
+      }
+    }
+  }
+  spotMemo.set(kind, found);
+  return found;
+}
+
+const ROTATIONS = [0, 1, 2, 3];
 
 /** Choose something sensible to put on an empty shelf. */
 function pickItemForShelf(game, shelf, folded) {
