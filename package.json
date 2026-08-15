@@ -1,0 +1,38 @@
+{
+  "name": "sprout-and-stock",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A live-co-developed farming + mini mart sim. Data lives in SQLite, behavior lives in code, both hot-reload.",
+  "scripts": {
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "node --watch --watch-path=./server --watch-path=./shared server/index.js",
+    "dev:client": "vite",
+    "mcp": "node mcp/server.js",
+    "mcp:http": "node mcp/http.js",
+    "tunnel": "node scripts/tunnel.js",
+    "seed": "node scripts/seed.js",
+    "export": "node scripts/export-content.js",
+    "reset": "node scripts/reset.js",
+    "verify": "node scripts/verify-layout.js && node scripts/verify-build.js",
+    "verify:layout": "node scripts/verify-layout.js",
+    "verify:build": "node scripts/verify-build.js",
+    "build": "vite build",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "@colyseus/tools": "0.16.20",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "better-sqlite3": "^13.0.2",
+    "colyseus": "0.16.5",
+    "colyseus.js": "0.16.22",
+    "express": "^5.1.0",
+    "three": "^0.185.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "vite": "^7.1.7"
+  }
+}

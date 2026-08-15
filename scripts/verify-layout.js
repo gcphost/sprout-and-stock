@@ -1,0 +1,333 @@
+#!/usr/bin/env node
+/**
+ * LAYOUT INVARIANTS.
+ *
+ * `generateLayout` must place exactly what it was asked for, and everything it
+ * places must be reachable. Both have been broken before in ways nobody noticed
+ * for days: an off-by-one in the shelf loop meant a shelf upgrade sometimes gave
+ * you nothing, and a queue once trailed through a wall so shoppers waited out on
+ * the grass where the till could never reach them.
+ *
+ * Neither shows up in a screenshot of one seed. Both show up here instantly.
+ *
+ *   node scripts/verify-layout.js            # the standard sweep
+ *   node scripts/verify-layout.js --seeds 60 # wider
+ *   node scripts/verify-layout.js -v         # print every failure, not a sample
+ */
+
+import { generateLayout, buildWalkGrid, T } from '../server/layout.js';
+
+const argv = process.argv.slice(2);
+const flag = (name, dflt) => {
+  const i = argv.indexOf(name);
+  return i === -1 ? dflt : Number(argv[i + 1]);
+};
+const VERBOSE = argv.includes('-v') || argv.includes('--verbose');
+const SEEDS = flag('--seeds', 24);
+
+const failures = [];
+let checks = 0;
+
+function check(ok, label, detail) {
+  checks++;
+  if (!ok) failures.push({ label, detail });
+}
+
+/** Every case worth sweeping: counts that span "brand new shop" to "empire". */
+function* cases() {
+  const shelfCounts = [1, 2, 6, 7, 8, 12, 15, 20, 25];
+  const freezerCounts = [0, 1, 2, 4];
+  const checkoutCounts = [1, 2, 3, 4];
+  const plotCounts = [1, 4, 5, 8, 9, 16, 17, 24, 32];
+  const stationSets = [[], ['blender'], ['blender', 'toaster'], ['blender', 'toaster', 'oven']];
+
+  for (let s = 0; s < SEEDS; s++) {
+    const seed = `verify-${s}`;
+    // Sweep each axis independently against a sensible baseline, rather than a
+    // full cross product — that's 30k layouts and adds nothing.
+    for (const shelves of shelfCounts) yield { seed, shelves, freezers: 0, checkouts: 1, plots: 4, stations: [] };
+    for (const freezers of freezerCounts) yield { seed, shelves: 6, freezers, checkouts: 1, plots: 4, stations: [] };
+    for (const checkouts of checkoutCounts) yield { seed, shelves: 6, freezers: 0, checkouts, plots: 4, stations: [] };
+    for (const plots of plotCounts) yield { seed, shelves: 6, freezers: 0, checkouts: 1, plots, stations: [] };
+    for (const stations of stationSets) yield { seed, shelves: 6, freezers: 0, checkouts: 1, plots: 4, stations };
+    // A couple of "everything at once" shapes, where interactions bite.
+    yield { seed, shelves: 18, freezers: 4, checkouts: 3, plots: 20, stations: ['blender', 'toaster'] };
+    yield { seed, shelves: 2, freezers: 1, checkouts: 2, plots: 2, stations: ['blender'] };
+  }
+}
+
+for (const opts of cases()) {
+  const L = generateLayout(opts);
+  const grid = buildWalkGrid(L);
+  const at = (x, z) => (x < 0 || z < 0 || x >= L.w || z >= L.h ? -1 : L.tiles[z * L.w + x]);
+  const walkable = (x, z) => x >= 0 && z >= 0 && x < L.w && z < L.h && grid[z * L.w + x] === 1;
+  const where = `${opts.seed} sh=${opts.shelves} fz=${opts.freezers} co=${opts.checkouts} pl=${opts.plots} st=${opts.stations.length}`;
+
+  // ---- 1. requested === placed -------------------------------------------
+  check(L.shelves.length === opts.shelves + opts.freezers,
+    'shelf units placed !== requested',
+    `${where}: asked ${opts.shelves + opts.freezers}, got ${L.shelves.length}`);
+  check(L.shelves.filter((s) => s.kind === 'freezer').length === opts.freezers,
+    'freezers placed !== requested',
+    `${where}: asked ${opts.freezers}, got ${L.shelves.filter((s) => s.kind === 'freezer').length}`);
+  check(L.checkouts.length === opts.checkouts,
+    'checkouts placed !== requested',
+    `${where}: asked ${opts.checkouts}, got ${L.checkouts.length}`);
+  check(L.plots.length === opts.plots,
+    'plots placed !== requested',
+    `${where}: asked ${opts.plots}, got ${L.plots.length}`);
+  check((L.stations ?? []).length === opts.stations.length,
+    'stations placed !== requested',
+    `${where}: asked ${opts.stations.length}, got ${(L.stations ?? []).length}`);
+
+  // ---- 2. nothing shares a tile -------------------------------------------
+  const occupied = new Map();
+  const claim = (x, z, what) => {
+    const k = `${x},${z}`;
+    if (occupied.has(k)) {
+      check(false, 'two fixtures on one tile', `${where}: ${occupied.get(k)} and ${what} both at ${k}`);
+    }
+    occupied.set(k, what);
+  };
+  for (const s of L.shelves) claim(s.x, s.z, s.id);
+  for (const c of L.checkouts) claim(c.x, c.z, c.id);
+  for (const s of L.stations ?? []) claim(s.x, s.z, s.id);
+  for (const p of L.plots) claim(p.x, p.z, p.id);
+
+  // ---- 3. every fixture has a reachable working spot ----------------------
+  for (const s of L.shelves) {
+    check(at(s.x, s.z) === (s.kind === 'freezer' ? T.FREEZER : T.SHELF),
+      'shelf tile not marked', `${where}: ${s.id} at ${s.x},${s.z} is tile ${at(s.x, s.z)}`);
+    check(walkable(s.browseAt.x, s.browseAt.z),
+      'shelf browseAt not walkable', `${where}: ${s.id} browseAt ${s.browseAt.x},${s.browseAt.z}`);
+    check(onShopFloor(L, s.browseAt.x, s.browseAt.z),
+      'shelf browseAt outside the shop', `${where}: ${s.id} browseAt ${s.browseAt.x},${s.browseAt.z}`);
+  }
+  for (const st of L.stations ?? []) {
+    check(walkable(st.useAt.x, st.useAt.z),
+      'station useAt not walkable', `${where}: ${st.id} useAt ${st.useAt.x},${st.useAt.z}`);
+    check(onShopFloor(L, st.useAt.x, st.useAt.z),
+      'station useAt outside the shop', `${where}: ${st.id} useAt ${st.useAt.x},${st.useAt.z}`);
+  }
+  for (const p of L.plots) {
+    check(at(p.x, p.z) === T.PLOT, 'plot tile not marked', `${where}: ${p.id} at ${p.x},${p.z}`);
+    const reachable = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+      .some(([dx, dz]) => walkable(p.x + dx, p.z + dz));
+    check(reachable, 'plot has no walkable neighbour', `${where}: ${p.id} at ${p.x},${p.z}`);
+  }
+
+  // ---- 4. queues stay indoors --------------------------------------------
+  // The one that bit hardest: a queue slot on grass is a shopper the till can
+  // never serve, and it looks fine in a screenshot.
+  for (const t of L.checkouts) {
+    check(at(t.x, t.z) === T.CHECKOUT, 'checkout tile not marked', `${where}: ${t.id} at ${t.x},${t.z}`);
+    check(walkable(t.serveAt.x, t.serveAt.z) && onShopFloor(L, t.serveAt.x, t.serveAt.z),
+      'till serveAt not on the shop floor', `${where}: ${t.id} serveAt ${t.serveAt.x},${t.serveAt.z}`);
+    check(t.queueMax >= 1, 'till has nowhere to queue', `${where}: ${t.id} queueMax ${t.queueMax}`);
+    for (let i = 1; i <= t.queueMax; i++) {
+      const qx = t.serveAt.x + t.queueDir.x * i;
+      const qz = t.serveAt.z + t.queueDir.z * i;
+      check(walkable(qx, qz) && onShopFloor(L, qx, qz),
+        'queue slot outside the shop floor', `${where}: ${t.id} slot ${i} at ${qx},${qz} (tile ${at(qx, qz)})`);
+    }
+    // Two tills must not try to serve the same shopper.
+    const clash = L.checkouts.filter((o) => o !== t
+      && o.serveAt.x === t.serveAt.x && o.serveAt.z === t.serveAt.z);
+    check(clash.length === 0, 'two tills share a serving spot', `${where}: ${t.id} and ${clash[0]?.id}`);
+  }
+
+  // ---- 5. the whole shop is one connected space ---------------------------
+  // Every working spot must be reachable on foot from the spawn, or someone
+  // will path to it forever.
+  const reach = flood(L, grid, L.spawn.x, L.spawn.z);
+  const seen = (p) => reach.has(`${p.x},${p.z}`);
+  check(seen(L.door), 'door unreachable from spawn', where);
+  for (const s of L.shelves) {
+    check(seen(s.browseAt), 'shelf unreachable from spawn', `${where}: ${s.id}`);
+  }
+  for (const t of L.checkouts) check(seen(t.serveAt), 'till unreachable from spawn', `${where}: ${t.id}`);
+  for (const st of L.stations ?? []) check(seen(st.useAt), 'station unreachable from spawn', `${where}: ${st.id}`);
+  for (const p of L.plots) {
+    const ok = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => reach.has(`${p.x + dx},${p.z + dz}`));
+    check(ok, 'plot unreachable from spawn', `${where}: ${p.id}`);
+  }
+  check(!L.bay || reach.has(`${Math.round(L.bay.x)},${Math.round(L.bay.z)}`),
+    'delivery bay unreachable', where);
+  check(!L.bay || at(Math.round(L.bay.x), Math.round(L.bay.z)) === T.BAY,
+    'delivery bay is not a bay tile', `${where}: ${L.bay?.x},${L.bay?.z}`);
+
+  // ---- 6. soil starts untilled -------------------------------------------
+  for (const p of L.plots) {
+    check(p.soil === undefined || p.soil === 'untilled',
+      'plot did not start untilled', `${where}: ${p.id} soil=${p.soil}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: hand-placed fixtures.
+//
+// A placement the generator honours must land on the exact tile asked for, and
+// must not cost the shop a fixture — the procedural fill is supposed to make up
+// the difference, not double up or come out short.
+// ---------------------------------------------------------------------------
+
+for (let s = 0; s < Math.min(SEEDS, 12); s++) {
+  const seed = `place-${s}`;
+  const base = { seed, shelves: 8, freezers: 2, checkouts: 2, plots: 8, stations: ['blender'] };
+  const L0 = generateLayout(base);
+
+  // Take real fixtures out of a generated layout and re-request them as explicit
+  // placements — a round trip that must be a no-op.
+  const placements = [
+    ...L0.shelves.slice(0, 3).map((f, i) => ({
+      id: `fx-s${i}`, kind: f.kind, x: f.x, z: f.z, rot: f.rot,
+    })),
+    ...L0.plots.slice(0, 2).map((f, i) => ({ id: `fx-p${i}`, kind: 'plot', x: f.x, z: f.z, rot: 0 })),
+    ...L0.stations.slice(0, 1).map((f, i) => ({
+      id: `fx-a${i}`, kind: 'station', station: f.station, x: f.x, z: f.z, rot: f.rot,
+    })),
+  ];
+
+  const L = generateLayout({ ...base, placements });
+  const grid = buildWalkGrid(L);
+  const walkable = (x, z) => x >= 0 && z >= 0 && x < L.w && z < L.h && grid[z * L.w + x] === 1;
+  const where = `${seed} with ${placements.length} placements`;
+
+  check(L.shelves.length === base.shelves + base.freezers,
+    'placements changed the shelf total',
+    `${where}: expected ${base.shelves + base.freezers}, got ${L.shelves.length}`);
+  check(L.plots.length === base.plots,
+    'placements changed the plot total', `${where}: got ${L.plots.length}`);
+  check(L.stations.length === base.stations.length,
+    'placements changed the appliance total', `${where}: got ${L.stations.length}`);
+  check((L.droppedPlacements ?? []).length === 0,
+    'a valid placement was dropped', `${where}: ${(L.droppedPlacements ?? []).join(', ')}`);
+
+  for (const p of placements) {
+    const landed = [...L.shelves, ...L.plots, ...L.stations, ...L.checkouts].find((f) => f.id === p.id);
+    check(!!landed, 'placement missing from the layout', `${where}: ${p.id}`);
+    if (!landed) continue;
+    check(landed.x === p.x && landed.z === p.z,
+      'placement moved', `${where}: ${p.id} asked ${p.x},${p.z} got ${landed.x},${landed.z}`);
+    const anchor = landed.browseAt ?? landed.serveAt ?? landed.useAt;
+    if (anchor) {
+      check(walkable(anchor.x, anchor.z),
+        'placed fixture has no reachable working spot', `${where}: ${p.id}`);
+    }
+  }
+
+  // Ids must never collide with the ones the generator mints for itself.
+  const ids = [...L.shelves, ...L.plots, ...L.stations, ...L.checkouts].map((f) => f.id);
+  check(new Set(ids).size === ids.length, 'duplicate fixture ids', `${where}`);
+
+  // And a placement somewhere impossible must be rejected, not honoured.
+  const bad = generateLayout({
+    ...base,
+    placements: [{ id: 'fx-bad', kind: 'shelf', x: 0, z: 0, rot: 0 }],
+  });
+  check(bad.droppedPlacements.includes('fx-bad'),
+    'an impossible placement was accepted', `${seed}: shelf at 0,0`);
+  check(bad.shelves.length === base.shelves + base.freezers,
+    'a rejected placement cost the shop a fixture', `${seed}: got ${bad.shelves.length}`);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: bought floor area and a moved door.
+//
+// An extension has to actually add floor. The obvious implementation — treat it
+// as a minimum size — gives back almost nothing, because the shop has usually
+// already grown past the minimum to fit its own shelving.
+// ---------------------------------------------------------------------------
+
+for (let s = 0; s < Math.min(SEEDS, 8); s++) {
+  const seed = `grow-${s}`;
+  const base = { seed, shelves: 8, freezers: 2, checkouts: 2, plots: 8, stations: ['blender'] };
+  const L0 = generateLayout(base);
+
+  for (const [gw, gh] of [[3, 0], [0, 3], [3, 3], [6, 2]]) {
+    const L = generateLayout({ ...base, grow: { w: gw, h: gh } });
+    check(L.store.w === L0.store.w + gw,
+      'bought width did not all arrive',
+      `${seed}: +${gw} gave ${L0.store.w} -> ${L.store.w}`);
+    check(L.store.h === L0.store.h + gh,
+      'bought depth did not all arrive',
+      `${seed}: +${gh} gave ${L0.store.h} -> ${L.store.h}`);
+    check(L.shelves.length === base.shelves + base.freezers,
+      'expanding changed the shelf count', `${seed}: got ${L.shelves.length}`);
+    check(L.plots.length === base.plots,
+      'expanding changed the plot count', `${seed}: got ${L.plots.length}`);
+    check(L.checkouts.length === base.checkouts,
+      'expanding changed the till count', `${seed}: got ${L.checkouts.length}`);
+  }
+
+  // The door slides along the south wall, and the loading bay follows it —
+  // a bay left behind at the old door is a walk across the front of the shop.
+  for (const shift of [-4, -2, 0, 2, 4]) {
+    const L = generateLayout({ ...base, doorShift: shift });
+    const grid = buildWalkGrid(L);
+    check(L.door.x > L.store.x && L.door.x + 1 < L.store.x + L.store.w - 1,
+      'moved door left the wall', `${seed}: shift ${shift} -> door ${L.door.x}`);
+    check(Math.abs(L.bay.x - L.door.x) < 6,
+      'bay did not follow the door', `${seed}: shift ${shift}, door ${L.door.x}, bay ${L.bay.x}`);
+    check(L.shelves.length === base.shelves + base.freezers,
+      'moving the door changed the shelf count', `${seed}: shift ${shift}`);
+    check(L.checkouts.length === base.checkouts,
+      'moving the door changed the till count', `${seed}: shift ${shift}`);
+    // And you can still get from the street to the bay and back inside.
+    const reach = flood(L, grid, L.spawn.x, L.spawn.z);
+    check(reach.has(`${Math.round(L.bay.x)},${Math.round(L.bay.z)}`),
+      'bay unreachable after moving the door', `${seed}: shift ${shift}`);
+    check(reach.has(`${L.door.x},${L.door.z}`),
+      'door unreachable after moving it', `${seed}: shift ${shift}`);
+  }
+}
+
+function onShopFloor(L, x, z) {
+  return x > L.store.x && x < L.store.x + L.store.w - 1
+    && z > L.store.z && z < L.store.z + L.store.h - 1;
+}
+
+function flood(L, grid, sx, sz) {
+  const seen = new Set();
+  const start = `${Math.round(sx)},${Math.round(sz)}`;
+  const stack = [[Math.round(sx), Math.round(sz)]];
+  seen.add(start);
+  while (stack.length) {
+    const [x, z] = stack.pop();
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx;
+      const nz = z + dz;
+      const k = `${nx},${nz}`;
+      if (seen.has(k)) continue;
+      if (nx < 0 || nz < 0 || nx >= L.w || nz >= L.h) continue;
+      if (grid[nz * L.w + nx] !== 1) continue;
+      seen.add(k);
+      stack.push([nx, nz]);
+    }
+  }
+  return seen;
+}
+
+// ---------------------------------------------------------------------------
+
+const byLabel = new Map();
+for (const f of failures) {
+  if (!byLabel.has(f.label)) byLabel.set(f.label, []);
+  byLabel.get(f.label).push(f.detail);
+}
+
+console.log(`\n${checks} assertions over ${SEEDS} seeds\n`);
+if (failures.length === 0) {
+  console.log('  ✅  every layout placed exactly what it was asked for, and all of it is reachable.\n');
+  process.exit(0);
+}
+
+console.log(`  ❌  ${failures.length} failures across ${byLabel.size} invariants:\n`);
+for (const [label, details] of [...byLabel].sort((a, b) => b[1].length - a[1].length)) {
+  console.log(`  ${String(details.length).padStart(5)}x  ${label}`);
+  const show = VERBOSE ? details : details.slice(0, 3);
+  for (const d of show) console.log(`           ${d}`);
+  if (!VERBOSE && details.length > show.length) console.log(`           …and ${details.length - show.length} more (-v for all)`);
+  console.log();
+}
+process.exit(1);

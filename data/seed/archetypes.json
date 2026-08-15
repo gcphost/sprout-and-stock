@@ -1,0 +1,155 @@
+[
+  {
+    "id": "budget-parent",
+    "name": "Budget Parent",
+    "affinities": {
+      "cheap": 0.9,
+      "produce": 0.5,
+      "bakery": 0.5,
+      "dairy": 0.6,
+      "kids": 0.7,
+      "luxury": -0.8,
+      "premium": -0.5,
+      "artisanal": -0.4
+    },
+    "price_sensitivity": 0.9,
+    "patience": 70,
+    "budget_min": 12,
+    "budget_max": 30,
+    "basket_min": 3,
+    "basket_max": 6,
+    "spawn_weight": 3,
+    "color": "#7fb3d9"
+  },
+  {
+    "id": "bulk-shopper",
+    "name": "Bulk Shopper",
+    "affinities": {
+      "bulky": 0.8,
+      "shelf-stable": 0.9,
+      "pantry": 0.7,
+      "cheap": 0.6,
+      "household": 0.5,
+      "perishable": -0.5,
+      "fragile": -0.6
+    },
+    "price_sensitivity": 0.6,
+    "patience": 100,
+    "budget_min": 40,
+    "budget_max": 90,
+    "basket_min": 5,
+    "basket_max": 10,
+    "spawn_weight": 1,
+    "color": "#d98a5a"
+  },
+  {
+    "id": "foodie",
+    "name": "Foodie",
+    "affinities": {
+      "artisanal": 1,
+      "premium": 0.8,
+      "trendy": 0.9,
+      "luxury": 0.6,
+      "condiment": 0.5,
+      "bakery": 0.4,
+      "generic": -0.7,
+      "junk": -0.5
+    },
+    "price_sensitivity": 0.1,
+    "patience": 120,
+    "budget_min": 40,
+    "budget_max": 110,
+    "basket_min": 2,
+    "basket_max": 5,
+    "spawn_weight": 1.2,
+    "color": "#c98ad9"
+  },
+  {
+    "id": "gift-hunter",
+    "name": "Gift Hunter",
+    "affinities": {
+      "gift": 1,
+      "luxury": 0.8,
+      "premium": 0.6,
+      "artisanal": 0.5,
+      "holiday": 0.7,
+      "junk": -0.6,
+      "bulky": -0.4
+    },
+    "price_sensitivity": 0.2,
+    "patience": 80,
+    "budget_min": 20,
+    "budget_max": 70,
+    "basket_min": 1,
+    "basket_max": 3,
+    "spawn_weight": 1,
+    "color": "#e07ab0"
+  },
+  {
+    "id": "health-nut",
+    "name": "Health Nut",
+    "affinities": {
+      "healthy": 1,
+      "organic": 0.9,
+      "produce": 0.8,
+      "vegan": 0.6,
+      "gluten-free": 0.4,
+      "junk": -1,
+      "frozen": -0.3
+    },
+    "price_sensitivity": 0.25,
+    "patience": 90,
+    "budget_min": 25,
+    "budget_max": 60,
+    "basket_min": 2,
+    "basket_max": 5,
+    "spawn_weight": 2,
+    "color": "#7cc46a"
+  },
+  {
+    "id": "morning-regular",
+    "name": "Morning Regular",
+    "affinities": {
+      "breakfast": 0.9,
+      "dairy": 0.7,
+      "bakery": 0.6,
+      "beverage": 0.6,
+      "classic": 0.5,
+      "heavy": 0.2,
+      "cheap": 0.2,
+      "perishable": 0.1,
+      "junk": -0.3,
+      "luxury": -0.4
+    },
+    "price_sensitivity": 0.5,
+    "patience": 70,
+    "budget_min": 8,
+    "budget_max": 22,
+    "basket_min": 2,
+    "basket_max": 4,
+    "spawn_weight": 2.5,
+    "color": "#e8b04b"
+  },
+  {
+    "id": "snack-kid",
+    "name": "Snack Kid",
+    "affinities": {
+      "junk": 1,
+      "snack": 0.9,
+      "candy": 0.9,
+      "kids": 0.8,
+      "beverage": 0.6,
+      "produce": -0.5,
+      "household": -0.8,
+      "healthy": -0.6
+    },
+    "price_sensitivity": 0.7,
+    "patience": 30,
+    "budget_min": 3,
+    "budget_max": 12,
+    "basket_min": 1,
+    "basket_max": 3,
+    "spawn_weight": 2.5,
+    "color": "#e8b23c"
+  }
+]

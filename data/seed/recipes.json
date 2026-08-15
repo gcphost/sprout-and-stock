@@ -1,0 +1,74 @@
+[
+  {
+    "id": "latte-recipe",
+    "name": "Flat White",
+    "station": "coffee-machine",
+    "inputs": [
+      {
+        "item_id": "coffee",
+        "qty": 1
+      },
+      {
+        "item_id": "milk",
+        "qty": 1
+      }
+    ],
+    "output_id": "latte",
+    "output_qty": 2,
+    "minutes": 6
+  },
+  {
+    "id": "salsa-recipe",
+    "name": "Fresh Salsa",
+    "station": "blender",
+    "inputs": [
+      {
+        "item_id": "tomato",
+        "qty": 3
+      },
+      {
+        "item_id": "lettuce",
+        "qty": 1
+      }
+    ],
+    "output_id": "salsa",
+    "output_qty": 2,
+    "minutes": 20
+  },
+  {
+    "id": "smoothie-recipe",
+    "name": "Berry Smoothie",
+    "station": "blender",
+    "inputs": [
+      {
+        "item_id": "jam",
+        "qty": 1
+      },
+      {
+        "item_id": "milk",
+        "qty": 1
+      }
+    ],
+    "output_id": "smoothie",
+    "output_qty": 2,
+    "minutes": 12
+  },
+  {
+    "id": "toast-recipe",
+    "name": "Jam on Toast",
+    "station": "toaster",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "jam",
+        "qty": 1
+      }
+    ],
+    "output_id": "toast",
+    "output_qty": 2,
+    "minutes": 8
+  }
+]

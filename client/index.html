@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Sprout &amp; Stock</title>
+  <style>
+    :root {
+      --ink: #3a3128;
+      --panel: rgba(255, 252, 245, 0.94);
+      --line: rgba(58, 49, 40, 0.14);
+      --accent: #e2564a;
+      --good: #5aa356;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body {
+      font: 14px/1.45 ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif;
+      color: var(--ink);
+      background: #cfe9f5;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+    #game { display: block; width: 100vw; height: 100vh; }
+
+    #boot {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      background: #cfe9f5; font-size: 18px; font-weight: 600; z-index: 50;
+    }
+
+    .hud { position: fixed; z-index: 10; }
+
+    /* top-left: money + day */
+    #stats {
+      top: 14px; left: 14px; background: var(--panel); border-radius: 16px;
+      padding: 10px 14px; box-shadow: 0 6px 20px rgba(58,49,40,.15);
+      display: flex; gap: 16px; align-items: center;
+    }
+    #cash { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+    #day  { font-weight: 700; }
+    #season { text-transform: capitalize; opacity: .65; font-size: 12px; }
+    #clock { font-variant-numeric: tabular-nums; font-weight: 700; }
+    #clock.shut { opacity: .4; text-decoration: line-through; }
+    .repwrap { width: 70px; height: 7px; background: var(--line); border-radius: 99px; overflow: hidden; }
+    #rep { height: 100%; background: var(--good); transition: width .4s; }
+
+    /* top-right: active world modifiers */
+    #mods { top: 14px; right: 14px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 320px; justify-content: flex-end; }
+    .mod {
+      background: var(--panel); border-radius: 99px; padding: 4px 10px;
+      font-size: 12px; font-weight: 700; box-shadow: 0 3px 10px rgba(58,49,40,.12);
+    }
+    .mod.up { color: var(--good); }
+    .mod.down { color: var(--accent); }
+
+    /* Radial seed wheel. Hidden until you hold Q or right-click, then it
+       springs open centred on the pointer. Nothing occupies the screen when
+       you're not choosing, and picking is a flick rather than a click hunt. */
+    #wheel {
+      position: fixed; inset: 0; z-index: 20; display: none;
+      background: rgba(28,24,20,.34); backdrop-filter: blur(2px);
+      pointer-events: none;
+    }
+    #wheel.on { display: block; animation: wfade .12s ease-out; }
+    @keyframes wfade { from { opacity: 0 } to { opacity: 1 } }
+    #wheel svg { position: absolute; overflow: visible; }
+    #wheel .seg {
+      fill: rgba(255,252,246,.9); stroke: rgba(58,49,40,.18); stroke-width: 2;
+      transition: fill .08s;
+    }
+    #wheel .seg.hot { fill: #ffd66b; }
+    #wheel .seg.off { fill: rgba(214,208,196,.75); }
+    #wheel .lbl {
+      font: 700 15px/1 system-ui, sans-serif; fill: #3a3128;
+      text-anchor: middle; dominant-baseline: middle; pointer-events: none;
+    }
+    #wheel .lbl.sub { font-size: 12px; font-weight: 600; fill: #7a6f60; }
+    #wheel .hub {
+      fill: rgba(255,252,246,.95); stroke: rgba(58,49,40,.2); stroke-width: 2;
+    }
+    #wheel .hublbl {
+      font: 700 14px/1 system-ui, sans-serif; fill: #3a3128;
+      text-anchor: middle; dominant-baseline: middle;
+    }
+
+    /* Drag joystick */
+    #stick {
+      position: fixed; width: 144px; height: 144px; margin: -72px 0 0 -72px;
+      border-radius: 50%; border: 2px solid rgba(255,255,255,.55);
+      background: rgba(58,49,40,.13); display: none; pointer-events: none; z-index: 5;
+    }
+    #stick.on { display: block; }
+    #stick-nub {
+      position: absolute; left: 50%; top: 50%; width: 54px; height: 54px;
+      margin: -27px 0 0 -27px; border-radius: 50%;
+      background: rgba(255,255,255,.8); box-shadow: 0 3px 10px rgba(58,49,40,.3);
+    }
+    /* bottom-left: event log */
+    #log { bottom: 76px; left: 14px; max-width: 380px; display: flex; flex-direction: column; gap: 4px; }
+    #log div {
+      background: var(--panel); border-radius: 12px; padding: 6px 11px;
+      font-size: 13px; box-shadow: 0 3px 10px rgba(58,49,40,.1);
+    }
+    #carry { bottom: 76px; right: 14px; font-weight: 700; background: var(--panel);
+             border-radius: 12px; padding: 6px 11px; box-shadow: 0 3px 10px rgba(58,49,40,.1); }
+    #carry:empty { display: none; }
+
+    /* "Click & hold to Harvest" — the affordance for held actions. Sits low
+       and centre, near where your hand already is, and vanishes the moment
+       nothing is in range. */
+    #prompt {
+      bottom: 62px; left: 50%; transform: translate(-50%, 8px); opacity: 0;
+      background: rgba(58,49,40,.86); color: #fff; padding: 7px 16px;
+      border-radius: 99px; font-size: 14px; font-weight: 600;
+      pointer-events: none; transition: opacity .14s, transform .14s;
+      white-space: nowrap;
+    }
+    #prompt.show { opacity: 1; transform: translate(-50%, 0); }
+    #prompt.going { background: #ffd66b; color: var(--ink); }
+    #prompt b { font-weight: 800; }
+    #prompt .hk {
+      background: rgba(255,255,255,.18); border-radius: 6px;
+      padding: 1px 7px; font-weight: 700; font-size: 12px;
+    }
+    body.building #prompt { bottom: 140px; }
+
+    /* toast */
+    #toast {
+      top: 76px; left: 50%; transform: translate(-50%, -12px); opacity: 0;
+      background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 99px;
+      font-weight: 700; pointer-events: none; transition: .25s;
+    }
+    #toast.show { opacity: 1; transform: translate(-50%, 0); }
+    #toast.bad { background: var(--accent); }
+
+    /* panel */
+    #panel {
+      inset: auto 14px 14px auto; width: 380px; max-height: 62vh; background: var(--panel);
+      border-radius: 18px; box-shadow: 0 10px 34px rgba(58,49,40,.22);
+      display: none; flex-direction: column; overflow: hidden;
+    }
+    #panel.show { display: flex; }
+    #panel header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 800;
+    }
+    #panel-close { border: 0; background: none; font: inherit; cursor: pointer; font-size: 18px; color: var(--ink); }
+    #panel-body { overflow-y: auto; padding: 6px; }
+    .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; }
+    .row:hover { background: rgba(58,49,40,.05); }
+    .row.owned { opacity: .5; }
+    .row .name { flex: 1; font-weight: 700; display: flex; flex-direction: column; }
+    .row .tags { font-weight: 500; font-size: 11px; opacity: .55; }
+    .row .price { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .row button {
+      border: 0; background: var(--good); color: #fff; border-radius: 9px;
+      padding: 6px 12px; font: inherit; font-weight: 700; cursor: pointer;
+    }
+    .row .have { font-size: 12px; opacity: .6; }
+
+    /* Build menu rows: a whole row is the button, since picking a thing to
+       build is the only thing you can do to one. */
+    .build-row { cursor: pointer; align-items: flex-start; }
+    .build-row.picked { background: #fff3d0; box-shadow: inset 0 0 0 2px #ffd66b; }
+    .build-row .bico { font-size: 22px; line-height: 1.2; width: 26px; text-align: center; }
+    .build-row .name { gap: 2px; }
+    .build-row .own { font-weight: 600; font-size: 11px; opacity: .55; }
+    .build-row .tags { line-height: 1.35; }
+    .sep {
+      font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+      opacity: .45; padding: 10px 10px 4px; border-top: 1px solid var(--line); margin-top: 6px;
+    }
+    .foot { font-size: 12px; opacity: .6; padding: 10px; line-height: 1.4; }
+
+    /* One fixture's own menu. The read-out at the top says what this thing is
+       doing right now; the rows below are what you can do about it. */
+    .fx-detail { padding: 8px 12px 10px; }
+    .fx-line { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 13px; }
+    .fx-line span { opacity: .55; font-weight: 600; }
+    .fx-line b { font-weight: 800; text-align: right; }
+    .fx-price { display: flex; align-items: center; gap: 8px; padding: 6px 0 0; font-size: 13px; }
+    .fx-price span { opacity: .55; font-weight: 600; flex: 1; }
+    .fx-price b { font-weight: 800; min-width: 58px; text-align: center; font-variant-numeric: tabular-nums; }
+    .fx-price button {
+      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 8px;
+      width: 30px; height: 26px; font: inherit; font-weight: 800; cursor: pointer;
+    }
+    .fx-price button:hover { background: rgba(58,49,40,.18); }
+    .fx-act { cursor: pointer; align-items: flex-start; }
+    .fx-act:hover { background: rgba(58,49,40,.07); }
+    .fx-act .bico { font-size: 20px; line-height: 1.2; width: 26px; text-align: center; }
+    .fx-act .name { gap: 2px; }
+    .fx-act .tags { line-height: 1.35; }
+    .fx-act .price { color: var(--good); }
+    .fx-act.danger .price { color: var(--accent); }
+    /* Greyed out rather than hidden: "you need at least one till" is the whole
+       answer to why the button isn't there, and hiding it never says so. */
+    .fx-act.off { cursor: default; opacity: .42; }
+    .fx-act.off:hover { background: none; }
+    .tool.more { min-width: 52px; opacity: .75; }
+    .tool.more:hover { opacity: 1; }
+
+    /* Build bar. Hidden entirely until you're building — the shop floor is the
+       game, and a permanent toolbar would make it look like a level editor. */
+    #build {
+      bottom: 14px; left: 50%; transform: translate(-50%, 26px); opacity: 0;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      pointer-events: none; transition: .18s;
+    }
+    #build.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+    #build-tools {
+      display: flex; gap: 6px; background: var(--panel); border-radius: 16px;
+      padding: 6px; box-shadow: 0 8px 26px rgba(58,49,40,.24);
+    }
+    .tool {
+      position: relative; border: 0; background: transparent; cursor: pointer;
+      font: inherit; color: var(--ink); border-radius: 12px; padding: 7px 12px 6px;
+      display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 62px;
+    }
+    .tool:hover { background: rgba(58,49,40,.06); }
+    .tool.on { background: #ffd66b; }
+    .tool .key {
+      position: absolute; top: 2px; left: 5px; font-size: 9px; font-weight: 800; opacity: .4;
+    }
+    .tool .ico { font-size: 19px; line-height: 1; }
+    .tool .nm { font-size: 11px; font-weight: 700; }
+    .tool .cost { font-size: 10px; font-weight: 700; opacity: .6; font-variant-numeric: tabular-nums; }
+    #build-hint {
+      background: rgba(58,49,40,.82); color: #fff; border-radius: 99px;
+      padding: 4px 12px; font-size: 12px; font-weight: 600;
+    }
+    /* Nudge the corner HUD out of the build bar's way. The build hint already
+       says what the keys do, so the general help line just gets out of the way
+       rather than stacking on top of the log. */
+    body.building #log, body.building #carry { bottom: 128px; }
+    body.building #help { display: none; }
+    /* On a narrow screen the panel goes full width, which would sit right on
+       top of the build bar. */
+    body.building #panel { bottom: 128px; max-height: calc(62vh - 60px); }
+
+    #help { bottom: 14px; left: 14px; font-size: 12px; opacity: .55; font-weight: 600; }
+    @media (max-width: 720px) {
+      #log, #help { display: none; }
+      #panel { width: calc(100vw - 28px); }
+      .tool { min-width: 52px; padding: 6px 8px 5px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="boot">Opening the shop…</div>
+
+  <div id="stats" class="hud">
+    <span id="cash">$0.00</span>
+    <div>
+      <div id="day">Day 1</div>
+      <div id="season">spring</div>
+    </div>
+    <span id="clock">08:00</span>
+    <div class="repwrap"><div id="rep" style="width:50%"></div></div>
+  </div>
+
+  <div id="mods" class="hud"></div>
+  <div id="log" class="hud"></div>
+  <div id="carry" class="hud"></div>
+  <div id="prompt" class="hud"></div>
+  <div id="toast" class="hud"></div>
+  <div id="wheel"></div>
+  <div id="stick"><div id="stick-nub"></div></div>
+
+  <div id="build" class="hud">
+    <div id="build-tools"></div>
+    <div id="build-hint"></div>
+  </div>
+
+  <div id="help" class="hud">drag to move · click &amp; hold to use things · hold Q for seeds · B supplier · U upgrades · G build · M menu</div>
+
+  <div id="panel" class="hud">
+    <header><span id="panel-title">Panel</span><button id="panel-close">✕</button></header>
+    <div id="panel-body"></div>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

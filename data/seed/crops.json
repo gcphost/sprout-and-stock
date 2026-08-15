@@ -1,0 +1,265 @@
+[
+  {
+    "id": "carrot-row",
+    "name": "Carrot Row",
+    "item_id": "carrot",
+    "grow_minutes": 1,
+    "yield_min": 3,
+    "yield_max": 5,
+    "seed_cost": 0.6,
+    "seasons": [
+      "spring",
+      "autumn"
+    ],
+    "model": {
+      "parts": [
+        {
+          "shape": "cone",
+          "color": "#6fb75e",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.36,
+            0.2
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cone",
+          "color": "#e8873a",
+          "pos": [
+            0,
+            0.04,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.12,
+            0.1
+          ],
+          "rot": 180
+        }
+      ]
+    }
+  },
+  {
+    "id": "chicken-coop",
+    "name": "Chicken Coop",
+    "item_id": "egg",
+    "grow_minutes": 2,
+    "yield_min": 3,
+    "yield_max": 6,
+    "seed_cost": 6,
+    "seasons": [],
+    "model": {
+      "parts": [
+        {
+          "shape": "sphere",
+          "color": "#f4f0e4",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.28,
+            0.36
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#f4f0e4",
+          "pos": [
+            0,
+            0.32,
+            0.12
+          ],
+          "scale": [
+            0.16,
+            0.16,
+            0.16
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cone",
+          "color": "#e2564a",
+          "pos": [
+            0,
+            0.4,
+            0.12
+          ],
+          "scale": [
+            0.08,
+            0.08,
+            0.08
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cone",
+          "color": "#e8a03a",
+          "pos": [
+            0,
+            0.31,
+            0.21
+          ],
+          "scale": [
+            0.05,
+            0.07,
+            0.05
+          ],
+          "rot": 90
+        }
+      ]
+    }
+  },
+  {
+    "id": "lettuce-bed",
+    "name": "Lettuce Bed",
+    "item_id": "lettuce",
+    "grow_minutes": 0.8,
+    "yield_min": 2,
+    "yield_max": 3,
+    "seed_cost": 0.5,
+    "seasons": [
+      "spring",
+      "summer",
+      "autumn"
+    ],
+    "model": {
+      "parts": [
+        {
+          "shape": "sphere",
+          "color": "#7cc46a",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.24,
+            0.34
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "tomato-vine",
+    "name": "Tomato Vine",
+    "item_id": "tomato",
+    "grow_minutes": 1.5,
+    "yield_min": 2,
+    "yield_max": 4,
+    "seed_cost": 1,
+    "seasons": [
+      "spring",
+      "summer"
+    ],
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#4d9147",
+          "pos": [
+            0,
+            0.26,
+            0
+          ],
+          "scale": [
+            0.06,
+            0.52,
+            0.06
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#e2564a",
+          "pos": [
+            0.12,
+            0.34,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.16,
+            0.16
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#e2564a",
+          "pos": [
+            -0.1,
+            0.2,
+            0.06
+          ],
+          "scale": [
+            0.14,
+            0.14,
+            0.14
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "wheat-field",
+    "name": "Wheat Field",
+    "item_id": "wheat",
+    "grow_minutes": 2.5,
+    "yield_min": 4,
+    "yield_max": 7,
+    "seed_cost": 0.8,
+    "seasons": [
+      "summer",
+      "autumn"
+    ],
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#d8c070",
+          "pos": [
+            0,
+            0.24,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.48,
+            0.07
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#e8d489",
+          "pos": [
+            0,
+            0.5,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.16,
+            0.13
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  }
+]

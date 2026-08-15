@@ -1,0 +1,20 @@
+node_modules/
+dist/
+
+# The live database. Content lives here while you play; `npm run export`
+# writes it back out to data/seed/*.json, and those ARE committed.
+data/game.db
+data/game.db-wal
+data/game.db-shm
+
+.env
+.env.local
+*.log
+.DS_Store
+
+# Colyseus devMode's hot-reload scratch file. Rewritten on every server
+# restart, so committing it means a conflict every time you both save a file.
+.devmode.json
+
+# Page snapshots the Playwright MCP browser drops as it drives the game.
+.playwright-mcp/

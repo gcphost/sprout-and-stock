@@ -1,0 +1,195 @@
+[
+  {
+    "id": "backpack-1",
+    "name": "Bigger Crate",
+    "description": "Carry 12 items at a time instead of 6.",
+    "cost": 75,
+    "kind": "capacity",
+    "payload": {
+      "carry": 6
+    },
+    "requires": []
+  },
+  {
+    "id": "boots-1",
+    "name": "Good Boots",
+    "description": "Move 30% faster. Feels enormous once the shop gets big.",
+    "cost": 140,
+    "kind": "speed",
+    "payload": {
+      "speedMult": 1.3
+    },
+    "requires": []
+  },
+  {
+    "id": "checkout-2",
+    "name": "Second Till",
+    "description": "A second checkout. Queues move twice as fast when both are staffed.",
+    "cost": 300,
+    "kind": "checkout",
+    "payload": {
+      "checkouts": 1
+    },
+    "requires": []
+  },
+  {
+    "id": "freezer-1",
+    "name": "Chest Freezer",
+    "description": "Unlocks selling anything tagged needs-freezer. Ice cream money.",
+    "cost": 260,
+    "kind": "freezer",
+    "payload": {
+      "freezers": 1
+    },
+    "requires": []
+  },
+  {
+    "id": "plot-2",
+    "name": "Second Field",
+    "description": "Clear the scrub behind the shop. Four more growing plots.",
+    "cost": 120,
+    "kind": "plot",
+    "payload": {
+      "plots": 4
+    },
+    "requires": []
+  },
+  {
+    "id": "plot-3",
+    "name": "Back Forty",
+    "description": "Buy the strip along the fence line. Six more plots.",
+    "cost": 480,
+    "kind": "plot",
+    "payload": {
+      "plots": 6
+    },
+    "requires": [
+      "plot-2"
+    ]
+  },
+  {
+    "id": "shelf-2",
+    "name": "Extra Shelving",
+    "description": "Two more shelf units for the shop floor.",
+    "cost": 90,
+    "kind": "shelf",
+    "payload": {
+      "shelves": 2
+    },
+    "requires": []
+  },
+  {
+    "id": "shelf-3",
+    "name": "Aisle Expansion",
+    "description": "Knock through the back wall. Three more shelf units.",
+    "cost": 360,
+    "kind": "shelf",
+    "payload": {
+      "shelves": 3
+    },
+    "requires": [
+      "shelf-2"
+    ]
+  },
+  {
+    "id": "space-1",
+    "name": "Side Extension",
+    "description": "Knock through the west wall for three more tiles of shop floor. More room for shelving, and more room to arrange it how you like.",
+    "cost": 650,
+    "kind": "space",
+    "payload": {
+      "width": 3
+    },
+    "requires": []
+  },
+  {
+    "id": "space-2",
+    "name": "Back Extension",
+    "description": "Push the back wall out by three tiles. Deeper aisles, longer queues before anyone spills onto the street.",
+    "cost": 900,
+    "kind": "space",
+    "payload": {
+      "depth": 3
+    },
+    "requires": [
+      "space-1"
+    ]
+  },
+  {
+    "id": "staff-chef",
+    "name": "Hire a Chef",
+    "description": "Works the appliances: gathers ingredients, makes the products, shelves them.",
+    "cost": 340,
+    "kind": "staff",
+    "payload": {
+      "role": "chef"
+    },
+    "requires": []
+  },
+  {
+    "id": "staff-clerk",
+    "name": "Hire a Clerk",
+    "description": "Mans the till and takes payment so shoppers stop walking out of the queue.",
+    "cost": 220,
+    "kind": "staff",
+    "payload": {
+      "role": "clerk"
+    },
+    "requires": []
+  },
+  {
+    "id": "staff-farmhand",
+    "name": "Hire a Farmhand",
+    "description": "Plants, harvests and walks the produce to a shelf.",
+    "cost": 260,
+    "kind": "staff",
+    "payload": {
+      "role": "farmhand"
+    },
+    "requires": []
+  },
+  {
+    "id": "staff-stocker",
+    "name": "Hire a Stocker",
+    "description": "Buys wholesale and keeps the shelves full while you are out back.",
+    "cost": 300,
+    "kind": "staff",
+    "payload": {
+      "role": "stocker"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-blender",
+    "name": "Blender",
+    "description": "Turns produce into salsa and smoothies.",
+    "cost": 180,
+    "kind": "station",
+    "payload": {
+      "station": "blender"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-coffee",
+    "name": "Coffee Machine",
+    "description": "Beans and milk in, a proper flat white out.",
+    "cost": 240,
+    "kind": "station",
+    "payload": {
+      "station": "coffee-machine"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-toaster",
+    "name": "Toaster Oven",
+    "description": "Bakes and toasts. Bread in, better bread out.",
+    "cost": 150,
+    "kind": "station",
+    "payload": {
+      "station": "toaster"
+    },
+    "requires": []
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "sprout-and-stock": {
+      "command": "node",
+      "args": ["mcp/server.js"],
+      "env": {
+        "SNS_API": "http://localhost:2567/api"
+      }
+    }
+  }
+}

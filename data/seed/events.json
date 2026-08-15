@@ -1,0 +1,152 @@
+[
+  {
+    "id": "baking-craze",
+    "name": "Baking Craze",
+    "description": "A baking show marathon aired last night. The whole town thinks it's a pastry chef.",
+    "effects": [
+      {
+        "tag": "bakery",
+        "demand_mult": 2.4,
+        "price_mult": 1.25
+      },
+      {
+        "tag": "pantry",
+        "demand_mult": 1.9,
+        "price_mult": 1.15
+      },
+      {
+        "tag": "dairy",
+        "demand_mult": 1.5,
+        "price_mult": 1.1
+      }
+    ],
+    "duration_days": 2,
+    "weight": 1.5,
+    "min_day": 3
+  },
+  {
+    "id": "health-kick",
+    "name": "New Year Health Kick",
+    "description": "Resolutions are in full swing. Kale is having a moment; crisps are not.",
+    "effects": [
+      {
+        "tag": "healthy",
+        "demand_mult": 2.2,
+        "price_mult": 1.2
+      },
+      {
+        "tag": "organic",
+        "demand_mult": 2,
+        "price_mult": 1.3
+      },
+      {
+        "tag": "junk",
+        "demand_mult": 0.35,
+        "price_mult": 0.85
+      }
+    ],
+    "duration_days": 4,
+    "weight": 1.2,
+    "min_day": 5
+  },
+  {
+    "id": "heat-wave",
+    "name": "Heat Wave",
+    "description": "It's brutally hot. Everyone wants something cold and nobody wants to cook.",
+    "effects": [
+      {
+        "tag": "frozen",
+        "demand_mult": 2.6,
+        "price_mult": 1.3
+      },
+      {
+        "tag": "beverage",
+        "demand_mult": 2,
+        "price_mult": 1.2
+      },
+      {
+        "tag": "summer",
+        "demand_mult": 1.6,
+        "price_mult": 1.1
+      },
+      {
+        "tag": "bakery",
+        "demand_mult": 0.6,
+        "price_mult": 1
+      }
+    ],
+    "duration_days": 3,
+    "weight": 2,
+    "min_day": 2
+  },
+  {
+    "id": "produce-shortage",
+    "name": "Produce Shortage",
+    "description": "Bad weather upriver. Fresh produce is scarce and suppliers know it.",
+    "effects": [
+      {
+        "tag": "produce",
+        "demand_mult": 1.4,
+        "price_mult": 1.9
+      },
+      {
+        "tag": "perishable",
+        "demand_mult": 1.2,
+        "price_mult": 1.5
+      }
+    ],
+    "duration_days": 3,
+    "weight": 1.3,
+    "min_day": 4
+  },
+  {
+    "id": "quiet-week",
+    "name": "Quiet Week",
+    "description": "School trip season. Half the town is somewhere else.",
+    "effects": [
+      {
+        "tag": "produce",
+        "demand_mult": 0.7,
+        "price_mult": 0.95
+      },
+      {
+        "tag": "snack",
+        "demand_mult": 0.6,
+        "price_mult": 0.9
+      },
+      {
+        "tag": "dairy",
+        "demand_mult": 0.75,
+        "price_mult": 0.95
+      }
+    ],
+    "duration_days": 2,
+    "weight": 0.8,
+    "min_day": 8
+  },
+  {
+    "id": "viral-snack",
+    "name": "Something Went Viral",
+    "description": "A snack blew up online overnight. Teenagers are queueing before you open.",
+    "effects": [
+      {
+        "tag": "viral",
+        "demand_mult": 4,
+        "price_mult": 1.8
+      },
+      {
+        "tag": "snack",
+        "demand_mult": 2.2,
+        "price_mult": 1.4
+      },
+      {
+        "tag": "trendy",
+        "demand_mult": 2,
+        "price_mult": 1.3
+      }
+    ],
+    "duration_days": 2,
+    "weight": 1,
+    "min_day": 6
+  }
+]

@@ -1,0 +1,928 @@
+[
+  {
+    "id": "bread",
+    "name": "Bread",
+    "tags": [
+      "bakery",
+      "perishable",
+      "breakfast",
+      "classic",
+      "cheap"
+    ],
+    "base_cost": 1,
+    "base_price": 2.6,
+    "shelf_life_days": 3,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "capsule",
+          "color": "#d8a462",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.36,
+            0.2,
+            0.22
+          ],
+          "rot": 90
+        },
+        {
+          "shape": "box",
+          "color": "#c08c4e",
+          "pos": [
+            0,
+            0.26,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.04,
+            0.16
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "carrot",
+    "name": "Carrot",
+    "tags": [
+      "produce",
+      "perishable",
+      "healthy",
+      "cheap",
+      "autumn"
+    ],
+    "base_cost": 0.5,
+    "base_price": 1.4,
+    "shelf_life_days": 8,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "cone",
+          "color": "#e8873a",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.34,
+            0.16
+          ],
+          "rot": 180
+        },
+        {
+          "shape": "cone",
+          "color": "#5aa356",
+          "pos": [
+            0,
+            0.36,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.14,
+            0.12
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "cheese",
+    "name": "Cheese Wheel",
+    "tags": [
+      "dairy",
+      "perishable",
+      "premium",
+      "artisanal",
+      "gift"
+    ],
+    "base_cost": 3.4,
+    "base_price": 8.5,
+    "shelf_life_days": 20,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f0c85c",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.26,
+            0.34
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e0b043",
+          "pos": [
+            0,
+            0.28,
+            0
+          ],
+          "scale": [
+            0.35,
+            0.04,
+            0.35
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "chips",
+    "name": "Crisps",
+    "tags": [
+      "snack",
+      "shelf-stable",
+      "junk",
+      "kids",
+      "party",
+      "bulky"
+    ],
+    "base_cost": 0.7,
+    "base_price": 2.4,
+    "shelf_life_days": 90,
+    "stack": 18,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e8b23c",
+          "pos": [
+            0,
+            0.24,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.44,
+            0.14
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "box",
+          "color": "#c8892a",
+          "pos": [
+            0,
+            0.34,
+            0.01
+          ],
+          "scale": [
+            0.22,
+            0.14,
+            0.14
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "coffee",
+    "name": "Coffee Beans",
+    "tags": [
+      "beverage",
+      "shelf-stable",
+      "breakfast",
+      "premium",
+      "trendy",
+      "artisanal"
+    ],
+    "base_cost": 2.6,
+    "base_price": 7,
+    "shelf_life_days": 120,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#6b4a34",
+          "pos": [
+            0,
+            0.22,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.42,
+            0.16
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c8b49a",
+          "pos": [
+            0,
+            0.3,
+            0.09
+          ],
+          "scale": [
+            0.16,
+            0.16,
+            0.02
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "egg",
+    "name": "Eggs",
+    "tags": [
+      "dairy",
+      "perishable",
+      "breakfast",
+      "cheap",
+      "classic"
+    ],
+    "base_cost": 1.1,
+    "base_price": 2.8,
+    "shelf_life_days": 10,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e8e2d2",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.36,
+            0.14,
+            0.24
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#f6f1e4",
+          "pos": [
+            -0.07,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.14,
+            0.12
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#f6f1e4",
+          "pos": [
+            0.07,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.14,
+            0.12
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "flowers",
+    "name": "Flower Bunch",
+    "tags": [
+      "perishable",
+      "luxury",
+      "gift",
+      "spring",
+      "fragile",
+      "household"
+    ],
+    "base_cost": 2.2,
+    "base_price": 6.5,
+    "shelf_life_days": 3,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#5aa356",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.08,
+            0.4,
+            0.08
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#e07ab0",
+          "pos": [
+            0,
+            0.42,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.2,
+            0.22
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#f2c14e",
+          "pos": [
+            0.1,
+            0.36,
+            0.06
+          ],
+          "scale": [
+            0.14,
+            0.13,
+            0.14
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "ice-cream",
+    "name": "Ice Cream",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "junk",
+      "kids",
+      "summer",
+      "premium"
+    ],
+    "base_cost": 2,
+    "base_price": 5.5,
+    "shelf_life_days": 45,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#efe6f4",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.3,
+            0.3
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#d9a0c8",
+          "pos": [
+            0,
+            0.32,
+            0
+          ],
+          "scale": [
+            0.28,
+            0.16,
+            0.28
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "jam",
+    "name": "Berry Jam",
+    "tags": [
+      "condiment",
+      "shelf-stable",
+      "artisanal",
+      "premium",
+      "gift",
+      "breakfast"
+    ],
+    "base_cost": 1.8,
+    "base_price": 5,
+    "shelf_life_days": 200,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#a8365c",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.34,
+            0.24
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e0d2b4",
+          "pos": [
+            0,
+            0.36,
+            0
+          ],
+          "scale": [
+            0.25,
+            0.06,
+            0.25
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "latte",
+    "name": "Flat White",
+    "tags": [
+      "beverage",
+      "prepared",
+      "premium",
+      "trendy",
+      "breakfast",
+      "classic"
+    ],
+    "base_cost": 1.1,
+    "base_price": 4.8,
+    "shelf_life_days": 1,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f4efe6",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.36,
+            0.22
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8a5a32",
+          "pos": [
+            0,
+            0.37,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.05,
+            0.2
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "lettuce",
+    "name": "Lettuce",
+    "tags": [
+      "produce",
+      "perishable",
+      "healthy",
+      "vegan",
+      "spring",
+      "fragile"
+    ],
+    "base_cost": 0.7,
+    "base_price": 1.9,
+    "shelf_life_days": 3,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "sphere",
+          "color": "#7cc46a",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.26,
+            0.32
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#98d67f",
+          "pos": [
+            0.06,
+            0.22,
+            0.05
+          ],
+          "scale": [
+            0.18,
+            0.16,
+            0.18
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "milk",
+    "name": "Milk",
+    "tags": [
+      "dairy",
+      "perishable",
+      "breakfast",
+      "classic",
+      "heavy"
+    ],
+    "base_cost": 1.3,
+    "base_price": 3.2,
+    "shelf_life_days": 6,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#f4f4ee",
+          "pos": [
+            0,
+            0.22,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.44,
+            0.24
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "box",
+          "color": "#6fb7d8",
+          "pos": [
+            0,
+            0.4,
+            0
+          ],
+          "scale": [
+            0.25,
+            0.12,
+            0.25
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "salsa",
+    "name": "Fresh Salsa",
+    "tags": [
+      "prepared",
+      "condiment",
+      "artisanal",
+      "healthy",
+      "vegan",
+      "summer",
+      "party"
+    ],
+    "base_cost": 1.6,
+    "base_price": 6.5,
+    "shelf_life_days": 6,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c0392b",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.32,
+            0.26
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cylinder",
+          "color": "#7f8c3a",
+          "pos": [
+            0,
+            0.34,
+            0
+          ],
+          "scale": [
+            0.28,
+            0.06,
+            0.28
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "smoothie",
+    "name": "Berry Smoothie",
+    "tags": [
+      "beverage",
+      "prepared",
+      "healthy",
+      "trendy",
+      "summer",
+      "breakfast"
+    ],
+    "base_cost": 1.4,
+    "base_price": 5.4,
+    "shelf_life_days": 3,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#d267a8",
+          "pos": [
+            0,
+            0.22,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.44,
+            0.2
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#f2c4de",
+          "pos": [
+            0,
+            0.46,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.12,
+            0.2
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "soda",
+    "name": "Fizzy Soda",
+    "tags": [
+      "beverage",
+      "shelf-stable",
+      "junk",
+      "kids",
+      "summer",
+      "cheap"
+    ],
+    "base_cost": 0.6,
+    "base_price": 2.2,
+    "shelf_life_days": 180,
+    "stack": 24,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#d94f6e",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.4,
+            0.2
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f2f2f2",
+          "pos": [
+            0,
+            0.41,
+            0
+          ],
+          "scale": [
+            0.19,
+            0.04,
+            0.19
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "toast",
+    "name": "Jam on Toast",
+    "tags": [
+      "bakery",
+      "prepared",
+      "breakfast",
+      "classic",
+      "cheap",
+      "kids"
+    ],
+    "base_cost": 0.9,
+    "base_price": 3.6,
+    "shelf_life_days": 2,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#d8a05a",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.12,
+            0.3
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "box",
+          "color": "#a83232",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.28,
+            0.04,
+            0.24
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "tomato",
+    "name": "Tomato",
+    "tags": [
+      "produce",
+      "perishable",
+      "organic",
+      "healthy",
+      "summer",
+      "cheap"
+    ],
+    "base_cost": 0.8,
+    "base_price": 2,
+    "shelf_life_days": 4,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "sphere",
+          "color": "#e2564a",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.28,
+            0.3
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "cone",
+          "color": "#5aa356",
+          "pos": [
+            0,
+            0.3,
+            0
+          ],
+          "scale": [
+            0.14,
+            0.1,
+            0.14
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "wheat",
+    "name": "Wheat Sheaf",
+    "tags": [
+      "produce",
+      "shelf-stable",
+      "pantry",
+      "bulky",
+      "autumn",
+      "cheap"
+    ],
+    "base_cost": 0.6,
+    "base_price": 1.6,
+    "shelf_life_days": 120,
+    "stack": 20,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#dcc06a",
+          "pos": [
+            0,
+            0.22,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.44,
+            0.16
+          ],
+          "rot": 0
+        },
+        {
+          "shape": "sphere",
+          "color": "#e8d489",
+          "pos": [
+            0,
+            0.44,
+            0
+          ],
+          "scale": [
+            0.18,
+            0.16,
+            0.18
+          ],
+          "rot": 0
+        }
+      ]
+    }
+  }
+]

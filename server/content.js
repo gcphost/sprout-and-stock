@@ -1,0 +1,159 @@
+/**
+ * THE LIVE CONTENT REGISTRY.
+ *
+ * Holds every item/crop/archetype/event/upgrade in memory so the sim can read
+ * them at 20Hz without touching disk. Calls `refresh()` each tick; if the DB's
+ * content_version changed (because someone's agent just inserted a row) it
+ * reloads and fires listeners.
+ *
+ * Net effect: an MCP `create_item()` shows up in the running game within ~50ms,
+ * with no restart and nobody's file getting overwritten.
+ */
+
+import { all, contentVersion, getWorld, setWorld } from './db.js';
+import { SCHEMAS, unknownTags } from '../shared/schemas.js';
+import { upsert } from './db.js';
+
+let cache = null;
+let loadedVersion = -1;
+const listeners = new Set();
+
+function load() {
+  const items = all('items');
+  const crops = all('crops');
+  const archetypes = all('archetypes');
+  const events = all('events');
+  const upgrades = all('upgrades');
+  const recipes = all('recipes');
+
+  cache = {
+    items,
+    crops,
+    archetypes,
+    events,
+    upgrades,
+    recipes,
+    byId: {
+      items: Object.fromEntries(items.map((i) => [i.id, i])),
+      crops: Object.fromEntries(crops.map((c) => [c.id, c])),
+      archetypes: Object.fromEntries(archetypes.map((a) => [a.id, a])),
+      events: Object.fromEntries(events.map((e) => [e.id, e])),
+      upgrades: Object.fromEntries(upgrades.map((u) => [u.id, u])),
+      recipes: Object.fromEntries(recipes.map((r) => [r.id, r])),
+    },
+    version: loadedVersion,
+  };
+  return cache;
+}
+
+/**
+ * Reload if the DB changed. Call this once per tick — it's a single indexed
+ * SELECT when nothing changed, which is free at our tick rate.
+ */
+export function refresh() {
+  const v = contentVersion();
+  if (v === loadedVersion && cache) return false;
+  loadedVersion = v;
+  load();
+  for (const fn of listeners) {
+    try { fn(cache); } catch (err) { console.error('[content] listener failed:', err); }
+  }
+  return true;
+}
+
+export function content() {
+  if (!cache) refresh();
+  return cache;
+}
+
+/** Subscribe to content changes (used to push a "content updated" toast to clients). */
+export function onContentChange(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+/**
+ * Validate + write a content row. This is the ONLY sanctioned write path —
+ * MCP tools, the AI director and seed loading all funnel through here so
+ * nothing unvalidated can ever reach the DB.
+ *
+ * @returns {{ok: true, row: object, warnings: string[]} | {ok: false, error: string}}
+ */
+export function writeContent(kind, data, createdBy = 'agent') {
+  const schema = SCHEMAS[kind];
+  if (!schema) return { ok: false, error: `unknown content kind "${kind}"` };
+
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('; ');
+    return { ok: false, error: issues };
+  }
+
+  const value = parsed.data;
+  const warnings = [];
+
+  // Referential checks that zod can't do on its own.
+  if (kind === 'crop' && !content().byId.items[value.item_id]) {
+    return { ok: false, error: `crop references item_id "${value.item_id}" which does not exist — create the item first` };
+  }
+  if (kind === 'upgrade') {
+    const missing = value.requires.filter((r) => !content().byId.upgrades[r]);
+    if (missing.length) warnings.push(`requires unknown upgrades: ${missing.join(', ')}`);
+  }
+  if (kind === 'recipe') {
+    // A recipe that names an item nobody has created can never be made, and
+    // would fail silently at the station instead of here.
+    const items = content().byId.items;
+    if (!items[value.output_id]) {
+      return { ok: false, error: `recipe outputs "${value.output_id}" which does not exist — create the item first` };
+    }
+    const missing = value.inputs.map((i) => i.item_id).filter((id) => !items[id]);
+    if (missing.length) {
+      return { ok: false, error: `recipe needs items that do not exist: ${missing.join(', ')}` };
+    }
+  }
+  if (value.tags) {
+    const unknown = unknownTags(value.tags);
+    if (unknown.length) warnings.push(`unrecognised tags (they'll still work, but check for typos): ${unknown.join(', ')}`);
+  }
+  if (value.affinities) {
+    const unknown = unknownTags(Object.keys(value.affinities));
+    if (unknown.length) warnings.push(`affinities reference unrecognised tags: ${unknown.join(', ')}`);
+  }
+
+  const table = { item: 'items', crop: 'crops', archetype: 'archetypes', event: 'events', upgrade: 'upgrades', recipe: 'recipes' }[kind];
+  const row = upsert(table, value, createdBy);
+  refresh();
+  return { ok: true, row, warnings };
+}
+
+// ---------------------------------------------------------------------------
+// World bootstrap
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_WORLD = {
+  seed: 'sprout-1',
+  day: 1,
+  /** Minutes into the current in-game day (day is 24 "minutes" long by default). */
+  clock: 6 * 60,
+  cash: 250,
+  reputation: 0.5,
+  season: 'spring',
+  ownedUpgrades: [],
+  plots: 4,
+  // Six is the floor for a shop to feel stocked: with six archetypes shopping,
+  // fewer than this and a third of them find nothing they want and leave.
+  shelves: 6,
+};
+
+export function world() {
+  const w = getWorld('state');
+  if (w) return { ...DEFAULT_WORLD, ...w };
+  return setWorld('state', { ...DEFAULT_WORLD });
+}
+
+export function saveWorld(patch) {
+  return setWorld('state', { ...world(), ...patch });
+}
