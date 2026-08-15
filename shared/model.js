@@ -105,6 +105,25 @@ export function surfacesAt(model, t = 1) {
 }
 
 /**
+ * Which side of its own tile a `seam` part closes, as a step in model space —
+ * or null if it isn't a seam, or doesn't sit against a side.
+ *
+ * Read from the art rather than authored, the same argument `surfacesAt` makes:
+ * the end panel of a wall unit is already stood out at the edge it closes, so
+ * the axis it is furthest out along IS the side. A second field saying "…and
+ * it's the +z one" is a thing that can quietly disagree with the box you drew.
+ */
+export function seamStep(part) {
+  if (!part?.seam) return null;
+  const x = part.pos?.[0] ?? 0;
+  const z = part.pos?.[2] ?? 0;
+  if (Math.abs(x) < 1e-6 && Math.abs(z) < 1e-6) return null;
+  return Math.abs(z) >= Math.abs(x)
+    ? { dx: 0, dz: Math.sign(z) }
+    : { dx: Math.sign(x), dz: 0 };
+}
+
+/**
  * Every shape a kind of fixture comes in, the kind's own model first.
  *
  * The default is a real entry with an empty id rather than a special case, so

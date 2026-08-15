@@ -269,8 +269,17 @@ export class UI {
   }
 
   /** The fixture the ghost should be showing, or null when there isn't one. */
+  /** The edge kind this tool draws, or null if it places a fixture instead. */
+  edgeKindForTool() {
+    if (!this.buildOn || this.holding) return null;
+    const t = buildTools(this).find((x) => x.id === this.buildTool);
+    return t && t.edge !== undefined ? t.edge : null;
+  }
+
   ghostKindForTool() {
     if (!this.buildOn) return null;
+    // A wall tool aims at a line, not a square, so there is no tile ghost.
+    if (this.edgeKindForTool() !== null) return null;
     // What's in your hands outranks what's on the palette: while you're
     // carrying a shelf, every tile you point at is a candidate home for *it*.
     return this.holding?.kind ?? this.buildTool;
@@ -505,7 +514,7 @@ export class UI {
         ${r.icon ? `<span class="bico">${r.icon}</span>` : ''}
         ${r.right ? `<span class="cost">${r.right}</span>` : ''}
       </div>` : ''}
-      <div class="name">${r.name}${r.sub ? `<span class="tags">${r.sub}</span>` : ''}</div>
+      <div class="name">${r.name}${r.heat ? r.heat : ''}${r.sub ? `<span class="tags">${r.sub}</span>` : ''}</div>
       ${!stacked && r.right ? `<div class="price">${r.right}</div>` : ''}
       ${r.button ? `<button data-btn="${i}">${r.button.label}</button>` : ''}
       ${r.tail ? `<span class="have">${r.tail}</span>` : ''}
@@ -528,6 +537,31 @@ export class UI {
 
   /** Item lookups, used by every menu that names one. */
   itemById(id) { return this.catalog.items.find((i) => i.id === id) ?? null; }
+
+  /**
+   * How much the world wants this particular item right now.
+   *
+   * The demand meter says a *tag* is hot, which is only half an answer — you
+   * still have to know which of forty items carries it. This folds the same
+   * numbers down onto one item, exactly the way `folded()` does server-side:
+   * multiply every active modifier whose tag it carries. An item on two hot
+   * tags is genuinely twice as wanted, and should say so.
+   */
+  heatFor(item) {
+    let mult = 1;
+    for (const m of this.state?.modifiers ?? []) {
+      if (item.tags?.includes(m.tag)) mult *= m.demand ?? 1;
+    }
+    return mult;
+  }
+
+  /** That number as a pill, or nothing when the world is indifferent. */
+  heatPill(item) {
+    const mult = this.heatFor(item);
+    if (mult >= 1.25) return `<span class="heat up">▲ ×${mult.toFixed(1)}</span>`;
+    if (mult <= 0.8) return `<span class="heat down">▼ ×${mult.toFixed(1)}</span>`;
+    return '';
+  }
   itemName(id) { return this.itemById(id)?.name ?? id ?? 'something'; }
 
   /**
@@ -561,9 +595,19 @@ export class UI {
       .filter((m) => m.demand >= 1.5 && !stocked.has(m.tag))
       .sort((a, b) => b.demand - a.demand)[0];
     if (missed) {
+      // Name something you could actually buy. "Get viral in" is a riddle if
+      // you don't already know which of forty items carries the tag — and the
+      // whole point of a to-do chip is that you can act on it without going
+      // and working something out first. Cheapest match, since the chip is a
+      // nudge rather than a strategy.
+      const example = this.catalog.items
+        .filter((i) => i.tags?.includes(missed.tag))
+        .sort((a, b) => a.base_cost - b.base_cost)[0];
       out.push({
         icon: 'supplier', hot: true,
-        text: `Get <b>${esc(missed.tag)}</b> in — wanted ×${missed.demand}`,
+        text: example
+          ? `Get <b>${esc(example.name)}</b> in — ${esc(missed.tag)} ×${missed.demand}`
+          : `Get <b>${esc(missed.tag)}</b> in — wanted ×${missed.demand}`,
       });
     }
 
@@ -721,11 +765,30 @@ export class UI {
     this.el.prompt.className = `hud show${action.holding ? ' going' : ''}`;
   }
 
+  /**
+   * The bottom-left event feed.
+   *
+   * A line used to leave only when six newer ones shoved it off the bottom,
+   * which in a quiet shop is never — so the last handful of deliveries stayed
+   * on screen indefinitely and read as messages that were stuck. Each line now
+   * ages out on its own clock; the six-line cap is only there for a busy
+   * minute, and a line evicted that way goes at once rather than fading,
+   * because its slot is already spoken for.
+   */
   pushLog(msg) {
     const line = document.createElement('div');
     line.textContent = msg;
     this.el.log.prepend(line);
-    while (this.el.log.children.length > 6) this.el.log.lastChild.remove();
+    line._timer = setTimeout(() => {
+      line.classList.add('out');
+      line._timer = setTimeout(() => line.remove(), 300);
+    }, 7000);
+    while (this.el.log.children.length > 6) this.dropLogLine(this.el.log.lastChild);
+  }
+
+  dropLogLine(line) {
+    clearTimeout(line._timer);
+    line.remove();
   }
 
   toast(msg, bad = false) {

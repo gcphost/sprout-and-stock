@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, jitter } from './palette.js';
+import { PALETTE, TILE_STYLE, EDGE_STYLE, jitter } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfSlots, buildBubble, buildCashDrop,
   buildHopperSlots,
@@ -17,7 +17,7 @@ import {
   buildGrowthBar, setGrowthBar,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
-import { FIXTURES, anchorTile, canPlace, baseTile } from '../../shared/build.js';
+import { FIXTURES, anchorTile, canPlace, baseTile, turn, rot4 } from '../../shared/build.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, variantModel,
 } from '../../shared/model.js';
@@ -128,6 +128,8 @@ const SUN_OFFSET = new THREE.Vector3(26, 40, 14);
 const BASE_CAM_OFFSET = new THREE.Vector3(20, 24, 20);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const QUARTER = Math.PI / 2;
+
+
 
 /** Day-cycle endpoints, resolved once so syncState allocates nothing. */
 const SKY_HIGH = new THREE.Color(PALETTE.sky);
@@ -396,6 +398,7 @@ export class Scene {
       }
     }
 
+    this.addEdges(L);
     this.addFixtureProps(L);
     this.addAwning(L);
     this.camTarget.set(L.door.x, 0, L.door.z + 2);
@@ -465,10 +468,19 @@ export class Scene {
    * moves when the layout re-flows, and that is exactly when this runs again.
    */
   addFixtureProps(L) {
+    // Which unit stands on which tile, so a seam can ask what is next door.
+    // Built here rather than read off `fixtureAt`, because `storeLayout` is
+    // still the *previous* shop until the end of `buildWorld`.
+    const byTile = new Map();
+    for (const f of fixturesIn(L)) byTile.set(`${f.x},${f.z}`, f);
+
     for (const f of fixturesIn(L)) {
       const model = this.fixtureModel(f);
       if (!model) continue;
-      const prop = buildModel(model, { t: this.fixtureT(f) });
+      const prop = buildModel(model, {
+        t: this.fixtureT(f),
+        abuts: (step) => this.carriesOn(byTile, f, step),
+      });
       // Models are authored facing east, which is rot 0 — the same convention
       // the layout generator has always used for which side you work from.
       prop.rotation.y = -(f.rot ?? 0) * (Math.PI / 2);
@@ -478,15 +490,147 @@ export class Scene {
     }
   }
 
+  /**
+   * Does the shelving carry on past this side of `f`?
+   *
+   * What a `seam` part asks before it draws itself. The test is the same kind
+   * of unit, stood the same way round, on the next tile along: an end panel is
+   * there to close the run, and the run has not ended if what comes next is
+   * more of it.
+   *
+   * Deliberately not the same *variant* or the same *tier*. A wall run flowing
+   * into a corner unit is still one shelf, and a tier is a number rather than a
+   * shape — gating on either would put a divider back in for a reason nobody
+   * looking at the shop can see.
+   */
+  carriesOn(byTile, f, step) {
+    const d = turn(step, f.rot ?? 0);
+    const n = byTile.get(`${f.x + d.dx},${f.z + d.dz}`);
+    return !!n && n.kind === f.kind && rot4(n.rot ?? 0) === rot4(f.rot ?? 0);
+  }
+
   /** A striped awning over the shop door — pure decoration, sells the vibe. */
+  /**
+   * Walls, windows, doorways and fences — the things that live on the
+   * boundaries between cells rather than on a cell of their own.
+   *
+   * One instanced mesh per edge kind per orientation, because a vertical run
+   * and a horizontal one are the same box turned ninety degrees and batching
+   * them separately is cheaper than carrying a rotation per instance.
+   *
+   * A doorway draws its header and threshold but no leaf, so the gap you walk
+   * through is visibly a gap.
+   */
+  addEdges(L) {
+    // Rebuilt on every quarter turn, so it owns a group of its own rather than
+    // living loose in staticRoot — turning the camera must not rebuild the shop.
+    if (this.edgeGroup) {
+      this.staticRoot.remove(this.edgeGroup);
+      disposeGroup(this.edgeGroup);
+    }
+    this.edgeGroup = new THREE.Group();
+    this.staticRoot.add(this.edgeGroup);
+
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    const dummy = new THREE.Object3D();
+
+
+    // [kind, orientation] -> the boxes to draw for it.
+    const runs = new Map();
+    const push = (kind, vertical, spec) => {
+      const k = `${kind}:${vertical ? 'v' : 'h'}`;
+      if (!runs.has(k)) runs.set(k, { kind, vertical, boxes: [] });
+      runs.get(k).boxes.push(spec);
+    };
+
+    const emit = (kind, vertical, cx, cz) => {
+      const style = EDGE_STYLE[kind];
+      if (!style) return;
+      if (style.opening) {
+        // Header across the top, threshold underfoot, nothing between.
+        push(kind, vertical, { cx, cz, y0: style.h - 0.16, y1: style.h });
+        push(kind, vertical, { cx, cz, y0: 0.02, y1: 0.05 });
+        return;
+      }
+      if (style.glass) {
+        push(kind, vertical, { cx, cz, y0: 0, y1: 0.34 });
+        push(kind, vertical, { cx, cz, y0: 0.9, y1: style.h });
+        push(kind, vertical, { cx, cz, y0: 0.34, y1: 0.9, alpha: 0.35 });
+        return;
+      }
+      push(kind, vertical, { cx, cz, y0: 0, y1: style.h });
+    };
+
+    for (let z = 0; z < L.h; z++) {
+      for (let x = 0; x <= L.w; x++) {
+        const kind = L.edgesV?.[z * (L.w + 1) + x] ?? 0;
+        // Centre of a vertical edge: on the lattice line in x, mid-cell in z.
+        if (kind) emit(kind, true, x - 0.5, z);
+      }
+    }
+    for (let z = 0; z <= L.h; z++) {
+      for (let x = 0; x < L.w; x++) {
+        const kind = L.edgesH?.[z * L.w + x] ?? 0;
+        if (kind) emit(kind, false, x, z - 0.5);
+      }
+    }
+
+    for (const { kind, vertical, boxes } of runs.values()) {
+      const style = EDGE_STYLE[kind];
+      const opaque = boxes.filter((b) => b.alpha === undefined);
+      const clear = boxes.filter((b) => b.alpha !== undefined);
+      for (const [set, alpha] of [[opaque, 1], [clear, 0.35]]) {
+        if (!set.length) continue;
+        const mesh = new THREE.InstancedMesh(box, material(style.color, alpha), set.length);
+        mesh.castShadow = alpha === 1;
+        mesh.receiveShadow = true;
+        set.forEach((b, i) => {
+          dummy.position.set(b.cx, (b.y0 + b.y1) / 2, b.cz);
+          dummy.scale.set(
+            vertical ? style.t : 1,
+            Math.max(0.02, b.y1 - b.y0),
+            vertical ? 1 : style.t,
+          );
+          dummy.rotation.set(0, 0, 0);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        this.edgeGroup.add(mesh);
+      }
+
+      // A contrasting coping along the top, so a wall reads as built rather
+      // than as a coloured slab.
+      if (!style.top) continue;
+      const capped = boxes.filter((b) => b.y1 >= style.h - 0.001 && b.alpha === undefined);
+      if (!capped.length) continue;
+      const cap = new THREE.InstancedMesh(box, material(style.top), capped.length);
+      cap.receiveShadow = true;
+      capped.forEach((b, i) => {
+        dummy.position.set(b.cx, style.h + 0.03, b.cz);
+        dummy.scale.set(vertical ? style.t + 0.06 : 1, 0.07, vertical ? 1 : style.t + 0.06);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        cap.setMatrixAt(i, dummy.matrix);
+      });
+      cap.instanceMatrix.needsUpdate = true;
+      this.edgeGroup.add(cap);
+    }
+  }
+
   addAwning(L) {
-    const width = 6;
+    // `door` is the shop-floor cell behind the opening, so the wall line — and
+    // therefore the front of the building — is half a tile further out. The
+    // awning hangs off that, not off the cell.
+    const wallLine = L.door.z + 0.5;
+    const centre = L.door.x + 0.5;
+    const width = 4;
     for (let i = 0; i < width; i++) {
       const stripe = new THREE.Mesh(
         new THREE.BoxGeometry(1, 0.12, 1.4),
         material(i % 2 === 0 ? PALETTE.awningA : PALETTE.awningB),
       );
-      stripe.position.set(L.door.x - width / 2 + i + 0.5, 1.35, L.door.z + 0.5);
+      stripe.position.set(centre - width / 2 + i + 0.5, 1.28, wallLine + 0.55);
       stripe.rotation.x = -0.28;
       stripe.castShadow = true;
       this.staticRoot.add(stripe);
@@ -810,6 +954,54 @@ export class Scene {
   }
 
   /**
+   * Which *line between cells* the pointer is nearest — for drawing walls.
+   *
+   * A third question alongside `pickTile` ("which floor square") and
+   * `pickFixture` ("which thing"), and it needs its own answer because a wall
+   * has no square of its own. The ground hit lands somewhere inside a cell; the
+   * fractional part says which of its four boundaries is closest, and whichever
+   * of the two axes is nearer its own edge wins.
+   *
+   * Aimed at half a tile up rather than at the floor, because you point at the
+   * middle of a wall you can see, not at the ground it stands on — picking at
+   * y=0 makes every wall feel like it is one cell further away than it looks.
+   */
+  pickEdge(clientX, clientY) {
+    if (!this.storeLayout) return null;
+    const hit = this.pickTile(clientX, clientY, 0.55);
+    if (!hit) return null;
+    // pickTile rounds; re-read the raw intersection it left behind.
+    const fx = this._hit.x;
+    const fz = this._hit.z;
+    const L = this.storeLayout;
+
+    // Distance from the cell centre, in each axis, as a 0..0.5 figure.
+    const cx = Math.round(fx);
+    const cz = Math.round(fz);
+    const dx = fx - cx;
+    const dz = fz - cz;
+
+    let o;
+    let x;
+    let z;
+    if (Math.abs(dx) > Math.abs(dz)) {
+      // Nearer a west/east boundary: a vertical line.
+      o = 'v';
+      x = dx > 0 ? cx + 1 : cx;
+      z = cz;
+    } else {
+      o = 'h';
+      x = cx;
+      z = dz > 0 ? cz + 1 : cz;
+    }
+
+    const maxX = o === 'v' ? L.w : L.w - 1;
+    const maxZ = o === 'v' ? L.h - 1 : L.h;
+    if (x < 0 || z < 0 || x > maxX || z > maxZ) return null;
+    return { o, x, z };
+  }
+
+  /**
    * How tall this fixture is *drawn* — the plane its top face sits on.
    *
    * Read off the authored model when there is one, because the whole point of
@@ -969,7 +1161,51 @@ export class Scene {
     this.liftedRing = ring;
   }
 
+  /**
+   * Preview a wall run on the lines between tiles.
+   *
+   * Its own ghost rather than a reuse of `setBuildGhost`, because a fixture
+   * ghost sits on a tile and this sits on a boundary — and because a run is
+   * many segments sharing *one* verdict. Colouring each segment separately
+   * would be a lie: "this seals the shop" is true of the run, not of any one
+   * piece of it.
+   */
+  setEdgeGhost(segs, state) {
+    const key = segs?.length
+      ? `${state}:${segs[0].o}:${segs[0].x},${segs[0].z}:${segs.length}`
+      : null;
+    if (key === this.edgeGhostKey) return;
+    this.edgeGhostKey = key;
+
+    if (this.edgeGhost) {
+      this.actorRoot.remove(this.edgeGhost);
+      disposeGroup(this.edgeGhost);
+      this.edgeGhost = null;
+    }
+    if (!segs?.length || !this.storeLayout) return;
+
+    const colour = state === 'no' ? '#e2564a' : (state === 'warn' ? '#e8a33d' : '#7cc46a');
+    const group = new THREE.Group();
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    for (const s of segs) {
+      const mesh = new THREE.Mesh(geo, material(colour, 0.5));
+      // Same centring the real edge renderer uses: a vertical segment sits on
+      // the lattice line in x and spans the cell in z, and the other way round.
+      if (s.o === 'v') {
+        mesh.position.set(s.x - 0.5, 0.6, s.z);
+        mesh.scale.set(0.22, 1.2, 1);
+      } else {
+        mesh.position.set(s.x, 0.6, s.z - 0.5);
+        mesh.scale.set(1, 1.2, 0.22);
+      }
+      group.add(mesh);
+    }
+    this.actorRoot.add(group);
+    this.edgeGhost = group;
+  }
+
   clearBuildGhost(keepKey = false) {
+    this.setEdgeGhost(null, null);
     if (this.buildGhost) {
       this.actorRoot.remove(this.buildGhost);
       disposeGroup(this.buildGhost);

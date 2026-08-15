@@ -43,10 +43,17 @@ const SHOP = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
 
 function fresh() {
   const g = Game.create({ seed: 'mech', ephemeral: true });
+  // Every piece of world state that `Game.create` reads off the save has to be
+  // reset here, or this sweep silently measures whatever the live shop happens
+  // to look like. `edits` cost a real debugging detour the day it was added:
+  // a wall drawn in the running game partitioned the test shop, every candidate
+  // tile came back as "that walls something off", and the sweep failed with
+  // "there is nowhere to build" in a shop that was 125 legal spots empty.
   g.placements = [];
   g.fixtures = { ...SHOP };
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
+  g.edits = [];
   g.regenerateLayout();
   g.cash = 5000;
   g.addPlayer('me', 'Tester');

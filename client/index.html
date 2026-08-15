@@ -143,7 +143,9 @@
     #log div {
       background: var(--panel); border-radius: 9px; padding: 3px 9px;
       font-size: 11.5px; line-height: 1.35; box-shadow: 0 2px 7px rgba(58,49,40,.09);
+      transition: opacity .3s, transform .3s;
     }
+    #log div.out { opacity: 0; transform: translateX(-8px); }
     #carry { bottom: 72px; right: 12px; font-weight: 700; background: var(--panel);
              border-radius: 9px; padding: 3px 9px; font-size: 11.5px;
              box-shadow: 0 2px 7px rgba(58,49,40,.09); }
@@ -252,6 +254,16 @@
       white-space: normal; overflow: hidden;
       display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
     }
+    /* What the world wants of this one item today, folded down from whichever
+       of its tags an event is currently pushing around. Sits on the name line
+       rather than with the tags, because it is news rather than description. */
+    .row .heat {
+      display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 99px;
+      font-size: 9.5px; font-weight: 800; letter-spacing: .01em; vertical-align: 1px;
+      font-variant-numeric: tabular-nums;
+    }
+    .row .heat.up { background: #d8f0d2; color: #3f7a3c; }
+    .row .heat.down { background: #f6dcd7; color: #a8442f; }
     /* The key hint never shrinks and never wraps — it's the shortest thing in
        the row and the whole reason the row is there, so the name gives way. */
     .row .price {

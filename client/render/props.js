@@ -11,7 +11,7 @@
  */
 
 import * as THREE from 'three';
-import { partsAt } from '../../shared/model.js';
+import { partsAt, seamStep } from '../../shared/model.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
 const GEO = {
@@ -51,14 +51,25 @@ export function material(color, alpha = 1) {
  * or a staged one, in which case `t` (0..1) says how far along it is — growth
  * for a crop, tier for a fixture. See `shared/model.js`.
  *
+ * `abuts` is asked, for each part flagged `seam`, whether something stands
+ * against that side of the model — see `seamStep`. Only a placed fixture knows
+ * the answer, so everything else leaves it off and keeps every part it was
+ * drawn with; a crop in your hand has no neighbours.
+ *
  * Returns a Group positioned so its origin sits on the ground.
  */
-export function buildModel(model, { castShadow = true, t = 1 } = {}) {
+export function buildModel(model, { castShadow = true, t = 1, abuts = null } = {}) {
   const group = new THREE.Group();
   const parts = partsAt(model, t);
   if (!parts.length) return group;
 
   for (const part of parts) {
+    // A seam exists to close the end of a unit, and there is no end to close
+    // where the next one along carries straight on. Dropping the panel is the
+    // whole difference between a row of wall units and one long shelf.
+    const seam = abuts && seamStep(part);
+    if (seam && abuts(seam)) continue;
+
     const geo = GEO[part.shape] ?? GEO.box;
     const alpha = part.alpha ?? 1;
     const mesh = new THREE.Mesh(geo, material(part.color, alpha));

@@ -16,6 +16,7 @@
  */
 
 import { generateLayout, buildWalkGrid, T } from '../server/layout.js';
+import { insideStore } from '../shared/build.js';
 
 const argv = process.argv.slice(2);
 const flag = (name, dflt) => {
@@ -265,7 +266,7 @@ for (let s = 0; s < Math.min(SEEDS, 8); s++) {
   for (const shift of [-4, -2, 0, 2, 4]) {
     const L = generateLayout({ ...base, doorShift: shift });
     const grid = buildWalkGrid(L);
-    check(L.door.x > L.store.x && L.door.x + 1 < L.store.x + L.store.w - 1,
+    check(L.door.x >= L.store.x && L.door.x + 1 < L.store.x + L.store.w,
       'moved door left the wall', `${seed}: shift ${shift} -> door ${L.door.x}`);
     check(Math.abs(L.bay.x - L.door.x) < 6,
       'bay did not follow the door', `${seed}: shift ${shift}, door ${L.door.x}, bay ${L.bay.x}`);
@@ -282,9 +283,11 @@ for (let s = 0; s < Math.min(SEEDS, 8); s++) {
   }
 }
 
+// Deliberately the real validator rather than a copy of it. This used to be a
+// second definition of "inside the shop", and when walls moved onto the edges
+// the copy kept the old wall-ring geometry and reported 1200 phantom failures.
 function onShopFloor(L, x, z) {
-  return x > L.store.x && x < L.store.x + L.store.w - 1
-    && z > L.store.z && z < L.store.z + L.store.h - 1;
+  return insideStore(L, x, z);
 }
 
 function flood(L, grid, sx, sz) {

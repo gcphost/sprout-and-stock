@@ -167,6 +167,22 @@ export const DEFAULT_WORLD = {
   shelves: 6,
 };
 
+/**
+ * The save keys that *are* the economy, as opposed to the shop you built.
+ *
+ * Named as an allow-list of what a reset touches rather than a keep-list of
+ * what it spares, because `persist()` gains keys over time — `edits` is recent
+ * — and a keep-list silently drops each new one the day it's added. Anything
+ * saved later survives a reset by default, which is the safe way to be wrong.
+ */
+export const ECONOMY_KEYS = ['day', 'cash', 'reputation', 'season'];
+
+/** What a fresh shop starts on. One definition; the offline script, the live
+ *  reset route and `DEFAULT_WORLD` itself all read it from here. */
+export function freshEconomy() {
+  return Object.fromEntries(ECONOMY_KEYS.map((k) => [k, DEFAULT_WORLD[k]]));
+}
+
 export function world() {
   const w = getWorld('state');
   if (w) return { ...DEFAULT_WORLD, ...w };

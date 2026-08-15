@@ -46,6 +46,37 @@ export const BUILD_TOOLS = [
     name: 'Plot',
     blurb: 'Earth, outside. Turn it over before it takes a seed.',
   },
+  // The shell. These go on the lines *between* tiles rather than on a tile, so
+  // they aim differently — `Scene.pickEdge` rather than `pickTile` — but they
+  // sit in the same palette because from the player's side it is all building.
+  {
+    id: 'wall',
+    edge: 1,
+    icon: ICONS.build,
+    name: 'Wall',
+    blurb: 'Encloses. Anything the walls close in counts as indoors.',
+  },
+  {
+    id: 'window',
+    edge: 2,
+    icon: ICONS.ambient,
+    name: 'Window',
+    blurb: 'A wall you can see through. Still encloses.',
+  },
+  {
+    id: 'door',
+    edge: 3,
+    icon: ICONS.shop,
+    name: 'Doorway',
+    blurb: 'A way through. Still counts as part of the enclosure.',
+  },
+  {
+    id: 'knock',
+    edge: 0,
+    icon: ICONS.remove,
+    name: 'Knock through',
+    blurb: 'Take a wall out. Refunds half of whatever was there.',
+  },
 ];
 
 /**
@@ -211,6 +242,9 @@ export const SECTIONS = [
     rows: (ui) => grouped(
       ui.catalog.items.map((it) => ({
         name: it.name,
+        // What the world thinks of this one today. The tag chips tell you what
+        // it *is*; this tells you whether buying it right now is clever.
+        heat: ui.heatPill(it),
         sub: it.tags.slice(0, 3).join(' · '),
         right: money(it.base_cost),
         facets: it.tags,

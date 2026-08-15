@@ -43,6 +43,20 @@ const PART = z.object({
    */
   surface: z.boolean().default(false),
   /**
+   * "This part is only here to close the end of the unit."
+   *
+   * The side panel of a wall run caps the shelving — but a cap is only wanted
+   * where the run actually ends. Stand four of them in a row and every panel
+   * meets another back to back, drawing a divider through what the eye reads as
+   * one long shelf. Flagged, the renderer drops it against a matching
+   * neighbour and keeps it at the two ends, so a run of four is a run.
+   *
+   * Which side it closes is read from where the part sits — `seamStep` in
+   * `shared/model.js`. A part at the middle of a model closes nothing, and a
+   * model nobody stands next to keeps every part it was drawn with.
+   */
+  seam: z.boolean().default(false),
+  /**
    * How solid this part is, 0.05..1. Below 1 it's glass: a freezer door you can
    * see the stock through, a window, a bottle.
    *

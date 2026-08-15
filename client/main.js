@@ -2,6 +2,7 @@
  * CLIENT ENTRY POINT — input, render loop, and glue.
  */
 
+import { canPlaceEdges, edgeRun } from '../shared/build.js';
 import { Scene } from './render/scene.js';
 import { Net } from './net.js';
 import { UI } from './ui.js';
@@ -134,6 +135,23 @@ addEventListener('pointermove', (e) => {
 let ghostKey = null;
 
 function refreshGhost(force = false) {
+  // A wall tool previews the line under the pointer, not a tile. While a drag
+  // is live the drag owns the ghost — it knows the whole run, this only ever
+  // knows the one segment you are hovering.
+  if (edgeDrag) return;
+  const edgeKind = pointer.onCanvas ? ui.edgeKindForTool() : null;
+  if (edgeKind !== null) {
+    const seg = scene.pickEdge(pointer.x, pointer.y);
+    if (!seg) { scene.setEdgeGhost(null, null); ui.setBuildWarn(null); return; }
+    const verdict = canPlaceEdges(scene.storeLayout, [seg], edgeKind);
+    scene.setEdgeGhost([seg], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
+    ui.setBuildWarn(verdict.ok ? (verdict.warn ?? null) : null);
+    scene.setAimTarget(null);
+    ui.setAim(null);
+    return;
+  }
+  scene.setEdgeGhost(null, null);
+
   const kind = pointer.onCanvas ? ui.ghostKindForTool() : null;
   if (!kind) {
     if (ghostKey !== null || force) { ghostKey = null; scene.setBuildGhost(null); }
@@ -215,6 +233,37 @@ const HOLD_SLOP = 14;
 const stick = { active: false, id: null, ox: 0, oy: 0, dx: 0, dy: 0, travel: 0 };
 
 // ---------------------------------------------------------------------------
+// Drawing a wall
+//
+// With a wall tool up, a drag draws instead of steering. That is a real mode
+// change and it is deliberate: everywhere else drag-to-walk is sacred, but a
+// wall is a *run*, and clicking twelve times to fence off a back room is not a
+// thing anybody would do twice. The tool you picked is the consent.
+// ---------------------------------------------------------------------------
+let edgeDrag = null;
+
+/** The segments a drag from its start to the pointer would lay. */
+function edgeDragRun(cx, cy) {
+  if (!edgeDrag) return [];
+  // How far along the run's own axis the pointer has got. Read off the tile
+  // rather than off `pickEdge`, which answers "which line" — the wrong question
+  // once the line is already chosen.
+  const tile = scene.pickTile(cx, cy, 0.55);
+  const to = tile ? (edgeDrag.start.o === 'v' ? tile.z : tile.x) : null;
+  return edgeRun(edgeDrag.start, to);
+}
+
+function showEdgeDrag(cx, cy) {
+  const segs = edgeDragRun(cx, cy);
+  if (!segs.length) { scene.setEdgeGhost(null, null); return null; }
+  const verdict = canPlaceEdges(scene.storeLayout, segs, edgeDrag.kind);
+  const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
+  scene.setEdgeGhost(segs, state);
+  ui.setBuildWarn(verdict.ok ? (verdict.warn ?? null) : null);
+  return { segs, verdict };
+}
+
+// ---------------------------------------------------------------------------
 // Press and hold
 //
 // One button does three things, separated by how far and how long you move it:
@@ -233,6 +282,19 @@ function sendHold(on) {
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
+
+  // A wall tool takes the drag before the joystick sees it.
+  const ek = ui.edgeKindForTool();
+  if (ek !== null) {
+    const start = scene.pickEdge(e.clientX, e.clientY);
+    if (start) {
+      edgeDrag = { start, kind: ek, id: e.pointerId };
+      canvas.setPointerCapture(e.pointerId);
+      showEdgeDrag(e.clientX, e.clientY);
+      return;
+    }
+  }
+
   stick.active = true;
   stick.id = e.pointerId;
   stick.ox = e.clientX;
@@ -245,6 +307,10 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  if (edgeDrag && e.pointerId === edgeDrag.id) {
+    showEdgeDrag(e.clientX, e.clientY);
+    return;
+  }
   if (!stick.active || e.pointerId !== stick.id) return;
   const dx = e.clientX - stick.ox;
   const dy = e.clientY - stick.oy;
@@ -261,6 +327,26 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function endStick(e) {
+  if (edgeDrag && (!e || e.pointerId === edgeDrag.id)) {
+    const drawn = e ? showEdgeDrag(e.clientX, e.clientY) : null;
+    const start = edgeDrag.start;
+    const kind = edgeDrag.kind;
+    edgeDrag = null;
+    scene.setEdgeGhost(null, null);
+    ui.setBuildWarn(null);
+    if (drawn) {
+      if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
+      if (drawn.verdict.warn) ui.toast(drawn.verdict.warn);
+      const last = drawn.segs[drawn.segs.length - 1];
+      // Two ends and a kind, never the list — a long wall would blow past the
+      // 4KB inbound cap, and one message is also one re-flow.
+      net.send('build-edge', {
+        o: start.o, x: start.x, z: start.z, kind,
+        to: start.o === 'v' ? last.z : last.x,
+      });
+    }
+    return;
+  }
   if (!stick.active || (e && e.pointerId !== stick.id)) return;
   // A press that never really moved is a tap, not a steer. That's what lets
   // build mode keep the drag-joystick: you still walk by dragging, and you

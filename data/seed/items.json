@@ -625,6 +625,135 @@
     }
   },
   {
+    "id": "rainbow-bagel",
+    "name": "Rainbow Bagel",
+    "tags": [
+      "bakery",
+      "viral",
+      "trendy",
+      "kids",
+      "party",
+      "perishable",
+      "premium"
+    ],
+    "base_cost": 2.1,
+    "base_price": 5.4,
+    "shelf_life_days": 3,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e8556d",
+          "pos": [
+            0,
+            0.08,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.15,
+            0.34
+          ],
+          "rot": 0,
+          "surface": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f2a03d",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.33,
+            0.07,
+            0.33
+          ],
+          "rot": 0,
+          "surface": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#7cc46a",
+          "pos": [
+            0,
+            0.19,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.06,
+            0.32
+          ],
+          "rot": 0,
+          "surface": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#5b8ff9",
+          "pos": [
+            0,
+            0.23,
+            0
+          ],
+          "scale": [
+            0.31,
+            0.05,
+            0.31
+          ],
+          "rot": 0,
+          "surface": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c98ad9",
+          "pos": [
+            0,
+            0.27,
+            0
+          ],
+          "scale": [
+            0.29,
+            0.05,
+            0.29
+          ],
+          "rot": 0,
+          "surface": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#4a3b2c",
+          "pos": [
+            0,
+            0.19,
+            0
+          ],
+          "scale": [
+            0.11,
+            0.28,
+            0.11
+          ],
+          "rot": 0,
+          "surface": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
     "id": "salsa",
     "name": "Fresh Salsa",
     "tags": [

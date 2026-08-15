@@ -162,6 +162,14 @@ export class MartRoom extends Room {
       this.game.cancelBuildHold(client.sessionId);
     });
 
+    // Drawing on the boundaries between cells rather than on a cell: walls,
+    // windows, doorways. Re-flows the shell, so the layout goes back out.
+    this.onMessage('build-edge', (client, m) => {
+      const res = this.game.buildEdge(client.sessionId, m ?? {});
+      client.send('action-result', res);
+      if (res.ok) this.sendLayout();
+    });
+
     // ---- the fixture menu ---------------------------------------------------
     // One message per thing a fixture's own menu offers. They all take an id,
     // because the player opened that fixture's menu to get here.

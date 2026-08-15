@@ -12,10 +12,11 @@
  * tick, so content added via MCP appears mid-game without a restart.
  */
 
-import { content, world as loadWorld, saveWorld } from '../content.js';
+import { content, world as loadWorld, saveWorld, freshEconomy } from '../content.js';
 import { JOBS } from '../../shared/schemas.js';
-import { activeModifiers, addModifier, pruneModifiers } from '../db.js';
+import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '../db.js';
 import { generateLayout, buildWalkGrid, T } from '../layout.js';
+import { E, SOLID, edgeBetween } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
   foldModifiers, modifierMeter, rankShelves, purchaseChance, suggestedPrice,
@@ -24,7 +25,7 @@ import {
 import { spoilRate, requiredFixture, desireFor } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
-import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND } from '../../shared/build.js';
+import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, canPlaceEdge, canPlaceEdges, edgeRun} from '../../shared/build.js';
 
 /** Real seconds in one in-game day. */
 export const DAY_SECONDS = 360;
@@ -32,6 +33,25 @@ export const OPEN_HOUR = 8;
 export const CLOSE_HOUR = 20;
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
 
+/** Half a body's width, for stopping short of a thin wall rather than in it. */
+const PLAYER_RADIUS = 0.34;
+
+/**
+ * What a metre of each thing costs to build.
+ *
+ * Here rather than in content because these are the *shell* — you cannot author
+ * a new kind of wall without teaching the enclosure fill what it means, so the
+ * vocabulary is closed and the prices may as well sit beside it. A doorway
+ * costs more than the wall it interrupts, which is why knocking one through is
+ * not free money.
+ */
+/** Longest wall one drag will lay, so a stray gesture can't spend everything. */
+const EDGE_RUN_MAX = 40;
+const EDGE_COST = { [E.WALL]: 12, [E.WINDOW]: 26, [E.DOOR]: 34, [E.GATE]: 8, [E.FENCE]: 4 };
+const EDGE_LABEL = {
+  [E.WALL]: 'a wall', [E.WINDOW]: 'a window', [E.DOOR]: 'a doorway',
+  [E.GATE]: 'a gate', [E.FENCE]: 'a fence',
+};
 const PLAYER_SPEED = 4.2;      // tiles/sec
 const CUSTOMER_SPEED = 2.4;
 const REACH = 1.6;             // how close you must be to interact
@@ -103,6 +123,8 @@ export class Game {
     this.nextFixtureId = state.nextFixtureId ?? 1;
     this.grow = state.grow ?? { w: 0, h: 0 };
     this.doorShift = state.doorShift ?? 0;
+    // Walls, windows and doorways the player drew, as an overlay on the shell.
+    this.edits = state.edits ?? [];
   }
 
   // -------------------------------------------------------------------------
@@ -116,6 +138,7 @@ export class Game {
     const placements = w.placements ?? [];
     const grow = w.storeGrow ?? { w: 0, h: 0 };
     const doorShift = w.doorShift ?? 0;
+    const edits = w.edits ?? [];
     const layout = generateLayout({
       seed: useSeed,
       shelves: fixtures.shelf,
@@ -126,6 +149,7 @@ export class Game {
       placements,
       grow,
       doorShift,
+      edits,
     });
 
     // Derived before the Game is built so the id counter can clear it.
@@ -152,6 +176,7 @@ export class Game {
       nextFixtureId: w.nextFixtureId ?? 1,
       grow,
       doorShift,
+      edits,
       layout,
       layoutVersion: 1,
       players: {},
@@ -184,6 +209,7 @@ export class Game {
       nextFixtureId: this.nextFixtureId,
       grow: this.grow,
       doorShift: this.doorShift,
+      edits: this.edits,
       layout: this.layout,
       layoutVersion: this.layoutVersion,
       players: this.players,
@@ -229,8 +255,56 @@ export class Game {
       nextFixtureId: this.nextFixtureId,
       storeGrow: this.grow,
       doorShift: this.doorShift,
+      edits: this.edits,
       plots: this.fixtures.plot,
       shelves: this.fixtures.shelf,
+    });
+  }
+
+  /**
+   * Back to day one on the money, without touching the shop you built.
+   *
+   * Upgrades, staff, fixtures, placements, walls and shelf stock all stay —
+   * this resets what a run *earned*, not what it owns. (The full wipe is
+   * `npm run reset:economy -- --all`, offline: tearing the roster and the
+   * fixture ledger out from under a live room is a different operation, and
+   * one nobody should trigger while four other people are playing.)
+   *
+   * Money in flight goes with it. Cash on the floor and customers holding
+   * baskets were earned under the old prices, and a shopper left mid-aisle
+   * would pay day-27 money into a day-1 till. Their till queues are emptied in
+   * the same pass — a queue holds customer *ids*, so dropping the customers
+   * without the queues strands ids that `serve` would then look up and miss.
+   */
+  resetEconomy() {
+    const before = { day: this.day, cash: round2(this.cash) };
+
+    Object.assign(this, freshEconomy());
+    this.lastDirectorDay = null;
+    this.stats = freshStats();
+    this.rng = makeRng(`${this.seed}:${this.day}`);
+
+    const customers = Object.keys(this.customers).length;
+    this.customers = {};
+    this.nextCustomerId = 1;
+    this.spawnAccumulator = 0;
+    for (const till of this.layout.checkouts) till.queue = [];
+    this.cashDrops = [];
+    this.nextCashId = 1;
+
+    const cleared = clearModifiers();
+    this.invalidateModifiers();
+    this.persist();
+    this.pushLog(`Economy reset: day ${before.day} → 1, $${before.cash.toFixed(2)} → $${this.cash.toFixed(2)}.`);
+
+    return ok({
+      day: this.day, cash: round2(this.cash), season: this.season, reputation: this.reputation,
+      clearedModifiers: cleared, sentHome: customers,
+      kept: {
+        upgrades: this.ownedUpgrades.length,
+        staff: this.roster.length,
+        placements: this.placements.length,
+      },
     });
   }
 
@@ -494,8 +568,11 @@ export class Game {
       const nz = p.z + (dz / len) * speed * dt;
 
       // Axis-separated so sliding along a wall feels right instead of sticking.
-      if (this.canStand(nx, p.z)) p.x = nx;
-      if (this.canStand(p.x, nz)) p.z = nz;
+      // Which is also exactly the shape edge walls want: each axis crosses at
+      // most one boundary, so "may I be there" and "may I get there" are one
+      // check per axis rather than a swept volume.
+      if (this.canWalk(p.x, p.z, nx, p.z)) p.x = nx;
+      if (this.canWalk(p.x, p.z, p.x, nz)) p.z = nz;
       p.facing = Math.atan2(dx, dz);
     }
   }
@@ -666,6 +743,28 @@ export class Game {
   stationWants(station, itemId) {
     return this.recipesFor(station.station)
       .some((r) => r.inputs.some((i) => i.item_id === itemId));
+  }
+
+  /**
+   * May somebody move from one point to another?
+   *
+   * Two questions, and a wall on a boundary is why they came apart: the
+   * destination has to be standable, *and* nothing solid may sit on the line
+   * crossed to reach it. A tile check alone would let you walk through any
+   * wall, because with edges the tiles either side of one are both plain floor.
+   *
+   * The destination is probed a body-radius ahead rather than at the centre, or
+   * you would stop with the wall running through your middle — a tile-thick
+   * wall used to hide that, a 0.17-thick one would not.
+   */
+  canWalk(fromX, fromZ, toX, toZ) {
+    if (!this.canStand(toX, toZ)) return false;
+    const ax = Math.round(fromX);
+    const az = Math.round(fromZ);
+    const bx = Math.round(toX + Math.sign(toX - fromX) * PLAYER_RADIUS);
+    const bz = Math.round(toZ + Math.sign(toZ - fromZ) * PLAYER_RADIUS);
+    if (ax === bx && az === bz) return true;
+    return !SOLID.has(edgeBetween(this.layout, ax, az, bx, bz));
   }
 
   canStand(x, z) {
@@ -1720,6 +1819,13 @@ export class Game {
       if (u.kind !== 'station' || !u.payload?.station) continue;
       costs[ledgerKey('station', u.payload.station)] = round2(u.cost);
     }
+    // The shell, priced per segment. Same reason fixture prices are shared: the
+    // palette prints the number on the button and the server is what charges
+    // it, so two copies would be two different amounts of money.
+    costs.wall = EDGE_COST[E.WALL];
+    costs.window = EDGE_COST[E.WINDOW];
+    costs.door = EDGE_COST[E.DOOR];
+    costs.knock = 0;
     return costs;
   }
 
@@ -1940,6 +2046,88 @@ export class Game {
   }
 
   /** Slide the front door along the south wall. */
+  /**
+   * Draw or erase one segment of wall, window or doorway.
+   *
+   * Stored as an *overlay* rather than written into the layout, because the
+   * generator rebuilds the shell from scratch on every re-flow — the same
+   * reason `placements` exists. Write it into the tiles and buying a shelf
+   * would quietly demolish your back room.
+   *
+   * Re-drawing the same line replaces whatever was there, so a window over a
+   * wall is one action rather than erase-then-place.
+   */
+  buildEdge(playerId, spec = {}) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if (!p.build?.on) return err('not in build mode');
+
+    const o = spec.o === 'v' ? 'v' : 'h';
+    const x = Math.round(Number(spec.x));
+    const z = Math.round(Number(spec.z));
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return err('nowhere to build that');
+
+    const kind = Math.max(0, Math.trunc(Number(spec.kind ?? E.WALL)) || 0);
+    if (kind && !EDGE_COST[kind]) return err('you cannot build that');
+
+    // A run arrives as its two ends, never as a list of tiles — Colyseus caps
+    // inbound messages at 4KB, and a long wall is a lot of tiles.
+    const segs = edgeRun({ o, x, z }, spec.to, EDGE_RUN_MAX);
+
+    // Asked for the whole run at once: no single segment of a wall across the
+    // aisle seals anything, so per-segment checks would report no warning right
+    // up until the shop was shut.
+    const check = canPlaceEdges(this.layout, segs, kind);
+    if (!check.ok) return err(check.reason);
+
+    let spent = 0;
+    let placed = 0;
+    let short = false;
+    for (const s of segs) {
+      const key = `${s.o}:${s.x},${s.z}`;
+      const had = this.edits.find((e) => `${e.o}:${e.x},${e.z}` === key);
+      const existing = had ? had.k : this.edgeKindAt(s.o, s.x, s.z);
+      if (existing === kind) continue;
+
+      // Pay the difference: taking a wall out refunds, swapping wall for window
+      // charges only the gap. Erasing something the generator built refunds
+      // too — the shell is as much yours as anything you drew.
+      const cost = round2((EDGE_COST[kind] ?? 0)
+        - (EDGE_COST[existing] ?? 0) * FIXTURE_REFUND);
+      // Running out halfway builds what you could afford rather than refusing
+      // the lot: a drag is a gesture, and losing all of it to the last segment
+      // being a dollar short is the kind of thing you cannot see coming.
+      if (cost > 0 && this.cash - spent < cost) { short = true; break; }
+
+      spent = round2(spent + cost);
+      this.edits = this.edits.filter((e) => `${e.o}:${e.x},${e.z}` !== key);
+      this.edits.push({ o: s.o, x: s.x, z: s.z, k: kind });
+      placed++;
+    }
+
+    if (!placed) {
+      return short ? err(`need $${EDGE_COST[kind].toFixed(2)}`) : ok({ placed: 0, unchanged: true });
+    }
+
+    this.cash = round2(this.cash - spent);
+    if (spent > 0) this.stats.spent += spent;
+    this.regenerateLayout();
+
+    const what = EDGE_LABEL[kind] ?? 'a wall';
+    this.pushLog(kind
+      ? `Built ${placed > 1 ? `${placed} segments of ${what.replace(/^an? /, '')}` : what}`
+        + `${spent > 0 ? ` for $${spent.toFixed(2)}` : ''}.`
+      : `Knocked ${placed > 1 ? `${placed} segments` : 'a hole'} through.`);
+    return ok({ placed, cost: spent, short, warn: check.warn ?? null });
+  }
+
+  /** What is currently on a lattice line, generated shell included. */
+  edgeKindAt(o, x, z) {
+    const L = this.layout;
+    if (o === 'v') return L.edgesV?.[z * (L.w + 1) + x] ?? 0;
+    return L.edgesH?.[z * L.w + x] ?? 0;
+  }
+
   moveDoor(playerId, shift) {
     const p = this.players[playerId];
     if (!p?.build?.on) return err('not in build mode');
@@ -2040,6 +2228,7 @@ export class Game {
       placements: this.placements,
       grow: this.grow,
       doorShift: this.doorShift,
+      edits: this.edits,
     });
 
     // A placement the re-flow could no longer honour goes back to the generator

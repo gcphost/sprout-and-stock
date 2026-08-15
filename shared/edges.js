@@ -164,6 +164,44 @@ export function computeIndoor(L) {
 export const isIndoor = (L, mask, x, z) =>
   (x < 0 || z < 0 || x >= L.w || z >= L.h ? false : mask[z * L.w + x] === 1);
 
+/**
+ * Every cell you could walk to from here, obeying tiles *and* edges.
+ *
+ * The question behind "would this wall seal my shop": build the set once from
+ * the doorway and ask it about every working spot, rather than pathfinding to
+ * each one in turn.
+ */
+export function reachable(L, sx, sz, standable = defaultStandable) {
+  const seen = new Set();
+  const x0 = Math.round(sx);
+  const z0 = Math.round(sz);
+  const stack = [[x0, z0]];
+  seen.add(`${x0},${z0}`);
+  while (stack.length) {
+    const [x, z] = stack.pop();
+    for (const [dx, dz] of NEIGHBOURS) {
+      const nx = x + dx;
+      const nz = z + dz;
+      const k = `${nx},${nz}`;
+      if (seen.has(k)) continue;
+      if (!canStep(L, x, z, nx, nz, standable)) continue;
+      seen.add(k);
+      stack.push([nx, nz]);
+    }
+  }
+  return seen;
+}
+
+
+/** A copy of `L` with one edge changed, for asking "what if". */
+export function withEdge(L, { o, x, z }, kind) {
+  const edgesV = Uint8Array.from(L.edgesV ?? []);
+  const edgesH = Uint8Array.from(L.edgesH ?? []);
+  if (o === 'v') edgesV[eviOf(L.w, x, z)] = kind;
+  else edgesH[ehiOf(L.w, x, z)] = kind;
+  return { ...L, edgesV, edgesH };
+}
+
 // ---------------------------------------------------------------------------
 // Migration
 // ---------------------------------------------------------------------------

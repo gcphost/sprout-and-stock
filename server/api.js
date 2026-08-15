@@ -186,6 +186,17 @@ export function createApi() {
     res.json({ ok: true, tag, expires_day: g.day + Number(days) });
   }));
 
+  // Start the money over on the shop you already built. `stock` refills every
+  // shelf and replants every plot on the way out, which is what "reset it to
+  // fully stocked" means — otherwise day one opens with day twenty-seven's
+  // half-empty aisles.
+  api.post('/reset-economy', wrap((req, res) => {
+    const g = game();
+    const result = g.resetEconomy();
+    const stocked = req.body?.stock ? g.autoStock() : null;
+    res.json({ ...result, stocked });
+  }));
+
   api.post('/modifiers/clear', wrap((req, res) => {
     const n = clearModifiers(req.body?.source);
     game().invalidateModifiers();

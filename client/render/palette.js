@@ -7,6 +7,7 @@
  */
 
 import { T } from '../../shared/tiles.js';
+import { E } from '../../shared/edges.js';
 
 export const PALETTE = {
   grass: '#8ec96b',
@@ -75,6 +76,23 @@ export const TILE_STYLE = {
   [T.FENCE]: { color: PALETTE.fence, h: 0.45 },
   [T.STATION]: { color: PALETTE.station, h: 0.7 },
   [T.BAY]: { color: PALETTE.bay, h: 0.07 },
+};
+
+/**
+ * Edge kind -> how it renders.
+ *
+ * `t` is thickness across the boundary, in tiles. A wall is thin because it
+ * sits *on* the line between two cells rather than filling one — which is where
+ * the two tiles of shop floor per side came back from.
+ */
+export const EDGE_STYLE = {
+  [E.WALL]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17 },
+  [E.WINDOW]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, glass: true },
+  // A doorway is a gap you can walk through: a header spanning the opening and
+  // a threshold underfoot, with nothing in between.
+  [E.DOOR]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, opening: true },
+  [E.GATE]: { color: PALETTE.fence, h: 0.5, t: 0.14, opening: true },
+  [E.FENCE]: { color: PALETTE.fence, h: 0.5, t: 0.14 },
 };
 
 /** Slightly vary a colour per tile so big flat areas don't look dead. */

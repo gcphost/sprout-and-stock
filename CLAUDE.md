@@ -153,6 +153,7 @@ what the next step was meant to be.
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, and the kinds-vs-pieces catalog that makes lights and decorations authorable | proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks and the props that make them visible | steps 1–6 and 8 built |
+| [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | proposed |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 
 ---

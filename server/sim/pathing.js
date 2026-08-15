@@ -12,6 +12,7 @@
  */
 
 import { isWalkable } from '../layout.js';
+import { SOLID, edgeBetween } from '../../shared/edges.js';
 
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -70,6 +71,10 @@ export function findPath(grid, layout, start, goal, { maxNodes = 4000 } = {}) {
       const nx = cx + dx;
       const nz = cz + dz;
       if (!isWalkable(grid, layout, nx, nz)) continue;
+      // A walkable tile you cannot get to is not a step. Walls live on the
+      // boundary between cells, so the crossing has to be checked separately
+      // from the destination — see shared/edges.js.
+      if (SOLID.has(edgeBetween(layout, cx, cz, nx, nz))) continue;
 
       const nk = key(nx, nz);
       const tentative = cg + 1;

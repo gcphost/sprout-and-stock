@@ -435,6 +435,19 @@ server.registerTool('add_modifier', {
   },
 }, async (args) => text(await call('POST', '/modifier', args)));
 
+server.registerTool('reset_economy', {
+  title: 'Start the money over',
+  description:
+    'Put day, cash, season and reputation back to a fresh start on the shop that already exists. '
+    + 'Upgrades, staff, fixtures, hand-placed positions, walls and shelf stock all survive — this resets what a run earned, not what it owns. '
+    + 'Active modifiers are cleared, and customers mid-shop are sent home rather than left to pay old prices into a day-one till.\n\n'
+    + 'Pass stock to refill every shelf and replant every plot on the way out, so day one opens full instead of wearing the last run\'s empty aisles.\n\n'
+    + 'To also throw away upgrades, staff and fixtures, stop the server and run `npm run reset:economy -- --all` — that one is deliberately not available live.',
+  inputSchema: {
+    stock: z.boolean().default(false).describe('Fill every shelf and plant every plot after resetting.'),
+  },
+}, async (args) => text(await call('POST', '/reset-economy', args)));
+
 server.registerTool('clear_modifiers', {
   title: 'Clear world modifiers',
   description: 'Remove active demand/price modifiers to get back to a neutral baseline before measuring something.',

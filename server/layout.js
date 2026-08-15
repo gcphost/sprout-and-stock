@@ -23,6 +23,7 @@
 
 import { makeRng } from '../shared/rng.js';
 import { T, WALKABLE } from '../shared/tiles.js';
+import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import { anchorTile, queueAxis, canPlaceCleanly } from '../shared/build.js';
 
 export { T };
@@ -34,9 +35,14 @@ export { T };
 export const WORLD_W = 26;
 export const WORLD_H = 22;
 
-/** Smallest a shop can be. Everything grows up from here. */
-const MIN_STORE_W = 11;
-const MIN_STORE_H = 11;
+/**
+ * Smallest a shop can be, measured in usable floor. Everything grows up from
+ * here. This was 11 when the rect included a wall ring that ate a tile a side;
+ * every cell is floor now, so 9 keeps the starting shop exactly the size it was
+ * and leaves the balance alone.
+ */
+const MIN_STORE_W = 9;
+const MIN_STORE_H = 9;
 
 /** Farm plots per side of the path, per row. */
 const PLOTS_PER_SIDE = 4;
@@ -72,10 +78,16 @@ export function generateLayout({
   placements = [],
   grow = { w: 0, h: 0 },
   doorShift = 0,
+  edits = [],
 } = {}) {
   const req = {
     seed, shelves, freezers, checkouts, plots, stations,
     placements: placements ?? [],
+    // Walls, windows and doorways the player drew. An overlay for the same
+    // reason `placements` is one: the generator rebuilds the shell from scratch
+    // on every re-flow, so anything hand-built has to be re-applied on top or a
+    // shelf purchase quietly demolishes your back room.
+    edits: edits ?? [],
     doorShift: Math.trunc(doorShift) || 0,
   };
 
@@ -148,12 +160,17 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const storeZ = 2;
   const store = { x: storeX, z: storeZ, w: storeW, h: storeH };
 
+  // The last row of shop floor. Walls sit on the boundary *between* cells now,
+  // so the doorway is an edge on the line below this row rather than a tile of
+  // its own — which is why every "outside" measurement below still reads
+  // `doorZ + 1` exactly as it did when doorZ was the wall itself.
   const doorZ = store.z + store.h - 1;
-  // Two tiles wide, roughly centred, jittered by seed, and nudged by however
-  // far the player has dragged it. Clamped so both halves stay in the wall.
+  const doorLine = store.z + store.h;
+  // Two cells wide, roughly centred, jittered by seed, and nudged by however
+  // far the player has dragged it. Clamped so a run of wall remains either side.
   const doorX = clampInt(
     store.x + Math.floor(store.w / 2) + rng.int(-1, 1) + req.doorShift,
-    store.x + 1, store.x + store.w - 3,
+    store.x, store.x + store.w - 2,
   );
 
   // How wide the farm can spread before it runs off the map, and therefore how
@@ -175,15 +192,50 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const at = (x, z) => (x < 0 || z < 0 || x >= worldW || z >= worldH ? -1 : tiles[idx(x, z)]);
 
   // ---- shell --------------------------------------------------------------
+  // Every cell of the rect is shop floor. The walls are the ring of edges
+  // around it, which is where the two tiles per side that the old wall ring
+  // used to eat come back from.
+  const edgesV = new Uint8Array((worldW + 1) * worldH);
+  const edgesH = new Uint8Array(worldW * (worldH + 1));
+  const setV = (x, z, v) => {
+    if (x >= 0 && z >= 0 && x <= worldW && z < worldH) edgesV[eviOf(worldW, x, z)] = v;
+  };
+  const setH = (x, z, v) => {
+    if (x >= 0 && z >= 0 && x < worldW && z <= worldH) edgesH[ehiOf(worldW, x, z)] = v;
+  };
+
   for (let z = store.z; z < store.z + store.h; z++) {
-    for (let x = store.x; x < store.x + store.w; x++) {
-      const edge = x === store.x || x === store.x + store.w - 1
-        || z === store.z || z === store.z + store.h - 1;
-      set(x, z, edge ? T.WALL : T.FLOOR);
-    }
+    for (let x = store.x; x < store.x + store.w; x++) set(x, z, T.FLOOR);
   }
-  set(doorX, doorZ, T.DOOR);
-  set(doorX + 1, doorZ, T.DOOR);
+  for (let z = store.z; z < store.z + store.h; z++) {
+    setV(store.x, z, E.WALL);
+    setV(store.x + store.w, z, E.WALL);
+  }
+  for (let x = store.x; x < store.x + store.w; x++) {
+    setH(x, store.z, E.WALL);
+    setH(x, doorLine, E.WALL);
+  }
+  setH(doorX, doorLine, E.DOOR);
+  setH(doorX + 1, doorLine, E.DOOR);
+
+  // ---- what the player has drawn by hand ----------------------------------
+  // Applied over the generated shell, so knocking a wall through or adding a
+  // back room survives every later re-flow.
+  const editedEdges = new Set();
+  for (const e of req.edits) {
+    const ex = Math.round(e.x);
+    const ez = Math.round(e.z);
+    if (e.o === 'v') setV(ex, ez, e.k);
+    else if (e.o === 'h') setH(ex, ez, e.k);
+    else continue;
+    editedEdges.add(`${e.o}:${ex},${ez}`);
+  }
+
+  // What the walls close in. Computed once, here, rather than per query: the
+  // build ghost asks `insideStore` sixty times a second, and only an edge can
+  // change the answer. Fences are stamped further down and never enclose, so
+  // nothing below this line moves it.
+  const indoor = computeIndoor({ w: worldW, h: worldH, edgesV, edgesH });
 
   // ---- the path from the door out to the farm -----------------------------
   for (let z = doorZ + 1; z <= pathZEnd; z++) {
@@ -260,7 +312,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const stationsOut = [];
   const plotsOut = [];
   const layoutSoFar = () => ({
-    w: worldW, h: worldH, tiles, store, door: { x: doorX, z: doorZ }, bay,
+    w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ }, bay,
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
   });
@@ -456,17 +508,18 @@ function compose(req, storeW, storeH, allowDrops = true) {
     const fenceTop = Math.max(1, Math.min(...zs) - 2);
     const fenceBottom = Math.min(worldH - 2, Math.max(...zs) + 2);
 
+    // A fence is edges too, so it costs the farm no ground at all. It never
+    // encloses (see ENCLOSING in shared/edges.js) — fencing a field must not
+    // quietly roof it.
     for (let x = fenceLeft; x <= fenceRight; x++) {
-      for (const z of [fenceTop, fenceBottom]) {
-        // Leave a gap where the path runs out of the shop.
-        if (x === doorX || x === doorX + 1) continue;
-        if (at(x, z) === T.GRASS) set(x, z, T.FENCE);
-      }
+      // Leave a gap where the path runs out of the shop.
+      if (x === doorX || x === doorX + 1) continue;
+      if (!editedEdges.has(`h:${x},${fenceTop}`)) setH(x, fenceTop, E.FENCE);
+      if (!editedEdges.has(`h:${x},${fenceBottom + 1}`)) setH(x, fenceBottom + 1, E.FENCE);
     }
     for (let z = fenceTop; z <= fenceBottom; z++) {
-      for (const x of [fenceLeft, fenceRight]) {
-        if (at(x, z) === T.GRASS) set(x, z, T.FENCE);
-      }
+      if (!editedEdges.has(`v:${fenceLeft},${z}`)) setV(fenceLeft, z, E.FENCE);
+      if (!editedEdges.has(`v:${fenceRight + 1},${z}`)) setV(fenceRight + 1, z, E.FENCE);
     }
   }
 
@@ -479,6 +532,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
       w: worldW,
       h: worldH,
       tiles: Array.from(tiles),
+      /** Walls, windows and doorways, on the boundaries between cells. */
+      edgesV: Array.from(edgesV),
+      edgesH: Array.from(edgesH),
+      /** Which cells the walls close in. See insideStore in shared/build.js. */
+      indoor: Array.from(indoor),
       store,
       door: { x: doorX, z: doorZ },
       doorShift: req.doorShift,

@@ -11,6 +11,7 @@
  */
 
 import { T, WALKABLE, BUILDABLE_INDOOR, BUILDABLE_OUTDOOR } from './tiles.js';
+import { E, SOLID, edgeBetween, reachable, withEdge } from './edges.js';
 
 /**
  * What each buildable thing is. `anchor` is the tile you have to be able to
@@ -52,6 +53,19 @@ export function anchorTile(x, z, rot) {
   return { x: x + f.dx, z: z + f.dz };
 }
 
+/**
+ * A step in model space, turned to face the way a fixture was actually stood.
+ *
+ * Models are authored facing east — rot 0 — so "the +z end of this unit" is
+ * only a direction in the world once you know which way round it is. One
+ * quarter turn takes +x to +z, which is the order `FACING` is indexed in.
+ */
+export function turn({ dx, dz }, rot) {
+  let s = { dx, dz };
+  for (let i = rot4(rot); i > 0; i--) s = { dx: -s.dz, dz: s.dx };
+  return s;
+}
+
 /** For a till, the direction the queue trails off in: along the wall it faces. */
 export function queueAxis(rot) {
   // Perpendicular to the serving direction, so the line forms beside the till
@@ -70,10 +84,30 @@ export const tileAt = (L, x, z) =>
 
 export const isWalkableTile = (L, x, z) => WALKABLE.has(tileAt(L, x, z));
 
-/** Strictly inside the building — not the wall ring, not the doorway. */
+/**
+ * Is this cell indoors?
+ *
+ * Not "within the store rectangle" any more — within *anything the walls close
+ * in*. The layout carries an `indoor` mask flooded from the map border through
+ * the edges (`computeIndoor`, shared/edges.js), so an L-shaped shop, a lean-to
+ * annex, a barn across the yard and a glasshouse in the middle of the field are
+ * all indoors, and none of them is a case anybody had to write.
+ *
+ * Two consequences worth knowing, because they are rules now rather than
+ * accidents. Floor you never enclosed is a patio — outdoors, so no shelf may go
+ * on it. And a patch of grass you wall in is indoors, so no plot may be dug
+ * there. Both fall out of asking the walls instead of asking the rect.
+ *
+ * The name is kept deliberately: it has call sites on both sides of the wire
+ * and in two verify sweeps, and renaming it buys nothing a comment can't say.
+ * The rect fallback is for a layout built before masks existed — the generator
+ * has emitted one since edges landed.
+ */
 export function insideStore(L, x, z) {
+  if (x < 0 || z < 0 || x >= L.w || z >= L.h) return false;
+  if (L.indoor) return L.indoor[z * L.w + x] === 1;
   const s = L.store;
-  return x > s.x && x < s.x + s.w - 1 && z > s.z && z < s.z + s.h - 1;
+  return x >= s.x && x < s.x + s.w && z >= s.z && z < s.z + s.h;
 }
 
 /** How far a queue can run from `from` in `dir` before it leaves the shop. */
@@ -82,10 +116,96 @@ export function openRun(L, from, dir, max = 8, blocked = () => false) {
   for (let i = 1; i <= max; i++) {
     const x = from.x + dir.x * i;
     const z = from.z + dir.z * i;
+    // A queue may not run through a wall, so the boundary crossed to reach each
+    // successive tile counts as much as the tile itself.
+    const prev = { x: x - dir.x, z: z - dir.z };
+    if (SOLID.has(edgeBetween(L, prev.x, prev.z, x, z))) break;
     if (!insideStore(L, x, z) || !isWalkableTile(L, x, z) || blocked(x, z)) break;
     n++;
   }
   return n;
+}
+
+/**
+ * May a wall, window or doorway go on this line?
+ *
+ * Same two answers as `canPlace`, and the same reasoning: off the map is
+ * physics, but sealing your own shop is a *move*. You are allowed to wall off
+ * the aisle, brick up the front door, or box a till into a cupboard — the game
+ * says what it will cost and lets you, because a builder that refuses strange
+ * buildings is a level editor with opinions.
+ *
+ * @param {object} spec { o: 'v'|'h', x, z, kind }
+ */
+export function canPlaceEdge(L, spec) {
+  return canPlaceEdges(L, [spec], spec.kind ?? E.WALL);
+}
+
+/** Where a wall run from `start` to the far index `to` lays its segments. */
+export function edgeRun(start, to, max = 40) {
+  const o = start.o === 'v' ? 'v' : 'h';
+  const x = Math.round(start.x);
+  const z = Math.round(start.z);
+  const end = to == null ? (o === 'v' ? z : x) : Math.round(to);
+  const from = o === 'v' ? z : x;
+  const lo = Math.min(from, end);
+  const hi = Math.min(Math.max(from, end), lo + max - 1);
+  const out = [];
+  // A run follows the line it started on: a horizontal segment lies along x, a
+  // vertical one along z. Turning a corner is a second drag, which is both
+  // simpler to reason about and what a drawn wall actually wants.
+  for (let i = lo; i <= hi; i++) out.push(o === 'v' ? { o, x, z: i } : { o, x: i, z });
+  return out;
+}
+
+/**
+ * The same question for a whole run at once.
+ *
+ * Asked once for the run rather than once per segment, because "does this seal
+ * the shop" is only true of the run as a whole — no single segment of a wall
+ * across the aisle seals anything, and validating them one at a time would
+ * report no warning at all right up until the shop was shut.
+ */
+export function canPlaceEdges(L, segs, kind = E.WALL) {
+  if (!segs?.length) return no('nothing to build');
+
+  for (const s of segs) {
+    const o = s.o;
+    const x = Math.round(s.x);
+    const z = Math.round(s.z);
+    if (o !== 'v' && o !== 'h') return no('that is not a wall line');
+    // A lattice line, not a cell: a vertical run has one more column than the
+    // grid has cells, and vice versa. Off-by-one here writes into the next row.
+    const maxX = o === 'v' ? L.w : L.w - 1;
+    const maxZ = o === 'v' ? L.h - 1 : L.h;
+    if (x < 1 || z < 1 || x > maxX - 1 || z > maxZ - 1) return no('off the edge of the world');
+  }
+
+  // Taking something away can't strand anybody, so there is nothing to warn on.
+  if (!kind) return { ok: true };
+
+  let probe = L;
+  for (const s of segs) probe = withEdge(probe, s, kind);
+  const from = L.spawn ?? L.door;
+  const seen = reachable(probe, from.x, from.z);
+  const at = (p) => seen.has(`${Math.round(p.x)},${Math.round(p.z)}`);
+
+  if (!at(L.door)) return { ok: true, warn: 'that seals the shop — nobody can get in' };
+
+  const stranded = fixturesOf(L)
+    .map((f) => ({ f, spot: f.browseAt ?? f.serveAt ?? f.useAt }))
+    .filter(({ spot }) => spot && !at(spot));
+  if (stranded.length) {
+    const what = FIXTURES[stranded[0].f.kind]?.label.toLowerCase() ?? 'fixture';
+    return {
+      ok: true,
+      warn: stranded.length === 1
+        ? `that walls off a ${what} — nobody will reach it`
+        : `that walls off ${stranded.length} fixtures — nobody will reach them`,
+    };
+  }
+
+  return { ok: true };
 }
 
 /** Every fixture currently in the layout, as uniform placement specs. */
@@ -259,6 +379,7 @@ function whatThisBlocks(L, spec, def, ignoreId) {
       const nz = cz + f.dz;
       const k = `${nx},${nz}`;
       if (seen.has(k)) continue;
+      if (SOLID.has(edgeBetween(probe, cx, cz, nx, nz))) continue;
       if (!WALKABLE.has(tileAt(probe, nx, nz))) continue;
       seen.add(k);
       stack.push([nx, nz]);
