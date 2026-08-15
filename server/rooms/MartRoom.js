@@ -79,6 +79,14 @@ function legacyWorldId() {
 export class MartRoom extends Room {
   onCreate(options) {
     this.maxClients = 8;
+    // A named world has to exist. `joinOrCreate` reaches this directly from the
+    // browser, so without the check a stale bookmark or a shared link to a shop
+    // that has since been deleted mints a new one: a room saving to a slot with
+    // no row, invisible in the menu, that nobody meant to create. The client
+    // reads this refusal and falls back to the menu.
+    if (options?.worldId && !worldRow(options.worldId)) {
+      throw new Error(`no world "${options.worldId}" — it may have been deleted`);
+    }
     this.worldId = options?.worldId ?? legacyWorldId();
     this.game = Game.create({ worldId: this.worldId, seed: options?.seed });
     // Disposal is ours, not Colyseus's: `autoDispose` fires the moment the last

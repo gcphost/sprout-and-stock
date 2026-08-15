@@ -43,10 +43,21 @@ async function api(method, path, body) {
 const REMEMBERED = 'sns-world';
 
 export class Menu {
-  constructor(root) {
+  /**
+   * `error` is for what went wrong *before* the menu opened — a link to a shop
+   * that has since been deleted, most often. Landing on a bare list with no
+   * explanation reads as the game having forgotten, rather than as the shop
+   * having gone.
+   */
+  constructor(root, notice = null) {
     this.root = root;
     this.worlds = [];
     this.busy = false;
+    // Two channels on purpose. `error` is this menu's own last failure and is
+    // cleared by the next successful load; `notice` is what went wrong before
+    // the menu existed and has to survive that load, or the reason the list is
+    // in front of you is gone by the time you read it.
+    this.notice = notice;
     this.error = null;
     this.creating = false;
   }
@@ -187,6 +198,7 @@ export class Menu {
           <input id="menu-name" maxlength="20" placeholder="your name" value="${esc(name)}" />
         </label>
 
+        ${this.notice ? `<div class="menu-err soft">${esc(this.notice)}</div>` : ''}
         ${this.error ? `<div class="menu-err">${esc(this.error)}</div>` : ''}
 
         <div class="menu-list">

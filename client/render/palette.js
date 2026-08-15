@@ -65,17 +65,38 @@ export const TILE_STYLE = {
   [T.GRASS]: { color: PALETTE.grass, h: 0 },
   [T.FLOOR]: { color: PALETTE.floor, h: 0.06 },
   [T.WALL]: { color: PALETTE.wall, h: 1.1 },
-  [T.SHELF]: { color: PALETTE.shelf, h: 0.75 },
-  [T.FREEZER]: { color: PALETTE.freezer, h: 0.65 },
-  [T.CHECKOUT]: { color: PALETTE.counter, h: 0.55 },
   // The plot tile is only the bed. Whether it reads as rough turf or turned
   // earth is per-plot state, so the renderer lays that on top in syncPlots.
   [T.PLOT]: { color: PALETTE.soilRough, h: 0.08 },
   [T.DOOR]: { color: PALETTE.door, h: 0.06 },
   [T.PATH]: { color: PALETTE.path, h: 0.05 },
   [T.FENCE]: { color: PALETTE.fence, h: 0.45 },
-  [T.STATION]: { color: PALETTE.station, h: 0.7 },
   [T.BAY]: { color: PALETTE.bay, h: 0.07 },
+};
+
+/**
+ * What a fixture looks like when nobody has drawn one.
+ *
+ * These are the four tile styles that left `TILE_STYLE` when fixtures stopped
+ * being tiles, kept to the colour and height they always were — so an unauthored
+ * kind renders exactly as it used to rather than as nothing at all. Every kind
+ * in the shipped catalog has a model, so in practice this is what a brand new
+ * kind looks like on the day it becomes buildable and before anybody styles it.
+ *
+ * It is also what the build ghost is sized from, which is the more important
+ * job: the ghost is a box saying "something lands here", and it should be the
+ * size of the something.
+ */
+export const FIXTURE_LOOK = {
+  shelf: { color: PALETTE.shelf, h: 0.75 },
+  freezer: { color: PALETTE.freezer, h: 0.65 },
+  checkout: { color: PALETTE.counter, h: 0.55 },
+  station: { color: PALETTE.station, h: 0.7 },
+  // A plot is the ground, so its own tile is the whole look and a block on top
+  // would bury the soil. Zero height, and `syncPlots` draws the bed.
+  plot: { color: PALETTE.soilRough, h: 0 },
+  'prop-floor': { color: PALETTE.floor, h: 0.3 },
+  'prop-ceiling': { color: PALETTE.floor, h: 0.3 },
 };
 
 /**

@@ -67,6 +67,8 @@ const ROW_PITCH = 2;
  * @param {object[]} opts.placements player-positioned fixtures, honoured first
  * @param {object} opts.grow        bought floor area, {w, h} extra tiles
  * @param {number} opts.doorShift   player-moved door, tiles east of centre
+ * @param {object} [opts.shell]     a building that already exists, {w, h}. Given
+ *   one, this stops searching for a size and builds exactly that — see below.
  */
 export function generateLayout({
   seed = 'sprout-1',
@@ -79,6 +81,7 @@ export function generateLayout({
   grow = { w: 0, h: 0 },
   doorShift = 0,
   edits = [],
+  shell = null,
 } = {}) {
   const req = {
     seed, shelves, freezers, checkouts, plots, stations,
@@ -90,6 +93,35 @@ export function generateLayout({
     edits: edits ?? [],
     doorShift: Math.trunc(doorShift) || 0,
   };
+
+  // ---- a building that already exists ------------------------------------
+  //
+  // STEP 4, and the whole of it. A shop with a stored shell is not searched for
+  // any more: it is built at the size it already is, once, and everything in it
+  // arrives as a placement. Nothing below this line can then move under you —
+  // which is what "stamp once" means, and why `droppedPlacements` stopped being
+  // something that happens in ordinary play.
+  //
+  // Why the shell has to be *stored* rather than re-derived: with every fixture
+  // a placement, the budgets are all zero, so the size search below would find
+  // that a 9x9 holds everything it was asked for (nothing) and shrink the
+  // building back to the minimum — stranding every placement outside it. The
+  // size of your shop is a fact about your shop, not a function of your
+  // shopping list.
+  if (shell) {
+    const attempt = compose(req, Math.max(MIN_STORE_W, Math.trunc(shell.w)),
+      Math.max(MIN_STORE_H, Math.trunc(shell.h)), true);
+    // A stamped shop's ledger is in step with its placements by construction, so
+    // there is nothing procedural left to fail to fit. If that ever stops being
+    // true the symptom is a shop that quietly loses its shelving, which is worth
+    // a line in the log rather than a silent empty building.
+    if (!attempt.complete) {
+      console.warn('[layout] stored shell cannot hold what the ledger asks for', {
+        shell, shelves: req.shelves, freezers: req.freezers, checkouts: req.checkouts,
+      });
+    }
+    return attempt.layout;
+  }
 
   // Bought floor area is added on top of whatever the contents need, not used
   // as a minimum. A shop that had already grown past the minimum to fit its
@@ -190,6 +222,15 @@ function compose(req, storeW, storeH, allowDrops = true) {
     if (x >= 0 && z >= 0 && x < worldW && z < worldH) tiles[idx(x, z)] = v;
   };
   const at = (x, z) => (x < 0 || z < 0 || x >= worldW || z >= worldH ? -1 : tiles[idx(x, z)]);
+
+  // What is *standing* on a cell, which used to be the same array as what the
+  // cell is made of. Kept alongside rather than derived at the end, because
+  // `canPlaceCleanly` is asked about the half-built shop as it goes: every
+  // fixture placed has to be visible to the next one's reachability flood.
+  const blocked = new Uint8Array(worldW * worldH);
+  const occupy = (x, z) => {
+    if (x >= 0 && z >= 0 && x < worldW && z < worldH) blocked[idx(x, z)] = 1;
+  };
 
   // ---- shell --------------------------------------------------------------
   // Every cell of the rect is shop floor. The walls are the ring of edges
@@ -317,6 +358,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
     props: propsOut,
+    blocked,
   });
 
   const budget = {
@@ -335,7 +377,9 @@ function compose(req, storeW, storeH, allowDrops = true) {
   // spot is fine; a person only stands on one at a time.)
   const reserved = new Set();
   const reserve = (a) => a && reserved.add(`${a.x},${a.z}`);
-  const free = (x, z) => at(x, z) === T.FLOOR && !reserved.has(`${x},${z}`);
+  const free = (x, z) => at(x, z) === T.FLOOR
+    && blocked[idx(x, z)] === 0
+    && !reserved.has(`${x},${z}`);
 
   for (const p of req.placements) {
     const drop = () => {
@@ -365,7 +409,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
         continue;
       }
       stationQueue.splice(i, 1);
-      set(p.x, p.z, T.STATION);
+      occupy(p.x, p.z);
       const st = makeStation(p.id, p.station, p.x, p.z, p.rot ?? 2);
       st.tier = p.tier ?? 1;
       st.variant = p.variant ?? '';
@@ -386,7 +430,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
         tier: p.tier ?? 1, variant: p.variant ?? '', piece: p.piece ?? null,
       }));
     } else if (p.kind === 'checkout') {
-      set(p.x, p.z, T.CHECKOUT);
+      occupy(p.x, p.z);
       const till = makeCheckout(layoutSoFar(), p.id, p.x, p.z, p.rot ?? 1, checkoutsOut);
       till.tier = p.tier ?? 1;
       till.variant = p.variant ?? '';
@@ -394,7 +438,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
       checkoutsOut.push(till);
       reserve(till.serveAt);
     } else {
-      set(p.x, p.z, p.kind === 'freezer' ? T.FREEZER : T.SHELF);
+      occupy(p.x, p.z);
       const shelf = makeShelf(p.id, p.kind, p.x, p.z, p.rot ?? 0);
       shelf.tier = p.tier ?? 1;
       shelf.variant = p.variant ?? '';
@@ -427,11 +471,12 @@ function compose(req, storeW, storeH, allowDrops = true) {
     if (budget.checkout <= 0) break;
     if (cx <= store.x || cx >= store.x + store.w - 1) continue;
     if (checkoutZ <= store.z || !free(cx, checkoutZ)) continue;
-    if (at(cx, serveRow) !== T.FLOOR || takenServe.has(`${cx},${serveRow}`)) continue;
+    if (at(cx, serveRow) !== T.FLOOR || blocked[idx(cx, serveRow)]) continue;
+    if (takenServe.has(`${cx},${serveRow}`)) continue;
 
-    set(cx, checkoutZ, T.CHECKOUT);
+    occupy(cx, checkoutZ);
     const till = makeCheckout(layoutSoFar(), `till-p${nTill}`, cx, checkoutZ, 1, checkoutsOut);
-    if (till.queueMax < 1) { set(cx, checkoutZ, T.FLOOR); continue; }
+    if (till.queueMax < 1) { blocked[idx(cx, checkoutZ)] = 0; continue; }
     nTill++;
     checkoutsOut.push(till);
     reserve(till.serveAt);
@@ -451,7 +496,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
     for (let sz = shelfTop; sz <= shelfBottom && stationQueue.length; sz += ROW_PITCH) {
       if (stationX <= store.x + 1) break;
       if (!free(stationX, sz) || at(stationX - 1, sz) !== T.FLOOR) continue;
-      set(stationX, sz, T.STATION);
+      if (blocked[idx(stationX - 1, sz)]) continue;   // nowhere to stand and work
+      occupy(stationX, sz);
       const st = makeStation(`station-p${nStation++}`, stationQueue.shift(), stationX, sz, 2);
       stationsOut.push(st);
       reserve(st.useAt);
@@ -470,7 +516,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
     if (stationsOut.length && sx >= stationX - 1) break;
     for (let sz = shelfTop; sz <= shelfBottom; sz += ROW_PITCH) {
       if (!free(sx, sz)) continue;
-      if (at(sx + 1, sz) !== T.FLOOR) continue;   // nowhere to browse from
+      // Nowhere to browse from. Both halves: floor, and nothing standing on it.
+      if (at(sx + 1, sz) !== T.FLOOR || blocked[idx(sx + 1, sz)]) continue;
       cells.push({ x: sx, z: sz });
     }
   }
@@ -488,7 +535,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   for (let i = 0; i < used.length; i++) {
     const isFreezer = i >= budget.shelf;      // freezers take the far cells
     const { x, z } = used[i];
-    set(x, z, isFreezer ? T.FREEZER : T.SHELF);
+    occupy(x, z);
     // Procedural ids live in their own `-pN` namespace so they can never
     // collide with a placement that kept the id of the fixture it came from.
     const shelf = makeShelf(
@@ -557,6 +604,13 @@ function compose(req, storeW, storeH, allowDrops = true) {
       edgesH: Array.from(edgesH),
       /** Which cells the walls close in. See insideStore in shared/build.js. */
       indoor: Array.from(indoor),
+      /**
+       * Which cells have something standing in them. Derived from the fixture
+       * lists below rather than authored, and emitted rather than recomputed by
+       * every reader — pathing asks this per step and the build ghost asks it
+       * per cell of a flood fill, sixty times a second.
+       */
+      blocked: Array.from(blocked),
       store,
       door: { x: doorX, z: doorZ },
       doorShift: req.doorShift,
@@ -709,7 +763,10 @@ function openRunAvoiding(L, from, dir, taken) {
 export function buildWalkGrid(layout) {
   const grid = new Uint8Array(layout.w * layout.h);
   for (let i = 0; i < layout.tiles.length; i++) {
-    grid[i] = WALKABLE.has(layout.tiles[i]) ? 1 : 0;
+    // Both halves. The ground has to be walkable AND nothing may be standing on
+    // it — one array said both until fixtures stopped stamping tiles, and a
+    // walk grid built from the ground alone routes shoppers through shelving.
+    grid[i] = WALKABLE.has(layout.tiles[i]) && !layout.blocked?.[i] ? 1 : 0;
   }
   return grid;
 }

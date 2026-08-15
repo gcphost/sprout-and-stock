@@ -9,28 +9,46 @@
  * than a mechanism.
  */
 
+/**
+ * A tile is GROUND. What the floor is made of, and nothing else.
+ *
+ * It used to mean two things at once — what the floor is made of *and* what is
+ * standing on it — which is why there was nowhere to put a rug. A rug is not a
+ * floor material and it is not an occupant, and one cell holding one value has
+ * no third answer. Fixtures are records in the layout's own lists now, and
+ * whether a cell is occupied is `blocked`, derived from those lists.
+ *
+ * The numbers are deliberately not renumbered. `SHELF`, `FREEZER`, `CHECKOUT`
+ * and `STATION` left, but a live save holds `tiles` as raw numbers and a
+ * renumbering would silently turn every existing shop's floor into grass.
+ * Gaps in an enum cost nothing; a migration nobody remembers to write costs a
+ * shop.
+ */
 export const T = {
   GRASS: 0,
   FLOOR: 1,
   WALL: 2,
-  SHELF: 3,
-  FREEZER: 4,
-  CHECKOUT: 5,
+  // 3, 4, 5 were SHELF, FREEZER, CHECKOUT — now records, not ground.
+  /** Dug earth. Still ground: a plot is what the floor is made of there. */
   PLOT: 6,
   DOOR: 7,
   PATH: 8,
   FENCE: 9,
-  STATION: 10,
+  // 10 was STATION.
   /** The loading pad outside the door: where pallets land and where you can
    *  put down anything you're carrying. */
   BAY: 11,
 };
 
-/** Tiles a walking character can stand on. */
+/**
+ * Ground a walking character can stand on — before anything standing on it is
+ * taken into account. Ask `isWalkableTile` in `shared/build.js` for the whole
+ * question; this one only knows about the floor.
+ */
 export const WALKABLE = new Set([T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY]);
 
-/** Tiles you can build a shop fixture onto — bare indoor floor and nothing else. */
+/** Ground you can stand a shop fixture on — bare indoor floor and nothing else. */
 export const BUILDABLE_INDOOR = new Set([T.FLOOR]);
 
-/** Tiles you can dig a farm plot into. */
+/** Ground you can dig a farm plot into. */
 export const BUILDABLE_OUTDOOR = new Set([T.GRASS]);

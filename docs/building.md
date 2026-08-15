@@ -1,15 +1,15 @@
 # Building — design
 
-Status: **steps 1–3, 6, 7 and 8 built. 4, 5, 9–11 are still a plan.**
+Status: **steps 1–8 built. 9 and 11 are still a plan. 10 is cancelled.**
 There is also a working interactive mockup —
 [turn the shop around here](https://claude.ai/code/artifact/1aac9d71-46fc-4e78-9f93-d54a6e6d2467).
 
 What that means in practice: walls, windows, doorways and fences live on the
 edges between cells and everything reads them; "indoors" means whatever the
-walls enclose; you draw a run with a wall tool; and the catalog is split into
+walls enclose; you draw a run with a wall tool; the catalog is split into
 kinds-in-code and pieces-in-content, so a second shelf design, a planter or a
-hanging lamp is an MCP call. What is *not* built is the storage rework — the
-generator still re-runs on every placement, and fixtures still stamp tiles.
+hanging lamp is an MCP call; a tile means ground and nothing else; and a shop is
+stamped once and then stays where you put it.
 
 Each section below says what landed and where it stopped. Read the build order
 at the bottom for the running tally.
@@ -22,6 +22,13 @@ call and no code change.
 ---
 
 ## What's wrong today
+
+> **This section is history.** Every complaint below has since been fixed, and
+> it is kept because it is the argument for why the shape above is the shape it
+> is — a design doc whose problem statement has been deleted reads as a list of
+> arbitrary preferences. Where a fix landed, the build order at the bottom says
+> so. The one that has *not* landed is the last paragraph of "there is nowhere
+> to put a light": a wall sconce still has nowhere to mount.
 
 ### The building is an output of your shopping list
 
@@ -70,6 +77,10 @@ The stamp is already half-vestigial, incidentally. Fixtures also live in
 `layout.shelves` / `.checkouts` / `.stations` / `.plots` as records, and the
 renderer keeps `MODEL_REPLACES_TILE` precisely so a fixture with an authored
 model doesn't draw its tile block underneath itself.
+
+*(Fixed in step 5. `MODEL_REPLACES_TILE` was the tell, and it retired with the
+stamp — along with `removedTiles`, `baseTile` and `withTile`, all of which
+existed only to answer "what would this tile be if the thing on it weren't".)*
 
 ### `blocks` is already a real axis, just not one you can say
 
@@ -357,11 +368,11 @@ place it and get `FIXTURE_REFUND` of it back when you tear it out.
 Sliced so the game is playable at every step. Steps 1–3 are the spine;
 everything after is additive.
 
-Built so far: **1, 2, 3, 6, 7, 8.** Steps 4 and 5 were skipped deliberately —
-they are a storage rework rather than a feature, and everything after them turned
-out not to need them. That is worth checking rather than assuming: step 7 was
-written here as depending on step 5, and it didn't, because a prop that never
-blocks needs no cell of its own.
+Built so far: **1 through 8.** They did not land in order — 6, 7 and 8 went in
+before 4 and 5, which is worth recording because this list said they couldn't.
+Step 7 was written here as depending on step 5 and did not need it: a prop that
+never blocks needs no cell of its own. Check the dependency rather than trusting
+the number.
 
 1. **Edges exist alongside tiles, and are provably the same shape.** Add
    `shared/edges.js`: the edge kinds, the two arrays, `deriveEdges` (read a
@@ -379,13 +390,41 @@ blocks needs no cell of its own.
    the two tiles of floor each way that the wall ring used to eat.
 3. **The `indoor` mask replaces `insideStore`.** One function in
    `shared/build.js`, one derived array. L-shapes become possible here.
-4. **Stamp once.** Convert the live world, stop re-running the generator on
-   every placement. `droppedPlacements` retires.
-5. **Things become a list.** Fixtures stop stamping tiles. `BUILDABLE_INDOOR`
-   becomes "no blocking thing on this cell". This was written as the thing that
-   makes step 7 possible; it wasn't. What it actually unlocks is a prop that
-   *blocks* — see the omissions above — and rugs, which need two things on one
-   cell. Both are real, neither is the catalog.
+4. **Stamp once.** *Built.* `Game.freezeShell` turns every generated fixture
+   into a placement the first time a world opens, and the size of the building
+   becomes stored state (`world.shell`) instead of something re-derived. The
+   generator then only ever re-applies what is already there.
+
+   The part that is not obvious until you try it: the shell has to be stored, or
+   nothing else works. With every fixture a placement the budgets are all zero,
+   so the size search finds that a 9×9 holds everything it was asked for —
+   nothing — and shrinks the building back to the minimum, stranding every
+   placement outside it. The size of your shop is a fact about your shop, not a
+   function of your shopping list. `space` upgrades therefore extend the stored
+   shell east and south rather than re-centring a new one, because a stored
+   shop's fixtures are absolute and nudging the west wall out moves the building
+   out from under every shelf in it.
+
+   `droppedPlacements` is retired *as something that happens*: it can no longer
+   fire on a purchase. The mechanism stays as a backstop, because a wall you
+   draw can still make a cell illegal.
+5. **Things become a list.** *Built.* `T.SHELF`, `T.FREEZER`, `T.CHECKOUT` and
+   `T.STATION` have left the tile vocabulary; a tile means ground and nothing
+   else. Whether a cell is occupied is `layout.blocked`, a mask the generator
+   derives from the fixture lists, and `FIXTURES` says `blocks` as a field you
+   can read rather than as a set a tile enum happens to be in.
+
+   The enum numbers are deliberately **not** renumbered. A live save holds
+   `tiles` as raw numbers, and closing the gaps would turn every existing shop's
+   floor into grass. Gaps cost nothing; a migration nobody writes costs a shop.
+
+   A genuine deletion, which is what it was for: `removedTiles`, `baseTile`,
+   `withTile` and `MODEL_REPLACES_TILE` all retired, because "what is this tile"
+   and "what would this tile be with nothing on it" stopped being two questions.
+
+   This was written as the thing that makes step 7 possible; it wasn't. What it
+   actually unlocks is a prop that *blocks* — see the omissions above — and rugs,
+   which need two things on one cell.
 6. **Wall, window and door as build tools.** Drag corner to corner. The action
    carries two lattice points and a kind — a rect, never a tile list, because of
    the 4KB inbound cap.
@@ -395,8 +434,10 @@ blocks needs no cell of its own.
 8. **Lights.** `emits`, the renderer, and the cap.
 9. **Economy swap.** Upgrades become unlocks and discounts, `space` becomes
    land, `cost` moves onto pieces, the ledger retires.
-10. **Camera occlusion.** Genuinely can go last — until then you build with the
-    camera turned.
+10. **~~Camera occlusion.~~ Cancelled.** Built once, narrowed to proximity, then
+    deleted as overkill — turning the camera is enough, and the fade cost more
+    in draw-order complexity (see the translucency notes below) than it bought.
+    Do not re-add it. The notes are kept as history, not as a plan.
 11. **Fields.** Fences are already an edge kind by now, so they become
     player-drawn and the auto-bbox fence in `layout.js` retires.
 

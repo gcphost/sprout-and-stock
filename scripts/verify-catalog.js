@@ -57,7 +57,16 @@ function fresh() {
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
   g.edits = [];
+  // The stored shell goes too, and this one is the subtlest of the lot. With a
+  // shell set, the building is the size it already is and the generator stops
+  // growing one to fit — so pinning the ledger above and leaving the shell alone
+  // asks a 10x9 shop to hold a 10x11 shop's worth of shelving, and `compose`
+  // hands back a layout with no shelves in it at all. Clearing it puts this
+  // sweep back on a shop generated for exactly the ledger it just pinned.
+  g.shell = null;
   g.regenerateLayout();
+  // ...and re-stamp, so what the sweep drives is a stamped shop like any other.
+  g.freezeShell();
   g.cash = 5000;
   g.addPlayer('me', 'Tester');
   g.players.me.build = { on: true, tool: 'shelf' };
@@ -137,9 +146,17 @@ for (const p of TEST_PIECES) {
 {
   check(BUILD_KINDS.length === FIXTURE_KINDS.length + PROP_KINDS.length,
     'every kind is either a fixture or a prop, and no kind is both');
-  for (const k of FIXTURE_KINDS) check(FIXTURES[k].tile != null, `${k} stamps a tile`);
+  for (const k of FIXTURE_KINDS) {
+    // A fixture is something you own and the generator has a budget for. It
+    // earns its cell either by standing in it or by *being* it — a plot is dug
+    // ground, which is why "blocks" alone is not the test.
+    check(FIXTURES[k].blocks === true || FIXTURES[k].ground != null,
+      `${k} either occupies its cell or is what the cell is made of`);
+    check(!isProp(k), `${k} is a fixture, not a decoration`);
+  }
   for (const k of PROP_KINDS) {
-    check(FIXTURES[k].tile == null, `${k} stamps no tile`);
+    check(FIXTURES[k].blocks === false, `${k} blocks nobody`);
+    check(FIXTURES[k].ground == null, `${k} does not change what the floor is made of`);
     check(isProp(k), `${k} reads as a prop`);
     check(FIXTURES[k].anchor == null, `${k} has no working spot — nobody stands at a decoration`);
   }

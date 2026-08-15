@@ -11,6 +11,9 @@
       --line: rgba(58, 49, 40, 0.14);
       --accent: #e2564a;
       --good: #5aa356;
+      /* The step between "fine" and "you have a problem" — a gauge that only
+         had the two would jump straight from green to alarm with no warning. */
+      --warn: #e0a63c;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -62,8 +65,11 @@
     .menu-note { text-align: left; padding: 2px 2px 8px; }
     .menu-err {
       background: var(--accent); color: #fff; border-radius: 10px;
-      padding: 7px 12px; font-size: 12.5px; font-weight: 700;
+      padding: 7px 12px; font-size: 12.5px; font-weight: 700; margin-bottom: 6px;
     }
+    /* "The shop in your link is gone" is news, not a failure — you are already
+       looking at the list that answers it. */
+    .menu-err.soft { background: #ffd66b; color: var(--ink); }
 
     .wcard {
       background: var(--panel); border-radius: 15px; padding: 11px 13px 10px;
@@ -111,9 +117,19 @@
        SVG sits on the text baseline and drags a gap under every button. */
     .ico > svg, .bico > svg, #panel-title > svg, #panel-close > svg { display: block; margin: 0 auto; }
 
+    /* ---- top left: the passive readouts, stacked --------------------------
+       One fixed column rather than two independently-pinned panels. #mods used
+       to carry `top: 58px`, which is the height #stats happened to be on the
+       day it was written — adding a row to the gauges slid the money panel
+       down over the demand meter. Nothing up here has a fixed height, so
+       nothing up here gets to hardcode where the next thing starts. */
+    #topleft {
+      top: 12px; left: 12px;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+    }
     /* top-left: money + day */
     #stats {
-      top: 12px; left: 12px; background: var(--panel); border-radius: 13px;
+      background: var(--panel); border-radius: 13px;
       padding: 6px 11px; box-shadow: 0 4px 14px rgba(58,49,40,.14);
       display: flex; gap: 11px; align-items: center;
     }
@@ -133,8 +149,29 @@
     #season { text-transform: capitalize; opacity: .65; font-size: 10px; line-height: 1.25; }
     #clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
     #clock.shut { opacity: .4; text-decoration: line-through; }
+    /* ---- the three gauges -------------------------------------------------
+       Reputation is the shop's long memory, mood is how the room feels right
+       now, and full is whether there is room for anybody else. One was an
+       unlabelled 52px sliver, which is fine when it is the only bar on screen
+       and unreadable the moment there are three — so they get names.
+
+       All three fill rightwards and all three are read the same way: **a long
+       bar is the shop doing well.** That is why FULL is drawn against the
+       turn-away line rather than against capacity. A bar that filled as the
+       shop got busier would mean "good" at one end of the panel and "bad" at
+       the other, and the eye does not re-read a direction per row. */
+    .gauges { display: grid; gap: 3px; }
+    .gg { display: grid; grid-template-columns: 26px 52px; align-items: center; gap: 6px; }
+    .gg-tag {
+      font-size: 7.5px; font-weight: 800; letter-spacing: .04em;
+      text-transform: uppercase; opacity: .5; text-align: right;
+    }
     .repwrap { width: 52px; height: 5px; background: var(--line); border-radius: 99px; overflow: hidden; }
-    #rep { height: 100%; background: var(--good); transition: width .4s; }
+    .repwrap > div { height: 100%; background: var(--good); transition: width .4s, background .4s; }
+    /* Past the line the shop is refusing people, which is not a shade of busy —
+       it is a different thing happening, so it stops being a bar and pulses. */
+    #full.shut { animation: fullpulse 1.1s ease-in-out infinite; }
+    @keyframes fullpulse { 50% { opacity: .35; } }
 
     /* ---- top left, under the money: the demand meter ----------------------
        What the world wants more or less of today, as a meter the way SimCity's
@@ -148,7 +185,7 @@
        narrow bar, and "beverage" does not fit under nine pixels. Right is
        wanted, left is not, length is how much. */
     #mods {
-      top: 58px; left: 12px; width: 146px;
+      width: 146px;
       display: flex; flex-direction: column; gap: 3px;
       background: var(--panel); border-radius: 13px; padding: 7px 10px;
       box-shadow: 0 4px 14px rgba(58,49,40,.14);
@@ -474,17 +511,25 @@
   <div id="boot">Opening the shop…</div>
   <div id="menu" hidden></div>
 
-  <div id="stats" class="hud">
-    <span id="cash">$0.00</span>
-    <div>
-      <div id="day">Day 1</div>
-      <div id="season">spring</div>
+  <div id="topleft" class="hud">
+    <div id="stats">
+      <span id="cash">$0.00</span>
+      <div>
+        <div id="day">Day 1</div>
+        <div id="season">spring</div>
+      </div>
+      <span id="clock">08:00</span>
+      <div class="gauges">
+        <div class="gg"><span class="gg-tag">Rep</span>
+          <div class="repwrap"><div id="rep" style="width:50%"></div></div></div>
+        <div class="gg"><span class="gg-tag">Mood</span>
+          <div class="repwrap"><div id="mood" style="width:100%"></div></div></div>
+        <div class="gg"><span class="gg-tag">Room</span>
+          <div class="repwrap"><div id="full" style="width:100%"></div></div></div>
+      </div>
     </div>
-    <span id="clock">08:00</span>
-    <div class="repwrap"><div id="rep" style="width:50%"></div></div>
+    <div id="mods"></div>
   </div>
-
-  <div id="mods" class="hud"></div>
   <div id="hq" class="hud">
     <div id="todo"></div>
   </div>

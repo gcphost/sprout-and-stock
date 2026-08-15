@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, EDGE_STYLE, CEILING_Y, jitter, faceColor } from './palette.js';
+import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, jitter, faceColor } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfSlots, buildBubble, buildCashDrop,
   buildHopperSlots,
@@ -17,7 +17,7 @@ import {
   buildGrowthBar, setGrowthBar,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
-import { FIXTURES, anchorTile, canPlace, baseTile, turn, rot4 } from '../../shared/build.js';
+import { FIXTURES, anchorTile, canPlace, turn, rot4 } from '../../shared/build.js';
 import { pieceFor } from '../../shared/pieces.js';
 import { Lights, emittersIn } from './lights.js';
 import {
@@ -57,25 +57,36 @@ const ZOOM_STEP = 1.12;
  */
 const GROUND_MARGIN = 56;
 
-/**
- * Fixture kinds whose authored model stands *instead of* their tile block.
- *
- * A shelf is a box, so a shelf model replaces that box. A plot is a hole in the
- * ground: its tile is the bed itself and the soil is drawn on top of it, so a
- * plot model (a raised frame, say) has to be added to that rather than swapped
- * for it. Purely a rendering distinction, which is why it lives here and not in
- * the build rules.
- */
-const MODEL_REPLACES_TILE = new Set(['shelf', 'freezer', 'checkout', 'station']);
-
-/** How tall a decoration's ghost pad is. It has no tile to take a height from. */
-const PROP_GHOST_H = 0.3;
+// `MODEL_REPLACES_TILE` retired here. It answered "does this fixture's model
+// stand instead of the coloured block its tile drew" — a question that only
+// existed while a fixture WAS a tile. Nothing stamps one now, so every fixture
+// stands on plain ground and draws its own model on top, and a plot's bed is
+// the ground rather than something under a model. See FIXTURE_LOOK in
+// palette.js for what an undrawn kind falls back to.
 
 /** Usable width inside a plot's frame, and roughly how wide a crop draws. */
 const BED_SPAN = 0.64;
 const PLANT_FOOTPRINT = 0.4;
 /** Past this a bed just reads as "full"; no authored crop comes close. */
 const BED_MAX = 12;
+
+/**
+ * A plain coloured box, for a fixture kind nobody has drawn yet.
+ *
+ * Deliberately the same box its tile used to draw, so the day a kind becomes
+ * buildable it looks like it did before fixtures stopped being tiles — rather
+ * than being invisible, which is what "no model" would otherwise mean now.
+ */
+function plainBlock(look) {
+  if (!look || look.h <= 0) return null;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, look.h, 1), material(look.color));
+  mesh.position.y = look.h / 2;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  const group = new THREE.Group();
+  group.add(mesh);
+  return group;
+}
 
 /** Stable small number from an id, so a bed's scatter survives every rebuild. */
 function hashId(id) {
@@ -316,13 +327,6 @@ export class Scene {
     const L = layout.layout ?? layout;
     this._pickPlanes = null;
 
-    // Tiles a fixture's own model is about to stand on. Drawing both would put
-    // a shelf inside a shelf-coloured block.
-    const modelled = new Set();
-    for (const f of fixturesIn(L)) {
-      if (this.fixtureModel(f) && MODEL_REPLACES_TILE.has(f.kind)) modelled.add(`${f.x},${f.z}`);
-    }
-
     // Every geometry under staticRoot was built for the previous layout, and
     // `clear()` alone drops the references without freeing the GPU buffers.
     // That barely mattered when the shop only re-flowed on an upgrade; build
@@ -351,11 +355,9 @@ export class Scene {
     const byKind = new Map();
     for (let z = 0; z < L.h; z++) {
       for (let x = 0; x < L.w; x++) {
-        // A fixture drawn from its own model still needs the ground it stands
-        // on. Skipping the tile outright left a hole, and once fixtures stopped
-        // filling their tile edge to edge you could see straight through it to
-        // the grass under the shop — as a green outline around every unit.
-        const kind = modelled.has(`${x},${z}`) ? baseTile(L, x, z) : L.tiles[z * L.w + x];
+        // Just the ground. A fixture standing here draws itself on top, and the
+        // floor under it is floor — which it always was, and now says so.
+        const kind = L.tiles[z * L.w + x];
         if (kind === 0) continue;
         if (!byKind.has(kind)) byKind.set(kind, []);
         byKind.get(kind).push([x, z]);
@@ -392,9 +394,10 @@ export class Scene {
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.staticRoot.add(mesh);
 
-      // Furniture gets a contrasting top slab so it reads as a shelf or a
-      // counter rather than an anonymous coloured block.
-      const TOPS = { 2: PALETTE.wallTop, 3: PALETTE.shelfTop, 4: '#eaf6f8', 5: PALETTE.counterTop, 10: PALETTE.stationTop };
+      // A contrasting top slab, so a raised tile reads as built rather than as
+      // an anonymous coloured block. Only the wall is left: the four furniture
+      // entries went with the fixture tiles, and furniture draws its own art.
+      const TOPS = { [T.WALL]: PALETTE.wallTop };
       if (TOPS[kind]) {
         const top = new THREE.InstancedMesh(box, material(TOPS[kind]), cells.length);
         top.castShadow = false;
@@ -501,11 +504,17 @@ export class Scene {
 
     for (const f of fixturesIn(L)) {
       const model = this.fixtureModel(f);
-      if (!model) continue;
-      const prop = buildModel(model, {
-        t: this.fixtureT(f),
-        abuts: (step) => this.carriesOn(byTile, f, step),
-      });
+      // A fixture nobody has drawn used to be a coloured tile block, because it
+      // WAS a tile. Nothing stamps one now, so an unstyled kind would be an
+      // invisible thing you can walk into — hence the fallback block, at the
+      // colour and height its tile used to have.
+      const prop = model
+        ? buildModel(model, {
+          t: this.fixtureT(f),
+          abuts: (step) => this.carriesOn(byTile, f, step),
+        })
+        : plainBlock(FIXTURE_LOOK[f.kind]);
+      if (!prop) continue;
       // Models are authored facing east, which is rot 0 — the same convention
       // the layout generator has always used for which side you work from.
       prop.rotation.y = -(f.rot ?? 0) * (Math.PI / 2);
@@ -522,16 +531,16 @@ export class Scene {
   /**
    * What height a fixture's model stands on.
    *
-   * Three answers, and each one is a different thing the model means. A shelf
-   * replaces its tile block, so it sits on the floor. A plot's model is a frame
-   * added *to* the bed, so it sits on top of the tile. And a hanging prop hangs:
-   * it has no tile at all and is drawn from the ceiling down, which is the one
-   * thing an authored model cannot say about itself.
+   * Two answers now rather than three, which is a fixture no longer being a
+   * tile: everything stands on the ground it is standing on. A plot is the one
+   * that reads oddly and is right — its `ground` IS a dug bed, so its model sits
+   * on top of that tile rather than on the floor. And a hanging prop hangs,
+   * which is the one thing an authored model cannot say about itself.
    */
   fixtureBaseY(f) {
     if (FIXTURES[f.kind]?.at === 'ceiling') return CEILING_Y;
-    if (MODEL_REPLACES_TILE.has(f.kind)) return 0;
-    return TILE_STYLE[FIXTURES[f.kind]?.tile]?.h ?? 0;
+    const ground = FIXTURES[f.kind]?.ground;
+    return ground == null ? 0 : (TILE_STYLE[ground]?.h ?? 0);
   }
 
   /**
@@ -1065,19 +1074,16 @@ export class Scene {
    */
   fixtureHeight(f) {
     const model = this.fixtureModel(f);
-    if (model && MODEL_REPLACES_TILE.has(f.kind)) {
-      return modelHeight(partsAt(model, this.fixtureT(f)));
-    }
-    // A prop's height is its art on top of wherever it hangs or stands, because
-    // it has no tile block to take a height from. That base matters more than it
-    // sounds for a hanging one: its art is drawn downward from the ceiling, so
-    // `modelHeight` alone answers 0 and the picker would look for it on the
-    // floor — most of a tile down-screen of where it is actually drawn, which is
-    // the neighbour-selecting bug again with the camera pointing the other way.
-    if (FIXTURES[f.kind]?.tile == null) {
-      return this.fixtureBaseY(f) + (model ? modelHeight(partsAt(model, this.fixtureT(f))) : 0);
-    }
-    return TILE_STYLE[FIXTURES[f.kind]?.tile]?.h ?? 0;
+    // Its art on top of whatever it stands on, for everything — one rule where
+    // there used to be a branch per kind. The base matters most for a hanging
+    // prop: its art is drawn downward from the ceiling, so `modelHeight` alone
+    // answers 0 and the picker would look for it on the floor, most of a tile
+    // down-screen of where it is actually drawn. That is the neighbour-selecting
+    // bug again with the camera pointing the other way.
+    const own = model
+      ? modelHeight(partsAt(model, this.fixtureT(f)))
+      : (FIXTURE_LOOK[f.kind]?.h ?? 0);
+    return this.fixtureBaseY(f) + own;
   }
 
   /**
@@ -1181,9 +1187,12 @@ export class Scene {
     // A prop has no tile, so there is no tile style to size its ghost from. It
     // gets a low pad instead — enough to read as "a thing lands here" without
     // pretending to be the shape of whatever piece you picked.
+    const look = FIXTURE_LOOK[spec.kind] ?? { h: 0.5, color: TILE_STYLE[T.FLOOR]?.color };
     const g = buildFixtureGhost(
-      def.tile == null ? PROP_GHOST_H : (TILE_STYLE[def.tile]?.h ?? 0.5),
-      def.tile == null ? TILE_STYLE[T.FLOOR]?.color : TILE_STYLE[def.tile]?.color,
+      // A plot's look is flat, and a ghost you cannot see is not a preview — so
+      // the ghost keeps a minimum body whatever it is standing in for.
+      Math.max(look.h, 0.12),
+      look.color,
       state,
       def.anchor ? { dx: a.x, dz: a.z } : null,
     );

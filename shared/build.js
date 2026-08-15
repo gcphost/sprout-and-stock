@@ -22,18 +22,22 @@ import { E, SOLID, edgeBetween, reachable, withEdge } from './edges.js';
  * reviewed and diffed. What is *not* closed is how many designs name into one —
  * see `shared/pieces.js`. Kinds are code; pieces are content, and unlimited.
  *
- * `tile` is the whole difference between the two halves below. A fixture stamps
- * a tile, so it occupies the cell and pathing has to route round it. A prop
- * stamps nothing: it sits in the cell without owning it, which is why a rug, a
- * planter or a hanging lamp needs no tile kind of its own and cannot break a
- * shop that was walkable before you decorated it.
+ * `blocks` is the whole difference between the two halves below, and it is a
+ * field you can read rather than a tile enum you have to be a member of. A
+ * shelf owns its cell and pathing routes round it; a rug, a planter or a
+ * hanging lamp sits in the cell without owning it. That used to be expressible
+ * only as "which set is this tile value in", which is not something content —
+ * or a second thing on the same cell — could ever reach.
+ *
+ * `ground` is the other half: a plot doesn't stand on the floor, it *is* the
+ * floor, dug. So it changes what the cell is made of and blocks nobody.
  */
 export const FIXTURES = {
-  shelf: { label: 'Shelf', tile: T.SHELF, where: 'indoor', rotates: true, anchor: 'browseAt' },
-  freezer: { label: 'Freezer', tile: T.FREEZER, where: 'indoor', rotates: true, anchor: 'browseAt' },
-  checkout: { label: 'Till', tile: T.CHECKOUT, where: 'indoor', rotates: true, anchor: 'serveAt' },
-  station: { label: 'Appliance', tile: T.STATION, where: 'indoor', rotates: true, anchor: 'useAt' },
-  plot: { label: 'Plot', tile: T.PLOT, where: 'outdoor', rotates: false, anchor: null },
+  shelf: { label: 'Shelf', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt' },
+  freezer: { label: 'Freezer', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt' },
+  checkout: { label: 'Till', blocks: true, where: 'indoor', rotates: true, anchor: 'serveAt' },
+  station: { label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt' },
+  plot: { label: 'Plot', blocks: false, ground: T.PLOT, where: 'outdoor', rotates: false, anchor: null },
   /**
    * Decorations. Both stand in a cell and neither blocks it.
    *
@@ -43,20 +47,27 @@ export const FIXTURES = {
    * the whole reason step 5 exists. Until a cell can hold a list, "prop" means
    * "you walk past it", and that is true of everything below.
    */
-  'prop-floor': { label: 'Decoration', tile: null, where: 'any', rotates: true, anchor: null, at: 'floor' },
-  'prop-ceiling': { label: 'Hanging', tile: null, where: 'indoor', rotates: true, anchor: null, at: 'ceiling' },
+  'prop-floor': { label: 'Decoration', blocks: false, where: 'any', rotates: true, anchor: null, at: 'floor' },
+  'prop-ceiling': { label: 'Hanging', blocks: false, where: 'indoor', rotates: true, anchor: null, at: 'ceiling' },
 };
 
 /** Every kind a piece may name. The closed vocabulary, in one place. */
 export const BUILD_KINDS = Object.keys(FIXTURES);
 
-/** The kinds that occupy their cell — the ones the generator has a budget for. */
-export const FIXTURE_KINDS = BUILD_KINDS.filter((k) => FIXTURES[k].tile != null);
+/**
+ * The kinds the generator has a budget for, and the kinds it doesn't.
+ *
+ * Read off `at` rather than off `blocks`, which they used to share: a plot
+ * blocks nobody and is still very much a fixture you buy, own and count. A prop
+ * is the thing with no budget, because nothing procedural ever places one.
+ */
+export const PROP_KINDS = BUILD_KINDS.filter((k) => FIXTURES[k].at != null);
+export const FIXTURE_KINDS = BUILD_KINDS.filter((k) => FIXTURES[k].at == null);
 
-/** ...and the ones that just stand there. */
-export const PROP_KINDS = BUILD_KINDS.filter((k) => FIXTURES[k].tile == null);
+export const isProp = (kind) => FIXTURES[kind]?.at != null;
 
-export const isProp = (kind) => FIXTURES[kind]?.tile == null;
+/** Does one of these own the cell it stands in? */
+export const blocksCell = (kind) => FIXTURES[kind]?.blocks === true;
 
 
 /**
@@ -114,7 +125,37 @@ export function queueAxis(rot) {
 export const tileAt = (L, x, z) =>
   (x < 0 || z < 0 || x >= L.w || z >= L.h ? -1 : L.tiles[z * L.w + x]);
 
-export const isWalkableTile = (L, x, z) => WALKABLE.has(tileAt(L, x, z));
+/**
+ * Is something standing in this cell?
+ *
+ * A mask, derived once by the generator from the fixture lists, rather than a
+ * scan of those lists — because this is asked for every cell of a flood fill,
+ * for every step of every path, sixty times a second while a ghost is up.
+ *
+ * `ignoreId` is the one thing that can un-block a cell: the fixture you are
+ * currently moving has already left, as far as the question "may it go here"
+ * is concerned, or a shelf could never be shuffled one square along. That costs
+ * a list scan, which is why it is only paid when something is actually in the
+ * air rather than folded into the mask.
+ */
+export function blockedAt(L, x, z, ignoreId = null) {
+  if (x < 0 || z < 0 || x >= L.w || z >= L.h) return false;
+  if (!L.blocked?.[z * L.w + x]) return false;
+  if (!ignoreId) return true;
+  const moving = fixturesOf(L).find((f) => f.id === ignoreId);
+  return !(moving && Math.round(moving.x) === x && Math.round(moving.z) === z);
+}
+
+/**
+ * Can a person be in this cell?
+ *
+ * Both halves, always: walkable ground *and* nothing standing on it. These were
+ * one question while a tile said both at once, and separating them is the whole
+ * of step 5 — the floor under a shelf is floor, and it goes back to being floor
+ * the moment the shelf is sold.
+ */
+export const isWalkableTile = (L, x, z) =>
+  WALKABLE.has(tileAt(L, x, z)) && !blockedAt(L, x, z);
 
 /**
  * Is this cell indoors?
@@ -291,23 +332,28 @@ export function canPlace(L, spec, { ignoreId = null } = {}) {
   const z = Math.round(spec.z);
   if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return no('off the edge of the world');
 
-  if (!def.tile) return canPlaceProp(L, def, x, z, ignoreId);
+  if (isProp(spec.kind)) return canPlaceProp(L, def, x, z, ignoreId);
 
-  const tile = tileAt(L, x, z);
-  const removed = removedTiles(L, ignoreId);
-  const effective = (tx, tz) => (removed.has(`${tx},${tz}`) ? baseTile(L, tx, tz) : tileAt(L, tx, tz));
+  // Two questions where there used to be one, because a tile used to answer
+  // both. What the ground is made of is `tiles`; whether something already
+  // stands on it is `blocked`. A plot digs the ground, so it asks about grass;
+  // everything else stands on the floor.
+  const ground = tileAt(L, x, z);
+  const taken = blockedAt(L, x, z, ignoreId);
 
   if (def.where === 'indoor') {
     if (!insideStore(L, x, z)) return no('that has to go inside the shop');
-    if (!BUILDABLE_INDOOR.has(effective(x, z))) {
-      return no(tile === T.DOOR ? 'not in the doorway' : 'something is already there');
+    if (taken) return no('something is already there');
+    if (!BUILDABLE_INDOOR.has(ground)) {
+      return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
   } else {
     if (insideStore(L, x, z)) return no('plots go outside, on the grass');
-    if (!BUILDABLE_OUTDOOR.has(effective(x, z))) return no('you can only dig into bare grass');
+    if (taken) return no('something is already there');
+    if (!BUILDABLE_OUTDOOR.has(ground)) return no('you can only dig into bare grass');
   }
 
-  const warn = whatThisCosts(L, { ...spec, x, z }, def, { ignoreId, effective });
+  const warn = whatThisCosts(L, { ...spec, x, z }, def, { ignoreId });
   return warn ? { ok: true, warn } : { ok: true };
 }
 
@@ -328,8 +374,10 @@ export function canPlace(L, spec, { ignoreId = null } = {}) {
 function canPlaceProp(L, def, x, z, ignoreId) {
   if (def.where === 'indoor' && !insideStore(L, x, z)) return no('that has to go inside the shop');
   // A prop stands *in* the cell, so the cell has to be somewhere a person could
-  // stand. This is also what keeps one off a shelf's tile without a second rule.
-  if (!isWalkableTile(L, x, z)) return no('something is already there');
+  // stand. This is also what keeps one out of a shelf without a second rule.
+  if (!WALKABLE.has(tileAt(L, x, z)) || blockedAt(L, x, z, ignoreId)) {
+    return no('something is already there');
+  }
   const clash = (L.props ?? []).some((p) => p.id !== ignoreId && p.x === x && p.z === z);
   if (clash) return no('something is already there');
   return { ok: true };
@@ -354,15 +402,20 @@ const no = (reason) => ({ ok: false, reason });
  * "what happens" rather than "may I" — so the order matters only in that the
  * most specific answer should come out first.
  */
-function whatThisCosts(L, spec, def, { ignoreId, effective }) {
+function whatThisCosts(L, spec, def, { ignoreId }) {
   const { x, z } = spec;
+  // Where a person could stand, with the thing being moved treated as already
+  // gone and the thing being placed treated as already there.
+  const open = (tx, tz) => WALKABLE.has(tileAt(L, tx, tz))
+    && !blockedAt(L, tx, tz, ignoreId)
+    && !(tx === x && tz === z && def.blocks);
 
   // ---- can anything use it, facing that way? -----------------------------
   if (def.anchor) {
     const a = anchorTile(x, z, spec.rot ?? 0);
-    if (!WALKABLE.has(effective(a.x, a.z))) return 'nothing can use it facing that way';
+    if (!open(a.x, a.z)) return 'nothing can use it facing that way';
     if (!insideStore(L, a.x, a.z)) return 'it faces out of the shop — nobody will use it';
-  } else if (!FACING.some((f) => WALKABLE.has(effective(x + f.dx, z + f.dz)))) {
+  } else if (!FACING.some((f) => open(x + f.dx, z + f.dz))) {
     return 'nothing can get to it';
   }
 
@@ -372,8 +425,10 @@ function whatThisCosts(L, spec, def, { ignoreId, effective }) {
     const clash = (L.checkouts ?? []).some((c) => c.id !== ignoreId
       && c.serveAt?.x === serve.x && c.serveAt?.z === serve.z);
     if (clash) return 'another till already serves that spot';
-    const best = Math.max(...queueAxis(spec.rot ?? 0)
-      .map((d) => openRun({ ...L, tiles: withTile(L, x, z, def.tile) }, serve, d)));
+    // Measured against a shop with this till already standing in it, which used
+    // to mean cloning the tile array. A mask is cheaper to say "and this one" to.
+    const probe = { ...L, blocked: withBlocked(L, x, z) };
+    const best = Math.max(...queueAxis(spec.rot ?? 0).map((d) => openRun(probe, serve, d)));
     if (best < 1) return 'no room for a queue — shoppers will pile up on one tile';
   }
 
@@ -381,28 +436,17 @@ function whatThisCosts(L, spec, def, { ignoreId, effective }) {
   return whatThisBlocks(L, spec, def, ignoreId);
 }
 
-/** The tiles a fixture we're about to pick up currently occupies. */
-function removedTiles(L, ignoreId) {
-  const set = new Set();
-  if (!ignoreId) return set;
-  for (const f of fixturesOf(L)) {
-    if (f.id === ignoreId) set.add(`${f.x},${f.z}`);
-  }
-  return set;
-}
-
 /**
- * What a tile would be with nothing standing on it. The renderer needs this
- * too: a fixture drawn from its own model still has to be given the ground it
- * stands on, or the shop's grass shows through the gaps around it.
+ * A copy of the occupancy mask with one more cell taken.
+ *
+ * `removedTiles`, `baseTile` and `withTile` all lived here and all retired with
+ * the stamp: there is no longer any difference between "what this tile is" and
+ * "what this tile would be with nothing on it", because a tile never carried a
+ * fixture in the first place. That is the simplification step 5 was for.
  */
-export function baseTile(L, x, z) {
-  return insideStore(L, x, z) ? T.FLOOR : T.GRASS;
-}
-
-function withTile(L, x, z, v) {
-  const copy = Uint8Array.from(L.tiles);
-  copy[z * L.w + x] = v;
+function withBlocked(L, x, z) {
+  const copy = Uint8Array.from(L.blocked ?? new Uint8Array(L.w * L.h));
+  copy[z * L.w + x] = 1;
   return copy;
 }
 
@@ -419,17 +463,19 @@ function withTile(L, x, z, v) {
  * pocket of floor nobody can walk to is not floor.
  */
 function whatThisBlocks(L, spec, def, ignoreId) {
-  const tiles = Uint8Array.from(L.tiles);
-  // The thing being moved has already left its old tile as far as this is
-  // concerned, or a shelf could never be shuffled one square along.
+  // The flood runs over the *occupancy* mask now rather than a doctored copy of
+  // the ground. The thing being moved has already left as far as this is
+  // concerned — or a shelf could never be shuffled one square along — and the
+  // thing being placed is treated as already standing there.
+  const blocked = Uint8Array.from(L.blocked ?? new Uint8Array(L.w * L.h));
   if (ignoreId) {
     for (const f of fixturesOf(L)) {
-      if (f.id === ignoreId) tiles[f.z * L.w + f.x] = baseTile(L, f.x, f.z);
+      if (f.id === ignoreId) blocked[f.z * L.w + f.x] = 0;
     }
   }
-  tiles[spec.z * L.w + spec.x] = def.tile;
+  if (def.blocks) blocked[spec.z * L.w + spec.x] = 1;
 
-  const probe = { ...L, tiles };
+  const probe = { ...L, blocked };
   const seen = new Set();
   const stack = [[L.door.x, L.door.z]];
   seen.add(`${L.door.x},${L.door.z}`);
@@ -441,7 +487,7 @@ function whatThisBlocks(L, spec, def, ignoreId) {
       const k = `${nx},${nz}`;
       if (seen.has(k)) continue;
       if (SOLID.has(edgeBetween(probe, cx, cz, nx, nz))) continue;
-      if (!WALKABLE.has(tileAt(probe, nx, nz))) continue;
+      if (!isWalkableTile(probe, nx, nz)) continue;
       seen.add(k);
       stack.push([nx, nz]);
     }

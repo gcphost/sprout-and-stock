@@ -77,7 +77,7 @@ export function simulate({
   let bankruptOn = null;
   const totals = {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
-    spoiled: 0, harvested: 0, tilled: 0, leftEmpty: 0, byItem: {},
+    spoiled: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
   };
 
   const totalSteps = Math.ceil((days * DAY_SECONDS) / dt);

@@ -61,6 +61,11 @@ for (const opts of cases()) {
   const L = generateLayout(opts);
   const grid = buildWalkGrid(L);
   const at = (x, z) => (x < 0 || z < 0 || x >= L.w || z >= L.h ? -1 : L.tiles[z * L.w + x]);
+  // "Is something standing here" is its own array now that a tile only says what
+  // the floor is made of. Read straight off the layout rather than through
+  // `blockedAt`, so this stays a statement about the generator's output rather
+  // than an echo of the function the build rules use to read it.
+  const taken = (x, z) => x >= 0 && z >= 0 && x < L.w && z < L.h && L.blocked[z * L.w + x] === 1;
   const walkable = (x, z) => x >= 0 && z >= 0 && x < L.w && z < L.h && grid[z * L.w + x] === 1;
   const where = `${opts.seed} sh=${opts.shelves} fz=${opts.freezers} co=${opts.checkouts} pl=${opts.plots} st=${opts.stations.length}`;
 
@@ -97,8 +102,10 @@ for (const opts of cases()) {
 
   // ---- 3. every fixture has a reachable working spot ----------------------
   for (const s of L.shelves) {
-    check(at(s.x, s.z) === (s.kind === 'freezer' ? T.FREEZER : T.SHELF),
-      'shelf tile not marked', `${where}: ${s.id} at ${s.x},${s.z} is tile ${at(s.x, s.z)}`);
+    check(taken(s.x, s.z),
+      'shelf cell not occupied', `${where}: ${s.id} at ${s.x},${s.z}`);
+    check(!walkable(s.x, s.z),
+      'you can walk through a shelf', `${where}: ${s.id} at ${s.x},${s.z}`);
     check(walkable(s.browseAt.x, s.browseAt.z),
       'shelf browseAt not walkable', `${where}: ${s.id} browseAt ${s.browseAt.x},${s.browseAt.z}`);
     check(onShopFloor(L, s.browseAt.x, s.browseAt.z),
@@ -111,7 +118,10 @@ for (const opts of cases()) {
       'station useAt outside the shop', `${where}: ${st.id} useAt ${st.useAt.x},${st.useAt.z}`);
   }
   for (const p of L.plots) {
-    check(at(p.x, p.z) === T.PLOT, 'plot tile not marked', `${where}: ${p.id} at ${p.x},${p.z}`);
+    // A plot is the one fixture that IS ground rather than standing on it, so it
+    // digs its tile and blocks nobody — you walk over a bed to work it.
+    check(at(p.x, p.z) === T.PLOT, 'plot tile not dug', `${where}: ${p.id} at ${p.x},${p.z}`);
+    check(!taken(p.x, p.z), 'a plot should not block its own cell', `${where}: ${p.id}`);
     const reachable = [[1, 0], [-1, 0], [0, 1], [0, -1]]
       .some(([dx, dz]) => walkable(p.x + dx, p.z + dz));
     check(reachable, 'plot has no walkable neighbour', `${where}: ${p.id} at ${p.x},${p.z}`);
@@ -121,7 +131,7 @@ for (const opts of cases()) {
   // The one that bit hardest: a queue slot on grass is a shopper the till can
   // never serve, and it looks fine in a screenshot.
   for (const t of L.checkouts) {
-    check(at(t.x, t.z) === T.CHECKOUT, 'checkout tile not marked', `${where}: ${t.id} at ${t.x},${t.z}`);
+    check(taken(t.x, t.z), 'checkout cell not occupied', `${where}: ${t.id} at ${t.x},${t.z}`);
     check(walkable(t.serveAt.x, t.serveAt.z) && onShopFloor(L, t.serveAt.x, t.serveAt.z),
       'till serveAt not on the shop floor', `${where}: ${t.id} serveAt ${t.serveAt.x},${t.serveAt.z}`);
     check(t.queueMax >= 1, 'till has nowhere to queue', `${where}: ${t.id} queueMax ${t.queueMax}`);

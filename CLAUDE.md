@@ -59,7 +59,7 @@ its canvas and hands you the PNG. Look at it. `stock_shop` first if you want
 the shelves full rather than an empty building.
 
 **After touching `layout.js`, `shared/build.js` or an action — run `npm run verify`.**
-Four sweeps, about three seconds:
+Five sweeps, about three seconds:
 
 - `verify:layout` generates ~100k layouts across seeds × counts and asserts the
   generator placed *exactly* what it was asked for, that every fixture has a
@@ -76,6 +76,9 @@ Four sweeps, about three seconds:
   no tile, no walk grid and no shelf. It cleans up after itself on exit, because
   it writes into whatever content database it is pointed at — usually the live
   shared one.
+- `verify:shell` stamps a shop, builds in it and sells out of it, and asserts
+  that nothing else moved. That claim is a negative and invisible by eye — you
+  would have to notice a shelf you weren't looking at is one tile over.
 
 Each found real bugs the day it was written. None is visible in a screenshot of
 one seed — which is exactly why they exist.
@@ -236,6 +239,24 @@ what the next step was meant to be.
   which reads as bad modelling rather than bad wiring. `verify:catalog` gives its
   test shelf a deliberately *shorter* tier ladder so the wrong row is a number
   that differs rather than a picture that happens to match.
+- **A tile is ground. What is standing on it is `layout.blocked`.** They were
+  one array until step 5 of docs/building.md, which is why there was nowhere to
+  put a rug — a rug is not a floor material and not an occupant, and one value
+  has no third answer. `FIXTURES` says `blocks` as a field now, and a plot says
+  `ground: T.PLOT` because a bed doesn't stand on the floor, it *is* the floor.
+  The enum numbers in `shared/tiles.js` have gaps where `SHELF`, `FREEZER`,
+  `CHECKOUT` and `STATION` were, and closing them would turn every live shop's
+  floor into grass — a save holds `tiles` as raw numbers.
+- **A shop is stamped once and then stays put.** `Game.freezeShell` turns the
+  generated shop into placements the first time a world opens, and the size of
+  the building becomes `world.shell`. After that the generator only re-applies
+  what is there, so buying a shelf can't shuffle your aisles and
+  `droppedPlacements` can't fire on a purchase. The shell has to be *stored*:
+  with every fixture a placement the budgets are zero, so a size search would
+  find that a 9×9 holds everything asked of it and shrink the building back,
+  stranding every placement outside. Which also means **`fresh()` in the verify
+  scripts has to clear `g.shell`**, or the sweep asks a 10×9 shop to hold a
+  10×11 shop's shelving and gets a layout with no shelves in it.
 - **A decoration weighs nothing, on purpose.** `prop-floor` and `prop-ceiling`
   stamp no tile, take no generator budget and reserve no working spot, so people
   walk past them and no shop that was walkable stops being so. That is why there

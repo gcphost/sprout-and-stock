@@ -70,6 +70,8 @@ export class UI {
       day: document.getElementById('day'),
       clock: document.getElementById('clock'),
       rep: document.getElementById('rep'),
+      mood: document.getElementById('mood'),
+      full: document.getElementById('full'),
       season: document.getElementById('season'),
       toast: document.getElementById('toast'),
       log: document.getElementById('log'),
@@ -680,6 +682,34 @@ export class UI {
     this.net.send('select-crop', { cropId: id });
   }
 
+  /**
+   * The two live gauges under reputation.
+   *
+   * Mood's amber step is at 0.5 on purpose: that is the same threshold the sim
+   * uses to decide a shopper looks annoyed, so the bar changes colour on the
+   * tick the first face does. Two readouts of one number that disagreed about
+   * when it went bad would be worse than only having one.
+   *
+   * Room counts *down* to the door closing rather than up from empty, so it
+   * reads the same way as the two bars above it — long is good.
+   */
+  setGauges(state) {
+    const mood = state.mood ?? 1;
+    this.el.mood.style.width = `${Math.round(mood * 100)}%`;
+    this.el.mood.style.background = mood >= 0.5 ? 'var(--good)'
+      : mood >= 0.2 ? 'var(--warn)' : 'var(--accent)';
+
+    const room = Math.max(0, Math.min(1, 1 - (state.occupancy ?? 0) / (state.turnAwayAt ?? 1.35)));
+    const shut = room <= 0;
+    // Out of room, the bar has nothing left to say with length — a 0%-wide bar
+    // is just an empty track, and an empty track is what "no data" looks like.
+    // So it fills instead and pulses: not a quantity any more, an alarm.
+    this.el.full.style.width = shut ? '100%' : `${Math.round(room * 100)}%`;
+    this.el.full.style.background = shut ? 'var(--accent)'
+      : room >= 0.4 ? 'var(--good)' : 'var(--warn)';
+    this.el.full.classList.toggle('shut', shut);
+  }
+
   update(state) {
     // The fixture menu reads stock, queues and hoppers straight out of here.
     this.state = state;
@@ -687,6 +717,7 @@ export class UI {
     this.el.day.textContent = `Day ${state.day}`;
     this.el.season.textContent = state.season;
     this.el.rep.style.width = `${Math.round(state.reputation * 100)}%`;
+    this.setGauges(state);
 
     const hour = state.time * 24;
     const h = Math.floor(hour);

@@ -58,7 +58,16 @@ function fresh() {
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
   g.edits = [];
+  // The stored shell goes too, and this one is the subtlest of the lot. With a
+  // shell set, the building is the size it already is and the generator stops
+  // growing one to fit — so pinning the ledger above and leaving the shell alone
+  // asks a 10x9 shop to hold a 10x11 shop's worth of shelving, and `compose`
+  // hands back a layout with no shelves in it at all. Clearing it puts this
+  // sweep back on a shop generated for exactly the ledger it just pinned.
+  g.shell = null;
   g.regenerateLayout();
+  // ...and re-stamp, so what the sweep drives is a stamped shop like any other.
+  g.freezeShell();
   g.cash = 5000;
   g.addPlayer('me', 'Tester');
   return g;

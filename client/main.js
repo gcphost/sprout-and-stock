@@ -480,25 +480,63 @@ function loop() {
 const params = new URLSearchParams(location.search);
 const boot = document.getElementById('boot');
 
-async function start() {
-  const stored = localStorage.getItem('sns-name') ?? '';
-  let worldId = preselectedWorld();
-  let name = params.get('name') ?? stored;
+/**
+ * Put the shop you're in in the address bar.
+ *
+ * The URL is where you are: reload, bookmark it, or send it to whoever you're
+ * playing with, and you all end up in the same shop. It is the same `?world=`
+ * the menu is skipped by, so there is one way in and not two.
+ *
+ * `replaceState`, not `push`: pushing would make Back walk to the same page
+ * without the param, which changes the address bar and nothing else — the game
+ * is already running and there is no popstate handler to tear it down. Leaving
+ * is the Controls menu's job, and it drops this param on the way out.
+ */
+function rememberInUrl(worldId) {
+  const url = new URL(location.href);
+  url.searchParams.set('world', worldId);
+  history.replaceState(null, '', url);
+}
 
-  if (!worldId) {
-    boot.textContent = 'Loading…';
-    const menu = new Menu(document.getElementById('menu'));
-    const picked = await menu.choose();
-    worldId = picked.worldId;
-    name = picked.name || name;
-  }
-
+async function openWorld(worldId, name) {
   boot.textContent = 'Opening the shop…';
   ui.worldId = worldId;
   await net.connect(name, worldId);
+  rememberInUrl(worldId);
   boot.remove();
   ui.toast('Drag to move · tap a plot to sow · walk up to things to use them');
   loop();
+}
+
+async function start() {
+  const stored = localStorage.getItem('sns-name') ?? '';
+  const name = params.get('name') ?? stored;
+  const asked = preselectedWorld();
+  let pendingError = null;
+
+  if (asked) {
+    try {
+      await openWorld(asked, name);
+      return;
+    } catch (err) {
+      // A link, a bookmark or a reload can name a shop that has since been
+      // deleted or swept, and the server refuses rather than quietly inventing
+      // it. Falling back to the menu is the whole reason it refuses: the old
+      // behaviour was a world nobody could see in the list and nobody meant to
+      // make. Anything else — the server being down — fails through as normal.
+      if (!/no world|unknown world/i.test(err.message)) throw err;
+      const url = new URL(location.href);
+      url.searchParams.delete('world');
+      history.replaceState(null, '', url);
+      boot.textContent = 'Loading…';
+      pendingError = `That shop is gone — ${err.message}`;
+    }
+  }
+
+  boot.textContent = 'Loading…';
+  const menu = new Menu(document.getElementById('menu'), pendingError);
+  const picked = await menu.choose();
+  await openWorld(picked.worldId, picked.name || name);
 }
 
 start().catch((err) => {

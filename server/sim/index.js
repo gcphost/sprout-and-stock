@@ -25,7 +25,7 @@ import {
 import { spoilRate, requiredFixture, desireFor } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
-import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, canPlaceEdge, canPlaceEdges, edgeRun, isProp } from '../../shared/build.js';
+import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf } from '../../shared/build.js';
 import { pieceFor, kindOf, defaultPiece, ledgerKey } from '../../shared/pieces.js';
 
 /** Real seconds in one in-game day. */
@@ -76,6 +76,33 @@ const ACTION_TIME = 1.0;       // seconds of standing still before an action fir
 const ANNOY_IN_SHOP = 0.15;    // being in a shop at all, however good it is
 const ANNOY_LINE = 1.0;        // waiting to pay, walking up the line or standing in it
 const ANNOY_EMPTY_SHELF = 0.12; // one-off: walked over and somebody took the last one
+const ANNOY_CROWD = 0.6;       // per whole multiple of capacity over the top
+
+/**
+ * HOW BIG THE SHOP IS.
+ *
+ * There was no such number before: the spawner stopped at a flat forty
+ * shoppers whether you owned one till or six, so footfall could keep pushing
+ * people through a single checkout for ever and nothing anywhere said the shop
+ * was full.
+ *
+ * Capacity is derived from what you own so that *building* is the answer to
+ * being too popular. Stocked shelves rather than all shelves, deliberately: an
+ * empty shelf is not somewhere to shop, so letting the stock run dry shrinks
+ * the shop, which is the compounding the sim should have.
+ *
+ * Tills dominate, and that ratio is the whole model. Shelves are where people
+ * *browse*; the till is the only way anybody leaves, so it sets the rate. A
+ * first pass weighted shelves at 1.5 and tills at 6, which made a seventeen-
+ * shelf one-till shop hold 31.5 — the turn-away landed at 42, looser than the
+ * flat 40 cap it replaced, and a second checkout bought 19% more room for
+ * something that nearly doubles how fast the shop empties. Getting that
+ * backwards means the funnel everybody is actually stuck in reads as roomy.
+ */
+const CAPACITY_PER_TILL = 8;
+const CAPACITY_PER_SHELF = 0.5;
+/** Past this much over capacity, arrivals look in and walk on instead. */
+const TURN_AWAY_AT = 1.35;
 
 /** Visibly unhappy below the first, ready to walk out below the second. */
 const MOOD_ANNOYED = 0.5;
@@ -137,6 +164,10 @@ export class Game {
     // Pallets waiting at the bay to be unloaded.
     this.deliveries = state.deliveries ?? [];
     this.nextDeliveryId = state.nextDeliveryId ?? 1;
+    // Recomputed at the top of every tick; seeded here so anything that reads
+    // the world without stepping it first sees an empty shop, not `undefined`.
+    this.occupancy = 0;
+    this.turningAway = false;
     // How many of each fixture the shop owns, and where the player has chosen
     // to put some of them. See `fixtureLedger` for why this is a stored count
     // rather than something recomputed from upgrades every boot.
@@ -147,6 +178,14 @@ export class Game {
     this.doorShift = state.doorShift ?? 0;
     // Walls, windows and doorways the player drew, as an overlay on the shell.
     this.edits = state.edits ?? [];
+    /**
+     * How big the building is, once somebody has one.
+     *
+     * Null until a shop has been stamped, then a fact about that shop. See
+     * `freezeShell` — the short version is that the size of your building
+     * stopped being a function of your shopping list.
+     */
+    this.shell = state.shell ?? null;
   }
 
   // -------------------------------------------------------------------------
@@ -168,6 +207,7 @@ export class Game {
     const grow = w.storeGrow ?? { w: 0, h: 0 };
     const doorShift = w.doorShift ?? 0;
     const edits = w.edits ?? [];
+    const shell = w.shell ?? null;
     const layout = generateLayout({
       seed: useSeed,
       shelves: fixtures.shelf,
@@ -179,12 +219,13 @@ export class Game {
       grow,
       doorShift,
       edits,
+      shell,
     });
 
     // Derived before the Game is built so the id counter can clear it.
     const roster = w.roster ?? rosterFromUpgrades(w);
 
-    return new Game({
+    const game = new Game({
       worldId,
       seed: String(useSeed),
       day: w.day,
@@ -207,6 +248,7 @@ export class Game {
       grow,
       doorShift,
       edits,
+      shell,
       layout,
       layoutVersion: 1,
       players: {},
@@ -219,6 +261,12 @@ export class Game {
       log: [],
       elapsed: 0,
     });
+
+    // Stamp once, here, so every path into a world goes through it: a fresh
+    // shop, an old save, a balance run, a restored room. A migration that only
+    // one caller remembers to run is a migration that has already been skipped.
+    game.freezeShell();
+    return game;
   }
 
   /** JSON-safe full state — used for devMode room caching and MCP inspection. */
@@ -244,6 +292,7 @@ export class Game {
       grow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
+      shell: this.shell,
       layout: this.layout,
       layoutVersion: this.layoutVersion,
       players: this.players,
@@ -290,6 +339,7 @@ export class Game {
       storeGrow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
+      shell: this.shell,
       plots: this.fixtures.plot,
       shelves: this.fixtures.shelf,
     });
@@ -354,6 +404,13 @@ export class Game {
       season: this.season,
       cash: round2(this.cash),
       reputation: round2(this.reputation),
+      // The two halves of "how is it going in there right now". Reputation is
+      // the shop's slow memory; these are today. `occupancy` is sent as a raw
+      // ratio rather than a percentage of the turn-away line, because the HUD
+      // is not the only thing that will ever want to know how full it is.
+      mood: round2(this.shopMood()),
+      occupancy: round2(this.occupancy),
+      turnAwayAt: TURN_AWAY_AT,
       isOpen: this.isOpen(),
       layoutVersion: this.layoutVersion,
       stats: this.stats,
@@ -483,6 +540,11 @@ export class Game {
 
     this.stepPlayers(dt);
     this.stepCrops(c);
+    // Once per tick, before the two things that read it. Both the crowd
+    // everyone inside is fed up with and the queue an arrival balks at have to
+    // be the *same* number, or the shop turns people away over a crush its own
+    // shoppers aren't feeling.
+    this.occupancy = this.measureOccupancy();
     this.stepCustomers(dt, c, folded);
     this.stepSpawning(dt, c, folded);
     stepStaff(this, dt);
@@ -508,7 +570,12 @@ export class Game {
     this.payWages();
     this.persist();
     this.rng = makeRng(`${this.seed}:${this.day}`);
-    this.pushLog(`Day ${this.day} — ${this.season}. Yesterday: $${this.stats.revenue.toFixed(2)} in, ${this.stats.sold} sold, ${this.stats.abandoned} walked out.`);
+    // Turned-away only appears once it has happened, because a shop that isn't
+    // full shouldn't have to read a zero every morning to find that out.
+    const turned = this.stats.turnedAway
+      ? `, ${this.stats.turnedAway} turned away at the door`
+      : '';
+    this.pushLog(`Day ${this.day} — ${this.season}. Yesterday: $${this.stats.revenue.toFixed(2)} in, ${this.stats.sold} sold, ${this.stats.abandoned} walked out${turned}.`);
     // Hand the finished day to whoever is watching (the balance runner reads
     // this, since `stats` is about to be wiped for the new day).
     this._lastDayStats = this.stats;
@@ -2292,10 +2359,17 @@ export class Game {
       this.fixtures[sk] = (this.fixtures[sk] ?? 0) + 1;
     }
     if (up.kind === 'space') {
-      this.grow = {
-        w: this.grow.w + Math.max(0, Math.trunc(up.payload.width ?? 0)),
-        h: this.grow.h + Math.max(0, Math.trunc(up.payload.depth ?? 0)),
-      };
+      const dw = Math.max(0, Math.trunc(up.payload.width ?? 0));
+      const dh = Math.max(0, Math.trunc(up.payload.depth ?? 0));
+      this.grow = { w: this.grow.w + dw, h: this.grow.h + dh };
+      // Land extends the building you have, rather than re-deriving one. Both
+      // are kept: `grow` still sizes a shop that has never been stamped, and the
+      // shell is what a stamped one actually is.
+      //
+      // It extends east and south, never re-centring, because a stored shop's
+      // fixtures are absolute — nudging the west wall out would move the whole
+      // building out from under every shelf in it.
+      if (this.shell) this.shell = { w: this.shell.w + dw, h: this.shell.h + dh };
     }
 
     // Structural upgrades re-flow the building. Appliances count — they occupy
@@ -2305,6 +2379,69 @@ export class Game {
     }
     this.pushLog(`Bought ${up.name}.`);
     return ok({ upgrade: upgradeId });
+  }
+
+  /**
+   * Stamp the shop once, and stop generating it.
+   *
+   * The moment a world first opens, everything the generator laid out becomes a
+   * placement and the size of the building becomes a stored fact. From then on
+   * the "generator" only ever re-applies what is already there: same fixtures,
+   * same tiles, same building, no search. That is step 4 of docs/building.md.
+   *
+   * Three things stop being possible once this has run, and each of them is a
+   * bug somebody has actually hit:
+   *
+   * - **The shop re-flowing under you.** Buying a shelf used to re-run the whole
+   *   generator, which could shuffle every other shelf to make room. Your aisles
+   *   are yours now.
+   * - **`droppedPlacements` in ordinary play.** It existed to apologise for the
+   *   above. The mechanism stays as a backstop — a wall you build can still make
+   *   a cell illegal — but a purchase can no longer trigger it.
+   * - **A generated id being re-minted.** `shelf-p0` was invented fresh on every
+   *   re-flow, which is why anything remembered against one drifted onto a
+   *   different fixture. Frozen into placements, the ids stop moving.
+   *
+   * Idempotent, and deliberately: it runs on every load and does nothing at all
+   * once `shell` is set. A migration you have to remember to run is a migration
+   * that gets run twice or never.
+   */
+  freezeShell() {
+    if (this.shell) return false;
+
+    // Everything standing in the generated shop, as placements. `fixturesOf`
+    // rather than four hand-written loops, so a kind added later is carried
+    // across on the day it exists rather than the day somebody notices.
+    const frozen = [];
+    const known = new Set(this.placements.map((p) => p.id));
+    for (const f of fixturesOf(this.layout)) {
+      if (known.has(f.id)) continue;   // already a placement — leave it be
+      frozen.push({
+        id: `fx-${this.nextFixtureId++}`,
+        kind: f.kind,
+        piece: f.piece ?? null,
+        station: f.station ?? null,
+        x: f.x,
+        z: f.z,
+        rot: f.rot ?? 0,
+        tier: f.tier ?? 1,
+        variant: f.variant ?? '',
+      });
+    }
+
+    // The generated ids go with them, so whatever was on `shelf-p0` follows it
+    // onto its new one. Same mechanism a moved fixture already uses.
+    const alias = {};
+    let i = 0;
+    for (const f of fixturesOf(this.layout)) {
+      if (known.has(f.id)) continue;
+      alias[f.id] = frozen[i++].id;
+    }
+
+    this.placements = [...this.placements, ...frozen];
+    this.shell = { w: this.layout.store.w, h: this.layout.store.h };
+    this.regenerateLayout(null, alias);
+    return true;
   }
 
   /**
@@ -2334,6 +2471,7 @@ export class Game {
       grow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
+      shell: this.shell,
     });
 
     // A placement the re-flow could no longer honour goes back to the generator
@@ -2394,6 +2532,44 @@ export class Game {
   // Customers
   // -------------------------------------------------------------------------
 
+  /**
+   * How full the shop is, as a ratio of what it can hold. 1.0 is comfortably
+   * busy; above that people start getting in each other's way.
+   *
+   * Counts everyone past the door, including the ones on their way out — they
+   * are still bodies on the floor. The ones still walking up the path outside
+   * are not in the shop yet, and counting them would have the shop turn people
+   * away because of the queue *to get in*.
+   */
+  measureOccupancy() {
+    const inside = Object.values(this.customers)
+      .reduce((n, cu) => n + (cu.state === 'ENTER' ? 0 : 1), 0);
+    const stocked = this.layout.shelves.reduce((n, s) => n + (s.qty > 0 ? 1 : 0), 0);
+    const capacity = this.layout.checkouts.length * CAPACITY_PER_TILL
+      + stocked * CAPACITY_PER_SHELF;
+    // A shop with no till and nothing on the shelves is not a shop with
+    // infinite room; it is one nobody can use.
+    return capacity > 0 ? inside / capacity : Infinity;
+  }
+
+  /**
+   * How the room feels, averaged over everyone actually in it.
+   *
+   * An empty shop reads as 1 rather than 0: nobody is having a bad time in
+   * there. Averaging over nobody and calling it misery would have the meter
+   * bottom out every night at closing, which is the one moment it means least.
+   */
+  shopMood() {
+    let sum = 0;
+    let n = 0;
+    for (const cu of Object.values(this.customers)) {
+      if (cu.state === 'ENTER' || cu.state === 'LEAVE') continue;
+      sum += cu.mood;
+      n++;
+    }
+    return n ? sum / n : 1;
+  }
+
   stepSpawning(dt, c, folded) {
     if (!this.isOpen() || c.archetypes.length === 0) return;
     const rate = footfall({
@@ -2403,7 +2579,24 @@ export class Game {
     this.spawnAccumulator += (rate / 60) * dt;
     while (this.spawnAccumulator >= 1) {
       this.spawnAccumulator -= 1;
-      if (Object.keys(this.customers).length < 40) this.spawnCustomer();
+
+      // Full. They look in, see it, and go somewhere else — which is the whole
+      // point: footfall used to keep pushing people at a shop that could not
+      // serve them, and the only thing that ever pushed back was reputation
+      // three days later. This is the same loop, closed on the same tick.
+      if (this.occupancy > TURN_AWAY_AT) {
+        this.stats.turnedAway++;
+        this.reputation = clamp(this.reputation - 0.005, 0, 1);
+        // Logged on the way in and out of the state rather than per person, or
+        // a busy hour buries every other line in the log.
+        if (!this.turningAway) {
+          this.turningAway = true;
+          this.pushLog('The shop is packed — people are looking in and walking on by.');
+        }
+        continue;
+      }
+      if (this.turningAway) this.turningAway = false;
+      this.spawnCustomer();
     }
   }
 
@@ -2524,6 +2717,8 @@ export class Game {
     // `till` is set the moment a slot is claimed, so walking up the line costs
     // the same as standing in it.
     if (cust.till) annoy += ANNOY_LINE;
+    // Everyone inside pays for the crush, whatever they're doing.
+    if (this.occupancy > 1) annoy += ANNOY_CROWD * (this.occupancy - 1);
 
     cust.mood = clamp(cust.mood - (annoy / cust.patience) * dt, 0, 1);
     if (cust.mood > 0) return false;
@@ -2884,7 +3079,7 @@ export class Game {
 function freshStats() {
   return {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
-    spoiled: 0, harvested: 0, tilled: 0, leftEmpty: 0, byItem: {},
+    spoiled: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
   };
 }
 
