@@ -1,7 +1,17 @@
 # Customers — mood, anger and crowding
 
-Status: **proposed, nothing built.** Mood exists as a field and moves for
-exactly one reason. Everything below is a plan.
+Status: **steps 1–3 built.** Patience is a budget, shoppers get cross and walk
+out, and you can see it on their faces. Steps 4–6 — capacity and crowding,
+theft, and the HUD meter — are still proposed.
+
+⚠️ `simulate` **cannot see any of steps 1–3.** Its bot auto-serves the front of
+the queue after 1.5s and keeps the shelves full, so no queue ever builds, no
+shelf is ever bare on arrival, and `abandoned` came back 0 across ten seeds
+both before and after. That is not the feature failing — it is the instrument
+being blind to it. Ten seeds against one frozen world measured 435.44 → 427.20
+profit/day, which is inside the noise floor CLAUDE.md documents for a no-op
+change. Anything in steps 4–6 that touches footfall **will** show up there, so
+re-measure then.
 
 The goal: a shopper's patience is a budget they spend on everything that is
 wrong with your shop, not just on the queue — and when it runs out they do
@@ -127,14 +137,21 @@ and the sim agree on what "cross" means:
 |---|---|---|
 | Content | `≥ 0.5` | Normal. Nothing changes. |
 | Annoyed | `0.2 – 0.5` | Visibly unhappy. Still shopping, still paying. |
-| Fuming | `< 0.2` | Will storm out at the next decision point. |
-| Gone | `≤ 0` | Storms out now. |
+| Fuming | `< 0.2` | Done shopping. Empty-handed, they walk out now; holding goods, they cut to the till. |
+| Gone | `≤ 0` | Storms out, wherever they are. |
+
+The fuming band splits on the basket, which the first draft of this doc did not
+and should have. "Storm out at the next decision point" throws away a full
+basket two seconds from the till, and the shopper who has already picked things
+up is the one with a reason to stay — so they get to try to pay, and storm out
+of the *line* if it comes to that. Empty-handed, there is nothing to lose by
+leaving, and leaving is the honest signal.
 
 Storming out is its own exit, not a quiet `leaveShop`: the basket is abandoned,
 they head for the door at **1.6× walking speed**, reputation takes `−0.03`
-(worse than the current `−0.02` queue timeout, because now it can happen to
-someone who never even reached the line), and it writes a log line naming what
-did it — the queue, the crowd, or the bare shelves.
+(worse than the old `−0.02` queue timeout, because now it can happen to someone
+who never even reached the line), and it writes a log line naming who left and
+how much they dropped.
 
 ### Showing it
 

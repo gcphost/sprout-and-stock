@@ -219,6 +219,9 @@ function applyPlan(game, plan, source) {
 
   for (const m of mods) {
     addModifier({
+      // A heat wave in one shop is not a heat wave in the shop next door. The
+      // director runs per world, so what it writes belongs to that world.
+      worldId: game.worldId,
       source,
       label: plan.headline ?? source,
       tag: m.tag,
@@ -435,6 +438,7 @@ function applyFallback(game, reason) {
     game.recentEvents = [picked.id, ...recent].slice(0, 3);
     for (const eff of picked.effects) {
       addModifier({
+        worldId: game.worldId,
         source: `event:${picked.id}`,
         label: picked.name,
         tag: eff.tag,

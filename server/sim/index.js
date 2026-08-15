@@ -25,7 +25,8 @@ import {
 import { spoilRate, requiredFixture, desireFor } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
-import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, canPlaceEdge, canPlaceEdges, edgeRun} from '../../shared/build.js';
+import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, canPlaceEdge, canPlaceEdges, edgeRun, isProp } from '../../shared/build.js';
+import { pieceFor, kindOf, defaultPiece, ledgerKey } from '../../shared/pieces.js';
 
 /** Real seconds in one in-game day. */
 export const DAY_SECONDS = 360;
@@ -63,6 +64,33 @@ const BAY_REACH = 2.2;         // the loading pad is 2x2, so reach from its midd
 const ACTION_TIME = 1.0;       // seconds of standing still before an action fires
 
 /**
+ * MOOD.
+ *
+ * `patience` is a budget, in seconds, and everything wrong with the shop draws
+ * on it. Rates below are in budget-per-second and are relative to queueing,
+ * which is 1.0 by definition: a shopper who does nothing but queue runs out in
+ * exactly `patience` seconds, which is what the old `1 - waited/patience` did.
+ * Anchoring on that means the queue timeout keeps the balance it was tuned for
+ * and everything else is measured against a number that already felt right.
+ */
+const ANNOY_IN_SHOP = 0.15;    // being in a shop at all, however good it is
+const ANNOY_LINE = 1.0;        // waiting to pay, walking up the line or standing in it
+const ANNOY_EMPTY_SHELF = 0.12; // one-off: walked over and somebody took the last one
+
+/** Visibly unhappy below the first, ready to walk out below the second. */
+const MOOD_ANNOYED = 0.5;
+const MOOD_FUMING = 0.2;
+/** Storming out is a stride, not a stroll. */
+const STORM_SPEED = 1.6;
+
+/**
+ * How cross someone looks, 0..1. Derived here rather than on the client so the
+ * renderer and the sim can't drift on what "cross" means — the same mistake
+ * `shared/build.js` exists to prevent for the build ghost.
+ */
+const angerOf = (c) => clamp((MOOD_ANNOYED - c.mood) / (MOOD_ANNOYED - MOOD_FUMING), 0, 1);
+
+/**
  * How long each held action takes. Everything used to cost a flat second, which
  * made turning soil feel identical to picking a tomato up. Destructive things
  * are deliberately slower — a long ring is the confirmation dialog.
@@ -75,16 +103,10 @@ const ACTION_TIMES = {
 /** Fallback prices for building a fixture when no upgrade grants that kind. */
 const FALLBACK_FIXTURE_COST = { shelf: 60, freezer: 260, checkout: 300, plot: 40, station: 200 };
 
-/**
- * Where a fixture is counted in the ledger.
- *
- * Appliances are counted by name. A shelf is fungible — eleven of them are
- * eleven of one thing — but a blender is not a toaster, and the layout
- * generator needs the list by name to put the right machine back. Prefixing
- * keeps them in the one ledger without a `station` kind ever colliding with an
- * appliance called `shelf`.
- */
-const ledgerKey = (kind, station) => (kind === 'station' ? `station:${station}` : kind);
+// Where a fixture is counted in the ledger now lives in `shared/pieces.js`,
+// because the palette on the client has to look a count up by exactly the same
+// name the server files it under — and two spellings of "how many of these do
+// I own" is a button that says 0 next to eleven shelves.
 
 /** The appliance names the ledger says you own, expanded one per machine. */
 function stationList(fixtures) {
@@ -131,8 +153,15 @@ export class Game {
   // Construction / persistence
   // -------------------------------------------------------------------------
 
-  static create({ seed, autoServe = false, ephemeral = false } = {}) {
-    const w = loadWorld();
+  /**
+   * `worldId` names which save slot this game is. It is required rather than
+   * defaulted on purpose: a Game that doesn't know which world it is will read
+   * one shop and `persist()` over another, and every symptom of that shows up
+   * hours later as "my save keeps reverting".
+   */
+  static create({ worldId, seed, autoServe = false, ephemeral = false } = {}) {
+    if (!worldId) throw new Error('Game.create needs a worldId — see server/worlds.js');
+    const w = loadWorld(worldId);
     const useSeed = seed ?? w.seed;
     const fixtures = fixtureLedger(w);
     const placements = w.placements ?? [];
@@ -156,6 +185,7 @@ export class Game {
     const roster = w.roster ?? rosterFromUpgrades(w);
 
     return new Game({
+      worldId,
       seed: String(useSeed),
       day: w.day,
       time: OPEN_HOUR / 24,      // 0..1 through the day
@@ -194,6 +224,10 @@ export class Game {
   /** JSON-safe full state — used for devMode room caching and MCP inspection. */
   serialize() {
     return {
+      // Which save slot this is. First field for the same reason it is required
+      // in `create`: a cached room restored without it would persist into a
+      // world named `undefined` and take an hour of play with it.
+      worldId: this.worldId,
       seed: this.seed,
       day: this.day,
       time: this.time,
@@ -238,7 +272,7 @@ export class Game {
    */
   persist() {
     if (this.ephemeral) return;
-    saveWorld({
+    saveWorld(this.worldId, {
       seed: this.seed,
       day: this.day,
       cash: this.cash,
@@ -292,7 +326,7 @@ export class Game {
     this.cashDrops = [];
     this.nextCashId = 1;
 
-    const cleared = clearModifiers();
+    const cleared = clearModifiers(undefined, this.worldId);
     this.invalidateModifiers();
     this.persist();
     this.pushLog(`Economy reset: day ${before.day} → 1, $${before.cash.toFixed(2)} → $${this.cash.toFixed(2)}.`);
@@ -372,7 +406,7 @@ export class Game {
       customers: Object.values(this.customers).map((c) => ({
         id: c.id, x: r2(c.x), z: r2(c.z), facing: r2(c.facing),
         color: c.color, state: c.state, basket: c.basket.length,
-        mood: r2(c.mood), want: c.wantHint ?? null,
+        mood: r2(c.mood), anger: r2(angerOf(c)), want: c.wantHint ?? null,
       })),
       shelves: this.layout.shelves.map((s) => ({
         id: s.id, item_id: s.item_id, qty: s.qty, price: r2(s.price), kind: s.kind,
@@ -418,7 +452,7 @@ export class Game {
 
   currentModifiers() {
     if (!this._modCache || this._modCacheDay !== this.day) {
-      this._modCache = activeModifiers(this.day);
+      this._modCache = activeModifiers(this.day, this.worldId);
       this._modCacheDay = this.day;
     }
     return this._modCache;
@@ -468,7 +502,7 @@ export class Game {
       this.pushLog(`Cashed up $${swept.toFixed(2)} left on the counter.`);
     }
     this.season = SEASONS[Math.floor((this.day - 1) / 7) % SEASONS.length];
-    pruneModifiers(this.day);
+    pruneModifiers(this.day, this.worldId);
     this.invalidateModifiers();
     this.spoilStock();
     this.payWages();
@@ -1552,6 +1586,12 @@ export class Game {
       ...this.layout.checkouts.map((c) => ({ ...c, kind: 'checkout', ref: c })),
       ...(this.layout.stations ?? []).map((s) => ({ ...s, kind: 'station', ref: s })),
       ...this.layout.plots.map((pl) => ({ ...pl, kind: 'plot', ref: pl })),
+      // Decorations are fixtures to everything in build mode — you aim at one,
+      // open its menu, turn it, move it, sell it back — so they belong in the
+      // one list rather than growing a parallel set of verbs that do the same
+      // things to a different noun. They carry their own kind because there is
+      // more than one and the list they came from no longer says which.
+      ...(this.layout.props ?? []).map((p) => ({ ...p, ref: p })),
     ];
   }
 
@@ -1571,14 +1611,43 @@ export class Game {
   // a different fixture. Upgrading therefore pins a fixture into a placement,
   // exactly as moving or turning it already does.
 
-  /** What kind of thing this is, in content terms. */
-  fixtureContent(kind) {
-    return content().byId.fixtures?.[kind] ?? null;
+  /**
+   * The piece this is, in content terms.
+   *
+   * Takes a fixture, because which design a shelf is belongs to *that shelf* now
+   * rather than to shelves in general. A bare kind still answers — with the
+   * kind's default piece — because plenty of callers legitimately mean "what
+   * does a shelf cost" rather than "what does this shelf cost".
+   */
+  fixtureContent(kindOrFixture) {
+    const rows = content().fixtures ?? [];
+    return typeof kindOrFixture === 'string'
+      ? defaultPiece(rows, kindOrFixture)
+      : pieceFor(rows, kindOrFixture);
   }
 
-  /** The tier ladder for a kind. Always at least one rung: what a new one is. */
-  fixtureTiers(kind) {
-    const tiers = this.fixtureContent(kind)?.tiers;
+  /**
+   * Which piece id a request to build one of these should record.
+   *
+   * Names the piece asked for when the catalog has it, the kind's default when
+   * it doesn't. The fallback matters more than it looks: a fixture kind exists
+   * in code whether or not anybody has drawn it — an undrawn shelf renders as a
+   * plain block and has been buildable that way since long before there was a
+   * catalog — so a kind with no rows at all still builds under its own name. A
+   * prop is *only* its art, so a prop nobody has drawn has nothing to place.
+   */
+  pieceId(kind, want = null) {
+    const rows = content().fixtures ?? [];
+    if (want) {
+      const hit = rows.find((p) => p.id === want && kindOf(p) === kind);
+      if (hit) return hit.id;
+    }
+    return defaultPiece(rows, kind)?.id ?? (isProp(kind) ? null : kind);
+  }
+
+  /** The tier ladder for a piece. Always at least one rung: what a new one is. */
+  fixtureTiers(kindOrFixture) {
+    const tiers = this.fixtureContent(kindOrFixture)?.tiers;
     return tiers?.length ? tiers : [{ name: 'Standard', cost: 0 }];
   }
 
@@ -1590,7 +1659,10 @@ export class Game {
     // so read that first — this runs for every plot and shelf on every tick and
     // rescanning the placement list each time is a scan nobody needs.
     const tier = f.tier ?? this.placements.find((p) => p.id === f.id)?.tier ?? 1;
-    return clamp(Math.trunc(tier), 1, this.fixtureTiers(f.kind).length);
+    // Clamped against *this fixture's* ladder, not its kind's. Two shelf designs
+    // may climb to different heights, and reading the wrong ladder is how a
+    // tier-3 unit silently demotes itself the day somebody authors a shorter one.
+    return clamp(Math.trunc(tier), 1, this.fixtureTiers(f).length);
   }
 
   /**
@@ -1604,20 +1676,20 @@ export class Game {
     const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
     if (!f) return '';
     const want = f.variant ?? this.placements.find((p) => p.id === f.id)?.variant ?? '';
-    return this.fixtureHasVariant(f.kind, want) ? want : '';
+    return this.fixtureHasVariant(f, want) ? want : '';
   }
 
-  /** Is this a shape this kind actually comes in? */
-  fixtureHasVariant(kind, variant) {
+  /** Is this a shape this piece actually comes in? */
+  fixtureHasVariant(kindOrFixture, variant) {
     if (!variant) return true;
-    return (this.fixtureContent(kind)?.variants ?? []).some((v) => v.id === variant);
+    return (this.fixtureContent(kindOrFixture)?.variants ?? []).some((v) => v.id === variant);
   }
 
   /** The stat block a fixture is currently running on. */
   fixtureStats(idOrFixture) {
     const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
     if (!f) return { capacity_mult: 1, keeps_mult: 1, speed_mult: 1 };
-    const tier = this.fixtureTiers(f.kind)[this.fixtureTier(f) - 1] ?? {};
+    const tier = this.fixtureTiers(f)[this.fixtureTier(f) - 1] ?? {};
     return {
       capacity_mult: tier.capacity_mult ?? 1,
       keeps_mult: tier.keeps_mult ?? 1,
@@ -1629,7 +1701,7 @@ export class Game {
   nextTier(idOrFixture) {
     const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
     if (!f) return null;
-    const tiers = this.fixtureTiers(f.kind);
+    const tiers = this.fixtureTiers(f);
     const next = tiers[this.fixtureTier(f)];
     return next ? { ...next, tier: this.fixtureTier(f) + 1 } : null;
   }
@@ -1670,7 +1742,7 @@ export class Game {
     if (error) return err(error);
 
     const want = variant ?? '';
-    if (!this.fixtureHasVariant(f.kind, want)) return err('that is not a shape this comes in');
+    if (!this.fixtureHasVariant(f, want)) return err('that is not a shape this comes in');
     if (this.fixtureVariant(f) === want) return ok({ styled: id, variant: want });
 
     const res = this.repositionFixture(id, {
@@ -1781,7 +1853,14 @@ export class Game {
   }
 
   /** What one more of this fixture costs, priced off whatever upgrade sells it. */
-  fixtureUnitCost(kind, station = null) {
+  fixtureUnitCost(kind, station = null, piece = null) {
+    // A piece that names its own price is worth exactly that, whatever kind it
+    // is. This is the only way a decoration can be priced at all — nothing
+    // sells a planter — and it is the on-ramp for moving every price onto the
+    // catalog later. Left at 0 everywhere today, so no existing thing moved.
+    const row = piece ? pieceFor(content().fixtures ?? [], { kind, piece }) : null;
+    if (row?.cost > 0) return round2(row.cost);
+
     // An appliance is priced by the upgrade that sells *that* appliance. There
     // is nothing to divide by the way a pack of shelves has: one upgrade, one
     // machine, and a blender and a coffee machine are not the same purchase.
@@ -1815,9 +1894,18 @@ export class Game {
   buildCosts() {
     const costs = Object.fromEntries(Object.keys(FIXTURE_PAYLOAD_KEY)
       .map((k) => [k, this.fixtureUnitCost(k)]));
+    // ...and one per piece, keyed by piece id, because a price belongs to a
+    // design now rather than to a kind. The five pieces that predate the split
+    // are named after their kind, so those entries land on exactly the keys the
+    // line above already wrote and nothing about them moved.
+    for (const row of content().fixtures ?? []) {
+      const k = kindOf(row);
+      if (!FIXTURES[k]) continue;
+      costs[row.id] = this.fixtureUnitCost(k, null, row.id);
+    }
     for (const u of content().upgrades) {
       if (u.kind !== 'station' || !u.payload?.station) continue;
-      costs[ledgerKey('station', u.payload.station)] = round2(u.cost);
+      costs[ledgerKey('station', { station: u.payload.station })] = round2(u.cost);
     }
     // The shell, priced per segment. Same reason fixture prices are shared: the
     // palette prints the number on the button and the server is what charges
@@ -1844,36 +1932,44 @@ export class Game {
     const station = kind === 'station' ? String(spec.station ?? '') : null;
     if (kind === 'station' && !this.stationUpgrade(station)) return err('no such appliance');
 
+    // Which design off the catalog. Unknown ids fall back to the kind's default
+    // rather than refusing, which is what keeps every caller that predates
+    // pieces — the bot, the API, an older client — building shelves.
+    const piece = this.pieceId(kind, spec.piece);
+    if (!piece) return err('nothing in the catalog builds that');
+
     const placement = {
       id: `fx-${this.nextFixtureId}`,
       kind,
+      piece,
       station,
       x: Math.round(Number(spec.x)),
       z: Math.round(Number(spec.z)),
       rot: rot4(Number(spec.rot) || 0),
       tier: 1,
       // Which shape you picked off the palette. Costs the same as any other:
-      // a variant is a look, and the price is the kind's.
-      variant: this.fixtureHasVariant(kind, spec.variant) ? (spec.variant ?? '') : '',
+      // a variant is a look, and the price is the piece's.
+      variant: this.fixtureHasVariant({ kind, piece }, spec.variant) ? (spec.variant ?? '') : '',
     };
     const check = canPlace(this.layout, placement);
     if (!check.ok) return err(check.reason);
 
-    const cost = this.fixtureUnitCost(kind, station);
+    const cost = this.fixtureUnitCost(kind, station, piece);
     if (this.cash < cost) return err(`need $${cost.toFixed(2)}`);
 
     this.cash -= cost;
     this.stats.spent += cost;
-    const key = ledgerKey(kind, station);
+    const key = ledgerKey(kind, { station, piece });
     this.fixtures[key] = (this.fixtures[key] ?? 0) + 1;
     this.nextFixtureId++;
     this.placements.push(placement);
     this.regenerateLayout();
     // An appliance is named after the machine, not after "appliance" — you
-    // bought a blender and the log should say so.
+    // bought a blender and the log should say so. A piece is named after
+    // itself for the same reason: you bought a planter, not a "decoration".
     const what = station
       ? (this.stationUpgrade(station)?.name ?? station).toLowerCase()
-      : FIXTURES[kind].label.toLowerCase();
+      : (this.fixtureContent(placement)?.name ?? FIXTURES[kind].label).toLowerCase();
     this.pushLog(`Built a ${what} for $${cost.toFixed(2)}.`);
     // Carried back out so anything driving this headlessly — the API, MCP, a
     // bot — is told what it just did to the shop, rather than only the player
@@ -1894,11 +1990,15 @@ export class Game {
     p.holding = {
       id: f.id,
       kind: f.kind,
+      piece: f.piece ?? null,
       station: f.station ?? null,
       rot: f.rot ?? 0,
       tier: this.fixtureTier(f),
       variant: this.fixtureVariant(f),
-      label: FIXTURES[f.kind]?.label ?? 'fixture',
+      // What the hint calls it while you carry it. The piece's own name when it
+      // has one, because "carrying a decoration" tells you nothing in a shop
+      // with four kinds of planter in it.
+      label: this.fixtureContent(f)?.name ?? FIXTURES[f.kind]?.label ?? 'fixture',
     };
     return ok({ lifted: f.id, kind: f.kind });
   }
@@ -1912,6 +2012,7 @@ export class Game {
 
     const res = this.repositionFixture(held.id, {
       kind: held.kind,
+      piece: held.piece ?? null,
       station: held.station,
       x: spec.x,
       z: spec.z,
@@ -1973,6 +2074,10 @@ export class Game {
     const placement = {
       id: `fx-${this.nextFixtureId}`,
       kind: spec.kind,
+      // Which design it is rides along exactly as the tier and the shape do. Let
+      // it fall back to the kind's default here and picking a shelf up would set
+      // it down as whichever shelf the catalog lists first.
+      piece: spec.piece ?? from.piece ?? this.pieceId(spec.kind),
       station: spec.station ?? null,
       x: Math.round(Number(spec.x)),
       z: Math.round(Number(spec.z)),
@@ -2025,10 +2130,10 @@ export class Game {
     // upgrade — the only way a boolean can count down — which meant selling one
     // back put it up for sale again at full price and re-buying it was the only
     // way to get a second.
-    const key = ledgerKey(f.kind, f.station);
+    const key = ledgerKey(f.kind, { station: f.station, piece: f.piece });
     if ((this.fixtures[key] ?? 0) <= 0) return err('nothing to remove');
     this.fixtures[key] -= 1;
-    const refund = round2(this.fixtureUnitCost(f.kind, f.station) * FIXTURE_REFUND);
+    const refund = round2(this.fixtureUnitCost(f.kind, f.station, f.piece) * FIXTURE_REFUND);
 
     this.placements = this.placements.filter((pl) => pl.id !== id);
     this.cash += refund;
@@ -2183,7 +2288,7 @@ export class Game {
     // An appliance upgrade grants the first machine and sets what another one
     // costs in build mode — the same deal a shelf upgrade offers.
     if (up.kind === 'station' && up.payload?.station) {
-      const sk = ledgerKey('station', up.payload.station);
+      const sk = ledgerKey('station', { station: up.payload.station });
       this.fixtures[sk] = (this.fixtures[sk] ?? 0) + 1;
     }
     if (up.kind === 'space') {
@@ -2334,6 +2439,7 @@ export class Game {
       patience: arch.patience,
       waited: 0,
       mood: 1,
+      storming: false,
       visited: [],
       targetShelf: null,
       till: null,
@@ -2363,6 +2469,7 @@ export class Game {
     for (const cust of Object.values(this.customers)) {
       const arch = c.byId.archetypes[cust.archetype_id];
       if (!arch) { this.despawn(cust); continue; }
+      if (this.stepMood(cust, dt)) continue;   // walked out; already heading for the door
 
       switch (cust.state) {
         case 'ENTER':
@@ -2390,7 +2497,7 @@ export class Game {
           break;
 
         case 'LEAVE':
-          if (followPath(cust, CUSTOMER_SPEED, dt)) this.despawn(cust);
+          if (followPath(cust, CUSTOMER_SPEED * (cust.storming ? STORM_SPEED : 1), dt)) this.despawn(cust);
           break;
 
         default:
@@ -2399,9 +2506,60 @@ export class Game {
     }
   }
 
+  /**
+   * Spend patience on whatever is currently wrong. Returns true if they just
+   * walked out, so the caller skips the rest of their tick.
+   *
+   * Only the queue used to cost anything, which left two holes. The line
+   * *shuffles* — `leaveShop` puts everyone behind the sale back into `TO_TILL`
+   * and only `stepQueue` charged for waiting, so most of a busy queue's wait
+   * was free. And a shop with nothing anyone wanted on its shelves annoyed
+   * nobody at all: they left, `leftEmpty` went up, and their mood was still 1.
+   */
+  stepMood(cust, dt) {
+    // Not yet through the door, or already on their way out.
+    if (cust.state === 'ENTER' || cust.state === 'LEAVE') return false;
+
+    let annoy = ANNOY_IN_SHOP;
+    // `till` is set the moment a slot is claimed, so walking up the line costs
+    // the same as standing in it.
+    if (cust.till) annoy += ANNOY_LINE;
+
+    cust.mood = clamp(cust.mood - (annoy / cust.patience) * dt, 0, 1);
+    if (cust.mood > 0) return false;
+    this.stormOut(cust);
+    return true;
+  }
+
+  /**
+   * Out of patience. Deliberately not just `leaveShop`: the basket is
+   * abandoned, the door swings harder than a queue timeout used to be worth
+   * (it can now happen to someone who never reached the line), and `storming`
+   * makes the walk itself read as temper rather than as a finished shop.
+   */
+  stormOut(cust) {
+    const name = content().byId.archetypes[cust.archetype_id]?.name ?? 'customer';
+    const had = cust.basket.length;
+    this.stats.abandoned++;
+    this.reputation = clamp(this.reputation - 0.03, 0, 1);
+    this.pushLog(had
+      ? `A ${name} lost patience and stormed out — ${had} item${had === 1 ? '' : 's'} abandoned.`
+      : `A ${name} lost patience and stormed out.`);
+    cust.basket = [];
+    cust.storming = true;
+    this.leaveShop(cust);
+  }
+
   chooseShelf(cust, arch, c, folded) {
     // Done shopping?
     if (cust.basket.length >= cust.wantCount) return this.goToTill(cust);
+
+    // Fuming: not walking to one more shelf. Someone still empty-handed has
+    // nothing to lose by leaving now; someone holding goods would rather pay
+    // and get out, and will storm out of the line itself if it comes to that.
+    if (cust.mood < MOOD_FUMING) {
+      return cust.basket.length ? this.goToTill(cust) : this.stormOut(cust);
+    }
 
     const ranked = rankShelves({
       shelves: this.layout.shelves.filter((s) => !cust.visited.includes(s.id)),
@@ -2445,7 +2603,13 @@ export class Game {
     cust.state = 'BROWSE';
     cust.wantHint = null;
 
-    if (!shelf || !shelf.item_id || shelf.qty <= 0) return;
+    if (!shelf || !shelf.item_id || shelf.qty <= 0) {
+      // `rankShelves` only ever aims them at a stocked shelf, so getting here
+      // means somebody took the last one while this shopper was walking over.
+      // A wasted trip is the shop being thin, not the shopper being unlucky.
+      cust.mood = clamp(cust.mood - ANNOY_EMPTY_SHELF, 0, 1);
+      return;
+    }
     const item = c.byId.items[shelf.item_id];
     if (!item) return;
 
@@ -2496,8 +2660,10 @@ export class Game {
   }
 
   stepQueue(cust, dt) {
+    // Still counted, but only to tell auto-serve that this one has settled into
+    // their slot. Patience itself is spent in `stepMood`, which also charges
+    // for the walk up the line.
     cust.waited += dt;
-    cust.mood = clamp(1 - cust.waited / cust.patience, 0, 1);
 
     const till = this.layout.checkouts.find((t) => t.id === cust.till);
     if (!till) return this.leaveShop(cust);
@@ -2511,14 +2677,6 @@ export class Game {
     // Auto-serve exists so headless balance runs don't need a human at the till.
     if (isFront && this.autoServe && cust.waited > 1.5) {
       return this.completeSale(cust);
-    }
-
-    if (cust.waited > cust.patience) {
-      // Abandoned basket: stock is lost from the shelf, reputation takes a hit.
-      this.stats.abandoned++;
-      this.reputation = clamp(this.reputation - 0.02, 0, 1);
-      this.pushLog(`A ${content().byId.archetypes[cust.archetype_id]?.name ?? 'customer'} gave up queueing and walked out.`);
-      return this.leaveShop(cust);
     }
   }
 
@@ -2794,7 +2952,7 @@ function fixtureLedger(w) {
     const owned = w.ownedUpgrades ?? [];
     for (const u of content().upgrades) {
       if (u.kind !== 'station' || !u.payload?.station) continue;
-      if (owned.includes(u.id)) led[ledgerKey('station', u.payload.station)] = 1;
+      if (owned.includes(u.id)) led[ledgerKey('station', { station: u.payload.station })] = 1;
     }
   }
   return led;

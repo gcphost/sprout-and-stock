@@ -12,13 +12,17 @@
  */
 
 import express from 'express';
-import { primaryRoom } from './rooms/MartRoom.js';
+import { primaryRoom, rooms } from './rooms/MartRoom.js';
 import { content, writeContent, refresh } from './content.js';
 import { simulate } from './sim/simulate.js';
 import { remove, addModifier, clearModifiers, activeModifiers } from './db.js';
 import { TAG_GROUPS, ALL_TAGS } from '../shared/tags.js';
 import { runDirector, describeWorld } from './director.js';
 import { OPEN_HOUR } from './sim/index.js';
+import {
+  listWorlds, getWorldSummary, createWorld, deleteWorld, renameWorld, pinWorld,
+  resolveWorldId, roomForWorld, focusedWorldId, setFocus, sweepWorlds,
+} from './worlds.js';
 
 const KINDS = {
   item: 'items', crop: 'crops', archetype: 'archetypes',
@@ -26,6 +30,27 @@ const KINDS = {
   worker: 'workers',
   pastime: 'pastimes',
 };
+
+/**
+ * Routes a *player* needs, as opposed to routes an agent needs.
+ *
+ * `SNS_TOKEN` exists to stop a public tunnel handing strangers the content
+ * database. It was never meant to stop the game loading, and once the menu
+ * lives behind an HTTP call, gating all of /api means nobody can pick a world
+ * on a tunnel you secured — the game simply never starts.
+ *
+ * So: reading the world list, making a world, and posting a screenshot back are
+ * open. Deleting, renaming, pinning and everything that edits content or pokes
+ * the sim still needs the token. Anyone who can join can already bulldoze the
+ * shop from inside it; nobody who can join should be able to delete it whole.
+ */
+const OPEN_ROUTES = [
+  ['GET', '/worlds'],
+  ['POST', '/worlds'],
+  ['POST', '/screenshot/upload'],
+];
+
+const isOpenRoute = (req) => OPEN_ROUTES.some(([m, p]) => req.method === m && req.path === p);
 
 export function createApi() {
   const api = express.Router();
@@ -35,14 +60,30 @@ export function createApi() {
   api.use((req, res, next) => {
     const token = process.env.SNS_TOKEN;
     if (!token) return next();
+    if (isOpenRoute(req)) return next();
     const header = req.get('authorization') ?? '';
     if (header === `Bearer ${token}`) return next();
     res.status(401).json({ ok: false, error: 'bad or missing token' });
   });
 
-  const game = () => {
-    const room = primaryRoom();
-    if (!room) throw new HttpError(503, 'no live room — is the game server running?');
+  /**
+   * The live game a request is about, starting its world if nobody has it open.
+   *
+   * Which world: `world` in the body or query if the caller named one, then the
+   * `use_world` pointer, then the busiest room, then the last one played. That
+   * order means an agent that never heard of save slots behaves exactly as it
+   * did when there was only one.
+   *
+   * Acting on a world OPENS it — a room boots headless and the sim starts
+   * running. That is deliberate and it is what makes "my world is bust, reset
+   * it" fixable without a browser tab open. The idle timer closes it again a
+   * few minutes later.
+   */
+  const gameFor = async (req) => {
+    const asked = req.body?.world ?? req.query?.world ?? null;
+    const worldId = resolveWorldId(asked ? String(asked) : null);
+    if (!worldId) throw new HttpError(503, 'there are no worlds — create one first');
+    const room = await roomForWorld(worldId);
     return room.game;
   };
 
@@ -55,14 +96,62 @@ export function createApi() {
       room: room?.roomId ?? null,
       players: room ? Object.keys(room.game.players).length : 0,
       contentVersion: content().version,
+      world: resolveWorldId(null),
+      focused: focusedWorldId(),
+      worlds: listWorlds().length,
     });
   });
 
-  api.get('/state', wrap((req, res) => {
-    const g = game();
+  // ---- save slots --------------------------------------------------------
+
+  api.get('/worlds', wrap((req, res) => {
+    res.json({ ok: true, focused: focusedWorldId(), worlds: listWorlds() });
+  }));
+
+  api.post('/worlds', wrap((req, res) => {
+    res.json({ ok: true, world: createWorld({ name: req.body?.name, seed: req.body?.seed }) });
+  }));
+
+  api.delete('/worlds/:id', wrapAsync(async (req, res) => {
+    const result = await deleteWorld(req.params.id);
+    if (!result.ok) throw new HttpError(409, result.error);
+    res.json(result);
+  }));
+
+  api.patch('/worlds/:id', wrap((req, res) => {
+    let world = getWorldSummary(req.params.id);
+    if (!world) throw new HttpError(404, `no world "${req.params.id}"`);
+    if (req.body?.name !== undefined) world = renameWorld(req.params.id, req.body.name) ?? world;
+    if (req.body?.pinned !== undefined) world = pinWorld(req.params.id, !!req.body.pinned);
+    res.json({ ok: true, world });
+  }));
+
+  api.post('/worlds/sweep', wrap((req, res) => {
+    res.json({ ok: true, ...sweepWorlds({ ttlDays: req.body?.ttlDays }) });
+  }));
+
+  // Which world an agent's later calls mean, when they don't say. Shared across
+  // everyone talking to this server — see `focusedWorldId`.
+  api.post('/focus', wrap((req, res) => {
+    const id = req.body?.world ?? null;
+    if (id === null) {
+      setFocus(null);
+      return res.json({ ok: true, focused: null, world: resolveWorldId(null) });
+    }
+    if (!setFocus(String(id))) throw new HttpError(404, `no world "${id}"`);
+    res.json({ ok: true, focused: String(id), world: getWorldSummary(String(id)) });
+  }));
+
+  api.get('/state', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
     res.json({
       ok: true,
       ...g.snapshot(),
+      // Which shop this is. On every response that touches a world, because the
+      // `use_world` pointer is shared between everyone driving this server —
+      // your agent can be pointed somewhere by mine, and a reply that doesn't
+      // name the world it acted on makes that invisible.
+      world: g.worldId,
       seed: g.seed,
       ownedUpgrades: g.ownedUpgrades,
       layout: {
@@ -92,12 +181,14 @@ export function createApi() {
     res.json({ ok: true, kind: req.params.kind, rows: content()[table] });
   }));
 
-  api.get('/log', wrap((req, res) => {
-    res.json({ ok: true, log: game().log.slice(-Number(req.query.n ?? 30)) });
+  api.get('/log', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
+    res.json({ ok: true, world: g.worldId, log: g.log.slice(-Number(req.query.n ?? 30)) });
   }));
 
-  api.get('/modifiers', wrap((req, res) => {
-    res.json({ ok: true, day: game().day, modifiers: activeModifiers(game().day) });
+  api.get('/modifiers', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
+    res.json({ ok: true, world: g.worldId, day: g.day, modifiers: activeModifiers(g.day, g.worldId) });
   }));
 
   // ---- content writes ----------------------------------------------------
@@ -122,24 +213,30 @@ export function createApi() {
 
   // ---- playground controls ----------------------------------------------
 
+  // Deliberately does NOT open a room: a balance run copies a save, it doesn't
+  // play it. Starting the world to measure it would have the sim ticking
+  // underneath the copy, which is the one thing an ephemeral run is for.
   api.post('/simulate', wrap((req, res) => {
-    res.json(simulate(req.body ?? {}));
+    const worldId = resolveWorldId(req.body?.world ? String(req.body.world) : null);
+    if (!worldId) throw new HttpError(503, 'there are no worlds — create one first');
+    res.json(simulate({ ...(req.body ?? {}), worldId }));
   }));
 
-  api.post('/stock', wrap((req, res) => {
-    res.json(game().autoStock());
+  api.post('/stock', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
+    res.json({ ...g.autoStock(), world: g.worldId });
   }));
 
-  api.post('/spawn', wrap((req, res) => {
-    const g = game();
+  api.post('/spawn', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
     const n = Math.min(Number(req.body?.count ?? 1), 30);
     const out = [];
     for (let i = 0; i < n; i++) out.push(g.spawnCustomer(req.body?.archetypeId));
-    res.json({ ok: true, spawned: out.filter((o) => o.ok).length, results: out });
+    res.json({ ok: true, world: g.worldId, spawned: out.filter((o) => o.ok).length, results: out });
   }));
 
-  api.post('/regenerate', wrap((req, res) => {
-    const g = game();
+  api.post('/regenerate', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
     // Hand-placed fixtures survive a reseed by default — that's the point of
     // placing them. `clearPlacements` is the way back to a purely procedural
     // shop without touching what the shop owns.
@@ -147,14 +244,14 @@ export function createApi() {
     if (cleared) g.placements = [];
     const layout = g.regenerateLayout(req.body?.seed ?? `re-${Date.now()}`);
     res.json({
-      ok: true, seed: g.seed, version: g.layoutVersion,
+      ok: true, world: g.worldId, seed: g.seed, version: g.layoutVersion,
       shelves: layout.shelves.length, plots: layout.plots.length,
       clearedPlacements: cleared,
     });
   }));
 
-  api.post('/time', wrap((req, res) => {
-    const g = game();
+  api.post('/time', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
     if (req.body?.day !== undefined) g.day = Math.max(1, Number(req.body.day));
     if (req.body?.hour !== undefined) g.time = Math.min(0.999, Math.max(0, Number(req.body.hour) / 24));
     if (req.body?.skipDays) {
@@ -162,56 +259,60 @@ export function createApi() {
       g.time = OPEN_HOUR / 24;
       g.onNewDay();
     }
-    res.json({ ok: true, day: g.day, hour: Math.round(g.time * 24 * 10) / 10 });
+    res.json({ ok: true, world: g.worldId, day: g.day, hour: Math.round(g.time * 24 * 10) / 10 });
   }));
 
-  api.post('/cash', wrap((req, res) => {
-    const g = game();
+  api.post('/cash', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
     const amount = Number(req.body?.amount ?? 0);
     if (req.body?.set !== undefined) g.cash = Number(req.body.set);
     else g.cash += amount;
-    res.json({ ok: true, cash: Math.round(g.cash * 100) / 100 });
+    res.json({ ok: true, world: g.worldId, cash: Math.round(g.cash * 100) / 100 });
   }));
 
-  api.post('/modifier', wrap((req, res) => {
-    const g = game();
+  api.post('/modifier', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
     const { tag, demand_mult = 1, price_mult = 1, days = 2, label = 'manual' } = req.body ?? {};
     if (!tag) throw new HttpError(400, 'tag is required');
     addModifier({
+      worldId: g.worldId,
       source: 'manual', label, tag,
       demand_mult: Number(demand_mult), price_mult: Number(price_mult),
       expires_day: g.day + Number(days),
     });
     g.invalidateModifiers();
-    res.json({ ok: true, tag, expires_day: g.day + Number(days) });
+    res.json({ ok: true, world: g.worldId, tag, expires_day: g.day + Number(days) });
   }));
 
   // Start the money over on the shop you already built. `stock` refills every
   // shelf and replants every plot on the way out, which is what "reset it to
   // fully stocked" means — otherwise day one opens with day twenty-seven's
   // half-empty aisles.
-  api.post('/reset-economy', wrap((req, res) => {
-    const g = game();
+  api.post('/reset-economy', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
     const result = g.resetEconomy();
     const stocked = req.body?.stock ? g.autoStock() : null;
-    res.json({ ...result, stocked });
+    res.json({ ...result, world: g.worldId, stocked });
   }));
 
-  api.post('/modifiers/clear', wrap((req, res) => {
-    const n = clearModifiers(req.body?.source);
-    game().invalidateModifiers();
-    res.json({ ok: true, cleared: n });
+  api.post('/modifiers/clear', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
+    const n = clearModifiers(req.body?.source, g.worldId);
+    g.invalidateModifiers();
+    res.json({ ok: true, world: g.worldId, cleared: n });
   }));
 
   // ---- the AI director ---------------------------------------------------
 
   api.post('/director/run', wrapAsync(async (req, res) => {
-    const result = await runDirector(game(), { force: true });
-    res.json(result);
+    const g = await gameFor(req);
+    const result = await runDirector(g, { force: true });
+    res.json({ ...result, world: g.worldId });
   }));
 
-  api.get('/director/context', wrap((req, res) => {
-    res.json({ ok: true, context: describeWorld(game()) });
+  api.get('/director/context', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
+    res.json({ ok: true, world: g.worldId, context: describeWorld(g) });
   }));
 
   // ---- screenshot --------------------------------------------------------
@@ -219,20 +320,30 @@ export function createApi() {
   // The browser POSTs its rendered PNG here in response to a screenshot
   // request. Deliberately HTTP rather than the game websocket — see
   // MartRoom.requestScreenshot for why.
+  //
+  // Asked of every room rather than of the primary one: the id identifies the
+  // waiter, and the tab that was asked for a picture is not necessarily in the
+  // busiest shop. `resolveScreenshot` returns false for an id a room has never
+  // heard of, so this is a lookup, not a broadcast.
   api.post('/screenshot/upload', wrap((req, res) => {
-    const room = primaryRoom();
     const { id, dataUrl } = req.body ?? {};
-    if (!room || !id) throw new HttpError(400, 'id is required');
-    res.json({ ok: room.resolveScreenshot(id, dataUrl) });
+    if (!id) throw new HttpError(400, 'id is required');
+    res.json({ ok: [...rooms].some((room) => room.resolveScreenshot(id, dataUrl)) });
   }));
 
   api.get('/screenshot', wrapAsync(async (req, res) => {
-    const room = primaryRoom();
-    if (!room) throw new HttpError(503, 'no live room');
+    const worldId = resolveWorldId(req.query?.world ? String(req.query.world) : null);
+    const room = [...rooms].find((r) => r.worldId === worldId && r.clients.length > 0);
+    if (!room) {
+      // Deliberately not started headless like every other route: there is no
+      // renderer on the server, so a room with nobody in it has nothing that
+      // could take the picture. Saying so beats an eight-second timeout.
+      throw new HttpError(503, `nobody has "${worldId}" open in a browser — open that world in a tab first`);
+    }
     const dataUrl = await room.requestScreenshot();
     if (!dataUrl) throw new HttpError(502, 'client returned no image');
 
-    if (req.query.format === 'dataurl') return res.json({ ok: true, dataUrl });
+    if (req.query.format === 'dataurl') return res.json({ ok: true, world: worldId, dataUrl });
     const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
     res.type('png').send(Buffer.from(b64, 'base64'));
   }));

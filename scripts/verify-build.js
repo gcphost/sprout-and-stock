@@ -16,6 +16,7 @@
 import { Game } from '../server/sim/index.js';
 import { content } from '../server/content.js';
 import { canPlace, canPlaceCleanly } from '../shared/build.js';
+import { kindOf } from '../shared/pieces.js';
 import {
   partsAt, stageIndexAt, isStaged, modelHeight, tierProgress,
 } from '../shared/model.js';
@@ -42,7 +43,10 @@ const round2 = (v) => Math.round(v * 100) / 100;
 const SHOP = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
 
 function fresh() {
-  const g = Game.create({ seed: 'mech', ephemeral: true });
+  // A world id nothing else uses, and one that need not exist: reading a save
+  // never creates one, and an ephemeral game never writes. So this sweep can
+  // name its own shop without leaving a save slot behind in somebody's menu.
+  const g = Game.create({ worldId: 'verify', seed: 'mech', ephemeral: true });
   // Every piece of world state that `Game.create` reads off the save has to be
   // reset here, or this sweep silently measures whatever the live shop happens
   // to look like. `edits` cost a real debugging detour the day it was added:
@@ -724,11 +728,29 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // Every rung of a fixture ladder has to stay aimable: `pickFixture`
   // intersects the top plane of the DRAWN art, so a tier resolving to nothing,
   // or to something lying flat on the floor, is a fixture you cannot click.
+  //
+  // A hanging prop is the one exception, and it is not a loophole — it is the
+  // same claim measured from the other end. Its origin IS the ceiling, so it is
+  // authored downward, and `modelHeight` (which counts up from 0) honestly
+  // returns nothing for one. What matters for a pendant is that it hangs *below*
+  // the ceiling: art drawn upward from that origin would push through the roof
+  // of a building that has no roof, and read as a lamp floating outside the shop.
+  //
+  // Measured here rather than by calling whatever the renderer calls, so this
+  // stays an independent statement about the art rather than an echo of the
+  // function under test.
+  const lowestPoint = (parts) => Math.min(
+    0, ...(parts ?? []).map((p) => (p.pos?.[1] ?? 0) - (p.scale?.[1] ?? 0) / 2),
+  );
+
   for (const fx of c.fixtures ?? []) {
     const rungs = fx.tiers?.length || 1;
+    const hangs = kindOf(fx) === 'prop-ceiling';
     for (let tier = 1; tier <= rungs; tier++) {
       const parts = partsAt(fx.model, tierProgress(tier, rungs));
-      check(modelHeight(parts) > 0, `fixture ${fx.id} tier ${tier} has a face to aim at`);
+      check(hangs ? lowestPoint(parts) < 0 : modelHeight(parts) > 0,
+        `fixture ${fx.id} tier ${tier} has a face to aim at`,
+        hangs ? 'a hanging prop is drawn downward from the ceiling' : '');
     }
   }
 }

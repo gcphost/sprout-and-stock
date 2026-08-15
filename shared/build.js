@@ -16,6 +16,17 @@ import { E, SOLID, edgeBetween, reachable, withEdge } from './edges.js';
 /**
  * What each buildable thing is. `anchor` is the tile you have to be able to
  * stand on to use it — a shelf you can't reach is scenery.
+ *
+ * This is the closed set, and it is closed on purpose: a kind is a set of
+ * placement rules, which is behaviour, and behaviour lives in a file that can be
+ * reviewed and diffed. What is *not* closed is how many designs name into one —
+ * see `shared/pieces.js`. Kinds are code; pieces are content, and unlimited.
+ *
+ * `tile` is the whole difference between the two halves below. A fixture stamps
+ * a tile, so it occupies the cell and pathing has to route round it. A prop
+ * stamps nothing: it sits in the cell without owning it, which is why a rug, a
+ * planter or a hanging lamp needs no tile kind of its own and cannot break a
+ * shop that was walkable before you decorated it.
  */
 export const FIXTURES = {
   shelf: { label: 'Shelf', tile: T.SHELF, where: 'indoor', rotates: true, anchor: 'browseAt' },
@@ -23,9 +34,30 @@ export const FIXTURES = {
   checkout: { label: 'Till', tile: T.CHECKOUT, where: 'indoor', rotates: true, anchor: 'serveAt' },
   station: { label: 'Appliance', tile: T.STATION, where: 'indoor', rotates: true, anchor: 'useAt' },
   plot: { label: 'Plot', tile: T.PLOT, where: 'outdoor', rotates: false, anchor: null },
+  /**
+   * Decorations. Both stand in a cell and neither blocks it.
+   *
+   * Deliberately NOT the authored-`blocks` kind the design doc describes. A
+   * barrel that stops nobody is a lie you can see; a barrel that stops people
+   * needs a tile stamp, and a tile can only say one thing at a time — which is
+   * the whole reason step 5 exists. Until a cell can hold a list, "prop" means
+   * "you walk past it", and that is true of everything below.
+   */
+  'prop-floor': { label: 'Decoration', tile: null, where: 'any', rotates: true, anchor: null, at: 'floor' },
+  'prop-ceiling': { label: 'Hanging', tile: null, where: 'indoor', rotates: true, anchor: null, at: 'ceiling' },
 };
 
-export const FIXTURE_KINDS = Object.keys(FIXTURES);
+/** Every kind a piece may name. The closed vocabulary, in one place. */
+export const BUILD_KINDS = Object.keys(FIXTURES);
+
+/** The kinds that occupy their cell — the ones the generator has a budget for. */
+export const FIXTURE_KINDS = BUILD_KINDS.filter((k) => FIXTURES[k].tile != null);
+
+/** ...and the ones that just stand there. */
+export const PROP_KINDS = BUILD_KINDS.filter((k) => FIXTURES[k].tile == null);
+
+export const isProp = (kind) => FIXTURES[kind]?.tile == null;
+
 
 /**
  * Fraction of what a fixture cost that you get back for tearing it out.
@@ -215,6 +247,9 @@ export function fixturesOf(L) {
   for (const c of L.checkouts ?? []) out.push({ kind: 'checkout', ...c });
   for (const s of L.stations ?? []) out.push({ kind: 'station', ...s });
   for (const p of L.plots ?? []) out.push({ kind: 'plot', ...p });
+  // Props carry their own kind, because there is more than one and they are not
+  // told apart by which list they came out of.
+  for (const p of L.props ?? []) out.push({ ...p });
   return out;
 }
 
@@ -256,6 +291,8 @@ export function canPlace(L, spec, { ignoreId = null } = {}) {
   const z = Math.round(spec.z);
   if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return no('off the edge of the world');
 
+  if (!def.tile) return canPlaceProp(L, def, x, z, ignoreId);
+
   const tile = tileAt(L, x, z);
   const removed = removedTiles(L, ignoreId);
   const effective = (tx, tz) => (removed.has(`${tx},${tz}`) ? baseTile(L, tx, tz) : tileAt(L, tx, tz));
@@ -272,6 +309,30 @@ export function canPlace(L, spec, { ignoreId = null } = {}) {
 
   const warn = whatThisCosts(L, { ...spec, x, z }, def, { ignoreId, effective });
   return warn ? { ok: true, warn } : { ok: true };
+}
+
+/**
+ * May a decoration stand here?
+ *
+ * Much shorter than the fixture rule, and that is the point rather than an
+ * omission. A prop stamps no tile, so it cannot cut a shelf off, cannot seal a
+ * doorway and cannot leave a queue nowhere to form — every warning `canPlace`
+ * has to reason about is about *occupying* a cell, and this doesn't. So there
+ * are no soft answers here at all: what remains is genuine physics.
+ *
+ * One prop to a cell, though, and that is not fussiness. The pointer names a
+ * cell (`fixtureAt`), so two things stacked on one is a menu you cannot open —
+ * the same reason build mode aims at named targets rather than at whatever is
+ * nearest. A cell holds one thing you can point at.
+ */
+function canPlaceProp(L, def, x, z, ignoreId) {
+  if (def.where === 'indoor' && !insideStore(L, x, z)) return no('that has to go inside the shop');
+  // A prop stands *in* the cell, so the cell has to be somewhere a person could
+  // stand. This is also what keeps one off a shelf's tile without a second rule.
+  if (!isWalkableTile(L, x, z)) return no('something is already there');
+  const clash = (L.props ?? []).some((p) => p.id !== ignoreId && p.x === x && p.z === z);
+  if (clash) return no('something is already there');
+  return { ok: true };
 }
 
 /**

@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, EDGE_STYLE, jitter } from './palette.js';
+import { PALETTE, TILE_STYLE, EDGE_STYLE, CEILING_Y, jitter, faceColor } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfSlots, buildBubble, buildCashDrop,
   buildHopperSlots,
@@ -18,6 +18,8 @@ import {
 } from './props.js';
 import { T } from '../../shared/tiles.js';
 import { FIXTURES, anchorTile, canPlace, baseTile, turn, rot4 } from '../../shared/build.js';
+import { pieceFor } from '../../shared/pieces.js';
+import { Lights, emittersIn } from './lights.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, variantModel,
 } from '../../shared/model.js';
@@ -65,6 +67,9 @@ const GROUND_MARGIN = 56;
  * the build rules.
  */
 const MODEL_REPLACES_TILE = new Set(['shelf', 'freezer', 'checkout', 'station']);
+
+/** How tall a decoration's ghost pad is. It has no tile to take a height from. */
+const PROP_GHOST_H = 0.3;
 
 /** Usable width inside a plot's frame, and roughly how wide a crop draws. */
 const BED_SPAN = 0.64;
@@ -211,6 +216,10 @@ export class Scene {
     const bounce = new THREE.DirectionalLight(0xbcd8ff, 0.32);
     bounce.position.set(-18, 12, -14);
     this.scene.add(bounce);
+
+    // Whatever the player has wired up. Everything above is the sky; this is the
+    // only light in the scene that anybody had to buy.
+    this.lights = new Lights(this.scene);
   }
 
   resize() {
@@ -260,6 +269,10 @@ export class Scene {
       items: Object.fromEntries(catalog.items.map((i) => [i.id, i])),
       crops: Object.fromEntries(catalog.crops.map((c) => [c.id, c])),
       fixtures: Object.fromEntries((catalog.fixtures ?? []).map((f) => [f.id, f])),
+      // ...and the same rows as a list, because resolving which *piece* a
+      // fixture is means asking "what does this kind default to", which is a
+      // scan rather than a lookup. See shared/pieces.js.
+      pieces: catalog.fixtures ?? [],
       // A hire is drawn from its kind, so the renderer reads the same rows the
       // Staff menu does.
       workers: Object.fromEntries((catalog.workers ?? []).map((w) => [w.id, w])),
@@ -443,17 +456,29 @@ export class Scene {
    * appliance is an MCP call rather than a change in here.
    */
   fixtureModel(f) {
-    const kind = this.catalog.fixtures?.[f.kind];
+    const piece = this.pieceOf(f);
     // `||`, not `??`: an unstyled fixture carries `variant: ''` rather than
     // nothing, and an empty string is a perfectly good value as far as `??` is
     // concerned — which quietly handed every appliance the generic model back.
     const variant = f.variant || (f.kind === 'station' ? f.station : null);
-    return variantModel(kind, variant) ?? null;
+    return variantModel(piece, variant) ?? null;
   }
 
-  /** How many tiers this kind has, for turning a tier into 0..1 progress. */
+  /**
+   * Which catalog row this fixture is drawn from.
+   *
+   * Was a lookup by kind, which is exactly what capped the catalog at one design
+   * per kind. The same resolution the server uses, out of the same file, because
+   * the two disagreeing about which shelf this is would be a shop that looks
+   * different depending on who is standing in it.
+   */
+  pieceOf(f) {
+    return pieceFor(this.catalog.pieces ?? [], f);
+  }
+
+  /** How many tiers this piece has, for turning a tier into 0..1 progress. */
   fixtureTiers(f) {
-    return this.catalog.fixtures?.[f.kind]?.tiers?.length ?? 1;
+    return this.pieceOf(f)?.tiers?.length ?? 1;
   }
 
   /** Where this particular fixture sits on its kind's tier ladder, 0..1. */
@@ -484,10 +509,29 @@ export class Scene {
       // Models are authored facing east, which is rot 0 — the same convention
       // the layout generator has always used for which side you work from.
       prop.rotation.y = -(f.rot ?? 0) * (Math.PI / 2);
-      const base = MODEL_REPLACES_TILE.has(f.kind) ? 0 : (TILE_STYLE[FIXTURES[f.kind]?.tile]?.h ?? 0);
-      prop.position.set(f.x, base, f.z);
+      prop.position.set(f.x, this.fixtureBaseY(f), f.z);
       this.staticRoot.add(prop);
     }
+
+    // Lamps. Rebuilt with the world because a light is a position, and the
+    // positions just changed; the pool of actual THREE lights outlives this and
+    // is only ever re-aimed. See lights.js for why that split is load-bearing.
+    this.lights.setEmitters(emittersIn(fixturesIn(L), (f) => this.pieceOf(f), CEILING_Y));
+  }
+
+  /**
+   * What height a fixture's model stands on.
+   *
+   * Three answers, and each one is a different thing the model means. A shelf
+   * replaces its tile block, so it sits on the floor. A plot's model is a frame
+   * added *to* the bed, so it sits on top of the tile. And a hanging prop hangs:
+   * it has no tile at all and is drawn from the ceiling down, which is the one
+   * thing an authored model cannot say about itself.
+   */
+  fixtureBaseY(f) {
+    if (FIXTURES[f.kind]?.at === 'ceiling') return CEILING_Y;
+    if (MODEL_REPLACES_TILE.has(f.kind)) return 0;
+    return TILE_STYLE[FIXTURES[f.kind]?.tile]?.h ?? 0;
   }
 
   /**
@@ -670,7 +714,11 @@ export class Scene {
     this.sun.intensity = 0.30 + daylight * 1.00;
     this.sun.color.copy(SUN_DUSK).lerp(SUN_HIGH, daylight);
 
-    this.ambient.intensity = 0.38 + daylight * 0.52;
+    // `spill` is every lamp too far away to be given a real light, folded into
+    // one number — so panning the camera sharpens the near end of the shop
+    // rather than switching the far end off. See lights.js.
+    this.lights.setDaylight(daylight);
+    this.ambient.intensity = 0.38 + daylight * 0.52 + this.lights.spill;
     this.ambient.color.copy(FILL_DUSK).lerp(FILL_HIGH, daylight);
 
     // The sky is the largest single block of colour on screen, so it carries
@@ -715,6 +763,12 @@ export class Scene {
       rec.obj.position.x += (a.x - rec.obj.position.x) * 0.35;
       rec.obj.position.z += (a.z - rec.obj.position.z) * 0.35;
       rec.obj.rotation.y = a.facing ?? 0;
+
+      // Stashed rather than applied: how cross someone looks is animated at
+      // 60fps in `animateMoods`, and a shake that only moved when state landed
+      // would read as the renderer stuttering. Null for anyone who isn't a
+      // shopper — staff and players have no patience to lose.
+      rec.anger = a.anger ?? null;
 
       // A want is a thought; a carry is a thing in your hands. Showing both
       // through one bubble meant you could never tell which you were looking at.
@@ -1014,6 +1068,15 @@ export class Scene {
     if (model && MODEL_REPLACES_TILE.has(f.kind)) {
       return modelHeight(partsAt(model, this.fixtureT(f)));
     }
+    // A prop's height is its art on top of wherever it hangs or stands, because
+    // it has no tile block to take a height from. That base matters more than it
+    // sounds for a hanging one: its art is drawn downward from the ceiling, so
+    // `modelHeight` alone answers 0 and the picker would look for it on the
+    // floor — most of a tile down-screen of where it is actually drawn, which is
+    // the neighbour-selecting bug again with the camera pointing the other way.
+    if (FIXTURES[f.kind]?.tile == null) {
+      return this.fixtureBaseY(f) + (model ? modelHeight(partsAt(model, this.fixtureT(f))) : 0);
+    }
     return TILE_STYLE[FIXTURES[f.kind]?.tile]?.h ?? 0;
   }
 
@@ -1115,13 +1178,19 @@ export class Scene {
     const def = FIXTURES[spec.kind];
     if (!def) return verdict;
     const a = anchorTile(0, 0, spec.rot ?? 0);
+    // A prop has no tile, so there is no tile style to size its ghost from. It
+    // gets a low pad instead — enough to read as "a thing lands here" without
+    // pretending to be the shape of whatever piece you picked.
     const g = buildFixtureGhost(
-      TILE_STYLE[def.tile]?.h ?? 0.5,
-      TILE_STYLE[def.tile]?.color,
+      def.tile == null ? PROP_GHOST_H : (TILE_STYLE[def.tile]?.h ?? 0.5),
+      def.tile == null ? TILE_STYLE[T.FLOOR]?.color : TILE_STYLE[def.tile]?.color,
       state,
       def.anchor ? { dx: a.x, dz: a.z } : null,
     );
-    g.position.set(spec.x, 0, spec.z);
+    // Hung things preview where they will hang. A ghost on the floor under a
+    // pendant answers the wrong question — the floor is not what you are aiming
+    // at, and every cell in the room looks equally available from down there.
+    g.position.set(spec.x, def.at === 'ceiling' ? CEILING_Y : 0, spec.z);
     this.actorRoot.add(g);
     this.buildGhost = g;
     return verdict;
@@ -1146,6 +1215,7 @@ export class Scene {
     const all = [
       ...(this.storeLayout.shelves ?? []), ...(this.storeLayout.checkouts ?? []),
       ...(this.storeLayout.stations ?? []), ...(this.storeLayout.plots ?? []),
+      ...(this.storeLayout.props ?? []),
     ];
     const f = all.find((o) => o.id === id);
     if (!f) return;
@@ -1561,12 +1631,36 @@ export class Scene {
     }
   }
 
+  /**
+   * Anger, drawn three ways off the one number the server sends.
+   *
+   * The flush and the shake both ramp from `anger`, and the shake reuses the
+   * per-actor `phase` the breathing already hashes out of the id — without it
+   * twenty cross shoppers vibrate in perfect unison, which reads as a screen
+   * artefact rather than as a room full of people losing their tempers.
+   *
+   * Tilt rather than position, because `syncActors` lerps x and z toward the
+   * server every frame and a jitter added to those would be pulled straight
+   * back out. `rotation.y` is facing; `z` is free.
+   */
+  animateMoods(now) {
+    const t = now / 1000;
+    for (const rec of this.customers.values()) {
+      const anger = rec.anger;
+      if (anger == null) continue;
+      const head = rec.obj.userData.head;
+      if (head) head.material = material(faceColor(anger));
+      rec.obj.rotation.z = anger > 0 ? Math.sin(t * 34 + rec.phase) * 0.1 * anger : 0;
+    }
+  }
+
   // -------------------------------------------------------------------------
 
   render() {
     const now = performance.now();
     this.animateCash(now);
     this.animatePlots(now);
+    this.animateMoods(now);
     // Breaks. Nobody who is working costs more than a compare and a return, and
     // this has to be per-frame rather than per-sync for the same reason the
     // markers below are: a worker who only slumped ten times a second would
@@ -1609,6 +1703,10 @@ export class Scene {
       this.camOffset.copy(BASE_CAM_OFFSET).applyAxisAngle(AXIS_Y, this.camAngle);
     }
     this.camLook.lerp(this.camTarget, 0.08);
+    // Which lamps get a real light follows the camera, so it belongs here rather
+    // than in the layout build. Cheap: it returns immediately until the view has
+    // actually gone somewhere.
+    this.lights.update(this.camLook);
     this.camera.position.copy(this.camLook).add(this.camOffset);
     this.camera.lookAt(this.camLook);
     this.sun.target.position.copy(this.camLook);
@@ -1648,5 +1746,8 @@ function fixturesIn(L) {
     ...(L.checkouts ?? []).map((c) => ({ ...c, kind: 'checkout' })),
     ...(L.stations ?? []).map((s) => ({ ...s, kind: 'station' })),
     ...(L.plots ?? []).map((p) => ({ ...p, kind: 'plot' })),
+    // Decorations carry their own kind, because there is more than one of them
+    // and which list they came out of no longer says which.
+    ...(L.props ?? []),
   ];
 }

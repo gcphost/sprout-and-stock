@@ -231,19 +231,29 @@ export const RecipeSchema = z.object({
 });
 
 /**
- * What a kind of fixture looks like, and how far you can upgrade one.
+ * A piece: one thing you can put down, and how far you can upgrade one.
  *
- * The *rules* for a fixture stay in code — where it may go, which side you use
- * it from, whether it rotates (`shared/build.js`). What it looks like and what
- * a better one is worth are content, so a shelf can be redesigned or given a
- * third tier without a deploy.
+ * The *rules* stay in code — where it may go, whether it blocks, which side you
+ * use it from (`shared/build.js`, `BUILD_KINDS`). What it looks like, what it
+ * costs and what a better one is worth are content, so a second shelf design, a
+ * terracotta planter or a hanging lamp is an MCP call rather than a deploy.
  *
- * `id` must be a kind the build rules already know. This is deliberately not a
- * way to invent new fixture kinds: a kind nobody can place, reach or stand at
- * is scenery, and that part is behaviour.
+ * `id` used to *be* the kind, which capped the catalog at one entry per kind
+ * forever. It is now yours to choose, and `kind` names which closed set of rules
+ * it plays by. A row written before that split has no `kind` and is read as
+ * naming itself — see `kindOf` in `shared/pieces.js`. That is deliberately a
+ * read-time default rather than a migration: an old database, an old export and
+ * a fresh seed then all agree, and nobody has to remember to run anything.
  */
 export const FixtureSchema = z.object({
   id: slug,
+  /**
+   * Which build rules this plays by. Optional here and checked against
+   * `BUILD_KINDS` in `writeContent`, which is the same gate — that keeps the
+   * "a row with no kind names itself" default in one place, next to the error
+   * message that lists what the kinds actually are.
+   */
+  kind: slug.optional(),
   name: z.string().min(1).max(48),
   /**
    * Staged by tier: stage 1 is what you buy, the last stage is fully upgraded.
@@ -282,6 +292,38 @@ export const FixtureSchema = z.object({
     /** How fast it works, x this. Appliances, and crops in a plot. */
     speed_mult: z.number().min(0.1).max(10).default(1),
   })).min(1).max(6).default([{ name: 'Standard', cost: 0 }]),
+  /**
+   * What one costs to put down, or 0 to be priced by the upgrade that sells the
+   * kind — which is how every fixture in the game is still priced.
+   *
+   * Both, rather than one, because a decoration has no upgrade behind it and a
+   * shelf has nothing else. Leaving it at 0 is what keeps this change worth no
+   * money either way: every existing piece prices exactly as it did, so nothing
+   * here needs `simulate` re-run. Moving the whole economy onto this field is a
+   * later step, and a deliberate one.
+   */
+  cost: z.number().min(0).max(100000).default(0),
+  /**
+   * A light. Content says what it gives off; honouring it is the renderer's job,
+   * and nothing in the sim reads it.
+   *
+   * That is worth being honest about rather than quietly true: a lamp is
+   * decoration with a glow until something chooses to care, and if lighting is
+   * ever meant to *matter* the hook is the tag system — a dim aisle tagged, an
+   * archetype that avoids it — not a check against a piece id.
+   */
+  emits: z.object({
+    color: hexColor.default('#ffd9a0'),
+    /** How bright. Above ~2 a single lamp washes the aisle out. */
+    intensity: z.number().min(0).max(4).default(1),
+    /** How far the glow carries, in tiles. */
+    range: z.number().min(0.5).max(12).default(4),
+  }).nullable().default(null),
+  /**
+   * Feeds the tag system, if a decoration should ever do more than look nice.
+   * Nothing reads it yet — deliberately. Call `list_tags` before inventing any.
+   */
+  tags: z.array(slug).max(12).default([]),
 }).refine((v) => (v.tiers?.[0]?.cost ?? 0) === 0, {
   message: 'tier 1 is what a new one already is, so it must cost 0',
   path: ['tiers'],

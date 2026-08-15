@@ -10,9 +10,10 @@
  * with no restart and nobody's file getting overwritten.
  */
 
-import { all, contentVersion, getWorld, setWorld } from './db.js';
+import { all, contentVersion, getWorld, setWorld, worldStateKey } from './db.js';
 import { SCHEMAS, unknownTags } from '../shared/schemas.js';
-import { FIXTURE_KINDS } from '../shared/build.js';
+import { BUILD_KINDS } from '../shared/build.js';
+import { kindOf } from '../shared/pieces.js';
 import { upsert } from './db.js';
 
 let cache = null;
@@ -124,13 +125,16 @@ export function writeContent(kind, data, createdBy = 'agent') {
       return { ok: false, error: `recipe needs items that do not exist: ${missing.join(', ')}` };
     }
   }
-  if (kind === 'fixture' && !FIXTURE_KINDS.includes(value.id)) {
-    // Deliberately not a way to invent fixture kinds. Where a thing may go,
-    // which side you use it from and whether it rotates are build rules, and
-    // a "fixture" nobody can place or reach is scenery, not content.
+  if (kind === 'fixture' && !BUILD_KINDS.includes(kindOf(value))) {
+    // The id is yours; the kind is not. Where a thing may go, whether it blocks
+    // and which side you use it from are build rules, so a piece naming a kind
+    // nobody implemented is scenery — the same gate `JOBS` puts in front of a
+    // worker whose job is a function that doesn't exist.
     return {
       ok: false,
-      error: `"${value.id}" is not a fixture kind — it has to be one of: ${FIXTURE_KINDS.join(', ')}`,
+      error: value.kind
+        ? `"${value.kind}" is not a build kind — it has to be one of: ${BUILD_KINDS.join(', ')}`
+        : `a piece has to say what kind it is, one of: ${BUILD_KINDS.join(', ')}`,
     };
   }
   if (value.tags) {
@@ -183,12 +187,23 @@ export function freshEconomy() {
   return Object.fromEntries(ECONOMY_KEYS.map((k) => [k, DEFAULT_WORLD[k]]));
 }
 
-export function world() {
-  const w = getWorld('state');
-  if (w) return { ...DEFAULT_WORLD, ...w };
-  return setWorld('state', { ...DEFAULT_WORLD });
+/**
+ * One save slot's world state.
+ *
+ * Every caller names the world it means. There is deliberately no "current
+ * world" default down here: this is the layer that reads and writes saves, and
+ * a default at this depth is how a balance run ends up measuring one shop and
+ * overwriting another. Who is playing what is decided in `server/worlds.js`.
+ */
+export function world(worldId) {
+  // Reading never writes. It used to create the row it couldn't find, which was
+  // harmless when there was one world and is not now: an ephemeral game — a
+  // balance run, a verify sweep — names a world that was never meant to exist,
+  // and a read that creates it leaves a save behind with no slot in the menu
+  // pointing at it. `createWorld` does the creating, in one place, on purpose.
+  return { ...DEFAULT_WORLD, ...(getWorld(worldStateKey(worldId)) ?? {}) };
 }
 
-export function saveWorld(patch) {
-  return setWorld('state', { ...world(), ...patch });
+export function saveWorld(worldId, patch) {
+  return setWorld(worldStateKey(worldId), { ...world(worldId), ...patch });
 }

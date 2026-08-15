@@ -24,16 +24,31 @@ export class Net {
     for (const fn of this.handlers[event] ?? []) fn(payload);
   }
 
-  async connect(name) {
+  /**
+   * Join one shop.
+   *
+   * `worldId` is not optional. The server matches rooms on it (`filterBy` in
+   * server/index.js), so leaving it off doesn't mean "any shop" — it means a
+   * room whose world is undefined, which is a shop that saves nowhere.
+   */
+  async connect(name, worldId) {
+    if (!worldId) throw new Error('no world chosen');
+    this.worldId = worldId;
+
     // Same host as the page, so this works unchanged behind a tunnel.
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const port = import.meta.env.DEV ? 2567 : location.port;
     const endpoint = `${proto}://${location.hostname}${port ? `:${port}` : ''}`;
 
     const client = new Client(endpoint);
-    this.room = await client.joinOrCreate('mart', { name });
+    this.room = await client.joinOrCreate('mart', { name, worldId });
 
-    this.room.onMessage('you', (m) => { this.myId = m.id; });
+    this.room.onMessage('you', (m) => {
+      this.myId = m.id;
+      // The server names the shop; the client only ever knew its id.
+      this.world = m.world ?? { id: worldId, name: worldId };
+      this.emit('you', m);
+    });
     this.room.onMessage('layout', (m) => this.emit('layout', m));
     this.room.onMessage('catalog', (m) => this.emit('catalog', m));
     this.room.onMessage('state', (m) => this.emit('state', m));

@@ -11,6 +11,7 @@
  */
 
 import { FIXTURES, FIXTURE_REFUND } from '../shared/build.js';
+import { pieceFor } from '../shared/pieces.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
 
@@ -149,7 +150,7 @@ export function showFixture(ui, f) {
  */
 function styleRows(ui, f) {
   const here = f.variant ?? '';
-  return variantsOf(ui.catalog.fixtures?.find((x) => x.id === f.kind)).map((v) => ({
+  return variantsOf(pieceFor(ui.catalog.fixtures ?? [], f)).map((v) => ({
     icon: ICONS.fixtures,
     name: v.name,
     sub: v.id === here ? 'what this one is' : 'free — it keeps whatever is on it',
@@ -371,7 +372,9 @@ function wireFixtureMenu(ui, f, live) {
  * authored tiers for simply has one rung, and no upgrade row appears.
  */
 function tiersOf(ui, f) {
-  const tiers = ui.catalog.fixtures?.find((x) => x.id === f.kind)?.tiers;
+  // The piece this fixture is, not its kind: two shelf designs may climb
+  // different ladders, and reading the wrong one prices the wrong upgrade.
+  const tiers = pieceFor(ui.catalog.fixtures ?? [], f)?.tiers;
   return tiers?.length ? tiers : [{ name: 'Standard', cost: 0 }];
 }
 

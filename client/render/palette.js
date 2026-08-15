@@ -95,6 +95,16 @@ export const EDGE_STYLE = {
   [E.FENCE]: { color: PALETTE.fence, h: 0.5, t: 0.14 },
 };
 
+/**
+ * Where a hanging prop hangs.
+ *
+ * Read off the wall rather than written down again, because a pendant an inch
+ * above the wall top pokes through the roof of a building that has no roof —
+ * which on a 45° camera reads as a lamp floating outside the shop. Derived, so
+ * restyling a wall taller takes the ceiling with it.
+ */
+export const CEILING_Y = EDGE_STYLE[E.WALL].h;
+
 /** Slightly vary a colour per tile so big flat areas don't look dead. */
 export function jitter(hex, amount, seed) {
   const n = ((Math.sin(seed * 12.9898) * 43758.5453) % 1 + 1) % 1;
@@ -107,3 +117,25 @@ export function jitter(hex, amount, seed) {
 }
 
 const clamp8 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+
+/** A shopper's face: calm cream, going hot and blotchy as their patience runs out. */
+export const FACE_CALM = '#f6efe2';
+export const FACE_ANGRY = '#d0503c';
+
+/**
+ * The flush, 0 (content) to 1 (about to walk out).
+ *
+ * Quantised, and that is the whole reason this is a lookup rather than a lerp:
+ * `material()` caches by colour, so a continuous ramp would mint a fresh
+ * material per shopper per frame and never reuse one. Eight shades are built
+ * once and shared by everyone equally cross.
+ */
+const FACE_RAMP = Array.from({ length: 9 }, (_, i) => {
+  const a = parseInt(FACE_CALM.slice(1), 16);
+  const b = parseInt(FACE_ANGRY.slice(1), 16);
+  const t = i / 8;
+  const ch = (sh) => clamp8((((a >> sh) & 255) * (1 - t)) + (((b >> sh) & 255) * t));
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+});
+
+export const faceColor = (anger) => FACE_RAMP[Math.round(Math.max(0, Math.min(1, anger)) * 8)];

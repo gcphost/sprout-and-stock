@@ -8,6 +8,7 @@ import { Net } from './net.js';
 import { UI } from './ui.js';
 import { SECTIONS } from './sections.js';
 import { showFixture, refreshFixture } from './fixture-menu.js';
+import { Menu, preselectedWorld } from './menu.js';
 
 const canvas = document.getElementById('game');
 const scene = new Scene(canvas);
@@ -396,8 +397,11 @@ function tapAtPointer(cx, cy) {
   // Which appliance, when the tool is one — the kind alone doesn't say whether
   // this is a blender or a toaster. What you're carrying already knows.
   const station = ui.holding?.station ?? (kind === 'station' ? ui.buildStation : null);
+  // ...and which design, for the same reason. A carried fixture keeps its own —
+  // picking a shelf up and putting it down must not restyle it.
+  const piece = ui.holding?.piece ?? ui.buildPiece ?? null;
   const spec = {
-    kind, station, x: tile.x, z: tile.z, rot: ui.buildRot, variant: ui.buildVariant ?? '',
+    kind, piece, station, x: tile.x, z: tile.z, rot: ui.buildRot, variant: ui.buildVariant ?? '',
   };
   const verdict = scene.setBuildGhost({ ...spec, moveId: ui.holding?.id ?? null });
   if (verdict && !verdict.ok) { ui.toast(verdict.reason, true); return; }
@@ -465,16 +469,39 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-const name = new URLSearchParams(location.search).get('name')
-  ?? localStorage.getItem('sns-name')
-  ?? '';
+// ---------------------------------------------------------------------------
+// Boot: pick a shop, then open it
+//
+// `?world=<id>` skips the menu — that's the shareable link into somebody's shop,
+// and how an agent parks a tab in a particular world for `screenshot`. Anything
+// else asks, because with save slots there is no longer an obvious answer.
+// ---------------------------------------------------------------------------
 
-net.connect(name)
-  .then(() => {
-    document.getElementById('boot').remove();
-    ui.toast('Drag to move · tap a plot to sow · walk up to things to use them');
-    loop();
-  })
-  .catch((err) => {
-    document.getElementById('boot').textContent = `Could not reach the shop: ${err.message}`;
-  });
+const params = new URLSearchParams(location.search);
+const boot = document.getElementById('boot');
+
+async function start() {
+  const stored = localStorage.getItem('sns-name') ?? '';
+  let worldId = preselectedWorld();
+  let name = params.get('name') ?? stored;
+
+  if (!worldId) {
+    boot.textContent = 'Loading…';
+    const menu = new Menu(document.getElementById('menu'));
+    const picked = await menu.choose();
+    worldId = picked.worldId;
+    name = picked.name || name;
+  }
+
+  boot.textContent = 'Opening the shop…';
+  ui.worldId = worldId;
+  await net.connect(name, worldId);
+  boot.remove();
+  ui.toast('Drag to move · tap a plot to sow · walk up to things to use them');
+  loop();
+}
+
+start().catch((err) => {
+  document.getElementById('menu').hidden = true;
+  boot.textContent = `Could not reach the shop: ${err.message}`;
+});

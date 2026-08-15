@@ -60,6 +60,71 @@ const text = (v) => ({
 const server = new McpServer({ name: 'sprout-and-stock', version: '0.1.0' });
 
 // ---------------------------------------------------------------------------
+// Save slots
+//
+// There is more than one shop now, and every other tool here acts on exactly
+// one of them. Which one is decided by `use_world`, and — because that pointer
+// is shared with anyone else driving this server — every reply says which world
+// it landed on. Check it.
+// ---------------------------------------------------------------------------
+
+server.registerTool('list_worlds', {
+  title: 'List the save slots',
+  description:
+    'List every shop that exists: its id, name, day, cash, season, whether anyone is playing it right now, and which one tools currently act on (`focused`). '
+    + 'Call this first when you are asked to do anything to "the game" and you are not sure which shop is meant — with several saves, poking the wrong one is silent.\n\n'
+    + 'Content (items, crops, customers, fixtures, workers, recipes) is NOT per-world. It is one shared library every shop reads from, so creating an item adds it to all of them at once.',
+  inputSchema: {},
+}, async () => text(await call('GET', '/worlds')));
+
+server.registerTool('use_world', {
+  title: 'Choose which shop to act on',
+  description:
+    'Point every later tool call at one shop, by id from list_worlds. Stays put until changed, and survives a server restart.\n\n'
+    + 'IMPORTANT: this pointer is SHARED. Two people can be driving this server with an agent each, and setting it moves both. '
+    + 'If you are working on a specific shop, set it at the start of the job and re-check `world` in the replies you get back — a call that quietly landed somewhere else looks exactly like a call that worked.\n\n'
+    + 'Pass no id to clear it, which puts the default back to the busiest live shop.',
+  inputSchema: {
+    world: z.string().optional().describe('World id from list_worlds. Omit to clear the pointer.'),
+  },
+}, async ({ world }) => text(await call('POST', '/focus', { world: world ?? null })));
+
+server.registerTool('create_world', {
+  title: 'Start a new shop',
+  description:
+    'Create a save slot: a fresh shop on day one with starting cash, its own building, its own farm and its own world events. '
+    + 'Does not switch to it — call use_world afterwards if you want to work on it.\n\n'
+    + 'Everything authored (items, crops, customers, fixtures, workers, recipes) is shared, so a new world opens with the whole catalogue already in it. What is fresh is the money, the day, the building and what the shop owns.',
+  inputSchema: {
+    name: z.string().optional().describe('What to call it, e.g. "Balance testing". Defaults to "Shop N".'),
+    seed: z.string().optional().describe('Decides the shape of the building and fields. Omit for a random one.'),
+  },
+}, async (args) => text(await call('POST', '/worlds', args)));
+
+server.registerTool('delete_world', {
+  title: 'Delete a shop',
+  description:
+    'Permanently delete one save slot: its shop, its money, its upgrades, its staff and its world events. Content is untouched, because content belongs to every world.\n\n'
+    + 'This cannot be undone and there is no backup. Confirm with the person you are working with before calling it — "my world is bust" usually means reset_economy, which keeps the shop you built. '
+    + 'Refuses to delete the only remaining world.',
+  inputSchema: {
+    world: z.string().describe('World id from list_worlds. Exact — there is no fuzzy match on purpose.'),
+  },
+}, async ({ world }) => text(await call('DELETE', `/worlds/${encodeURIComponent(world)}`)));
+
+server.registerTool('keep_world', {
+  title: 'Protect a shop from cleanup, or stop protecting it',
+  description:
+    'Worlds nobody has opened for a fortnight are deleted automatically to keep the menu short (SNS_WORLD_TTL_DAYS on the server). '
+    + 'A kept world is never swept, however long it sits. Worlds with somebody in them, and the last world standing, are never swept either.\n\n'
+    + 'Use this on anything that matters — a long save, a shop somebody is proud of — before it has a chance to go quiet for two weeks.',
+  inputSchema: {
+    world: z.string().describe('World id from list_worlds.'),
+    kept: z.boolean().default(true).describe('true to protect it, false to let it be swept again.'),
+  },
+}, async ({ world, kept }) => text(await call('PATCH', `/worlds/${encodeURIComponent(world)}`, { pinned: kept })));
+
+// ---------------------------------------------------------------------------
 // Looking at the world
 // ---------------------------------------------------------------------------
 
@@ -67,7 +132,8 @@ server.registerTool('get_state', {
   title: 'Read the live game state',
   description:
     'Read the running shop right now: cash, day, time, season, reputation, every shelf and what is on it, every farm plot, who is in the store, and which world modifiers are active. '
-    + 'Call this before changing anything, and again afterwards to confirm the change landed. This is the ground truth — do not guess at game state.',
+    + 'Call this before changing anything, and again afterwards to confirm the change landed. This is the ground truth — do not guess at game state.\n\n'
+    + 'Acts on whichever shop use_world points at, and the reply says which under `world`. If nobody has that shop open, reading it OPENS it — the sim starts running and closes itself again a few minutes later.',
   inputSchema: {},
 }, async () => text(await call('GET', '/state')));
 
@@ -75,8 +141,9 @@ server.registerTool('screenshot', {
   title: 'See the game',
   description:
     'Take a PNG screenshot of the running game from a connected browser and return it as an image. '
-    + 'Call this after any visual change — a new item model, a layout change, a rendering tweak — so you can actually see the result instead of assuming it worked. '
-    + 'Requires at least one browser tab to have the game open.',
+    + 'Call this after any visual change — a new item model, a layout change, a rendering tweak — so you can actually see the result instead of assuming it worked.\n\n'
+    + 'Needs a browser tab open ON THE SHOP YOU ARE WORKING ON — the server has no renderer, so an unattended world has nothing that could take the picture. '
+    + 'The link that opens a specific one is /?world=<id>.',
   inputSchema: {},
 }, async () => {
   const res = await call('GET', '/screenshot');
@@ -99,7 +166,9 @@ server.registerTool('simulate', {
     'Fast-forward a throwaway copy of the game for N in-game days with a bot shopkeeper, and return the economy results: profit per day, what sold, what never sold, spoilage, abandoned baskets, and a plain-language verdict. 100 days takes about a second.\n\n'
     + 'CALL THIS whenever you change anything that touches money — adding or repricing an item, editing a customer archetype, changing an upgrade cost, tuning demand. '
     + 'Balance is invisible from reading code; this is the only way to know if a change made the game unplayable. It runs against a separate world, so it never disturbs the live shop.\n\n'
-    + 'Pay attention to `deadStock` (items nobody ever bought — usually a tagging mistake) and `verdict`.',
+    + 'Pay attention to `deadStock` (items nobody ever bought — usually a tagging mistake) and `verdict`.\n\n'
+    + 'It copies the shop use_world points at — its staff, its upgrades, its fixtures — and reports which under `startedWith.world`. '
+    + 'Two runs of one seed against two different shops are two different experiments, so check that field before believing a before/after.',
   inputSchema: {
     days: z.number().int().min(1).max(500).default(30).describe('In-game days to simulate.'),
     seed: z.string().default('sim').describe('World seed. Same seed gives identical results, so use one seed to compare before/after a change.'),
@@ -141,25 +210,39 @@ const STAGE_HELP =
   + 'a fixture feeds its tier, so stages are what tier 1, 2 and 3 look like.';
 
 server.registerTool('create_fixture', {
-  title: 'Design a fixture, and its upgrade ladder',
+  title: 'Design a piece: a fixture, a decoration or a lamp',
   description:
-    'Set what a kind of fixture LOOKS like and how far a player can upgrade one, or update it by reusing its id. Live in the running shop within about a second.\n\n'
-    + 'The id must be a fixture kind the game already has: shelf, freezer, checkout, station or plot. This is not a way to invent new kinds — where a fixture may go, which side you work it from and whether it rotates are build rules in code, and a fixture nobody can place or reach is scenery.\n\n'
+    'Create or update one entry in the build catalog — what it looks like, what it costs and how far a player can upgrade one. Live in the running shop within about a second.\n\n'
+    + 'KINDS ARE CODE, PIECES ARE CONTENT. The `id` is yours to choose and there can be as many pieces as you like; `kind` says which build rules it plays by, and that list is closed because where a thing may go, whether it blocks and which side you work it from are behaviour:\n'
+    + '  shelf         stock, indoors, browsed from the side it faces\n'
+    + '  freezer       the same, for anything frozen\n'
+    + '  checkout      takes money, needs room alongside for a queue\n'
+    + '  station       an appliance (which machine it is still comes from its upgrade)\n'
+    + '  plot          a farm bed, outdoors, on bare grass\n'
+    + '  prop-floor    a decoration standing on the floor, indoors or out\n'
+    + '  prop-ceiling  a decoration hanging from the ceiling, so indoors only\n\n'
+    + 'Props never block: people walk past them. A barrel that stopped somebody would need to own its cell, and a cell can only say one thing at a time — so anything that must be walked around is a shelf, not a prop.\n\n'
+    + 'Several pieces may name one kind, and that is the point: a second shelf design, a corner till, four different planters. They share the kind\'s rules and nothing else — each carries its own model, its own variants, its own tier ladder and its own price.\n\n'
     + 'TIERS are the progression. Tier 1 is what a newly built one already is, so it must cost 0. Every tier after it is something the player pays to step up to, in place, keeping its stock. The multipliers are what the upgrade is FOR — a tier that changes no numbers and no art is a button that takes money and does nothing:\n'
     + '  capacity_mult  how many units it holds (shelves, freezers)\n'
     + '  keeps_mult     how long goods last on it (freezers especially)\n'
     + '  speed_mult     how fast it works (appliances; on a plot, how fast crops grow)\n\n'
     + 'Give the model `stages` to make each tier look different — stage 1 is tier 1, the last stage is the top tier. '
     + 'Models are authored facing EAST (that is rotation 0, the side a shopper stands on), roughly one tile wide, sitting on y=0 upward. Keep the top below 1.1, which is wall height — anything taller stands over the building.\n\n'
+    + 'A prop-ceiling piece is the exception: its origin IS the ceiling, so draw it DOWNWARD with negative y. A pendant is a cord at about y=-0.15, a shade at y=-0.36 and a bulb below that. Drawn upward it pushes through the roof and reads as a lamp floating outside the shop.\n\n'
     + 'A fixture that holds stock says WHERE it holds it: flag each part goods should stand on with `surface: true` and they are drawn on those boards, top row filling first. '
     + 'Leave it off and stock piles on top of the whole thing instead, which is what a counter wants. Face an open unit east so its rows are not drawn behind their own back panel.\n\n'
     + 'A part can also carry `alpha` (0.05..1) to be glass — a freezer door you see the stock through, a window. Glass casts no shadow.\n\n'
-    + 'VARIANTS are other shapes of the same kind — a corner unit, an endcap, a low one — and they are looks only. They carry a model and nothing else, because the numbers live on the shared tier ladder: '
+    + 'VARIANTS are other shapes of the same piece — a corner unit, an endcap, a low one — and they are looks only. They carry a model and nothing else, because the numbers live on the shared tier ladder: '
     + 'a corner shelf costs and holds exactly what a straight one does, restyling something already built is free and keeps its stock, and no variant can move the balance. Tiers cost money and change numbers; variants are taste.\n\n'
+    + 'EMITS makes it a lamp. The renderer honours it; nothing in the sim reads it, so a light is worth exactly what it looks like today. Only the eight nearest the camera get a real light — that cap is deliberate, so author lamps as fittings you would actually put in a room rather than as a way to floodlight one.\n\n'
+    + 'COST is what one costs to put down. Leave it 0 on a shelf, freezer, till or plot and it stays priced by the upgrade that sells that kind, which is how the whole economy still works. A prop has no upgrade behind it, so a prop with no cost is free — price your decorations.\n\n'
     + STAGE_HELP,
   inputSchema: {
-    id: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot']).describe('Which existing fixture kind this describes.'),
-    name: z.string().describe('Display name, e.g. "Shelving".'),
+    id: z.string().describe('Slug, yours to choose, e.g. "terracotta-planter" or "chiller-shelf". Reuse one to update it.'),
+    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling'])
+      .describe('Which build rules it plays by. Closed set — this is not a way to invent kinds.'),
+    name: z.string().describe('Display name, e.g. "Shelving". This is what the build palette calls it.'),
     model: z.any().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. ' + STAGE_HELP),
     variants: z.any().optional().describe('Optional other shapes of this kind: [{id, name, model}]. Looks only — no costs, no multipliers, and the kind\'s own model is always offered alongside them as "Standard".'),
     tiers: z.array(z.object({
@@ -169,6 +252,15 @@ server.registerTool('create_fixture', {
       keeps_mult: z.number().min(0.1).max(20).default(1),
       speed_mult: z.number().min(0.1).max(10).default(1),
     })).min(1).max(6).describe('Lowest rung first. Tier 1 is what a new one already is.'),
+    cost: z.number().min(0).optional()
+      .describe('What one costs to build. 0 (the default) means "priced by the upgrade that sells this kind" — right for fixtures, free for props.'),
+    emits: z.object({
+      color: z.string().describe('#rrggbb. Warm for a bulb, cold for a chiller light.'),
+      intensity: z.number().min(0).max(4).default(1).describe('Brightness. 1 is a room fitting; above 2 washes an aisle out.'),
+      range: z.number().min(0.5).max(12).default(4).describe('How far the glow carries, in tiles.'),
+    }).optional().describe('Makes this piece a lamp. Renderer-only — no shopper behaves differently under it yet.'),
+    tags: z.array(z.string()).optional()
+      .describe('Call list_tags first. Nothing reads these on a piece yet — they are here so a shop dressed "cosy" can mean something later.'),
   },
 }, async (args) => text(await call('POST', '/content/fixture', args)));
 
@@ -442,7 +534,8 @@ server.registerTool('reset_economy', {
     + 'Upgrades, staff, fixtures, hand-placed positions, walls and shelf stock all survive — this resets what a run earned, not what it owns. '
     + 'Active modifiers are cleared, and customers mid-shop are sent home rather than left to pay old prices into a day-one till.\n\n'
     + 'Pass stock to refill every shelf and replant every plot on the way out, so day one opens full instead of wearing the last run\'s empty aisles.\n\n'
-    + 'To also throw away upgrades, staff and fixtures, stop the server and run `npm run reset:economy -- --all` — that one is deliberately not available live.',
+    + 'To also throw away upgrades, staff and fixtures, stop the server and run `npm run reset:economy -- --all --world=<id>` — that one is deliberately not available live.\n\n'
+    + 'This is almost always what "my world is bust" wants, rather than delete_world: it puts the money back to day one and keeps the shop.',
   inputSchema: {
     stock: z.boolean().default(false).describe('Fill every shelf and plant every plot after resetting.'),
   },

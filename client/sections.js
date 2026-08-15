@@ -1,5 +1,6 @@
 import { ICONS, icon } from './icons.js';
-import { FIXTURE_KINDS } from '../shared/build.js';
+import { FIXTURE_KINDS, FIXTURES, isProp } from '../shared/build.js';
+import { kindOf, ledgerKey } from '../shared/pieces.js';
 import { variantsOf } from '../shared/model.js';
 import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
 
@@ -15,37 +16,45 @@ import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
  */
 
 /**
- * The build palette: only things you can put down.
+ * What each buildable KIND is, for a palette entry that names one.
  *
- * Lives here rather than in ui.js because both the panel and the bottom hotbar
- * render from it, and a palette that disagreed with itself between the two is
- * how you end up pressing 2 and getting a till.
+ * The icon and the blurb are per kind rather than per piece, because they
+ * describe the rules — where it goes, what it is for — and every design of a
+ * shelf is a shelf. What a piece brings is its own name, its own art and its
+ * own price; if a planter and a barrel need different words, they are different
+ * kinds or they are the same thing with two looks.
+ *
+ * Kinds in palette order. A kind missing from here still builds — it just gets
+ * the generic icon, which is the honest answer for one nobody has described.
  */
-export const BUILD_TOOLS = [
-  {
-    id: 'shelf',
+export const KIND_TOOLS = {
+  shelf: {
     icon: ICONS.shelf,
-    name: 'Shelf',
     blurb: 'Anything that needs no freezing. Browsed from the side it faces.',
   },
-  {
-    id: 'freezer',
+  freezer: {
     icon: ICONS.freezer,
-    name: 'Freezer',
     blurb: 'The only home for frozen goods. Four times the shelf life.',
   },
-  {
-    id: 'checkout',
+  checkout: {
     icon: ICONS.checkout,
-    name: 'Till',
     blurb: 'Takes money. Needs a clear run alongside for the queue.',
   },
-  {
-    id: 'plot',
+  plot: {
     icon: ICONS.plot,
-    name: 'Plot',
     blurb: 'Earth, outside. Turn it over before it takes a seed.',
   },
+  'prop-floor': {
+    icon: ICONS.fixtures,
+    blurb: 'Stands on the floor and stops nobody. Indoors or out.',
+  },
+  'prop-ceiling': {
+    icon: ICONS.ambient,
+    blurb: 'Hangs from the ceiling, so it needs a room to hang in.',
+  },
+};
+
+export const BUILD_TOOLS = [
   // The shell. These go on the lines *between* tiles rather than on a tile, so
   // they aim differently — `Scene.pickEdge` rather than `pickTile` — but they
   // sit in the same palette because from the player's side it is all building.
@@ -80,24 +89,65 @@ export const BUILD_TOOLS = [
 ];
 
 /**
- * The palette: the fixed kinds, then one entry per appliance the shop sells.
+ * The palette: one entry per thing you can put down.
  *
- * Appliances are content — an MCP `create_upgrade` of kind `station` is a new
- * machine — so they can't be a hardcoded list here. Their id is the ledger key
- * the server already uses, which is why the row below can read a price and a
- * count for one with exactly the same two lookups as a shelf.
+ * Lives here rather than in ui.js because both the panel and the bottom hotbar
+ * render from it, and a palette that disagreed with itself between the two is
+ * how you end up pressing 2 and getting a till.
+ *
+ * Generated from the catalog rather than listed here, which is the whole of the
+ * kinds/pieces split seen from the player's side. A second shelf design, a
+ * terracotta planter and a hanging bulb are rows in a table, so they arrive on
+ * this bar about a second after somebody authors them and no code changed.
+ *
+ * Three sources, in the order they read: pieces, then the shell, then
+ * appliances. An appliance is still an upgrade rather than a piece — moving it
+ * across is the economy step, and doing half of it here would leave the ledger
+ * counting one thing and the palette selling another.
+ *
+ * A kind with no piece authored still appears, because a fixture kind is
+ * buildable whether or not anybody has drawn it — an undrawn shelf renders as a
+ * plain block and always has. Props are the exception on purpose: a prop *is*
+ * its art, so an undrawn one is nothing and is not offered. `Game.pieceId` makes
+ * exactly the same call on the server, which is what stops the palette offering
+ * something the server would then refuse.
  */
 export function buildTools(ui) {
+  const rows = ui?.catalog?.fixtures ?? [];
+  const pieces = [];
+  for (const kind of Object.keys(KIND_TOOLS)) {
+    const mine = rows.filter((p) => kindOf(p) === kind);
+    const entries = mine.length ? mine : (isProp(kind) ? [] : [{ id: kind, name: FIXTURES[kind]?.label ?? kind }]);
+    for (const p of entries) {
+      pieces.push({
+        id: p.id,
+        kind,
+        piece: p.id,
+        icon: KIND_TOOLS[kind]?.icon ?? ICONS.fixtures,
+        name: p.name,
+        blurb: KIND_TOOLS[kind]?.blurb ?? '',
+      });
+    }
+  }
+
   const stations = (ui?.catalog?.upgrades ?? [])
     .filter((u) => u.kind === 'station' && u.payload?.station)
     .map((u) => ({
       id: `station:${u.payload.station}`,
+      kind: 'station',
       station: u.payload.station,
       icon: ICONS.station,
       name: u.name,
       blurb: u.description || 'An appliance. Turns what goes in into something worth more.',
     }));
-  return [...BUILD_TOOLS, ...stations];
+
+  return [...pieces, ...BUILD_TOOLS, ...stations];
+}
+
+/** How many of this palette entry the shop owns, under the ledger's own name. */
+export function ownedCount(ui, t) {
+  if (t.edge !== undefined) return null;
+  return ui.fixtureCounts?.[ledgerKey(t.kind, { station: t.station, piece: t.piece })] ?? null;
 }
 
 /**
@@ -177,14 +227,17 @@ export const SECTIONS = [
     badge: (ui) => (ui.holding ? '●' : null),
     live: (ui) => JSON.stringify([
       ui.fixtureCounts, ui.toolId(), ui.buildVariant, ui.buildCosts,
-      (ui.catalog.fixtures ?? []).map((f) => f.variants?.length ?? 0),
+      // The catalog itself, not just how many shapes are on it: a piece authored
+      // over MCP is a new row on this palette, so the list has to redraw when
+      // one appears rather than only when an existing one grows a variant.
+      (ui.catalog.fixtures ?? []).map((f) => `${f.id}:${f.variants?.length ?? 0}`),
       (ui.catalog.upgrades ?? []).filter((u) => u.kind === 'station').length,
     ]),
     rows: (ui) => {
       const picked = ui.toolId();
       const tools = buildTools(ui).map((t) => {
         const cost = ui.buildCosts[t.id];
-        const have = ui.fixtureCounts?.[t.id];
+        const have = ownedCount(ui, t);
         return {
           icon: t.icon,
           name: t.name,
@@ -200,7 +253,7 @@ export const SECTIONS = [
       // becoming their own palette entries, because a corner shelf is not a
       // fifth thing to buy — it is a shelf, at a shelf's price, and the number
       // keys should keep meaning one fixture each.
-      const shapes = variantsOf(ui.catalog.fixtures?.find((x) => x.id === ui.buildTool));
+      const shapes = variantsOf(ui.catalog.fixtures?.find((x) => x.id === ui.buildPiece));
       if (shapes.length < 2) return tools;
       return [
         ...tools,
@@ -427,7 +480,18 @@ export const SECTIONS = [
     // Every line here is clamped to one line in a 214px panel, so the copy has
     // to be short enough to survive it — an ellipsis mid-word is worse than a
     // blunter phrase. The long version lives in `sub`, which is also the hover.
-    rows: () => [
+    rows: (ui) => [
+      // Which shop you are in, and the way out of it. Top of the Controls menu
+      // rather than a new rail icon: leaving is the rarest thing you do, and the
+      // rail is for what you reach for from anywhere (see docs/ui-shell.md).
+      { sep: 'This shop', icon: ICONS.shop },
+      { name: ui.net?.world?.name ?? 'This shop', sub: 'the save you are playing', plain: true },
+      {
+        icon: ICONS.close,
+        name: 'Leave to menu',
+        sub: 'saves, and back to the shop list',
+        run: () => ui.leaveToMenu(),
+      },
       { sep: 'Getting about', icon: ICONS.walk },
       { name: 'Walk', sub: 'or drag the world', right: 'WASD', plain: true },
       { name: 'Use a thing', sub: 'standing near only arms it', right: 'hold E', plain: true },

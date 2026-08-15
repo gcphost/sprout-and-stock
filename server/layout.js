@@ -24,7 +24,7 @@
 import { makeRng } from '../shared/rng.js';
 import { T, WALKABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
-import { anchorTile, queueAxis, canPlaceCleanly } from '../shared/build.js';
+import { anchorTile, queueAxis, canPlaceCleanly, isProp } from '../shared/build.js';
 
 export { T };
 
@@ -311,10 +311,12 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const checkoutsOut = [];
   const stationsOut = [];
   const plotsOut = [];
+  const propsOut = [];
   const layoutSoFar = () => ({
     w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ }, bay,
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
+    props: propsOut,
   });
 
   const budget = {
@@ -342,6 +344,17 @@ function compose(req, storeW, storeH, allowDrops = true) {
       return true;
     };
 
+    // Decorations. Nothing procedural ever places one, so there is no budget to
+    // spend and nothing to grow the building for: a prop exists exactly where
+    // somebody put it or not at all. It stamps no tile either, which is why this
+    // arm neither `set`s nor `reserve`s — the cell it stands in is still the
+    // floor it was, and everything below flows over it as if it weren't there.
+    if (isProp(p.kind)) {
+      if (!canPlaceCleanly(layoutSoFar(), p).ok) { dropped.push(p); continue; }
+      propsOut.push(makeProp(p));
+      continue;
+    }
+
     if (p.kind === 'station') {
       const i = stationQueue.indexOf(p.station);
       // An appliance whose upgrade has been sold isn't a fit problem, so this
@@ -356,6 +369,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
       const st = makeStation(p.id, p.station, p.x, p.z, p.rot ?? 2);
       st.tier = p.tier ?? 1;
       st.variant = p.variant ?? '';
+      st.piece = p.piece ?? null;
       stationsOut.push(st);
       reserve(st.useAt);
       continue;
@@ -369,13 +383,14 @@ function compose(req, storeW, storeH, allowDrops = true) {
     if (p.kind === 'plot') {
       set(p.x, p.z, T.PLOT);
       plotsOut.push(Object.assign(makePlot(p.id, p.x, p.z), {
-        tier: p.tier ?? 1, variant: p.variant ?? '',
+        tier: p.tier ?? 1, variant: p.variant ?? '', piece: p.piece ?? null,
       }));
     } else if (p.kind === 'checkout') {
       set(p.x, p.z, T.CHECKOUT);
       const till = makeCheckout(layoutSoFar(), p.id, p.x, p.z, p.rot ?? 1, checkoutsOut);
       till.tier = p.tier ?? 1;
       till.variant = p.variant ?? '';
+      till.piece = p.piece ?? null;
       checkoutsOut.push(till);
       reserve(till.serveAt);
     } else {
@@ -383,6 +398,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
       const shelf = makeShelf(p.id, p.kind, p.x, p.z, p.rot ?? 0);
       shelf.tier = p.tier ?? 1;
       shelf.variant = p.variant ?? '';
+      // Which design it is, carried across the re-flow exactly as the tier and
+      // the shape are. A procedural fixture leaves it null on purpose: nobody
+      // chose one, so it draws as whatever its kind currently defaults to, and
+      // redrawing that kind reaches every unit the generator ever laid.
+      shelf.piece = p.piece ?? null;
       shelvesOut.push(shelf);
       reserve(shelf.browseAt);
     }
@@ -550,6 +570,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
       checkouts: checkoutsOut,
       stations: stationsOut,
       plots: plotsOut,
+      /** Decorations. Placed only, never generated. */
+      props: propsOut,
       /** Placements that no longer fit (the building re-flowed under them). */
       droppedPlacements: dropped.map((p) => p.id),
     },
@@ -623,6 +645,28 @@ function makeStation(id, station, x, z, rot) {
     busyUntil: 0,
     making: null,
     output: null,
+  };
+}
+
+/**
+ * A decoration, straight off its placement.
+ *
+ * The only fixture constructor that reads its whole self from what the player
+ * asked for, because that is all a prop is: no working spot to derive, no queue
+ * to measure, no contents. `kind` and `piece` both ride along — the kind because
+ * where a hanging lamp may go is not where a planter may go, the piece because
+ * the kind alone no longer says what to draw.
+ */
+function makeProp(p) {
+  return {
+    id: p.id,
+    kind: p.kind,
+    piece: p.piece ?? p.kind,
+    x: p.x,
+    z: p.z,
+    rot: p.rot ?? 0,
+    tier: p.tier ?? 1,
+    variant: p.variant ?? '',
   };
 }
 

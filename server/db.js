@@ -120,11 +120,15 @@ CREATE TABLE IF NOT EXISTS recipes (
 -- RULES stay in shared/build.js — this is only its appearance and its tiers,
 -- so a shelf can be redrawn or given a third tier without a deploy.
 CREATE TABLE IF NOT EXISTS fixtures (
-  id         TEXT PRIMARY KEY,            -- must be a kind build.js knows
+  id         TEXT PRIMARY KEY,            -- yours to choose
+  kind       TEXT NOT NULL DEFAULT '',    -- a kind build.js knows; blank = the id
   name       TEXT NOT NULL,
   model      TEXT NOT NULL,               -- JSON, staged by tier
   tiers      TEXT NOT NULL DEFAULT '[]',  -- JSON [{name, cost, ...mults}]
   variants   TEXT NOT NULL DEFAULT '[]',  -- JSON [{id, name, model}] — looks only
+  cost       REAL NOT NULL DEFAULT 0,     -- 0 = priced by the upgrade that sells it
+  emits      TEXT NOT NULL DEFAULT 'null',-- JSON {color, intensity, range} or null
+  tags       TEXT NOT NULL DEFAULT '[]',  -- JSON array
   created_by TEXT NOT NULL DEFAULT 'seed',
   created_at INTEGER NOT NULL
 );
@@ -170,26 +174,41 @@ CREATE TABLE IF NOT EXISTS pastimes (
 
 -- ---- runtime state (not authored content) ----
 
+-- One row per save slot. The shop itself lives in the world table under
+-- 'state:<id>' (no backticks in here — see the pastimes note above);
+-- this is the index the menu reads, so listing every save never has to parse
+-- half a dozen full world blobs to find out what they're called.
+--
+-- Content is deliberately NOT in here. Items, crops, customers and fixtures are
+-- one shared library across every world — that is the whole co-op premise, and
+-- a per-world content table would mean the tomato your kid added only exists in
+-- the world they happened to be standing in.
+CREATE TABLE IF NOT EXISTS worlds (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  seed       TEXT NOT NULL,
+  -- Never swept by the idle cleaner, however long it sits. See server/worlds.js.
+  pinned     INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  played_at  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS world (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL                     -- JSON
 );
 
 -- Active demand/price modifiers. Written by the AI director, read by pricing.
+-- Scoped to one world: a heat wave in your shop is not a heat wave in mine.
 CREATE TABLE IF NOT EXISTS modifiers (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  world_id    TEXT NOT NULL DEFAULT 'default',
   source      TEXT NOT NULL,              -- 'director' | 'event:<id>' | 'manual'
   label       TEXT NOT NULL DEFAULT '',
   tag         TEXT NOT NULL,
   demand_mult REAL NOT NULL DEFAULT 1,
   price_mult  REAL NOT NULL DEFAULT 1,
   expires_day INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS saves (
-  id         TEXT PRIMARY KEY,
-  data       TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
 );
 
 -- Bumped on every content write. The room polls this and reloads its content
@@ -220,6 +239,7 @@ export function db() {
   _db = new Database(DB_PATH);
   _db.exec(SCHEMA);
   addLateColumns(_db);
+  migrateToWorlds(_db);
   _db.exec(buildTriggers());
   return _db;
 }
@@ -235,9 +255,18 @@ export function db() {
  */
 const ADDED_COLUMNS = [
   ['fixtures', 'variants', "TEXT NOT NULL DEFAULT '[]'"],
+  // The kinds/pieces split. Blank rather than NULL, and read as "this row names
+  // its own kind" — which is precisely what it meant before there was a column.
+  ['fixtures', 'kind', "TEXT NOT NULL DEFAULT ''"],
+  ['fixtures', 'cost', 'REAL NOT NULL DEFAULT 0'],
+  ['fixtures', 'emits', "TEXT NOT NULL DEFAULT 'null'"],
+  ['fixtures', 'tags', "TEXT NOT NULL DEFAULT '[]'"],
   // 'null' rather than '{}': a pastime with no prop drawn for it yet has no
   // model at all, and an empty object is a model that fails its own schema.
   ['pastimes', 'model', "TEXT NOT NULL DEFAULT 'null'"],
+  // Every modifier written before there was more than one world belonged to the
+  // world that is now `default`, which is exactly what the DEFAULT says.
+  ['modifiers', 'world_id', "TEXT NOT NULL DEFAULT 'default'"],
 ];
 
 function addLateColumns(handle) {
@@ -245,6 +274,51 @@ function addLateColumns(handle) {
     const has = handle.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
     if (!has) handle.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
   }
+}
+
+/** The id every save carried before saves had ids. */
+export const DEFAULT_WORLD_ID = 'default';
+
+/** Where one world's save blob lives in the `world` key/value table. */
+export const worldStateKey = (id) => `state:${id}`;
+
+/**
+ * Carry a single-world database over to the multi-world layout.
+ *
+ * The shop used to live under one key called `state`. It now lives under
+ * `state:<id>`, so this renames the old key rather than copying it: two rows
+ * that both look like the live save is precisely the sort of thing that reads
+ * fine and costs an afternoon, because whichever one you are looking at seems
+ * right and the game is playing the other.
+ *
+ * Idempotent, and safe on a brand new database — there is nothing to rename and
+ * `server/worlds.js` creates the first world on boot instead.
+ */
+function migrateToWorlds(handle) {
+  // `saves` was created from the first commit and never read or written once.
+  // Dropping it here rather than leaving it as scenery: a table called `saves`
+  // sitting next to the real save is a wrong answer waiting to be believed.
+  handle.exec('DROP TABLE IF EXISTS saves');
+
+  const legacy = handle.prepare("SELECT value FROM world WHERE key = 'state'").get();
+  if (!legacy) return;
+
+  const already = handle.prepare('SELECT id FROM worlds WHERE id = ?').get(DEFAULT_WORLD_ID);
+  if (!already) {
+    let seed = 'sprout-1';
+    try { seed = String(JSON.parse(legacy.value).seed ?? seed); } catch { /* keep the default */ }
+    const now = Date.now();
+    handle.prepare(`INSERT INTO worlds (id, name, seed, pinned, created_at, played_at)
+                    VALUES (?, ?, ?, 1, ?, ?)`)
+      .run(DEFAULT_WORLD_ID, 'First shop', seed, now, now);
+  }
+
+  // Pinned above, because the world somebody has been playing since before save
+  // slots existed is the last one that should be swept for looking abandoned.
+  handle.prepare('INSERT OR REPLACE INTO world (key, value) VALUES (?, ?)')
+    .run(worldStateKey(DEFAULT_WORLD_ID), legacy.value);
+  handle.prepare("DELETE FROM world WHERE key = 'state'").run();
+  console.log(`[db] migrated the existing save to world "${DEFAULT_WORLD_ID}"`);
 }
 
 /** Current content version. Cheap enough to call every tick. */
@@ -264,7 +338,7 @@ const JSON_FIELDS = {
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
-  fixtures: ['model', 'tiers', 'variants'],
+  fixtures: ['model', 'tiers', 'variants', 'emits', 'tags'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
 };
@@ -332,8 +406,64 @@ export function setWorld(key, value) {
   return value;
 }
 
-export function activeModifiers(day) {
-  return db().prepare('SELECT * FROM modifiers WHERE expires_day > ?').all(day);
+// ---------------------------------------------------------------------------
+// Save slots
+//
+// Rows only. Everything with an opinion about what a world *is* — naming one,
+// creating its first save, sweeping stale ones — lives in server/worlds.js.
+// ---------------------------------------------------------------------------
+
+export function listWorldRows() {
+  return db().prepare('SELECT * FROM worlds ORDER BY played_at DESC').all();
+}
+
+export function worldRow(id) {
+  return db().prepare('SELECT * FROM worlds WHERE id = ?').get(id) ?? null;
+}
+
+export function insertWorldRow({ id, name, seed }) {
+  const now = Date.now();
+  db().prepare(`INSERT INTO worlds (id, name, seed, pinned, created_at, played_at)
+                VALUES (?, ?, ?, 0, ?, ?)`)
+    .run(id, name, String(seed), now, now);
+  return worldRow(id);
+}
+
+/** Last opened. What the menu sorts by, and what the stale sweep measures. */
+export function touchWorldRow(id) {
+  db().prepare('UPDATE worlds SET played_at = ? WHERE id = ?').run(Date.now(), id);
+}
+
+export function renameWorldRow(id, name) {
+  db().prepare('UPDATE worlds SET name = ? WHERE id = ?').run(name, id);
+  return worldRow(id);
+}
+
+export function pinWorldRow(id, pinned) {
+  db().prepare('UPDATE worlds SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id);
+  return worldRow(id);
+}
+
+/**
+ * Delete a world and everything that belongs only to it: its save blob and its
+ * modifiers. Content is untouched — it belongs to every world at once.
+ *
+ * One transaction, because a half-deleted world is a row the menu offers you
+ * that has no save behind it.
+ */
+export function deleteWorldRow(id) {
+  const handle = db();
+  const wipe = handle.transaction(() => {
+    handle.prepare('DELETE FROM modifiers WHERE world_id = ?').run(id);
+    handle.prepare('DELETE FROM world WHERE key = ?').run(worldStateKey(id));
+    return handle.prepare('DELETE FROM worlds WHERE id = ?').run(id).changes > 0;
+  });
+  return wipe();
+}
+
+export function activeModifiers(day, worldId = DEFAULT_WORLD_ID) {
+  return db().prepare('SELECT * FROM modifiers WHERE world_id = ? AND expires_day > ?')
+    .all(worldId, day);
 }
 
 /**
@@ -345,25 +475,29 @@ export function activeModifiers(day) {
  *
  * @returns {boolean} whether a row was written.
  */
-export function addModifier({ source, label = '', tag, demand_mult = 1, price_mult = 1, expires_day }) {
+export function addModifier({
+  worldId = DEFAULT_WORLD_ID, source, label = '', tag,
+  demand_mult = 1, price_mult = 1, expires_day,
+}) {
   const dupe = db().prepare(`SELECT id FROM modifiers
-                             WHERE source = ? AND label = ? AND tag = ?
+                             WHERE world_id = ? AND source = ? AND label = ? AND tag = ?
                                AND demand_mult = ? AND price_mult = ? AND expires_day = ?`)
-    .get(source, label, tag, demand_mult, price_mult, expires_day);
+    .get(worldId, source, label, tag, demand_mult, price_mult, expires_day);
   if (dupe) return false;
 
-  db().prepare(`INSERT INTO modifiers (source, label, tag, demand_mult, price_mult, expires_day)
-                VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(source, label, tag, demand_mult, price_mult, expires_day);
+  db().prepare(`INSERT INTO modifiers (world_id, source, label, tag, demand_mult, price_mult, expires_day)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(worldId, source, label, tag, demand_mult, price_mult, expires_day);
   return true;
 }
 
-export function pruneModifiers(day) {
-  return db().prepare('DELETE FROM modifiers WHERE expires_day <= ?').run(day).changes;
+export function pruneModifiers(day, worldId = DEFAULT_WORLD_ID) {
+  return db().prepare('DELETE FROM modifiers WHERE world_id = ? AND expires_day <= ?')
+    .run(worldId, day).changes;
 }
 
-export function clearModifiers(source) {
+export function clearModifiers(source, worldId = DEFAULT_WORLD_ID) {
   return source
-    ? db().prepare('DELETE FROM modifiers WHERE source = ?').run(source).changes
-    : db().prepare('DELETE FROM modifiers').run().changes;
+    ? db().prepare('DELETE FROM modifiers WHERE world_id = ? AND source = ?').run(worldId, source).changes
+    : db().prepare('DELETE FROM modifiers WHERE world_id = ?').run(worldId).changes;
 }

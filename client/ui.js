@@ -55,6 +55,10 @@ export class UI {
     this.selectedCrop = null;
     this.buildOn = false;
     this.buildTool = 'shelf';
+    // Which design off the catalog, when the tool is a piece. The kind is what
+    // the server owns and the build rules read; this is which of that kind's
+    // rows you picked, and it rides out in the place spec beside the variant.
+    this.buildPiece = 'shelf';
     // Which appliance, when the tool is an appliance. Empty for every other
     // kind — see `toolId`.
     this.buildStation = '';
@@ -181,6 +185,24 @@ export class UI {
     this._move = { ...(this._move ?? { borrowed: false }), to: { x: tile.x, z: tile.z } };
   }
 
+  /**
+   * Back to the shop list.
+   *
+   * A reload rather than a teardown, deliberately. Leaving cleanly means
+   * dropping the room, disposing every mesh in two scene roots, clearing the
+   * prop maps, and resetting a dozen fields on this object — and the prop maps
+   * have already leaked a full set of stock meshes once for exactly that kind
+   * of miss (see `buildWorld`). The world state is on the server, the reload
+   * costs a second, and there is no half-torn-down shop to get wrong.
+   *
+   * Dropping `?world` is what makes the menu show rather than rejoining.
+   */
+  leaveToMenu() {
+    const url = new URL(location.href);
+    url.searchParams.delete('world');
+    location.replace(url);
+  }
+
   /** A refusal came back while our hands were still empty: no lift happened. */
   abortMove() {
     if (!this._lifting) return;
@@ -211,19 +233,22 @@ export class UI {
   }
 
   selectBuildTool(id) {
-    if (!buildTools(this).some((t) => t.id === id)) return;
-    // An appliance's palette id carries which machine it is. The kind is what
-    // the server owns and the build rules read; the name is ours, and rides
-    // out in the place spec beside the variant.
-    const [kind, station = ''] = String(id).split(':');
-    this.buildTool = kind;
-    this.buildStation = station;
+    const t = buildTools(this).find((x) => x.id === id);
+    if (!t) return;
+    // The entry knows what it is. It used to be parsed back out of the id, which
+    // worked while the only compound id was `station:blender` and stopped the
+    // moment a piece id was free-form — a planter called `plot-marker` would
+    // have been read as a plot.
+    this.buildTool = t.kind ?? t.id;
+    this.buildPiece = t.piece ?? '';
+    this.buildStation = t.station ?? '';
     this.buildRot = 0;
-    // Shapes belong to a kind, so switching kind drops back to Standard rather
+    // Shapes belong to a piece, so switching piece drops back to Standard rather
     // than asking for a "corner till" nobody drew.
     this.buildVariant = '';
-    this._sentTool = kind;
-    this.net.send('build-tool', { tool: kind });
+    this._sentTool = this.buildTool;
+    this._toolId = t.id;
+    this.net.send('build-tool', { tool: this.buildTool });
     this.renderHotbar();
   }
 
@@ -241,12 +266,17 @@ export class UI {
   }
 
   /**
-   * The palette entry currently selected: the kind, plus which appliance when
-   * the kind is one. The server only ever deals in kinds, so this is the id the
-   * palette and the hotbar compare against, never `buildTool` alone.
+   * The palette entry currently selected.
+   *
+   * Remembered rather than rebuilt from its parts, because a piece id is
+   * free-form and so cannot be reconstructed from a kind and a suffix. Falls
+   * back to the first entry of whatever kind the server says we are holding,
+   * which is what `syncBuildTool` needs when the server disarms us.
    */
   toolId() {
-    return this.buildStation ? `${this.buildTool}:${this.buildStation}` : this.buildTool;
+    if (this._toolId) return this._toolId;
+    if (this.buildStation) return `station:${this.buildStation}`;
+    return this.buildPiece || this.buildTool;
   }
 
   /**
@@ -260,10 +290,14 @@ export class UI {
     this._sentTool = null;
     if (serverTool === this.buildTool) return;
     this.buildTool = serverTool;
-    // The server said a kind, so whichever appliance we had chosen is no longer
-    // what's selected. Leaving it set would build a blender out of the Shelf
-    // button the next time the server disarmed us.
+    // The server said a kind, so whichever appliance or design we had chosen is
+    // no longer what's selected. Leaving either set would build a blender out of
+    // the Shelf button the next time the server disarmed us. Adopting the first
+    // palette entry of that kind is what turns a kind back into a whole choice.
     if (serverTool !== 'station') this.buildStation = '';
+    const t = buildTools(this).find((x) => x.kind === serverTool);
+    this.buildPiece = t?.piece ?? '';
+    this._toolId = t?.id ?? null;
     this.buildRot = 0;
     this.renderHotbar();
   }
@@ -272,7 +306,7 @@ export class UI {
   /** The edge kind this tool draws, or null if it places a fixture instead. */
   edgeKindForTool() {
     if (!this.buildOn || this.holding) return null;
-    const t = buildTools(this).find((x) => x.id === this.buildTool);
+    const t = buildTools(this).find((x) => x.id === this.toolId());
     return t && t.edge !== undefined ? t.edge : null;
   }
 
@@ -302,7 +336,7 @@ export class UI {
     if (!this.buildOn) return;
 
     const picked = this.toolId();
-    this.el.buildTools.innerHTML = buildTools(this).map((t, i) => {
+    this.el.buildTools.innerHTML = this.hotbarTools().map((t, i) => {
       const cost = this.buildCosts[t.id];
       return `<button class="tool ${t.id === picked ? 'on' : ''}" data-slot="${i}">
           <span class="key">${i + 1}</span>
@@ -363,8 +397,8 @@ export class UI {
   /** The chosen shape's name, or '' when it's just the standard one. */
   buildVariantName() {
     if (!this.buildVariant) return '';
-    const kind = this.catalog.fixtures?.find((f) => f.id === this.buildTool);
-    return (kind?.variants ?? []).find((v) => v.id === this.buildVariant)?.name ?? '';
+    const piece = this.catalog.fixtures?.find((f) => f.id === this.buildPiece);
+    return (piece?.variants ?? []).find((v) => v.id === this.buildVariant)?.name ?? '';
   }
 
   /**
@@ -386,8 +420,21 @@ export class UI {
     return FIXTURES[f.kind]?.label ?? 'Fixture';
   }
 
+  /**
+   * The entries the number keys reach.
+   *
+   * Capped, because the palette is a catalog now and a catalog has no length.
+   * Nine because that is how many number keys there are — the number on a button
+   * IS the key that presses it, and a tenth button with no key on it is a button
+   * that looks broken. Everything past nine lives in the menu, which is what the
+   * menu is for.
+   */
+  hotbarTools() {
+    return buildTools(this).slice(0, 9);
+  }
+
   selectBuildToolByIndex(i) {
-    const t = buildTools(this)[i];
+    const t = this.hotbarTools()[i];
     if (t) this.selectBuildTool(t.id);
   }
 

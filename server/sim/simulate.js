@@ -21,6 +21,7 @@ import { requiredFixture } from '../../shared/tags.js';
 
 /**
  * @param {object} opts
+ * @param {string} opts.worldId    which save slot to copy the shop from
  * @param {number} opts.days       in-game days to run
  * @param {string} opts.seed       world seed (reproducible)
  * @param {number} opts.startCash
@@ -28,6 +29,7 @@ import { requiredFixture } from '../../shared/tags.js';
  * @param {number} opts.dt         sim step in seconds; bigger = faster + coarser
  */
 export function simulate({
+  worldId,
   days = 30,
   seed = 'sim',
   startCash = 250,
@@ -39,14 +41,19 @@ export function simulate({
     return { ok: false, error: 'no items exist — seed the database first' };
   }
 
-  const game = Game.create({ seed, autoServe: true, ephemeral: true });
+  const game = Game.create({ worldId, seed, autoServe: true, ephemeral: true });
 
   // What this run inherited from the live shop. `Game.create` reads the saved
   // world, so who already works here and what the shop already owns come along
   // for the ride — and two runs that differ in those are not comparable however
   // equal their seeds are. That cost an afternoon to work out once, so the
   // numbers now say it out loud.
+  //
+  // `world` joined it the day save slots did, for exactly the same reason: two
+  // runs of one seed against two different shops are two different experiments,
+  // and nothing else in the result would ever tell you which shop you measured.
   const startedWith = {
+    world: worldId,
     staff: (game.roster ?? []).map((e) => e.name),
     ownedUpgrades: game.ownedUpgrades.length,
   };

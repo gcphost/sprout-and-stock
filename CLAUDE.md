@@ -59,7 +59,7 @@ its canvas and hands you the PNG. Look at it. `stock_shop` first if you want
 the shelves full rather than an empty building.
 
 **After touching `layout.js`, `shared/build.js` or an action — run `npm run verify`.**
-Two sweeps, about two seconds:
+Four sweeps, about three seconds:
 
 - `verify:layout` generates ~100k layouts across seeds × counts and asserts the
   generator placed *exactly* what it was asked for, that every fixture has a
@@ -68,9 +68,17 @@ Two sweeps, about two seconds:
 - `verify:build` drives a real `Game` through tilling, stowing, stripping,
   building, moving and selling back, and asserts nothing is created or
   destroyed on the way.
+- `verify:edges` walks the real edge rules from the shopper spawn and insists on
+  reaching the shop floor, across generated layouts and hand-built rule cases. A
+  sealed building fails that and passes everything else.
+- `verify:catalog` authors a second design of a kind, a decoration and a lamp,
+  then asserts pieces resolve to themselves and that placing a decoration moves
+  no tile, no walk grid and no shelf. It cleans up after itself on exit, because
+  it writes into whatever content database it is pointed at — usually the live
+  shared one.
 
-Both found real bugs the day they were written. Neither is visible in a
-screenshot of one seed — which is exactly why they exist.
+Each found real bugs the day it was written. None is visible in a screenshot of
+one seed — which is exactly why they exist.
 
 ⚠️ **`simulate` also inherits who works for you.** `Game.create` reads the saved
 world, so the roster and `ownedUpgrades` come along into the throwaway run. Hire
@@ -129,6 +137,8 @@ and the other person will never see it.
 ```
 shared/     tags.js       the tag vocabulary + what tags DO
             schemas.js    zod validation — the only gate into the database
+            build.js      BUILD_KINDS + where a thing may go (client and server)
+            pieces.js     which catalog row a placed thing is, and its ledger name
 server/     db.js         SQLite, content tables, content_version trigger
             content.js    in-memory registry; reloads when content_version bumps
             layout.js     procedural store + farm, sized to what you own
@@ -138,6 +148,7 @@ server/     db.js         SQLite, content tables, content_version trigger
             api.js        HTTP control API — everything MCP can do
             rooms/        Colyseus room; broadcasts plain JSON at 10Hz
 client/     render/       three.js isometric renderer
+            render/lights.js  honours `emits`, and caps how many lamps are real
 mcp/        server.js     MCP tools, a thin wrapper over server/api.js
 ```
 
@@ -151,9 +162,9 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, and the kinds-vs-pieces catalog that makes lights and decorations authorable | proposed |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, and the kinds-vs-pieces catalog that makes lights and decorations authorable | steps 1–3, 6–8 built |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks and the props that make them visible | steps 1–6 and 8 built |
-| [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | proposed |
+| [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 
 ---
@@ -209,12 +220,42 @@ what the next step was meant to be.
   rather than growing its own art-swapping code. The pastime is the proof: a mug
   that empties and a sandwich eaten down to the crusts cost one nullable column
   and one field in `snapshot()`, and no code in the renderer knows what a mug is.
-- **Fixture *looks* are content; fixture *rules* are code.** The `fixtures`
-  table holds each kind's model and its tier ladder, so a shelf can be redrawn
-  or given a third tier live. Its id must be a kind `shared/build.js` already
-  knows — inventing kinds there is not the point, because where a thing may go,
-  which side you use it from and whether it rotates are behaviour, and a fixture
-  nobody can place or reach is scenery.
+- **Kinds are code; pieces are content.** A `fixtures` row is a *piece* — its
+  own id, its own model, variants, tier ladder and price — and it names a *kind*
+  from the closed `BUILD_KINDS` set in `shared/build.js`. So there can be four
+  planters and two shelf designs, but not a new kind: where a thing may go,
+  whether it blocks and which side you use it from are behaviour, and a fixture
+  nobody can place or reach is scenery. Same shape `JOBS` uses for workers.
+  A row written before the split has no `kind` and is read as naming itself
+  (`kindOf`, `shared/pieces.js`) — a read-time default rather than a migration,
+  so an old database, an old export and a fresh seed all agree with no ceremony.
+- **A piece that resolves to its kind looks correct until somebody authors a
+  second one.** Every fixture came from a row whose id *is* its kind, so a
+  lookup that falls back to the kind is invisible in a shop that owns the
+  original five — and then presents as "my new shelf looks like the old one",
+  which reads as bad modelling rather than bad wiring. `verify:catalog` gives its
+  test shelf a deliberately *shorter* tier ladder so the wrong row is a number
+  that differs rather than a picture that happens to match.
+- **A decoration weighs nothing, on purpose.** `prop-floor` and `prop-ceiling`
+  stamp no tile, take no generator budget and reserve no working spot, so people
+  walk past them and no shop that was walkable stops being so. That is why there
+  is no authored `blocks` flag: a barrel that stops nobody is a lie you can see,
+  and one that stops people needs to own its cell — which a tile cannot say
+  alongside "floor". Anything that must be walked around is a shelf today.
+- **The ledger keys fixtures by kind and props by piece.** `world.fixtures` is
+  the *generator's shopping list* — `regenerateLayout` asks for one placement per
+  shelf owned — so a second shelf design that counted under its own name would
+  have no budget and get dropped on the next re-flow, silently, one at a time.
+  Props have no budget because nothing procedural places one, which is what frees
+  them to count by piece. `ledgerKey` in `shared/pieces.js`; the client imports
+  the same function, or the palette would print 0 next to eleven shelves.
+- **Eight lights, and the cap is not a tuning knob.** three.js forward-renders
+  every light against every fragment, so lights multiply the cost of the scene
+  rather than adding to it. `client/render/lights.js` keeps a fixed pool, aims it
+  at the nearest emitters, and folds the rest into ambient so panning sharpens
+  the near end of the shop instead of switching the far end off. Also: three's
+  falloff makes `intensity` a power, not a brightness — a lamp authored as "1
+  over 4 tiles" is invisible until it is scaled by range squared.
 - **A tier that changes no number is a button that takes money and does nothing.**
   `capacity_mult`, `keeps_mult` and `speed_mult` are the only knobs the sim
   reads. The till ladder is deliberately priced at 0 because nothing reads a

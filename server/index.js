@@ -24,6 +24,7 @@ import { MartRoom } from './rooms/MartRoom.js';
 import { createApi } from './api.js';
 import { db } from './db.js';
 import { refresh, content } from './content.js';
+import { ensureAWorld, listWorlds, sweepWorlds } from './worlds.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 2567);
@@ -36,6 +37,16 @@ refresh();
 if (content().items.length === 0) {
   console.warn('\n⚠️  No content in the database. Run `npm run seed` first.\n');
 }
+
+// A menu with nothing in it is a dead end, so a database that has never been
+// played gets its first save slot here rather than on the first join.
+ensureAWorld();
+
+// Sweep abandoned saves on boot and once every six hours after. Pinned worlds,
+// worlds with somebody in them and the last world standing are never touched —
+// see server/worlds.js.
+sweepWorlds();
+setInterval(() => sweepWorlds(), 6 * 60 * 60 * 1000).unref();
 
 const app = express();
 
@@ -63,7 +74,10 @@ const gameServer = new Server({
   devMode: DEV,
 });
 
-gameServer.define('mart', MartRoom);
+// One room per world, matched on the id. Without `filterBy`, `joinOrCreate`
+// hands you whichever `mart` room already exists and every save slot in the
+// menu quietly opens the same shop.
+gameServer.define('mart', MartRoom).filterBy(['worldId']);
 
 await gameServer.listen(PORT);
 
@@ -72,6 +86,7 @@ console.log(`  game server  ws://localhost:${PORT}`);
 console.log(`  control api  http://localhost:${PORT}/api/health`);
 if (DEV) console.log(`  client       http://localhost:5173  (npm run dev)`);
 console.log(`  content      ${content().items.length} items, ${content().crops.length} crops, ${content().archetypes.length} archetypes`);
+console.log(`  worlds       ${listWorlds().map((w) => `${w.name} (${w.id}, day ${w.day})`).join(', ')}`);
 if (!process.env.ANTHROPIC_API_KEY) {
   console.log(`  director     using built-in events (set ANTHROPIC_API_KEY for AI events)`);
 } else {

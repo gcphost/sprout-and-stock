@@ -7,6 +7,10 @@
  * anyone (including a 14-year-old and an LLM) can read, log and modify without
  * learning a schema DSL. That tradeoff is the right way round for this project.
  *
+ * One room is one **world**, named by `options.worldId` and matched on it by
+ * `filterBy` in server/index.js — so `joinOrCreate` puts you in the shop you
+ * picked from the menu rather than in whichever room happened to exist.
+ *
  * The room also registers itself in a module-level registry so the HTTP control
  * API (and therefore MCP) can reach the live game.
  */
@@ -16,12 +20,16 @@ import { Game } from '../sim/index.js';
 import { content, refresh, onContentChange } from '../content.js';
 import { JOBS } from '../../shared/schemas.js';
 import { runDirector } from '../director.js';
+// Straight to the row rather than through server/worlds.js: that module reads
+// this one's `rooms` registry, and importing it back would make a cycle out of
+// what is a one-line UPDATE.
+import { touchWorldRow, worldRow, listWorldRows, DEFAULT_WORLD_ID } from '../db.js';
 
 /** Every live room, so the HTTP API can find one to poke. */
 export const rooms = new Set();
 
 /**
- * The room the control API should act on.
+ * The room the control API should act on when nothing says otherwise.
  *
  * Prefers the room with the most connected clients rather than whichever was
  * registered first — after a devMode restart there can briefly be a stale,
@@ -39,11 +47,48 @@ export function primaryRoom() {
 const TICK_MS = 50;        // 20Hz simulation
 const BROADCAST_MS = 100;  // 10Hz network
 
+/**
+ * How long a room with nobody in it keeps simulating before it saves and goes.
+ *
+ * There is a grace period at all because an agent's room is legitimately empty:
+ * `roomForWorld` starts one headless to reset an economy or take a screenshot,
+ * and a room that disposed the instant it had no clients would be gone before
+ * the next call. Five minutes is long enough for a working session and short
+ * enough that ten abandoned worlds aren't ticking overnight.
+ */
+const IDLE_MS = Number(process.env.SNS_ROOM_IDLE_MS ?? 5 * 60 * 1000);
+const IDLE_CHECK_MS = 15_000;
+
+/**
+ * Which world a room that never named one is.
+ *
+ * Only one thing creates those: Colyseus devMode caches a room's *client
+ * options* and replays them on boot, so the first restart after this feature
+ * landed re-creates a room whose options predate `worldId` entirely. Throwing
+ * there means the server won't start at all after a `git pull` — a crash on
+ * upgrade, for a room that has a perfectly good answer, because the save it was
+ * playing is exactly the one the migration renamed to `default`.
+ */
+function legacyWorldId() {
+  const id = worldRow(DEFAULT_WORLD_ID) ? DEFAULT_WORLD_ID : listWorldRows()[0]?.id;
+  if (!id) throw new Error('a room has to say which world it is, and there are no worlds');
+  console.warn(`[room] created with no world named — assuming "${id}" (a cached room from before save slots)`);
+  return id;
+}
+
 export class MartRoom extends Room {
   onCreate(options) {
     this.maxClients = 8;
-    this.game = Game.create({ seed: options?.seed });
+    this.worldId = options?.worldId ?? legacyWorldId();
+    this.game = Game.create({ worldId: this.worldId, seed: options?.seed });
+    // Disposal is ours, not Colyseus's: `autoDispose` fires the moment the last
+    // client leaves, and the whole point of the idle timer is that it doesn't.
     this.autoDispose = false;
+    this.emptySince = Date.now();
+
+    // So the menu can show which shops have somebody in them without opening a
+    // socket to each one.
+    this.setMetadata({ worldId: this.worldId });
 
     // Pending screenshot requests, keyed by id. See `requestScreenshot`.
     this.screenshotWaiters = new Map();
@@ -59,9 +104,28 @@ export class MartRoom extends Room {
     // with a SQLite client). This is what makes `create_item` appear live.
     this.contentTimer = this.clock.setInterval(() => refresh(), 250);
 
+    this.idleTimer = this.clock.setInterval(() => this.checkIdle(), IDLE_CHECK_MS);
+
     this.registerMessages();
     rooms.add(this);
-    console.log(`[room] ${this.roomId} created (seed ${this.game.seed})`);
+    console.log(`[room] ${this.roomId} created for world "${this.worldId}" (seed ${this.game.seed})`);
+  }
+
+  /**
+   * Save and shut down once nobody has been here for a while.
+   *
+   * `disconnect()` rather than letting it run: an empty room is still stepping
+   * the sim 20 times a second, spawning shoppers nobody serves and asking the
+   * director for a world event every in-game day. One of those is a paid API
+   * call, and before save slots existed there was only ever one room, so it
+   * never mattered.
+   */
+  checkIdle() {
+    if (this.clients.length > 0) { this.emptySince = null; return; }
+    this.emptySince ??= Date.now();
+    if (Date.now() - this.emptySince < IDLE_MS) return;
+    console.log(`[room] ${this.roomId} idle — saving world "${this.worldId}" and closing`);
+    this.disconnect();
   }
 
   registerMessages() {
@@ -219,21 +283,39 @@ export class MartRoom extends Room {
   }
 
   onJoin(client, options) {
+    this.emptySince = null;
+    // "Last played" is what the menu sorts by and what the stale sweep measures,
+    // so it moves when somebody actually walks in — not when a room boots, which
+    // an agent can cause without anyone playing anything.
+    touchWorldRow(this.worldId);
     this.game.addPlayer(client.sessionId, options?.name);
     this.sendLayout(client);
     client.send('catalog', this.catalog());
-    client.send('you', { id: client.sessionId });
+    // Which shop this is, sent with who you are. The HUD says the name out loud
+    // because "am I in the right save" is not a question you should have to
+    // answer by recognising your own aisles.
+    const row = worldRow(this.worldId);
+    client.send('you', {
+      id: client.sessionId,
+      world: { id: this.worldId, name: row?.name ?? this.worldId },
+    });
   }
 
   onLeave(client) {
     this.game.removePlayer(client.sessionId);
+    if (this.clients.length <= 1) this.emptySince = Date.now();
+    // Save on the way out rather than only on dispose. Five minutes of idle
+    // grace is five minutes in which the process can be killed, and everything
+    // since the last upgrade would go with it.
+    this.game.persist();
+    touchWorldRow(this.worldId);
   }
 
   onDispose() {
     this.unsubscribeContent?.();
     rooms.delete(this);
     this.game.persist();
-    console.log(`[room] ${this.roomId} disposed`);
+    console.log(`[room] ${this.roomId} disposed (world "${this.worldId}")`);
   }
 
   // ---- Colyseus devMode -----------------------------------------------------
@@ -253,9 +335,13 @@ export class MartRoom extends Room {
   onRestoreRoom(cached) {
     if (!cached?.state) return;
     this.game = Game.restore(cached.state);
+    // The cache is the authority on which world this room was: `onCreate` ran
+    // with whatever options the restore handed it, and a room that came back as
+    // a different world would persist one shop's day over another's.
+    this.worldId = this.game.worldId ?? this.worldId;
     // Players reconnect as new sessions, so old player entries are stale.
     this.game.players = {};
-    console.log(`[room] ${this.roomId} restored at day ${this.game.day}`);
+    console.log(`[room] ${this.roomId} restored world "${this.worldId}" at day ${this.game.day}`);
   }
 
   // -------------------------------------------------------------------------

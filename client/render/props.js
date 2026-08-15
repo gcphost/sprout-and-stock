@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { partsAt, seamStep } from '../../shared/model.js';
+import { FACE_CALM } from './palette.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
 const GEO = {
@@ -100,11 +101,14 @@ export function buildCharacter(color, { hat = null } = {}) {
   body.castShadow = true;
   g.add(body);
 
-  const head = new THREE.Mesh(GEO.sphere, material('#f6efe2'));
+  const head = new THREE.Mesh(GEO.sphere, material(FACE_CALM));
   head.scale.set(0.3, 0.3, 0.3);
   head.position.y = 0.66;
   head.castShadow = true;
   g.add(head);
+  // Named rather than found by index: whether there's a hat moves every child
+  // after the body, so `children[1]` is only the head by luck.
+  g.userData.head = head;
 
   if (hat) {
     const cap = new THREE.Mesh(GEO.cylinder, material(hat));

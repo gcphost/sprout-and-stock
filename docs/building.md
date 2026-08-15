@@ -1,9 +1,18 @@
 # Building — design
 
-Status: **proposed, nothing built.** There is a working interactive mockup —
+Status: **steps 1–3, 6, 7 and 8 built. 4, 5, 9–11 are still a plan.**
+There is also a working interactive mockup —
 [turn the shop around here](https://claude.ai/code/artifact/1aac9d71-46fc-4e78-9f93-d54a6e6d2467).
-Its enclosure maths is tested (ten assertions, both wall models, all four camera
-quarters); everything else in this doc is a plan.
+
+What that means in practice: walls, windows, doorways and fences live on the
+edges between cells and everything reads them; "indoors" means whatever the
+walls enclose; you draw a run with a wall tool; and the catalog is split into
+kinds-in-code and pieces-in-content, so a second shelf design, a planter or a
+hanging lamp is an MCP call. What is *not* built is the storage rework — the
+generator still re-runs on every placement, and fixtures still stamp tiles.
+
+Each section below says what landed and where it stopped. Read the build order
+at the bottom for the running tally.
 
 The goal: the shop stops being a rectangle the generator solves for and becomes
 whatever you build. Walls, windows and doors are things you place. Lights and
@@ -147,6 +156,8 @@ The only hard refusals worth keeping are off-the-map and something-already-here.
 
 ## The catalog
 
+**Built**, with two deliberate omissions recorded at the end of this section.
+
 This is the part that lets you add lights and decorations without a deploy, and
 the pattern is one this repo has already used once.
 
@@ -189,17 +200,39 @@ The five existing rows migrate by setting `kind = id`.
 | `checkout` | tile | yes | yes | `serveAt` | money |
 | `station` | tile | yes | yes | `useAt` | crafting |
 | `plot` | tile | no | no | — | crops |
-| `prop-floor` | tile | *per piece* | yes | — | planters, barrels, bins, rugs |
+| `prop-floor` | tile | no | yes | — | planters, barrels, bins, rugs |
 | `prop-wall` | edge | no | — | — | signs, posters, wall shelves, clocks |
 | `prop-ceiling` | overhead | no | — | — | pendants, fans, hanging signs, bunting |
-
-`prop-floor` is the one kind where `blocks` is authored rather than fixed,
-because a barrel and a rug want opposite answers and are otherwise identical.
-Everything else has one honest answer per kind.
 
 A light is not its own kind — it's a piece of `prop-floor`, `prop-wall` or
 `prop-ceiling` that carries an `emits` block. A floor lamp and a barrel obey the
 same placement rules; one of them just glows.
+
+### Two things this table promised and the build did not
+
+Both are omissions rather than oversights, and both are cheap to add once the
+step they depend on lands.
+
+**`blocks` is not authored, and props never block.** This table originally had
+`prop-floor` deciding for itself, because a barrel and a rug want opposite
+answers. But a thing that blocks has to *own* its cell, and a cell can only say
+one thing at a time — which is exactly the problem step 5 exists to fix. Shipping
+the flag before then would mean a barrel people walk straight through, which is a
+lie you can see from across the shop and worse than not having barrels. So
+`BUILD_KINDS` says props are weightless, `verify-catalog` asserts the walk grid
+is untouched when one is placed, and this becomes an authored field the day a
+cell can hold a list. Anything that must be walked around is a shelf today.
+
+**`prop-wall` does not exist yet.** The other two hang off a cell, which means
+they aim with `pickTile`, store as an ordinary placement and rotate like anything
+else — one code path, already tested. A wall prop hangs off an *edge*, so it
+needs a placement carrying an orientation, its own aiming (`pickEdge` gives the
+line, but the wall tools drag a run and a sconce does not), a rule that the edge
+it mounts on is solid, and an answer for what happens to it when that wall is
+knocked through. That is a genuinely different set of questions and it belongs in
+its own change. `BUILD_KINDS` deliberately omits it rather than listing a kind
+nothing can place — which is the scenery failure this whole split exists to
+prevent, arriving through the vocabulary instead of through content.
 
 ### What a piece looks like
 
@@ -213,10 +246,12 @@ export const PieceSchema = z.object({
   variants: [...],               // looks only, exactly as today
   tiers:    [...],               // costs and multipliers, exactly as today
 
-  /** prop-floor only: a barrel blocks, a rug does not. */
-  blocks: z.boolean().default(true),
-
-  /** What it costs to put one down. Today this is derived from upgrades. */
+  /**
+   * What it costs to put one down. 0 means "priced by the upgrade that sells
+   * this kind", which is how every fixture is still priced — so the split cost
+   * nothing and moved no balance. A prop has no upgrade behind it, so a prop
+   * left at 0 is free.
+   */
   cost: z.number().min(0).default(0),
 
   /** A light. Renderer-only unless something chooses to read it. */
@@ -238,17 +273,31 @@ sconce and an iron one are variants of one piece; a brighter sconce is a tier.
 
 ### Lights
 
-`emits` is content; honouring it is code, in `client/render/scene.js`.
+**Built.** `emits` is content; honouring it is code, in `client/render/lights.js`
+— its own file rather than a few lines in `buildWorld`, because the cap is the
+whole substance of it.
 
-Two things that will bite:
+Both of the things this section warned about were real:
 
-- **You cannot have fifty point lights.** three.js will crawl. Cap it — pick the
-  N nearest the camera and let the rest contribute to ambient only — and decide
-  that cap before authoring a catalogue of lamps, not after.
-- **A light that changes no number is decoration with extra steps.** That is
-  fine and probably correct to start with. But if lighting is ever meant to
-  *matter*, the honest hook is the tag system: a dark aisle tagged `dim`, an
-  archetype that avoids it. Don't hardcode `if (piece.id === 'lamp')`.
+- **You cannot have fifty point lights.** three.js forward-renders every light
+  against every fragment, so lights multiply the cost of the whole scene rather
+  than adding to it. The cap is `MAX_LIGHTS`, and it is eight. Emitters are
+  rebuilt with the layout, the pool of actual `THREE.PointLight` objects is built
+  once and re-aimed, and re-sorting only happens once the camera has genuinely
+  moved — `RESORT_DISTANCE`. Everything past the cap folds into one ambient lift
+  (`SPILL_PER_LIGHT`) so panning sharpens the near end of the shop instead of
+  visibly switching the far end off.
+- **A light that changes no number is decoration with extra steps.** Still true,
+  and still deliberate: nothing in the sim reads `emits`. What it does do is dim
+  with the day (`DAY_FLOOR`), so a lamp is worth most at dusk. That is the cheap
+  half of "indoors is not outdoors" below — the lamp dims and the room does not.
+  If lighting is ever meant to *matter*, the hook is the tag system, not
+  `if (piece.id === 'lamp')`.
+
+One thing worth knowing that wasn't obvious: three's falloff makes `intensity` a
+power rather than a brightness, so a lamp authored as "1 over 4 tiles" is nearly
+invisible unless it is scaled by its own range squared. That scaling lives in
+`Lights.update`, so an author writes the number they mean.
 
 ### Indoors is not outdoors
 
@@ -308,6 +357,12 @@ place it and get `FIXTURE_REFUND` of it back when you tear it out.
 Sliced so the game is playable at every step. Steps 1–3 are the spine;
 everything after is additive.
 
+Built so far: **1, 2, 3, 6, 7, 8.** Steps 4 and 5 were skipped deliberately —
+they are a storage rework rather than a feature, and everything after them turned
+out not to need them. That is worth checking rather than assuming: step 7 was
+written here as depending on step 5, and it didn't, because a prop that never
+blocks needs no cell of its own.
+
 1. **Edges exist alongside tiles, and are provably the same shape.** Add
    `shared/edges.js`: the edge kinds, the two arrays, `deriveEdges` (read a
    wall ring, write the equivalent loop of edges) and `computeIndoor`. Change
@@ -327,7 +382,10 @@ everything after is additive.
 4. **Stamp once.** Convert the live world, stop re-running the generator on
    every placement. `droppedPlacements` retires.
 5. **Things become a list.** Fixtures stop stamping tiles. `BUILDABLE_INDOOR`
-   becomes "no blocking thing on this cell". This is what makes step 7 possible.
+   becomes "no blocking thing on this cell". This was written as the thing that
+   makes step 7 possible; it wasn't. What it actually unlocks is a prop that
+   *blocks* — see the omissions above — and rugs, which need two things on one
+   cell. Both are real, neither is the catalog.
 6. **Wall, window and door as build tools.** Drag corner to corner. The action
    carries two lattice points and a kind — a rect, never a tile list, because of
    the 4KB inbound cap.
@@ -348,6 +406,26 @@ everything after is additive.
 
 Each of these is a real finding from the mockup or from reading the code, not a
 guess.
+
+- **A piece that resolves to its kind passes every test you would think to
+  run.** Every fixture in the game came from a row whose id *is* its kind, so a
+  lookup that silently falls back to the kind is indistinguishable from a correct
+  one until somebody authors a second design — and then it presents as "my new
+  shelf looks like the old one", which reads as a modelling mistake rather than a
+  wiring one. `verify-catalog` authors a second shelf with a deliberately
+  *shorter* tier ladder for exactly this reason: reading the wrong row is then a
+  number that differs, not a picture that happens to match. It caught the layout
+  generator dropping `piece` on the way through, which nothing else would have.
+
+- **The ledger keys fixtures by kind and props by piece, and that asymmetry is
+  load-bearing.** `world.fixtures` is the generator's shopping list —
+  `regenerateLayout` passes `shelves: fixtures.shelf` and expects one placement
+  per unit owned. Key a second shelf design under its own name and the budget it
+  needs is never asked for, so `compose` drops the placement on the next re-flow,
+  one shelf at a time, silently. Props have no budget because nothing procedural
+  places one, which is exactly what frees them to count by piece. `ledgerKey` in
+  `shared/pieces.js`, and the client imports the same function — a palette that
+  spelled a count differently would read 0 next to eleven shelves.
 
 - **Pathing is strictly 4-way.** `NEIGHBOURS = [[1,0],[-1,0],[0,1],[0,-1]]` in
   `server/sim/pathing.js`. This is the single luckiest fact in the migration:
