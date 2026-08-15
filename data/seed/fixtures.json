@@ -1,0 +1,2815 @@
+[
+  {
+    "id": "checkout",
+    "name": "Till",
+    "model": {
+      "stages": [
+        {
+          "name": "Counter",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c9a227",
+              "pos": [
+                0,
+                0.275,
+                0
+              ],
+              "scale": [
+                0.72,
+                0.55,
+                0.66
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#e8d9a0",
+              "pos": [
+                0,
+                0.585,
+                0
+              ],
+              "scale": [
+                0.76,
+                0.07,
+                0.7
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Registered",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c9a227",
+              "pos": [
+                0,
+                0.275,
+                0
+              ],
+              "scale": [
+                0.72,
+                0.55,
+                0.66
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#e8d9a0",
+              "pos": [
+                0,
+                0.585,
+                0
+              ],
+              "scale": [
+                0.76,
+                0.07,
+                0.7
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#4a4a52",
+              "pos": [
+                -0.14,
+                0.72,
+                0
+              ],
+              "scale": [
+                0.28,
+                0.2,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#7fd0e0",
+              "pos": [
+                -0.14,
+                0.83,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.05,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Counter",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "With a register",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": []
+  },
+  {
+    "id": "freezer",
+    "name": "Freezer",
+    "model": {
+      "stages": [
+        {
+          "name": "Glass door",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.34,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.09,
+                1.04,
+                0.78
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#d8e6ec",
+              "pos": [
+                0.02,
+                0.52,
+                -0.355
+              ],
+              "scale": [
+                0.68,
+                1.04,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#d8e6ec",
+              "pos": [
+                0.02,
+                0.52,
+                0.355
+              ],
+              "scale": [
+                0.68,
+                1.04,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#aec4d0",
+              "pos": [
+                0.02,
+                1.03,
+                0
+              ],
+              "scale": [
+                0.78,
+                0.09,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.07,
+                0
+              ],
+              "scale": [
+                0.7,
+                0.14,
+                0.72
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.66,
+                0.05,
+                0.7
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#cfe9f2",
+              "pos": [
+                0.34,
+                0.55,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.92,
+                0.7
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.33
+            },
+            {
+              "shape": "box",
+              "color": "#56656f",
+              "pos": [
+                0.38,
+                0.55,
+                0.24
+              ],
+              "scale": [
+                0.05,
+                0.5,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Sealed",
+          "at": 0.5,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#9db4c2",
+              "pos": [
+                -0.34,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.09,
+                1.04,
+                0.78
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#b6cbd6",
+              "pos": [
+                0.02,
+                0.52,
+                -0.355
+              ],
+              "scale": [
+                0.68,
+                1.04,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#b6cbd6",
+              "pos": [
+                0.02,
+                0.52,
+                0.355
+              ],
+              "scale": [
+                0.68,
+                1.04,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#7f9aab",
+              "pos": [
+                0.02,
+                1.03,
+                0
+              ],
+              "scale": [
+                0.78,
+                0.09,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.07,
+                0
+              ],
+              "scale": [
+                0.7,
+                0.14,
+                0.72
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.66,
+                0.05,
+                0.7
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#d7f0f7",
+              "pos": [
+                0.34,
+                0.55,
+                0
+              ],
+              "scale": [
+                0.06,
+                0.92,
+                0.72
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.3
+            },
+            {
+              "shape": "box",
+              "color": "#3f5560",
+              "pos": [
+                0.39,
+                0.55,
+                0.24
+              ],
+              "scale": [
+                0.06,
+                0.56,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Display",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#8fb6c9",
+              "pos": [
+                -0.34,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.09,
+                1.04,
+                0.78
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a8ccdb",
+              "pos": [
+                0.02,
+                0.52,
+                -0.355
+              ],
+              "scale": [
+                0.68,
+                1.04,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a8ccdb",
+              "pos": [
+                0.02,
+                0.52,
+                0.355
+              ],
+              "scale": [
+                0.68,
+                1.04,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#ffd66b",
+              "pos": [
+                0.02,
+                1.03,
+                0
+              ],
+              "scale": [
+                0.78,
+                0.09,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#f4fbfd",
+              "pos": [
+                0.02,
+                0.07,
+                0
+              ],
+              "scale": [
+                0.7,
+                0.14,
+                0.72
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#f4fbfd",
+              "pos": [
+                0.02,
+                0.44,
+                0
+              ],
+              "scale": [
+                0.66,
+                0.05,
+                0.7
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#f4fbfd",
+              "pos": [
+                0.02,
+                0.76,
+                0
+              ],
+              "scale": [
+                0.66,
+                0.05,
+                0.7
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#e2f6fb",
+              "pos": [
+                0.34,
+                0.55,
+                0
+              ],
+              "scale": [
+                0.06,
+                0.92,
+                0.72
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.26
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Glass-door freezer",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Sealed freezer",
+        "cost": 260,
+        "capacity_mult": 1,
+        "keeps_mult": 1.5,
+        "speed_mult": 1
+      },
+      {
+        "name": "Display freezer",
+        "cost": 620,
+        "capacity_mult": 1.5,
+        "keeps_mult": 2,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [
+      {
+        "id": "chest",
+        "name": "Chest",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#9fb6c4",
+              "pos": [
+                0,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.76,
+                0.6,
+                0.76
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#eaf6f8",
+              "pos": [
+                0,
+                0.63,
+                0
+              ],
+              "scale": [
+                0.8,
+                0.07,
+                0.8
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#5e7a8f",
+              "pos": [
+                0.38,
+                0.46,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.08,
+                0.5
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "plot",
+    "name": "Plot",
+    "model": {
+      "stages": [
+        {
+          "name": "Bare earth",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#6b4b2f",
+              "pos": [
+                0,
+                0.02,
+                0.46
+              ],
+              "scale": [
+                0.98,
+                0.05,
+                0.06
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Raised bed",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.06,
+                0.46
+              ],
+              "scale": [
+                0.98,
+                0.12,
+                0.08
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.06,
+                -0.46
+              ],
+              "scale": [
+                0.98,
+                0.12,
+                0.08
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.46,
+                0.06,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.12,
+                0.98
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                -0.46,
+                0.06,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.12,
+                0.98
+              ],
+              "rot": 0
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Bare earth",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Raised bed",
+        "cost": 90,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1.6
+      }
+    ],
+    "variants": []
+  },
+  {
+    "id": "shelf",
+    "name": "Shelving",
+    "model": {
+      "stages": [
+        {
+          "name": "Plain",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.26,
+                0.51,
+                0
+              ],
+              "scale": [
+                0.08,
+                1.02,
+                0.77
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.05,
+                0.51,
+                -0.35
+              ],
+              "scale": [
+                0.54,
+                1.02,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.05,
+                0.51,
+                0.35
+              ],
+              "scale": [
+                0.54,
+                1.02,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.05,
+                0.09,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.05,
+                0.43,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.05,
+                0.77,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Backed",
+          "at": 0.5,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#6f4a30",
+              "pos": [
+                -0.26,
+                0.5,
+                0
+              ],
+              "scale": [
+                0.08,
+                1,
+                0.77
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0.05,
+                0.5,
+                -0.35
+              ],
+              "scale": [
+                0.54,
+                1,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0.05,
+                0.5,
+                0.35
+              ],
+              "scale": [
+                0.54,
+                1,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#b07a52",
+              "pos": [
+                0.05,
+                0.09,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#b07a52",
+              "pos": [
+                0.05,
+                0.44,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#b07a52",
+              "pos": [
+                0.05,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#6f4a30",
+              "pos": [
+                0.05,
+                1.02,
+                0
+              ],
+              "scale": [
+                0.58,
+                0.06,
+                0.78
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Signed",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#5f4128",
+              "pos": [
+                -0.26,
+                0.5,
+                0
+              ],
+              "scale": [
+                0.08,
+                1,
+                0.77
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#6f4a30",
+              "pos": [
+                0.05,
+                0.5,
+                -0.35
+              ],
+              "scale": [
+                0.54,
+                1,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#6f4a30",
+              "pos": [
+                0.05,
+                0.5,
+                0.35
+              ],
+              "scale": [
+                0.54,
+                1,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#c08a5e",
+              "pos": [
+                0.05,
+                0.09,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#c08a5e",
+              "pos": [
+                0.05,
+                0.44,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#c08a5e",
+              "pos": [
+                0.05,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#5f4128",
+              "pos": [
+                0.05,
+                1.02,
+                0
+              ],
+              "scale": [
+                0.58,
+                0.06,
+                0.78
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#ffd66b",
+              "pos": [
+                0.16,
+                1.01,
+                0
+              ],
+              "scale": [
+                0.06,
+                0.14,
+                0.74
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Plain shelving",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Backed shelving",
+        "cost": 120,
+        "capacity_mult": 1.5,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Signed aisle",
+        "cost": 300,
+        "capacity_mult": 2,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [
+      {
+        "id": "corner",
+        "name": "Corner",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.34,
+                0.51,
+                0
+              ],
+              "scale": [
+                0.09,
+                1.02,
+                0.77
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.03,
+                0.51,
+                -0.35
+              ],
+              "scale": [
+                0.68,
+                1.02,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0.36,
+                0.51,
+                0.36
+              ],
+              "scale": [
+                0.09,
+                1.02,
+                0.09
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.1,
+                0.3,
+                0.02
+              ],
+              "scale": [
+                0.4,
+                0.06,
+                0.7
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.2,
+                0.3,
+                -0.2
+              ],
+              "scale": [
+                0.34,
+                0.06,
+                0.28
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.1,
+                0.66,
+                0.02
+              ],
+              "scale": [
+                0.4,
+                0.06,
+                0.7
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.2,
+                0.66,
+                -0.2
+              ],
+              "scale": [
+                0.34,
+                0.06,
+                0.28
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "endcap",
+        "name": "Endcap",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.22,
+                0.45,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.9,
+                0.72
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.45,
+                -0.33
+              ],
+              "scale": [
+                0.44,
+                0.9,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.45,
+                0.33
+              ],
+              "scale": [
+                0.44,
+                0.9,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.02,
+                0.09,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.02,
+                0.42,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.02,
+                0.75,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "low",
+        "name": "Low",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.26,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.6,
+                0.77
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.05,
+                0.3,
+                -0.35
+              ],
+              "scale": [
+                0.54,
+                0.6,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.05,
+                0.3,
+                0.35
+              ],
+              "scale": [
+                0.54,
+                0.6,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.05,
+                0.09,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.05,
+                0.42,
+                0
+              ],
+              "scale": [
+                0.54,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "run",
+        "name": "Wall run",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.3,
+                0.51,
+                0
+              ],
+              "scale": [
+                0.08,
+                1.02,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.04,
+                0.51,
+                -0.5
+              ],
+              "scale": [
+                0.64,
+                1.02,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.04,
+                0.51,
+                0.5
+              ],
+              "scale": [
+                0.64,
+                1.02,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.04,
+                0.09,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.06,
+                1
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.04,
+                0.43,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.06,
+                1
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.04,
+                0.77,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.06,
+                1
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "run-corner",
+        "name": "Wall corner",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.3,
+                0.51,
+                0.1
+              ],
+              "scale": [
+                0.08,
+                1.02,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0.1,
+                0.51,
+                -0.3
+              ],
+              "scale": [
+                0.8,
+                1.02,
+                0.08
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.04,
+                0.09,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.06,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.28,
+                0.09,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.06,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.04,
+                0.43,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.06,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.28,
+                0.43,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.06,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.04,
+                0.77,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.06,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.28,
+                0.77,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.06,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "station",
+    "name": "Appliance",
+    "model": {
+      "stages": [
+        {
+          "name": "Domestic",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#6f6f7a",
+              "pos": [
+                0,
+                0.32,
+                0
+              ],
+              "scale": [
+                0.68,
+                0.64,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#d6d6de",
+              "pos": [
+                0,
+                0.7,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.16,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#3f3f48",
+              "pos": [
+                0,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.4,
+                0.06,
+                0.36
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Commercial",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#5b5b66",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.7,
+                0.68,
+                0.64
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#e4e4ec",
+              "pos": [
+                0,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.26,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#3f3f48",
+              "pos": [
+                0,
+                0.93,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.06,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#ffd66b",
+              "pos": [
+                0.36,
+                0.5,
+                0.18
+              ],
+              "scale": [
+                0.04,
+                0.1,
+                0.12
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Domestic",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Commercial",
+        "cost": 340,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 2
+      }
+    ],
+    "variants": [
+      {
+        "id": "coffee-machine",
+        "name": "Espresso Machine",
+        "model": {
+          "stages": [
+            {
+              "name": "Domestic",
+              "at": 0,
+              "parts": [
+                {
+                  "shape": "box",
+                  "color": "#2f3138",
+                  "pos": [
+                    -0.08,
+                    0.3,
+                    0
+                  ],
+                  "scale": [
+                    0.5,
+                    0.6,
+                    0.66
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#c9ccd4",
+                  "pos": [
+                    -0.08,
+                    0.63,
+                    0
+                  ],
+                  "scale": [
+                    0.54,
+                    0.08,
+                    0.7
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#8d5a3b",
+                  "pos": [
+                    -0.08,
+                    0.79,
+                    0
+                  ],
+                  "scale": [
+                    0.34,
+                    0.26,
+                    0.42
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#e8eaee",
+                  "pos": [
+                    -0.08,
+                    0.95,
+                    0
+                  ],
+                  "scale": [
+                    0.11,
+                    0.08,
+                    0.11
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#3a3d45",
+                  "pos": [
+                    0.2,
+                    0.5,
+                    0
+                  ],
+                  "scale": [
+                    0.1,
+                    0.12,
+                    0.3
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#1d1f24",
+                  "pos": [
+                    0.26,
+                    0.42,
+                    0
+                  ],
+                  "scale": [
+                    0.16,
+                    0.06,
+                    0.16
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#f4f1ea",
+                  "pos": [
+                    0.27,
+                    0.15,
+                    0
+                  ],
+                  "scale": [
+                    0.15,
+                    0.2,
+                    0.15
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#c9ccd4",
+                  "pos": [
+                    0.1,
+                    0.44,
+                    0.27
+                  ],
+                  "scale": [
+                    0.04,
+                    0.34,
+                    0.04
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                }
+              ]
+            },
+            {
+              "name": "Commercial",
+              "at": 1,
+              "parts": [
+                {
+                  "shape": "box",
+                  "color": "#22242a",
+                  "pos": [
+                    -0.06,
+                    0.34,
+                    0
+                  ],
+                  "scale": [
+                    0.58,
+                    0.68,
+                    0.82
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#d9dce4",
+                  "pos": [
+                    -0.06,
+                    0.71,
+                    0
+                  ],
+                  "scale": [
+                    0.62,
+                    0.1,
+                    0.86
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#6f3f28",
+                  "pos": [
+                    -0.06,
+                    0.89,
+                    0
+                  ],
+                  "scale": [
+                    0.4,
+                    0.28,
+                    0.5
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#f0f2f6",
+                  "pos": [
+                    -0.06,
+                    1.05,
+                    0
+                  ],
+                  "scale": [
+                    0.13,
+                    0.08,
+                    0.13
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#3a3d45",
+                  "pos": [
+                    0.25,
+                    0.5,
+                    0
+                  ],
+                  "scale": [
+                    0.1,
+                    0.16,
+                    0.62
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#f4f1ea",
+                  "pos": [
+                    0.31,
+                    0.15,
+                    -0.19
+                  ],
+                  "scale": [
+                    0.14,
+                    0.21,
+                    0.14
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#f4f1ea",
+                  "pos": [
+                    0.31,
+                    0.15,
+                    0.19
+                  ],
+                  "scale": [
+                    0.14,
+                    0.21,
+                    0.14
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#d9dce4",
+                  "pos": [
+                    0.12,
+                    0.46,
+                    0.38
+                  ],
+                  "scale": [
+                    0.04,
+                    0.4,
+                    0.04
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "blender",
+        "name": "Blender",
+        "model": {
+          "stages": [
+            {
+              "name": "Domestic",
+              "at": 0,
+              "parts": [
+                {
+                  "shape": "box",
+                  "color": "#e9e5dc",
+                  "pos": [
+                    0,
+                    0.06,
+                    0
+                  ],
+                  "scale": [
+                    0.62,
+                    0.12,
+                    0.62
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#3c4048",
+                  "pos": [
+                    -0.02,
+                    0.25,
+                    0
+                  ],
+                  "scale": [
+                    0.44,
+                    0.32,
+                    0.46
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#2a2d33",
+                  "pos": [
+                    0.2,
+                    0.27,
+                    0.2
+                  ],
+                  "scale": [
+                    0.12,
+                    0.1,
+                    0.12
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#8fbf6a",
+                  "pos": [
+                    0,
+                    0.47,
+                    0
+                  ],
+                  "scale": [
+                    0.3,
+                    0.16,
+                    0.3
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#bfe0ea",
+                  "pos": [
+                    0,
+                    0.6,
+                    0
+                  ],
+                  "scale": [
+                    0.36,
+                    0.44,
+                    0.36
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 0.45,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#3c4048",
+                  "pos": [
+                    0,
+                    0.83,
+                    0
+                  ],
+                  "scale": [
+                    0.38,
+                    0.06,
+                    0.38
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#c9ccd4",
+                  "pos": [
+                    0.25,
+                    0.62,
+                    0
+                  ],
+                  "scale": [
+                    0.08,
+                    0.22,
+                    0.06
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                }
+              ]
+            },
+            {
+              "name": "Commercial",
+              "at": 1,
+              "parts": [
+                {
+                  "shape": "box",
+                  "color": "#d8d3c8",
+                  "pos": [
+                    0,
+                    0.07,
+                    0
+                  ],
+                  "scale": [
+                    0.7,
+                    0.14,
+                    0.7
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#26292f",
+                  "pos": [
+                    -0.02,
+                    0.31,
+                    0
+                  ],
+                  "scale": [
+                    0.5,
+                    0.42,
+                    0.52
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#ffd66b",
+                  "pos": [
+                    0.24,
+                    0.35,
+                    0.22
+                  ],
+                  "scale": [
+                    0.13,
+                    0.1,
+                    0.13
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#e08a5a",
+                  "pos": [
+                    0,
+                    0.61,
+                    0
+                  ],
+                  "scale": [
+                    0.36,
+                    0.2,
+                    0.36
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#bfe0ea",
+                  "pos": [
+                    0,
+                    0.78,
+                    0
+                  ],
+                  "scale": [
+                    0.42,
+                    0.54,
+                    0.42
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 0.42,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#26292f",
+                  "pos": [
+                    0,
+                    1.06,
+                    0
+                  ],
+                  "scale": [
+                    0.44,
+                    0.07,
+                    0.44
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#d9dce4",
+                  "pos": [
+                    0.29,
+                    0.8,
+                    0
+                  ],
+                  "scale": [
+                    0.09,
+                    0.28,
+                    0.07
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "toaster",
+        "name": "Toaster",
+        "model": {
+          "stages": [
+            {
+              "name": "Domestic",
+              "at": 0,
+              "parts": [
+                {
+                  "shape": "box",
+                  "color": "#cfd4dc",
+                  "pos": [
+                    0,
+                    0.22,
+                    0
+                  ],
+                  "scale": [
+                    0.5,
+                    0.44,
+                    0.72
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#eef1f5",
+                  "pos": [
+                    0,
+                    0.31,
+                    0
+                  ],
+                  "scale": [
+                    0.53,
+                    0.2,
+                    0.62
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#23262b",
+                  "pos": [
+                    0,
+                    0.45,
+                    -0.16
+                  ],
+                  "scale": [
+                    0.3,
+                    0.06,
+                    0.2
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#23262b",
+                  "pos": [
+                    0,
+                    0.45,
+                    0.16
+                  ],
+                  "scale": [
+                    0.3,
+                    0.06,
+                    0.2
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#d9a55c",
+                  "pos": [
+                    0,
+                    0.53,
+                    -0.16
+                  ],
+                  "scale": [
+                    0.24,
+                    0.18,
+                    0.06
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#d9a55c",
+                  "pos": [
+                    0,
+                    0.53,
+                    0.16
+                  ],
+                  "scale": [
+                    0.24,
+                    0.18,
+                    0.06
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#8d939c",
+                  "pos": [
+                    0.27,
+                    0.33,
+                    0.24
+                  ],
+                  "scale": [
+                    0.05,
+                    0.12,
+                    0.14
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#c8553d",
+                  "pos": [
+                    0.27,
+                    0.16,
+                    -0.2
+                  ],
+                  "scale": [
+                    0.09,
+                    0.05,
+                    0.09
+                  ],
+                  "rot": 90,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                }
+              ]
+            },
+            {
+              "name": "Commercial",
+              "at": 1,
+              "parts": [
+                {
+                  "shape": "box",
+                  "color": "#b9bfc8",
+                  "pos": [
+                    0,
+                    0.26,
+                    0
+                  ],
+                  "scale": [
+                    0.56,
+                    0.52,
+                    0.88
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#e6eaf0",
+                  "pos": [
+                    0,
+                    0.37,
+                    0
+                  ],
+                  "scale": [
+                    0.59,
+                    0.24,
+                    0.78
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#1b1e22",
+                  "pos": [
+                    0,
+                    0.53,
+                    -0.22
+                  ],
+                  "scale": [
+                    0.38,
+                    0.06,
+                    0.2
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#1b1e22",
+                  "pos": [
+                    0,
+                    0.53,
+                    0.22
+                  ],
+                  "scale": [
+                    0.38,
+                    0.06,
+                    0.2
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#d9a55c",
+                  "pos": [
+                    0,
+                    0.63,
+                    -0.22
+                  ],
+                  "scale": [
+                    0.32,
+                    0.22,
+                    0.06
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#c98a44",
+                  "pos": [
+                    0,
+                    0.63,
+                    0.22
+                  ],
+                  "scale": [
+                    0.32,
+                    0.22,
+                    0.06
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "box",
+                  "color": "#7d838c",
+                  "pos": [
+                    0.3,
+                    0.38,
+                    0.31
+                  ],
+                  "scale": [
+                    0.05,
+                    0.14,
+                    0.16
+                  ],
+                  "rot": 0,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                },
+                {
+                  "shape": "cylinder",
+                  "color": "#ffd66b",
+                  "pos": [
+                    0.3,
+                    0.18,
+                    -0.26
+                  ],
+                  "scale": [
+                    0.1,
+                    0.05,
+                    0.1
+                  ],
+                  "rot": 90,
+                  "surface": false,
+                  "alpha": 1,
+                  "drift": false
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

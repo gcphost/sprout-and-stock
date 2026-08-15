@@ -1,0 +1,1151 @@
+[
+  {
+    "id": "brew",
+    "name": "Make a brew",
+    "doing": "making a brew",
+    "spot": "bay",
+    "seconds": 20,
+    "restores": 0.5,
+    "buys": [
+      "beverage"
+    ],
+    "weight": 3,
+    "tags": [],
+    "model": {
+      "stages": [
+        {
+          "name": "Fresh",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#f4f1ea",
+              "pos": [
+                0.21,
+                0.5,
+                0.32
+              ],
+              "scale": [
+                0.2,
+                0.22,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#6b4423",
+              "pos": [
+                0.21,
+                0.59,
+                0.32
+              ],
+              "scale": [
+                0.16,
+                0.02,
+                0.16
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#f4f1ea",
+              "pos": [
+                0.34,
+                0.5,
+                0.32
+              ],
+              "scale": [
+                0.055,
+                0.11,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#cfd9e0",
+              "pos": [
+                0.21,
+                0.68,
+                0.32
+              ],
+              "scale": [
+                0.13,
+                0.13,
+                0.13
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.9,
+              "drift": true
+            },
+            {
+              "shape": "sphere",
+              "color": "#cfd9e0",
+              "pos": [
+                0.21,
+                0.74,
+                0.35
+              ],
+              "scale": [
+                0.1,
+                0.1,
+                0.1
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.7,
+              "drift": true
+            }
+          ]
+        },
+        {
+          "name": "Half gone",
+          "at": 0.45,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#f4f1ea",
+              "pos": [
+                0.21,
+                0.5,
+                0.32
+              ],
+              "scale": [
+                0.2,
+                0.22,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#6b4423",
+              "pos": [
+                0.21,
+                0.53,
+                0.32
+              ],
+              "scale": [
+                0.155,
+                0.02,
+                0.155
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#f4f1ea",
+              "pos": [
+                0.34,
+                0.5,
+                0.32
+              ],
+              "scale": [
+                0.055,
+                0.11,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#cfd9e0",
+              "pos": [
+                0.21,
+                0.66,
+                0.32
+              ],
+              "scale": [
+                0.09,
+                0.09,
+                0.09
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.6,
+              "drift": true
+            }
+          ]
+        },
+        {
+          "name": "Drained",
+          "at": 0.82,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#f4f1ea",
+              "pos": [
+                0.21,
+                0.5,
+                0.32
+              ],
+              "scale": [
+                0.2,
+                0.22,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#f4f1ea",
+              "pos": [
+                0.34,
+                0.5,
+                0.32
+              ],
+              "scale": [
+                0.055,
+                0.11,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "lean-on-the-counter",
+    "name": "Lean on the counter",
+    "doing": "leaning on the counter",
+    "spot": "till",
+    "seconds": 14,
+    "restores": 0.35,
+    "buys": [],
+    "weight": 2,
+    "tags": [
+      "front-of-house"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Checking it",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#23262b",
+              "pos": [
+                0.18,
+                0.56,
+                0.31
+              ],
+              "scale": [
+                0.15,
+                0.24,
+                0.028
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#3f5a6b",
+              "pos": [
+                0.18,
+                0.56,
+                0.328
+              ],
+              "scale": [
+                0.125,
+                0.2,
+                0.01
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Scrolling",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#23262b",
+              "pos": [
+                0.18,
+                0.56,
+                0.31
+              ],
+              "scale": [
+                0.15,
+                0.24,
+                0.028
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#9fd8ff",
+              "pos": [
+                0.18,
+                0.56,
+                0.328
+              ],
+              "scale": [
+                0.125,
+                0.2,
+                0.01
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#a8d8f5",
+              "pos": [
+                0.18,
+                0.76,
+                0.32
+              ],
+              "scale": [
+                0.16,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.6,
+              "drift": true
+            }
+          ]
+        },
+        {
+          "name": "One more minute",
+          "at": 0.75,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#23262b",
+              "pos": [
+                0.18,
+                0.56,
+                0.31
+              ],
+              "scale": [
+                0.15,
+                0.24,
+                0.028
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#cfeaff",
+              "pos": [
+                0.18,
+                0.56,
+                0.328
+              ],
+              "scale": [
+                0.125,
+                0.2,
+                0.01
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#a8d8f5",
+              "pos": [
+                0.18,
+                0.76,
+                0.32
+              ],
+              "scale": [
+                0.17,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.6,
+              "drift": true
+            },
+            {
+              "shape": "box",
+              "color": "#a8d8f5",
+              "pos": [
+                0.08,
+                0.82,
+                0.36
+              ],
+              "scale": [
+                0.11,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.6,
+              "drift": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "sit-on-the-step",
+    "name": "Sit on the step",
+    "doing": "sat on the step outside",
+    "spot": "outside",
+    "seconds": 30,
+    "restores": 0.8,
+    "buys": [],
+    "weight": 2,
+    "tags": [],
+    "model": {
+      "stages": [
+        {
+          "name": "Folded",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#f0ece1",
+              "pos": [
+                0.04,
+                0.5,
+                0.31
+              ],
+              "scale": [
+                0.34,
+                0.05,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Open",
+          "at": 0.3,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#f4f0e6",
+              "pos": [
+                -0.15,
+                0.58,
+                0.3
+              ],
+              "scale": [
+                0.3,
+                0.34,
+                0.02
+              ],
+              "rot": 24,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#f4f0e6",
+              "pos": [
+                0.19,
+                0.58,
+                0.3
+              ],
+              "scale": [
+                0.3,
+                0.34,
+                0.02
+              ],
+              "rot": -24,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#9a958a",
+              "pos": [
+                -0.15,
+                0.68,
+                0.32
+              ],
+              "scale": [
+                0.21,
+                0.025,
+                0.012
+              ],
+              "rot": 24,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Crossword",
+          "at": 0.75,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#f4f0e6",
+              "pos": [
+                0.04,
+                0.57,
+                0.3
+              ],
+              "scale": [
+                0.3,
+                0.32,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#9a958a",
+              "pos": [
+                0.04,
+                0.64,
+                0.315
+              ],
+              "scale": [
+                0.2,
+                0.025,
+                0.012
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#d9a441",
+              "pos": [
+                0.25,
+                0.48,
+                0.36
+              ],
+              "scale": [
+                0.03,
+                0.17,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "snack-break",
+    "name": "Snack break",
+    "doing": "eating something off the shelf",
+    "spot": "here",
+    "seconds": 18,
+    "restores": 0.6,
+    "buys": [
+      "snack",
+      "candy"
+    ],
+    "weight": 3,
+    "tags": [],
+    "model": {
+      "stages": [
+        {
+          "name": "Unwrapped",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#e2c48a",
+              "pos": [
+                0.19,
+                0.5,
+                0.31
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.22
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#8fbf5a",
+              "pos": [
+                0.19,
+                0.55,
+                0.31
+              ],
+              "scale": [
+                0.29,
+                0.04,
+                0.21
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eed3a0",
+              "pos": [
+                0.19,
+                0.6,
+                0.31
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.22
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Halfway",
+          "at": 0.42,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#e2c48a",
+              "pos": [
+                0.15,
+                0.5,
+                0.31
+              ],
+              "scale": [
+                0.17,
+                0.06,
+                0.22
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#8fbf5a",
+              "pos": [
+                0.15,
+                0.55,
+                0.31
+              ],
+              "scale": [
+                0.16,
+                0.04,
+                0.21
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eed3a0",
+              "pos": [
+                0.15,
+                0.6,
+                0.31
+              ],
+              "scale": [
+                0.17,
+                0.06,
+                0.22
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Crusts",
+          "at": 0.8,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#d9b273",
+              "pos": [
+                0.14,
+                0.5,
+                0.3
+              ],
+              "scale": [
+                0.09,
+                0.06,
+                0.12
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "stare-at-the-field",
+    "name": "Stare at the field",
+    "doing": "staring at the field",
+    "spot": "here",
+    "seconds": 16,
+    "restores": 0.4,
+    "buys": [],
+    "weight": 2,
+    "tags": [
+      "outdoor"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Blank",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#e7eef3",
+              "pos": [
+                0,
+                0.95,
+                0.08
+              ],
+              "scale": [
+                0.13,
+                0.13,
+                0.13
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.75,
+              "drift": true
+            }
+          ]
+        },
+        {
+          "name": "Miles away",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#e7eef3",
+              "pos": [
+                0,
+                0.95,
+                0.06
+              ],
+              "scale": [
+                0.16,
+                0.16,
+                0.16
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.8,
+              "drift": true
+            },
+            {
+              "shape": "sphere",
+              "color": "#d6e2ea",
+              "pos": [
+                0.15,
+                1,
+                0.16
+              ],
+              "scale": [
+                0.11,
+                0.11,
+                0.11
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.65,
+              "drift": true
+            }
+          ]
+        },
+        {
+          "name": "Gone entirely",
+          "at": 0.75,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#e7eef3",
+              "pos": [
+                0,
+                0.95,
+                0.05
+              ],
+              "scale": [
+                0.18,
+                0.18,
+                0.18
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.85,
+              "drift": true
+            },
+            {
+              "shape": "sphere",
+              "color": "#d6e2ea",
+              "pos": [
+                0.16,
+                1.01,
+                0.16
+              ],
+              "scale": [
+                0.12,
+                0.12,
+                0.12
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.7,
+              "drift": true
+            },
+            {
+              "shape": "sphere",
+              "color": "#d6e2ea",
+              "pos": [
+                -0.15,
+                0.98,
+                0.13
+              ],
+              "scale": [
+                0.1,
+                0.1,
+                0.1
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.6,
+              "drift": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "vape-out-back",
+    "name": "Vape out back",
+    "doing": "vaping round the back",
+    "spot": "bay",
+    "seconds": 22,
+    "restores": 0.55,
+    "buys": [],
+    "weight": 3,
+    "tags": [],
+    "model": {
+      "stages": [
+        {
+          "name": "First drag",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#2e333c",
+              "pos": [
+                0.19,
+                0.52,
+                0.3
+              ],
+              "scale": [
+                0.06,
+                0.2,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#7fd4ff",
+              "pos": [
+                0.19,
+                0.63,
+                0.3
+              ],
+              "scale": [
+                0.055,
+                0.055,
+                0.055
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Puff",
+          "at": 0.22,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#2e333c",
+              "pos": [
+                0.19,
+                0.52,
+                0.3
+              ],
+              "scale": [
+                0.06,
+                0.2,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#7fd4ff",
+              "pos": [
+                0.19,
+                0.63,
+                0.3
+              ],
+              "scale": [
+                0.055,
+                0.055,
+                0.055
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#cfd9e0",
+              "pos": [
+                0.06,
+                0.84,
+                0.3
+              ],
+              "scale": [
+                0.19,
+                0.19,
+                0.19
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.9,
+              "drift": true
+            }
+          ]
+        },
+        {
+          "name": "Fog machine",
+          "at": 0.5,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#2e333c",
+              "pos": [
+                0.19,
+                0.52,
+                0.3
+              ],
+              "scale": [
+                0.06,
+                0.2,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#7fd4ff",
+              "pos": [
+                0.19,
+                0.63,
+                0.3
+              ],
+              "scale": [
+                0.055,
+                0.055,
+                0.055
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#cfd9e0",
+              "pos": [
+                0.02,
+                0.84,
+                0.3
+              ],
+              "scale": [
+                0.22,
+                0.22,
+                0.22
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.95,
+              "drift": true
+            },
+            {
+              "shape": "sphere",
+              "color": "#cfd9e0",
+              "pos": [
+                0.2,
+                0.88,
+                0.38
+              ],
+              "scale": [
+                0.16,
+                0.16,
+                0.16
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.8,
+              "drift": true
+            },
+            {
+              "shape": "sphere",
+              "color": "#c3ced6",
+              "pos": [
+                -0.12,
+                0.9,
+                0.22
+              ],
+              "scale": [
+                0.14,
+                0.14,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.7,
+              "drift": true
+            }
+          ]
+        },
+        {
+          "name": "Wisps",
+          "at": 0.82,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#2e333c",
+              "pos": [
+                0.19,
+                0.52,
+                0.3
+              ],
+              "scale": [
+                0.06,
+                0.2,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#cfd9e0",
+              "pos": [
+                0.06,
+                0.86,
+                0.3
+              ],
+              "scale": [
+                0.11,
+                0.11,
+                0.11
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 0.55,
+              "drift": true
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

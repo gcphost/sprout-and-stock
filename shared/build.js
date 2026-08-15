@@ -105,11 +105,28 @@ export function fixturesOf(L) {
 /**
  * May this fixture go here?
  *
+ * Two different answers, and the difference is the whole design.
+ *
+ * `ok: false` is physics — the tile is taken, or off the map, or a plot is
+ * being dug in the shop. There is nowhere for the thing to be.
+ *
+ * `ok: true` with a `warn` is a *consequence*. Walling a shelf in, sealing the
+ * doorway, standing a till where nobody can queue: all of that is allowed, and
+ * it is allowed on purpose. A shelf nobody can reach simply never sells, and
+ * the sim already copes — a shopper who can't path to a shelf writes it off and
+ * picks another, one who can't reach the door leaves, staff cool down and find
+ * another job. So the game says what it will cost you and lets you do it, which
+ * is a game; refusing would be a level editor with opinions.
+ *
+ * The one caller that must still refuse a warning is the layout *generator* —
+ * a procedurally furnished shop nobody can walk through is a bug, not a choice.
+ * `canPlaceCleanly` is that caller's entry point.
+ *
  * @param {object} L      the layout
  * @param {object} spec   { kind, x, z, rot }
  * @param {object} [opts] { ignoreId } — the fixture being moved, so it doesn't
  *                        block its own new position when they overlap.
- * @returns {{ok: boolean, reason?: string}}
+ * @returns {{ok: boolean, reason?: string, warn?: string}}
  */
 export function canPlace(L, spec, { ignoreId = null } = {}) {
   const def = FIXTURES[spec.kind];
@@ -133,37 +150,55 @@ export function canPlace(L, spec, { ignoreId = null } = {}) {
     if (!BUILDABLE_OUTDOOR.has(effective(x, z))) return no('you can only dig into bare grass');
   }
 
-  // ---- somewhere to stand and use it -------------------------------------
+  const warn = whatThisCosts(L, { ...spec, x, z }, def, { ignoreId, effective });
+  return warn ? { ok: true, warn } : { ok: true };
+}
+
+/**
+ * `canPlace`, for the one caller that cannot live with a warning: the layout
+ * generator. It furnishes a shop nobody has looked at yet, so "you could seal
+ * this off if you wanted to" is not an offer it can accept on your behalf.
+ */
+export function canPlaceCleanly(L, spec, opts = {}) {
+  const r = canPlace(L, spec, opts);
+  return r.ok && r.warn ? no(r.warn) : r;
+}
+
+const no = (reason) => ({ ok: false, reason });
+
+/**
+ * What placing this here would cost you, or null if it costs nothing.
+ *
+ * Every one of these used to be a refusal. They are the same checks, asked as
+ * "what happens" rather than "may I" — so the order matters only in that the
+ * most specific answer should come out first.
+ */
+function whatThisCosts(L, spec, def, { ignoreId, effective }) {
+  const { x, z } = spec;
+
+  // ---- can anything use it, facing that way? -----------------------------
   if (def.anchor) {
     const a = anchorTile(x, z, spec.rot ?? 0);
-    const at = effective(a.x, a.z);
-    if (!WALKABLE.has(at)) return no('nowhere to stand on that side — rotate it');
-    if (!insideStore(L, a.x, a.z)) return no('you would be standing outside — rotate it');
-  } else {
-    const reachable = FACING.some((f) => WALKABLE.has(effective(x + f.dx, z + f.dz)));
-    if (!reachable) return no('you could never reach it');
+    if (!WALKABLE.has(effective(a.x, a.z))) return 'nothing can use it facing that way';
+    if (!insideStore(L, a.x, a.z)) return 'it faces out of the shop — nobody will use it';
+  } else if (!FACING.some((f) => WALKABLE.has(effective(x + f.dx, z + f.dz)))) {
+    return 'nothing can get to it';
   }
 
-  // ---- a till needs a queue ----------------------------------------------
+  // ---- a till wants a queue ----------------------------------------------
   if (spec.kind === 'checkout') {
     const serve = anchorTile(x, z, spec.rot ?? 0);
     const clash = (L.checkouts ?? []).some((c) => c.id !== ignoreId
       && c.serveAt?.x === serve.x && c.serveAt?.z === serve.z);
-    if (clash) return no('another till already serves that spot');
+    if (clash) return 'another till already serves that spot';
     const best = Math.max(...queueAxis(spec.rot ?? 0)
       .map((d) => openRun({ ...L, tiles: withTile(L, x, z, def.tile) }, serve, d)));
-    if (best < 1) return no('no room for a queue — rotate it or move along');
+    if (best < 1) return 'no room for a queue — shoppers will pile up on one tile';
   }
 
-  // ---- and the shop has to stay one connected space -----------------------
-  if (!staysConnected(L, { ...spec, x, z }, def, ignoreId)) {
-    return no('that would block the way through');
-  }
-
-  return { ok: true };
+  // ---- and what it cuts off ----------------------------------------------
+  return whatThisBlocks(L, spec, def, ignoreId);
 }
-
-const no = (reason) => ({ ok: false, reason });
 
 /** The tiles a fixture we're about to pick up currently occupies. */
 function removedTiles(L, ignoreId) {
@@ -175,8 +210,12 @@ function removedTiles(L, ignoreId) {
   return set;
 }
 
-/** What a tile would revert to if whatever is on it were taken away. */
-function baseTile(L, x, z) {
+/**
+ * What a tile would be with nothing standing on it. The renderer needs this
+ * too: a fixture drawn from its own model still has to be given the ground it
+ * stands on, or the shop's grass shows through the gaps around it.
+ */
+export function baseTile(L, x, z) {
   return insideStore(L, x, z) ? T.FLOOR : T.GRASS;
 }
 
@@ -187,14 +226,21 @@ function withTile(L, x, z, v) {
 }
 
 /**
- * Would placing this cut the shop in half?
+ * Would putting this here cut something off — and if so, what?
  *
- * Flood fills from the door with the new fixture in place and checks that every
- * working spot is still reachable. Cheap at this world size, and it's the only
- * thing stopping you from walling yourself out of your own aisle.
+ * Returns the reason, or null when everything is still reachable. It answers
+ * *which* thing rather than a flat yes/no because the two ways to fail read
+ * completely differently to whoever is holding the shelf: one tile over is
+ * where a shopper stands to reach the unit behind, and being told that "blocks
+ * the way through" sends you looking for a corridor that was never the problem.
+ *
+ * The flood starts at the door, because that is where shoppers come in — a
+ * pocket of floor nobody can walk to is not floor.
  */
-function staysConnected(L, spec, def, ignoreId) {
+function whatThisBlocks(L, spec, def, ignoreId) {
   const tiles = Uint8Array.from(L.tiles);
+  // The thing being moved has already left its old tile as far as this is
+  // concerned, or a shelf could never be shuffled one square along.
   if (ignoreId) {
     for (const f of fixturesOf(L)) {
       if (f.id === ignoreId) tiles[f.z * L.w + f.x] = baseTile(L, f.x, f.z);
@@ -204,9 +250,8 @@ function staysConnected(L, spec, def, ignoreId) {
 
   const probe = { ...L, tiles };
   const seen = new Set();
-  const start = `${L.door.x},${L.door.z}`;
   const stack = [[L.door.x, L.door.z]];
-  seen.add(start);
+  seen.add(`${L.door.x},${L.door.z}`);
   while (stack.length) {
     const [cx, cz] = stack.pop();
     for (const f of FACING) {
@@ -220,18 +265,32 @@ function staysConnected(L, spec, def, ignoreId) {
     }
   }
 
-  const need = [];
+  const reaches = (p) => seen.has(`${Math.round(p.x)},${Math.round(p.z)}`);
+  const isHere = (p) => Math.round(p.x) === spec.x && Math.round(p.z) === spec.z;
+  const label = (kind) => FIXTURES[kind]?.label.toLowerCase() ?? 'fixture';
+
+  // Whatever you are placing has to be usable itself, and standing somewhere
+  // walkable is not the same as standing somewhere you can walk *to*.
+  if (def.anchor) {
+    const mine = anchorTile(spec.x, spec.z, spec.rot ?? 0);
+    if (!reaches(mine)) return 'you could never get round to that side of it';
+  }
+
   for (const f of fixturesOf(L)) {
     if (f.id === ignoreId) continue;
     if (f.kind === 'plot') {
-      need.push(...FACING.map((d) => ({ x: f.x + d.dx, z: f.z + d.dz })).filter((p) => WALKABLE.has(tileAt(probe, p.x, p.z))).slice(0, 1));
-    } else {
-      const a = f.browseAt ?? f.serveAt ?? f.useAt;
-      if (a) need.push(a);
+      // A bed is worked from any side, so it only needs one of them.
+      const anySide = FACING.some((d) => reaches({ x: f.x + d.dx, z: f.z + d.dz }));
+      if (!anySide) return 'that would leave a plot with no way in';
+      continue;
     }
+    const a = f.browseAt ?? f.serveAt ?? f.useAt;
+    if (!a) continue;
+    if (isHere(a)) return `that is where you stand to use the ${label(f.kind)} behind it`;
+    if (!reaches(a)) return `that would cut off a ${label(f.kind)} you own`;
   }
-  need.push(L.spawn);
-  if (L.bay) need.push({ x: Math.round(L.bay.x), z: Math.round(L.bay.z) });
 
-  return need.every((p) => seen.has(`${Math.round(p.x)},${Math.round(p.z)}`));
+  if (!reaches(L.spawn)) return 'that would block the way through';
+  if (L.bay && !reaches(L.bay)) return 'that would cut the delivery bay off';
+  return null;
 }

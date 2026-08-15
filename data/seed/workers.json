@@ -1,0 +1,889 @@
+[
+  {
+    "id": "chef",
+    "name": "Chef",
+    "tags": [
+      "staff",
+      "kitchen"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Line cook",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#d98b4a",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#b06a2f",
+              "pos": [
+                0,
+                0.3,
+                0.15
+              ],
+              "scale": [
+                0.26,
+                0.26,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Head chef",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#d98b4a",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#b06a2f",
+              "pos": [
+                0,
+                0.3,
+                0.15
+              ],
+              "scale": [
+                0.26,
+                0.26,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "cylinder",
+              "color": "#f5f2ec",
+              "pos": [
+                0,
+                0.82,
+                0
+              ],
+              "scale": [
+                0.22,
+                0.18,
+                0.22
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Line cook",
+        "cost": 0,
+        "speed_mult": 1,
+        "pace_mult": 1,
+        "carry_mult": 1,
+        "wage_mult": 1
+      },
+      {
+        "name": "Head chef",
+        "cost": 300,
+        "speed_mult": 1,
+        "pace_mult": 1.4,
+        "carry_mult": 1,
+        "wage_mult": 1.5
+      }
+    ],
+    "jobs": [
+      {
+        "job": "craft",
+        "weight": 10
+      },
+      {
+        "job": "shelve",
+        "weight": 6
+      },
+      {
+        "job": "tidy",
+        "weight": 1
+      }
+    ],
+    "cost": 340,
+    "wage": 9,
+    "speed": 2.6,
+    "pace": 0.7,
+    "carry": 6,
+    "color": "#d98b4a"
+  },
+  {
+    "id": "clerk",
+    "name": "Clerk",
+    "tags": [
+      "staff",
+      "front-of-house"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "New behind the counter",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#4aa3a3",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#2f7373",
+              "pos": [
+                0,
+                0.3,
+                0.15
+              ],
+              "scale": [
+                0.26,
+                0.26,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Knows the regulars",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#4aa3a3",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#2f7373",
+              "pos": [
+                0,
+                0.3,
+                0.15
+              ],
+              "scale": [
+                0.26,
+                0.26,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#ffd66b",
+              "pos": [
+                0.11,
+                0.44,
+                0.15
+              ],
+              "scale": [
+                0.07,
+                0.07,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "New behind the counter",
+        "cost": 0,
+        "speed_mult": 1,
+        "pace_mult": 1,
+        "carry_mult": 1,
+        "wage_mult": 1
+      },
+      {
+        "name": "Knows the regulars",
+        "cost": 180,
+        "speed_mult": 1,
+        "pace_mult": 1.5,
+        "carry_mult": 1,
+        "wage_mult": 1.5
+      }
+    ],
+    "jobs": [
+      {
+        "job": "serve",
+        "weight": 10
+      },
+      {
+        "job": "tidy",
+        "weight": 1
+      }
+    ],
+    "cost": 220,
+    "wage": 6,
+    "speed": 2.6,
+    "pace": 0.45,
+    "carry": 6,
+    "color": "#4aa3a3"
+  },
+  {
+    "id": "farmhand",
+    "name": "Farmhand",
+    "tags": [
+      "staff",
+      "outdoor"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Seasonal",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#7a9e4b",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#5c7a37",
+              "pos": [
+                0,
+                0.3,
+                0.15
+              ],
+              "scale": [
+                0.26,
+                0.26,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Grower",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#7a9e4b",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#5c7a37",
+              "pos": [
+                0,
+                0.3,
+                0.15
+              ],
+              "scale": [
+                0.26,
+                0.26,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "cone",
+              "color": "#d8b45c",
+              "pos": [
+                0,
+                0.8,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.12,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Seasonal",
+        "cost": 0,
+        "speed_mult": 1,
+        "pace_mult": 1,
+        "carry_mult": 1,
+        "wage_mult": 1
+      },
+      {
+        "name": "Grower",
+        "cost": 220,
+        "speed_mult": 1.15,
+        "pace_mult": 1.3,
+        "carry_mult": 1,
+        "wage_mult": 1.5
+      }
+    ],
+    "jobs": [
+      {
+        "job": "harvest",
+        "weight": 10
+      },
+      {
+        "job": "sow",
+        "weight": 8
+      },
+      {
+        "job": "till",
+        "weight": 6
+      },
+      {
+        "job": "shelve",
+        "weight": 8
+      },
+      {
+        "job": "tidy",
+        "weight": 1
+      }
+    ],
+    "cost": 260,
+    "wage": 7,
+    "speed": 2.6,
+    "pace": 0.7,
+    "carry": 6,
+    "color": "#7a9e4b"
+  },
+  {
+    "id": "shop-hand",
+    "name": "Shop Hand",
+    "tags": [
+      "staff",
+      "front-of-house"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Casual",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#c2703d",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Trusted",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#c2703d",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "cylinder",
+              "color": "#8a4b28",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.27,
+                0.06,
+                0.27
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Casual",
+        "cost": 0,
+        "speed_mult": 1,
+        "pace_mult": 1,
+        "carry_mult": 1,
+        "wage_mult": 1
+      },
+      {
+        "name": "Trusted",
+        "cost": 200,
+        "speed_mult": 1.2,
+        "pace_mult": 1.3,
+        "carry_mult": 1,
+        "wage_mult": 1.5
+      }
+    ],
+    "jobs": [
+      {
+        "job": "serve",
+        "weight": 6
+      },
+      {
+        "job": "unload",
+        "weight": 4
+      },
+      {
+        "job": "shelve",
+        "weight": 4
+      },
+      {
+        "job": "harvest",
+        "weight": 2
+      },
+      {
+        "job": "tidy",
+        "weight": 1
+      }
+    ],
+    "cost": 280,
+    "wage": 8,
+    "speed": 2.7,
+    "pace": 0.6,
+    "carry": 8,
+    "color": "#c2703d"
+  },
+  {
+    "id": "stocker",
+    "name": "Stocker",
+    "tags": [
+      "staff",
+      "back-of-house"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Casual",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#b07cc6",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5aa0",
+              "pos": [
+                0,
+                0.3,
+                0.15
+              ],
+              "scale": [
+                0.26,
+                0.26,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        },
+        {
+          "name": "Runs the back",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "capsule",
+              "color": "#b07cc6",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.44,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8c9a0",
+              "pos": [
+                0,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.24,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "box",
+              "color": "#8a5aa0",
+              "pos": [
+                0,
+                0.3,
+                0.15
+              ],
+              "scale": [
+                0.26,
+                0.26,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            },
+            {
+              "shape": "cylinder",
+              "color": "#8a5aa0",
+              "pos": [
+                0,
+                0.77,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.06,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "alpha": 1
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Casual",
+        "cost": 0,
+        "speed_mult": 1,
+        "pace_mult": 1,
+        "carry_mult": 1,
+        "wage_mult": 1
+      },
+      {
+        "name": "Runs the back",
+        "cost": 240,
+        "speed_mult": 1.2,
+        "pace_mult": 1,
+        "carry_mult": 2,
+        "wage_mult": 1.5
+      }
+    ],
+    "jobs": [
+      {
+        "job": "unload",
+        "weight": 10
+      },
+      {
+        "job": "restock",
+        "weight": 8
+      },
+      {
+        "job": "shelve",
+        "weight": 8
+      },
+      {
+        "job": "tidy",
+        "weight": 1
+      }
+    ],
+    "cost": 300,
+    "wage": 8,
+    "speed": 2.6,
+    "pace": 0.8,
+    "carry": 6,
+    "color": "#b07cc6"
+  }
+]

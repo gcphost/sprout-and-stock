@@ -13,16 +13,17 @@
  */
 
 import { content, world as loadWorld, saveWorld } from '../content.js';
+import { JOBS } from '../../shared/schemas.js';
 import { activeModifiers, addModifier, pruneModifiers } from '../db.js';
 import { generateLayout, buildWalkGrid, T } from '../layout.js';
 import { findPath, followPath } from './pathing.js';
 import {
-  foldModifiers, rankShelves, purchaseChance, suggestedPrice,
+  foldModifiers, dedupeModifiers, rankShelves, purchaseChance, suggestedPrice,
   wholesalePrice, footfall, clamp, round2,
 } from './economy.js';
 import { spoilRate, requiredFixture, desireFor } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
-import { stepStaff } from './staff.js';
+import { stepStaff, breakProgress } from './staff.js';
 import { FIXTURES, canPlace, rot4, FIXTURE_REFUND } from '../../shared/build.js';
 
 /** Real seconds in one in-game day. */
@@ -106,6 +107,9 @@ export class Game {
       doorShift,
     });
 
+    // Derived before the Game is built so the id counter can clear it.
+    const roster = w.roster ?? rosterFromUpgrades(w);
+
     return new Game({
       seed: String(useSeed),
       day: w.day,
@@ -113,7 +117,15 @@ export class Game {
       season: w.season,
       cash: w.cash,
       reputation: w.reputation,
+      // The last day the director spoke. Saved rather than held in the room,
+      // because a guard that only survives a hot reload fires a fresh world
+      // event on every cold start — see `runDirector`.
+      lastDirectorDay: w.lastDirectorDay ?? null,
       ownedUpgrades: w.ownedUpgrades ?? [],
+      // Who actually works here. Derived once from the old staff upgrades for a
+      // save that predates the roster, and authoritative from then on.
+      roster,
+      nextWorkerId: w.nextWorkerId ?? roster.length + 1,
       fixtures,
       placements,
       nextFixtureId: w.nextFixtureId ?? 1,
@@ -142,7 +154,10 @@ export class Game {
       season: this.season,
       cash: this.cash,
       reputation: this.reputation,
+      lastDirectorDay: this.lastDirectorDay ?? null,
       ownedUpgrades: this.ownedUpgrades,
+      roster: this.roster,
+      nextWorkerId: this.nextWorkerId,
       fixtures: this.fixtures,
       placements: this.placements,
       nextFixtureId: this.nextFixtureId,
@@ -182,7 +197,10 @@ export class Game {
       cash: this.cash,
       reputation: this.reputation,
       season: this.season,
+      lastDirectorDay: this.lastDirectorDay ?? null,
       ownedUpgrades: this.ownedUpgrades,
+      roster: this.roster,
+      nextWorkerId: this.nextWorkerId,
       // The ledger is authoritative. `plots`/`shelves` are only still written
       // so an older build could still boot this save.
       fixtures: this.fixtures,
@@ -213,10 +231,31 @@ export class Game {
       // The upgrades panel needs this to grey out what you already own, and
       // build mode needs the ledger to price the palette.
       ownedUpgrades: this.ownedUpgrades,
+      roster: this.roster,
       fixtures: this.fixtures,
       players: Object.values(this.players).map((p) => ({
         id: p.id, name: p.name, x: r2(p.x), z: r2(p.z), facing: r2(p.facing),
         carry: p.carry, color: p.color, staff: p.staff ?? null,
+        // Which roster row this body belongs to, and which rung it is on. The
+        // roster says who works here and this says what they are up to; without
+        // a key the UI can only join them by reconstructing `staff-${id}`,
+        // which makes an id format a protocol.
+        hire: p.hire ?? null,
+        tier: p.tier ?? null,
+        // How worn out they are, and what they are doing about it. Both are
+        // read straight off the body, so the roster says the same thing you
+        // can watch happening on the floor.
+        energy: p.energy ?? null,
+        pastime: p.pastime ?? null,
+        // ...and how far through it they are, which is what flips the stages of
+        // the pastime's authored model. Sent rather than worked out on the
+        // client, because the client can see the break but not the clock the
+        // deadline was set against.
+        breakProgress: p.pastime ? r2(breakProgress(p, this.elapsed)) : null,
+        // What a hire is doing right now. Staff never set `action` — that is
+        // the armed-action field a human's held button drives — so without this
+        // the roster can only ever say "idle" about someone halfway up a field.
+        job: p.job ?? null,
         selectedCrop: p.selectedCrop ?? null,
         build: p.build?.on ? (p.build.tool ?? null) : null,
         holding: p.holding ?? null,
@@ -246,6 +285,9 @@ export class Game {
       plots: this.layout.plots.map((p) => ({
         id: p.id, crop_id: p.crop_id, growth: r2(this.plotGrowth(p)), ready: p.ready,
         soil: p.soil ?? 'untilled',
+        // How many plants the bed is carrying, so the renderer draws exactly
+        // what harvesting will hand over.
+        yield: p.yield ?? 0,
       })),
       queues: this.layout.checkouts.map((c) => ({ id: c.id, queue: c.queue?.length ?? 0 })),
       cashDrops: this.cashDrops.map((d) => ({
@@ -261,7 +303,8 @@ export class Game {
           ? r2(Math.min(1, 1 - (s.busyUntil - this.elapsed) / Math.max(0.001, s.busyUntil - (s.startedAt ?? s.busyUntil - 1))))
           : 0,
       })),
-      modifiers: this.currentModifiers().map((m) => ({
+      // Deduped, because the HUD should show what the economy actually reads.
+      modifiers: dedupeModifiers(this.currentModifiers()).map((m) => ({
         label: m.label || m.source, tag: m.tag,
         demand_mult: r2(m.demand_mult), price_mult: r2(m.price_mult),
       })),
@@ -335,6 +378,7 @@ export class Game {
     pruneModifiers(this.day);
     this.invalidateModifiers();
     this.spoilStock();
+    this.payWages();
     this.persist();
     this.rng = makeRng(`${this.seed}:${this.day}`);
     this.pushLog(`Day ${this.day} — ${this.season}. Yesterday: $${this.stats.revenue.toFixed(2)} in, ${this.stats.sold} sold, ${this.stats.abandoned} walked out.`);
@@ -342,6 +386,46 @@ export class Game {
     // this, since `stats` is about to be wiped for the new day).
     this._lastDayStats = this.stats;
     this.stats = freshStats();
+  }
+
+  /**
+   * Everybody gets paid, whether or not the shop can cover it.
+   *
+   * A hire used to be a one-off cost with unlimited upside, so taking on every
+   * worker the moment you could afford one was strictly correct and there was
+   * no ongoing decision at all. A daily wage makes each one a bet — and gives a
+   * shop that over-hires a way to go under, because cash is allowed to go
+   * negative and that is already exactly what `simulate` reads as bankrupt.
+   *
+   * Nobody walks out over it. Staff leaving in the night would be a second
+   * mechanic firing on a number the player cannot see coming, and the ledger
+   * going red says the same thing where they can act on it.
+   *
+   * The wage lives on the kind and is scaled by the rung, so a promotion is a
+   * raise as well as an upgrade. It is charged against the day that has just
+   * ended, which is the day they worked — `this.stats` is not rolled over until
+   * the bottom of `onNewDay`.
+   */
+  payWages() {
+    const kinds = content().byId.workers;
+    let total = 0;
+    for (const entry of this.roster) {
+      const kind = kinds[entry.kind];
+      // Their kind was deleted, so nobody turned up and there is nothing to pay
+      // for. Charging for a worker who cannot exist is a bill with no worker.
+      if (!kind) continue;
+      const rungs = kind.tiers ?? [];
+      const rung = rungs[Math.min(Math.max(1, Math.trunc(entry.tier ?? 1)), rungs.length) - 1];
+      total += (kind.wage ?? 0) * (rung?.wage_mult ?? 1);
+    }
+    if (total <= 0) return;
+
+    total = round2(total);
+    this.cash = round2(this.cash - total);
+    this.stats.spent += total;
+    this.pushLog(this.cash < 0
+      ? `Paid $${total.toFixed(2)} in wages — the shop is now in the red.`
+      : `Paid $${total.toFixed(2)} in wages.`);
   }
 
   /** Perishables rot on the shelf if they sit too long. */
@@ -353,8 +437,11 @@ export class Game {
       if (!item) continue;
       const rate = spoilRate(item);
       if (rate <= 0) continue;
-      // Freezers dramatically slow decay.
-      const effLife = item.shelf_life_days * (shelf.kind === 'freezer' ? 4 : 1);
+      // Freezers dramatically slow decay, and a better one slows it further —
+      // `keeps_mult` is the tier's contribution on top of that.
+      const effLife = item.shelf_life_days
+        * (shelf.kind === 'freezer' ? 4 : 1)
+        * this.fixtureStats(shelf).keeps_mult;
       const age = this.day - shelf.stockedDay;
       if (age > effLife) {
         const lost = shelf.qty;
@@ -545,7 +632,16 @@ export class Game {
     if (!item) return false;
     if (requiredFixture(item) === 'freezer' && shelf.kind !== 'freezer') return false;
     if (shelf.item_id && shelf.qty > 0 && shelf.item_id !== itemId) return false;
-    return shelf.qty < item.stack;
+    return shelf.qty < this.shelfCapacity(shelf, item);
+  }
+
+  /**
+   * How many units of an item this particular shelf holds. The item says how
+   * big a stack of it is; the shelf's tier says how much shelving there is to
+   * stack it on.
+   */
+  shelfCapacity(shelf, item) {
+    return Math.max(1, Math.floor(item.stack * this.fixtureStats(shelf).capacity_mult));
   }
 
   stationWants(station, itemId) {
@@ -619,7 +715,7 @@ export class Game {
     if (!plot.crop_id) return 0;
     const crop = content().byId.crops[plot.crop_id];
     if (!crop) return 0;
-    const elapsedMin = (this.elapsed - plot.plantedAt) / 60;
+    const elapsedMin = ((this.elapsed - plot.plantedAt) / 60) * this.fixtureStats(plot).speed_mult;
     return clamp(elapsedMin / crop.grow_minutes, 0, 1);
   }
 
@@ -666,10 +762,153 @@ export class Game {
 
     this.cash -= crop.seed_cost;
     this.stats.spent += crop.seed_cost;
-    plot.crop_id = cropId;
-    plot.plantedAt = this.elapsed;
-    plot.ready = false;
-    return ok({ planted: cropId });
+    this.sowInto(plot, crop);
+    return ok({ planted: cropId, yield: plot.yield });
+  }
+
+  /**
+   * Sow a plot straight from its own menu.
+   *
+   * The walk-up loop is untouched: hold to till, hold to plant, and that is
+   * still how farming feels with your hands. This is the menu half of the same
+   * job, and it does the *whole* job — turns rough soil over, charges for the
+   * seed, and replaces whatever was in there. Picking a crop and then being
+   * told to go and plant it again is the annoyance this exists to delete.
+   *
+   * No proximity check, deliberately: every other action a fixture's own menu
+   * offers — move it, empty it, sell it back — already reaches across the shop,
+   * and a seed picker that worked only while stood on the bed would be the odd
+   * one out.
+   */
+  sow(playerId, plotId, cropId) {
+    const p = this.players[playerId];
+    const plot = this.layout.plots.find((x) => x.id === plotId);
+    const crop = content().byId.crops[cropId];
+    if (!p || !plot || !crop) return err('no such plot or crop');
+    if (crop.seasons.length && !crop.seasons.includes(this.season)) {
+      return err(`${crop.name} won't grow in ${this.season}`);
+    }
+    // Ripe is worth money. Losing it to a mis-tap on a list of seeds is not a
+    // trade anyone meant to make, and harvesting first costs one hold.
+    if (plot.ready) return err('that is ready to pick — harvest it first');
+    if (plot.crop_id === cropId) return err(`${crop.name} is already coming up there`);
+    if (this.cash < crop.seed_cost) return err(`need $${crop.seed_cost.toFixed(2)} for seed`);
+
+    const replaced = plot.crop_id ? content().byId.crops[plot.crop_id]?.name : null;
+    this.cash -= crop.seed_cost;
+    this.stats.spent += crop.seed_cost;
+    if (plot.soil !== 'tilled') {
+      plot.soil = 'tilled';
+      this.stats.tilled++;
+    }
+    this.sowInto(plot, crop);
+    // Choosing it here is choosing it, so the next bed you walk up to agrees.
+    p.selectedCrop = cropId;
+    this.pushLog(replaced
+      ? `Turned ${plot.id} over from ${replaced} to ${crop.name}.`
+      : `Sowed ${crop.name} in ${plot.id}.`);
+    return ok({ sown: cropId, plot: plot.id });
+  }
+
+  // ---- who works here ---------------------------------------------------
+  //
+  // A hire is a row in `roster`, not an upgrade you own. That is what lets you
+  // take on two stockers, let one go, and give one of them a different job list
+  // from the other — none of which "you own upgrade staff-stocker" can say.
+
+  /** Take someone on. `kindId` is a row in the workers content table. */
+  hire(kindId) {
+    const w = content().byId.workers[kindId];
+    if (!w) return err('no such kind of worker');
+    if (this.cash < w.cost) return err(`need $${w.cost.toFixed(2)} to take them on`);
+
+    this.cash -= w.cost;
+    this.stats.spent += w.cost;
+    const id = `w${this.nextWorkerId++}`;
+    // Two clerks are two people, so the second one has to be tellable apart.
+    const sameKind = this.roster.filter((e) => e.kind === kindId).length;
+    const name = sameKind ? `${w.name} ${sameKind + 1}` : w.name;
+    this.roster.push({
+      id,
+      kind: kindId,
+      tier: 1,
+      name,
+      // Copied, not referenced: the kind is the default, and this hire's list
+      // is theirs to change from here on.
+      jobs: w.jobs.map((j) => ({ job: j.job, weight: j.weight })),
+    });
+    this.pushLog(`${name} started their shift.`);
+    this.persist();
+    return ok({ hired: id, name });
+  }
+
+  /** Let someone go. Anything in their hands is left in a crate, not deleted. */
+  fire(workerId) {
+    const i = this.roster.findIndex((e) => e.id === workerId);
+    if (i < 0) return err('nobody by that name works here');
+    const [gone] = this.roster.splice(i, 1);
+
+    const body = this.players[`staff-${gone.id}`];
+    if (body?.carry) {
+      this.dropGoods(body.carry.item_id, body.carry.qty, this.layout.bay);
+      body.carry = null;
+    }
+    delete this.players[`staff-${gone.id}`];
+    this.pushLog(`${gone.name} finished up for the last time.`);
+    this.persist();
+    return ok({ fired: workerId });
+  }
+
+  /**
+   * Change what one hire does, and how much of each.
+   *
+   * The whole point of the roster: two people of the same kind can be told to
+   * do different things. Validated against the job vocabulary, because a job
+   * name nothing implements is a worker standing still.
+   */
+  assignJobs(workerId, jobs) {
+    const entry = this.roster.find((e) => e.id === workerId);
+    if (!entry) return err('nobody by that name works here');
+    if (!Array.isArray(jobs) || !jobs.length) return err('give them at least one job');
+
+    const clean = [];
+    for (const j of jobs) {
+      if (!JOBS.includes(j?.job)) return err(`"${j?.job}" is not a job`);
+      const weight = Number(j.weight);
+      if (!Number.isFinite(weight) || weight <= 0) return err('a weight has to be a positive number');
+      clean.push({ job: j.job, weight: Math.min(100, Math.max(0.1, weight)) });
+    }
+    entry.jobs = clean;
+    this.persist();
+    return ok({ jobs: clean });
+  }
+
+  /**
+   * Pay to move someone up their kind's ladder.
+   *
+   * The rungs are authored on the kind, exactly as a fixture's are, and both
+   * halves of what a rung means are read back off it every tick — the stats in
+   * `staff.js`, the art in the renderer. So a promotion is one number changing
+   * in the roster, and getting faster and looking different both follow from
+   * it rather than needing their own bookkeeping.
+   */
+  promote(workerId) {
+    const entry = this.roster.find((e) => e.id === workerId);
+    if (!entry) return err('nobody by that name works here');
+    const kind = content().byId.workers[entry.kind];
+    if (!kind) return err('their kind no longer exists');
+
+    const at = Math.max(1, Math.trunc(entry.tier ?? 1));
+    const next = kind.tiers?.[at];
+    if (!next) return err('they are already as good as they get');
+    if (this.cash < next.cost) return err(`need $${next.cost.toFixed(2)} to promote them`);
+
+    this.cash -= next.cost;
+    this.stats.spent += next.cost;
+    entry.tier = at + 1;
+    this.pushLog(`${entry.name} is now ${next.name}.`);
+    this.persist();
+    return ok({ promoted: workerId, tier: entry.tier });
   }
 
   harvest(playerId, plotId) {
@@ -682,7 +921,10 @@ export class Game {
     const crop = content().byId.crops[plot.crop_id];
     if (!crop) return err('that crop no longer exists');
 
-    const yieldQty = this.rng.int(crop.yield_min, crop.yield_max);
+    // Decided when it was sown, not now: the bed has been drawing this many
+    // plants the whole time it grew, and picking has to hand over what it
+    // showed. A plot from before yields were stored has none, so roll one.
+    const yieldQty = plot.yield || this.rng.int(crop.yield_min, crop.yield_max);
     const cap = this.carryCapacity();
 
     if (p.carry && p.carry.item_id !== crop.item_id) {
@@ -693,14 +935,95 @@ export class Game {
     if (taken <= 0) return err('hands full');
 
     p.carry = { item_id: crop.item_id, qty: have + taken };
+    this.stats.harvested += taken;
+
+    // The same crop goes straight back into the bed you just picked it from.
+    //
+    // Picking used to exhaust the plot to untilled every time, so a field you
+    // had already set up cost you a till and a sow before it did anything
+    // again. That reads as busywork, not rhythm — you had already said what
+    // you wanted growing there.
+    //
+    // Note this re-arms nothing: the plot now holds an unripe crop, so
+    // `actionFor` returns null for it and a held button stops here. The old
+    // path was the one that looped, cycling till → plant under a held finger.
+    // What goes back in is the seed you have *selected*, which is normally the
+    // one you just picked — that is why it was selected. If you have since
+    // chosen something else, you get that instead.
+    //
+    // Replanting the harvested crop regardless looks equivalent and is not:
+    // it charges for a seed you were about to replace, so every switch costs
+    // two. Measured over 60 days that alone was a third of all profit, and it
+    // is money the player never agreed to spend.
+    const wanted = content().byId.crops[p.selectedCrop] ?? crop;
+    const again = this.replantable(wanted);
+    if (again.ok) {
+      this.cash -= wanted.seed_cost;
+      this.stats.spent += wanted.seed_cost;
+      // The turned soil stays turned — that is the busywork this removes — and
+      // the new planting rolls its own yield, so the bed immediately shows what
+      // this next crop is worth rather than inheriting the last one's number.
+      this.sowInto(plot, wanted);
+      return ok({
+        item_id: crop.item_id, qty: taken, dropped: yieldQty - taken,
+        replanted: wanted.id, yield: plot.yield,
+      });
+    }
+
+    // Can't re-sow it, so the old exhaust rule stands: you get the bare bed
+    // back and turn it over yourself. `why` travels up so the client can say
+    // which of the two it was, instead of the field just going quiet.
+    this.clearPlot(plot);
+    return ok({
+      item_id: crop.item_id, qty: taken, dropped: yieldQty - taken, replanted: null, why: again.why,
+    });
+  }
+
+  /**
+   * Put a crop in the ground, and decide there and then how much it will give.
+   *
+   * The yield used to be rolled at harvest, which meant the bed could not show
+   * you what was in it — the number did not exist until you pulled it up. Now
+   * a plot growing three lettuces draws three lettuces, and picking it hands
+   * you those three. What you see is the promise, not a guess at it.
+   *
+   * Every planting route goes through here on purpose. A site that set
+   * `crop_id` by hand would grow a bed with no yield on it, and the renderer
+   * would quietly fall back to drawing one plant while harvest handed over a
+   * different number — which is precisely the mismatch this removes.
+   */
+  sowInto(plot, crop) {
+    plot.crop_id = crop.id;
+    plot.plantedAt = this.elapsed;
+    plot.ready = false;
+    plot.yield = this.rng.int(crop.yield_min, crop.yield_max);
+    return plot.yield;
+  }
+
+  /** Empty the bed out. The counterpart to `sowInto`, so no field is missed. */
+  clearPlot(plot, { soil = 'untilled' } = {}) {
     plot.crop_id = null;
     plot.ready = false;
     plot.plantedAt = 0;
-    // Picking a crop exhausts the bed — it needs turning again before the next
-    // sowing. This is what gives a field a cycle rather than a single state.
-    plot.soil = 'untilled';
-    this.stats.harvested += taken;
-    return ok({ item_id: crop.item_id, qty: taken, dropped: yieldQty - taken });
+    plot.yield = 0;
+    plot.soil = soil;
+  }
+
+  /**
+   * Will the bed take this seed again the moment it's picked?
+   *
+   * Deliberately the same two gates `plant` applies — season and money — and
+   * nothing else. Skipping the proximity and soil checks is the point: you are
+   * stood on the plot, and it is already turned.
+   */
+  replantable(crop) {
+    if (crop.seasons.length && !crop.seasons.includes(this.season)) {
+      return { ok: false, why: `${crop.name} won't grow in ${this.season}` };
+    }
+    if (this.cash < crop.seed_cost) {
+      return { ok: false, why: `need $${crop.seed_cost.toFixed(2)} for seed` };
+    }
+    return { ok: true };
   }
 
   // -------------------------------------------------------------------------
@@ -931,7 +1254,8 @@ export class Game {
       st.making = recipe.id;
       st.startedAt = this.elapsed;
       // `minutes` is in-game minutes; a day is DAY_SECONDS real seconds.
-      st.busyUntil = this.elapsed + (recipe.minutes / (24 * 60)) * DAY_SECONDS;
+      const speed = this.fixtureStats(st).speed_mult;
+      st.busyUntil = this.elapsed + (recipe.minutes / speed / (24 * 60)) * DAY_SECONDS;
     }
   }
 
@@ -981,7 +1305,7 @@ export class Game {
     }
     if (shelf.qty === 0) shelf.item_id = null;
 
-    const room = item.stack - shelf.qty;
+    const room = this.shelfCapacity(shelf, item) - shelf.qty;
     if (room <= 0) return err('shelf is full');
 
     const moved = Math.min(room, p.carry.qty);
@@ -1045,10 +1369,10 @@ export class Game {
       // Staging skips the tilling, but a planted plot must still read as broken
       // soil or the renderer would draw a crop growing out of turf.
       plot.soil = 'tilled';
-      plot.crop_id = crop.id;
-      // Stagger growth so the fields show every stage at once.
+      this.sowInto(plot, crop);
+      // Stagger growth so the fields show every stage at once. Set after
+      // sowing, which stamps `plantedAt` with now.
       plot.plantedAt = this.elapsed - (i / this.layout.plots.length) * crop.grow_minutes * 60;
-      plot.ready = false;
       planted++;
     }
 
@@ -1112,6 +1436,127 @@ export class Game {
     return this.allFixtures().find((f) => f.id === id) ?? null;
   }
 
+  // ---- tiers ---------------------------------------------------------------
+  //
+  // A fixture can be upgraded in place: a better freezer keeps things longer, a
+  // better blender works faster. The ladder itself is content (`fixtures` rows),
+  // so a third tier of shelf is authored, not deployed.
+  //
+  // Which tier a *particular* fixture is at lives on its placement, for the same
+  // reason its position does — the generator re-mints `shelf-pN` ids on every
+  // re-flow, so anything remembered against one of those names would drift onto
+  // a different fixture. Upgrading therefore pins a fixture into a placement,
+  // exactly as moving or turning it already does.
+
+  /** What kind of thing this is, in content terms. */
+  fixtureContent(kind) {
+    return content().byId.fixtures?.[kind] ?? null;
+  }
+
+  /** The tier ladder for a kind. Always at least one rung: what a new one is. */
+  fixtureTiers(kind) {
+    const tiers = this.fixtureContent(kind)?.tiers;
+    return tiers?.length ? tiers : [{ name: 'Standard', cost: 0 }];
+  }
+
+  /** Which rung a fixture is on, clamped to what content currently offers. */
+  fixtureTier(idOrFixture) {
+    const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
+    if (!f) return 1;
+    // The layout carries the tier through from the placement it was built from,
+    // so read that first — this runs for every plot and shelf on every tick and
+    // rescanning the placement list each time is a scan nobody needs.
+    const tier = f.tier ?? this.placements.find((p) => p.id === f.id)?.tier ?? 1;
+    return clamp(Math.trunc(tier), 1, this.fixtureTiers(f.kind).length);
+  }
+
+  /**
+   * Which shape a fixture is, as an id content still recognises.
+   *
+   * A variant that has since been deleted falls back to Standard rather than
+   * drawing nothing — the same forgiveness `fixtureTier` shows a tier ladder
+   * that got shorter. Empty string is Standard, and always valid.
+   */
+  fixtureVariant(idOrFixture) {
+    const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
+    if (!f) return '';
+    const want = f.variant ?? this.placements.find((p) => p.id === f.id)?.variant ?? '';
+    return this.fixtureHasVariant(f.kind, want) ? want : '';
+  }
+
+  /** Is this a shape this kind actually comes in? */
+  fixtureHasVariant(kind, variant) {
+    if (!variant) return true;
+    return (this.fixtureContent(kind)?.variants ?? []).some((v) => v.id === variant);
+  }
+
+  /** The stat block a fixture is currently running on. */
+  fixtureStats(idOrFixture) {
+    const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
+    if (!f) return { capacity_mult: 1, keeps_mult: 1, speed_mult: 1 };
+    const tier = this.fixtureTiers(f.kind)[this.fixtureTier(f) - 1] ?? {};
+    return {
+      capacity_mult: tier.capacity_mult ?? 1,
+      keeps_mult: tier.keeps_mult ?? 1,
+      speed_mult: tier.speed_mult ?? 1,
+    };
+  }
+
+  /** The next rung and what it costs, or null when it's already the best. */
+  nextTier(idOrFixture) {
+    const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
+    if (!f) return null;
+    const tiers = this.fixtureTiers(f.kind);
+    const next = tiers[this.fixtureTier(f)];
+    return next ? { ...next, tier: this.fixtureTier(f) + 1 } : null;
+  }
+
+  /**
+   * Pay to step one fixture up a tier. Same fixture, same tile, same stock —
+   * it just gets better at its job and (usually) looks it.
+   */
+  upgradeFixture(playerId, id) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+
+    const next = this.nextTier(f);
+    if (!next) return err('that is already as good as it gets');
+    if (this.cash < next.cost) return err(`need $${next.cost.toFixed(2)}`);
+
+    const res = this.repositionFixture(id, {
+      kind: f.kind, station: f.station ?? null, x: f.x, z: f.z, rot: f.rot ?? 0, tier: next.tier,
+    });
+    if (!res.ok) return res;
+
+    this.cash -= next.cost;
+    this.stats.spent += next.cost;
+    this.pushLog(`Upgraded a ${FIXTURES[f.kind]?.label.toLowerCase() ?? 'fixture'} to ${next.name} for $${next.cost.toFixed(2)}.`);
+    return ok({ upgraded: res.id, tier: next.tier, cost: round2(next.cost) });
+  }
+
+  /**
+   * Change the shape of something you already own. Free, and instant.
+   *
+   * Upgrading's cheap counterpart. A tier is a number you paid for; a variant
+   * is only how the thing looks, and charging for taste turns rearranging your
+   * own shop into something you ration. It goes through `repositionFixture`
+   * like everything else so a restyled shelf keeps its stock.
+   */
+  styleFixture(playerId, id, variant = '') {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+
+    const want = variant ?? '';
+    if (!this.fixtureHasVariant(f.kind, want)) return err('that is not a shape this comes in');
+    if (this.fixtureVariant(f) === want) return ok({ styled: id, variant: want });
+
+    const res = this.repositionFixture(id, {
+      kind: f.kind, station: f.station ?? null, x: f.x, z: f.z, rot: f.rot ?? 0, variant: want,
+    });
+    if (!res.ok) return res;
+    return ok({ styled: res.id, variant: want });
+  }
+
   /** The fixture occupying a tile, which is how build mode names its target. */
   fixtureAt(x, z) {
     const tx = Math.round(x);
@@ -1161,10 +1606,7 @@ export class Game {
       if (!plot.crop_id) return err('nothing growing there');
       // A half-grown crop is a sunk cost — there's nothing to put in a crate.
       const name = content().byId.crops[plot.crop_id]?.name ?? plot.crop_id;
-      plot.crop_id = null;
-      plot.ready = false;
-      plot.plantedAt = 0;
-      plot.soil = 'untilled';
+      this.clearPlot(plot);
       this.pushLog(`Cleared the ${name} out of ${plot.id}.`);
       return ok({ cleared: plot.id });
     }
@@ -1248,6 +1690,10 @@ export class Game {
       x: Math.round(Number(spec.x)),
       z: Math.round(Number(spec.z)),
       rot: rot4(Number(spec.rot) || 0),
+      tier: 1,
+      // Which shape you picked off the palette. Costs the same as any other:
+      // a variant is a look, and the price is the kind's.
+      variant: this.fixtureHasVariant(kind, spec.variant) ? (spec.variant ?? '') : '',
     };
     const check = canPlace(this.layout, placement);
     if (!check.ok) return err(check.reason);
@@ -1262,7 +1708,10 @@ export class Game {
     this.placements.push(placement);
     this.regenerateLayout();
     this.pushLog(`Built a ${FIXTURES[kind].label.toLowerCase()} for $${cost.toFixed(2)}.`);
-    return ok({ placed: placement.id, kind, cost: round2(cost) });
+    // Carried back out so anything driving this headlessly — the API, MCP, a
+    // bot — is told what it just did to the shop, rather than only the player
+    // who saw the ghost turn amber.
+    return ok({ placed: placement.id, kind, cost: round2(cost), warn: check.warn ?? null });
   }
 
   /**
@@ -1280,6 +1729,8 @@ export class Game {
       kind: f.kind,
       station: f.station ?? null,
       rot: f.rot ?? 0,
+      tier: this.fixtureTier(f),
+      variant: this.fixtureVariant(f),
       label: FIXTURES[f.kind]?.label ?? 'fixture',
     };
     return ok({ lifted: f.id, kind: f.kind });
@@ -1298,6 +1749,8 @@ export class Game {
       x: spec.x,
       z: spec.z,
       rot: spec.rot ?? held.rot,
+      tier: held.tier,
+      variant: held.variant ?? '',
     });
     if (!res.ok) {
       // The only way this fixture can be gone is if it was removed under us —
@@ -1323,16 +1776,19 @@ export class Game {
     if (!FIXTURES[f.kind]?.rotates) return err('that does not face anywhere');
 
     const step = Number(dir) < 0 ? 3 : 1;
-    // Try all three other facings before giving up: the next one round is often
-    // against a wall, and refusing there would make the button look broken.
-    for (let i = 1; i <= 3; i++) {
-      const rot = rot4((f.rot ?? 0) + step * i);
-      const res = this.repositionFixture(id, {
-        kind: f.kind, station: f.station ?? null, x: f.x, z: f.z, rot,
-      });
+    // Every facing is legal now that walling something in is your business, so
+    // this is about which one you *meant*: take the next quarter turn that
+    // leaves it usable, and only fall back to a facing that doesn't if all
+    // three would. Turning it should not silently make it useless, but nor
+    // should it refuse to turn.
+    const tries = [1, 2, 3].map((i) => rot4((f.rot ?? 0) + step * i));
+    const spec = (rot) => ({ kind: f.kind, station: f.station ?? null, x: f.x, z: f.z, rot });
+    const clean = tries.find((rot) => !canPlace(this.layout, { ...spec(rot), id }, { ignoreId: id }).warn);
+    for (const rot of clean != null ? [clean, ...tries] : tries) {
+      const res = this.repositionFixture(id, spec(rot));
       if (res.ok) return ok({ rotated: res.id, rot });
     }
-    return err('nowhere to stand on any other side of it');
+    return err('nowhere for it to turn to');
   }
 
   /**
@@ -1354,6 +1810,11 @@ export class Game {
       x: Math.round(Number(spec.x)),
       z: Math.round(Number(spec.z)),
       rot: rot4(Number(spec.rot) || 0),
+      // Moving or turning something must never quietly demote it, so the tier
+      // rides along unless the caller is deliberately changing it. Same for the
+      // shape: a corner shelf you pick up is still a corner shelf when it lands.
+      tier: Math.max(1, Math.trunc(Number(spec.tier ?? this.fixtureTier(id)) || 1)),
+      variant: spec.variant ?? this.fixtureVariant(id),
     };
     const check = canPlace(this.layout, placement, { ignoreId: id });
     if (!check.ok) return err(check.reason);
@@ -1446,6 +1907,11 @@ export class Game {
   buyUpgrade(upgradeId) {
     const up = content().byId.upgrades[upgradeId];
     if (!up) return err('no such upgrade');
+    if (up.kind === 'staff') {
+      // Hiring moved to the roster, which can express two of someone and
+      // letting one go. Selling this again would be a second way in.
+      return err('take people on from the Staff menu');
+    }
     if (this.ownedUpgrades.includes(upgradeId)) return err('already owned');
     const missing = up.requires.filter((r) => !this.ownedUpgrades.includes(r));
     if (missing.length) return err(`needs ${missing.join(', ')} first`);
@@ -1526,7 +1992,9 @@ export class Game {
         return !(item && requiredFixture(item) === 'freezer' && to.kind !== 'freezer');
       });
 
-    carryOver(layout.plots, oldPlots, alias, ['soil', 'crop_id', 'plantedAt', 'ready']);
+    // `yield` rides along or a re-flow would hand the bed a different harvest
+    // than the one it has been drawing.
+    carryOver(layout.plots, oldPlots, alias, ['soil', 'crop_id', 'plantedAt', 'ready', 'yield']);
 
     if (newSeed) this.seed = String(newSeed);
     this.layout = layout;
@@ -1535,6 +2003,15 @@ export class Game {
 
     // Everyone mid-path is now walking to somewhere that may not exist.
     for (const cu of Object.values(this.customers)) {
+      // Except anyone still out on the approach: they have no tile under them,
+      // and A* can't route out of one that doesn't exist, so a re-flow would
+      // strand them off the edge of the world forever. They haven't set foot in
+      // the shop yet — dropping them costs nothing and the next one is seconds
+      // away.
+      if (cu.x < 0 || cu.z < 0 || cu.x >= layout.w || cu.z >= layout.h) {
+        this.despawn(cu);
+        continue;
+      }
       cu.path = null;
       cu.state = 'BROWSE';
       cu.targetShelf = null;
@@ -1574,12 +2051,19 @@ export class Game {
       : this.rng.weighted(c.archetypes, 'spawn_weight');
     if (!arch) return err(`no archetype "${archetypeId}"`);
 
+    // They arrive from somewhere, rather than appearing in the middle of the
+    // farm. `approach.off` is off the tile grid entirely, so the first leg of
+    // the walk is in from nowhere — see `pathTo`'s `from`.
+    const approach = this.rng.pick(this.layout.approaches ?? [
+      { ...this.layout.spawn, off: this.layout.spawn },
+    ]);
+
     const id = `c${this.nextCustomerId++}`;
     const cust = {
       id,
       archetype_id: arch.id,
-      x: this.layout.spawn.x + this.rng.float(-1, 1),
-      z: this.layout.spawn.z + this.rng.float(0, 1.5),
+      x: approach.off.x + this.rng.float(-0.7, 0.7),
+      z: approach.off.z + this.rng.float(-0.7, 0.7),
       facing: 0,
       color: arch.color,
       state: 'ENTER',
@@ -1596,13 +2080,22 @@ export class Game {
       wantHint: null,
     };
     this.customers[id] = cust;
-    this.pathTo(cust, { x: this.layout.door.x, z: this.layout.door.z - 1 });
+    this.pathTo(cust, { x: this.layout.door.x, z: this.layout.door.z - 1 }, approach);
     return ok({ id, archetype: arch.id });
   }
 
-  pathTo(entity, goal) {
-    const path = findPath(this.walk, this.layout, entity, goal);
+  /**
+   * Route `entity` to `goal`, optionally starting the route somewhere it isn't.
+   *
+   * `from` exists because a shopper walking on from off the map is standing
+   * where there are no tiles, and A* has nothing to expand out of. So the route
+   * is computed from the edge tile they're heading for, and that tile is
+   * prepended — the walk in from nowhere is just the first leg.
+   */
+  pathTo(entity, goal, from = null) {
+    const path = findPath(this.walk, this.layout, from ?? entity, goal);
     entity.path = path ?? [];
+    if (path && from) entity.path.unshift({ x: from.x, z: from.z });
     return path !== null;
   }
 
@@ -1885,7 +2378,13 @@ export class Game {
     }
     cust.till = null;
     cust.state = 'LEAVE';
-    this.pathTo(cust, this.layout.spawn);
+
+    // Home is a fresh edge of the map, not the one they came in by — everyone
+    // filing back out the same corner reads as a conveyor belt. The off-map leg
+    // is only appended when a route actually exists; if they're walled in,
+    // despawning where they stand is still better than walking through a wall.
+    const out = this.rng.pick(this.layout.approaches ?? [this.layout.spawn]);
+    if (this.pathTo(cust, out) && out.off) cust.path.push({ ...out.off });
   }
 
   despawn(cust) {
@@ -2024,6 +2523,29 @@ function fixtureLedger(w) {
     checkout: BASE_FIXTURES.checkout + countUpgrade(w, 'checkout', 'checkouts'),
     plot: BASE_FIXTURES.plot + countUpgrade(w, 'plot', 'plots'),
   };
+}
+
+/**
+ * A roster for a save made before there was one.
+ *
+ * Hiring used to be upgrade ownership, one per role and permanent. Anyone who
+ * had bought a staff upgrade keeps that person; the upgrade itself goes inert
+ * from here, because two ways to hire is one too many.
+ */
+function rosterFromUpgrades(w) {
+  const owned = w.ownedUpgrades ?? [];
+  const kinds = content().byId.workers;
+  return content().upgrades
+    .filter((u) => u.kind === 'staff' && owned.includes(u.id))
+    .map((u) => u.payload?.role)
+    .filter((role) => role && kinds[role])
+    .map((role, i) => ({
+      id: `w${i + 1}`,
+      kind: role,
+      tier: 1,
+      name: kinds[role].name,
+      jobs: kinds[role].jobs.map((j) => ({ job: j.job, weight: j.weight })),
+    }));
 }
 
 /** Appliance kinds owned in a persisted world, for first layout generation. */

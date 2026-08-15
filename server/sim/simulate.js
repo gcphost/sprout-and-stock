@@ -40,6 +40,17 @@ export function simulate({
   }
 
   const game = Game.create({ seed, autoServe: true, ephemeral: true });
+
+  // What this run inherited from the live shop. `Game.create` reads the saved
+  // world, so who already works here and what the shop already owns come along
+  // for the ride — and two runs that differ in those are not comparable however
+  // equal their seeds are. That cost an afternoon to work out once, so the
+  // numbers now say it out loud.
+  const startedWith = {
+    staff: (game.roster ?? []).map((e) => e.name),
+    ownedUpgrades: game.ownedUpgrades.length,
+  };
+
   game.cash = startCash;
   game.day = 1;
   game.time = OPEN_HOUR / 24;
@@ -130,7 +141,13 @@ export function simulate({
     bestSellers,
     deadStock,
     daily: daily.slice(-30),
-    verdict: verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold }),
+    startedWith,
+    verdict: [
+      ...verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold }),
+      ...(startedWith.staff.length
+        ? [`Started with ${startedWith.staff.join(', ')} already on the books — a run that inherited different staff is not comparable to this one.`]
+        : []),
+    ],
   };
 }
 
@@ -194,15 +211,13 @@ function runBot(game, bot, priceMult) {
   //    one. Monoculture meant a slower crop was never planted, never harvested
   //    and never shelved — so it showed up as `deadStock` and read as a tagging
   //    bug when the tags were fine.
-  for (const plot of game.layout.plots) {
-    if (plot.crop_id) continue;
-    // Seed needs broken soil now. Without this the bot's farm silently stops
-    // producing and every crop shows up as `deadStock` — a tagging bug that
-    // isn't one, which is exactly the false signal this tool exists to avoid.
-    if (plot.soil !== 'tilled') {
-      teleport(bot, plot);
-      game.till('bot', plot.id);
-    }
+  //
+  //    Pick proportional to value rather than always taking the best. Always
+  //    planting the top crop is a monoculture — the slower crops never reach a
+  //    shelf and get reported as dead stock when their tags are fine. Strict
+  //    round-robin overcorrects and hands half the farm to the worst crop, so
+  //    weight by score: good crops still dominate, everything gets grown.
+  const chooseCrop = () => {
     const options = c.crops
       .filter((cr) => !cr.seasons.length || cr.seasons.includes(game.season))
       .filter((cr) => cr.seed_cost <= game.cash * 0.25)
@@ -215,24 +230,47 @@ function runBot(game, bot, priceMult) {
       })
       .filter(Boolean)
       .sort((a, b) => b.score - a.score);
-    if (!options.length) break;
-
-    // Pick proportional to value rather than always taking the best. Always
-    // planting the top crop is a monoculture — the slower crops never reach a
-    // shelf and get reported as dead stock when their tags are fine. Strict
-    // round-robin overcorrects and hands half the farm to the worst crop, so
-    // weight by score: good crops still dominate, everything gets grown.
+    if (!options.length) return null;
     const pool = options.filter((o) => o.score > 0);
-    const pick = pool.length ? weightedByScore(pool, game.rng) : options[0];
+    return pool.length ? weightedByScore(pool, game.rng) : options[0];
+  };
+
+  for (const plot of game.layout.plots) {
+    if (plot.crop_id) continue;
+    // Seed needs broken soil now. Without this the bot's farm silently stops
+    // producing and every crop shows up as `deadStock` — a tagging bug that
+    // isn't one, which is exactly the false signal this tool exists to avoid.
+    if (plot.soil !== 'tilled') {
+      teleport(bot, plot);
+      game.till('bot', plot.id);
+    }
+    const pick = chooseCrop();
+    if (!pick) break;
 
     teleport(bot, plot);
     game.plant('bot', plot.id, pick.cr.id);
   }
 
   // 2. Harvest anything ready.
+  //
+  //    Harvesting now auto-replants the same crop, so a plot is never empty
+  //    again and the planting pass above would never revisit it — every bed
+  //    frozen on whatever it was first sown with, which is the monoculture
+  //    that pass exists to prevent, resurfacing as a false `deadStock`.
+  //    So the choice is re-made here, at the one instant the new crop has
+  //    cost nothing: growth is exactly 0 the tick it goes in, so swapping it
+  //    destroys no value, and anything part-grown is never touched.
   for (const plot of game.layout.plots) {
     if (!plot.ready) continue;
     teleport(bot, plot);
+
+    // Say what should go back in BEFORE picking, the same way a player does by
+    // holding a seed. Harvesting then replants that. Letting it replant the
+    // old crop and correcting afterwards buys two seeds per switch, which is
+    // not what a player does and would price the feature far worse than it is.
+    const pick = chooseCrop();
+    bot.selectedCrop = pick ? pick.cr.id : null;
+
     game.harvest('bot', plot.id);
     if (bot.carry) dumpCarryToShelf(game, bot, priceMult, reserved);
   }
@@ -267,13 +305,33 @@ function runBot(game, bot, priceMult) {
     if (item) game.setPrice(shelf.id, suggestedPrice(item, folded, game.season) * priceMult);
   }
 
-  // 5. Spend surplus on upgrades, cheapest first.
-  const affordable = c.upgrades
-    .filter((u) => !game.ownedUpgrades.includes(u.id))
-    .filter((u) => u.requires.every((r) => game.ownedUpgrades.includes(r)))
-    .filter((u) => u.cost < game.cash * 0.4)
+  // 5. Spend surplus on ONE thing, cheapest first — a hire or an upgrade.
+  //
+  //    Staff and upgrades have to compete in a single queue. When hiring was an
+  //    upgrade they did automatically; splitting them into two steps quietly
+  //    doubled the shop's daily spend, and it went on staff while the shelves
+  //    it needed to fill them stayed unbought.
+  //
+  //    And it hires for *coverage*, not one of each kind: a shop with a clerk
+  //    does not need a second person whose only trick is serving. Without this
+  //    the bot's wage bill grows every time anyone authors a new kind of
+  //    worker, and every balance run since would read as a regression.
+  const covered = new Set((game.roster ?? [])
+    .flatMap((e) => e.jobs ?? [])
+    .map((j) => j.job));
+  const options = [
+    ...c.workers
+      .filter((w) => w.jobs.some((j) => !covered.has(j.job)))
+      .map((w) => ({ cost: w.cost, buy: () => game.hire(w.id) })),
+    ...c.upgrades
+      .filter((u) => u.kind !== 'staff')
+      .filter((u) => !game.ownedUpgrades.includes(u.id))
+      .filter((u) => u.requires.every((r) => game.ownedUpgrades.includes(r)))
+      .map((u) => ({ cost: u.cost, buy: () => game.buyUpgrade(u.id) })),
+  ]
+    .filter((o) => o.cost < game.cash * 0.4)
     .sort((a, b) => a.cost - b.cost);
-  if (affordable.length) game.buyUpgrade(affordable[0].id);
+  if (options.length) options[0].buy();
 }
 
 /** Choose something sensible to put on an empty shelf. */

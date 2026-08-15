@@ -6,13 +6,46 @@
  * without a page reload.
  */
 
-import { FIXTURES, FIXTURE_REFUND } from '../shared/build.js';
+import { FIXTURES } from '../shared/build.js';
 import { BUILD_TOOLS, SECTIONS, sectionById } from './sections.js';
 import { Rail } from './rail.js';
+import { ICONS } from './icons.js';
+import { showFixture } from './fixture-menu.js';
+
+/**
+ * Tag and label text reaches these panels from the database, which anyone can
+ * write to over MCP, so it never goes into innerHTML raw.
+ */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
+));
+
+/**
+ * Split a section's rows into tabbed groups, or null if it isn't tabbed.
+ *
+ * A section opts in per heading, by giving its `sep` an icon: a menu with two
+ * short groups is clearer as one scrolling list, and forcing tabs on everything
+ * would hide four rows behind a click each. Headings without an icon stay
+ * ordinary separators, which is why this returns null below two icon'd groups.
+ *
+ * `lead` is anything above the first tabbed heading — it belongs to the menu
+ * rather than to any one tab, so it shows whichever tab is open.
+ */
+function tabGroups(all) {
+  const groups = [];
+  groups.lead = [];
+  for (const r of all) {
+    if (r.sep && r.icon) { groups.push({ label: r.sep, icon: r.icon, rows: [] }); continue; }
+    if (!groups.length) { groups.lead.push(r); continue; }
+    groups[groups.length - 1].rows.push(r);
+  }
+  return groups.length >= 2 ? groups : null;
+}
 
 /** How each kind of fixture shows up in its own menu. */
 const FIXTURE_ICON = {
-  shelf: '🗄', freezer: '🧊', checkout: '💳', plot: '🌱', station: '⚙️',
+  shelf: ICONS.shelf, freezer: ICONS.freezer, checkout: ICONS.checkout,
+  plot: ICONS.plot, station: ICONS.station,
 };
 
 export class UI {
@@ -22,6 +55,7 @@ export class UI {
     this.selectedCrop = null;
     this.buildOn = false;
     this.buildTool = 'shelf';
+    this.buildVariant = '';
     this.buildRot = 0;
     this.buildCosts = {};
     this.el = {
@@ -30,10 +64,10 @@ export class UI {
       clock: document.getElementById('clock'),
       rep: document.getElementById('rep'),
       season: document.getElementById('season'),
-      wheel: document.getElementById('wheel'),
       toast: document.getElementById('toast'),
       log: document.getElementById('log'),
       mods: document.getElementById('mods'),
+      todo: document.getElementById('todo'),
       panel: document.getElementById('panel'),
       panelTitle: document.getElementById('panel-title'),
       panelBody: document.getElementById('panel-body'),
@@ -44,7 +78,6 @@ export class UI {
       prompt: document.getElementById('prompt'),
       rail: document.getElementById('rail'),
       search: document.getElementById('panel-search'),
-      chips: document.getElementById('panel-tags'),
       filter: document.getElementById('panel-filter'),
     };
     // Touch devices don't have a mouse button to name, and "click" is wrong on
@@ -54,12 +87,14 @@ export class UI {
     // Per-section, and wiped when the section closes — a filter you can't see
     // the cause of is worse than no filter at all.
     this.query = '';
-    this.picked = new Set();
 
     this.rail = new Rail(this, this.el.rail);
+    document.getElementById('search-icon').innerHTML = ICONS.search;
     this.el.search.oninput = () => { this.query = this.el.search.value; this.paintSection(); };
 
-    document.getElementById('panel-close').onclick = () => this.closePanel();
+    const close = document.getElementById('panel-close');
+    close.innerHTML = ICONS.close;
+    close.onclick = () => this.closePanel();
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.escape();
     });
@@ -70,7 +105,6 @@ export class UI {
     this.catalog = catalog;
     this.buildCosts = catalog.buildCosts ?? this.buildCosts;
     if (!this.selectedCrop && catalog.crops[0]) this.selectCrop(catalog.crops[0].id);
-    if (this.wheelOpen) this.renderWheel();
     this.renderHotbar();
     // If a section is open, redraw it so newly-added content appears instantly.
     // A fixture menu isn't a section and refreshes itself from the snapshot.
@@ -79,25 +113,123 @@ export class UI {
 
   // ---- build mode ----------------------------------------------------------
 
-  toggleBuild(on = !this.buildOn) {
+  toggleBuild(on = !this.buildOn, { quiet = false } = {}) {
     this.buildOn = on;
     this.buildRot = 0;
     document.body.classList.toggle('building', on);
     if (!on && this.openPanel === 'fixture') this.closePanel();
     this.net.send('build-mode', { on, tool: this.buildTool });
     this.renderHotbar();
+    // `quiet` is for a mode a button switched on around one action of its own:
+    // the fixture visibly turning is the feedback, and announcing a mode change
+    // either side of it says twice as much as happened.
+    if (quiet) return;
     this.toast(on
       ? 'Build mode — tap anything you already own to open it, or tap bare ground to build'
       : 'Back to shopkeeping');
+  }
+
+  /**
+   * Do something the server only lets you do in build mode, from a menu you can
+   * be standing in without it.
+   *
+   * A fixture menu opens on a tap, in or out of the mode — looking at a thing
+   * never needed permission. But the server takes build mode as the consent for
+   * every verb that names a fixture by id, so a menu opened without it had a
+   * row of buttons that all answered "not in build mode". Pressing one *is* the
+   * consent — you tapped that fixture and then chose the verb — so the button
+   * brings the mode with it rather than refusing. It's still the menu's mode,
+   * so it leaves when the menu does; `commitBuildMode` is how a verb keeps it.
+   */
+  withBuildMode(run) {
+    if (!this.buildOn) {
+      this._modeFromMenu = true;
+      this._modeQuiet = true;
+      this.toggleBuild(true, { quiet: true });
+    }
+    run();
+  }
+
+  // ---- moving one thing ----------------------------------------------------
+  //
+  // Moving something is an errand, not a change of career. You opened a
+  // fixture's menu, pressed Move, and put it down — so the place to be
+  // afterwards is back in that menu looking at the thing you just moved.
+  //
+  // What happened instead was that the drop *committed* build mode: the palette
+  // re-armed, and the next tap on the floor bought a brand new shelf. "Put this
+  // here" is not a decision to start buying shelves.
+
+  /**
+   * Pressing Move. `borrowed` is the same distinction `_modeFromMenu` draws
+   * everywhere else — a mode a menu switched on for you goes back off at the
+   * end of the errand; a mode you chose yourself with G is yours and stays.
+   */
+  startMove(f) {
+    this._move = { kind: f.kind, borrowed: !!this._modeFromMenu, to: null };
+    // `holding` isn't true until the next snapshot lands, and the menu is about
+    // to close in front of it. Without a marker for that gap `releaseMenuMode`
+    // hands the mode back mid-lift, and the server drops what you picked up.
+    this._lifting = true;
+  }
+
+  /** Where the drop is aimed, so the errand can find the fixture afterwards. */
+  markMoveTarget(tile) {
+    this._move = { ...(this._move ?? { borrowed: false }), to: { x: tile.x, z: tile.z } };
+  }
+
+  /** A refusal came back while our hands were still empty: no lift happened. */
+  abortMove() {
+    if (!this._lifting) return;
+    this._lifting = false;
+    this._move = null;
+    this.releaseMenuMode();
+  }
+
+  /**
+   * Hands empty again — set down, put back, or taken off us. Give the mode back
+   * if it was only on loan, then put the menu on whatever we were carrying.
+   */
+  endMove() {
+    const move = this._move;
+    this._move = null;
+    this._lifting = false;
+    if (!move) return;
+    // Mode first: `toggleBuild(false)` shuts an open fixture menu, so handing it
+    // back second would close the menu we just reopened.
+    if (move.borrowed) {
+      this._modeFromMenu = true;
+      this.releaseMenuMode();
+    }
+    // By tile, not by id — being set down re-mints it as a fresh placement, for
+    // the same reason `refreshFixture` looks things up this way.
+    const f = move.to ? this.scene?.fixtureAt(move.to.x, move.to.z) : null;
+    if (f) showFixture(this, f);
   }
 
   selectBuildTool(id) {
     if (!BUILD_TOOLS.some((t) => t.id === id)) return;
     this.buildTool = id;
     this.buildRot = 0;
+    // Shapes belong to a kind, so switching kind drops back to Standard rather
+    // than asking for a "corner till" nobody drew.
+    this.buildVariant = '';
     this._sentTool = id;
     this.net.send('build-tool', { tool: id });
     this.renderHotbar();
+  }
+
+  /**
+   * Which shape of the selected fixture the next tap builds.
+   *
+   * Client-side only, and deliberately: it rides along in the `build-place`
+   * spec rather than becoming another piece of build state the server has to
+   * own and re-sync. The tool is server-owned because removing something
+   * disarms it; nothing on the server ever changes your mind about a shape.
+   */
+  selectBuildVariant(id) {
+    this.buildVariant = id ?? '';
+    this.renderBuildHint();
   }
 
   /**
@@ -130,59 +262,40 @@ export class UI {
   /**
    * The bottom bar: the sub-icons for whatever is active.
    *
-   * Fixtures while you're building, seeds while the seed menu is open, and
-   * nothing at all otherwise — the shop floor is the game, and a toolbar that
+   * Only while you're building — the shop floor is the game, and a toolbar that
    * never leaves makes it look like a level editor. It's also what makes 1–9
    * legible: the number on a button is the key that presses it.
    */
   renderHotbar() {
     if (!this.el.buildTools) return;
-    const mode = this.buildOn ? 'build' : (this.openPanel === 'seeds' ? 'seeds' : null);
-    this.el.build.classList.toggle('on', !!mode);
-    if (!mode) return;
+    this.el.build.classList.toggle('on', this.buildOn);
+    if (!this.buildOn) return;
 
-    const btn = (i, on, icon, name, note) => `
-      <button class="tool ${on ? 'on' : ''}" data-slot="${i}">
-        <span class="key">${i + 1}</span>
-        <span class="ico">${icon}</span>
-        <span class="nm">${name}</span>${note ? `<span class="cost">${note}</span>` : ''}
-      </button>`;
+    this.el.buildTools.innerHTML = BUILD_TOOLS.map((t, i) => {
+      const cost = this.buildCosts[t.id];
+      return `<button class="tool ${t.id === this.buildTool ? 'on' : ''}" data-slot="${i}">
+          <span class="key">${i + 1}</span>
+          <span class="ico">${t.icon}</span>
+          <span class="nm">${t.name}</span>${cost == null ? '' : `<span class="cost">$${cost.toFixed(0)}</span>`}
+        </button>`;
+    }).join('')
+      + `<button class="tool more" data-build-menu="1">
+          <span class="key">M</span><span class="ico">☰</span><span class="nm">Menu</span>
+        </button>`;
 
-    if (mode === 'build') {
-      this.el.buildTools.innerHTML = BUILD_TOOLS.map((t, i) => {
-        const cost = this.buildCosts[t.id];
-        return btn(i, t.id === this.buildTool, t.icon, t.name, cost == null ? '' : `$${cost.toFixed(0)}`);
-      }).join('')
-        + `<button class="tool more" data-build-menu="1">
-            <span class="key">M</span><span class="ico">☰</span><span class="nm">Menu</span>
-          </button>`;
-      this.el.buildTools.querySelector('[data-build-menu]').onclick = () => this.showSection('build');
-    } else {
-      this.el.buildTools.innerHTML = this.catalog.crops.slice(0, 9).map((c, i) => btn(
-        i, c.id === this.selectedCrop, '🌱', c.name, `$${c.seed_cost.toFixed(2)}`,
-      )).join('');
-    }
-
+    this.el.buildTools.querySelector('[data-build-menu]').onclick = () => this.showSection('build');
     this.el.buildTools.querySelectorAll('[data-slot]').forEach((b) => {
-      const i = Number(b.dataset.slot);
-      b.onclick = () => (mode === 'build' ? this.selectBuildToolByIndex(i) : this.selectCropByIndex(i));
+      b.onclick = () => this.selectBuildToolByIndex(Number(b.dataset.slot));
     });
-    this.renderBuildHint(mode);
+    this.renderBuildHint();
   }
 
   /**
    * The line under the bar. It has one thing to say at a time: what you're
    * carrying, what you're pointing at, or what a tap would do.
    */
-  renderBuildHint(mode = this.buildOn ? 'build' : 'seeds') {
+  renderBuildHint() {
     if (!this.el.buildHint) return;
-    if (mode === 'seeds') {
-      const crop = this.catalog.crops.find((c) => c.id === this.selectedCrop);
-      this.el.buildHint.textContent = crop
-        ? `${crop.name} goes in the next plot you turn over`
-        : 'pick what to plant next';
-      return;
-    }
     if (this.holding) {
       this.el.buildHint.textContent = `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R turns it · Esc puts it back`;
       return;
@@ -191,8 +304,36 @@ export class UI {
       this.el.buildHint.textContent = `${this.fixtureName(this.aimed)} — tap to open it`;
       return;
     }
+    // An amber ghost means it will land and cost you something. Saying what,
+    // before the tap rather than after it, is the whole point of the colour.
+    if (this.buildWarn) {
+      this.el.buildHint.textContent = `${this.buildWarn} — tap anyway if you meant it · R rotates`;
+      return;
+    }
     const tool = BUILD_TOOLS.find((t) => t.id === this.buildTool);
-    this.el.buildHint.textContent = `tap bare ground to build a ${(tool?.name ?? 'fixture').toLowerCase()} · R rotates · tap anything you own to open its menu`;
+    // Naming the shape matters more than naming the kind: picking one is the
+    // only build setting with no icon lit up on the bar to remind you of it.
+    const shape = this.buildVariantName();
+    const what = shape ? `${shape.toLowerCase()} ${(tool?.name ?? 'fixture').toLowerCase()}` : (tool?.name ?? 'fixture').toLowerCase();
+    this.el.buildHint.textContent = `tap bare ground to build a ${what} · R rotates · tap anything you own to open its menu`;
+  }
+
+  /**
+   * What the tile under the pointer would cost you, or null if it's clean.
+   * Set from the ghost's own verdict, so the words and the colour can never
+   * disagree about what is about to happen.
+   */
+  setBuildWarn(warn) {
+    if ((warn ?? null) === (this.buildWarn ?? null)) return;
+    this.buildWarn = warn ?? null;
+    if (this.buildOn) this.renderBuildHint();
+  }
+
+  /** The chosen shape's name, or '' when it's just the standard one. */
+  buildVariantName() {
+    if (!this.buildVariant) return '';
+    const kind = this.catalog.fixtures?.find((f) => f.id === this.buildTool);
+    return (kind?.variants ?? []).find((v) => v.id === this.buildVariant)?.name ?? '';
   }
 
   /**
@@ -202,7 +343,7 @@ export class UI {
   setAim(f) {
     if ((f?.id ?? null) === (this.aimed?.id ?? null)) return;
     this.aimed = f;
-    if (this.buildOn) this.renderBuildHint('build');
+    if (this.buildOn) this.renderBuildHint();
   }
 
   /** "Shelf", "Freezer", "Blender" — what to call this fixture out loud. */
@@ -241,9 +382,11 @@ export class UI {
     if (!sec) return;
     // Coming from a different menu means a clean slate. Coming back to the same
     // one — a live content update, a price change — keeps what you typed.
-    if (this.openPanel !== id) this.clearFilter();
+    if (this.openPanel !== id) { this.releaseMenuMode(); this.clearFilter(); this.tab = 0; }
     this.openPanel = id;
     this.fixtureRef = null;
+    this.workerRef = null;
+    this.panelTick = null;
     sec.onOpen?.(this);
     this._sectionKey = sec.live?.(this) ?? null;
     this.el.search.placeholder = `search ${sec.name.toLowerCase()}…`;
@@ -259,52 +402,89 @@ export class UI {
     // Search over four rows is noise, so the controls only appear once a list
     // is long enough to get lost in — and can't leave a filter behind when it
     // shrinks back under the line.
+    // A section only gets the controls if it declared what its rows can be
+    // filtered *by*. A readout like the shop report has nothing to search.
     const listable = all.filter((r) => !r.sep);
-    const filterable = listable.length >= 8;
-    if (!filterable && (this.query || this.picked.size)) this.clearFilter();
+    const filterable = !!sec.facet && listable.length >= 8;
+    if (!filterable && this.query) this.clearFilter();
 
-    const rows = filterable ? this.applyFilter(all) : all;
+    // Searching is a question about the whole menu, not about the tab you happen
+    // to be on, so an active query collapses the tabs and searches everything.
+    const groups = filterable && this.query ? null : tabGroups(all);
+
+    let rows;
+    let tabs = '';
+    if (groups) {
+      const at = Math.min(this.tab ?? 0, groups.length - 1);
+      tabs = `<div class="tabs">${groups.map((g, n) => `
+        <button class="tab${n === at ? ' on' : ''}" data-tab="${n}" title="${esc(g.label)}"
+          aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`;
+      rows = [...groups.lead, ...groups[at].rows];
+    } else {
+      rows = filterable ? this.applyFilter(all) : all;
+    }
+
     const body = rows.length
       ? rows.map((r, i) => this.rowHtml(r, i)).join('')
       : '<div class="foot">Nothing matches that.</div>';
 
-    this.showPanel(sec.title, body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''));
+    this.showPanel(sec.title, tabs + body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''));
     this.el.filter.hidden = !filterable;
-    if (filterable) this.renderChips(listable, sec);
     this.wireRows(rows);
+    this.el.panelBody.querySelectorAll('[data-tab]').forEach((el) => {
+      el.onclick = () => { this.tab = Number(el.dataset.tab); this.paintSection(); };
+    });
   }
 
+  /**
+   * Search covers the tags as well as the name, which is what let the chip row
+   * go: it listed the whole vocabulary of whatever was on screen — thirty-odd
+   * chips above eighteen items in the supplier — to do a job that typing
+   * "organic" already does, in a fraction of a panel that is only 214px wide.
+   */
   applyFilter(rows) {
     const q = this.query.trim().toLowerCase();
-    if (!q && !this.picked.size) return rows;
+    if (!q) return rows;
     return rows.filter((r) => {
       // A heading with everything under it filtered away is a heading over
       // nothing, so headings only survive an unfiltered list.
       if (r.sep) return false;
-      if (this.picked.size && !(r.facets ?? []).some((f) => this.picked.has(f))) return false;
-      if (!q) return true;
       return `${r.name} ${r.sub ?? ''} ${(r.facets ?? []).join(' ')}`.toLowerCase().includes(q);
     });
   }
 
   clearFilter() {
     this.query = '';
-    this.picked.clear();
     this.el.search.value = '';
   }
 
+  /**
+   * One row.
+   *
+   * The icon and what the thing costs share one narrow column down the left,
+   * because a price sitting out on the right reserves a whole column of width
+   * for four characters and pushes every name into a second line. A plain
+   * readout keeps its value on the right — there is no icon to stack it under
+   * and the labels want to line up.
+   *
+   * The description wraps but is clamped to two lines and repeated in `title`,
+   * so a row stays bounded whatever the copy says and the rest is a hover away.
+   */
   rowHtml(r, i) {
     if (r.sep) return `<div class="sep">${r.sep}</div>`;
     const cls = ['row', 'sec-row'];
     if (r.picked) cls.push('picked');
     if (r.dim) cls.push('owned');
     if (r.run) cls.push('clickable');
-    return `<div class="${cls.join(' ')}"${r.run ? ` data-row="${i}"` : ''}>
-      ${r.hot ? `<span class="hot">${r.hot}</span>` : ''}
-      ${r.icon ? `<span class="bico">${r.icon}</span>` : ''}
-      <div class="name">${r.name}${r.own ? ` <span class="own">${r.own}</span>` : ''}${
-  r.sub ? `<span class="tags">${r.sub}</span>` : ''}</div>
-      ${r.right ? `<div class="price">${r.right}</div>` : ''}
+    const stacked = !r.plain;
+    return `<div class="${cls.join(' ')}"${r.run ? ` data-row="${i}"` : ''}${
+  r.sub ? ` title="${r.sub.replace(/"/g, '&quot;')}"` : ''}>
+      ${stacked && (r.icon || r.right) ? `<div class="lead">
+        ${r.icon ? `<span class="bico">${r.icon}</span>` : ''}
+        ${r.right ? `<span class="cost">${r.right}</span>` : ''}
+      </div>` : ''}
+      <div class="name">${r.name}${r.sub ? `<span class="tags">${r.sub}</span>` : ''}</div>
+      ${!stacked && r.right ? `<div class="price">${r.right}</div>` : ''}
       ${r.button ? `<button data-btn="${i}">${r.button.label}</button>` : ''}
       ${r.tail ? `<span class="have">${r.tail}</span>` : ''}
     </div>`;
@@ -324,356 +504,64 @@ export class UI {
     });
   }
 
-  /** Chips for whatever the rows actually carry, not the whole vocabulary. */
-  renderChips(rows, sec) {
-    if (!sec.facet) { this.el.chips.innerHTML = ''; return; }
-    const seen = [...new Set(rows.flatMap((r) => r.facets ?? []))].sort();
-    this.el.chips.innerHTML = seen
-      .map((f) => `<button class="chip ${this.picked.has(f) ? 'on' : ''}" data-chip="${f}">${f}</button>`)
-      .join('');
-    this.el.chips.querySelectorAll('[data-chip]').forEach((b) => {
-      b.onclick = () => {
-        const f = b.dataset.chip;
-        if (this.picked.has(f)) this.picked.delete(f);
-        else this.picked.add(f);
-        this.paintSection();
-      };
-    });
-  }
-
-  // ---- one menu per fixture -------------------------------------------------
-  //
-  // Tapping a shelf opens that shelf. Not "the nearest shelf", not "a shelf" —
-  // the one you tapped, named by id, which is the whole reason moving things
-  // used to grab the wrong one. Everything a fixture can do lives here, so the
-  // list is allowed to be different for a freezer than for a plot.
-
-  /**
-   * Open the menu for one fixture.
-   *
-   * @param {object} f a layout record: { id, kind, x, z, rot, station }
-   */
-  showFixture(f) {
-    if (!f) return;
-    this.openPanel = 'fixture';
-    // The whole layout record is kept, not just its id: turning something
-    // re-mints its id (it becomes a fresh placement), and the menu should stay
-    // open on the thing that is still sitting right there on that tile.
-    this.fixtureRef = f;
-
-    const live = this.liveFixture(f);
-    this._fxMenuKey = this.fixtureSignature(f, live);
-    const kind = f.kind;
-    const rotates = !!FIXTURES[kind]?.rotates;
-    const refund = this.refundFor(f);
-    const blocked = this.removeBlockedReason(f, live);
-
-    const act = (id, icon, name, sub, { danger = false, off = false, right = '' } = {}) => `
-      <div class="row fx-act ${off ? 'off' : ''} ${danger ? 'danger' : ''}" ${off ? '' : `data-act="${id}"`}>
-        <span class="bico">${icon}</span>
-        <div class="name">${name}<span class="tags">${sub}</span></div>
-        <div class="price">${right}</div>
-      </div>`;
-
-    const parts = [this.fixtureDetail(f, live)];
-
-    parts.push('<div class="sep">Do something with it</div>');
-    parts.push(act('move', '🖐', 'Move it',
-      'Picks it up with everything on it. Tap where you want it — nothing shifts until you do.'));
-    if (rotates) {
-      // Which side a thing faces means something different for each of them,
-      // and it's the reason to turn it at all — so say the actual reason.
-      const why = {
-        checkout: 'A quarter turn. Decides where you stand to serve, and which way the queue runs.',
-        station: 'A quarter turn. Decides which side you load it from.',
-      }[kind] ?? 'A quarter turn. Decides which aisle shoppers browse it from.';
-      parts.push(act('rotate', '🔄', 'Turn it round', why));
-    }
-    const holds = this.contentsOf(f, live);
-    if (holds.n > 0) {
-      parts.push(act('empty', '🧹', 'Empty it', holds.blurb, { right: `${holds.n}` }));
-    } else if ((kind === 'shelf' || kind === 'freezer') && live?.item_id) {
-      parts.push(act('empty', '🏷', 'Take the label off',
-        `It is empty but still reserved for ${this.itemName(live.item_id)}. Clear it and anything can go on it.`));
-    }
-    parts.push(act('remove', '🗑', kind === 'station' ? 'Sell it back' : 'Remove it',
-      blocked ?? 'Takes it out of the shop and gives you half of what it cost back.',
-      { danger: true, off: !!blocked, right: blocked ? '' : `+$${refund.toFixed(2)}` }));
-
-    parts.push(this.fixtureUpgrades(f));
-
-    this.showPanel(`${FIXTURE_ICON[kind] ?? '📦'} ${this.fixtureName(f)}`, parts.join(''));
-    this.wireFixtureMenu(f, live);
-  }
-
-  /** The read-out at the top: what this particular thing is doing right now. */
-  fixtureDetail(f, live) {
-    const line = (label, value) => `<div class="fx-line"><span>${label}</span><b>${value}</b></div>`;
-
-    if (f.kind === 'shelf' || f.kind === 'freezer') {
-      const item = live?.item_id ? this.itemById(live.item_id) : null;
-      const cap = item?.stack ?? null;
-      return `<div class="fx-detail">
-        ${line('Holding', item ? item.name : '<i>nothing</i>')}
-        ${line('Stock', cap ? `${live.qty} / ${cap}` : `${live?.qty ?? 0}`)}
-        ${item ? `<div class="fx-price">
-          <span>Price</span>
-          <button data-price="-1">−</button>
-          <b>$${(live.price ?? 0).toFixed(2)}</b>
-          <button data-price="1">+</button>
-        </div>` : ''}
-      </div>`;
-    }
-
-    if (f.kind === 'plot') {
-      const crop = live?.crop_id ? this.catalog.crops.find((c) => c.id === live.crop_id) : null;
-      return `<div class="fx-detail">
-        ${line('Soil', live?.soil === 'tilled' ? 'turned over, ready' : 'rough — needs tilling')}
-        ${line('Growing', crop ? crop.name : '<i>nothing</i>')}
-        ${crop ? line('Ready', live.ready ? 'yes — go and pick it' : `${Math.round((live.growth ?? 0) * 100)}%`) : ''}
-      </div>`;
-    }
-
-    if (f.kind === 'checkout') {
-      const q = this.state?.queues?.find((c) => c.id === f.id);
-      // How long a line it can take is the thing worth knowing before you turn
-      // it: past that, shoppers pile up on the last slot instead of queueing.
-      return `<div class="fx-detail">
-        ${line('Queue', `${q?.queue ?? 0} waiting`)}
-        ${line('Room for', `${f.queueMax ?? 0} in the line`)}
-      </div>`;
-    }
-
-    if (f.kind === 'station') {
-      const inside = Object.entries(live?.contents ?? {})
-        .map(([id, n]) => `${n}× ${this.itemName(id)}`).join(', ');
-      const makes = (this.catalog.recipes ?? [])
-        .filter((r) => r.station === f.station)
-        .map((r) => r.name).join(', ');
-      return `<div class="fx-detail">
-        ${line('In the hopper', inside || '<i>empty</i>')}
-        ${line('Making', live?.making ? this.itemName(live.output?.item_id ?? live.making) : '<i>idle</i>')}
-        ${line('Can make', makes || '<i>no recipes yet</i>')}
-      </div>`;
-    }
-    return '';
-  }
-
-  /** Upgrades that add more of this kind of thing — bought right from here. */
-  fixtureUpgrades(f) {
-    const owned = this.ownedUpgrades ?? [];
-    const relevant = (this.catalog.upgrades ?? [])
-      .filter((u) => u.kind === f.kind && !owned.includes(u.id));
-    if (!relevant.length) return '';
-    return '<div class="sep">More of these</div>'
-      + relevant.map((u) => `
-        <div class="row">
-          <div class="name">${u.name}<span class="tags">${u.description}</span></div>
-          <div class="price">$${u.cost.toFixed(0)}</div>
-          <button data-up="${u.id}">buy</button>
-        </div>`).join('');
-  }
-
-  wireFixtureMenu(f, live) {
-    const send = (type, payload) => this.net.send(type, payload);
-
-    this.el.panelBody.querySelectorAll('[data-act]').forEach((el) => {
-      el.onclick = () => {
-        const act = el.dataset.act;
-        if (act === 'move') {
-          send('build-lift', { id: f.id });
-          this.closePanel();
-          this.toast(`Carrying the ${this.fixtureName(f).toLowerCase()} — tap where it should go`);
-        } else if (act === 'rotate') {
-          send('build-rotate', { id: f.id, dir: 1 });
-        } else if (act === 'empty') {
-          send('build-empty', { id: f.id });
-        } else if (act === 'remove') {
-          send('build-remove', { id: f.id });
-          this.closePanel();
-        }
-      };
-    });
-
-    this.el.panelBody.querySelectorAll('[data-price]').forEach((el) => {
-      el.onclick = () => {
-        const step = Number(el.dataset.price) * 0.25;
-        const next = Math.max(0, Math.round(((live?.price ?? 0) + step) * 100) / 100);
-        send('set-price', { shelfId: f.id, price: next });
-      };
-    });
-
-    this.el.panelBody.querySelectorAll('[data-up]').forEach((el) => {
-      el.onclick = () => send('buy-upgrade', { upgradeId: el.dataset.up });
-    });
-  }
-
-  /** The live snapshot row for a fixture — its stock, crop or hopper. */
-  liveFixture(f) {
-    const s = this.state;
-    if (!s) return null;
-    if (f.kind === 'shelf' || f.kind === 'freezer') return s.shelves?.find((x) => x.id === f.id) ?? null;
-    if (f.kind === 'plot') return s.plots?.find((x) => x.id === f.id) ?? null;
-    if (f.kind === 'station') return s.stations?.find((x) => x.id === f.id) ?? null;
-    if (f.kind === 'checkout') return s.queues?.find((x) => x.id === f.id) ?? null;
-    return null;
-  }
-
-  /** What "empty it" would tip out, and how to describe it. */
-  contentsOf(f, live) {
-    if (f.kind === 'shelf' || f.kind === 'freezer') {
-      const n = live?.qty ?? 0;
-      return { n, blurb: n ? `Puts ${n}× ${this.itemName(live.item_id)} in a crate on the floor beside it.` : '' };
-    }
-    if (f.kind === 'station') {
-      const n = Object.values(live?.contents ?? {}).reduce((a, b) => a + b, 0) + (live?.output?.qty ?? 0);
-      return { n, blurb: 'Tips the hopper out into crates. A batch already going is left to finish.' };
-    }
-    if (f.kind === 'plot') {
-      const n = live?.crop_id ? 1 : 0;
-      return { n, blurb: 'Pulls the crop out and leaves the bed rough. A half-grown crop is lost.' };
-    }
-    return { n: 0, blurb: '' };
-  }
-
-  /** Why Remove is greyed out, or null if it isn't. */
-  removeBlockedReason(f, live) {
-    if (this.contentsOf(f, live).n > 0) return 'Empty it first — nothing gets binned by accident.';
-    if (f.kind === 'checkout' && (this.state?.queues?.length ?? 0) <= 1) {
-      return 'This is your only till. You need one to take money.';
-    }
-    return null;
-  }
-
-  /**
-   * What tearing this out pays. The same fraction the server uses, imported
-   * from `shared/build.js` — a button that promises a different number to the
-   * one you get is worse than no number at all.
-   */
-  refundFor(f) {
-    if (f.kind === 'station') {
-      const up = (this.catalog.upgrades ?? []).find((u) => u.kind === 'station'
-        && u.payload?.station === f.station && (this.ownedUpgrades ?? []).includes(u.id));
-      return (up?.cost ?? 0) * FIXTURE_REFUND;
-    }
-    return (this.buildCosts[f.kind] ?? 0) * FIXTURE_REFUND;
-  }
-
-  /** Everything the open menu draws from, so it can redraw when any of it moves. */
-  fixtureSignature(f, live) {
-    return JSON.stringify([f.id, f.rot, live, this.state?.cash?.toFixed(0), this.ownedUpgrades?.length]);
-  }
-
+  /** Item lookups, used by every menu that names one. */
   itemById(id) { return this.catalog.items.find((i) => i.id === id) ?? null; }
   itemName(id) { return this.itemById(id)?.name ?? id ?? 'something'; }
 
   /**
-   * Keep the open fixture menu honest.
+   * What to do next, read off the snapshot everything else already reads.
    *
-   * Called with the fresh layout after any re-flow. A fixture that was turned
-   * has a new id on the same tile, so follow it there; one that was removed is
-   * gone and the menu goes with it.
-   */
-  refreshFixture(fixtures) {
-    if (this.openPanel !== 'fixture' || !this.fixtureRef) return;
-    const at = this.fixtureRef;
-    // Tile first, id second — and that order is load-bearing. The generator
-    // mints `shelf-p0`, `shelf-p1`… positionally and re-mints them on every
-    // re-flow, so turning a procedural shelf both gives it a new `fx-N` id and
-    // frees its old name for a completely different shelf. Looking up by id
-    // would quietly re-point this menu at that other shelf, which is the exact
-    // bug this whole screen exists to kill.
-    const found = fixtures.find((f) => f.x === at.x && f.z === at.z && f.kind === at.kind)
-      ?? fixtures.find((f) => f.id === at.id);
-    if (!found) { this.closePanel(); return; }
-    this.showFixture(found);
-  }
-
-  /**
-   * The seed wheel: hold to open, sweep to the segment you want, release.
+   * Deliberately derived on the client rather than sent by the server: it is a
+   * *reading* of the state, not part of it, so it can be reworded or reordered
+   * without a protocol change, and a player with the panel open sees the same
+   * numbers the panel is showing them.
    *
-   * A permanent bar is clutter you read every frame and use once a minute, and
-   * a popover anchored to a plot fights the camera. A wheel costs no screen
-   * space at rest and becomes muscle memory — the same reason action games use
-   * one for weapons.
+   * Ordered by what it costs you to ignore, and capped at three. The first
+   * entry is the interesting one — a tag the world currently wants that you
+   * have nothing of is money walking back out of the door, and it is the one
+   * thing here you would never work out by looking at the shop.
    */
-  openWheel(cx, cy) {
-    const crops = this.catalog.crops;
-    if (!crops.length) return;
-    this.wheelOpen = true;
-    this.wheelCentre = { x: cx, y: cy };
-    this.wheelHot = crops.findIndex((c) => c.id === this.selectedCrop);
-    this.renderWheel();
-    this.el.wheel.classList.add('on');
-  }
+  todoList(state) {
+    const out = [];
+    const shelves = state.shelves ?? [];
+    const plots = state.plots ?? [];
 
-  closeWheel(commit = true) {
-    if (!this.wheelOpen) return;
-    this.wheelOpen = false;
-    this.el.wheel.classList.remove('on');
-    const crop = this.catalog.crops[this.wheelHot];
-    if (commit && crop) this.selectCrop(crop.id);
-  }
+    // Only tags you're actually failing to serve. A hot tag you already have
+    // three shelves of isn't news, it's just the day going well.
+    const stocked = new Set();
+    for (const s of shelves) {
+      if (!s.qty) continue;
+      for (const tag of this.itemById(s.item_id)?.tags ?? []) stocked.add(tag);
+    }
+    const missed = (state.modifiers ?? [])
+      .filter((m) => m.demand_mult >= 1.5 && !stocked.has(m.tag))
+      .sort((a, b) => b.demand_mult - a.demand_mult)[0];
+    if (missed) {
+      out.push({
+        icon: 'supplier', hot: true,
+        text: `Get <b>${esc(missed.tag)}</b> in — wanted ×${missed.demand_mult}`,
+      });
+    }
 
-  /** Point the wheel at whatever direction the pointer is from its centre. */
-  aimWheel(px, py) {
-    if (!this.wheelOpen) return;
-    const crops = this.catalog.crops;
-    const dx = px - this.wheelCentre.x;
-    const dy = py - this.wheelCentre.y;
-    // Inside the hub means "keep what I had" — a flick has to travel to count.
-    if (Math.hypot(dx, dy) < 44) { this.wheelHot = -1; this.paintWheel(); return; }
-    const a = (Math.atan2(dy, dx) + Math.PI * 2.5) % (Math.PI * 2);
-    this.wheelHot = Math.floor((a / (Math.PI * 2)) * crops.length) % crops.length;
-    this.paintWheel();
-  }
+    const ready = plots.filter((p) => p.ready).length;
+    if (ready) out.push({ icon: 'plot', text: `<b>${ready}</b> ready to harvest` });
 
-  renderWheel() {
-    const crops = this.catalog.crops;
-    const R = 132, r = 44;
-    const { x: cx, y: cy } = this.wheelCentre;
-    const step = (Math.PI * 2) / crops.length;
+    const bare = shelves.filter((s) => !s.qty).length;
+    if (bare) out.push({ icon: 'shelf', text: `<b>${bare}</b> ${bare > 1 ? 'shelves' : 'shelf'} empty` });
 
-    const arc = (i) => {
-      const a0 = -Math.PI / 2 + i * step;
-      const a1 = a0 + step;
-      const p = (rad, ang) => `${cx + Math.cos(ang) * rad} ${cy + Math.sin(ang) * rad}`;
-      const big = step > Math.PI ? 1 : 0;
-      return `M ${p(r, a0)} L ${p(R, a0)} A ${R} ${R} 0 ${big} 1 ${p(R, a1)} L ${p(r, a1)} A ${r} ${r} 0 ${big} 0 ${p(r, a0)} Z`;
-    };
+    const floor = (state.deliveries ?? []).length;
+    if (floor) out.push({ icon: 'crate', text: `<b>${floor}</b> to put away` });
 
-    const segs = crops.map((crop, i) => {
-      const mid = -Math.PI / 2 + (i + 0.5) * step;
-      const lx = cx + Math.cos(mid) * ((R + r) / 2);
-      const ly = cy + Math.sin(mid) * ((R + r) / 2);
-      return `<path class="seg" data-i="${i}" d="${arc(i)}"></path>
-        <text class="lbl" x="${lx}" y="${ly - 7}">${crop.name}</text>
-        <text class="lbl sub" x="${lx}" y="${ly + 10}">$${crop.seed_cost.toFixed(2)}</text>`;
-    }).join('');
+    // Turned soil with nothing in it is the farm equivalent of an empty shelf.
+    const unsown = plots.filter((p) => p.soil === 'tilled' && !p.crop_id).length;
+    if (unsown) out.push({ icon: 'seeds', text: `<b>${unsown}</b> plot${unsown > 1 ? 's' : ''} to sow` });
 
-    this.el.wheel.innerHTML = `<svg width="100%" height="100%">
-      ${segs}
-      <circle class="hub" cx="${cx}" cy="${cy}" r="${r - 6}"></circle>
-      <text class="hublbl" x="${cx}" y="${cy}">seeds</text>
-    </svg>`;
-    this.paintWheel();
-  }
-
-  /** Highlight the aimed segment and grey out what can't be planted now. */
-  paintWheel() {
-    const segs = this.el.wheel.querySelectorAll('.seg');
-    segs.forEach((seg, i) => {
-      const crop = this.catalog.crops[i];
-      const inSeason = !crop.seasons?.length || crop.seasons.includes(this._season);
-      const affordable = (this._cash ?? 0) >= crop.seed_cost;
-      seg.classList.toggle('off', !inSeason || !affordable);
-      seg.classList.toggle('hot', i === this.wheelHot);
-    });
+    return out.slice(0, 3);
   }
 
   selectCrop(id) {
     this.selectedCrop = id;
-    // The server plants from its own copy — the wheel only chooses.
+    // The server plants from its own copy — this only chooses.
     this.net.send('select-crop', { cropId: id });
   }
 
@@ -701,16 +589,11 @@ export class UI {
     // than only in the section means the rail's badges can read it too.
     this.fixtureCounts = state.fixtures ?? this.fixtureCounts;
 
-    // An open fixture menu is a live window onto one thing: stock going down,
-    // a crop ripening, a queue forming. Redrawn only when what it shows has
-    // actually changed, not ten times a second.
-    if (this.openPanel === 'fixture' && this.fixtureRef) {
-      // Re-read the tile rather than trusting the record we opened with, for
-      // the same reason `refreshFixture` does — see the note there.
-      const f = this.scene?.fixtureAt(this.fixtureRef.x, this.fixtureRef.z) ?? null;
-      if (!f) this.closePanel();
-      else if (this.fixtureSignature(f, this.liveFixture(f)) !== this._fxMenuKey) this.showFixture(f);
-    }
+    // A menu that belongs to one thing — a fixture, a hire — is a live window
+    // onto it. Whatever opened it left a tick behind that redraws it when what
+    // it shows moves, and only then. One hook rather than a branch per kind of
+    // menu here, so the next one costs this file nothing.
+    this.panelTick?.(this);
 
     // A lifted fixture changes what the ghost is and what the hint says, so the
     // bar has to follow the server's idea of what's in your hands, not ours.
@@ -720,18 +603,36 @@ export class UI {
       this.holding = me?.holding ?? null;
       this.buildRot = this.holding?.rot ?? this.buildRot;
       this.renderHotbar();
+      // Hands full is the lift landing. Hands empty again is the errand over,
+      // however it ended — set down, put back, or the mode dropped underneath.
+      if (heldId) this._lifting = false;
+      else this.endMove();
     }
     this.syncBuildTool(me?.build);
 
     this.el.mods.innerHTML = state.modifiers
-      .map((m) => `<span class="mod ${m.demand_mult >= 1 ? 'up' : 'down'}">${m.tag} ×${m.demand_mult}</span>`)
+      .map((m) => {
+        const up = m.demand_mult >= 1;
+        return `<span class="mod ${up ? 'up' : 'down'}" title="${esc(m.label ?? m.tag)}">`
+          + `<span class="arrow">${up ? '▲' : '▼'}</span>${esc(m.tag)} ×${m.demand_mult}</span>`;
+      })
       .join('');
 
-    // The wheel and the sections read these when they paint, so keep them
-    // fresh — and set them before anything asks a section to redraw.
+    // innerHTML at 10Hz would throw away the DOM under the cursor every tick,
+    // so redraw only when the list actually reads differently.
+    const todo = this.todoList(state);
+    const key = todo.map((t) => t.icon + t.text).join('|');
+    if (key !== this._todoKey) {
+      this._todoKey = key;
+      this.el.todo.innerHTML = todo
+        .map((t) => `<span class="todo${t.hot ? ' hot' : ''}">${ICONS[t.icon]}${t.text}</span>`)
+        .join('');
+    }
+
+    // The sections and the plot's seed picker read these when they paint, so
+    // keep them fresh — and set them before anything asks a section to redraw.
     this._season = state.season;
     this._cash = state.cash;
-    if (this.wheelOpen) this.paintWheel();
 
     this.rail.update();
     // An open section is a live window too. Each one declares a signature of
@@ -800,10 +701,16 @@ export class UI {
   closePanel() {
     this.openPanel = null;
     this.fixtureRef = null;
+    this.workerRef = null;
+    // Whatever per-entity menu was open stops being kept up to date with it.
+    this.panelTick = null;
     this.el.panel.classList.remove('show');
     this.el.filter.hidden = true;
     this.clearFilter();
     this.rail.setOpen(null);
+    // Order matters: the mode is released once nothing is open, because
+    // `toggleBuild` shuts an open fixture menu itself and would re-enter this.
+    this.releaseMenuMode();
     // The seed hotbar belongs to the seed menu and leaves with it.
     this.renderHotbar();
   }
@@ -821,9 +728,50 @@ export class UI {
     this.toggleBuild(false);
   }
 
+  /**
+   * Build mode the menus switched on does not outlive them.
+   *
+   * This has to fire when *any* panel closes, not just the Build menu's own,
+   * because opening Build and then tapping a shelf swaps that menu for the
+   * fixture's. Closing that one used to leave you stood in an armed build mode
+   * with nothing on screen saying so — you removed a shelf and the next tap
+   * built one.
+   *
+   * `_modeFromMenu` is what keeps `G` sovereign: build mode you turned on
+   * yourself is never something a menu closing can take away.
+   */
+  /**
+   * Acting on build mode makes it yours: a menu closing no longer takes it away.
+   * Picking a fixture to build, lifting one, and placing one all count.
+   */
+  commitBuildMode() {
+    this._modeFromMenu = false;
+    this._modeQuiet = false;
+  }
+
+  releaseMenuMode() {
+    if (!this._modeFromMenu || !this.buildOn) return;
+    // Mid-move. Dropping out now would strand the thing in your hands — and
+    // `holding` is a snapshot behind the press, so the lift carries its own flag
+    // for the gap in between.
+    if (this.holding || this._lifting) return;
+    this._modeFromMenu = false;
+    // However you were put into it is how you're taken back out: a mode you
+    // were never told about shouldn't announce itself on the way out.
+    const quiet = this._modeQuiet;
+    this._modeQuiet = false;
+    this.toggleBuild(false, { quiet });
+  }
+
   showPanel(title, html) {
-    this.el.panelTitle.textContent = title;
+    // innerHTML because a fixture menu's title leads with its icon, and an
+    // icon is now an inline SVG rather than a character.
+    this.el.panelTitle.innerHTML = title;
     this.el.panelBody.innerHTML = html;
     this.el.panel.classList.add('show');
+    // Only a section has anything to filter. `paintSection` turns it back on
+    // straight after; a fixture menu never does, so it can't inherit the
+    // supplier's search box.
+    this.el.filter.hidden = true;
   }
 }

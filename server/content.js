@@ -12,6 +12,7 @@
 
 import { all, contentVersion, getWorld, setWorld } from './db.js';
 import { SCHEMAS, unknownTags } from '../shared/schemas.js';
+import { FIXTURE_KINDS } from '../shared/build.js';
 import { upsert } from './db.js';
 
 let cache = null;
@@ -25,6 +26,9 @@ function load() {
   const events = all('events');
   const upgrades = all('upgrades');
   const recipes = all('recipes');
+  const fixtures = all('fixtures');
+  const workers = all('workers');
+  const pastimes = all('pastimes');
 
   cache = {
     items,
@@ -33,6 +37,9 @@ function load() {
     events,
     upgrades,
     recipes,
+    fixtures,
+    workers,
+    pastimes,
     byId: {
       items: Object.fromEntries(items.map((i) => [i.id, i])),
       crops: Object.fromEntries(crops.map((c) => [c.id, c])),
@@ -40,6 +47,9 @@ function load() {
       events: Object.fromEntries(events.map((e) => [e.id, e])),
       upgrades: Object.fromEntries(upgrades.map((u) => [u.id, u])),
       recipes: Object.fromEntries(recipes.map((r) => [r.id, r])),
+      fixtures: Object.fromEntries(fixtures.map((f) => [f.id, f])),
+      workers: Object.fromEntries(workers.map((w) => [w.id, w])),
+      pastimes: Object.fromEntries(pastimes.map((p) => [p.id, p])),
     },
     version: loadedVersion,
   };
@@ -114,6 +124,15 @@ export function writeContent(kind, data, createdBy = 'agent') {
       return { ok: false, error: `recipe needs items that do not exist: ${missing.join(', ')}` };
     }
   }
+  if (kind === 'fixture' && !FIXTURE_KINDS.includes(value.id)) {
+    // Deliberately not a way to invent fixture kinds. Where a thing may go,
+    // which side you use it from and whether it rotates are build rules, and
+    // a "fixture" nobody can place or reach is scenery, not content.
+    return {
+      ok: false,
+      error: `"${value.id}" is not a fixture kind — it has to be one of: ${FIXTURE_KINDS.join(', ')}`,
+    };
+  }
   if (value.tags) {
     const unknown = unknownTags(value.tags);
     if (unknown.length) warnings.push(`unrecognised tags (they'll still work, but check for typos): ${unknown.join(', ')}`);
@@ -123,7 +142,7 @@ export function writeContent(kind, data, createdBy = 'agent') {
     if (unknown.length) warnings.push(`affinities reference unrecognised tags: ${unknown.join(', ')}`);
   }
 
-  const table = { item: 'items', crop: 'crops', archetype: 'archetypes', event: 'events', upgrade: 'upgrades', recipe: 'recipes' }[kind];
+  const table = { item: 'items', crop: 'crops', archetype: 'archetypes', event: 'events', upgrade: 'upgrades', recipe: 'recipes', fixture: 'fixtures', worker: 'workers', pastime: 'pastimes' }[kind];
   const row = upsert(table, value, createdBy);
   refresh();
   return { ok: true, row, warnings };

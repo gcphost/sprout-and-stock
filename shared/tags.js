@@ -30,6 +30,9 @@ export const TAG_GROUPS = {
   season: ['spring', 'summer', 'autumn', 'winter'],
   // Cultural momentum — the AI director loves messing with these.
   trend: ['trendy', 'classic', 'nostalgic', 'viral'],
+  // Who works here. Same vocabulary idea as the rest: a world event that wants
+  // to slow every hire down aims at a tag, never at a role id.
+  staff: ['staff', 'front-of-house', 'back-of-house', 'outdoor', 'kitchen', 'fast', 'clumsy', 'green'],
 };
 
 /** Flat list of every known tag. */

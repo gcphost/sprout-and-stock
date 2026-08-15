@@ -30,79 +30,109 @@
 
     .hud { position: fixed; z-index: 10; }
 
+    /* Icons are inline SVG sized in em, so every font-size rule that used to
+       size an emoji still sizes the icon. `display:block` because an inline
+       SVG sits on the text baseline and drags a gap under every button. */
+    .ico > svg, .bico > svg, #panel-title > svg, #panel-close > svg { display: block; margin: 0 auto; }
+
     /* top-left: money + day */
     #stats {
-      top: 14px; left: 14px; background: var(--panel); border-radius: 16px;
-      padding: 10px 14px; box-shadow: 0 6px 20px rgba(58,49,40,.15);
-      display: flex; gap: 16px; align-items: center;
+      top: 12px; left: 12px; background: var(--panel); border-radius: 13px;
+      padding: 6px 11px; box-shadow: 0 4px 14px rgba(58,49,40,.14);
+      display: flex; gap: 11px; align-items: center;
     }
-    #cash { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
-    #day  { font-weight: 700; }
-    #season { text-transform: capitalize; opacity: .65; font-size: 12px; }
-    #clock { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+    /* ---- top centre: one horizontal strip --------------------------------
+       What the world wants today, then what to do about it, reading left to
+       right on a single line. A stack cost vertical space in the middle of the
+       screen, which is the one place the game is actually happening. Sized to
+       clear the stats panel on the left and the rail on the right. */
+    #hq {
+      top: 12px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      justify-content: center; pointer-events: none;
+      max-width: min(860px, calc(100vw - 360px));
+    }
+    /* A hairline between "what's happening" and "what to do", so the strip
+       reads as two thoughts rather than one long run of pills. */
+    #hq::before {
+      content: ''; order: 1; width: 1px; height: 18px;
+      background: rgba(58,49,40,.22); border-radius: 1px;
+    }
+    #hq:has(#todo:empty)::before { display: none; }
+    #mods { order: 0; }
+    #todo { order: 2; }
+    #cash { font-size: 17px; font-weight: 800; letter-spacing: -.02em; }
+    #day  { font-weight: 700; font-size: 12px; line-height: 1.25; }
+    #season { text-transform: capitalize; opacity: .65; font-size: 10px; line-height: 1.25; }
+    #clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
     #clock.shut { opacity: .4; text-decoration: line-through; }
-    .repwrap { width: 70px; height: 7px; background: var(--line); border-radius: 99px; overflow: hidden; }
+    .repwrap { width: 52px; height: 5px; background: var(--line); border-radius: 99px; overflow: hidden; }
     #rep { height: 100%; background: var(--good); transition: width .4s; }
 
-    /* top-right: active world modifiers */
-    #mods { top: 14px; right: 14px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 320px; justify-content: flex-end; }
+    /* Active world modifiers — what the world wants more or less of today. */
+    #mods { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
     .mod {
-      background: var(--panel); border-radius: 99px; padding: 4px 10px;
-      font-size: 12px; font-weight: 700; box-shadow: 0 3px 10px rgba(58,49,40,.12);
+      background: var(--panel); border-radius: 99px; padding: 2px 8px;
+      font-size: 11px; font-weight: 700; box-shadow: 0 2px 7px rgba(58,49,40,.11);
+      display: inline-flex; align-items: center; gap: 4px;
     }
+    .mod .arrow { font-size: 8px; }
     .mod.up { color: var(--good); }
     .mod.down { color: var(--accent); }
 
-    /* Radial seed wheel. Hidden until you hold Q or right-click, then it
-       springs open centred on the pointer. Nothing occupies the screen when
-       you're not choosing, and picking is a flick rather than a click hunt. */
-    #wheel {
-      position: fixed; inset: 0; z-index: 20; display: none;
-      background: rgba(28,24,20,.34); backdrop-filter: blur(2px);
-      pointer-events: none;
+    /* What to actually do about all of the above. Derived entirely from the
+       same snapshot — no new server field — and capped at three, because a
+       to-do list you can't finish is wallpaper rather than a prompt. */
+    #todo { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+    #todo:empty, #mods:empty { display: none; }
+    .todo {
+      background: var(--panel); border-radius: 99px; padding: 2px 9px 2px 7px;
+      font-size: 11.5px; font-weight: 600; color: var(--ink);
+      box-shadow: 0 2px 7px rgba(58,49,40,.11);
+      display: inline-flex; align-items: center; gap: 5px;
     }
-    #wheel.on { display: block; animation: wfade .12s ease-out; }
-    @keyframes wfade { from { opacity: 0 } to { opacity: 1 } }
-    #wheel svg { position: absolute; overflow: visible; }
-    #wheel .seg {
-      fill: rgba(255,252,246,.9); stroke: rgba(58,49,40,.18); stroke-width: 2;
-      transition: fill .08s;
-    }
-    #wheel .seg.hot { fill: #ffd66b; }
-    #wheel .seg.off { fill: rgba(214,208,196,.75); }
-    #wheel .lbl {
-      font: 700 15px/1 system-ui, sans-serif; fill: #3a3128;
-      text-anchor: middle; dominant-baseline: middle; pointer-events: none;
-    }
-    #wheel .lbl.sub { font-size: 12px; font-weight: 600; fill: #7a6f60; }
-    #wheel .hub {
-      fill: rgba(255,252,246,.95); stroke: rgba(58,49,40,.2); stroke-width: 2;
-    }
-    #wheel .hublbl {
-      font: 700 14px/1 system-ui, sans-serif; fill: #3a3128;
-      text-anchor: middle; dominant-baseline: middle;
-    }
+    .todo svg { width: 12px; height: 12px; opacity: .7; flex: none; }
+    .todo b { font-weight: 800; }
+    /* The one that is costing you money right now, rather than merely pending. */
+    .todo.hot { background: #ffd66b; box-shadow: 0 2px 9px rgba(200,150,20,.32); }
+    .todo.hot svg { opacity: .9; }
 
-    /* Drag joystick */
-    #stick {
-      position: fixed; width: 144px; height: 144px; margin: -72px 0 0 -72px;
-      border-radius: 50%; border: 2px solid rgba(255,255,255,.55);
-      background: rgba(58,49,40,.13); display: none; pointer-events: none; z-index: 5;
+    /* The rail: one icon per menu, down the top-right corner. The only thing
+       on screen that says the game has menus at all — before it, three
+       unrelated letter keys were the entire discovery story. */
+    #rail { top: 14px; right: 14px; display: flex; flex-direction: column; gap: 6px; }
+    .rail-btn {
+      position: relative; width: 40px; height: 40px; border: 0; cursor: pointer;
+      background: var(--panel); border-radius: 12px; color: var(--ink);
+      box-shadow: 0 4px 14px rgba(58,49,40,.15); display: grid; place-items: center;
+      font: inherit; transition: background .12s, transform .12s;
     }
-    #stick.on { display: block; }
-    #stick-nub {
-      position: absolute; left: 50%; top: 50%; width: 54px; height: 54px;
-      margin: -27px 0 0 -27px; border-radius: 50%;
-      background: rgba(255,255,255,.8); box-shadow: 0 3px 10px rgba(58,49,40,.3);
+    .rail-btn:hover { transform: translateX(-2px); }
+    .rail-btn.on { background: #ffd66b; }
+    /* The menu is shut but the world is still in its mode. */
+    .rail-btn.mode { box-shadow: 0 4px 14px rgba(58,49,40,.15), inset 0 0 0 2px #ffd66b; }
+    .rail-btn .ico { font-size: 18px; line-height: 1; }
+    .rail-btn .kb { position: absolute; bottom: 2px; right: 5px; font-size: 8px; font-weight: 800; opacity: .35; }
+    .rail-btn .badge {
+      position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px;
+      border-radius: 99px; background: var(--accent); color: #fff;
+      font-size: 10px; font-weight: 800; display: grid; place-items: center;
+      box-shadow: 0 2px 6px rgba(58,49,40,.25);
     }
+    .rail-btn .badge[hidden] { display: none; }
+
+    /* The drag joystick draws nothing — see client/main.js. */
+
     /* bottom-left: event log */
-    #log { bottom: 76px; left: 14px; max-width: 380px; display: flex; flex-direction: column; gap: 4px; }
+    #log { bottom: 72px; left: 12px; max-width: 300px; display: flex; flex-direction: column; gap: 3px; }
     #log div {
-      background: var(--panel); border-radius: 12px; padding: 6px 11px;
-      font-size: 13px; box-shadow: 0 3px 10px rgba(58,49,40,.1);
+      background: var(--panel); border-radius: 9px; padding: 3px 9px;
+      font-size: 11.5px; line-height: 1.35; box-shadow: 0 2px 7px rgba(58,49,40,.09);
     }
-    #carry { bottom: 76px; right: 14px; font-weight: 700; background: var(--panel);
-             border-radius: 12px; padding: 6px 11px; box-shadow: 0 3px 10px rgba(58,49,40,.1); }
+    #carry { bottom: 72px; right: 12px; font-weight: 700; background: var(--panel);
+             border-radius: 9px; padding: 3px 9px; font-size: 11.5px;
+             box-shadow: 0 2px 7px rgba(58,49,40,.09); }
     #carry:empty { display: none; }
 
     /* "Click & hold to Harvest" — the affordance for held actions. Sits low
@@ -125,60 +155,135 @@
     body.building #prompt { bottom: 140px; }
 
     /* toast */
+    /* Just below #hq's single strip. */
     #toast {
-      top: 76px; left: 50%; transform: translate(-50%, -12px); opacity: 0;
-      background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 99px;
-      font-weight: 700; pointer-events: none; transition: .25s;
+      top: 66px; left: 50%; transform: translate(-50%, -12px); opacity: 0;
+      background: var(--ink); color: #fff; padding: 6px 14px; border-radius: 99px;
+      font-size: 12.5px; font-weight: 700; pointer-events: none; transition: .25s;
     }
     #toast.show { opacity: 1; transform: translate(-50%, 0); }
     #toast.bad { background: var(--accent); }
 
-    /* panel */
+    /* The panel is what the rail expands into: it opens leftwards from the
+       icon you pressed, top-aligned with it, and leaves the bottom of the
+       screen to the hotbar. */
     #panel {
-      inset: auto 14px 14px auto; width: 380px; max-height: 62vh; background: var(--panel);
+      inset: 14px 58px auto auto; width: 214px; max-height: 62vh;
+      background: var(--panel);
       border-radius: 18px; box-shadow: 0 10px 34px rgba(58,49,40,.22);
       display: none; flex-direction: column; overflow: hidden;
     }
     #panel.show { display: flex; }
     #panel header {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 800;
+      padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 800;
     }
-    #panel-close { border: 0; background: none; font: inherit; cursor: pointer; font-size: 18px; color: var(--ink); }
-    #panel-body { overflow-y: auto; padding: 6px; }
-    .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; }
+    #panel-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
+    #panel-close {
+      border: 0; background: none; font: inherit; cursor: pointer; font-size: 15px;
+      color: var(--ink); opacity: .5; padding: 0;
+    }
+    #panel-close:hover { opacity: 1; }
+    #panel-body { overflow-y: auto; padding: 3px; }
+
+    /* Search and tag chips. A comprehensive catalogue you cannot search is
+       what mods get written to fix, and ours grows live while you play. */
+    #panel-filter { padding: 5px 7px; border-bottom: 1px solid var(--line); }
+    #panel-filter[hidden] { display: none; }
+    #panel-searchwrap {
+      display: flex; align-items: center; gap: 7px; padding: 0 9px;
+      background: rgba(58,49,40,.06); border-radius: 9px;
+    }
+    #panel-searchwrap:focus-within { outline: 2px solid #ffd66b; }
+    #panel-searchwrap .ico { font-size: 13px; opacity: .4; }
+    #panel-search {
+      flex: 1; border: 0; background: none; color: var(--ink); outline: 0;
+      padding: 5px 0; font: inherit; font-size: 12px; font-weight: 600; min-width: 0;
+    }
+    /* The tag chips that used to sit here listed every tag on screen — thirty
+       above eighteen items — to do what typing in the box already does. */
+    /* Icon tabs at the top of a menu that declared groups. Sticky, because the
+       body is what scrolls — tabs that scrolled away would leave you in a list
+       with no way back to the one you wanted. Icon-only: the panel is 214px and
+       four labelled tabs would each get nine characters. */
+    .tabs {
+      position: sticky; top: 0; z-index: 2; display: flex; gap: 3px;
+      padding: 2px 0 6px; margin-bottom: 4px;
+      background: var(--panel); border-bottom: 1px solid var(--line);
+    }
+    .tab {
+      flex: 1; display: grid; place-items: center; padding: 5px 0;
+      border: 0; border-radius: 8px; background: transparent;
+      color: var(--ink); opacity: .4; font-size: 13px; cursor: pointer;
+      transition: opacity .1s, background .1s;
+    }
+    .tab:hover { opacity: .8; background: rgba(58,49,40,.06); }
+    .tab.on { opacity: 1; background: #ffd66b; }
+    .tab svg { display: block; }
+
+    .row { display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 9px; }
     .row:hover { background: rgba(58,49,40,.05); }
     .row.owned { opacity: .5; }
-    .row .name { flex: 1; font-weight: 700; display: flex; flex-direction: column; }
-    .row .tags { font-weight: 500; font-size: 11px; opacity: .55; }
-    .row .price { font-weight: 700; font-variant-numeric: tabular-nums; }
+    /* The title stays on one line — it's short, and a wrapping bold heading
+       reads as two rows. The description wraps but is clamped at two lines, so
+       a menu fed from a live database still can't grow taller than the screen;
+       anything past that is on the hover title. */
+    .row .name {
+      flex: 1; min-width: 0; font-size: 12px; font-weight: 700;
+      display: flex; flex-direction: column;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .row .tags {
+      font-weight: 500; font-size: 10.5px; line-height: 1.3; opacity: .55;
+      white-space: normal; overflow: hidden;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    }
+    /* The key hint never shrinks and never wraps — it's the shortest thing in
+       the row and the whole reason the row is there, so the name gives way. */
+    .row .price {
+      font-weight: 700; font-variant-numeric: tabular-nums;
+      flex: none; white-space: nowrap; font-size: 11px; opacity: .85;
+    }
     .row button {
-      border: 0; background: var(--good); color: #fff; border-radius: 9px;
-      padding: 6px 12px; font: inherit; font-weight: 700; cursor: pointer;
+      border: 0; background: var(--good); color: #fff; border-radius: 8px;
+      padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; flex: none;
     }
-    .row .have { font-size: 12px; opacity: .6; }
+    .row .have { font-size: 10.5px; opacity: .6; }
 
-    /* Build menu rows: a whole row is the button, since picking a thing to
-       build is the only thing you can do to one. */
-    .build-row { cursor: pointer; align-items: flex-start; }
-    .build-row.picked { background: #fff3d0; box-shadow: inset 0 0 0 2px #ffd66b; }
-    .build-row .bico { font-size: 22px; line-height: 1.2; width: 26px; text-align: center; }
-    .build-row .name { gap: 2px; }
-    .build-row .own { font-weight: 600; font-size: 11px; opacity: .55; }
-    .build-row .tags { line-height: 1.35; }
+    /* Section rows. Where the whole row is the button — picking a thing to
+       build, picking a seed — the row is clickable and says so. */
+    .sec-row { align-items: flex-start; }
+    .sec-row.clickable { cursor: pointer; }
+    .sec-row.picked { background: #fff3d0; box-shadow: inset 0 0 0 2px #ffd66b; }
+    .sec-row .bico { font-size: 14px; line-height: 1.2; width: 19px; text-align: center; }
+    .sec-row .name { gap: 2px; }
+    .sec-row .tags { line-height: 1.35; }
+    /* Icon over price, one narrow column. */
+    .lead { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 26px; flex: none; }
+    .lead .cost { font-size: 9px; font-weight: 700; opacity: .6; font-variant-numeric: tabular-nums; }
     .sep {
-      font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
-      opacity: .45; padding: 10px 10px 4px; border-top: 1px solid var(--line); margin-top: 6px;
+      font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+      opacity: .45; padding: 6px 7px 2px; border-top: 1px solid var(--line); margin-top: 4px;
     }
-    .foot { font-size: 12px; opacity: .6; padding: 10px; line-height: 1.4; }
+    .foot { font-size: 10px; opacity: .55; padding: 6px 7px; line-height: 1.35; }
 
     /* One fixture's own menu. The read-out at the top says what this thing is
        doing right now; the rows below are what you can do about it. */
-    .fx-detail { padding: 8px 12px 10px; }
-    .fx-line { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 13px; }
+    .fx-detail { padding: 5px 8px 6px; }
+    .fx-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 11.5px; }
     .fx-line span { opacity: .55; font-weight: 600; }
     .fx-line b { font-weight: 800; text-align: right; }
-    .fx-price { display: flex; align-items: center; gap: 8px; padding: 6px 0 0; font-size: 13px; }
+    /* One recipe and what it wants. Ingredients are counted against the hopper,
+       so the row that isn't green is the reason the machine is standing idle. */
+    .fx-recipe { border-top: 1px solid var(--line); margin-top: 5px; padding-top: 4px; }
+    .fx-recipe-h { display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; padding: 1px 0 2px; }
+    .fx-recipe-h span { font-weight: 800; }
+    .fx-recipe-h b { font-weight: 700; opacity: .45; }
+    .fx-ing { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0 1px 10px; font-size: 11px; }
+    .fx-ing span { opacity: .55; font-weight: 600; }
+    .fx-ing b { font-weight: 800; font-variant-numeric: tabular-nums; color: #c8553d; }
+    .fx-ing.ok b { color: #4e9a4e; }
+    .fx-price { display: flex; align-items: center; gap: 7px; padding: 5px 0 0; font-size: 11.5px; }
     .fx-price span { opacity: .55; font-weight: 600; flex: 1; }
     .fx-price b { font-weight: 800; min-width: 58px; text-align: center; font-variant-numeric: tabular-nums; }
     .fx-price button {
@@ -188,7 +293,7 @@
     .fx-price button:hover { background: rgba(58,49,40,.18); }
     .fx-act { cursor: pointer; align-items: flex-start; }
     .fx-act:hover { background: rgba(58,49,40,.07); }
-    .fx-act .bico { font-size: 20px; line-height: 1.2; width: 26px; text-align: center; }
+    .fx-act .bico { font-size: 14px; line-height: 1.2; width: 18px; text-align: center; }
     .fx-act .name { gap: 2px; }
     .fx-act .tags { line-height: 1.35; }
     .fx-act .price { color: var(--good); }
@@ -197,11 +302,33 @@
        answer to why the button isn't there, and hiding it never says so. */
     .fx-act.off { cursor: default; opacity: .42; }
     .fx-act.off:hover { background: none; }
+
+    /* One hire's own menu: the dial on each job row saying how much of their
+       day it gets. It borrows the fixture price control wholesale — same
+       buttons, same tabular value — and only shrinks it, because a weight is
+       one digit where a price is five. */
+    .wk-w { flex: none; gap: 4px; padding: 0; }
+    .wk-w b { min-width: 16px; font-size: 11px; }
+    .wk-w button { width: 24px; height: 24px; }
+    .wk-job .name { padding: 2px 0; }
+
+    /* How much is left in the tank. The bar sits behind the word rather than
+       beside it, because the row is already two columns wide and a third one
+       would push the label onto its own line. */
+    .wk-energy {
+       position: relative; display: inline-block; padding: 1px 7px;
+       border-radius: 99px; overflow: hidden; font-size: 11px;
+    }
+    .wk-energy i {
+      position: absolute; inset: 0 auto 0 0; background: rgba(90,163,86,.28);
+    }
+    .wk-energy.low i { background: rgba(226,86,74,.3); }
     .tool.more { min-width: 52px; opacity: .75; }
     .tool.more:hover { opacity: 1; }
 
-    /* Build bar. Hidden entirely until you're building — the shop floor is the
-       game, and a permanent toolbar would make it look like a level editor. */
+    /* The hotbar. Hidden entirely unless something has put sub-icons in it —
+       the shop floor is the game, and a permanent toolbar would make it look
+       like a level editor. */
     #build {
       bottom: 14px; left: 50%; transform: translate(-50%, 26px); opacity: 0;
       display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -229,19 +356,13 @@
       background: rgba(58,49,40,.82); color: #fff; border-radius: 99px;
       padding: 4px 12px; font-size: 12px; font-weight: 600;
     }
-    /* Nudge the corner HUD out of the build bar's way. The build hint already
-       says what the keys do, so the general help line just gets out of the way
-       rather than stacking on top of the log. */
+    /* Nudge the corner HUD out of the hotbar's way. */
     body.building #log, body.building #carry { bottom: 128px; }
-    body.building #help { display: none; }
-    /* On a narrow screen the panel goes full width, which would sit right on
-       top of the build bar. */
-    body.building #panel { bottom: 128px; max-height: calc(62vh - 60px); }
 
-    #help { bottom: 14px; left: 14px; font-size: 12px; opacity: .55; font-weight: 600; }
     @media (max-width: 720px) {
-      #log, #help { display: none; }
-      #panel { width: calc(100vw - 28px); }
+      #log { display: none; }
+      /* Full width bar the rail, which the panel opens out of. */
+      #panel { width: calc(100vw - 72px); }
       .tool { min-width: 52px; padding: 6px 8px 5px; }
     }
   </style>
@@ -260,23 +381,29 @@
     <div class="repwrap"><div id="rep" style="width:50%"></div></div>
   </div>
 
-  <div id="mods" class="hud"></div>
+  <div id="hq" class="hud">
+    <div id="mods"></div>
+    <div id="todo"></div>
+  </div>
+  <div id="rail" class="hud"></div>
   <div id="log" class="hud"></div>
   <div id="carry" class="hud"></div>
   <div id="prompt" class="hud"></div>
   <div id="toast" class="hud"></div>
-  <div id="wheel"></div>
-  <div id="stick"><div id="stick-nub"></div></div>
 
   <div id="build" class="hud">
     <div id="build-tools"></div>
     <div id="build-hint"></div>
   </div>
 
-  <div id="help" class="hud">drag to move · click &amp; hold to use things · hold Q for seeds · B supplier · U upgrades · G build · M menu</div>
-
   <div id="panel" class="hud">
     <header><span id="panel-title">Panel</span><button id="panel-close">✕</button></header>
+    <div id="panel-filter" hidden>
+      <label id="panel-searchwrap">
+        <span class="ico" id="search-icon"></span>
+        <input id="panel-search" type="text" placeholder="search…" autocomplete="off" spellcheck="false" />
+      </label>
+    </div>
     <div id="panel-body"></div>
   </div>
 

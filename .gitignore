@@ -18,3 +18,8 @@ data/game.db-shm
 
 # Page snapshots the Playwright MCP browser drops as it drives the game.
 .playwright-mcp/
+
+# Screenshots taken while looking at something. The `screenshot` tool hands the
+# PNG straight back to whoever asked, so one landing in the repo root is scratch
+# by definition — worth keeping locally, never worth committing.
+/*.png

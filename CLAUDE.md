@@ -72,6 +72,11 @@ Two sweeps, about two seconds:
 Both found real bugs the day they were written. Neither is visible in a
 screenshot of one seed — which is exactly why they exist.
 
+⚠️ **`simulate` also inherits who works for you.** `Game.create` reads the saved
+world, so the roster and `ownedUpgrades` come along into the throwaway run. Hire
+someone between two runs and the second one is measuring a different shop. Every
+result now reports `startedWith` — check it matches before believing a delta.
+
 ⚠️ **`simulate` reads the live modifier table.** Two runs of the same seed are
 only comparable if the world events are the same in both. A stack of duplicate
 modifiers was worth 1.9× profit on one measured seed, which will swamp whatever
@@ -85,7 +90,7 @@ Keep to your side and you'll almost never touch the same file.
 
 | Area | Path | Notes |
 |---|---|---|
-| Content (items, crops, customers, events, upgrades) | *the database* | Either person, any time, via MCP. No conflicts possible. |
+| Content (items, crops, customers, events, upgrades, recipes, **fixture art + tiers**) | *the database* | Either person, any time, via MCP. No conflicts possible. |
 | Look of things (colours, props, characters) | `client/render/palette.js`, `client/render/props.js` | Safe, self-contained, very visible. Good place for a kid to start. |
 | UI and HUD | `client/ui.js`, `client/index.html` | |
 | Rendering internals | `client/render/scene.js` | |
@@ -140,6 +145,16 @@ mcp/        server.js     MCP tools, a thin wrapper over server/api.js
 difference is irrelevant and the readability win is large — you can
 `console.log(__sns.state)` in the browser and see the entire world.
 
+**Design docs live in `docs/`.** Read the relevant one before restructuring
+anything it covers — each records why the current shape is the way it is, and
+what the next step was meant to be.
+
+| Doc | Covers | Status |
+|---|---|---|
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, and the kinds-vs-pieces catalog that makes lights and decorations authorable | proposed |
+| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks and the props that make them visible | steps 1–6 and 8 built |
+| [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
+
 ---
 
 ## Gotchas worth knowing (each cost real debugging time)
@@ -185,6 +200,56 @@ difference is irrelevant and the readability win is large — you can
   `build-lift` / `build-empty` / `build-rotate` / `build-remove` all carry an id.
   Reach is not checked either — you aimed at it, and placing never required you
   to walk over there. Being in build mode is the consent.
+- **A model can carry stages, and anything can drive them.** `shared/model.js`.
+  A model is either `parts` (always looks the same) or `stages[]`, and whoever
+  draws it passes one 0..1 number: a crop passes its growth, a fixture passes
+  its tier, a pastime passes how far through the break they are. One authoring
+  shape and one resolver, so the next kind of prop gets stages the day it exists
+  rather than growing its own art-swapping code. The pastime is the proof: a mug
+  that empties and a sandwich eaten down to the crusts cost one nullable column
+  and one field in `snapshot()`, and no code in the renderer knows what a mug is.
+- **Fixture *looks* are content; fixture *rules* are code.** The `fixtures`
+  table holds each kind's model and its tier ladder, so a shelf can be redrawn
+  or given a third tier live. Its id must be a kind `shared/build.js` already
+  knows — inventing kinds there is not the point, because where a thing may go,
+  which side you use it from and whether it rotates are behaviour, and a fixture
+  nobody can place or reach is scenery.
+- **A tier that changes no number is a button that takes money and does nothing.**
+  `capacity_mult`, `keeps_mult` and `speed_mult` are the only knobs the sim
+  reads. The till ladder is deliberately priced at 0 because nothing reads a
+  till's speed yet — see the `speed` upgrade kind for what happens when you
+  forget (it sells, and `speedMult()` still hardcodes `boots-1`).
+- **`canPlace` gives two kinds of no, and only one of them is a no.**
+  `ok: false` is physics — the tile is taken, it is off the map, a plot is
+  being dug indoors. `ok: true` with a `warn` is a *consequence*: you may wall a
+  shelf in, seal your own doorway, or stand a till where nobody can queue, and
+  the game tells you what it will cost instead of refusing. That is deliberate —
+  blocking your own shop is a move, and the sim already copes (a shopper who
+  can't path to a shelf writes it off and picks another, one who can't reach the
+  door leaves, staff cool down and find another job). The one caller that must
+  still refuse a warning is the layout generator, which is why
+  `canPlaceCleanly` exists: a procedurally furnished shop nobody can walk
+  through is a bug, not a choice. `verify-build` uses it for the same reason.
+- **A variant is a look; a tier is a number.** Both are content on the same
+  `fixtures` row, and the split is structural rather than a convention anyone
+  has to remember: a variant carries only a `model`, while `tiers` is one
+  ladder shared by every shape. So a corner shelf costs and holds exactly what
+  a straight one does, restyling something already built is free and keeps its
+  stock, and no shape anybody draws can move the balance or need `simulate`
+  re-run. If a new shape *should* change what a fixture does — an island unit
+  browsed from both sides, say — that is an anchor, which is behaviour, and it
+  belongs in `shared/build.js` rather than in a variant.
+- **Where goods sit is authored, not assumed.** A model part flagged
+  `surface: true` is a shelf row, and stock is drawn on those boards, top row
+  first, running along whichever horizontal axis the board is longer on. The
+  axis is read rather than fixed because a corner unit's second wing runs the
+  other way — assuming width is always z filed its stock into the wall. A model
+  with no surfaces piles goods on its roof, which is what a chest freezer and a
+  counter want. A part can also carry `alpha` for glass, which casts no shadow,
+  and `drift`, which makes it leave whoever is holding it — rising, spreading
+  and fading on a loop, for vapour and steam. Each is a flag one renderer knows
+  how to read, and the pattern is deliberate: a new kind of behaviour on a part
+  beats a second kind of model every time.
 - **Aiming at a fixture is not the same as picking a tile.** A shelf is a
   three-quarter-tile-tall box, so on a 45° camera its top face is drawn most of
   a tile up-screen of the ground it stands on. `pickTile` answers "which floor
@@ -212,8 +277,43 @@ difference is irrelevant and the readability win is large — you can
 - **The build ghost and the server share one validator.** `shared/build.js`.
   Reimplementing the rules client-side to keep the preview snappy is how a
   green ghost starts promising placements the server then refuses.
-- **The director's "already ran today" guard has to survive a restart.** It's
-  carried through `onCacheRoom`. Without it, every time you save a file in
-  `server/` the same day fires another world event, and the modifiers stack
-  multiplicatively — six copies of one event nearly doubled profit in a
-  measured run, silently.
+- **The director's "already ran today" guard has to survive a *cold* restart,
+  not just a hot one.** It lives on the save as `lastDirectorDay`, claimed
+  synchronously at the top of `runDirector` — before the API-key check, because
+  the no-key fallback still writes an event and a guard set after that check
+  never fires for anyone without a key. It used to be a room field carried
+  through `onCacheRoom`, which survives a devMode reload and nothing else: every
+  cold start fired another world event onto the same day, and a day of active
+  editing left six copies of one heat wave in the table. Cheap to miss, because
+  the sim looks fine — `foldModifiers` collapses same-event rows to their
+  strongest pull, so the *balance* never moved. All you see is a HUD wearing
+  twenty-six chips, which reads as a mad world rather than as a bug.
+- **One seed is not a measurement.** `clear_modifiers` is necessary and not
+  sufficient. The bot picks crops by weighted random draw, so a change that
+  calls that draw a different number of times shifts the whole RNG stream and
+  the two runs diverge for reasons that have nothing to do with what you
+  changed. Auto-replant measured −14% on one seed and **+7.8% averaged over
+  ten** — 6/10 seeds went the other way, and one swung 900% because the
+  baseline nearly went broke. Average across seeds before believing anything,
+  and be suspicious of a single number either way.
+- **…and in a shared world, `clear_modifiers` + one seed is not even a
+  *control*.** `simulate` builds its throwaway game from the **saved** world, so
+  every restart picks up whatever the other person has done since. Appending a
+  comment to `staff.js` — a no-op restart, no behaviour change of any kind —
+  measured 41,523 / 43,464 / 41,566 against 42,873 / 41,927 / 41,433 on three
+  seeds: up on one, down on two, and `startedWith` identical on all six runs. A
+  change you are actually testing will hide inside that. The fix is to take the
+  world out of it: `DB_PATH` honours **`SNS_DB`**, so copy `data/game.db` once
+  and drive `simulate` in-process against the copy. No server, no restart, no
+  other player, and both halves run against one frozen world — which is how a
+  rendering change can honestly claim "identical to the cent".
+- **A convenience that spends money needs to spend it on what you asked for.**
+  Harvest replants the bed with the seed you have *selected*, not the crop it
+  just picked. Those look equivalent and aren't: replanting the old crop
+  charges for a seed you were about to replace, so every switch buys two. It
+  cost a third of all profit and no playthrough would ever show you why.
+- **Whatever you change, check the balance bot still models a player doing it.**
+  Auto-replant meant plots were never empty, and `simulate` skipped any planted
+  plot — so every bed froze on its first crop and three crops reported as
+  `deadStock` with perfect tags. The tool said the feature was −39%; the tool
+  was wrong. A broken instrument reads as a broken feature.

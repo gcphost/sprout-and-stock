@@ -45,6 +45,12 @@ export class Rail {
    * changes — this runs at 10Hz over a live canvas.
    */
   update() {
+    // Build mode is a state of the world, not a menu, so the rail says so even
+    // when the menu itself is closed. An armed ghost with nothing on screen
+    // explaining it is the whole complaint this answers.
+    this.el.querySelector('[data-sec="build"]')
+      ?.classList.toggle('mode', this.ui.buildOn && this.ui.openPanel !== 'build');
+
     for (const s of SECTIONS) {
       if (!s.badge) continue;
       const val = s.badge(this.ui) ?? null;

@@ -12,36 +12,150 @@
       "autumn"
     ],
     "model": {
-      "parts": [
+      "stages": [
         {
-          "shape": "cone",
-          "color": "#6fb75e",
-          "pos": [
-            0,
-            0.18,
-            0
-          ],
-          "scale": [
-            0.2,
-            0.36,
-            0.2
-          ],
-          "rot": 0
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8873a",
+              "pos": [
+                -0.07,
+                0.075,
+                0.05
+              ],
+              "scale": [
+                0.07,
+                0.05,
+                0.07
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8873a",
+              "pos": [
+                0.08,
+                0.075,
+                -0.03
+              ],
+              "scale": [
+                0.065,
+                0.048,
+                0.065
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8873a",
+              "pos": [
+                0.02,
+                0.075,
+                0.12
+              ],
+              "scale": [
+                0.055,
+                0.042,
+                0.055
+              ],
+              "rot": 0
+            }
+          ]
         },
         {
-          "shape": "cone",
-          "color": "#e8873a",
-          "pos": [
-            0,
-            0.04,
-            0
-          ],
-          "scale": [
-            0.1,
-            0.12,
-            0.1
-          ],
-          "rot": 180
+          "name": "Sprout",
+          "at": 0.3,
+          "parts": [
+            {
+              "shape": "cone",
+              "color": "#6fb75e",
+              "pos": [
+                0,
+                0.1,
+                0
+              ],
+              "scale": [
+                0.14,
+                0.2,
+                0.14
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Fronds",
+          "at": 0.65,
+          "parts": [
+            {
+              "shape": "cone",
+              "color": "#6fb75e",
+              "pos": [
+                0,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.18,
+                0.3,
+                0.18
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#e8873a",
+              "pos": [
+                0,
+                0.05,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.13,
+                0.3
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "cone",
+              "color": "#6fb75e",
+              "pos": [
+                0,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.2,
+                0.38,
+                0.2
+              ],
+              "rot": 0
+            }
+          ]
         }
       ]
     }
@@ -56,66 +170,240 @@
     "seed_cost": 6,
     "seasons": [],
     "model": {
-      "parts": [
+      "stages": [
         {
-          "shape": "sphere",
-          "color": "#f4f0e4",
-          "pos": [
-            0,
-            0.18,
-            0
-          ],
-          "scale": [
-            0.32,
-            0.28,
-            0.36
-          ],
-          "rot": 0
+          "name": "Empty nest",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#c9a86a",
+              "pos": [
+                0,
+                0.04,
+                0
+              ],
+              "scale": [
+                0.4,
+                0.08,
+                0.4
+              ],
+              "rot": 0
+            }
+          ]
         },
         {
-          "shape": "sphere",
-          "color": "#f4f0e4",
-          "pos": [
-            0,
-            0.32,
-            0.12
-          ],
-          "scale": [
-            0.16,
-            0.16,
-            0.16
-          ],
-          "rot": 0
+          "name": "Hen settles",
+          "at": 0.3,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#c9a86a",
+              "pos": [
+                0,
+                0.04,
+                0
+              ],
+              "scale": [
+                0.4,
+                0.08,
+                0.4
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#f4f0e4",
+              "pos": [
+                0,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.24,
+                0.34
+              ],
+              "rot": 0
+            }
+          ]
         },
         {
-          "shape": "cone",
-          "color": "#e2564a",
-          "pos": [
-            0,
-            0.4,
-            0.12
-          ],
-          "scale": [
-            0.08,
-            0.08,
-            0.08
-          ],
-          "rot": 0
+          "name": "Brooding",
+          "at": 0.65,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#c9a86a",
+              "pos": [
+                0,
+                0.04,
+                0
+              ],
+              "scale": [
+                0.4,
+                0.08,
+                0.4
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#f4f0e4",
+              "pos": [
+                0,
+                0.18,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.28,
+                0.36
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#f4f0e4",
+              "pos": [
+                0,
+                0.32,
+                0.12
+              ],
+              "scale": [
+                0.16,
+                0.16,
+                0.16
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "cone",
+              "color": "#e2564a",
+              "pos": [
+                0,
+                0.4,
+                0.12
+              ],
+              "scale": [
+                0.08,
+                0.08,
+                0.08
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "cone",
+              "color": "#e8a03a",
+              "pos": [
+                0,
+                0.31,
+                0.21
+              ],
+              "scale": [
+                0.05,
+                0.07,
+                0.05
+              ],
+              "rot": 90
+            }
+          ]
         },
         {
-          "shape": "cone",
-          "color": "#e8a03a",
-          "pos": [
-            0,
-            0.31,
-            0.21
-          ],
-          "scale": [
-            0.05,
-            0.07,
-            0.05
-          ],
-          "rot": 90
+          "name": "Eggs laid",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#c9a86a",
+              "pos": [
+                0,
+                0.04,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.08,
+                0.42
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#f4f0e4",
+              "pos": [
+                -0.05,
+                0.19,
+                -0.02
+              ],
+              "scale": [
+                0.32,
+                0.28,
+                0.36
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#f4f0e4",
+              "pos": [
+                -0.05,
+                0.33,
+                0.1
+              ],
+              "scale": [
+                0.16,
+                0.16,
+                0.16
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "cone",
+              "color": "#e2564a",
+              "pos": [
+                -0.05,
+                0.41,
+                0.1
+              ],
+              "scale": [
+                0.08,
+                0.08,
+                0.08
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "cone",
+              "color": "#e8a03a",
+              "pos": [
+                -0.05,
+                0.32,
+                0.19
+              ],
+              "scale": [
+                0.05,
+                0.07,
+                0.05
+              ],
+              "rot": 90
+            },
+            {
+              "shape": "sphere",
+              "color": "#fdfbf2",
+              "pos": [
+                0.22,
+                0.1,
+                0.06
+              ],
+              "scale": [
+                0.13,
+                0.15,
+                0.13
+              ],
+              "rot": 0
+            }
+          ]
         }
       ]
     }
@@ -134,21 +422,195 @@
       "autumn"
     ],
     "model": {
-      "parts": [
+      "stages": [
         {
-          "shape": "sphere",
-          "color": "#7cc46a",
-          "pos": [
-            0,
-            0.12,
-            0
-          ],
-          "scale": [
-            0.34,
-            0.24,
-            0.34
-          ],
-          "rot": 0
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#9ccf7e",
+              "pos": [
+                -0.07,
+                0.075,
+                0.05
+              ],
+              "scale": [
+                0.07,
+                0.05,
+                0.07
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#9ccf7e",
+              "pos": [
+                0.08,
+                0.075,
+                -0.03
+              ],
+              "scale": [
+                0.065,
+                0.048,
+                0.065
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#9ccf7e",
+              "pos": [
+                0.02,
+                0.075,
+                0.12
+              ],
+              "scale": [
+                0.055,
+                0.042,
+                0.055
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Sprout",
+          "at": 0.3,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#86c96f",
+              "pos": [
+                -0.07,
+                0.07,
+                0
+              ],
+              "scale": [
+                0.19,
+                0.09,
+                0.16
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#86c96f",
+              "pos": [
+                0.07,
+                0.085,
+                0.04
+              ],
+              "scale": [
+                0.17,
+                0.09,
+                0.15
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Leafing",
+          "at": 0.65,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#6aa85a",
+              "pos": [
+                0,
+                0.09,
+                0
+              ],
+              "scale": [
+                0.27,
+                0.18,
+                0.27
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#86c96f",
+              "pos": [
+                0,
+                0.15,
+                0
+              ],
+              "scale": [
+                0.17,
+                0.1,
+                0.17
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#5f9e51",
+              "pos": [
+                0,
+                0.12,
+                0
+              ],
+              "scale": [
+                0.36,
+                0.25,
+                0.36
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#7cc46a",
+              "pos": [
+                0,
+                0.19,
+                0
+              ],
+              "scale": [
+                0.27,
+                0.18,
+                0.27
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#cfe89a",
+              "pos": [
+                0,
+                0.25,
+                0
+              ],
+              "scale": [
+                0.15,
+                0.1,
+                0.15
+              ],
+              "rot": 0
+            }
+          ]
         }
       ]
     }
@@ -166,51 +628,225 @@
       "summer"
     ],
     "model": {
-      "parts": [
+      "stages": [
         {
-          "shape": "cylinder",
-          "color": "#4d9147",
-          "pos": [
-            0,
-            0.26,
-            0
-          ],
-          "scale": [
-            0.06,
-            0.52,
-            0.06
-          ],
-          "rot": 0
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e2564a",
+              "pos": [
+                -0.07,
+                0.075,
+                0.05
+              ],
+              "scale": [
+                0.07,
+                0.05,
+                0.07
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e2564a",
+              "pos": [
+                0.08,
+                0.075,
+                -0.03
+              ],
+              "scale": [
+                0.065,
+                0.048,
+                0.065
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e2564a",
+              "pos": [
+                0.02,
+                0.075,
+                0.12
+              ],
+              "scale": [
+                0.055,
+                0.042,
+                0.055
+              ],
+              "rot": 0
+            }
+          ]
         },
         {
-          "shape": "sphere",
-          "color": "#e2564a",
-          "pos": [
-            0.12,
-            0.34,
-            0
-          ],
-          "scale": [
-            0.16,
-            0.16,
-            0.16
-          ],
-          "rot": 0
+          "name": "Sprout",
+          "at": 0.3,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#4d9147",
+              "pos": [
+                0,
+                0.12,
+                0
+              ],
+              "scale": [
+                0.045,
+                0.24,
+                0.045
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#6fb75e",
+              "pos": [
+                0.08,
+                0.2,
+                0
+              ],
+              "scale": [
+                0.16,
+                0.05,
+                0.13
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#6fb75e",
+              "pos": [
+                -0.07,
+                0.16,
+                0.03
+              ],
+              "scale": [
+                0.13,
+                0.045,
+                0.11
+              ],
+              "rot": 0
+            }
+          ]
         },
         {
-          "shape": "sphere",
-          "color": "#e2564a",
-          "pos": [
-            -0.1,
-            0.2,
-            0.06
-          ],
-          "scale": [
-            0.14,
-            0.14,
-            0.14
-          ],
-          "rot": 0
+          "name": "Vining",
+          "at": 0.65,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#4d9147",
+              "pos": [
+                0,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.06,
+                0.52,
+                0.06
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#6fb75e",
+              "pos": [
+                -0.1,
+                0.34,
+                0.04
+              ],
+              "scale": [
+                0.15,
+                0.05,
+                0.12
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#6fb75e",
+              "pos": [
+                0.11,
+                0.31,
+                0
+              ],
+              "scale": [
+                0.14,
+                0.14,
+                0.14
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Ripe",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#4d9147",
+              "pos": [
+                0,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.06,
+                0.52,
+                0.06
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#6fb75e",
+              "pos": [
+                -0.11,
+                0.4,
+                0.04
+              ],
+              "scale": [
+                0.16,
+                0.05,
+                0.13
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e2564a",
+              "pos": [
+                0.11,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.22,
+                0.22,
+                0.22
+              ],
+              "rot": 0
+            }
+          ]
         }
       ]
     }
@@ -228,36 +864,195 @@
       "autumn"
     ],
     "model": {
-      "parts": [
+      "stages": [
         {
-          "shape": "cylinder",
-          "color": "#d8c070",
-          "pos": [
-            0,
-            0.24,
-            0
-          ],
-          "scale": [
-            0.07,
-            0.48,
-            0.07
-          ],
-          "rot": 0
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8d489",
+              "pos": [
+                -0.07,
+                0.075,
+                0.05
+              ],
+              "scale": [
+                0.07,
+                0.05,
+                0.07
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8d489",
+              "pos": [
+                0.08,
+                0.075,
+                -0.03
+              ],
+              "scale": [
+                0.065,
+                0.048,
+                0.065
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8d489",
+              "pos": [
+                0.02,
+                0.075,
+                0.12
+              ],
+              "scale": [
+                0.055,
+                0.042,
+                0.055
+              ],
+              "rot": 0
+            }
+          ]
         },
         {
-          "shape": "sphere",
-          "color": "#e8d489",
-          "pos": [
-            0,
-            0.5,
-            0
-          ],
-          "scale": [
-            0.13,
-            0.16,
-            0.13
-          ],
-          "rot": 0
+          "name": "Shoots",
+          "at": 0.3,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#6fb75e",
+              "pos": [
+                0,
+                0.13,
+                0
+              ],
+              "scale": [
+                0.055,
+                0.26,
+                0.055
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#7cc46a",
+              "pos": [
+                0.06,
+                0.2,
+                0
+              ],
+              "scale": [
+                0.11,
+                0.04,
+                0.07
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Green stalks",
+          "at": 0.65,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#86b45e",
+              "pos": [
+                0,
+                0.21,
+                0
+              ],
+              "scale": [
+                0.065,
+                0.42,
+                0.065
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#7cc46a",
+              "pos": [
+                0.07,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.13,
+                0.04,
+                0.08
+              ],
+              "rot": 0
+            }
+          ]
+        },
+        {
+          "name": "Golden",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#d8c070",
+              "pos": [
+                0,
+                0.25,
+                0
+              ],
+              "scale": [
+                0.075,
+                0.5,
+                0.075
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#7cc46a",
+              "pos": [
+                0.07,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.13,
+                0.04,
+                0.08
+              ],
+              "rot": 0
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8d489",
+              "pos": [
+                0,
+                0.56,
+                0
+              ],
+              "scale": [
+                0.16,
+                0.2,
+                0.16
+              ],
+              "rot": 0
+            }
+          ]
         }
       ]
     }

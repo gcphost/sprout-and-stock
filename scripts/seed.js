@@ -22,6 +22,9 @@ const FILES = [
   ['events.json', 'event'],
   ['upgrades.json', 'upgrade'],
   ['recipes.json', 'recipe'],
+  ['fixtures.json', 'fixture'],
+  ['workers.json', 'worker'],
+  ['pastimes.json', 'pastime'],
 ];
 
 let ok = 0;

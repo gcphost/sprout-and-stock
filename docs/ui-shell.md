@@ -1,300 +1,334 @@
-# The menu shell — changeover spec
+# The menu shell
 
-Status: **spec, not yet built.** Written while `client/ui.js` was being edited by
-another agent, so everything below is described by *name and contract*, never by
-line number.
-
-Implement in the order under [Migration](#migration). Every step is shippable on
-its own and leaves the game playable.
+Status: **built.** This describes what is there, and the reasoning behind the
+bits that are easy to undo by accident.
 
 ---
 
-## Why we're changing it
+## Why it exists
 
-Today the UI has no top level. Three unrelated keys (`B`, `U`, `G`) each open a
-different thing into the same `#panel`, and the only visible menu — the build
-bar — appears solely in build mode. Nothing on screen tells you those menus
-exist. The help line at the bottom-left is doing that job in prose.
+Before this, the UI had no top level. Three unrelated keys (`B`, `U`, `G`) each
+opened something into the same `#panel`, nothing on screen said those menus
+existed, and a line of prose in the bottom-left corner was doing the explaining.
 
-That was fine for four fixtures. It stops being fine for two reasons:
+That was fine for four fixtures. It stopped being fine because content is added
+to the database *while you play* — a flat, unsearchable list is fine at 12 rows
+and unusable at 60. Cities: Skylines 2 shipped a comprehensive catalogue and
+players still needed a mod to search it by name, type and tag. Ours grows faster
+than theirs, because a new item is one MCP call away.
 
-- **Content grows live.** Items, crops, upgrades and events are added to the
-  database mid-session. A menu that is a flat unsearchable list is fine at 12
-  rows and unusable at 60. Cities: Skylines 2 shipped a comprehensive catalog
-  and players still needed a mod to search it by name, type and tag — the
-  failure there wasn't the layout, it was findability. Ours will grow faster
-  than theirs because content is one MCP call away.
-- **New systems need somewhere to live.** Facilities, recipes, a ledger,
-  and later a garrison all need a home. Adding a fourth top-level letter key
-  per system doesn't scale, and neither does another bespoke floating div.
-
-## What we're building
-
-A persistent **vertical icon rail, top-right**, that expands **leftwards** into
-the existing `#panel`.
-
-```
-┌────────────────────────────────────────────────┐
-│ $412.50  Day 7  09:14                          │
-│ [■■■□] rep                                     │
-│ 🏷 organic ×1.4  🌧 root ×0.8                   │
-│                                                │
-│                        ┌────────────┐  ┌────┐  │
-│                        │ BUILD    ✕ │  │ 🔨 │  │
-│                        │ ⌕ search   │  │ 🌱 │  │
-│                        │ ─────────  │  │ 🛒 │  │
-│                        │ 🗄 Shelf $40│  │ ⬆️ ●│  │
-│                        │ 🧊 Freezer  │  │ 📊 │  │
-│                        │ 💳 Till     │  │ ？ │  │
-│                        └────────────┘  └────┘  │
-│                                                │
-│        [ 1🗄  2🧊  3💳  4🌱 ]                     │
-│         hold to use things                     │
-└────────────────────────────────────────────────┘
-```
+## The shape
 
 Three zones, three jobs, no overlap:
 
 | Zone | Contains | Interactive? |
 |---|---|---|
-| **Top-left column** | cash, day, season, clock, reputation, active modifiers | no — passive readout |
-| **Right rail** | one icon per system, each with a live badge | yes — this is the menu |
-| **Bottom hotbar** | the sub-icons for whichever system is active | yes — one tap/keypress each |
+| **Top-left column** | cash, day, season, clock, reputation, then active modifiers | no — passive readout |
+| **Right rail** | one icon per menu, each with a live badge | yes — this is the menu |
+| **Bottom hotbar** | the build palette, and only while building | yes — one tap or number key each |
 
-The rail is the *display* half and the *actions* half at once: each icon carries
-a badge, so the rail is readable at a glance without opening anything (see
-[Badges](#badges)).
+The panel opens **leftwards** out of the rail, top-aligned, which is why it
+moved from `inset: auto 14px 14px auto` to `inset: 14px 58px auto auto`. That
+also freed the bottom of the screen for the hotbar, so the two no longer stack
+and `body.building #panel` could go.
 
-### Why right-vertical and not bottom-centre
+`#mods` moved from top-right to under `#stats` on the left: it is a passive
+readout and belongs with the other passive readouts, and the rail now owns the
+right-hand edge. `#help` was deleted as a permanent line and became the `/`
+section — it used to hide itself in build mode, which is exactly when a new
+player most needs it.
 
-- The catalog grows downward forever; a rail has vertical room and a
-  bottom-centre category row does not.
-- The panel already docks bottom-right. Expanding leftwards from a right rail
-  is a 40px change to `#panel`, not a new layer.
-- On a phone the right edge is where the thumb already is, and the existing
-  `max-width: 720px` rule that makes `#panel` full-width still applies.
-- The bottom-centre strip stays free for the hotbar, which is the thing you
-  press constantly. Menus you open once a minute shouldn't sit on top of the
-  control you press every second.
+## Files
 
----
-
-## Ownership boundary — read this before adding a popover
-
-There is **one panel system**. Anything that lists things, describes things, or
-offers actions renders into `#panel` through `showPanel()`.
-
-| You are building | Where it goes |
+| File | Holds |
 |---|---|
-| A browsable list of content (items, crops, recipes, upgrades, facilities) | a **rail section** — one entry in the `RAIL` array |
-| Everything one specific fixture can do | `showFixture()` — already exists, already correct |
-| A short confirmation or error | `toast()` |
-| What holding the button would do | `updatePrompt()` |
-| A radial quick-pick under the pointer | the wheel — and only the wheel |
+| `client/sections.js` | `SECTIONS` and `BUILD_TOOLS`. Every menu, as data. |
+| `client/rail.js` | The rail widget: icons, the lit state, badges. |
+| `client/icons.js` | **Generated.** Inline SVG strings. `npm run icons`. |
+| `client/fixture-menu.js` | Everything one fixture can do, including its seed list. |
+| `client/ui.js` | `showSection`/`paintSection` — the one renderer — plus the HUD, the panel and the seed wheel. |
+| `scripts/build-icons.js` | Bakes the icons we name into `client/icons.js`. |
 
-**Do not add a new floating div.** If a menu genuinely must be anchored in world
-space next to its fixture rather than docked, it still uses `showPanel`'s markup
-classes (`.row`, `.name`, `.tags`, `.price`, `.sep`, `.fx-detail`) and a single
-shared `#popover` element — never a per-feature one. Two divs that look alike
-and are styled twice is exactly the duplication this doc exists to prevent.
+## Adding a menu
 
-The reason is concrete: `showFixture` already refreshes itself from the snapshot
-via `fixtureSignature`, follows its fixture through a re-flow via
-`refreshFixture`, and unwinds correctly under `escape()`. A parallel popover
-gets none of that for free and will go stale, survive a re-flow it shouldn't,
-and eat the Escape key.
-
----
-
-## The rail
-
-Data-driven, so adding a system is one array entry and no new code paths.
+One entry in `SECTIONS`. It gets its rail icon, its hotkey, its badge, its
+search box and its chips with no other change anywhere.
 
 ```js
-const RAIL = [
-  { id: 'build',    icon: '🔨', name: 'Build',    key: 'g', open: (ui) => ui.showBuild() },
-  { id: 'farm',     icon: '🌱', name: 'Seeds',    key: 'f', open: (ui) => ui.showFarm() },
-  { id: 'supplier', icon: '🛒', name: 'Supplier', key: 'b', open: (ui) => ui.showStock() },
-  { id: 'upgrades', icon: '⬆️', name: 'Upgrades', key: 'u', open: (ui) => ui.showUpgrades() },
-  { id: 'ledger',   icon: '📊', name: 'Ledger',   key: 't', open: (ui) => ui.showLedger() },
-  { id: 'help',     icon: '？', name: 'Controls', key: '?', open: (ui) => ui.showHelp() },
-];
+{
+  id,        // doubles as `openPanel` — must be unique, see below
+  icon,      // from ICONS
+  name, key, // rail tooltip and hotkey
+  title,     // panel header
+  facet,     // 'tag' | 'season' | 'kind' — omit for no filtering at all
+  onOpen,    // optional side effect (Build turns build mode on)
+  rows(ui),  // the whole menu, as descriptors
+  foot(ui),  // optional note under the rows
+  badge(ui), // what the rail shows without being opened
+  live(ui),  // signature of everything rows() reads
+}
 ```
 
-Rules:
+Row descriptors: `{ icon, name, sub, right, facets, picked, dim, run,
+button: {label, run}, tail, plain }`, or `{ sep }` for a heading. The fixture
+menu builds its seed rows in the same shape and renders them with the same
+`ui.rowHtml`/`ui.wireRows`, so there is one row implementation, not two.
 
-- `id` **must** match the string `openPanel` is set to, because `setCatalog()`
-  and `update()` already re-render the open panel by comparing against it. Get
-  this wrong and a section silently stops updating live.
-- Pressing a section's key when it is already open **closes** it. Toggle, not
-  re-open — otherwise the key you used to open a menu can't dismiss it.
-- The rail is always visible, in and out of build mode. It is the one thing on
-  screen that says the game has menus.
-- `showFarm` and `showLedger` do not exist yet. Ship the rail with the four that
-  do and add the entries as the sections land — a rail entry with no section is
-  a dead button.
+Two things that will bite:
 
-### New DOM
+- **`id` doubles as `openPanel`.** `setCatalog` and `update` both test it to
+  decide whether an open menu needs redrawing. Reuse an id and two menus fight
+  over one panel.
+- **`live(ui)` must name everything `rows(ui)` reads.** It is the only thing
+  that redraws an open menu. Leave a field out and that menu silently goes
+  stale; put the whole snapshot in and it redraws ten times a second over a
+  live canvas. Supplier's signature is one value — the cash you have — and that
+  is the target.
 
-Additive only. Do not restructure existing elements.
+## Keys
 
-```html
-<div id="rail" class="hud"></div>          <!-- rendered by renderRail() -->
-```
-
-```html
-<!-- inside #panel header, before #panel-close -->
-<input id="panel-search" placeholder="search…" />
-<div id="panel-tags"></div>                <!-- tag filter chips -->
-```
-
-`#mods` moves from top-right (where the rail now is) into the top-left column
-under `#stats`. It's a passive readout and belongs with the other passive
-readouts. This is a CSS move plus one line of HTML — the element keeps its id
-and `update()` doesn't change.
-
-`#help` is retired as a permanent line and becomes the `？` rail section. It is
-currently hidden in build mode anyway, which means the controls disappear
-exactly when a new player most needs them.
-
-### Badges
-
-The rail's display duty. A badge is a small dot or number on the icon, computed
-from the snapshot in `update()`:
-
-| Section | Badge shows |
-|---|---|
-| Build | nothing at rest; `●` while carrying a fixture |
-| Seeds | number of plots tilled and empty — "there is somewhere to plant" |
-| Supplier | `●` when any shelf is empty or below a fifth of its stack |
-| Upgrades | count of upgrades you can currently afford and don't own |
-| Ledger | `▲`/`▼` against yesterday's profit |
-
-Recompute only when the derived value changes, not every snapshot — the same
-`_countsKey` guard `update()` already uses for `fixtureCounts`. Ten DOM writes a
-second for a dot nobody is looking at is how a 60fps canvas starts stuttering.
-
----
-
-## Search and tag filter
-
-Every list section gets it. This is the CS2 lesson and it is the single most
-important part of this spec.
-
-- `#panel-search` filters rows on name substring, case-insensitive.
-- `#panel-tags` renders a chip per tag present *in the current section's rows*
-  — not the whole vocabulary, or you get chips that match nothing. Tags come
-  from the content itself; the vocabulary lives in `shared/tags.js`.
-- Chips are additive (OR within a section). Clicking a lit chip clears it.
-- Filter state is **per section** and resets when the section closes. A filter
-  you can't see the cause of is worse than no filter.
-- Both controls hide themselves when the section has fewer than ~8 rows. Search
-  over four shelves is noise.
-
-Implementation note: filter in JS over the section's row data and re-render,
-rather than toggling `display:none` on DOM nodes. Sections already re-render
-wholesale on every catalog change, so a second render path would immediately
-diverge from the first.
-
----
-
-## Keyboard
-
-The rail makes the game keyboard-driven, which is the point. Current bindings
-that stay: `WASD`/arrows move, `E`/`Space` hold-to-act, `Q` seed wheel, `R`
-rotate in build mode, `Esc` back out one layer.
+Bound from `SECTIONS` in `main.js`, so a new section is bound and labelled the
+moment it exists.
 
 | Key | Does |
 |---|---|
-| `G` `F` `B` `U` `T` `?` | toggle that rail section |
-| `Tab` | toggle the last-opened section — the "open the menu" key |
-| `1`–`9` | hotbar slot (see below) |
-| `Esc` | close panel → drop carried fixture → leave build mode |
+| `M` `B` `U` `H` `T` `/` | toggle Build · Supplier · Upgrades · Staff · Shop · Controls |
+| `G` | build mode on and off |
+| `1`–`9` | hotbar slot — fixtures while building, seeds otherwise |
+| `R` | turn what you're placing |
+| hold `E` / `Space` | use what you're stood by |
+| hold `Q` | seed wheel |
+| `Esc` | clear the search box → close the menu → put down what you're carrying → leave build mode |
 
-Two things to get right:
+**`G` is not a menu key.** Build *mode* is a state of the world — a ghost on the
+ground, taps that place instead of walk — and the Build *menu* is a list of
+things to buy.
 
-- **`Esc` stays a ladder owned by `escape()`.** One listener, one order. Adding
-  a second `keydown` listener for the rail means Escape closes a panel *and*
-  quits build mode in one press. The existing comment in `main.js` says this;
-  it was learned the hard way.
-- **Typing in `#panel-search` must not drive the player.** The movement keys are
-  read from a `keys` Set on `document`. Guard the whole `keydown` handler with
-  `if (e.target.tagName === 'INPUT') return;` before anything else, or searching
-  for "carrot" walks you into a wall. `Esc` in the search box clears the box
-  first, then closes on the second press.
+Opening the menu turns the mode on, and **shutting it without picking anything
+turns the mode back off**. A menu that leaves the world in a mode you can't see
+you're in is how you end up placing a shelf when you meant to walk. Three rules
+make that work, and all three are needed:
 
-### The 1–9 crash — fix this first
+- **Pick a row, or lift something → the mode stays.** You opened it to choose a
+  shelf and then place six of them, and lifting leaves the thing in your hands.
+  Both clear `_modeFromMenu` first: acting is committing.
+- **Any panel closing with nothing left open → the mode goes**, but only if a
+  menu is what switched it on.
+- **`G` outranks the menus.** If you were already building when you opened one,
+  shutting it leaves you building — the mode was never the menu's to take away.
 
-`main.js` calls `ui.selectCropByIndex(...)` when a number key is pressed outside
-build mode. **That method does not exist on `UI`.** Pressing `1` while not
-building throws a TypeError and kills the rest of that keydown handler.
+`releaseMenuMode()` is called from `closePanel` and from `showSection` when
+switching, and it is deliberately **not** scoped to the Build menu's own close.
+Opening Build and then tapping a shelf swaps that menu for the *fixture's*, so
+by the time you remove the shelf the Build menu is long gone — and it was that
+gap that left you stood in an armed build mode with nothing on screen saying so,
+where the next tap built a shelf you never asked for.
 
-This is why keyboard play feels broken today and it blocks everything else in
-this doc. Fix before starting: implement `selectCropByIndex(i)` alongside the
-existing `selectBuildToolByIndex(i)`, delegating to `selectCrop` the same way.
+Two supporting details, both load-bearing:
 
-### Hotbar
+- It skips while `ui.holding`, or dropping the mode would strand a carried
+  fixture. The Move handler can't rely on that — `holding` isn't true until the
+  next snapshot — so it clears the flag itself.
+- `closePanel` releases the mode *after* clearing `openPanel`, because
+  `toggleBuild(false)` closes an open fixture menu and would otherwise re-enter.
 
-The bottom bar (`#build-tools`) stops being build-only and becomes the sub-icon
-row for whatever the rail has active:
+The rail's Build icon carries a `mode` outline whenever build mode is on and its
+menu is shut, so the state is never invisible.
 
-- Build active → fixtures, as now.
-- Seeds active → crops, so `1`–`9` plants without holding `Q`.
-- Nothing active → hidden, as now.
+**Every `keydown` returns early on `INPUT`.** Without it, searching the supplier
+for "carrot" walks you into a wall and buys a shelf.
 
-The seed wheel stays exactly as it is. It's the pointer-driven quick-pick and
-it's good; the hotbar is the keyboard equivalent. Both write through
-`selectCrop()`, which already tells the server. Neither becomes the other's
-implementation.
+## Search and chips
 
----
+The CS2 lesson, and the part most likely to get quietly dropped.
 
-## Migration
+- Both appear only when a section declares a `facet` **and** has 8+ rows. Search
+  over four shelves is noise; a readout like the Shop report has nothing to
+  search at all.
+- Chips are built from the facets the rows actually carry, not from the whole
+  vocabulary — chips that match nothing are worse than no chips.
+- Items carry `tags`, upgrades carry `kind`, crops carry `seasons`. There is no
+  single "tags" field across content types, which is why the section names its
+  facet rather than the renderer assuming one.
+- Filter state is per-section and cleared on open. Filtering is done over row
+  data and re-rendered, never by hiding DOM nodes — the sections already
+  re-render wholesale on catalog changes, and a second path would diverge.
 
-Each step leaves the game playable and screenshot-able.
+## Badges
 
-0. **Fix `selectCropByIndex`.** One method. Nothing else works until this does.
-1. **Rail with existing sections.** Add `#rail`, `renderRail()`, `openSection()`,
-   and wire the four sections that already exist (`showBuild`, `showStock`,
-   `showUpgrades`, and `showFixture` stays reachable by tapping a fixture). Bind
-   the letter keys through the rail rather than direct in `main.js`, so there is
-   one place a section can be opened from. Toggle-to-close.
-2. **Move `#mods` to the left column, retire `#help` into the `？` section.**
-   CSS plus two lines of HTML.
-3. **Search + tag chips in `#panel`.** Wire to Supplier first — it's the longest
-   list and the easiest to judge.
-4. **Badges.**
-5. **Hotbar follows the active section**, and Seeds becomes a real section.
+The display half of the rail — what a menu would tell you if you opened it.
 
-Steps 3–5 are independent of each other. 1 and 2 are not — do them in order or
-the rail lands on top of `#mods`.
+| Section | Badge |
+|---|---|
+| Build | `●` while you're carrying a fixture |
+| Supplier | shelves empty or under a fifth of a stack |
+| Staff | how many are on shift |
+| Upgrades | how many you can afford and don't own |
+| Shop | `▲`/`▼` on today's profit |
 
-## Don't touch
+`Rail.update()` runs every snapshot but only writes to the DOM when the text
+changes. Ten DOM writes a second for a dot nobody is looking at is how a 60fps
+canvas starts stuttering.
 
-The agents working alongside this are inside `showFixture`, `fixtureDetail`,
-`fixtureUpgrades` and `wireFixtureMenu`. **This changeover does not modify any of
-them.** The rail is new methods and new elements; `#panel`'s markup contract and
-`showPanel(title, html)`'s signature are unchanged, which is what lets both
-streams of work land without a merge fight.
+The Shop report is **today's** numbers, straight out of `state.stats`. The
+server keeps yesterday's in `_lastDayStats` but does not send it, so nothing
+here claims a comparison it cannot make. Sending it is a `snapshot()` change if
+we ever want "vs yesterday".
 
-If a step here appears to require editing a fixture-menu method, that's the
-signal to stop and re-read this section rather than to widen the change.
+## Staff
 
-## Verifying
+Hires are **upgrades** — `kind: 'staff'`, `payload.role` — and `syncStaff` adds
+or removes an NPC to match what you own. They are entries in the same `players`
+table you are in, so they obey the rules you obey and the roster is read
+straight off the snapshot: what a row says a hire is doing is literally what it
+is doing on the floor.
 
-- `screenshot` after steps 1, 2 and 5 — the server has no renderer, so this is
-  the only way to see it. `stock_shop` first so the shelves aren't bare.
-- Check at 1280px **and** under 720px, where `#panel` goes full-width and would
-  otherwise land under the rail.
-- Open every section, press its key twice, press `Esc` from each. The bug this
-  catches is a section that opens but won't close.
-- `npm run verify` is not needed — nothing here touches `layout.js`,
-  `shared/build.js` or an action.
+The section exists because hiring was reachable but invisible — four staff
+upgrades sat among seventeen others with nothing grouping them.
 
-## Open questions
+**What it deliberately does not do**, because the sim has no support for it and
+a button that lies is worse than no button:
 
-- **Does the ledger need server support?** Nothing in the snapshot carries
-  yesterday's profit today. If the answer is a new field, that's `server/` work
-  and a separate conversation before step 4's badge can be honest.
-- **Controller/gamepad.** Not planned. If it ever is, the rail is the part that
-  maps cleanly to a d-pad and the wheel is the part that doesn't.
+- **No firing.** Ownership of an upgrade is permanent; there is no "sell
+  upgrade" message. Undoing a hire means a server change.
+- **No assignment.** You can't put a clerk on a particular till or a farmhand on
+  a particular field. `stepStaff` picks targets itself.
+
+The foot of the section says both out loud. If either becomes wanted, it starts
+in `server/sim/staff.js` and needs a new room message, not a UI change.
+
+## Density
+
+The panel is **214px wide and capped at 62vh** — about 15% of a 1440px screen,
+where it started at 380px and full height. It is a menu over a game, not a
+document, and the shop floor behind it is the thing you are actually looking at.
+
+Every row is **48px, always**, and that is deliberate: both lines are single
+lines with `text-overflow: ellipsis`, so no row can grow taller no matter what
+the copy says. It is the only way a menu fed from a live database can promise
+not to run off the screen — a description added via MCP cannot break the layout,
+because the layout does not read it.
+
+The full text is on the row's `title`, so hovering still explains. Two more
+things follow from the width:
+
+- **A price goes under its icon, not out on the right.** A right-hand price
+  column reserves the width of four characters on every row and pushes every
+  name onto a second line. Plain readouts (the Shop report) keep their value on
+  the right, because there is no icon to stack it under and the numbers want to
+  line up with each other.
+- **No hotkey numerals on rows.** `1`–`9` still pick, and the hotbar along the
+  bottom shows the numbers where they are actually being pressed.
+
+Blurbs are one short clause. Anything longer gets ellipsised anyway, so writing
+it long only hides it.
+
+## Icons
+
+game-icons.net (CC BY 3.0) for anything that is a thing in the world, Remix Icon
+(Apache 2.0) for interface chrome. Emoji rendered differently on every machine
+and looked like placeholder art, which they were.
+
+`scripts/build-icons.js` lifts only the icons named in its `WANTED` map out of
+`@iconify-json/*` and writes `client/icons.js`. The full set is 4134 icons and
+several megabytes — shipping that to a browser to use twenty of them would be
+absurd, and a CDN breaks the moment the game is played over a tunnel.
+
+To add one: put it in `WANTED`, run `npm run icons`, commit the generated file.
+An unknown name fails the build rather than rendering a blank.
+
+Icons are `width="1em"` and `fill="currentColor"`, so every existing `font-size`
+rule still sizes them and every existing colour still colours them. They are
+`display: block` because an inline SVG sits on the text baseline and drags a gap
+under every button.
+
+## Seeds are not a section
+
+There was a Seeds menu on the rail. It's gone, and what to plant now lives in
+the **plot's own menu**, above the move/remove actions, because at an empty bed
+planting is the point and everything else is housekeeping.
+
+The rule it illustrates is worth keeping: **a choice that only ever applies to
+one kind of thing belongs on that thing, not on the rail.** The rail is for what
+you reach for from anywhere — buying, building, checking how you're doing.
+
+**Picking one sows that bed**, rather than setting a preference you then have to
+walk over and act on. `Game.sow` does the whole job in one: turns rough soil
+over, charges for the seed, and replaces whatever was growing — changing a crop
+no longer means emptying the plot first and leaving it bare. It also sets
+`selectedCrop`, so the next bed you walk up to agrees with the last one you
+picked.
+
+Two refusals, both to stop a mis-tap costing money:
+
+- **A ripe plot offers no seeds at all.** Sowing over a harvest you could have
+  picked is not a trade anyone means to make, and harvesting costs one hold.
+- **The crop already growing there isn't clickable** — its row shows how far up
+  it is instead. Otherwise a double-tap buys the same seed twice.
+
+There is no proximity check, deliberately. Every other action a fixture's menu
+offers — move it, empty it, sell it back — already reaches across the shop, and
+a seed picker that only worked while stood on the bed would be the odd one out.
+The hold-to-till, hold-to-plant loop is untouched for hands-on play.
+
+Three routes set the crop, one value between them:
+
+| Route | For |
+|---|---|
+| hold `Q` | pointer — a flick, no screen space at rest |
+| tap a plot | sows that bed, with costs and seasons in front of you |
+| `1`–`9` | keyboard |
+
+The plot menu's rows are built with `ui.rowHtml`/`ui.wireRows` — the section
+renderer's own row plumbing — so they match every other list without a second
+implementation. `fixtureSignature` carries `selectedCrop` and the season, or the
+list wouldn't follow the plot as it grows.
+
+## One panel system
+
+Anything that lists, describes, or offers actions renders into `#panel`.
+
+**A tap opens a fixture's menu at any time, in or out of build mode.** The two
+gestures were always distinct — a hold *uses* a thing, a tap *looks* at it — and
+only the looking half was gated behind a mode for no reason. Build mode is now
+needed for exactly one thing: putting something new on bare ground.
+
+**A tap on bare ground dismisses whatever is open**, the way any menu floating
+over a world is expected to behave. In build mode that tap still builds — and
+building is committing, so it takes ownership of the mode first (`commitBuildMode`)
+rather than closing a stale fixture menu out from under itself and dropping you
+out of build mode mid-place.
+
+The hover ring follows: outside build mode there's no ghost, but whatever is
+under the pointer is still ringed, because a target you can click with nothing
+marking it is a secret rather than a feature. Neither happens while you're
+carrying something — then every tile is a home for what's in your hands.
+
+| Building | Where it goes |
+|---|---|
+| A browsable list of content | a section in `SECTIONS` |
+| Everything one fixture can do | `showFixture` — already there, already correct |
+| A short confirmation or error | `toast()` |
+| What holding the button would do | `updatePrompt()` |
+| A radial quick-pick under the pointer | the wheel, and only the wheel |
+
+**Do not add a floating div.** `showFixture` refreshes itself from the snapshot
+via `fixtureSignature`, follows its fixture through a re-flow via
+`refreshFixture`, and unwinds correctly under `escape()`. A parallel popover
+gets none of that and will go stale, survive a re-flow it shouldn't, and eat the
+Escape key. If something genuinely must be anchored in world space, it uses the
+same row classes and a single shared element.
+
+`showPanel` hides the filter bar every time it runs, and `paintSection` turns it
+back on straight after. That is what stops a fixture menu inheriting the
+supplier's search box.
+
+## Still to do
+
+- **`client/ui.js` is 844 lines**, over the 600 cap. The fixture menu
+  (`showFixture`, `fixtureDetail`, `fixtureUpgrades`, `wireFixtureMenu`,
+  `contentsOf`, `removeBlockedReason`, `refundFor`) is ~250 self-contained lines
+  and is the obvious extraction into `client/fixture-menu.js`.
+- The `☰` on the hotbar's Menu button is still a character, not an icon.
+- Nothing verifies the rail at narrow widths beyond a look — `#panel` is
+  `calc(100vw - 88px)` under 720px specifically to clear it.

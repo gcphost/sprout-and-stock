@@ -11,6 +11,7 @@
     "mcp": "node mcp/server.js",
     "mcp:http": "node mcp/http.js",
     "tunnel": "node scripts/tunnel.js",
+    "icons": "node scripts/build-icons.js",
     "seed": "node scripts/seed.js",
     "export": "node scripts/export-content.js",
     "reset": "node scripts/reset.js",
@@ -32,6 +33,8 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@iconify-json/game-icons": "^1.2.4",
+    "@iconify-json/ri": "^1.2.10",
     "concurrently": "^9.2.1",
     "vite": "^7.1.7"
   }

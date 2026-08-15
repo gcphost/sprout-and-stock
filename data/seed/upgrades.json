@@ -149,6 +149,17 @@
     "requires": []
   },
   {
+    "id": "staff-shop-hand",
+    "name": "Hire a Shop Hand",
+    "description": "Tills, deliveries and shelves — and picks the odd ripe plot when the shop is quiet.",
+    "cost": 280,
+    "kind": "staff",
+    "payload": {
+      "role": "shop-hand"
+    },
+    "requires": []
+  },
+  {
     "id": "staff-stocker",
     "name": "Hire a Stocker",
     "description": "Buys wholesale and keeps the shelves full while you are out back.",

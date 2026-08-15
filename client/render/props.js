@@ -11,6 +11,7 @@
  */
 
 import * as THREE from 'three';
+import { partsAt } from '../../shared/model.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
 const GEO = {
@@ -23,34 +24,52 @@ const GEO = {
 
 const materialCache = new Map();
 
-/** Flat-shaded material, cached by colour so a hundred tomatoes share one. */
-export function material(color) {
-  const key = String(color);
+/**
+ * Flat-shaded material, cached by colour so a hundred tomatoes share one.
+ *
+ * `alpha` below 1 makes it glass. `depthWrite: false` is what stops a pane
+ * writing depth over the goods behind it — the same trick the thought bubble
+ * has always used, and without it a freezer door hides its own contents.
+ */
+export function material(color, alpha = 1) {
+  const glass = alpha < 1;
+  const key = glass ? `${color}@${alpha}` : String(color);
   let m = materialCache.get(key);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color: new THREE.Color(color), flatShading: true });
+    m = new THREE.MeshLambertMaterial({
+      color: new THREE.Color(color),
+      flatShading: true,
+      ...(glass ? { transparent: true, opacity: alpha, depthWrite: false } : {}),
+    });
     materialCache.set(key, m);
   }
   return m;
 }
 
 /**
- * Build a prop from a validated `model` object: `{ parts: [{shape,color,pos,scale,rot}] }`.
+ * Build a prop from a validated `model` object: `{ parts: [{shape,color,pos,scale,rot}] }`,
+ * or a staged one, in which case `t` (0..1) says how far along it is — growth
+ * for a crop, tier for a fixture. See `shared/model.js`.
+ *
  * Returns a Group positioned so its origin sits on the ground.
  */
-export function buildModel(model, { castShadow = true } = {}) {
+export function buildModel(model, { castShadow = true, t = 1 } = {}) {
   const group = new THREE.Group();
-  if (!model?.parts) return group;
+  const parts = partsAt(model, t);
+  if (!parts.length) return group;
 
-  for (const part of model.parts) {
+  for (const part of parts) {
     const geo = GEO[part.shape] ?? GEO.box;
-    const mesh = new THREE.Mesh(geo, material(part.color));
+    const alpha = part.alpha ?? 1;
+    const mesh = new THREE.Mesh(geo, material(part.color, alpha));
     const [sx, sy, sz] = part.scale ?? [0.3, 0.3, 0.3];
     const [px, py, pz] = part.pos ?? [0, 0, 0];
     mesh.scale.set(sx, sy, sz);
     mesh.position.set(px, py, pz);
     mesh.rotation.y = ((part.rot ?? 0) * Math.PI) / 180;
-    mesh.castShadow = castShadow;
+    // Glass casts no shadow. A door you can see through laying down a solid
+    // black rectangle is the giveaway that it isn't really glass.
+    mesh.castShadow = castShadow && alpha >= 1;
     mesh.receiveShadow = false;
     group.add(mesh);
   }
@@ -131,7 +150,7 @@ function bubbleMaterial() {
   return bubbleMat;
 }
 
-/** A stack of item props on a shelf — more units means a taller pile. */
+/** A stack of item props on a flat top — more units means a taller pile. */
 export function buildStack(model, qty, max) {
   const g = new THREE.Group();
   const rows = Math.min(3, Math.max(1, Math.ceil((qty / Math.max(max, 1)) * 3)));
@@ -139,6 +158,60 @@ export function buildStack(model, qty, max) {
     const one = buildModel(model);
     one.position.set((i % 2) * 0.22 - 0.11, i * 0.2, ((i % 3) - 1) * 0.14);
     one.scale.setScalar(0.7);
+    g.add(one);
+  }
+  return g;
+}
+
+/** Slots across one shelf row. Three reads as a row of goods, not a pair. */
+const PER_ROW = 3;
+
+/** Past this a shelf just reads as full — see `shelfSlots`. */
+export const shelfSlots = (surfaces) => (surfaces?.length ?? 0) * PER_ROW;
+
+/**
+ * The same goods, but on a unit that has rows — the boards its model flagged as
+ * `surface`, handed over by `surfacesAt`.
+ *
+ * **One prop per unit.** Four on the shelf draws four, which is the whole
+ * reason a shelf is worth looking at from across the shop. It used to draw a
+ * *fraction*: three facings on every row that `ceil(qty / capacity × rows)`
+ * said was occupied, so one unit and three both came out as three, and four out
+ * of twelve rounded up to a whole row of stock that wasn't there.
+ *
+ * Past `shelfSlots` it fills up and stops, the same concession a crowded plot
+ * makes at `BED_MAX` — nine identical jars is already "lots".
+ *
+ * Two things here are the camera's doing rather than the shop's. Goods run
+ * along the unit's WIDTH and stand at the front of the board, because a model
+ * is authored facing east: its depth is x and its face is +x, and spreading
+ * them along x files them nose-to-tail where the row above hides all but the
+ * first. And they fill from the TOP row down — bottom-up is how a real shop
+ * stocks and it is invisible here, because on a 45° camera each board covers
+ * the one below it.
+ */
+export function buildShelfGoods(model, qty, surfaces) {
+  const g = new THREE.Group();
+  const show = Math.max(0, Math.min(Math.round(qty), shelfSlots(surfaces)));
+  for (let n = 0; n < show; n++) {
+    const s = surfaces[surfaces.length - 1 - Math.floor(n / PER_ROW)];
+    // Goods run along whichever way the board is longer and stand at its
+    // near edge on the other axis. Assuming width is always z held for as long
+    // as every shelf was a straight one facing east — a corner unit's second
+    // wing runs the other way, and would have filed its stock into the wall.
+    const alongZ = s.depth >= s.span;
+    const run = alongZ ? s.depth : s.span;
+    const lip = (alongZ ? s.span : s.depth) * 0.14;
+    const off = ((n % PER_ROW) - (PER_ROW - 1) / 2) * (run / (PER_ROW + 0.4));
+
+    const one = buildModel(model);
+    one.scale.setScalar(0.6);
+    one.position.set(
+      s.x + (alongZ ? lip : off),
+      // A hair proud of the board, so a flat-bottomed item doesn't z-fight it.
+      s.y + 0.005,
+      s.z + (alongZ ? off : lip),
+    );
     g.add(one);
   }
   return g;
@@ -246,6 +319,53 @@ export function buildGhost(model) {
 }
 
 /**
+ * What an appliance is short of, as a row of sockets to float above it.
+ *
+ * One socket per ingredient of the recipe it's working toward, each holding the
+ * actual item: solid once the hopper has enough of it, and the same item as a
+ * ghost of itself while it's still short. So a coffee machine showing a solid
+ * bean and a ghost carton is one carton of milk away, and that reads from
+ * across the shop without opening anything.
+ *
+ * Every socket keeps its pad whether it's filled or not — a missing ingredient
+ * has to be an visibly *empty place*, not a faint smudge in mid-air, or the
+ * thing you're looking for is the thing that's hardest to see.
+ */
+export function buildHopperSlots(slots, { ready = '#7cc46a', short = '#c8553d' } = {}) {
+  const g = new THREE.Group();
+  const PITCH = 0.44;
+
+  slots.forEach((s, i) => {
+    const socket = new THREE.Group();
+    socket.position.x = (i - (slots.length - 1) / 2) * PITCH;
+
+    const pad = new THREE.Mesh(GEO.cylinder, material(s.ready ? ready : short));
+    pad.scale.set(0.36, 0.05, 0.36);
+    socket.add(pad);
+
+    if (s.model) {
+      const icon = buildModel(s.model, { castShadow: false });
+      // A missing ingredient fades but keeps its own colours. `buildGhost`'s one
+      // white material is right for a seed preview, where you already know what
+      // you picked — here the whole question is *which* thing is missing, and a
+      // white blob answers "something". Tinting per part costs nothing: the
+      // cache is keyed by colour and alpha, so the palette is reused too.
+      if (!s.ready) {
+        icon.traverse((o) => {
+          if (o.isMesh) o.material = material(o.material.color.getHex(), 0.4);
+        });
+      }
+      icon.scale.setScalar(0.42);
+      icon.position.y = 0.1;
+      socket.add(icon);
+    }
+    g.add(socket);
+  });
+
+  return g;
+}
+
+/**
  * What the soil in a plot looks like right now.
  *
  * Untilled ground has to read as *not ready* from across the farm, or the new
@@ -290,37 +410,49 @@ export function buildSoil(state, palette) {
   return g;
 }
 
-let okGhostMat = null;
-let badGhostMat = null;
+const GHOST_MATS = {};
 
 /**
- * The translucent fixture that follows your pointer in build mode: green where
- * it would land, red where it wouldn't. Deliberately the full tile footprint
- * plus a marker on the side you'd stand — rotation is meaningless otherwise,
- * and "which way does this shelf face" is the thing you actually need to see.
+ * The translucent fixture that follows your pointer in build mode. Three
+ * answers, not two: green lands, amber lands *and costs you something* — a
+ * shelf nothing can reach, a doorway you just sealed — and red cannot land at
+ * all. The middle one is the interesting one, because blocking your own shop is
+ * a legal move here; the ghost's job is to make sure you meant it.
+ *
+ * Deliberately the full tile footprint plus a marker on the side you'd stand:
+ * rotation is meaningless otherwise, and "which way does this face" is the
+ * thing you actually need to see.
  */
-export function buildFixtureGhost(height, color, ok, anchor) {
-  if (!okGhostMat) {
-    const mk = (c) => new THREE.MeshBasicMaterial({
-      color: c, transparent: true, opacity: 0.5, depthWrite: false,
+const GHOST_COLOURS = {
+  ok:   { body: 0x7cc46a, cage: 0x2f6b28, pad: 0xffd66b },
+  warn: { body: 0xe0a53c, cage: 0x8a5c14, pad: 0xffd66b },
+  no:   { body: 0xe2564a, cage: 0x8c2a22, pad: 0xe2564a },
+};
+
+export function buildFixtureGhost(height, color, verdict, anchor) {
+  // `true`/`false` still mean what they always did, so nothing that only knows
+  // about two answers has to be found and changed.
+  const key = verdict === true ? 'ok' : (verdict === false ? 'no' : (verdict ?? 'ok'));
+  const c = GHOST_COLOURS[key] ?? GHOST_COLOURS.ok;
+  if (!GHOST_MATS[key]) {
+    GHOST_MATS[key] = new THREE.MeshBasicMaterial({
+      color: c.body, transparent: true, opacity: 0.5, depthWrite: false,
     });
-    okGhostMat = mk(0x7cc46a);
-    badGhostMat = mk(0xe2564a);
   }
-  const mat = ok ? okGhostMat : badGhostMat;
 
   const g = new THREE.Group();
-  const body = new THREE.Mesh(GEO.box, mat);
-  body.scale.set(0.94, Math.max(height, 0.12), 0.94);
-  body.position.y = Math.max(height, 0.12) / 2;
+  const h = Math.max(height, 0.12);
+  const body = new THREE.Mesh(GEO.box, GHOST_MATS[key]);
+  body.scale.set(0.94, h, 0.94);
+  body.position.y = h / 2;
   g.add(body);
 
   // A wireframe cage so the ghost doesn't dissolve into a pale shelf behind it.
   const cage = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.BoxGeometry(0.98, Math.max(height, 0.12), 0.98)),
-    new THREE.LineBasicMaterial({ color: ok ? 0x2f6b28 : 0x8c2a22, depthTest: false }),
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(0.98, h, 0.98)),
+    new THREE.LineBasicMaterial({ color: c.cage, depthTest: false }),
   );
-  cage.position.y = Math.max(height, 0.12) / 2;
+  cage.position.y = h / 2;
   cage.renderOrder = 11;
   g.add(cage);
 
@@ -329,7 +461,7 @@ export function buildFixtureGhost(height, color, ok, anchor) {
     const pad = new THREE.Mesh(
       new THREE.RingGeometry(0.18, 0.34, 18),
       new THREE.MeshBasicMaterial({
-        color: ok ? 0xffd66b : 0xe2564a, transparent: true, opacity: 0.85,
+        color: c.pad, transparent: true, opacity: 0.85,
         side: THREE.DoubleSide, depthTest: false,
       }),
     );
@@ -419,6 +551,62 @@ export function setRingProgress(group, t) {
   fill.geometry.dispose();
   // Sweep clockwise from the top, which is how every other progress ring reads.
   fill.geometry = new THREE.RingGeometry(0.42, 0.60, 32, 1, Math.PI / 2 - sweep, sweep);
+}
+
+const BAR_W = 0.62;
+const BAR_H = 0.1;
+
+let barMats = null;
+/**
+ * Unlit and depth-tested off, like the progress ring: these are readouts, not
+ * scenery, and a crop bar that a leaf can hide is a crop bar you check by
+ * walking over — which is the errand it exists to remove.
+ */
+function barMaterial(kind) {
+  if (!barMats) {
+    const flat = (color, opacity = 1) => new THREE.MeshBasicMaterial({
+      color: new THREE.Color(color), transparent: true, opacity, depthTest: false,
+    });
+    barMats = { track: flat('#2f2a22', 0.55), fill: flat('#7cc46a'), ripe: flat('#ffd66b') };
+  }
+  return barMats[kind];
+}
+
+/**
+ * A slim bar that fills as something grows, to hang over a crop.
+ *
+ * Rotated 45° about Y so it faces the isometric camera square-on. The progress
+ * ring tilts about X as well, but a bar must not: its *width* is the reading,
+ * and tipping it back foreshortens exactly the axis you are trying to judge.
+ */
+export function buildGrowthBar() {
+  const g = new THREE.Group();
+
+  const track = new THREE.Mesh(GEO.box, barMaterial('track'));
+  track.scale.set(BAR_W + 0.06, BAR_H + 0.05, 0.02);
+  track.renderOrder = 9;
+
+  const fill = new THREE.Mesh(GEO.box, barMaterial('fill'));
+  fill.renderOrder = 10;
+
+  g.add(track, fill);
+  g.userData.fill = fill;
+  g.rotation.y = Math.PI / 4;
+  setGrowthBar(g, 0);
+  return g;
+}
+
+/** Rewrite how full the bar is. `t` is 0..1. */
+export function setGrowthBar(group, t) {
+  const fill = group.userData.fill;
+  if (!fill) return;
+  const k = Math.max(0, Math.min(1, Number(t) || 0));
+  const w = Math.max(0.004, BAR_W * k);
+  fill.scale.set(w, BAR_H, 0.04);
+  // Grow from the left edge, not out from the middle.
+  fill.position.x = -BAR_W / 2 + w / 2;
+  // A last-stretch colour change, so "nearly" is visible without reading length.
+  fill.material = barMaterial(k >= 0.85 ? 'ripe' : 'fill');
 }
 
 /** Any short string, hung in the air so it stays readable over any background. */

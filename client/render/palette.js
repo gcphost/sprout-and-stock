@@ -38,6 +38,17 @@ export const PALETTE = {
   awningA: '#e2564a',
   awningB: '#f6f3ea',
   sky: '#cfe9f5',
+
+  // Open and close. The sun sits low and throws long warm light, so the sky
+  // goes with it — brightness alone reads as "the monitor dimmed", where a
+  // colour shift reads as evening.
+  skyDusk: '#f7c9a2',
+  /** Sun colour at noon and at the edges of the day. */
+  sunHigh: '#fff4dd',
+  sunDusk: '#ff9e5e',
+  /** Ambient fill: warm and open at noon, cool and blue once the sun is down. */
+  fillHigh: '#ffffff',
+  fillDusk: '#8fa6c8',
 };
 
 /** Player colours, cycled by join order. */

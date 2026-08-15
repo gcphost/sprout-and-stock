@@ -28,7 +28,7 @@ export const SEED_DIR = path.join(DATA_DIR, 'seed');
 const DB_PATH = process.env.SNS_DB ?? path.join(DATA_DIR, 'game.db');
 
 /** Content tables — anything an agent is allowed to write to. */
-export const CONTENT_TABLES = ['items', 'crops', 'archetypes', 'events', 'upgrades', 'recipes'];
+export const CONTENT_TABLES = ['items', 'crops', 'archetypes', 'events', 'upgrades', 'recipes', 'fixtures', 'workers', 'pastimes'];
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -116,6 +116,58 @@ CREATE TABLE IF NOT EXISTS recipes (
   created_at INTEGER NOT NULL
 );
 
+-- What each kind of fixture looks like and how far it upgrades. The build
+-- RULES stay in shared/build.js — this is only its appearance and its tiers,
+-- so a shelf can be redrawn or given a third tier without a deploy.
+CREATE TABLE IF NOT EXISTS fixtures (
+  id         TEXT PRIMARY KEY,            -- must be a kind build.js knows
+  name       TEXT NOT NULL,
+  model      TEXT NOT NULL,               -- JSON, staged by tier
+  tiers      TEXT NOT NULL DEFAULT '[]',  -- JSON [{name, cost, ...mults}]
+  variants   TEXT NOT NULL DEFAULT '[]',  -- JSON [{id, name, model}] — looks only
+  created_by TEXT NOT NULL DEFAULT 'seed',
+  created_at INTEGER NOT NULL
+);
+
+-- A kind of worker you can hire. Mirrors the fixtures table on purpose: same
+-- staged model, same tier ladder, so a worker is authored exactly like a shelf
+-- and reuses the machinery that already restages a model as it climbs.
+CREATE TABLE IF NOT EXISTS workers (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  tags       TEXT NOT NULL DEFAULT '[]',   -- JSON array
+  model      TEXT NOT NULL,                -- JSON, staged by tier
+  tiers      TEXT NOT NULL DEFAULT '[]',   -- JSON [{name, cost, ...mults}]
+  jobs       TEXT NOT NULL DEFAULT '[]',   -- JSON [{job, weight}]
+  cost       REAL NOT NULL DEFAULT 0,
+  wage       REAL NOT NULL DEFAULT 0,
+  speed      REAL NOT NULL DEFAULT 2.6,    -- tiles per second
+  pace       REAL NOT NULL DEFAULT 0.7,    -- seconds between jobs
+  carry      REAL NOT NULL DEFAULT 6,
+  color      TEXT NOT NULL DEFAULT '#7a9e4b',
+  created_by TEXT NOT NULL DEFAULT 'seed',
+  created_at INTEGER NOT NULL
+);
+
+-- What a worker does when they are not working. Flavour is authored; the two
+-- numbers the sim reads are seconds and restores, which together decide what
+-- a break costs the shop. (No backticks in here — this whole block is a JS
+-- template literal, and one would end it mid-schema.)
+CREATE TABLE IF NOT EXISTS pastimes (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  doing      TEXT NOT NULL,                -- what the roster says they're up to
+  spot       TEXT NOT NULL DEFAULT 'here', -- here | outside | bay | till
+  seconds    REAL NOT NULL DEFAULT 20,
+  restores   REAL NOT NULL DEFAULT 0.5,
+  buys       TEXT NOT NULL DEFAULT '[]',   -- JSON array of item tags
+  weight     REAL NOT NULL DEFAULT 1,
+  tags       TEXT NOT NULL DEFAULT '[]',   -- JSON array
+  model      TEXT NOT NULL DEFAULT 'null', -- JSON, staged by break progress
+  created_by TEXT NOT NULL DEFAULT 'seed',
+  created_at INTEGER NOT NULL
+);
+
 -- ---- runtime state (not authored content) ----
 
 CREATE TABLE IF NOT EXISTS world (
@@ -167,8 +219,32 @@ export function db() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   _db = new Database(DB_PATH);
   _db.exec(SCHEMA);
+  addLateColumns(_db);
   _db.exec(buildTriggers());
   return _db;
+}
+
+/**
+ * Columns that arrived after somebody already had a database.
+ *
+ * `CREATE TABLE IF NOT EXISTS` does exactly nothing to a table that already
+ * exists, so a column added to SCHEMA above reaches new databases only — and
+ * the first write against an old one fails on a column it has never heard of.
+ * Adding them here on open keeps a live world working across a `git pull`,
+ * which for this game is the normal case rather than the exceptional one.
+ */
+const ADDED_COLUMNS = [
+  ['fixtures', 'variants', "TEXT NOT NULL DEFAULT '[]'"],
+  // 'null' rather than '{}': a pastime with no prop drawn for it yet has no
+  // model at all, and an empty object is a model that fails its own schema.
+  ['pastimes', 'model', "TEXT NOT NULL DEFAULT 'null'"],
+];
+
+function addLateColumns(handle) {
+  for (const [table, col, decl] of ADDED_COLUMNS) {
+    const has = handle.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+    if (!has) handle.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
+  }
 }
 
 /** Current content version. Cheap enough to call every tick. */
@@ -188,6 +264,9 @@ const JSON_FIELDS = {
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
+  fixtures: ['model', 'tiers', 'variants'],
+  workers: ['tags', 'model', 'tiers', 'jobs'],
+  pastimes: ['buys', 'tags', 'model'],
 };
 
 function hydrate(table, row) {
@@ -257,10 +336,26 @@ export function activeModifiers(day) {
   return db().prepare('SELECT * FROM modifiers WHERE expires_day > ?').all(day);
 }
 
+/**
+ * An identical live row is a duplicate write, never a second event: the economy
+ * folds same-event rows down to one anyway, so the extra row moves no number
+ * and only pads the HUD. Skipping it means no path — a restart, a double
+ * `run_director`, a test — can pile up rows that lie about what is happening.
+ * Two rows that differ in any value are two real effects and both go in.
+ *
+ * @returns {boolean} whether a row was written.
+ */
 export function addModifier({ source, label = '', tag, demand_mult = 1, price_mult = 1, expires_day }) {
+  const dupe = db().prepare(`SELECT id FROM modifiers
+                             WHERE source = ? AND label = ? AND tag = ?
+                               AND demand_mult = ? AND price_mult = ? AND expires_day = ?`)
+    .get(source, label, tag, demand_mult, price_mult, expires_day);
+  if (dupe) return false;
+
   db().prepare(`INSERT INTO modifiers (source, label, tag, demand_mult, price_mult, expires_day)
                 VALUES (?, ?, ?, ?, ?, ?)`)
     .run(source, label, tag, demand_mult, price_mult, expires_day);
+  return true;
 }
 
 export function pruneModifiers(day) {

@@ -15,7 +15,10 @@
 
 import { Game } from '../server/sim/index.js';
 import { content } from '../server/content.js';
-import { canPlace } from '../shared/build.js';
+import { canPlace, canPlaceCleanly } from '../shared/build.js';
+import {
+  partsAt, stageIndexAt, isStaged, modelHeight, tierProgress,
+} from '../shared/model.js';
 
 const failures = [];
 let checks = 0;
@@ -26,8 +29,25 @@ const check = (ok, label, detail = '') => {
 const eq = (a, b, label) => check(a === b, label, `expected ${b}, got ${a}`);
 const round2 = (v) => Math.round(v * 100) / 100;
 
+/**
+ * A fixed shop, not just a fixed seed.
+ *
+ * `Game.create` reads the saved world, so an ephemeral game still arrives
+ * furnished with however many fixtures the live save owns and wherever the
+ * player has hand-placed them. That makes this suite go red for the shape of
+ * somebody's aisles rather than for a bug — section 8 needs two shelves side by
+ * side, and a shop already packed by hand has nowhere to put the second. So the
+ * hand-placements go and the ledger is pinned before anything is asserted.
+ */
+const SHOP = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
+
 function fresh() {
   const g = Game.create({ seed: 'mech', ephemeral: true });
+  g.placements = [];
+  g.fixtures = { ...SHOP };
+  g.grow = { w: 0, h: 0 };
+  g.doorShift = 0;
+  g.regenerateLayout();
   g.cash = 5000;
   g.addPlayer('me', 'Tester');
   return g;
@@ -67,14 +87,168 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   plot.ready = true;
   g.players.me.carry = null;
-  check(g.harvest('me', plot.id).ok, 'harvesting works');
-  eq(plot.soil, 'untilled', 'harvesting exhausts the bed back to untilled');
+  const cashBefore = g.cash;
+  const picked = g.harvest('me', plot.id);
+  check(picked.ok, 'harvesting works');
 
-  // And the held-action list has to agree, or the ring never appears.
+  // Picking puts the same crop straight back in rather than exhausting the bed.
+  eq(picked.replanted, anyCrop.id, 'harvesting re-sows the crop it just picked');
+  eq(plot.crop_id, anyCrop.id, 'the plot is planted again');
+  eq(plot.soil, 'tilled', 'and the bed it was picked from stays turned');
+  check(!plot.ready, 'the replanted crop starts from nothing');
+  eq(round2(cashBefore - g.cash), round2(anyCrop.seed_cost), 'the replant seed is paid for');
+
+  // The replant must not re-arm: a plot holding an unripe crop offers nothing,
+  // which is what stops a held finger from cycling the bed.
   g.players.me.carry = null;
+  eq(g.actionFor(g.players.me), null, 'a just-replanted plot arms no further action');
+}
+
+// ---------------------------------------------------------------------------
+// 1c. The seed that goes back in is the one you have selected.
+//
+// Replanting the harvested crop regardless charges for a seed the player was
+// about to replace, so every switch costs two. That is invisible in a single
+// playthrough and was worth about a third of all profit over 60 simulated days.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const plot = g.layout.plots[0];
+  const grown = cropFor(g);
+  // A different crop that will also grow right now, or there is nothing to test.
+  const other = c.crops.find((cr) => cr.id !== grown.id
+    && (!cr.seasons.length || cr.seasons.includes(g.season)));
+
+  stand(g, plot);
+  g.till('me', plot.id);
+  g.plant('me', plot.id, grown.id);
+  plot.ready = true;
+  g.players.me.carry = null;
+
+  if (other) {
+    g.players.me.selectedCrop = other.id;
+    const cashBefore = g.cash;
+    const picked = g.harvest('me', plot.id);
+
+    eq(picked.item_id, grown.item_id, 'you still pick what was actually growing');
+    eq(picked.replanted, other.id, 'but the bed takes the seed you have selected');
+    eq(plot.crop_id, other.id, 'and that is what is now growing there');
+    eq(round2(cashBefore - g.cash), round2(other.seed_cost),
+      'charged once, for the selected seed — never for both');
+  }
+
+  // No seed selected falls back to what was picked, which is the common case:
+  // staff and anything driven headlessly never set one.
+  const g2 = fresh();
+  const plot2 = g2.layout.plots[0];
+  const crop2 = cropFor(g2);
+  stand(g2, plot2);
+  g2.till('me', plot2.id);
+  g2.plant('me', plot2.id, crop2.id);
+  plot2.ready = true;
+  g2.players.me.carry = null;
+  g2.players.me.selectedCrop = null;
+  eq(g2.harvest('me', plot2.id).replanted, crop2.id,
+    'with no seed selected, the crop just picked goes back in');
+}
+
+// ---------------------------------------------------------------------------
+// 1a2. The bed knows its yield the moment it is sown.
+//
+// The renderer draws one plant per unit, so the number has to exist while the
+// crop grows and still be the number harvesting hands over. Rolling it at
+// harvest instead means the bed cannot show what is in it.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const crop = cropFor(g);
+
+  for (const plot of g.layout.plots) {
+    stand(g, plot);
+    g.till('me', plot.id);
+    check(g.plant('me', plot.id, crop.id).ok, `sowing ${plot.id} works`);
+    check(plot.yield >= crop.yield_min && plot.yield <= crop.yield_max,
+      `${plot.id} rolled a yield inside the crop's range`,
+      `got ${plot.yield}, want ${crop.yield_min}..${crop.yield_max}`);
+  }
+
+  // It has to reach the client, or the renderer has nothing to count.
+  const snap = g.snapshot();
+  const shown = snap.plots.find((p) => p.crop_id === crop.id);
+  eq(shown.yield, g.layout.plots.find((p) => p.id === shown.id).yield,
+    'the snapshot carries the yield the bed is holding');
+
+  // And picking hands over exactly what was on show — carry capacity allowing.
+  const plot = g.layout.plots[0];
+  const promised = plot.yield;
+  plot.ready = true;
+  stand(g, plot);
+  g.players.me.carry = null;
+  g.players.me.selectedCrop = null;
+  const picked = g.harvest('me', plot.id);
+  eq(picked.qty + picked.dropped, promised,
+    'you get exactly what the bed was showing, no more and no less');
+  check(plot.yield >= crop.yield_min && plot.yield <= crop.yield_max,
+    'and the auto-replant rolls the next bed its own yield');
+
+  // A bed with nothing in it must not claim a harvest.
+  const bare = g.layout.plots[1];
+  stand(g, bare);
+  g.emptyFixture?.('me', bare.id);
+  g.clearPlot(bare);
+  eq(bare.yield, 0, 'clearing a plot takes its yield with it');
+}
+
+// ---------------------------------------------------------------------------
+// 1b. ...and when it can't re-sow, the old exhaust rule still stands.
+// ---------------------------------------------------------------------------
+{
+  // Too poor for another seed.
+  const g = fresh();
+  const plot = g.layout.plots[0];
+  const crop = cropFor(g);
+  stand(g, plot);
+  g.till('me', plot.id);
+  g.plant('me', plot.id, crop.id);
+  plot.ready = true;
+  g.players.me.carry = null;
+  g.cash = crop.seed_cost / 2;
+
+  const broke = g.harvest('me', plot.id);
+  check(broke.ok, 'you can still pick a crop with no money for the next seed');
+  eq(broke.replanted, null, 'but nothing is re-sown');
+  eq(plot.crop_id, null, 'the bed is left empty');
+  eq(plot.soil, 'untilled', 'and exhausted back to untilled');
+  check(!!broke.why, 'and it says why, rather than the field just going quiet');
+  check(g.cash >= 0, 'a failed replant never overdraws you');
+
+  // The held-action list has to agree, or the ring never appears.
   const action = g.actionFor(g.players.me);
-  eq(action?.kind, 'till', 'standing at a rough plot offers tilling');
+  eq(action?.kind, 'till', 'standing at the exhausted plot offers tilling');
   check((action?.time ?? 1) > 1, 'tilling takes longer than a flat second');
+}
+
+{
+  // Out of season — a crop that can't grow now must not be forced back in.
+  const g = fresh();
+  const seasonal = c.crops.find((cr) => cr.seasons.length);
+  if (seasonal) {
+    const plot = g.layout.plots[0];
+    stand(g, plot);
+    g.season = seasonal.seasons[0];
+    g.till('me', plot.id);
+    check(g.plant('me', plot.id, seasonal.id).ok, 'planting in season works');
+    plot.ready = true;
+    g.players.me.carry = null;
+    // Roll on to a season this crop does not grow in.
+    g.season = ['spring', 'summer', 'autumn', 'winter'].find((s) => !seasonal.seasons.includes(s));
+
+    const out = g.harvest('me', plot.id);
+    check(out.ok, 'harvesting still works out of season');
+    eq(out.replanted, null, 'an out-of-season crop is not re-sown');
+    eq(plot.crop_id, null, 'the bed is left empty instead');
+    check(!g.replantable(seasonal).ok, 'and replantable() agrees it could not grow');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +288,12 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
   g.dropGoods(anyItem.id, 5, g.layout.bay);
   check(g.stow('me').ok, 'stowing beside a matching crate works');
-  eq(g.actionFor(g.players.me), null, 'and does not immediately offer to unload it again');
+  // Specifically *unload*, not "nothing at all". This boots from the live save,
+  // so whatever the shop currently has near its bay can legitimately arm
+  // something else, and asserting silence made this fail whenever the other
+  // half of the co-op happened to build near the loading pad.
+  check(g.actionFor(g.players.me)?.kind !== 'unload',
+    'and does not immediately offer to unload it again');
   g.setInput('me', 1, 0);
   g.stepPlayers(0.1);
   eq(g.actionFor(g.players.me)?.kind, 'unload', 'walking clears the lock, so pickup works again');
@@ -417,6 +596,293 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 }
 
 // ---------------------------------------------------------------------------
+// 10. Staged models. One resolver, whatever the 0..1 means to the caller.
+// ---------------------------------------------------------------------------
+{
+  const flat = { parts: [{ color: '#fff' }] };
+  const staged = {
+    stages: [
+      { name: 'a', at: 0, parts: [{ color: '#100000' }] },
+      { name: 'b', at: 0.5, parts: [{ color: '#200000' }] },
+      { name: 'c', at: 0.9, parts: [{ color: '#300000' }] },
+    ],
+  };
+
+  check(!isStaged(flat), 'a plain model is not staged');
+  check(isStaged(staged), 'a staged one is');
+  eq(partsAt(flat, 0)[0].color, '#fff', 'an unstaged model looks the same at 0');
+  eq(partsAt(flat, 1)[0].color, '#fff', '...and at 1');
+
+  eq(stageIndexAt(staged, 0), 0, 'brand new is the first stage');
+  eq(stageIndexAt(staged, 0.49), 0, 'just short of the threshold is still the first');
+  eq(stageIndexAt(staged, 0.5), 1, 'reaching it moves you up');
+  eq(stageIndexAt(staged, 1), 2, 'all the way along is the last stage');
+  eq(stageIndexAt(staged, 5), 2, 'and past the end is clamped, not undefined');
+  eq(stageIndexAt(staged, -3), 0, 'as is before the start');
+  eq(partsAt(staged, 0.6)[0].color, '#200000', 'the parts follow the stage');
+  eq(partsAt(null, 1).length, 0, 'a missing model draws nothing rather than throwing');
+
+  // Aiming reads the drawn height off the art, so this has to measure the top
+  // of the tallest part, not the tallest part's position.
+  eq(modelHeight([{ pos: [0, 0.3, 0], scale: [1, 0.4, 1] }]), 0.5, 'height is the top face, not the centre');
+  eq(modelHeight([]), 0, 'nothing is zero tall');
+
+  // A tier ladder maps onto the same 0..1 line.
+  eq(tierProgress(1, 3), 0, 'tier 1 of 3 is the start of the run');
+  eq(tierProgress(3, 3), 1, 'the top tier is the end of it');
+  eq(tierProgress(1, 1), 0, 'a single-rung ladder is always the start');
+}
+
+// ---------------------------------------------------------------------------
+// 10b. ...and the art that is actually in the database.
+//
+// A correct resolver is no help if what someone authored can never be seen.
+// These sweep real content rather than a fixture, so they are the assertions
+// that catch an authoring mistake rather than a coding one.
+// ---------------------------------------------------------------------------
+{
+  const KINDS = [['crop', c.crops], ['fixture', c.fixtures], ['item', c.items]];
+
+  for (const [kind, rows] of KINDS) {
+    for (const row of rows ?? []) {
+      if (!isStaged(row.model)) continue;
+      row.model.stages.forEach((stage, i) => {
+        // Two stages sharing an `at` validate fine — the schema only asks for
+        // non-decreasing — but the resolver takes the LAST one that qualifies,
+        // so the earlier is dead art nobody will ever see.
+        eq(stageIndexAt(row.model, stage.at ?? 0), i,
+          `${kind} ${row.id} stage ${i} ("${stage.name}") can actually be reached`);
+        check(partsAt(row.model, stage.at ?? 0).length > 0,
+          `${kind} ${row.id} stage ${i} ("${stage.name}") draws something`);
+      });
+    }
+  }
+
+  // A crop whose last stage looks like the one before it has no harvest cue.
+  // `ready` flips exactly when growth hits 1, so if the art doesn't change
+  // there, the only way to find a ripe plot is to walk up to every one of
+  // them. Underground crops are what get this wrong: the leaves stop changing
+  // long before the root is worth pulling.
+  for (const crop of c.crops) {
+    if (!isStaged(crop.model)) continue;
+    const stages = crop.model.stages;
+    const lastAt = stages[stages.length - 1].at ?? 1;
+    const before = partsAt(crop.model, Math.max(0, lastAt - 1e-6));
+    check(JSON.stringify(before) !== JSON.stringify(partsAt(crop.model, 1)),
+      `crop ${crop.id} looks different once it is ready to pick`);
+  }
+
+  // Every rung of a fixture ladder has to stay aimable: `pickFixture`
+  // intersects the top plane of the DRAWN art, so a tier resolving to nothing,
+  // or to something lying flat on the floor, is a fixture you cannot click.
+  for (const fx of c.fixtures ?? []) {
+    const rungs = fx.tiers?.length || 1;
+    for (let tier = 1; tier <= rungs; tier++) {
+      const parts = partsAt(fx.model, tierProgress(tier, rungs));
+      check(modelHeight(parts) > 0, `fixture ${fx.id} tier ${tier} has a face to aim at`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 11. Tiers. Upgrading in place: same tile, same stock, better numbers.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  g.setBuildMode('me', true);
+  const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
+  const tiers = g.fixtureTiers('shelf');
+
+  eq(g.fixtureTier(shelf), 1, 'a fixture starts on the bottom rung');
+  if (tiers.length < 2) {
+    check(false, 'shelf content defines a tier ladder to test');
+  } else {
+    const item = content().byId.items[anyItem.id];
+    const capBefore = g.shelfCapacity(shelf, item);
+    shelf.item_id = anyItem.id;
+    shelf.qty = 4;
+    const { x, z } = shelf;
+    const next = g.nextTier(shelf);
+    check(!!next, 'there is a rung above');
+    eq(next.tier, 2, 'and it is the second one');
+
+    const poor = fresh();
+    poor.setBuildMode('me', true);
+    poor.cash = 0;
+    const broke = poor.upgradeFixture('me', poor.layout.shelves[0].id);
+    check(!broke.ok, 'you cannot upgrade what you cannot afford');
+
+    const cash0 = g.cash;
+    const up = g.upgradeFixture('me', shelf.id);
+    check(up.ok, 'upgrading works', up.error);
+    eq(round2(cash0 - g.cash), round2(next.cost), 'and costs exactly what it said');
+
+    const now = g.fixtureAt(x, z);
+    check(!!now, 'it is still on the same tile');
+    eq(g.fixtureTier(now), 2, 'one rung up');
+    eq(now.qty, 4, 'with its stock still on it');
+    check(g.shelfCapacity(now, item) >= capBefore, 'and it holds at least as much as before');
+
+    // Moving and turning must never quietly demote it.
+    check(g.rotateFixture('me', now.id).ok, 'a tiered fixture can still be turned');
+    eq(g.fixtureTier(g.fixtureAt(x, z)), 2, 'and keeps its tier through the turn');
+
+    const carried = g.fixtureAt(x, z);
+    check(g.liftFixture('me', carried.id).ok, 'and lifted');
+    eq(g.players.me.holding?.tier, 2, 'the tier travels in your hands');
+    const dest = findFreeFloor(g, carried.id);
+    const moved = g.dropFixture('me', dest);
+    check(moved.ok, 'and set down again', moved.error);
+    eq(g.fixtureTier(moved.moved), 2, 'still tier 2 on the other side of the shop');
+
+    // Serialisation is what carries it across a restart.
+    const restored = Game.restore(g.serialize());
+    restored.regenerateLayout();
+    eq(restored.fixtureTier(moved.moved), 2, 'and it survives a save/restore round trip');
+
+    // The top of the ladder is the end of it.
+    const top = fresh();
+    top.setBuildMode('me', true);
+    top.cash = 100000;
+    let id = top.layout.shelves[0].id;
+    for (let i = 1; i < tiers.length; i++) {
+      const step = top.upgradeFixture('me', id);
+      check(step.ok, `climbing to tier ${i + 1} works`, step.error);
+      id = step.upgraded;
+    }
+    check(!top.upgradeFixture('me', id).ok, 'the top rung cannot be climbed past');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 12. Tier stats are real. A better shelf keeps things longer than a bare one.
+// ---------------------------------------------------------------------------
+{
+  const probe = fresh();
+  const kind = probe.layout.shelves[0].kind === 'freezer' ? 'freezer' : 'shelf';
+  const ladder = probe.fixtureTiers(kind);
+  const perishable = c.items.find((i) => (i.shelf_life_days ?? 0) > 0 && !i.tags?.includes('shelf-stable'));
+
+  if (!perishable || ladder.length < 2) {
+    check(true, 'no tiered spoilage to test on this content set');
+  } else {
+    /** Put five perishables on shelf 0 and pin it to a tier. */
+    const stocked = (game, tier) => {
+      const shelf = game.layout.shelves[0];
+      game.placements = game.placements.filter((p) => p.id !== shelf.id);
+      game.placements.push({
+        id: shelf.id, kind, x: shelf.x, z: shelf.z, rot: shelf.rot, tier,
+      });
+      shelf.tier = tier;
+      shelf.item_id = perishable.id;
+      shelf.qty = 5;
+      shelf.stockedDay = game.day;
+      return shelf;
+    };
+
+    const days = Math.ceil(perishable.shelf_life_days) + 1;
+    const cheap = fresh();
+    const cheapShelf = stocked(cheap, 1);
+    cheap.day += days;
+    cheap.spoilStock();
+
+    const better = fresh();
+    const betterShelf = stocked(better, ladder.length);
+    better.day += days;
+    better.spoilStock();
+
+    check(betterShelf.qty >= cheapShelf.qty,
+      'a top-tier shelf never spoils sooner than a bottom-tier one');
+    eq(better.fixtureStats(betterShelf).keeps_mult, ladder[ladder.length - 1].keeps_mult ?? 1,
+      'and its stats come from the tier it is on');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 13. Variants. A shape is a look and nothing else: it costs the same, it is
+//     free to change your mind about, and it survives everything that moves a
+//     fixture around — the same journey a tier is put through above.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  g.setBuildMode('me', true);
+  const shapes = content().byId.fixtures?.shelf?.variants ?? [];
+
+  eq(g.fixtureVariant(g.layout.shelves[0]), '', 'a fixture starts as the standard shape');
+
+  if (!shapes.length) {
+    check(false, 'shelf content defines another shape to test');
+  } else {
+    const want = shapes[0].id;
+
+    // Building one. A shape is not a product, so it is priced as the kind.
+    const cash0 = g.cash;
+    const plain = g.placeFixture('me', { kind: 'shelf', ...findFreeFloor(g) });
+    check(plain.ok, 'a standard shelf goes down', plain.error);
+    const paidPlain = round2(cash0 - g.cash);
+
+    const cash1 = g.cash;
+    const spot = findFreeFloor(g);
+    const shaped = g.placeFixture('me', { kind: 'shelf', ...spot, variant: want });
+    check(shaped.ok, 'and so does a shaped one', shaped.error);
+    eq(round2(cash1 - g.cash), paidPlain, 'and it costs exactly what the plain one cost');
+    eq(g.fixtureVariant(g.fixtureAt(spot.x, spot.z)), want, 'it really is that shape');
+
+    // A shape nobody drew is not an error you can build: it falls back.
+    const bogus = g.placeFixture('me', { kind: 'shelf', ...findFreeFloor(g), variant: 'no-such-shape' });
+    check(bogus.ok, 'an unknown shape still builds', bogus.error);
+    eq(g.fixtureVariant(bogus.placed), '', 'as the standard one');
+
+    // Restyling in place: free, and it keeps what is on it.
+    let here = g.fixtureAt(spot.x, spot.z);
+    // Through the layout, not through `fixtureAt` — that one hands back a copy
+    // with the live record on `.ref`, so stocking the copy stocks nothing.
+    Object.assign(g.layout.shelves.find((s) => s.id === here.id), {
+      item_id: anyItem.id, qty: 6,
+    });
+    const cash2 = g.cash;
+    const styled = g.styleFixture('me', here.id, '');
+    check(styled.ok, 'a placed fixture can be restyled', styled.error);
+    eq(round2(g.cash), round2(cash2), 'and it is free');
+    here = g.fixtureAt(spot.x, spot.z);
+    eq(g.fixtureVariant(here), '', 'it changed shape');
+    eq(here.qty, 6, 'and kept its stock');
+
+    check(!g.styleFixture('me', here.id, 'no-such-shape').ok, 'you cannot restyle into a shape that does not exist');
+
+    // The same journey section 11 puts a tier through.
+    check(g.styleFixture('me', here.id, want).ok, 'restyled back');
+    here = g.fixtureAt(spot.x, spot.z);
+    check(g.rotateFixture('me', here.id).ok, 'a shaped fixture can be turned');
+    eq(g.fixtureVariant(g.fixtureAt(spot.x, spot.z)), want, 'and keeps its shape through the turn');
+
+    const carried = g.fixtureAt(spot.x, spot.z);
+    check(g.liftFixture('me', carried.id).ok, 'and lifted');
+    eq(g.players.me.holding?.variant, want, 'the shape travels in your hands');
+    const moved = g.dropFixture('me', findFreeFloor(g, carried.id));
+    check(moved.ok, 'and set down again', moved.error);
+    eq(g.fixtureVariant(moved.moved), want, 'still that shape across the shop');
+
+    if (g.fixtureTiers('shelf').length > 1) {
+      const up = g.upgradeFixture('me', moved.moved);
+      check(up.ok, 'and can still be upgraded', up.error);
+      eq(g.fixtureVariant(up.upgraded), want, 'without losing its shape');
+      eq(g.fixtureTier(up.upgraded), 2, 'while gaining the tier');
+    }
+
+    const restored = Game.restore(g.serialize());
+    restored.regenerateLayout();
+    const last = restored.layout.shelves.find((s) => restored.fixtureVariant(s) === want);
+    check(!!last, 'and the shape survives a save/restore round trip');
+
+    // Same gate as every other named verb.
+    const outside = fresh();
+    check(!outside.styleFixture('me', outside.layout.shelves[0].id, want).ok,
+      'you cannot restyle outside build mode');
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 function findFreeFloor(g, ignoreId = null) {
   const L = g.layout;
@@ -452,9 +918,14 @@ function findFreeGrass(g) {
   return null;
 }
 
+/**
+ * Somewhere this suite can put a fixture without side effects — so the strict
+ * rule, not the player's one. A spot that merely *warns* is legal to build on
+ * now, but it would leave the shop cut off and every later assertion arguing
+ * with a shop nobody can walk through.
+ */
 function canPlaceHere(g, spec, ignoreId = null) {
-  // Deliberately the same entry point the client and the server both use.
-  return canPlace(g.layout, spec, { ignoreId }).ok;
+  return canPlaceCleanly(g.layout, spec, { ignoreId }).ok;
 }
 
 console.log(`\n${checks} assertions\n`);

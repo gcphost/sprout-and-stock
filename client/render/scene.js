@@ -10,15 +10,132 @@
 import * as THREE from 'three';
 import { PALETTE, TILE_STYLE, jitter } from './palette.js';
 import {
-  buildModel, buildCharacter, buildStack, buildBubble, buildCashDrop,
+  buildModel, buildCharacter, buildStack, buildShelfGoods, shelfSlots, buildBubble, buildCashDrop,
+  buildHopperSlots,
   buildTextSprite, buildPallet, buildProgressRing, setRingProgress, buildGhost,
   buildSoil, buildFixtureGhost, buildTargetMarker, disposeGroup, material,
+  buildGrowthBar, setGrowthBar,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
-import { FIXTURES, anchorTile, canPlace } from '../../shared/build.js';
+import { FIXTURES, anchorTile, canPlace, baseTile } from '../../shared/build.js';
+import {
+  isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, variantModel,
+} from '../../shared/model.js';
+import { buildPastimeProp, animateRest } from './pastime.js';
 
-/** How many world tiles fit vertically on screen. Smaller = closer in. */
+/** How many world tiles fit vertically on screen at 1× zoom. Smaller = closer in. */
 const FRUSTUM = 17;
+
+/**
+ * Zoom rides on `camera.zoom` rather than on FRUSTUM, so the frustum stays a
+ * fixed statement about the world and only resize() ever recomputes it. Three's
+ * `unproject` already folds zoom into the inverse projection, which is why
+ * pickTile and pickFixture keep working at any zoom without knowing it exists.
+ */
+const ZOOM_MIN = 0.7;         // wider than the old fixed view, for finding things
+const ZOOM_MAX = 2.4;         // close enough to read a single shelf
+const ZOOM_DEFAULT = 1.45;    // ~12 tiles tall: the shop, not the whole county
+/** Per notch. Multiplicative, so a notch is the same *proportion* in or out. */
+const ZOOM_STEP = 1.12;
+
+/**
+ * How far the ground runs past the last tile.
+ *
+ * Sized against the *camera*, not the tile grid: the point is that zooming all
+ * the way out can never bring the edge of the world on screen. At ZOOM_MIN the
+ * frustum is FRUSTUM/ZOOM_MIN tall (~24 tiles), the camera's ~40° pitch stretches
+ * that across the ground by 1/sin(pitch) (~19 tiles from the centre), an ultrawide
+ * viewport stretches the other axis by `aspect` again (~36 at 3:1), and the camera
+ * rides on the player, who can stand in the very corner of the grid. Corner to
+ * corner that's about 41 tiles, so this is that plus honest headroom.
+ *
+ * It's one box either way — the only thing a bigger apron costs is a bigger
+ * number in a geometry constructor. Note `pickTile` intersects a mathematical
+ * plane rather than this mesh, so no amount of apron can affect aiming.
+ */
+const GROUND_MARGIN = 56;
+
+/**
+ * Fixture kinds whose authored model stands *instead of* their tile block.
+ *
+ * A shelf is a box, so a shelf model replaces that box. A plot is a hole in the
+ * ground: its tile is the bed itself and the soil is drawn on top of it, so a
+ * plot model (a raised frame, say) has to be added to that rather than swapped
+ * for it. Purely a rendering distinction, which is why it lives here and not in
+ * the build rules.
+ */
+const MODEL_REPLACES_TILE = new Set(['shelf', 'freezer', 'checkout', 'station']);
+
+/** Usable width inside a plot's frame, and roughly how wide a crop draws. */
+const BED_SPAN = 0.64;
+const PLANT_FOOTPRINT = 0.4;
+/** Past this a bed just reads as "full"; no authored crop comes close. */
+const BED_MAX = 12;
+
+/** Stable small number from an id, so a bed's scatter survives every rebuild. */
+function hashId(id) {
+  let h = 0;
+  for (let i = 0; i < String(id).length; i++) h = (h * 31 + String(id).charCodeAt(i)) | 0;
+  return Math.abs(h % 997);
+}
+
+/**
+ * Where to stand `count` plants in one bed, and how big to draw each.
+ *
+ * A plot showing a single lettuce when it is about to hand you three is a bed
+ * lying about its own worth — so the count comes from the yield the plot rolled
+ * when it was sown, and the arrangement has to hold anything from one plant to
+ * a full tray without either rattling around or growing through the frame.
+ */
+function plantSpots(count, seed = 0) {
+  const n = Math.max(1, Math.min(BED_MAX, count || 1));
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const pitch = BED_SPAN / Math.max(cols, rows);
+  const scale = Math.min(1, pitch / PLANT_FOOTPRINT);
+
+  const spots = [];
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols);
+    // Centre each row on its own width, so a short final row sits in the
+    // middle of the bed rather than hanging off one edge.
+    const inRow = Math.min(cols, n - r * cols);
+    const c = i - r * cols;
+    // Deterministic wobble: a perfectly square grid reads as printed rather
+    // than planted, and it must wobble the *same* way every rebuild or the
+    // whole bed twitches each time the crop crosses into its next stage.
+    const wob = (k) => ((Math.sin(seed * 0.7 + i * 12.9898 + k * 78.233) * 43758.5453) % 1) * pitch * 0.15;
+    spots.push({
+      x: (c - (inRow - 1) / 2) * pitch + wob(1),
+      z: (r - (rows - 1) / 2) * pitch + wob(2),
+      scale,
+    });
+  }
+  return spots;
+}
+
+/**
+ * Where the sun sits relative to whatever the camera is looking at.
+ *
+ * Deliberately *not* rotated with the view: the sun belongs to the world, so
+ * spinning the camera walks you around static shadows instead of dragging them
+ * with you. It's the one cue that the rotation is a camera move and not the
+ * whole farm turning.
+ */
+const SUN_OFFSET = new THREE.Vector3(26, 40, 14);
+
+/** The camera's home corner. Rotation swings this around Y in quarter turns. */
+const BASE_CAM_OFFSET = new THREE.Vector3(20, 24, 20);
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const QUARTER = Math.PI / 2;
+
+/** Day-cycle endpoints, resolved once so syncState allocates nothing. */
+const SKY_HIGH = new THREE.Color(PALETTE.sky);
+const SKY_DUSK = new THREE.Color(PALETTE.skyDusk);
+const SUN_HIGH = new THREE.Color(PALETTE.sunHigh);
+const SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
+const FILL_HIGH = new THREE.Color(PALETTE.fillHigh);
+const FILL_DUSK = new THREE.Color(PALETTE.fillDusk);
 
 export class Scene {
   constructor(canvas) {
@@ -36,9 +153,19 @@ export class Scene {
     this.scene.background = new THREE.Color(PALETTE.sky);
 
     this.camera = new THREE.OrthographicCamera();
-    this.camOffset = new THREE.Vector3(20, 24, 20);
+    this.camOffset = BASE_CAM_OFFSET.clone();
+    // Which corner we're viewing from, counted in quarter turns and never
+    // wrapped: letting it run to 4, -1 and beyond means easing toward
+    // `camQuarter * QUARTER` always spins the short way round on its own,
+    // with no shortest-arc special case.
+    this.camQuarter = 0;
+    this.camAngle = 0;
     this.camTarget = new THREE.Vector3(22, 0, 17);
     this.camLook = this.camTarget.clone();
+    // Two values, like camTarget/camLook: where the wheel says we're going, and
+    // where we've eased to. Set before resize(), which bakes the projection.
+    this.camZoom = ZOOM_DEFAULT;
+    this.camera.zoom = ZOOM_DEFAULT;
 
     this.setupLights();
 
@@ -48,6 +175,7 @@ export class Scene {
 
     this.players = new Map();
     this.customers = new Map();
+    this.stationProps = new Map();
     this.shelfProps = new Map();
     this.plotProps = new Map();
     this.cashProps = new Map();
@@ -61,7 +189,11 @@ export class Scene {
   }
 
   setupLights() {
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    // Kept on `this` because the day cycle drives its intensity *and* colour —
+    // a fixed white 0.9 fill was most of why the sun was invisible: it swamped
+    // everything the sun did, so dusk only ever got very slightly greyer.
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.9);
+    this.scene.add(this.ambient);
 
     const sun = new THREE.DirectionalLight(0xfff4dd, 1.15);
     sun.position.set(26, 40, 14);
@@ -93,24 +225,88 @@ export class Scene {
     this.renderer.setSize(w, h, false);
   }
 
+  /**
+   * Zoom by a number of notches — positive pulls out, matching the direction a
+   * page scrolls. Clamped, so the wheel can be spun without limit and the view
+   * simply stops. Returns the new target so the caller can report it.
+   */
+  zoomBy(steps) {
+    const z = this.camZoom * ZOOM_STEP ** -steps;
+    this.camZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    return this.camZoom;
+  }
+
+  /**
+   * Turn the camera a quarter of the way round the world, +1 or -1.
+   *
+   * Only four corners exist, so the 45° isometric pitch is exactly preserved at
+   * every stop — a free-range angle would lose it, and would leave the movement
+   * keys mapping onto a direction that no longer means anything.
+   */
+  rotateView(dir) {
+    this.camQuarter += Math.sign(dir);
+    return this.camQuarter;
+  }
+
+  /** Quarter turns from home, normalised to 0..3, for mapping input. */
+  get quarter() {
+    return ((this.camQuarter % 4) + 4) % 4;
+  }
+
   setCatalog(catalog) {
     this.catalog = {
       items: Object.fromEntries(catalog.items.map((i) => [i.id, i])),
       crops: Object.fromEntries(catalog.crops.map((c) => [c.id, c])),
+      fixtures: Object.fromEntries((catalog.fixtures ?? []).map((f) => [f.id, f])),
+      // A hire is drawn from its kind, so the renderer reads the same rows the
+      // Staff menu does.
+      workers: Object.fromEntries((catalog.workers ?? []).map((w) => [w.id, w])),
+      // ...and what they're holding while they're on a break comes off the
+      // pastime, for the same reason: a break redrawn over MCP should reach the
+      // person already sat on the step, not only the next one who stops.
+      pastimes: Object.fromEntries((catalog.pastimes ?? []).map((p) => [p.id, p])),
+      // Kept as a list, not keyed: what an appliance shows is chosen by looking
+      // across every recipe its kind can make, not by looking one up.
+      recipes: catalog.recipes ?? [],
     };
     // Content changed — force props to rebuild with any new models.
     for (const [, rec] of this.shelfProps) rec.key = null;
     for (const [, rec] of this.plotProps) rec.key = null;
+    // ...including the people already on shift, so a worker kind redrawn over
+    // MCP reaches the ones you have rather than only the next one you hire.
+    for (const [, rec] of this.players) rec.key = null;
+    for (const [, rec] of this.stationProps) rec.key = null;
+    // Fixtures are built with the world, so redrawing one means redrawing that.
+    // This also covers the ordinary boot order: the catalog usually lands after
+    // the first layout, and without it the shop would be furnished with the
+    // fallback blocks until something else happened to re-flow it.
+    this.rebuildWorld();
   }
 
   // -------------------------------------------------------------------------
   // Static world
   // -------------------------------------------------------------------------
 
+  /** Redraw the world we already have — for when the art changed, not the shop. */
+  rebuildWorld() {
+    if (!this._layout) return;
+    this.layoutVersion = -1;
+    this.buildWorld(this._layout);
+  }
+
   buildWorld(layout) {
     if (layout.version === this.layoutVersion) return;
     this.layoutVersion = layout.version;
+    this._layout = layout;
     const L = layout.layout ?? layout;
+    this._pickPlanes = null;
+
+    // Tiles a fixture's own model is about to stand on. Drawing both would put
+    // a shelf inside a shelf-coloured block.
+    const modelled = new Set();
+    for (const f of fixturesIn(L)) {
+      if (this.fixtureModel(f) && MODEL_REPLACES_TILE.has(f.kind)) modelled.add(`${f.x},${f.z}`);
+    }
 
     // Every geometry under staticRoot was built for the previous layout, and
     // `clear()` alone drops the references without freeing the GPU buffers.
@@ -125,9 +321,11 @@ export class Scene {
     // leaked a fresh set on every re-flow, and build mode re-flows constantly.
     this.clearFixtureProps();
 
-    // Ground: one big plane rather than 1500 grass tiles.
+    // Ground: one big plane rather than 1500 grass tiles. It runs well past the
+    // last tile — see GROUND_MARGIN — so the world never visibly ends, and so
+    // shoppers walking on from off the map have land to walk in over.
     const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(L.w + 3, 0.4, L.h + 3),
+      new THREE.BoxGeometry(L.w + GROUND_MARGIN * 2, 0.4, L.h + GROUND_MARGIN * 2),
       material(PALETTE.grass),
     );
     ground.position.set(L.w / 2, -0.2, L.h / 2);
@@ -138,7 +336,11 @@ export class Scene {
     const byKind = new Map();
     for (let z = 0; z < L.h; z++) {
       for (let x = 0; x < L.w; x++) {
-        const kind = L.tiles[z * L.w + x];
+        // A fixture drawn from its own model still needs the ground it stands
+        // on. Skipping the tile outright left a hole, and once fixtures stopped
+        // filling their tile edge to edge you could see straight through it to
+        // the grass under the shop — as a green outline around every unit.
+        const kind = modelled.has(`${x},${z}`) ? baseTile(L, x, z) : L.tiles[z * L.w + x];
         if (kind === 0) continue;
         if (!byKind.has(kind)) byKind.set(kind, []);
         byKind.get(kind).push([x, z]);
@@ -194,6 +396,7 @@ export class Scene {
       }
     }
 
+    this.addFixtureProps(L);
     this.addAwning(L);
     this.camTarget.set(L.door.x, 0, L.door.z + 2);
     this.storeLayout = L;
@@ -209,8 +412,69 @@ export class Scene {
       for (const [, rec] of map) {
         this.actorRoot.remove(rec.group);
         disposeGroup(rec.group);
+        // The crop readouts are a second actorRoot child, so they need taking
+        // out by name. Clearing the map alone would strand every bar and
+        // bubble in the scene at the old plot positions, and leak another set
+        // on every re-flow — the same way the stacks once did.
+        if (rec.overlay) {
+          this.actorRoot.remove(rec.overlay);
+          disposeGroup(rec.overlay);
+        }
       }
       map.clear();
+    }
+  }
+
+  /**
+   * The authored look of a fixture kind, or null if nobody has drawn one yet.
+   * Content, so a shelf can be redesigned live; the rules for where it may go
+   * stay in `shared/build.js`.
+   *
+   * Which *shape* of that kind comes off the fixture itself, because a corner
+   * unit and a straight one are the same kind standing on the same tile.
+   *
+   * An appliance falls back to its own `station` kind as the variant, so a
+   * blender and a toaster can look nothing like each other while staying one
+   * fixture kind with one tier ladder. That's the whole variant bargain — a
+   * look costs nothing and moves no number — and it means drawing a new
+   * appliance is an MCP call rather than a change in here.
+   */
+  fixtureModel(f) {
+    const kind = this.catalog.fixtures?.[f.kind];
+    // `||`, not `??`: an unstyled fixture carries `variant: ''` rather than
+    // nothing, and an empty string is a perfectly good value as far as `??` is
+    // concerned — which quietly handed every appliance the generic model back.
+    const variant = f.variant || (f.kind === 'station' ? f.station : null);
+    return variantModel(kind, variant) ?? null;
+  }
+
+  /** How many tiers this kind has, for turning a tier into 0..1 progress. */
+  fixtureTiers(f) {
+    return this.catalog.fixtures?.[f.kind]?.tiers?.length ?? 1;
+  }
+
+  /** Where this particular fixture sits on its kind's tier ladder, 0..1. */
+  fixtureT(f) {
+    return tierProgress(f.tier ?? 1, this.fixtureTiers(f));
+  }
+
+  /**
+   * Stand every fixture's authored model in the world.
+   *
+   * These go in `staticRoot` with the rest of the building: a fixture only
+   * moves when the layout re-flows, and that is exactly when this runs again.
+   */
+  addFixtureProps(L) {
+    for (const f of fixturesIn(L)) {
+      const model = this.fixtureModel(f);
+      if (!model) continue;
+      const prop = buildModel(model, { t: this.fixtureT(f) });
+      // Models are authored facing east, which is rot 0 — the same convention
+      // the layout generator has always used for which side you work from.
+      prop.rotation.y = -(f.rot ?? 0) * (Math.PI / 2);
+      const base = MODEL_REPLACES_TILE.has(f.kind) ? 0 : (TILE_STYLE[FIXTURES[f.kind]?.tile]?.h ?? 0);
+      prop.position.set(f.x, base, f.z);
+      this.staticRoot.add(prop);
     }
   }
 
@@ -234,12 +498,13 @@ export class Scene {
   // -------------------------------------------------------------------------
 
   syncState(state, myId) {
-    this.syncActors(state.players, this.players, (p) => buildCharacter(p.color, { hat: '#ffffff' }));
+    this.syncActors(state.players, this.players, (p) => this.buildActor(p), (p) => actorKey(p));
     this.syncActors(state.customers, this.customers, (c) => buildCharacter(c.color));
     this.syncShelves(state.shelves);
     this.syncPlots(state.plots);
     this.syncCashDrops(state.cashDrops ?? []);
     this.syncDeliveries(state.deliveries ?? []);
+    this.syncStations(state.stations ?? []);
     this.syncActionRings(state.players, myId);
     this.syncGhost(state, myId);
     this.syncLifted(state.players.find((p) => p.id === myId));
@@ -248,21 +513,57 @@ export class Scene {
     const me = state.players.find((p) => p.id === myId);
     if (me) this.camTarget.set(me.x, 0, me.z);
 
-    // Warm daylight through the day, cooler at open/close.
+    // The day cycle. `daylight` is 0 at open and close, 1 at midday.
+    //
+    // Everything below moves together, which is the point: the old version only
+    // nudged sun intensity between 0.55 and 1.30 while a flat 0.9 white ambient
+    // held the floor, so noon and dusk differed by about a tenth of the total
+    // light in the scene and nobody could see it. Now the fill drops away with
+    // the sun and both go warm, so the total swings 2.5 -> 1.0 *and* changes hue.
     const t = state.time ?? 0.5;
     const daylight = Math.sin(Math.PI * Math.min(Math.max((t - 0.25) / 0.6, 0), 1));
-    this.sun.intensity = 0.55 + daylight * 0.75;
+
+    this.sun.intensity = 0.30 + daylight * 1.00;
+    this.sun.color.copy(SUN_DUSK).lerp(SUN_HIGH, daylight);
+
+    this.ambient.intensity = 0.38 + daylight * 0.52;
+    this.ambient.color.copy(FILL_DUSK).lerp(FILL_HIGH, daylight);
+
+    // The sky is the largest single block of colour on screen, so it carries
+    // most of the read. Mutated in place — `background` owns this Color.
+    this.scene.background.copy(SKY_DUSK).lerp(SKY_HIGH, daylight);
   }
 
-  syncActors(list, map, factory) {
+  syncActors(list, map, factory, keyOf = null) {
     const seen = new Set();
     for (const a of list) {
       seen.add(a.id);
+      const key = keyOf ? keyOf(a) : null;
       let rec = map.get(a.id);
+
+      // What this one is drawn as changed — a promotion restaged the model, or
+      // its kind was redrawn over MCP. The bubble and whatever is in their
+      // hands are children of the body, so both leave with it and are re-hung
+      // by the two syncs at the bottom of the loop.
+      if (rec && rec.key !== key) {
+        this.actorRoot.remove(rec.obj);
+        disposeGroup(rec.obj);
+        map.delete(a.id);
+        rec = null;
+      }
+
       if (!rec) {
         const obj = factory(a);
         this.actorRoot.add(obj);
-        rec = { obj, bubble: null, bubbleKey: null, carry: null, carryKey: null };
+        rec = {
+          obj, key, bubble: null, bubbleKey: null, carry: null, carryKey: null,
+          // The break: the prop, which stage of it is built, whether they are
+          // on one, and how far the body has eased into the slump. `phase` is
+          // per-person and stable, so two hires sat on the same step don't
+          // breathe in time with each other.
+          pastime: null, pastimeKey: null, resting: false, slump: 0,
+          phase: (hashId(a.id) % 628) / 100,
+        };
         map.set(a.id, rec);
         obj.position.set(a.x, 0, a.z);
       }
@@ -275,6 +576,7 @@ export class Scene {
       // through one bubble meant you could never tell which you were looking at.
       this.syncBubble(rec, a.want ?? null);
       this.syncCarry(rec, a.carry ?? null);
+      this.syncPastime(rec, a);
     }
     for (const [id, rec] of map) {
       if (!seen.has(id)) {
@@ -282,6 +584,24 @@ export class Scene {
         map.delete(id);
       }
     }
+  }
+
+  /**
+   * What one player-table entry is drawn as.
+   *
+   * A hire comes out of its kind's authored `model`, restaged by the rung they
+   * have climbed to — the same `model` + `tiers` pair a shelf uses, resolved
+   * through the same `tierProgress`. Workers were the last visible thing in the
+   * game still hardcoded to a coloured capsule, and a promotion that changed a
+   * number but not the person was half a ladder.
+   *
+   * Everyone else keeps the built-in character: a shopper is not authored
+   * content, and the one in the white hat is you.
+   */
+  buildActor(p) {
+    const kind = p.staff ? this.catalog.workers?.[p.staff] : null;
+    if (!kind?.model) return buildCharacter(p.color, { hat: '#ffffff' });
+    return buildModel(kind.model, { t: tierProgress(p.tier ?? 1, kind.tiers?.length ?? 1) });
   }
 
   /** Money sitting on a counter waiting to be picked up. */
@@ -329,6 +649,91 @@ export class Scene {
       disposeGroup(obj);
       this.deliveryProps.delete(id);
     }
+  }
+
+  /**
+   * Which recipe an appliance is working toward.
+   *
+   * A blender knows two, so "the first one" would have a machine half-loaded
+   * with tomatoes advertising the ingredients for a smoothie. The one it is
+   * closest to being able to make is the one you are actually part-way through,
+   * and it flips over to the other as soon as you put a different thing in.
+   */
+  stationRecipe(st) {
+    const mine = (this.catalog.recipes ?? []).filter((r) => r.station === st.station);
+    if (!mine.length) return null;
+    if (st.making) return mine.find((r) => r.id === st.making) ?? mine[0];
+
+    const shortfall = (r) => r.inputs
+      .reduce((n, i) => n + Math.max(0, i.qty - (st.contents?.[i.item_id] ?? 0)), 0);
+    return mine.slice().sort((a, b) => shortfall(a) - shortfall(b))[0];
+  }
+
+  /**
+   * What each appliance is waiting for, floating above it.
+   *
+   * A coffee machine with no milk looks exactly like one about to run, and the
+   * only way to tell them apart was to enter build mode and read a text panel
+   * that lists recipe *names* and not their ingredients. So the ingredients
+   * hang over the machine instead — see `buildHopperSlots`.
+   *
+   * Nothing is shown while it's mid-cycle or holding a finished batch: those
+   * are their own states, and a row of ghosts over a working machine is noise.
+   */
+  syncStations(stations) {
+    const seen = new Set();
+
+    for (const st of stations) {
+      seen.add(st.id);
+      const busy = Boolean(st.making || st.output);
+      const recipe = busy ? null : this.stationRecipe(st);
+      const slots = (recipe?.inputs ?? []).map((i) => ({
+        model: this.catalog.items[i.item_id]?.model ?? null,
+        ready: (st.contents?.[i.item_id] ?? 0) >= i.qty,
+      }));
+
+      // Rebuilt only when what it says changes, but repositioned every sync —
+      // an appliance you move in build mode has to take its readout with it.
+      const key = recipe
+        ? `${recipe.id}:${slots.map((s) => (s.ready ? 1 : 0)).join('')}`
+        : 'idle';
+      let rec = this.stationProps.get(st.id);
+
+      if (!rec || rec.key !== key) {
+        if (rec?.group) {
+          this.actorRoot.remove(rec.group);
+          disposeGroup(rec.group);
+        }
+        const group = slots.length ? buildHopperSlots(slots) : null;
+        if (group) this.actorRoot.add(group);
+        rec = { key, group };
+        this.stationProps.set(st.id, rec);
+      }
+
+      if (rec.group) rec.group.position.set(st.x, this.stationSlotY(st), st.z);
+    }
+
+    for (const [id, rec] of this.stationProps) {
+      if (seen.has(id)) continue;
+      if (rec.group) {
+        this.actorRoot.remove(rec.group);
+        disposeGroup(rec.group);
+      }
+      this.stationProps.delete(id);
+    }
+  }
+
+  /**
+   * Just clear of *this* appliance, so the row never sits inside one — measured
+   * per station now that a toaster and an espresso machine are different heights.
+   *
+   * `modelHeight` wants parts rather than a model; handing it the model iterates
+   * an object and throws, which took out the whole sync loop after the first
+   * station the first time round.
+   */
+  stationSlotY(st) {
+    const model = this.fixtureModel({ kind: 'station', station: st?.station });
+    return (model ? modelHeight(partsAt(model, 1)) : 1) + 0.42;
   }
 
   /**
@@ -404,8 +809,19 @@ export class Scene {
     return { x, z };
   }
 
-  /** How tall this kind of fixture is drawn — the plane its top face sits on. */
+  /**
+   * How tall this fixture is *drawn* — the plane its top face sits on.
+   *
+   * Read off the authored model when there is one, because the whole point of
+   * aiming is that you click what you can see. A picker using a constant while
+   * the art says otherwise is the neighbour-selecting bug all over again, just
+   * arriving through content instead of code.
+   */
   fixtureHeight(f) {
+    const model = this.fixtureModel(f);
+    if (model && MODEL_REPLACES_TILE.has(f.kind)) {
+      return modelHeight(partsAt(model, this.fixtureT(f)));
+    }
     return TILE_STYLE[FIXTURES[f.kind]?.tile]?.h ?? 0;
   }
 
@@ -425,14 +841,16 @@ export class Scene {
    */
   pickFixture(clientX, clientY) {
     if (!this.storeLayout) return null;
-    this._pickPlanes ??= [...new Set(Object.values(FIXTURES)
-      .map((d) => TILE_STYLE[d.tile]?.h ?? 0))].sort((a, b) => b - a);
+    // Taken from what is actually standing in this shop, so a tier-3 shelf that
+    // is taller than a tier-1 one gets its own plane. Rebuilt with the world.
+    this._pickPlanes ??= [...new Set(this.allFixtures().map((f) => this.fixtureHeight(f)))]
+      .sort((a, b) => b - a);
 
     for (const h of this._pickPlanes) {
       const t = this.pickTile(clientX, clientY, h);
       if (!t) continue;
       const f = this.fixtureAt(t.x, t.z);
-      if (f && this.fixtureHeight(f) === h) return f;
+      if (f && Math.abs(this.fixtureHeight(f) - h) < 1e-6) return f;
     }
     return null;
   }
@@ -442,14 +860,7 @@ export class Scene {
    * works over in build mode, so the two agree about what a fixture is.
    */
   allFixtures() {
-    const L = this.storeLayout;
-    if (!L) return [];
-    return [
-      ...(L.shelves ?? []).map((s) => ({ ...s, kind: s.kind === 'freezer' ? 'freezer' : 'shelf' })),
-      ...(L.checkouts ?? []).map((c) => ({ ...c, kind: 'checkout' })),
-      ...(L.stations ?? []).map((s) => ({ ...s, kind: 'station' })),
-      ...(L.plots ?? []).map((p) => ({ ...p, kind: 'plot' })),
-    ];
+    return fixturesIn(this.storeLayout);
   }
 
   /**
@@ -501,7 +912,10 @@ export class Scene {
       return null;
     }
     const verdict = canPlace(this.storeLayout, spec, { ignoreId: spec.moveId ?? null });
-    const key = `${spec.kind}:${spec.x}:${spec.z}:${spec.rot}:${verdict.ok}`;
+    // Three answers, so the cache key has to carry which one — an amber ghost
+    // and a green one are the same `ok`.
+    const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
+    const key = `${spec.kind}:${spec.x}:${spec.z}:${spec.rot}:${state}`;
     if (this.buildGhostKey === key) return verdict;
     this.buildGhostKey = key;
     this.clearBuildGhost(true);
@@ -512,7 +926,7 @@ export class Scene {
     const g = buildFixtureGhost(
       TILE_STYLE[def.tile]?.h ?? 0.5,
       TILE_STYLE[def.tile]?.color,
-      verdict.ok,
+      state,
       def.anchor ? { dx: a.x, dz: a.z } : null,
     );
     g.position.set(spec.x, 0, spec.z);
@@ -695,12 +1109,47 @@ export class Scene {
     rec.carry = held;
   }
 
+  /**
+   * What someone on a break has got with them.
+   *
+   * A child of the body like the bubble and the carry, and for the same reason:
+   * it follows them to the spot and leaves with them when their kind is
+   * redrawn, rather than being a second thing to remember to move.
+   *
+   * Two numbers arrive and they are used very differently. `pastime` says which
+   * prop, so it belongs in a key. `breakProgress` says which *stage* of it — and
+   * keying on that raw 0..1 would tear down and rebuild this geometry on every
+   * snapshot for a fraction of a mug. So the key carries the stage index, and
+   * everything between two stages is `animateRest`'s problem, at 60fps.
+   *
+   * `resting` is set outside the key check on purpose: the slump is the half
+   * that reads from across the shop, and it has to work for a pastime nobody has
+   * drawn a prop for yet.
+   */
+  syncPastime(rec, p) {
+    rec.resting = !!p.pastime;
+    const model = p.pastime ? (this.catalog.pastimes?.[p.pastime]?.model ?? null) : null;
+    const t = p.breakProgress ?? 0;
+    const key = model ? `${p.pastime}:${stageIndexAt(model, t)}` : null;
+    if (rec.pastimeKey === key) return;
+    rec.pastimeKey = key;
+
+    if (rec.pastime) {
+      rec.obj.remove(rec.pastime);
+      disposeGroup(rec.pastime);
+      rec.pastime = null;
+    }
+    if (!key) return;
+
+    rec.pastime = buildPastimeProp(model, t);
+    rec.obj.add(rec.pastime);
+  }
+
   syncShelves(shelves) {
     if (!this.storeLayout) return;
     for (const s of shelves) {
       const def = this.storeLayout.shelves.find((x) => x.id === s.id);
       if (!def) continue;
-      const key = `${s.item_id}:${Math.ceil(s.qty / 4)}`;
       let rec = this.shelfProps.get(s.id);
 
       if (!rec) {
@@ -711,7 +1160,27 @@ export class Scene {
       // Re-read the position every sync rather than only on creation. A shelf
       // you pick up and set down elsewhere keeps its id so its stock follows —
       // which only works if the stack follows the shelf too.
-      rec.group.position.set(def.x, TILE_STYLE[T.SHELF].h, def.z);
+      //
+      // Everything about where goods sit comes from what the shelf is actually
+      // *drawn* as, not from a constant: once a shelf's look is authored
+      // content, a redesign or a tier that changes its shape would otherwise
+      // leave every stack in the shop hanging in mid-air above it.
+      const fx = { ...def, kind: def.kind === 'freezer' ? 'freezer' : 'shelf' };
+      const rows = surfacesAt(this.fixtureModel(fx), this.fixtureT(fx));
+      // Rows have a front and a back, so the goods have to turn with the unit.
+      // A flat top doesn't care, which is why this never mattered before.
+      rec.group.rotation.y = -(def.rot ?? 0) * (Math.PI / 2);
+      rec.group.position.set(def.x, rows.length ? 0 : this.fixtureHeight(fx), def.z);
+
+      // On a unit with rows every single unit is a prop, so the redraw has to
+      // follow every single unit — `Math.ceil(qty / 4)` was fine when stock was
+      // a three-step pile and would now hold four sales' worth of goods on a
+      // shelf that no longer has them. Clamped one past what can be shown, so a
+      // busy shelf holding forty stops rebuilding once it just reads as full.
+      const shown = rows.length
+        ? Math.min(s.qty, shelfSlots(rows) + 1)
+        : Math.ceil(s.qty / 4);
+      const key = `${s.item_id}:${shown}:${rows.length}`;
       if (rec.key === key) continue;
       rec.key = key;
       rec.group.clear();
@@ -719,7 +1188,9 @@ export class Scene {
       if (!s.item_id || s.qty <= 0) continue;
       const item = this.catalog.items[s.item_id];
       if (!item) continue;
-      rec.group.add(buildStack(item.model, s.qty, item.stack));
+      rec.group.add(rows.length
+        ? buildShelfGoods(item.model, s.qty, rows)
+        : buildStack(item.model, s.qty, item.stack));
     }
   }
 
@@ -728,17 +1199,34 @@ export class Scene {
     for (const p of plots) {
       const def = this.storeLayout.plots.find((x) => x.id === p.id);
       if (!def) continue;
-      const stage = p.ready ? 3 : Math.floor((p.growth ?? 0) * 3);
+      const grown = p.ready ? 1 : (p.growth ?? 0);
+      const crop = p.crop_id ? this.catalog.crops[p.crop_id] : null;
+      // A staged crop rebuilds when it crosses into the next stage; an unstaged
+      // one only ever has the four sizes the ramp below gives it. Either way the
+      // key stops us rebuilding geometry sixty times a second for 1% of growth.
+      const stage = isStaged(crop?.model)
+        ? stageIndexAt(crop.model, grown)
+        : (p.ready ? 3 : Math.floor(grown * 3));
       const soil = p.soil ?? 'untilled';
-      const key = `${soil}:${p.crop_id}:${stage}`;
+      // How many plants are in the bed is part of what it looks like, so a
+      // re-roll after replanting has to rebuild it.
+      const count = Math.max(1, p.yield || 1);
+      const key = `${soil}:${p.crop_id}:${stage}:${count}`;
       let rec = this.plotProps.get(p.id);
 
       if (!rec) {
-        rec = { group: new THREE.Group(), key: null };
-        this.actorRoot.add(rec.group);
+        rec = {
+          group: new THREE.Group(), overlay: new THREE.Group(),
+          key: null, bar: null, bubble: null, bubbleKey: null,
+        };
+        this.actorRoot.add(rec.group, rec.overlay);
         this.plotProps.set(p.id, rec);
       }
       rec.group.position.set(def.x, TILE_STYLE[T.PLOT].h, def.z);
+      rec.overlay.position.copy(rec.group.position);
+      // Before the cache check, not after: the readout has to move every sync
+      // even on the ticks where the art is unchanged.
+      this.syncPlotOverlay(rec, p, crop, grown);
       if (rec.key === key) continue;
       rec.key = key;
       disposeGroup(rec.group);
@@ -748,15 +1236,23 @@ export class Scene {
       // crop never looks like it's growing straight out of the lawn.
       rec.group.add(buildSoil(p.crop_id ? 'tilled' : soil, PALETTE));
 
-      if (!p.crop_id) continue;
-      const crop = this.catalog.crops[p.crop_id];
-      if (!crop) continue;
+      if (!p.crop_id || !crop) continue;
 
-      const plant = buildModel(crop.model);
-      // Grow visibly from a sprout to full size.
-      const scale = 0.35 + (p.ready ? 1 : (p.growth ?? 0)) * 0.65;
-      plant.scale.setScalar(scale);
-      rec.group.add(plant);
+      // One plant per unit the bed will yield, so what is growing there is what
+      // picking it hands over.
+      for (const spot of plantSpots(count, hashId(p.id))) {
+        const plant = buildModel(crop.model, { t: grown });
+        // A crop that draws its own stages has already said what growing looks
+        // like — scaling it as well would shrink the sprout it deliberately drew.
+        // Anything with a single model still swells from sprout to full size,
+        // which is the only growth cue it has.
+        if (!isStaged(crop.model)) plant.scale.setScalar(0.35 + grown * 0.65);
+        // Then shrink to share the bed. Multiplied, not assigned, or a crowded
+        // bed of unstaged crops would lose its growth ramp entirely.
+        plant.scale.multiplyScalar(spot.scale);
+        plant.position.set(spot.x, 0, spot.z);
+        rec.group.add(plant);
+      }
 
       if (p.ready) {
         const glow = new THREE.Mesh(
@@ -770,11 +1266,76 @@ export class Scene {
     }
   }
 
+  /**
+   * How far along a crop is, and what it will give you when it's done.
+   *
+   * Deliberately not part of the cached rebuild above. That only fires when a
+   * crop crosses into its next art *stage*, so a bar living in there would
+   * advance four times between seed and harvest and sit frozen in between.
+   *
+   * The two states never both show: a bar that has reached the end says the
+   * same thing as the bubble, and saying it twice is how a readable plot turns
+   * into a cluttered one.
+   */
+  syncPlotOverlay(rec, p, crop, grown) {
+    const growing = !!crop && !p.ready;
+
+    if (growing && !rec.bar) {
+      rec.bar = buildGrowthBar();
+      rec.bar.position.y = 0.95;
+      rec.overlay.add(rec.bar);
+    }
+    if (rec.bar) {
+      rec.bar.visible = growing;
+      if (growing) setGrowthBar(rec.bar, grown);
+    }
+
+    // Ready: the produce itself, in the same thought-bubble a shopper uses to
+    // say what they came in for. One vocabulary for "this is about <item>",
+    // rather than teaching a second symbol that means the same thing.
+    const item = p.ready && crop ? this.catalog.items[crop.item_id] : null;
+    const key = item?.id ?? null;
+    if (rec.bubbleKey === key) return;
+    rec.bubbleKey = key;
+
+    if (rec.bubble) {
+      rec.overlay.remove(rec.bubble);
+      disposeGroup(rec.bubble);
+      rec.bubble = null;
+    }
+    if (!item) return;
+
+    const bubble = buildBubble();
+    const icon = buildModel(item.model, { castShadow: false });
+    icon.scale.setScalar(0.42);
+    icon.position.y = -0.14;
+    bubble.add(icon);
+    bubble.position.y = 1.02;
+    // Offset the bob per plot so a field going ripe doesn't pulse in lockstep.
+    bubble.userData.phase = (rec.overlay.position.x + rec.overlay.position.z) * 0.7;
+    rec.overlay.add(bubble);
+    rec.bubble = bubble;
+  }
+
+  /** Bob every ready-marker, so a ripe plot catches the eye from across the farm. */
+  animatePlots(now) {
+    for (const rec of this.plotProps.values()) {
+      const b = rec.bubble;
+      if (b) b.position.y = 1.02 + Math.sin(now / 1000 * 2.6 + (b.userData.phase ?? 0)) * 0.055;
+    }
+  }
+
   // -------------------------------------------------------------------------
 
   render() {
     const now = performance.now();
     this.animateCash(now);
+    this.animatePlots(now);
+    // Breaks. Nobody who is working costs more than a compare and a return, and
+    // this has to be per-frame rather than per-sync for the same reason the
+    // markers below are: a worker who only slumped ten times a second would
+    // read as the renderer stuttering, not as somebody having a sit down.
+    for (const rec of this.players.values()) animateRest(rec, now);
     if (this.liftedRing) {
       // Animated here rather than in syncLifted: state arrives at 10Hz and a
       // marker that only moves ten times a second reads as a rendering fault.
@@ -796,11 +1357,26 @@ export class Scene {
       this.targetMarker.userData.ring.scale.setScalar(held ? 1.12 : 1 + Math.sin(t * 4) * 0.045);
       this.targetMarker.userData.ring.rotation.z = t * (held ? 1.8 : 0.5);
     }
+    // Eased like camLook, and for the same reason: a wheel notch that snapped
+    // straight to its new scale read as the world flinching rather than as the
+    // camera moving. Snapped once it's close, so we stop rebuilding the
+    // projection matrix every frame forever.
+    const dz = this.camZoom - this.camera.zoom;
+    if (dz) {
+      this.camera.zoom = Math.abs(dz) < 0.002 ? this.camZoom : this.camera.zoom + dz * 0.18;
+      this.camera.updateProjectionMatrix();
+    }
+    // Swing round to the target corner, same easing idea as zoom and camLook.
+    const da = this.camQuarter * QUARTER - this.camAngle;
+    if (da) {
+      this.camAngle += Math.abs(da) < 0.0005 ? da : da * 0.14;
+      this.camOffset.copy(BASE_CAM_OFFSET).applyAxisAngle(AXIS_Y, this.camAngle);
+    }
     this.camLook.lerp(this.camTarget, 0.08);
     this.camera.position.copy(this.camLook).add(this.camOffset);
     this.camera.lookAt(this.camLook);
     this.sun.target.position.copy(this.camLook);
-    this.sun.position.copy(this.camLook).add(new THREE.Vector3(26, 40, 14));
+    this.sun.position.copy(this.camLook).add(SUN_OFFSET);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -809,4 +1385,32 @@ export class Scene {
     this.render();
     return this.renderer.domElement.toDataURL('image/png');
   }
+}
+
+/**
+ * Everything `buildActor` reads, so a body is rebuilt when — and only when —
+ * what it should look like has changed.
+ *
+ * Null for anyone who is not a hire: a shopper and the player never restage, so
+ * their bodies are built once and left alone.
+ */
+function actorKey(p) {
+  return p.staff ? `${p.staff}:${p.tier ?? 1}` : null;
+}
+
+/**
+ * Every fixture in a layout as one uniform list.
+ *
+ * The same shape the server works over in build mode. Both sides having their
+ * own idea of what a fixture is, is how a menu ends up acting on something the
+ * player never pointed at.
+ */
+function fixturesIn(L) {
+  if (!L) return [];
+  return [
+    ...(L.shelves ?? []).map((s) => ({ ...s, kind: s.kind === 'freezer' ? 'freezer' : 'shelf' })),
+    ...(L.checkouts ?? []).map((c) => ({ ...c, kind: 'checkout' })),
+    ...(L.stations ?? []).map((s) => ({ ...s, kind: 'station' })),
+    ...(L.plots ?? []).map((p) => ({ ...p, kind: 'plot' })),
+  ];
 }

@@ -32,11 +32,71 @@ const PART = z.object({
   scale: z.tuple([z.number(), z.number(), z.number()]).default([0.3, 0.3, 0.3]),
   /** Y-axis rotation in degrees. */
   rot: z.number().default(0),
+  /**
+   * "Goods stand on top of this part."
+   *
+   * A shelving unit is rows, and stock belongs *on the rows* — but only the art
+   * knows where they are. Flagging the boards means a redrawn shelf moves its
+   * stock with it, the same way a redrawn fixture already moves its own height.
+   * Nothing else reads it: a model with no surfaces piles goods on its roof,
+   * which is what a chest freezer wants anyway.
+   */
+  surface: z.boolean().default(false),
+  /**
+   * How solid this part is, 0.05..1. Below 1 it's glass: a freezer door you can
+   * see the stock through, a window, a bottle.
+   *
+   * Cheap to allow and hard to author around the lack of — the alternative is
+   * leaving the front off entirely, and a display freezer with no door is a
+   * shelf. Glass casts no shadow either, for the same reason it isn't opaque.
+   */
+  alpha: z.number().min(0.05).max(1).default(1),
+  /**
+   * "This part leaves whoever is holding it." It rises from where it was
+   * authored, spreads, fades out and starts again — vapour, steam, the glow off
+   * a phone screen.
+   *
+   * Same shape of idea as `surface`: a flag on a part that one renderer knows
+   * how to read, rather than a second kind of model. It exists because a puff
+   * is the one thing stages cannot say — a stage arc plays once across a whole
+   * break, and smoke has to keep going. So the arc stays authored and the loop
+   * stays in code, which is the split everywhere else in here.
+   *
+   * Only the pastime prop reads it today, exactly as only shelves read
+   * `surface`. On anything else it is simply ignored.
+   */
+  drift: z.boolean().default(false),
+});
+
+/**
+ * One look, for something that changes as it goes along. `at` is where on the
+ * 0..1 run this stage takes over — see `shared/model.js` for who feeds what
+ * into that number.
+ */
+const STAGE = z.object({
+  name: z.string().max(32).default(''),
+  at: z.number().min(0).max(1).default(0),
+  parts: z.array(PART).min(1).max(8),
 });
 
 export const ModelSchema = z.object({
-  parts: z.array(PART).min(1).max(8),
-}).default({ parts: [{ shape: 'box', color: '#cccccc', pos: [0, 0, 0], scale: [0.3, 0.3, 0.3], rot: 0 }] });
+  /** The whole thing, always. What almost everything wants. */
+  parts: z.array(PART).min(1).max(8).optional(),
+  /** ...or a progression: a sprout, a bush, a laden plant. */
+  stages: z.array(STAGE).min(2).max(6).optional(),
+})
+  .refine((v) => !!v.parts !== !!v.stages, {
+    message: 'give a model either `parts` or `stages`, not both and not neither',
+  })
+  .refine((v) => !v.stages || v.stages.some((s) => (s.at ?? 0) === 0), {
+    message: 'the first stage must start at 0, or a brand new one has nothing to draw',
+    path: ['stages'],
+  })
+  .refine((v) => !v.stages || v.stages.every((s, i, all) => i === 0 || s.at >= all[i - 1].at), {
+    message: 'stages must be ordered by `at`, lowest first',
+    path: ['stages'],
+  })
+  .default({ parts: [{ shape: 'box', color: '#cccccc', pos: [0, 0, 0], scale: [0.3, 0.3, 0.3], rot: 0 }] });
 
 /** Tags are free-form, but we warn on unknown ones so typos surface. */
 const TagList = z.array(z.string().min(1)).min(1).max(12);
@@ -156,6 +216,205 @@ export const RecipeSchema = z.object({
   minutes: z.number().min(0.1).max(120).default(1),
 });
 
+/**
+ * What a kind of fixture looks like, and how far you can upgrade one.
+ *
+ * The *rules* for a fixture stay in code — where it may go, which side you use
+ * it from, whether it rotates (`shared/build.js`). What it looks like and what
+ * a better one is worth are content, so a shelf can be redesigned or given a
+ * third tier without a deploy.
+ *
+ * `id` must be a kind the build rules already know. This is deliberately not a
+ * way to invent new fixture kinds: a kind nobody can place, reach or stand at
+ * is scenery, and that part is behaviour.
+ */
+export const FixtureSchema = z.object({
+  id: slug,
+  name: z.string().min(1).max(48),
+  /**
+   * Staged by tier: stage 1 is what you buy, the last stage is fully upgraded.
+   * An unstaged model just means every tier looks the same.
+   */
+  model: ModelSchema,
+  /**
+   * Other shapes of the same thing: a corner unit, an endcap, a low one.
+   *
+   * A variant is a LOOK and nothing else, and that is enforced by where it
+   * sits rather than by asking authors nicely — it carries a model, while the
+   * numbers live on `tiers` below, one ladder shared by every shape. So a
+   * corner shelf holds exactly what a straight one holds, restyling something
+   * you already own is free, and no variant can ever move the balance or need
+   * `simulate` re-run. Tiers cost money and change numbers; variants are taste.
+   *
+   * The empty id is the kind's own `model` — "Standard" — so every fixture
+   * that never heard of variants still has one.
+   */
+  variants: z.array(z.object({
+    id: slug,
+    name: z.string().min(1).max(32),
+    model: ModelSchema,
+  })).max(8).default([]),
+  /**
+   * Tier 1 is what a new one is, so it costs nothing and is listed first.
+   * Every later tier is something you pay to step up to, in order.
+   */
+  tiers: z.array(z.object({
+    name: z.string().min(1).max(32),
+    cost: z.number().min(0).default(0),
+    /** Units one holds, x this. Shelves and freezers. */
+    capacity_mult: z.number().min(0.1).max(10).default(1),
+    /** How long goods last on it, x this. Freezers mostly. */
+    keeps_mult: z.number().min(0.1).max(20).default(1),
+    /** How fast it works, x this. Appliances, and crops in a plot. */
+    speed_mult: z.number().min(0.1).max(10).default(1),
+  })).min(1).max(6).default([{ name: 'Standard', cost: 0 }]),
+}).refine((v) => (v.tiers?.[0]?.cost ?? 0) === 0, {
+  message: 'tier 1 is what a new one already is, so it must cost 0',
+  path: ['tiers'],
+});
+
+/**
+ * Every job a worker can be given.
+ *
+ * This is the whole vocabulary, and it is deliberately closed: a job is a
+ * function in `server/sim/staff.js`, so a job name nobody implemented is a
+ * worker who stands still. Rejecting it here is the difference between that and
+ * an error you can read.
+ *
+ * Adding one is two edits — a name here and a function there — and every
+ * existing worker can then be given some of it with no further change.
+ */
+export const JOBS = [
+  'serve',    // man a till, take money
+  'restock',  // order wholesale to refill an empty shelf
+  'unload',   // carry a pallet at the bay onto shelves
+  'shelve',   // put what's in hand onto a legal shelf
+  'till',     // turn rough soil over
+  'sow',      // plant the chosen crop in a bare bed
+  'harvest',  // pick a ripe plot
+  'craft',    // load a station, collect what it made
+  'tidy',     // crate what can't be put away
+];
+
+/**
+ * A kind of worker you can hire.
+ *
+ * Same shape as a fixture — staged model, tier ladder — because a worker is a
+ * thing in the world that can be upgraded, and that is exactly what a fixture
+ * is. What makes it a *worker* is `jobs`.
+ */
+export const WorkerSchema = z.object({
+  id: slug,
+  name: z.string().min(1).max(48),
+  tags: z.array(slug).max(12).default([]),
+  /** Staged by tier, so a promotion can change how they look. */
+  model: ModelSchema,
+  /**
+   * What this kind does, and how much of its attention each job gets. A worker
+   * draws from this list weighted, then falls through to the rest — so a weight
+   * reads as priority when only one job has work, and as a share of the day
+   * when several do.
+   */
+  jobs: z.array(z.object({
+    job: z.enum(JOBS),
+    weight: z.number().min(0.1).max(100).default(1),
+  })).min(1).max(JOBS.length),
+  /** Tier 1 is what you hire, so it costs nothing and is listed first. */
+  tiers: z.array(z.object({
+    name: z.string().min(1).max(32),
+    cost: z.number().min(0).default(0),
+    /** How fast they walk, x this. */
+    speed_mult: z.number().min(0.1).max(10).default(1),
+    /** How quickly they take the next job, x this. Higher is faster. */
+    pace_mult: z.number().min(0.1).max(10).default(1),
+    /** How much they carry in one trip, x this. */
+    carry_mult: z.number().min(0.1).max(10).default(1),
+    /**
+     * What keeping them costs, x this. A promotion that raised what they were
+     * worth but not what they cost would be the same free lunch a wage-less
+     * hire was, one rung up: always right the moment you can afford it.
+     */
+    wage_mult: z.number().min(0).max(10).default(1),
+  })).min(1).max(6).default([{ name: 'Standard', cost: 0 }]),
+  /** One-off, to take them on. */
+  cost: z.number().min(0).default(100),
+  /** Charged every day they stay. Zero is free labour — deliberate, not lazy. */
+  wage: z.number().min(0).default(0),
+  speed: z.number().min(0.1).max(20).default(2.6),
+  pace: z.number().min(0.05).max(10).default(0.7),
+  carry: z.number().int().min(1).max(200).default(6),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#7a9e4b'),
+}).refine((v) => (v.tiers?.[0]?.cost ?? 0) === 0, {
+  message: 'tier 1 is what you already hired, so it must cost 0',
+  path: ['tiers'],
+});
+
+/**
+ * Where a pastime has to be done. Anything that needs a *place* names one the
+ * layout already has, because a break spot nobody can path to is a worker who
+ * stands still forever and looks broken.
+ */
+export const PASTIME_SPOTS = [
+  'here',     // wherever they finished — leaning on the nearest thing
+  'outside',  // out the front, on the path
+  'bay',      // round the back, out of sight of the customers
+  'till',     // propped against a counter, pretending to look busy
+];
+
+/**
+ * Something a worker does when they are not working.
+ *
+ * Authored, because "what does a tired shop assistant do on their break" is
+ * flavour and flavour belongs in the database — but the *shape* is load-bearing.
+ * `restores` and `minutes` together set how much of the day a break costs, and
+ * those are the only two numbers the sim reads.
+ *
+ * Deliberately **not** a job. Every job in `JOBS` is drawn by weight, which
+ * answers "how much of their day"; a break is a threshold — you go when you are
+ * spent, not 15% of the time. A `rest` entry in the weighted list would send a
+ * worker off for a coffee mid-queue at full energy, one trip in seven, forever.
+ */
+export const PastimeSchema = z.object({
+  id: slug,
+  name: z.string().min(1).max(48),
+  /** What the roster says they are doing. One clause — the panel is 214px. */
+  doing: z.string().min(1).max(48),
+  /** Where they have to be. See PASTIME_SPOTS. */
+  spot: z.enum(PASTIME_SPOTS).default('here'),
+  /** How long it takes, in seconds of game time. */
+  seconds: z.number().min(1).max(600).default(20),
+  /** How much of a full tank it puts back, 0..1. */
+  restores: z.number().min(0.05).max(1).default(0.5),
+  /**
+   * They buy something off your own shelf to do it — a snack, a drink. Picked
+   * by these tags, paid for at the shelf price, and it lands in the day's
+   * takings like any other sale. A worker is already an entry in `players`;
+   * being briefly a customer costs nothing new.
+   */
+  buys: z.array(z.string().min(1)).max(6).default([]),
+  /** Relative likelihood of picking this one when a break is due. */
+  weight: z.number().min(0).max(100).default(1),
+  /** Workers carrying any of these prefer it. Empty = anyone will do it. */
+  tags: z.array(slug).max(12).default([]),
+  /**
+   * The prop: a mug, a phone, a vape and its cloud, a sandwich. Hung on the
+   * worker while they are on this break and gone the moment they go back to
+   * work, so a break is legible from across the shop rather than only in their
+   * menu — which was the whole complaint about step 8 as built.
+   *
+   * Staged, and **the 0..1 that picks the stage is how far through the break
+   * they are**. A crop feeds that number from growth and a fixture from its
+   * tier; a break feeds it from time, which is the first thing in the game to
+   * do so and cost nothing to add. So a mug empties, a sandwich goes down to
+   * the crusts and a cloud builds and thins, all authored, with no new
+   * machinery and no code that knows what a mug is.
+   *
+   * Null is honest and supported: a pastime with no prop still slumps, so a
+   * shop whose breaks nobody has drawn yet is not a shop of statues.
+   */
+  model: ModelSchema.nullable().default(null),
+});
+
 export const SCHEMAS = {
   item: ItemSchema,
   crop: CropSchema,
@@ -163,4 +422,7 @@ export const SCHEMAS = {
   event: EventSchema,
   upgrade: UpgradeSchema,
   recipe: RecipeSchema,
+  fixture: FixtureSchema,
+  worker: WorkerSchema,
+  pastime: PastimeSchema,
 };

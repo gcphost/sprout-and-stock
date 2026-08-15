@@ -23,7 +23,7 @@
 
 import { makeRng } from '../shared/rng.js';
 import { T, WALKABLE } from '../shared/tiles.js';
-import { anchorTile, queueAxis, canPlace } from '../shared/build.js';
+import { anchorTile, queueAxis, canPlaceCleanly } from '../shared/build.js';
 
 export { T };
 
@@ -208,6 +208,50 @@ function compose(req, storeW, storeH, allowDrops = true) {
   }
   const bay = { x: bayPad.x + 0.5, z: bayPad.z + 0.5 };
 
+  // ---- where shoppers walk on from ----------------------------------------
+  // The edge of the map, not a point in the middle of the field. A customer
+  // blinking into existence five tiles south of the door and evaporating on the
+  // same spot is the one thing that most gave away that the world stops at the
+  // fence — so arrivals start *off* the grid and walk in, and leavers walk back
+  // off it before they despawn.
+  //
+  // `off` is deliberately outside the tile grid: it's a position, never a
+  // pathing goal. A* routes between the edge tile and the door, and the last
+  // few metres in from nowhere are a straight line tacked onto that path.
+  //
+  // Four along the south edge (that's the side the path and the fence gap are
+  // on, so it's the short walk), one each on the east and west flanks below the
+  // building. Nothing on the north edge: arriving behind the shop means walking
+  // the entire perimeter, which reads as a lost tourist rather than a shopper.
+  // How far off the grid they appear. Has to clear the view or you just watch
+  // them blink into being on the grass instead of in the middle of the field:
+  // at the default zoom the camera sees about 9 tiles ahead of the player, and
+  // the map edge is already ~11 from someone standing at a till, so 8 more puts
+  // the arrival comfortably off-screen. Zoomed all the way out you can still
+  // catch one appearing, but by then it's a few pixels at the horizon.
+  const APPROACH_OUT = 8;
+  const approachSpots = [];
+  for (let i = 1; i <= 4; i++) {
+    const x = clampInt((worldW * i) / 5, 1, worldW - 2);
+    approachSpots.push({ x, z: worldH - 1, off: { x, z: worldH - 1 + APPROACH_OUT } });
+  }
+  for (let i = 1; i <= 2; i++) {
+    const z = clampInt(doorZ + ((worldH - doorZ) * i) / 3, doorZ + 1, worldH - 2);
+    approachSpots.push({ x: 0, z, off: { x: -APPROACH_OUT, z } });
+    approachSpots.push({ x: worldW - 1, z, off: { x: worldW - 1 + APPROACH_OUT, z } });
+  }
+
+  const spawn = { x: doorX, z: Math.min(worldH - 2, doorZ + 5) };
+
+  // Checked against the tiles as they finally are, not as they were planned:
+  // a hand-placed fixture is allowed to sit on the perimeter, and an approach
+  // buried under one would spawn shoppers inside it. Falling back to `spawn`
+  // keeps the old behaviour rather than a shop nobody can ever reach.
+  const approachList = () => {
+    const open = approachSpots.filter((a) => WALKABLE.has(at(a.x, a.z)));
+    return open.length > 0 ? open : [{ ...spawn, off: { ...spawn } }];
+  };
+
   // ---- what the player has positioned by hand ------------------------------
   // Applied before anything procedural, so the generator flows around the
   // player's choices rather than fighting them.
@@ -217,7 +261,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const plotsOut = [];
   const layoutSoFar = () => ({
     w: worldW, h: worldH, tiles, store, door: { x: doorX, z: doorZ }, bay,
-    spawn: { x: doorX, z: Math.min(worldH - 2, doorZ + 5) },
+    spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
   });
 
@@ -251,34 +295,42 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // An appliance whose upgrade has been sold isn't a fit problem, so this
       // one is always just dropped rather than grown for.
       if (i === -1) { dropped.push(p); continue; }
-      if (reserved.has(`${p.x},${p.z}`) || !canPlace(layoutSoFar(), p).ok) {
+      if (reserved.has(`${p.x},${p.z}`) || !canPlaceCleanly(layoutSoFar(), p).ok) {
         if (!drop()) return incomplete(layoutSoFar(), null);
         continue;
       }
       stationQueue.splice(i, 1);
       set(p.x, p.z, T.STATION);
       const st = makeStation(p.id, p.station, p.x, p.z, p.rot ?? 2);
+      st.tier = p.tier ?? 1;
+      st.variant = p.variant ?? '';
       stationsOut.push(st);
       reserve(st.useAt);
       continue;
     }
     if (!(budget[p.kind] > 0)) { dropped.push(p); continue; }
-    if (reserved.has(`${p.x},${p.z}`) || !canPlace(layoutSoFar(), p).ok) {
+    if (reserved.has(`${p.x},${p.z}`) || !canPlaceCleanly(layoutSoFar(), p).ok) {
       if (!drop()) return incomplete(layoutSoFar(), null);
       continue;
     }
     budget[p.kind]--;
     if (p.kind === 'plot') {
       set(p.x, p.z, T.PLOT);
-      plotsOut.push(makePlot(p.id, p.x, p.z));
+      plotsOut.push(Object.assign(makePlot(p.id, p.x, p.z), {
+        tier: p.tier ?? 1, variant: p.variant ?? '',
+      }));
     } else if (p.kind === 'checkout') {
       set(p.x, p.z, T.CHECKOUT);
       const till = makeCheckout(layoutSoFar(), p.id, p.x, p.z, p.rot ?? 1, checkoutsOut);
+      till.tier = p.tier ?? 1;
+      till.variant = p.variant ?? '';
       checkoutsOut.push(till);
       reserve(till.serveAt);
     } else {
       set(p.x, p.z, p.kind === 'freezer' ? T.FREEZER : T.SHELF);
       const shelf = makeShelf(p.id, p.kind, p.x, p.z, p.rot ?? 0);
+      shelf.tier = p.tier ?? 1;
+      shelf.variant = p.variant ?? '';
       shelvesOut.push(shelf);
       reserve(shelf.browseAt);
     }
@@ -432,8 +484,10 @@ function compose(req, storeW, storeH, allowDrops = true) {
       doorShift: req.doorShift,
       /** Where pallets land and where you can put things down. */
       bay,
-      /** Customers walk on from off-screen here. */
+      /** Where players clock on, and the anchor for "is outside still reachable". */
       spawn: layout.spawn,
+      /** Map-edge tiles shoppers walk on from and back off to. */
+      approaches: layout.approaches,
       shelves: shelvesOut,
       checkouts: checkoutsOut,
       stations: stationsOut,
@@ -453,6 +507,9 @@ const incomplete = (layout, want) => ({ complete: false, want, layout });
 
 function makeShelf(id, kind, x, z, rot) {
   return {
+    tier: 1,
+    // Which shape it is. Empty means the kind's own model — Standard.
+    variant: '',
     id,
     x,
     z,
@@ -476,6 +533,9 @@ function makeCheckout(L, id, x, z, rot, existing) {
   }));
   const best = runs[0].n >= runs[1].n ? runs[0] : runs[1];
   return {
+    tier: 1,
+    // Which shape it is. Empty means the kind's own model — Standard.
+    variant: '',
     id,
     x,
     z,
@@ -491,6 +551,9 @@ function makeCheckout(L, id, x, z, rot, existing) {
 
 function makeStation(id, station, x, z, rot) {
   return {
+    tier: 1,
+    // Which shape it is. Empty means the kind's own model — Standard.
+    variant: '',
     id,
     station,
     x,
@@ -507,6 +570,9 @@ function makeStation(id, station, x, z, rot) {
 
 function makePlot(id, x, z) {
   return {
+    tier: 1,
+    // Which shape it is. Empty means the kind's own model — Standard.
+    variant: '',
     id,
     x,
     z,

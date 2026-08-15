@@ -27,9 +27,16 @@ import { desireFor } from '../../shared/tags.js';
 const PRICE_BAND = [0.35, 2.5];
 const DEMAND_BAND = [0.1, 4];
 
-export function foldModifiers(modifiers) {
-  // Within one event, take its strongest pull on a tag rather than stacking
-  // its own duplicates; across different events, genuine compounding is fine.
+/**
+ * One row per event-and-tag: within one event take its strongest pull on a tag
+ * rather than stacking its own duplicates; across different events, genuine
+ * compounding is fine.
+ *
+ * The HUD reads this too, and that is the point — a pile of identical rows is a
+ * bookkeeping artefact, not five heat waves, so drawing every row said the
+ * world had gone mad while the sim was reading exactly one of them.
+ */
+export function dedupeModifiers(modifiers) {
   const perEvent = new Map();
   for (const m of modifiers) {
     const key = `${m.label || m.source}::${m.tag}`;
@@ -41,10 +48,13 @@ export function foldModifiers(modifiers) {
       price_mult: Math.abs(m.price_mult - 1) > Math.abs(prev.price_mult - 1) ? m.price_mult : prev.price_mult,
     });
   }
+  return [...perEvent.values()];
+}
 
+export function foldModifiers(modifiers) {
   const demand = {};
   const price = {};
-  for (const m of perEvent.values()) {
+  for (const m of dedupeModifiers(modifiers)) {
     demand[m.tag] = (demand[m.tag] ?? 1) * m.demand_mult;
     price[m.tag] = (price[m.tag] ?? 1) * m.price_mult;
   }

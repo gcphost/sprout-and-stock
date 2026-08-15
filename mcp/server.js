@@ -124,7 +124,7 @@ server.registerTool('list_content', {
   title: 'List existing content',
   description: 'List all items, crops, customer archetypes, events, upgrades or recipes currently in the game. Check here before creating something to avoid duplicating an id.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe']).describe('Which kind of content to list.'),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime']).describe('Which kind of content to list.'),
   },
 }, async ({ kind }) => text(await call('GET', `/content/${kind}`)));
 
@@ -132,6 +132,127 @@ const MODEL_HELP =
   'Appearance, built from primitives — there are no art assets in this game, so you describe what it looks like here. '
   + '`parts` is 1-8 shapes (box, sphere, cone, cylinder, capsule), each with a #rrggbb `color`, `pos` [x,y,z] and `scale` [x,y,z] in world units where 1 = one floor tile. '
   + 'Keep props roughly 0.3-0.5 units tall and sitting on y=0 upward. Example: a tomato is a red sphere at [0,0.16,0] scaled [0.3,0.28,0.3] with a small green cone on top.';
+
+
+const STAGE_HELP =
+  'A model is either `parts` (looks the same always) or `stages` (changes as it goes along). '
+  + 'Each stage is {name, at, parts}, where `at` is where on a 0..1 run that look takes over — the first stage must start at 0. '
+  + 'What feeds that 0..1 depends on the thing: a crop feeds its growth, so stages are seed -> sprout -> laden plant; '
+  + 'a fixture feeds its tier, so stages are what tier 1, 2 and 3 look like.';
+
+server.registerTool('create_fixture', {
+  title: 'Design a fixture, and its upgrade ladder',
+  description:
+    'Set what a kind of fixture LOOKS like and how far a player can upgrade one, or update it by reusing its id. Live in the running shop within about a second.\n\n'
+    + 'The id must be a fixture kind the game already has: shelf, freezer, checkout, station or plot. This is not a way to invent new kinds — where a fixture may go, which side you work it from and whether it rotates are build rules in code, and a fixture nobody can place or reach is scenery.\n\n'
+    + 'TIERS are the progression. Tier 1 is what a newly built one already is, so it must cost 0. Every tier after it is something the player pays to step up to, in place, keeping its stock. The multipliers are what the upgrade is FOR — a tier that changes no numbers and no art is a button that takes money and does nothing:\n'
+    + '  capacity_mult  how many units it holds (shelves, freezers)\n'
+    + '  keeps_mult     how long goods last on it (freezers especially)\n'
+    + '  speed_mult     how fast it works (appliances; on a plot, how fast crops grow)\n\n'
+    + 'Give the model `stages` to make each tier look different — stage 1 is tier 1, the last stage is the top tier. '
+    + 'Models are authored facing EAST (that is rotation 0, the side a shopper stands on), roughly one tile wide, sitting on y=0 upward. Keep the top below 1.1, which is wall height — anything taller stands over the building.\n\n'
+    + 'A fixture that holds stock says WHERE it holds it: flag each part goods should stand on with `surface: true` and they are drawn on those boards, top row filling first. '
+    + 'Leave it off and stock piles on top of the whole thing instead, which is what a counter wants. Face an open unit east so its rows are not drawn behind their own back panel.\n\n'
+    + 'A part can also carry `alpha` (0.05..1) to be glass — a freezer door you see the stock through, a window. Glass casts no shadow.\n\n'
+    + 'VARIANTS are other shapes of the same kind — a corner unit, an endcap, a low one — and they are looks only. They carry a model and nothing else, because the numbers live on the shared tier ladder: '
+    + 'a corner shelf costs and holds exactly what a straight one does, restyling something already built is free and keeps its stock, and no variant can move the balance. Tiers cost money and change numbers; variants are taste.\n\n'
+    + STAGE_HELP,
+  inputSchema: {
+    id: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot']).describe('Which existing fixture kind this describes.'),
+    name: z.string().describe('Display name, e.g. "Shelving".'),
+    model: z.any().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. ' + STAGE_HELP),
+    variants: z.any().optional().describe('Optional other shapes of this kind: [{id, name, model}]. Looks only — no costs, no multipliers, and the kind\'s own model is always offered alongside them as "Standard".'),
+    tiers: z.array(z.object({
+      name: z.string().describe('What this rung is called, e.g. "Chilled" or "Deep Freeze".'),
+      cost: z.number().min(0).describe('What stepping up to it costs. Tier 1 must be 0.'),
+      capacity_mult: z.number().min(0.1).max(10).default(1),
+      keeps_mult: z.number().min(0.1).max(20).default(1),
+      speed_mult: z.number().min(0.1).max(10).default(1),
+    })).min(1).max(6).describe('Lowest rung first. Tier 1 is what a new one already is.'),
+  },
+}, async (args) => text(await call('POST', '/content/fixture', args)));
+
+server.registerTool('create_worker', {
+  title: 'Design a kind of worker',
+  description:
+    'Create or update a kind of worker the player can hire — what they look like, what they cost, and what they are willing to do. Live in the running shop within about a second.\n\n'
+    + 'JOBS are the whole point. A worker is not a role with a hardcoded program; it is a list of jobs with weights, and one generic brain draws from that list. The job names are fixed, because each one is a routine in the sim — anything else is a worker who stands still:\n'
+    + '  serve    man a till and take payment\n'
+    + '  restock  order wholesale to refill an empty shelf\n'
+    + '  unload   carry a pallet at the delivery bay onto shelves\n'
+    + '  shelve   put whatever is in hand onto a legal shelf\n'
+    + '  till     turn rough soil over\n'
+    + '  sow      plant the chosen crop in a bare bed\n'
+    + '  harvest  pick a ripe plot\n'
+    + '  craft    load an appliance and collect what it made\n'
+    + '  tidy     crate up anything that has nowhere to go\n\n'
+    + 'WEIGHT is how much of that worker\'s attention a job gets. They draw from the list weighted, then fall through to the rest if the drawn job has nothing to do — so weight reads as priority when only one job has work, and as a share of the day when several do. serve 10 + harvest 3 is a till worker who wanders out to the crops when nobody is queueing.\n\n'
+    + 'TIERS are the promotion ladder, exactly like a fixture. Tier 1 is who you hired, so it must cost 0. Later tiers cost money and should change numbers AND art, or the button takes money and does nothing:\n'
+    + '  speed_mult  how fast they walk\n'
+    + '  pace_mult   how quickly they pick up the next job\n'
+    + '  carry_mult  how much they carry in one trip\n\n'
+    + 'Give the model `stages` so a promotion is visible — stage 1 is tier 1, the last stage is the top tier. A worker model stands about 0.9 tall on y=0, facing EAST.\n\n'
+    + 'Run `simulate` afterwards. Staff drive most of the shop, so a fast or cheap worker moves the economy more than any single item does.\n\n'
+    + STAGE_HELP,
+  inputSchema: {
+    id: z.string().describe('Slug, e.g. "butcher".'),
+    name: z.string().describe('Display name, e.g. "Butcher".'),
+    tags: z.array(z.string()).optional().describe('Call list_tags first. Events aim at tags, never at a worker id.'),
+    model: z.any().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. ' + STAGE_HELP),
+    jobs: z.array(z.object({
+      job: z.enum(['serve', 'restock', 'unload', 'shelve', 'till', 'sow', 'harvest', 'craft', 'tidy']),
+      weight: z.number().min(0.1).max(100).default(1).describe('Share of their attention. Relative to the other jobs.'),
+    })).min(1).describe('What they will do, and how much of each.'),
+    tiers: z.array(z.object({
+      name: z.string().describe('What this rung is called, e.g. "Head chef".'),
+      cost: z.number().min(0).describe('What promoting to it costs. Tier 1 must be 0.'),
+      speed_mult: z.number().min(0.1).max(10).default(1),
+      pace_mult: z.number().min(0.1).max(10).default(1),
+      carry_mult: z.number().min(0.1).max(10).default(1),
+    })).min(1).max(6).optional().describe('Lowest rung first. Omit for a worker who cannot be promoted.'),
+    cost: z.number().min(0).describe('One-off, to take them on.'),
+    wage: z.number().min(0).optional().describe('Charged every day they stay on. 0 is free labour.'),
+    speed: z.number().min(0.1).max(20).optional().describe('Tiles per second. 2.6 is the shop standard.'),
+    pace: z.number().min(0.05).max(10).optional().describe('Seconds between jobs. Lower is busier; 0.45 is a brisk clerk.'),
+    carry: z.number().int().min(1).optional().describe('Units per trip. 6 matches the player.'),
+    color: z.string().optional().describe('Hex, e.g. "#7a9e4b".'),
+  },
+}, async (args) => text(await call('POST', '/content/worker', args)));
+
+server.registerTool('create_pastime', {
+  title: 'Design something a worker does on their break',
+  description:
+    'Create or update a pastime — what a worker goes and does when they are worn out. Live in the running shop within about a second.\n\n'
+    + 'A worker loses energy with every job they finish. As it drops they get slower, and below a quarter of a tank they stop and take a break: one pastime is drawn by weight, they walk to its spot, and it puts `restores` back. This is deliberately NOT one of the assignable jobs — a job is drawn by weight and answers "how much of their day", while a break is a threshold you hit when you are spent.\n\n'
+    + 'SPOT is where they have to be, and it must be somewhere the layout actually has:\n'
+    + '  here     wherever they finished — leaning on the nearest thing\n'
+    + '  outside  out the front, on the path\n'
+    + '  bay      round the back at the delivery bay, out of sight\n'
+    + '  till     propped against a counter, pretending to look busy\n\n'
+    + 'SECONDS and RESTORES are the only two numbers the sim reads, and together they decide what a break costs you: a long break that restores little is a worker who is barely ever working.\n\n'
+    + 'BUYS makes them a customer of your own shop. Give it item tags and they take one matching item off a shelf and pay the shelf price for it, which lands in the day\'s takings. A snack with no stock on the shelf simply does not happen, so it never blocks the break.\n\n'
+    + 'MODEL is the prop they have with them — a mug, a phone, a vape and its cloud, a sandwich. It hangs on the worker for the length of the break and goes when they get back to work, and it is what makes a break visible from across the shop rather than only in their menu. A worker is about 0.9 tall, their front is +z and their hands are around y 0.6, so [0.16, 0.6, 0.28] is "held out in front" and anything past y 0.9 floats over their head. They also slump and rock while they are resting whether or not you give them a prop, so a pastime with no model is legible, just anonymous.\n\n'
+    + 'Give the model `stages` and the 0..1 that picks between them is HOW FAR THROUGH THE BREAK THEY ARE — the first thing in the game to drive a staged model from time. So a mug empties, a sandwich goes down to the crusts, a cloud builds and thins. That whole arc is authored, and no code knows what a mug is.\n\n'
+    + 'Flag a part `drift: true` and it stops being held: it rises off where you put it, spreads, fades out and starts again. Vapour, steam, the glow off a phone screen. That loop is the one thing stages cannot say, because a stage arc plays once across a twenty-second break — so use stages for what the break does to the prop, and `drift` for what never stops.\n\n'
+    + 'Keep `doing` to one short clause — it is shown in a 214px panel and anything longer is ellipsised away.',
+  inputSchema: {
+    id: z.string().describe('Slug, e.g. "vape-out-back".'),
+    name: z.string().describe('Display name, e.g. "Vape out back".'),
+    doing: z.string().describe('What the roster says while they are at it, e.g. "vaping out back". One clause.'),
+    spot: z.enum(['here', 'outside', 'bay', 'till']).default('here').describe('Where they have to be.'),
+    seconds: z.number().min(1).max(600).default(20).describe('How long it takes, in seconds of game time.'),
+    restores: z.number().min(0.05).max(1).default(0.5).describe('How much of a full tank it puts back, 0..1.'),
+    buys: z.array(z.string()).max(6).optional()
+      .describe('Item tags they will buy one of, off your own shelf, at the shelf price. Call list_tags first.'),
+    weight: z.number().min(0).max(100).default(1).describe('Relative likelihood of picking this one.'),
+    tags: z.array(z.string()).optional().describe('For events to aim at, e.g. "outdoor". Never aim at an id.'),
+    model: z.any().optional().describe(
+      'The prop they have with them: {parts:[...]} or {stages:[{name, at, parts:[...]}]}. '
+      + 'Here the 0..1 feeding the stages is how far through the break they are, so stages are the arc of it — a full mug, a half one, a drained one. '
+      + 'A part with `drift: true` rises, spreads and fades on a loop instead of being held. Omit for a break with no prop.',
+    ),
+  },
+}, async (args) => text(await call('POST', '/content/pastime', args)));
 
 server.registerTool('create_item', {
   title: 'Create or update an item',
@@ -253,7 +374,7 @@ server.registerTool('delete_content', {
   title: 'Delete content',
   description: 'Remove an item, crop, archetype, event, upgrade or recipe from the live game. Deleting an item also deletes crops that produce it.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe']),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime']),
     id: z.string(),
   },
 }, async ({ kind, id }) => text(await call('DELETE', `/content/${kind}/${id}`)));

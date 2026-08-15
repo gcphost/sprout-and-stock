@@ -21,6 +21,9 @@ const EXPORTS = [
   ['events.json', 'events'],
   ['upgrades.json', 'upgrades'],
   ['recipes.json', 'recipes'],
+  ['fixtures.json', 'fixtures'],
+  ['workers.json', 'workers'],
+  ['pastimes.json', 'pastimes'],
 ];
 
 fs.mkdirSync(SEED_DIR, { recursive: true });

@@ -146,16 +146,25 @@ Guidelines:
 export async function runDirector(game, { force = false } = {}) {
   // Guard: one at a time, and not more than once per in-game day.
   if (inFlight) return { ok: false, source: 'skipped', error: 'director already running' };
-  if (!force && game._lastDirectorDay !== undefined
-      && game.day - game._lastDirectorDay < MIN_DAYS_BETWEEN_RUNS) {
+  if (!force && game.lastDirectorDay != null
+      && game.day - game.lastDirectorDay < MIN_DAYS_BETWEEN_RUNS) {
     return { ok: false, source: 'skipped', error: 'already ran today' };
   }
+
+  // Claim the day up front, synchronously, and write it to the save.
+  //
+  // Both mistakes this fixes were invisible: the guard used to be set *after*
+  // the API-key check, so the no-key fallback path — the one that runs for
+  // anyone without a key, i.e. the common case — never marked the day at all;
+  // and it lived only in memory, so even when it was set, a restart lost it.
+  // Between them, every `npm run dev` reload fired another world event onto
+  // the same day. Five copies of one heat wave is what that looks like.
+  markRan(game);
 
   const api = getClient();
   if (!api) return applyFallback(game, 'no ANTHROPIC_API_KEY set');
 
   inFlight = true;
-  game._lastDirectorDay = game.day;
 
   try {
     const response = await api.messages.create({
@@ -187,6 +196,16 @@ export async function runDirector(game, { force = false } = {}) {
   } finally {
     inFlight = false;
   }
+}
+
+/**
+ * Remember that today has had its event, in the one place that survives a
+ * restart. `persist()` is a no-op on an ephemeral game, so a balance run can
+ * never write the live save.
+ */
+function markRan(game) {
+  game.lastDirectorDay = game.day;
+  game.persist();
 }
 
 /**

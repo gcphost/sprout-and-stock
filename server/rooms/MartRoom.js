@@ -14,6 +14,7 @@
 import { Room } from 'colyseus';
 import { Game } from '../sim/index.js';
 import { content, refresh, onContentChange } from '../content.js';
+import { JOBS } from '../../shared/schemas.js';
 import { runDirector } from '../director.js';
 
 /** Every live room, so the HTTP API can find one to poke. */
@@ -89,6 +90,29 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.plant(client.sessionId, m?.plotId, m?.cropId));
     });
 
+    // Sowing from a plot's own menu: does the tilling and the planting in one,
+    // and swaps out whatever was growing. See `Game.sow`.
+    this.onMessage('sow', (client, m) => {
+      client.send('action-result', this.game.sow(client.sessionId, m?.plotId, m?.cropId));
+    });
+
+    // Who works here. Hiring is a roster row, not an upgrade — see Game.hire.
+    this.onMessage('hire', (client, m) => {
+      client.send('action-result', this.game.hire(m?.kind));
+    });
+
+    this.onMessage('fire', (client, m) => {
+      client.send('action-result', this.game.fire(m?.workerId));
+    });
+
+    this.onMessage('assign-jobs', (client, m) => {
+      client.send('action-result', this.game.assignJobs(m?.workerId, m?.jobs));
+    });
+
+    this.onMessage('promote', (client, m) => {
+      client.send('action-result', this.game.promote(m?.workerId));
+    });
+
     this.onMessage('buy-stock', (client, m) => {
       client.send('action-result', this.game.buyStock(client.sessionId, m?.itemId, Number(m?.qty) || 1));
     });
@@ -156,6 +180,18 @@ export class MartRoom extends Room {
       if (res.ok) this.sendLayout();
     });
 
+    this.onMessage('build-upgrade', (client, m) => {
+      const res = this.game.upgradeFixture(client.sessionId, m?.id);
+      client.send('action-result', res);
+      if (res.ok) this.sendLayout();
+    });
+
+    this.onMessage('build-style', (client, m) => {
+      const res = this.game.styleFixture(client.sessionId, m?.id, m?.variant ?? '');
+      client.send('action-result', res);
+      if (res.ok) this.sendLayout();
+    });
+
     this.onMessage('build-remove', (client, m) => {
       const res = this.game.removeFixture(client.sessionId, m?.id);
       client.send('action-result', res);
@@ -198,17 +234,17 @@ export class MartRoom extends Room {
   // world, which makes iterating on the sim miserable.
 
   onCacheRoom() {
-    // `_directorDay` has to survive too. It's the "already asked the director
-    // about today" guard, and losing it means every save-a-file restart fires
-    // another world event for the same day — which is how the HUD ends up
-    // showing the same headline five times over.
-    return { state: this.game.serialize(), directorDay: this._directorDay ?? null };
+    // The "already asked the director about today" guard rides along inside
+    // `serialize()` as `lastDirectorDay`, and is also on the save — it has to
+    // survive a *cold* start as much as a hot one, or every restart fires
+    // another world event for the same day. Caching it here as well would just
+    // be a second copy to get out of step.
+    return { state: this.game.serialize() };
   }
 
   onRestoreRoom(cached) {
     if (!cached?.state) return;
     this.game = Game.restore(cached.state);
-    this._directorDay = cached.directorDay ?? this.game.day;
     // Players reconnect as new sessions, so old player entries are stale.
     this.game.players = {};
     console.log(`[room] ${this.roomId} restored at day ${this.game.day}`);
@@ -234,6 +270,21 @@ export class MartRoom extends Room {
       // recipe list. Tiny, and it means a recipe added via MCP shows up in the
       // blender's menu the moment it exists.
       recipes: c.recipes,
+      // What each kind of fixture looks like and how far it upgrades. This is
+      // what the renderer builds shelves out of, so it has to travel with the
+      // rest of the catalog rather than being baked into the client.
+      fixtures: c.fixtures,
+      // The Staff menu lists who you can take on, what they cost and what they
+      // will do — all authored, so a new kind of worker needs no client change.
+      workers: c.workers,
+      // Every job that can be assigned. Sent rather than copied into the client
+      // so the assignment screen offers exactly what `staff.js` implements — a
+      // tenth job appears in the menu the moment the vocabulary grows, and a
+      // job the client invented could never be offered.
+      jobs: JOBS,
+      // What a worn-out hire goes off and does. Authored, so the roster can
+      // name it without the client keeping its own list of breaks.
+      pastimes: c.pastimes,
       // What one more of each fixture costs in build mode. Derived from the
       // upgrades that sell them, so adding a cheaper shelf upgrade via MCP
       // reprices the build palette with no code change.
@@ -251,8 +302,11 @@ export class MartRoom extends Room {
     // A new in-game day: let the director decide what happens in town.
     // Deliberately fire-and-forget — the sim keeps ticking while it thinks,
     // and a failure just means the world stays as it was.
-    if (this._directorDay !== this.game.day) {
-      this._directorDay = this.game.day;
+    //
+    // The day is claimed inside `runDirector`, synchronously, so this can't
+    // re-fire on the next tick — and unlike the room-local flag this replaces,
+    // what it claims is on the save.
+    if (this.game.lastDirectorDay !== this.game.day) {
       runDirector(this.game).then((res) => {
         if (res?.ok) this.broadcast('news', { headline: res.headline, source: res.source });
       }).catch((err) => console.error('[room] director error:', err.message));

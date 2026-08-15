@@ -22,7 +22,9 @@ import { OPEN_HOUR } from './sim/index.js';
 
 const KINDS = {
   item: 'items', crop: 'crops', archetype: 'archetypes',
-  event: 'events', upgrade: 'upgrades', recipe: 'recipes',
+  event: 'events', upgrade: 'upgrades', recipe: 'recipes', fixture: 'fixtures',
+  worker: 'workers',
+  pastime: 'pastimes',
 };
 
 export function createApi() {
