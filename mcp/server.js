@@ -122,9 +122,9 @@ server.registerTool('list_tags', {
 
 server.registerTool('list_content', {
   title: 'List existing content',
-  description: 'List all items, crops, customer archetypes, events, or upgrades currently in the game. Check here before creating something to avoid duplicating an id.',
+  description: 'List all items, crops, customer archetypes, events, upgrades or recipes currently in the game. Check here before creating something to avoid duplicating an id.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade']).describe('Which kind of content to list.'),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe']).describe('Which kind of content to list.'),
   },
 }, async ({ kind }) => text(await call('GET', `/content/${kind}`)));
 
@@ -227,11 +227,33 @@ server.registerTool('create_upgrade', {
   },
 }, async (args) => text(await call('POST', '/content/upgrade', args)));
 
+server.registerTool('create_recipe', {
+  title: 'Create or update a recipe',
+  description:
+    'Teach an appliance to turn ingredients into something worth more than the sum of its parts, or update an existing recipe by reusing its id. Live in the running shop within about a second.\n\n'
+    + 'The `station` is named, not hardcoded, so a recipe written today works on an appliance added next month — it just has to match the `payload.station` of a station upgrade (list_content upgrade to see which exist). '
+    + 'A player tips ingredients into the appliance and the chef, or they themselves, take the finished goods out.\n\n'
+    + 'The output item must already exist, and it earns its price from ITS OWN tags — so tag a crafted item for what it is (a smoothie is beverage + healthy), not for what went into it. '
+    + 'Run simulate afterwards: the balance bot does not work appliances, so crafted goods show up under deadStock there and have to be judged in the live shop instead.',
+  inputSchema: {
+    id: z.string().describe('lowercase-kebab-case unique id, e.g. "berry-smoothie".'),
+    name: z.string().describe('Display name, shown in the appliance menu.'),
+    station: z.string().describe('Which appliance makes it, e.g. "blender". Must match a station upgrade payload.'),
+    inputs: z.array(z.object({
+      item_id: z.string(),
+      qty: z.number().int().min(1).max(20).default(1),
+    })).min(1).max(4).describe('Ingredients consumed per batch. Every item_id must already exist.'),
+    output_id: z.string().describe('Item id produced. Must already exist — create_item it first.'),
+    output_qty: z.number().int().min(1).max(20).default(1),
+    minutes: z.number().min(0.1).max(120).default(1).describe('In-game minutes per batch.'),
+  },
+}, async (args) => text(await call('POST', '/content/recipe', args)));
+
 server.registerTool('delete_content', {
   title: 'Delete content',
-  description: 'Remove an item, crop, archetype, event or upgrade from the live game. Deleting an item also deletes crops that produce it.',
+  description: 'Remove an item, crop, archetype, event, upgrade or recipe from the live game. Deleting an item also deletes crops that produce it.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade']),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe']),
     id: z.string(),
   },
 }, async ({ kind, id }) => text(await call('DELETE', `/content/${kind}/${id}`)));

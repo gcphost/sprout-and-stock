@@ -7,41 +7,8 @@
  */
 
 import { FIXTURES, FIXTURE_REFUND } from '../shared/build.js';
-
-/**
- * The build palette: only things you can put down.
- *
- * Move and Clear used to sit in this list, which made them tools that acted on
- * "whatever you are stood by" — and in an aisle of shelves that is not a choice
- * anyone can make. Everything you can do *to* a fixture now lives in that
- * fixture's own menu, so picking a tool is only ever picking what to buy.
- */
-const BUILD_TOOLS = [
-  {
-    id: 'shelf',
-    icon: '🗄',
-    name: 'Shelf',
-    blurb: 'Ordinary shelving. Holds anything that does not need freezing. Shoppers browse from the side it faces, so watch the ring when you rotate it.',
-  },
-  {
-    id: 'freezer',
-    icon: '🧊',
-    name: 'Freezer',
-    blurb: 'The only thing that will hold frozen goods, and it slows everything else down to a crawl too — four times the shelf life.',
-  },
-  {
-    id: 'checkout',
-    icon: '💳',
-    name: 'Till',
-    blurb: 'Somewhere to take money. The queue forms alongside, so a till needs a clear run beside it — the ghost goes red if there is nowhere to stand.',
-  },
-  {
-    id: 'plot',
-    icon: '🌱',
-    name: 'Plot',
-    blurb: 'A bed of earth, outside on the grass. Arrives rough — it needs turning over before it will take a seed.',
-  },
-];
+import { BUILD_TOOLS, SECTIONS, sectionById } from './sections.js';
+import { Rail } from './rail.js';
 
 /** How each kind of fixture shows up in its own menu. */
 const FIXTURE_ICON = {
@@ -75,16 +42,28 @@ export class UI {
       buildTools: document.getElementById('build-tools'),
       buildHint: document.getElementById('build-hint'),
       prompt: document.getElementById('prompt'),
+      rail: document.getElementById('rail'),
+      search: document.getElementById('panel-search'),
+      chips: document.getElementById('panel-tags'),
+      filter: document.getElementById('panel-filter'),
     };
     // Touch devices don't have a mouse button to name, and "click" is wrong on
     // a phone. Decided once at boot rather than per frame.
     this.holdWord = matchMedia('(hover: none)').matches ? 'Hold' : 'Click &amp; hold';
 
+    // Per-section, and wiped when the section closes — a filter you can't see
+    // the cause of is worse than no filter at all.
+    this.query = '';
+    this.picked = new Set();
+
+    this.rail = new Rail(this, this.el.rail);
+    this.el.search.oninput = () => { this.query = this.el.search.value; this.paintSection(); };
+
     document.getElementById('panel-close').onclick = () => this.closePanel();
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.escape();
     });
-    this.renderBuildBar();
+    this.renderHotbar();
   }
 
   setCatalog(catalog) {
@@ -92,10 +71,10 @@ export class UI {
     this.buildCosts = catalog.buildCosts ?? this.buildCosts;
     if (!this.selectedCrop && catalog.crops[0]) this.selectCrop(catalog.crops[0].id);
     if (this.wheelOpen) this.renderWheel();
-    this.renderBuildBar();
-    // If a panel is open, refresh it so newly-added content appears instantly.
-    if (this.openPanel === 'stock') this.showStock();
-    if (this.openPanel === 'upgrades') this.showUpgrades(this.ownedUpgrades);
+    this.renderHotbar();
+    // If a section is open, redraw it so newly-added content appears instantly.
+    // A fixture menu isn't a section and refreshes itself from the snapshot.
+    if (this.openPanel && this.openPanel !== 'fixture') this.showSection(this.openPanel);
   }
 
   // ---- build mode ----------------------------------------------------------
@@ -103,11 +82,10 @@ export class UI {
   toggleBuild(on = !this.buildOn) {
     this.buildOn = on;
     this.buildRot = 0;
-    this.el.build.classList.toggle('on', on);
     document.body.classList.toggle('building', on);
     if (!on && this.openPanel === 'fixture') this.closePanel();
     this.net.send('build-mode', { on, tool: this.buildTool });
-    this.renderBuildBar();
+    this.renderHotbar();
     this.toast(on
       ? 'Build mode — tap anything you already own to open it, or tap bare ground to build'
       : 'Back to shopkeeping');
@@ -119,7 +97,7 @@ export class UI {
     this.buildRot = 0;
     this._sentTool = id;
     this.net.send('build-tool', { tool: id });
-    this.renderBuildBar();
+    this.renderHotbar();
   }
 
   /**
@@ -134,7 +112,7 @@ export class UI {
     if (serverTool === this.buildTool) return;
     this.buildTool = serverTool;
     this.buildRot = 0;
-    this.renderBuildBar();
+    this.renderHotbar();
   }
 
   /** The fixture the ghost should be showing, or null when there isn't one. */
@@ -149,35 +127,62 @@ export class UI {
     this.buildRot = (this.buildRot + 1) % 4;
   }
 
-  renderBuildBar() {
+  /**
+   * The bottom bar: the sub-icons for whatever is active.
+   *
+   * Fixtures while you're building, seeds while the seed menu is open, and
+   * nothing at all otherwise — the shop floor is the game, and a toolbar that
+   * never leaves makes it look like a level editor. It's also what makes 1–9
+   * legible: the number on a button is the key that presses it.
+   */
+  renderHotbar() {
     if (!this.el.buildTools) return;
-    this.el.buildTools.innerHTML = BUILD_TOOLS.map((t, i) => {
-      const cost = this.buildCosts[t.id];
-      const price = cost == null ? '' : `<span class="cost">$${cost.toFixed(0)}</span>`;
-      return `<button class="tool ${t.id === this.buildTool ? 'on' : ''}" data-tool="${t.id}">
-          <span class="key">${i + 1}</span>
-          <span class="ico">${t.icon}</span>
-          <span class="nm">${t.name}</span>${price}
-        </button>`;
-    }).join('')
-      + `<button class="tool more" data-build-menu="1">
-          <span class="key">M</span><span class="ico">☰</span><span class="nm">Menu</span>
-        </button>`;
+    const mode = this.buildOn ? 'build' : (this.openPanel === 'seeds' ? 'seeds' : null);
+    this.el.build.classList.toggle('on', !!mode);
+    if (!mode) return;
 
-    this.el.buildTools.querySelectorAll('[data-tool]').forEach((b) => {
-      b.onclick = () => this.selectBuildTool(b.dataset.tool);
+    const btn = (i, on, icon, name, note) => `
+      <button class="tool ${on ? 'on' : ''}" data-slot="${i}">
+        <span class="key">${i + 1}</span>
+        <span class="ico">${icon}</span>
+        <span class="nm">${name}</span>${note ? `<span class="cost">${note}</span>` : ''}
+      </button>`;
+
+    if (mode === 'build') {
+      this.el.buildTools.innerHTML = BUILD_TOOLS.map((t, i) => {
+        const cost = this.buildCosts[t.id];
+        return btn(i, t.id === this.buildTool, t.icon, t.name, cost == null ? '' : `$${cost.toFixed(0)}`);
+      }).join('')
+        + `<button class="tool more" data-build-menu="1">
+            <span class="key">M</span><span class="ico">☰</span><span class="nm">Menu</span>
+          </button>`;
+      this.el.buildTools.querySelector('[data-build-menu]').onclick = () => this.showSection('build');
+    } else {
+      this.el.buildTools.innerHTML = this.catalog.crops.slice(0, 9).map((c, i) => btn(
+        i, c.id === this.selectedCrop, '🌱', c.name, `$${c.seed_cost.toFixed(2)}`,
+      )).join('');
+    }
+
+    this.el.buildTools.querySelectorAll('[data-slot]').forEach((b) => {
+      const i = Number(b.dataset.slot);
+      b.onclick = () => (mode === 'build' ? this.selectBuildToolByIndex(i) : this.selectCropByIndex(i));
     });
-    this.el.buildTools.querySelector('[data-build-menu]').onclick = () => this.showBuild();
-    this.renderBuildHint();
+    this.renderBuildHint(mode);
   }
 
   /**
-   * The line under the build bar. It has three things to say and says exactly
-   * one of them: what you're carrying, what you're pointing at, or what tapping
-   * bare ground would build.
+   * The line under the bar. It has one thing to say at a time: what you're
+   * carrying, what you're pointing at, or what a tap would do.
    */
-  renderBuildHint() {
+  renderBuildHint(mode = this.buildOn ? 'build' : 'seeds') {
     if (!this.el.buildHint) return;
+    if (mode === 'seeds') {
+      const crop = this.catalog.crops.find((c) => c.id === this.selectedCrop);
+      this.el.buildHint.textContent = crop
+        ? `${crop.name} goes in the next plot you turn over`
+        : 'pick what to plant next';
+      return;
+    }
     if (this.holding) {
       this.el.buildHint.textContent = `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R turns it · Esc puts it back`;
       return;
@@ -197,7 +202,7 @@ export class UI {
   setAim(f) {
     if ((f?.id ?? null) === (this.aimed?.id ?? null)) return;
     this.aimed = f;
-    this.renderBuildHint();
+    if (this.buildOn) this.renderBuildHint('build');
   }
 
   /** "Shelf", "Freezer", "Blender" — what to call this fixture out loud. */
@@ -214,43 +219,124 @@ export class UI {
     if (t) this.selectBuildTool(t.id);
   }
 
-  /**
-   * The full build menu.
-   *
-   * The bar along the bottom is for picking something you already know you
-   * want; this is for working out what you want. It says what each thing is
-   * for, what it costs, and how many you already have — none of which fits on
-   * a 62px button.
-   */
-  showBuild() {
-    this.openPanel = 'build';
-    if (!this.buildOn) this.toggleBuild(true);
-    const owned = this.fixtureCounts ?? {};
+  selectCropByIndex(i) {
+    const c = this.catalog.crops[i];
+    if (c) this.selectCrop(c.id);
+  }
 
-    const row = (t) => {
-      const cost = this.buildCosts[t.id];
-      const have = owned[t.id];
-      return `
-        <div class="row build-row ${t.id === this.buildTool ? 'picked' : ''}" data-pick="${t.id}">
-          <span class="bico">${t.icon}</span>
-          <div class="name">${t.name}${have != null ? ` <span class="own">you have ${have}</span>` : ''}
-            <span class="tags">${t.blurb}</span>
-          </div>
-          <div class="price">${cost == null ? '' : `$${cost.toFixed(0)}`}</div>
-        </div>`;
-    };
+  // ---- sections ------------------------------------------------------------
+  //
+  // One renderer for every list in the game. Sections describe rows and never
+  // touch the DOM, which is what makes search and the chips work in all of them
+  // at once — including in sections nobody has written yet.
 
-    this.showPanel('Build', `
-      ${BUILD_TOOLS.map(row).join('')}
-      <div class="foot">Tap bare ground to place · <b>R</b> rotates · drag still walks you around.
-      To move, turn, empty or sell something you already own, tap the thing itself —
-      everything in the shop has its own menu. Appliances come from the Upgrades menu.</div>
-    `);
+  /** The rail's own click: open it, or shut it if it's already the one open. */
+  toggleSection(id) {
+    if (this.openPanel === id) this.closePanel();
+    else this.showSection(id);
+  }
 
-    this.el.panelBody.querySelectorAll('[data-pick]').forEach((el) => {
-      el.onclick = () => {
-        this.selectBuildTool(el.dataset.pick);
-        this.closePanel();
+  showSection(id) {
+    const sec = sectionById(id);
+    if (!sec) return;
+    // Coming from a different menu means a clean slate. Coming back to the same
+    // one — a live content update, a price change — keeps what you typed.
+    if (this.openPanel !== id) this.clearFilter();
+    this.openPanel = id;
+    this.fixtureRef = null;
+    sec.onOpen?.(this);
+    this._sectionKey = sec.live?.(this) ?? null;
+    this.el.search.placeholder = `search ${sec.name.toLowerCase()}…`;
+    this.rail.setOpen(id);
+    this.paintSection();
+    this.renderHotbar();
+  }
+
+  paintSection() {
+    const sec = sectionById(this.openPanel);
+    if (!sec) return;
+    const all = sec.rows(this);
+    // Search over four rows is noise, so the controls only appear once a list
+    // is long enough to get lost in — and can't leave a filter behind when it
+    // shrinks back under the line.
+    const listable = all.filter((r) => !r.sep);
+    const filterable = listable.length >= 8;
+    if (!filterable && (this.query || this.picked.size)) this.clearFilter();
+
+    const rows = filterable ? this.applyFilter(all) : all;
+    const body = rows.length
+      ? rows.map((r, i) => this.rowHtml(r, i)).join('')
+      : '<div class="foot">Nothing matches that.</div>';
+
+    this.showPanel(sec.title, body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''));
+    this.el.filter.hidden = !filterable;
+    if (filterable) this.renderChips(listable, sec);
+    this.wireRows(rows);
+  }
+
+  applyFilter(rows) {
+    const q = this.query.trim().toLowerCase();
+    if (!q && !this.picked.size) return rows;
+    return rows.filter((r) => {
+      // A heading with everything under it filtered away is a heading over
+      // nothing, so headings only survive an unfiltered list.
+      if (r.sep) return false;
+      if (this.picked.size && !(r.facets ?? []).some((f) => this.picked.has(f))) return false;
+      if (!q) return true;
+      return `${r.name} ${r.sub ?? ''} ${(r.facets ?? []).join(' ')}`.toLowerCase().includes(q);
+    });
+  }
+
+  clearFilter() {
+    this.query = '';
+    this.picked.clear();
+    this.el.search.value = '';
+  }
+
+  rowHtml(r, i) {
+    if (r.sep) return `<div class="sep">${r.sep}</div>`;
+    const cls = ['row', 'sec-row'];
+    if (r.picked) cls.push('picked');
+    if (r.dim) cls.push('owned');
+    if (r.run) cls.push('clickable');
+    return `<div class="${cls.join(' ')}"${r.run ? ` data-row="${i}"` : ''}>
+      ${r.hot ? `<span class="hot">${r.hot}</span>` : ''}
+      ${r.icon ? `<span class="bico">${r.icon}</span>` : ''}
+      <div class="name">${r.name}${r.own ? ` <span class="own">${r.own}</span>` : ''}${
+  r.sub ? `<span class="tags">${r.sub}</span>` : ''}</div>
+      ${r.right ? `<div class="price">${r.right}</div>` : ''}
+      ${r.button ? `<button data-btn="${i}">${r.button.label}</button>` : ''}
+      ${r.tail ? `<span class="have">${r.tail}</span>` : ''}
+    </div>`;
+  }
+
+  wireRows(rows) {
+    this.el.panelBody.querySelectorAll('[data-row]').forEach((el) => {
+      el.onclick = () => rows[Number(el.dataset.row)]?.run?.(this);
+    });
+    this.el.panelBody.querySelectorAll('[data-btn]').forEach((el) => {
+      el.onclick = (e) => {
+        // The whole row may be a button too — buying six apples is not also a
+        // request to close the supplier.
+        e.stopPropagation();
+        rows[Number(el.dataset.btn)]?.button?.run(this);
+      };
+    });
+  }
+
+  /** Chips for whatever the rows actually carry, not the whole vocabulary. */
+  renderChips(rows, sec) {
+    if (!sec.facet) { this.el.chips.innerHTML = ''; return; }
+    const seen = [...new Set(rows.flatMap((r) => r.facets ?? []))].sort();
+    this.el.chips.innerHTML = seen
+      .map((f) => `<button class="chip ${this.picked.has(f) ? 'on' : ''}" data-chip="${f}">${f}</button>`)
+      .join('');
+    this.el.chips.querySelectorAll('[data-chip]').forEach((b) => {
+      b.onclick = () => {
+        const f = b.dataset.chip;
+        if (this.picked.has(f)) this.picked.delete(f);
+        else this.picked.add(f);
+        this.paintSection();
       };
     });
   }
@@ -611,14 +697,9 @@ export class UI {
       : '';
     this.updatePrompt(me?.action ?? null);
     this.ownedUpgrades = state.ownedUpgrades ?? this.ownedUpgrades;
-    // The build menu shows how many of each you own, so keep it live — and
-    // refresh the panel if it's open when the count changes under it.
-    const counts = state.fixtures ?? null;
-    if (counts && JSON.stringify(counts) !== this._countsKey) {
-      this._countsKey = JSON.stringify(counts);
-      this.fixtureCounts = counts;
-      if (this.openPanel === 'build') this.showBuild();
-    }
+    // The build menu shows how many of each you own. Keeping it here rather
+    // than only in the section means the rail's badges can read it too.
+    this.fixtureCounts = state.fixtures ?? this.fixtureCounts;
 
     // An open fixture menu is a live window onto one thing: stock going down,
     // a crop ripening, a queue forming. Redrawn only when what it shows has
@@ -638,7 +719,7 @@ export class UI {
       this._heldId = heldId;
       this.holding = me?.holding ?? null;
       this.buildRot = this.holding?.rot ?? this.buildRot;
-      this.renderBuildBar();
+      this.renderHotbar();
     }
     this.syncBuildTool(me?.build);
 
@@ -646,10 +727,23 @@ export class UI {
       .map((m) => `<span class="mod ${m.demand_mult >= 1 ? 'up' : 'down'}">${m.tag} ×${m.demand_mult}</span>`)
       .join('');
 
-    // The wheel reads these when it paints, so keep them fresh.
+    // The wheel and the sections read these when they paint, so keep them
+    // fresh — and set them before anything asks a section to redraw.
     this._season = state.season;
     this._cash = state.cash;
     if (this.wheelOpen) this.paintWheel();
+
+    this.rail.update();
+    // An open section is a live window too. Each one declares a signature of
+    // everything its rows read; redraw only when that moves, not at 10Hz.
+    const sec = sectionById(this.openPanel);
+    if (sec?.live) {
+      const key = sec.live(this);
+      if (key !== this._sectionKey) {
+        this._sectionKey = key;
+        this.paintSection();
+      }
+    }
 
     if (state.log?.length) {
       const last = state.log[state.log.length - 1];
@@ -707,14 +801,20 @@ export class UI {
     this.openPanel = null;
     this.fixtureRef = null;
     this.el.panel.classList.remove('show');
+    this.el.filter.hidden = true;
+    this.clearFilter();
+    this.rail.setOpen(null);
+    // The seed hotbar belongs to the seed menu and leaves with it.
+    this.renderHotbar();
   }
 
   /**
-   * One press, one layer. An open menu first, then the fixture in your hands,
-   * then build mode itself — so Escape never quits building when all you wanted
-   * was to shut a panel.
+   * One press, one layer. What you typed, then an open menu, then the fixture
+   * in your hands, then build mode itself — so Escape never quits building when
+   * all you wanted was to clear a search box.
    */
   escape() {
+    if (this.openPanel && this.query) { this.clearFilter(); this.paintSection(); return; }
     if (this.openPanel) { this.closePanel(); return; }
     if (!this.buildOn) return;
     if (this.holding) { this.net.send('build-cancel', {}); return; }
@@ -725,39 +825,5 @@ export class UI {
     this.el.panelTitle.textContent = title;
     this.el.panelBody.innerHTML = html;
     this.el.panel.classList.add('show');
-  }
-
-  /** Buy wholesale stock — the only way to get items you can't grow. */
-  showStock() {
-    this.openPanel = 'stock';
-    const rows = this.catalog.items.map((it) => `
-      <div class="row">
-        <div class="name">${it.name}<span class="tags">${it.tags.slice(0, 3).join(' · ')}</span></div>
-        <div class="price">$${it.base_cost.toFixed(2)}</div>
-        <button data-buy="${it.id}" data-qty="6">×6</button>
-      </div>`).join('');
-    this.showPanel('Supplier', rows || '<p>No items exist yet.</p>');
-
-    this.el.panelBody.querySelectorAll('[data-buy]').forEach((b) => {
-      b.onclick = () => this.net.send('buy-stock', { itemId: b.dataset.buy, qty: Number(b.dataset.qty) });
-    });
-  }
-
-  showUpgrades(owned = this.ownedUpgrades ?? []) {
-    this.openPanel = 'upgrades';
-    const rows = this.catalog.upgrades.map((u) => {
-      const have = owned.includes(u.id);
-      return `
-      <div class="row ${have ? 'owned' : ''}">
-        <div class="name">${u.name}<span class="tags">${u.description}</span></div>
-        <div class="price">$${u.cost.toFixed(0)}</div>
-        ${have ? '<span class="have">owned</span>' : `<button data-up="${u.id}">buy</button>`}
-      </div>`;
-    }).join('');
-    this.showPanel('Upgrades', rows || '<p>No upgrades defined.</p>');
-
-    this.el.panelBody.querySelectorAll('[data-up]').forEach((b) => {
-      b.onclick = () => this.net.send('buy-upgrade', { upgradeId: b.dataset.up });
-    });
   }
 }
