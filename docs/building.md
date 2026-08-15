@@ -308,12 +308,20 @@ place it and get `FIXTURE_REFUND` of it back when you tear it out.
 Sliced so the game is playable at every step. Steps 1–3 are the spine;
 everything after is additive.
 
-1. **Edges exist, generator emits them.** Add the two arrays and the edge kinds;
-   `compose()` stamps the store perimeter as edges instead of a wall ring;
-   renderer draws them as thin boxes. Pathing still uses cells. The shop looks
-   the same, the walls are thin. Update `verify:layout`.
-2. **Pathing and collision move to edges.** `canStep`, the two `canStand` lines,
-   `whatThisBlocks`. Walls now actually block.
+1. **Edges exist alongside tiles, and are provably the same shape.** Add
+   `shared/edges.js`: the edge kinds, the two arrays, `deriveEdges` (read a
+   wall ring, write the equivalent loop of edges) and `computeIndoor`. Change
+   no behaviour and remove nothing. A sweep asserts that across many seeds and
+   fixture counts, the cells `computeIndoor` calls enclosed are *exactly* the
+   cells `insideStore` calls inside. That is the whole point of this step: the
+   new representation earns trust before anything depends on it.
+2. **Flip to edges: generator, pathing, collision, renderer — together.** The
+   wall ring goes, `compose()` stamps edges, `canStep` and the two `canStand`
+   lines read them, `whatThisBlocks` floods through them, the renderer draws
+   thin boxes. These do **not** slice apart: thin walls without edge-aware
+   collision is a shop you can walk out of, and cell collision with edge walls
+   is a dead tile of border inside every room. One commit, and the payoff is
+   the two tiles of floor each way that the wall ring used to eat.
 3. **The `indoor` mask replaces `insideStore`.** One function in
    `shared/build.js`, one derived array. L-shapes become possible here.
 4. **Stamp once.** Convert the live world, stop re-running the generator on
@@ -387,11 +395,14 @@ guess.
   the stored one — otherwise every number after this measures your architecture
   instead of your economy.
 
-- **One door becomes several.** `addAwning` in `client/render/scene.js` and
-  `spawnCustomer` in `server/sim/index.js` both hardcode a single south-wall
-  door — the latter paths every shopper to `layout.door.x, layout.door.z - 1`.
-  `L.door` becomes `L.doors[]` and shoppers pick the nearest exterior one.
-  Small, but it sits in the sim's hot path.
+- **One door becomes several, and it is now two things not one.** Since
+  `c632de0` a layout also carries `approaches` — map-edge tiles paired with a
+  point off the grid — and `spawnCustomer` walks a shopper from an approach to
+  `layout.door.x, layout.door.z - 1`. So entry is a *route*: approach → door.
+  `approachList()` filters map-edge spots by walkability and knows nothing about
+  which door it is feeding. With several doors, each wants the approach nearest
+  it, or everyone crosses the map to use the front one. `addAwning` hardcodes
+  the single south-wall door too. Small, but it sits in the sim's hot path.
 
 - **Fixture ids already live in two namespaces** (`shelf-p0` from the generator,
   `fx-N` from the player) and must never collide. A things-list makes this

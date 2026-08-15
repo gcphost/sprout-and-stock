@@ -32,11 +32,10 @@ const DEMAND_BAND = [0.1, 4];
  * rather than stacking its own duplicates; across different events, genuine
  * compounding is fine.
  *
- * The HUD reads this too, and that is the point — a pile of identical rows is a
- * bookkeeping artefact, not five heat waves, so drawing every row said the
- * world had gone mad while the sim was reading exactly one of them.
+ * A pile of identical rows is a bookkeeping artefact, not five heat waves — see
+ * `addModifier`, which now refuses to write one.
  */
-export function dedupeModifiers(modifiers) {
+function dedupeModifiers(modifiers) {
   const perEvent = new Map();
   for (const m of modifiers) {
     const key = `${m.label || m.source}::${m.tag}`;
@@ -61,6 +60,24 @@ export function foldModifiers(modifiers) {
   for (const t of Object.keys(demand)) demand[t] = clamp(demand[t], DEMAND_BAND[0], DEMAND_BAND[1]);
   for (const t of Object.keys(price)) price[t] = clamp(price[t], PRICE_BAND[0], PRICE_BAND[1]);
   return { demand, price };
+}
+
+/**
+ * The folded tables as a list, strongest pull on demand first — the shape the
+ * HUD meter draws.
+ *
+ * One entry per *tag*, not per event, and that is the point: a baking craze
+ * wanting bakery and a heat wave not wanting it used to be two pills arguing
+ * with each other on screen, when what the customer actually does is the
+ * product of the two. Fold first, draw second, and the strip can never disagree
+ * with the sim.
+ */
+export function modifierMeter({ demand, price }) {
+  const tags = new Set([...Object.keys(demand), ...Object.keys(price)]);
+  return [...tags]
+    .map((tag) => ({ tag, demand: round2(demand[tag] ?? 1), price: round2(price[tag] ?? 1) }))
+    .filter((m) => m.demand !== 1 || m.price !== 1)
+    .sort((a, b) => Math.abs(Math.log(b.demand)) - Math.abs(Math.log(a.demand)));
 }
 
 /** Strongest multiplier across all of an item's tags. */

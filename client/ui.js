@@ -7,7 +7,7 @@
  */
 
 import { FIXTURES } from '../shared/build.js';
-import { BUILD_TOOLS, SECTIONS, sectionById } from './sections.js';
+import { buildTools, SECTIONS, sectionById } from './sections.js';
 import { Rail } from './rail.js';
 import { ICONS } from './icons.js';
 import { showFixture } from './fixture-menu.js';
@@ -55,6 +55,9 @@ export class UI {
     this.selectedCrop = null;
     this.buildOn = false;
     this.buildTool = 'shelf';
+    // Which appliance, when the tool is an appliance. Empty for every other
+    // kind — see `toolId`.
+    this.buildStation = '';
     this.buildVariant = '';
     this.buildRot = 0;
     this.buildCosts = {};
@@ -208,14 +211,19 @@ export class UI {
   }
 
   selectBuildTool(id) {
-    if (!BUILD_TOOLS.some((t) => t.id === id)) return;
-    this.buildTool = id;
+    if (!buildTools(this).some((t) => t.id === id)) return;
+    // An appliance's palette id carries which machine it is. The kind is what
+    // the server owns and the build rules read; the name is ours, and rides
+    // out in the place spec beside the variant.
+    const [kind, station = ''] = String(id).split(':');
+    this.buildTool = kind;
+    this.buildStation = station;
     this.buildRot = 0;
     // Shapes belong to a kind, so switching kind drops back to Standard rather
     // than asking for a "corner till" nobody drew.
     this.buildVariant = '';
-    this._sentTool = id;
-    this.net.send('build-tool', { tool: id });
+    this._sentTool = kind;
+    this.net.send('build-tool', { tool: kind });
     this.renderHotbar();
   }
 
@@ -233,6 +241,15 @@ export class UI {
   }
 
   /**
+   * The palette entry currently selected: the kind, plus which appliance when
+   * the kind is one. The server only ever deals in kinds, so this is the id the
+   * palette and the hotbar compare against, never `buildTool` alone.
+   */
+  toolId() {
+    return this.buildStation ? `${this.buildTool}:${this.buildStation}` : this.buildTool;
+  }
+
+  /**
    * The server owns the build tool, because it disarms Clear after a removal.
    * Adopt its value — but only once it has caught up with the last tool we
    * sent, or an in-flight snapshot would undo the button you just pressed.
@@ -243,6 +260,10 @@ export class UI {
     this._sentTool = null;
     if (serverTool === this.buildTool) return;
     this.buildTool = serverTool;
+    // The server said a kind, so whichever appliance we had chosen is no longer
+    // what's selected. Leaving it set would build a blender out of the Shelf
+    // button the next time the server disarmed us.
+    if (serverTool !== 'station') this.buildStation = '';
     this.buildRot = 0;
     this.renderHotbar();
   }
@@ -271,9 +292,10 @@ export class UI {
     this.el.build.classList.toggle('on', this.buildOn);
     if (!this.buildOn) return;
 
-    this.el.buildTools.innerHTML = BUILD_TOOLS.map((t, i) => {
+    const picked = this.toolId();
+    this.el.buildTools.innerHTML = buildTools(this).map((t, i) => {
       const cost = this.buildCosts[t.id];
-      return `<button class="tool ${t.id === this.buildTool ? 'on' : ''}" data-slot="${i}">
+      return `<button class="tool ${t.id === picked ? 'on' : ''}" data-slot="${i}">
           <span class="key">${i + 1}</span>
           <span class="ico">${t.icon}</span>
           <span class="nm">${t.name}</span>${cost == null ? '' : `<span class="cost">$${cost.toFixed(0)}</span>`}
@@ -310,7 +332,7 @@ export class UI {
       this.el.buildHint.textContent = `${this.buildWarn} — tap anyway if you meant it · R rotates`;
       return;
     }
-    const tool = BUILD_TOOLS.find((t) => t.id === this.buildTool);
+    const tool = buildTools(this).find((t) => t.id === this.toolId());
     // Naming the shape matters more than naming the kind: picking one is the
     // only build setting with no icon lit up on the bar to remind you of it.
     const shape = this.buildVariantName();
@@ -356,7 +378,7 @@ export class UI {
   }
 
   selectBuildToolByIndex(i) {
-    const t = BUILD_TOOLS[i];
+    const t = buildTools(this)[i];
     if (t) this.selectBuildTool(t.id);
   }
 
@@ -533,13 +555,15 @@ export class UI {
       if (!s.qty) continue;
       for (const tag of this.itemById(s.item_id)?.tags ?? []) stocked.add(tag);
     }
+    // Net demand, so a tag two events are fighting over only makes the list if
+    // the fight is actually being won — the meter above draws the same number.
     const missed = (state.modifiers ?? [])
-      .filter((m) => m.demand_mult >= 1.5 && !stocked.has(m.tag))
-      .sort((a, b) => b.demand_mult - a.demand_mult)[0];
+      .filter((m) => m.demand >= 1.5 && !stocked.has(m.tag))
+      .sort((a, b) => b.demand - a.demand)[0];
     if (missed) {
       out.push({
         icon: 'supplier', hot: true,
-        text: `Get <b>${esc(missed.tag)}</b> in — wanted ×${missed.demand_mult}`,
+        text: `Get <b>${esc(missed.tag)}</b> in — wanted ×${missed.demand}`,
       });
     }
 
@@ -610,13 +634,31 @@ export class UI {
     }
     this.syncBuildTool(me?.build);
 
-    this.el.mods.innerHTML = state.modifiers
-      .map((m) => {
-        const up = m.demand_mult >= 1;
-        return `<span class="mod ${up ? 'up' : 'down'}" title="${esc(m.label ?? m.tag)}">`
-          + `<span class="arrow">${up ? '▲' : '▼'}</span>${esc(m.tag)} ×${m.demand_mult}</span>`;
-      })
-      .join('');
+    // The demand meter. Bars are on a log scale, so ×2 and ×0.5 are the same
+    // length in opposite directions — on a linear scale a slump can only ever
+    // be a stub next to a boom, and half the readout would be unreadable by
+    // construction. Full deflection is ×4, which is where `foldModifiers`
+    // clamps, so a bar that fills its half of the plot means "as far as this
+    // ever goes" rather than an arbitrary ceiling.
+    //
+    // Six rows, because past that it stops being a shape and goes back to being
+    // a list. They arrive sorted by strength, so the six that show are the six
+    // worth acting on.
+    const mods = state.modifiers.slice(0, 6);
+    const modKey = mods.map((m) => `${m.tag}${m.demand}`).join('|');
+    if (modKey !== this._modKey) {
+      this._modKey = modKey;
+      this.el.mods.innerHTML = mods
+        .map((m) => {
+          const up = m.demand >= 1;
+          const w = Math.max(2, Math.min(1, Math.abs(Math.log2(m.demand)) / 2) * 26);
+          return `<span class="mtr ${up ? 'up' : 'down'}">`
+            + `<span class="mtr-tag">${esc(m.tag)}</span>`
+            + `<span class="mtr-plot"><span class="mtr-bar" style="width:${w.toFixed(1)}px"></span></span>`
+            + `</span>`;
+        })
+        .join('');
+    }
 
     // innerHTML at 10Hz would throw away the DOM under the cursor every tick,
     // so redraw only when the list actually reads differently.

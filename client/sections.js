@@ -1,4 +1,5 @@
 import { ICONS, icon } from './icons.js';
+import { FIXTURE_KINDS } from '../shared/build.js';
 import { variantsOf } from '../shared/model.js';
 import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
 
@@ -46,6 +47,45 @@ export const BUILD_TOOLS = [
     blurb: 'Earth, outside. Turn it over before it takes a seed.',
   },
 ];
+
+/**
+ * The palette: the fixed kinds, then one entry per appliance the shop sells.
+ *
+ * Appliances are content — an MCP `create_upgrade` of kind `station` is a new
+ * machine — so they can't be a hardcoded list here. Their id is the ledger key
+ * the server already uses, which is why the row below can read a price and a
+ * count for one with exactly the same two lookups as a shelf.
+ */
+export function buildTools(ui) {
+  const stations = (ui?.catalog?.upgrades ?? [])
+    .filter((u) => u.kind === 'station' && u.payload?.station)
+    .map((u) => ({
+      id: `station:${u.payload.station}`,
+      station: u.payload.station,
+      icon: ICONS.station,
+      name: u.name,
+      blurb: u.description || 'An appliance. Turns what goes in into something worth more.',
+    }));
+  return [...BUILD_TOOLS, ...stations];
+}
+
+/**
+ * The upgrades still worth listing: the ones build mode cannot sell you.
+ *
+ * A shelf, a freezer, a till, a plot and an appliance are all things you put
+ * down somewhere, priced per unit and refundable — so they belong on the
+ * palette, where you choose the spot, and nowhere else. Buying "Extra Shelving"
+ * from a menu and having the generator decide where three shelves went was the
+ * older, blinder half of the same purchase.
+ *
+ * They stay in the database regardless: the palette reads them for its prices,
+ * which is why adding a cheaper shelf upgrade via MCP still reprices build mode.
+ * `FIXTURE_KINDS` rather than a list spelled out again here, so a new buildable
+ * kind leaves this menu on the day it becomes buildable.
+ */
+export function buyableUpgrades(ui) {
+  return (ui?.catalog?.upgrades ?? []).filter((u) => !FIXTURE_KINDS.includes(u.kind));
+}
 
 /** Shelves at or under this fraction of a stack are worth restocking. */
 const LOW_STOCK = 0.2;
@@ -105,11 +145,13 @@ export const SECTIONS = [
     },
     badge: (ui) => (ui.holding ? '●' : null),
     live: (ui) => JSON.stringify([
-      ui.fixtureCounts, ui.buildTool, ui.buildVariant, ui.buildCosts,
+      ui.fixtureCounts, ui.toolId(), ui.buildVariant, ui.buildCosts,
       (ui.catalog.fixtures ?? []).map((f) => f.variants?.length ?? 0),
+      (ui.catalog.upgrades ?? []).filter((u) => u.kind === 'station').length,
     ]),
     rows: (ui) => {
-      const tools = BUILD_TOOLS.map((t) => {
+      const picked = ui.toolId();
+      const tools = buildTools(ui).map((t) => {
         const cost = ui.buildCosts[t.id];
         const have = ui.fixtureCounts?.[t.id];
         return {
@@ -117,7 +159,7 @@ export const SECTIONS = [
           name: t.name,
           sub: have == null ? t.blurb : `${have} owned · ${t.blurb}`,
           right: cost == null ? '' : `$${cost.toFixed(0)}`,
-          picked: t.id === ui.buildTool,
+          picked: t.id === picked,
           // Picking one is committing to build, so the mode is yours to keep.
           run: () => { ui.commitBuildMode(); ui.selectBuildTool(t.id); ui.closePanel(); },
         };
@@ -196,18 +238,18 @@ export const SECTIONS = [
     facet: 'kind',
     badge: (ui) => {
       const owned = ui.ownedUpgrades ?? [];
-      const n = (ui.catalog.upgrades ?? [])
+      const n = buyableUpgrades(ui)
         .filter((u) => !owned.includes(u.id) && (ui._cash ?? 0) >= u.cost).length;
       return n ? String(n) : null;
     },
     live: (ui) => JSON.stringify([ui.ownedUpgrades?.length, Math.floor(ui._cash ?? 0)]),
-    // There are nine upgrade kinds and only eighteen upgrades, so a tab per kind
-    // would be mostly one-row tabs. These three are the question actually being
-    // asked — am I buying people, buying better fixtures, or buying more room.
+    // What's left once anything you can put down has moved to build mode: the
+    // shop itself. Two groups rather than a tab per kind — there are only a
+    // handful of these, and a tab per kind would be mostly one-row tabs.
     rows: (ui) => {
       const owned = ui.ownedUpgrades ?? [];
       return grouped(
-        (ui.catalog.upgrades ?? []).map((u) => {
+        buyableUpgrades(ui).map((u) => {
           const have = owned.includes(u.id);
           return {
             name: u.name,
@@ -224,11 +266,6 @@ export const SECTIONS = [
         }),
         [
           { label: 'Staff', icon: ICONS.staff, test: (r) => r.kind === 'staff' },
-          {
-            label: 'Fixtures',
-            icon: ICONS.fixtures,
-            test: (r) => ['shelf', 'freezer', 'plot', 'checkout', 'station'].includes(r.kind),
-          },
           // capacity, speed, space — and any kind invented later, which lands
           // somewhere sensible rather than vanishing off the end of the list.
           { label: 'The shop', icon: ICONS.shop },

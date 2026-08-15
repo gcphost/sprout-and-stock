@@ -307,7 +307,12 @@ function tapAtPointer(cx, cy) {
 
   // The shape only means anything when buying a new one: what you are
   // carrying already knows what shape it is.
-  const spec = { kind, x: tile.x, z: tile.z, rot: ui.buildRot, variant: ui.buildVariant ?? '' };
+  // Which appliance, when the tool is one — the kind alone doesn't say whether
+  // this is a blender or a toaster. What you're carrying already knows.
+  const station = ui.holding?.station ?? (kind === 'station' ? ui.buildStation : null);
+  const spec = {
+    kind, station, x: tile.x, z: tile.z, rot: ui.buildRot, variant: ui.buildVariant ?? '',
+  };
   const verdict = scene.setBuildGhost({ ...spec, moveId: ui.holding?.id ?? null });
   if (verdict && !verdict.ok) { ui.toast(verdict.reason, true); return; }
   // A warning is not a refusal. Blocking your own shop is a legal move, so say

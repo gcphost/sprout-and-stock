@@ -42,26 +42,16 @@
       display: flex; gap: 11px; align-items: center;
     }
 
-    /* ---- top centre: one horizontal strip --------------------------------
-       What the world wants today, then what to do about it, reading left to
-       right on a single line. A stack cost vertical space in the middle of the
-       screen, which is the one place the game is actually happening. Sized to
-       clear the stats panel on the left and the rail on the right. */
+    /* ---- top centre: what to do about it ---------------------------------
+       A single line, sized to clear the stats panel on the left and the rail on
+       the right. A stack cost vertical space in the middle of the screen, which
+       is the one place the game is actually happening. */
     #hq {
       top: 12px; left: 50%; transform: translateX(-50%);
       display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
       justify-content: center; pointer-events: none;
       max-width: min(860px, calc(100vw - 360px));
     }
-    /* A hairline between "what's happening" and "what to do", so the strip
-       reads as two thoughts rather than one long run of pills. */
-    #hq::before {
-      content: ''; order: 1; width: 1px; height: 18px;
-      background: rgba(58,49,40,.22); border-radius: 1px;
-    }
-    #hq:has(#todo:empty)::before { display: none; }
-    #mods { order: 0; }
-    #todo { order: 2; }
     #cash { font-size: 17px; font-weight: 800; letter-spacing: -.02em; }
     #day  { font-weight: 700; font-size: 12px; line-height: 1.25; }
     #season { text-transform: capitalize; opacity: .65; font-size: 10px; line-height: 1.25; }
@@ -70,16 +60,40 @@
     .repwrap { width: 52px; height: 5px; background: var(--line); border-radius: 99px; overflow: hidden; }
     #rep { height: 100%; background: var(--good); transition: width .4s; }
 
-    /* Active world modifiers — what the world wants more or less of today. */
-    #mods { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-    .mod {
-      background: var(--panel); border-radius: 99px; padding: 2px 8px;
-      font-size: 11px; font-weight: 700; box-shadow: 0 2px 7px rgba(58,49,40,.11);
-      display: inline-flex; align-items: center; gap: 4px;
+    /* ---- top left, under the money: the demand meter ----------------------
+       What the world wants more or less of today, as a meter the way SimCity's
+       RCI is a meter rather than one sentence per tag. Seven pills reading
+       "▲ bakery ×2.4" is a paragraph you parse word by word; seven bars off one
+       shared axis is a shape you take in without reading.
+
+       It stacks under #stats because it is a passive readout and belongs with
+       the other passive readouts, and because a column can carry its labels
+       inline — a row of columns has to write each tag sideways-on under a
+       narrow bar, and "beverage" does not fit under nine pixels. Right is
+       wanted, left is not, length is how much. */
+    #mods {
+      top: 58px; left: 12px; width: 146px;
+      display: flex; flex-direction: column; gap: 3px;
+      background: var(--panel); border-radius: 13px; padding: 7px 10px;
+      box-shadow: 0 4px 14px rgba(58,49,40,.14);
     }
-    .mod .arrow { font-size: 8px; }
-    .mod.up { color: var(--good); }
-    .mod.down { color: var(--accent); }
+    .mtr { display: grid; grid-template-columns: 1fr 56px; align-items: center; gap: 7px; }
+    .mtr-tag {
+      font-size: 8.5px; font-weight: 800; letter-spacing: .02em;
+      text-transform: uppercase; opacity: .55; text-align: right;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* A fixed plot with the zero line down its middle, so every bar is measured
+       against the same axis instead of against its own. Each row draws its own
+       segment; stacked, they form one continuous line. */
+    .mtr-plot { position: relative; height: 7px; }
+    .mtr-plot::after {
+      content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px;
+      width: 1px; background: rgba(58,49,40,.16);
+    }
+    .mtr-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+    .mtr.up .mtr-bar { left: 50%; background: var(--good); }
+    .mtr.down .mtr-bar { right: 50%; background: var(--accent); }
 
     /* What to actually do about all of the above. Derived entirely from the
        same snapshot — no new server field — and capped at three, because a
@@ -381,8 +395,8 @@
     <div class="repwrap"><div id="rep" style="width:50%"></div></div>
   </div>
 
+  <div id="mods" class="hud"></div>
   <div id="hq" class="hud">
-    <div id="mods"></div>
     <div id="todo"></div>
   </div>
   <div id="rail" class="hud"></div>

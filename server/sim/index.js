@@ -18,13 +18,13 @@ import { activeModifiers, addModifier, pruneModifiers } from '../db.js';
 import { generateLayout, buildWalkGrid, T } from '../layout.js';
 import { findPath, followPath } from './pathing.js';
 import {
-  foldModifiers, dedupeModifiers, rankShelves, purchaseChance, suggestedPrice,
+  foldModifiers, modifierMeter, rankShelves, purchaseChance, suggestedPrice,
   wholesalePrice, footfall, clamp, round2,
 } from './economy.js';
 import { spoilRate, requiredFixture, desireFor } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
-import { FIXTURES, canPlace, rot4, FIXTURE_REFUND } from '../../shared/build.js';
+import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND } from '../../shared/build.js';
 
 /** Real seconds in one in-game day. */
 export const DAY_SECONDS = 360;
@@ -53,7 +53,28 @@ const ACTION_TIMES = {
 };
 
 /** Fallback prices for building a fixture when no upgrade grants that kind. */
-const FALLBACK_FIXTURE_COST = { shelf: 60, freezer: 260, checkout: 300, plot: 40 };
+const FALLBACK_FIXTURE_COST = { shelf: 60, freezer: 260, checkout: 300, plot: 40, station: 200 };
+
+/**
+ * Where a fixture is counted in the ledger.
+ *
+ * Appliances are counted by name. A shelf is fungible — eleven of them are
+ * eleven of one thing — but a blender is not a toaster, and the layout
+ * generator needs the list by name to put the right machine back. Prefixing
+ * keeps them in the one ledger without a `station` kind ever colliding with an
+ * appliance called `shelf`.
+ */
+const ledgerKey = (kind, station) => (kind === 'station' ? `station:${station}` : kind);
+
+/** The appliance names the ledger says you own, expanded one per machine. */
+function stationList(fixtures) {
+  const out = [];
+  for (const [key, n] of Object.entries(fixtures ?? {})) {
+    if (!key.startsWith('station:')) continue;
+    for (let i = 0; i < n; i++) out.push(key.slice('station:'.length));
+  }
+  return out;
+}
 
 /** Which upgrade payload field grants each countable fixture. */
 const FIXTURE_PAYLOAD_KEY = {
@@ -101,7 +122,7 @@ export class Game {
       freezers: fixtures.freezer,
       checkouts: fixtures.checkout,
       plots: fixtures.plot,
-      stations: stationsFor(w),
+      stations: stationList(fixtures),
       placements,
       grow,
       doorShift,
@@ -303,11 +324,9 @@ export class Game {
           ? r2(Math.min(1, 1 - (s.busyUntil - this.elapsed) / Math.max(0.001, s.busyUntil - (s.startedAt ?? s.busyUntil - 1))))
           : 0,
       })),
-      // Deduped, because the HUD should show what the economy actually reads.
-      modifiers: dedupeModifiers(this.currentModifiers()).map((m) => ({
-        label: m.label || m.source, tag: m.tag,
-        demand_mult: r2(m.demand_mult), price_mult: r2(m.price_mult),
-      })),
+      // Folded to one net number per tag — the HUD draws a meter off these, and
+      // it should be reading the same numbers the economy charges against.
+      modifiers: modifierMeter(this.folded()),
       log: this.log.slice(-8),
     };
   }
@@ -1152,11 +1171,16 @@ export class Game {
   // -------------------------------------------------------------------------
 
   /** Which appliances the shop owns, in purchase order. */
+  /**
+   * Every appliance the shop owns, by name, one entry per machine.
+   *
+   * Read off the ledger rather than off `ownedUpgrades`, which is what made an
+   * appliance a permanent single thing you could never buy a second of and
+   * never really tear out — the upgrade now grants the first one and sets the
+   * price, exactly as a shelf upgrade does.
+   */
   ownedStations() {
-    return content().upgrades
-      .filter((u) => u.kind === 'station' && this.ownedUpgrades.includes(u.id))
-      .map((u) => u.payload?.station)
-      .filter(Boolean);
+    return stationList(this.fixtures);
   }
 
   /** Is this item the output of some recipe? Then it can't be bought in. */
@@ -1658,7 +1682,15 @@ export class Game {
   }
 
   /** What one more of this fixture costs, priced off whatever upgrade sells it. */
-  fixtureUnitCost(kind) {
+  fixtureUnitCost(kind, station = null) {
+    // An appliance is priced by the upgrade that sells *that* appliance. There
+    // is nothing to divide by the way a pack of shelves has: one upgrade, one
+    // machine, and a blender and a coffee machine are not the same purchase.
+    if (kind === 'station') {
+      const up = this.stationUpgrade(station);
+      return round2(up?.cost ?? FALLBACK_FIXTURE_COST.station);
+    }
+
     const key = FIXTURE_PAYLOAD_KEY[kind];
     if (!key) return 0;
     const per = content().upgrades
@@ -1669,10 +1701,26 @@ export class Game {
     return round2(per.length ? Math.min(...per) : FALLBACK_FIXTURE_COST[kind] ?? 100);
   }
 
-  /** Build-mode prices, for the client's palette. */
+  /** The upgrade that sells a named appliance, or undefined. */
+  stationUpgrade(station) {
+    return content().upgrades.find((u) => u.kind === 'station' && u.payload?.station === station);
+  }
+
+  /**
+   * Build-mode prices, for the client's palette.
+   *
+   * Appliances are keyed the same way the ledger keys them, so the palette
+   * looks up a price and a count with one id and needs to know nothing about
+   * appliances being a special case. Add one via MCP and it appears, priced.
+   */
   buildCosts() {
-    return Object.fromEntries(Object.keys(FIXTURE_PAYLOAD_KEY)
+    const costs = Object.fromEntries(Object.keys(FIXTURE_PAYLOAD_KEY)
       .map((k) => [k, this.fixtureUnitCost(k)]));
+    for (const u of content().upgrades) {
+      if (u.kind !== 'station' || !u.payload?.station) continue;
+      costs[ledgerKey('station', u.payload.station)] = round2(u.cost);
+    }
+    return costs;
   }
 
   /** Buy a fixture and site it where you're pointing. */
@@ -1682,11 +1730,18 @@ export class Game {
     if (!p.build?.on) return err('not in build mode');
 
     const kind = spec.kind;
-    if (!FIXTURES[kind] || kind === 'station') return err('you cannot build that');
+    if (!FIXTURES[kind]) return err('you cannot build that');
+
+    // Which appliance, for a station. It rides on the placement the way a
+    // variant does, because to the build rules every appliance is the same
+    // shape in the same places — only the price and what it cooks differ.
+    const station = kind === 'station' ? String(spec.station ?? '') : null;
+    if (kind === 'station' && !this.stationUpgrade(station)) return err('no such appliance');
 
     const placement = {
       id: `fx-${this.nextFixtureId}`,
       kind,
+      station,
       x: Math.round(Number(spec.x)),
       z: Math.round(Number(spec.z)),
       rot: rot4(Number(spec.rot) || 0),
@@ -1698,16 +1753,22 @@ export class Game {
     const check = canPlace(this.layout, placement);
     if (!check.ok) return err(check.reason);
 
-    const cost = this.fixtureUnitCost(kind);
+    const cost = this.fixtureUnitCost(kind, station);
     if (this.cash < cost) return err(`need $${cost.toFixed(2)}`);
 
     this.cash -= cost;
     this.stats.spent += cost;
-    this.fixtures[kind] = (this.fixtures[kind] ?? 0) + 1;
+    const key = ledgerKey(kind, station);
+    this.fixtures[key] = (this.fixtures[key] ?? 0) + 1;
     this.nextFixtureId++;
     this.placements.push(placement);
     this.regenerateLayout();
-    this.pushLog(`Built a ${FIXTURES[kind].label.toLowerCase()} for $${cost.toFixed(2)}.`);
+    // An appliance is named after the machine, not after "appliance" — you
+    // bought a blender and the log should say so.
+    const what = station
+      ? (this.stationUpgrade(station)?.name ?? station).toLowerCase()
+      : FIXTURES[kind].label.toLowerCase();
+    this.pushLog(`Built a ${what} for $${cost.toFixed(2)}.`);
     // Carried back out so anything driving this headlessly — the API, MCP, a
     // bot — is told what it just did to the shop, rather than only the player
     // who saw the ghost turn amber.
@@ -1854,18 +1915,14 @@ export class Game {
       return err('you need at least one till to take money');
     }
 
-    let refund = 0;
-    if (f.kind === 'station') {
-      const up = content().upgrades.find((u) => u.kind === 'station'
-        && u.payload?.station === f.station && this.ownedUpgrades.includes(u.id));
-      if (!up) return err("can't work out what that appliance cost");
-      this.ownedUpgrades = this.ownedUpgrades.filter((x) => x !== up.id);
-      refund = round2(up.cost * FIXTURE_REFUND);
-    } else {
-      if ((this.fixtures[f.kind] ?? 0) <= 0) return err('nothing to remove');
-      this.fixtures[f.kind] -= 1;
-      refund = round2(this.fixtureUnitCost(f.kind) * FIXTURE_REFUND);
-    }
+    // One path for everything now. Tearing out an appliance used to un-own its
+    // upgrade — the only way a boolean can count down — which meant selling one
+    // back put it up for sale again at full price and re-buying it was the only
+    // way to get a second.
+    const key = ledgerKey(f.kind, f.station);
+    if ((this.fixtures[key] ?? 0) <= 0) return err('nothing to remove');
+    this.fixtures[key] -= 1;
+    const refund = round2(this.fixtureUnitCost(f.kind, f.station) * FIXTURE_REFUND);
 
     this.placements = this.placements.filter((pl) => pl.id !== id);
     this.cash += refund;
@@ -1912,6 +1969,14 @@ export class Game {
       // letting one go. Selling this again would be a second way in.
       return err('take people on from the Staff menu');
     }
+    if (FIXTURE_KINDS.includes(up.kind)) {
+      // Same story: anything you can put down is bought in build mode, one at a
+      // time, on a tile you chose. This row still exists as the price list —
+      // `fixtureUnitCost` reads it — but buying it would hand you a lump of
+      // fixtures the generator sites for you, which is the thing build mode
+      // replaced.
+      return err('build that from the Build menu');
+    }
     if (this.ownedUpgrades.includes(upgradeId)) return err('already owned');
     const missing = up.requires.filter((r) => !this.ownedUpgrades.includes(r));
     if (missing.length) return err(`needs ${missing.join(', ')} first`);
@@ -1927,6 +1992,12 @@ export class Game {
     // freezers on every server restart.
     const key = FIXTURE_PAYLOAD_KEY[up.kind];
     if (key) this.fixtures[up.kind] = (this.fixtures[up.kind] ?? 0) + (up.payload[key] ?? 0);
+    // An appliance upgrade grants the first machine and sets what another one
+    // costs in build mode — the same deal a shelf upgrade offers.
+    if (up.kind === 'station' && up.payload?.station) {
+      const sk = ledgerKey('station', up.payload.station);
+      this.fixtures[sk] = (this.fixtures[sk] ?? 0) + 1;
+    }
     if (up.kind === 'space') {
       this.grow = {
         w: this.grow.w + Math.max(0, Math.trunc(up.payload.width ?? 0)),
@@ -2516,13 +2587,28 @@ function copyKeys(from, to, keys) {
  * grew a phantom shelf on every server restart.
  */
 function fixtureLedger(w) {
-  if (w.fixtures) return { ...BASE_FIXTURES, ...w.fixtures };
-  return {
+  const led = w.fixtures ? { ...BASE_FIXTURES, ...w.fixtures } : {
     shelf: BASE_FIXTURES.shelf + countUpgrade(w, 'shelf', 'shelves'),
     freezer: BASE_FIXTURES.freezer + countUpgrade(w, 'freezer', 'freezers'),
     checkout: BASE_FIXTURES.checkout + countUpgrade(w, 'checkout', 'checkouts'),
     plot: BASE_FIXTURES.plot + countUpgrade(w, 'plot', 'plots'),
   };
+
+  // Appliances were upgrade *ownership* — one of each, forever, sited by the
+  // generator — until they joined the ledger like everything else you can put
+  // down. A save from before that keeps what it bought.
+  //
+  // The presence of any `station:` key is what says the migration has happened,
+  // not the counts: they can all legitimately be zero once you tear the last
+  // one out, and re-deriving from `ownedUpgrades` would hand it straight back.
+  if (!Object.keys(led).some((k) => k.startsWith('station:'))) {
+    const owned = w.ownedUpgrades ?? [];
+    for (const u of content().upgrades) {
+      if (u.kind !== 'station' || !u.payload?.station) continue;
+      if (owned.includes(u.id)) led[ledgerKey('station', u.payload.station)] = 1;
+    }
+  }
+  return led;
 }
 
 /**
@@ -2546,15 +2632,6 @@ function rosterFromUpgrades(w) {
       name: kinds[role].name,
       jobs: kinds[role].jobs.map((j) => ({ job: j.job, weight: j.weight })),
     }));
-}
-
-/** Appliance kinds owned in a persisted world, for first layout generation. */
-function stationsFor(w) {
-  const owned = w.ownedUpgrades ?? [];
-  return content().upgrades
-    .filter((u) => u.kind === 'station' && owned.includes(u.id))
-    .map((u) => u.payload?.station)
-    .filter(Boolean);
 }
 
 /** Sum a payload field across every owned upgrade of a given kind. */

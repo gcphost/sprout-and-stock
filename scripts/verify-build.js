@@ -321,7 +321,12 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   // Emptying an appliance.
   const g2 = fresh();
-  g2.ownedUpgrades = c.upgrades.filter((u) => u.kind === 'station').map((u) => u.id);
+  // Appliances are counted in the ledger by name, not derived from upgrade
+  // ownership — owning the upgrade is what sold you the first one, and is no
+  // longer what makes it exist.
+  for (const u of c.upgrades.filter((x) => x.kind === 'station')) {
+    if (u.payload?.station) g2.fixtures[`station:${u.payload.station}`] = 1;
+  }
   g2.regenerateLayout();
   const st = g2.layout.stations[0];
   if (st) {
@@ -390,6 +395,43 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(gone.ok, 'removing an empty fixture works', gone.error);
   eq(g.layout.shelves.length, before, 'the shop is back to where it started');
   eq(round2(g.cash - cashBeforeSell), round2(unit / 2), 'and refunded half the price');
+
+  // An appliance is bought and sited exactly like a shelf. It used to be
+  // upgrade ownership — one of each, forever, wherever the generator felt like
+  // — so the whole round trip is worth asserting rather than just the price.
+  const sold = c.upgrades.find((u) => u.kind === 'station' && u.payload?.station);
+  if (sold) {
+    const name = sold.payload.station;
+    const key = `station:${name}`;
+    const gs = fresh();
+    gs.setBuildMode('me', true, 'station');
+    gs.cash += sold.cost * 2;
+
+    const had = gs.layout.stations.length;
+    const owned = gs.fixtures[key] ?? 0;
+    const cashWas = gs.cash;
+    const spotS = findFreeFloor(gs);
+    const built = gs.placeFixture('me', { kind: 'station', station: name, x: spotS.x, z: spotS.z, rot: spotS.rot });
+    check(built.ok, 'buying a second appliance works', built.error);
+    eq(gs.layout.stations.length, had + 1, 'the shop has one more appliance');
+    eq(gs.fixtures[key], owned + 1, 'and the ledger counted it by name');
+    eq(round2(cashWas - gs.cash), round2(sold.cost), 'charged what the upgrade sells it for');
+    const madeIt = gs.layout.stations.find((s) => s.id === built.placed);
+    eq(madeIt?.station, name, 'and it is the appliance that was asked for');
+
+    // Which is the half that was impossible before: selling one back used to
+    // un-own the upgrade, so you could never have two and never really lose one.
+    const ownedUpgradeBefore = gs.ownedUpgrades.includes(sold.id);
+    stand(gs, madeIt.useAt);
+    const soldBack = gs.removeFixture('me', built.placed);
+    check(soldBack.ok, 'selling an appliance back works', soldBack.error);
+    eq(gs.fixtures[key], owned, 'the ledger came back down');
+    eq(gs.layout.stations.length, had, 'and the shop is back to where it started');
+    eq(gs.ownedUpgrades.includes(sold.id), ownedUpgradeBefore,
+      'and tearing one out did not un-buy the upgrade that sells them');
+  } else {
+    check(false, 'no appliance upgrade to test building with');
+  }
 
   // You must never be able to remove your last till. The shop this test boots
   // from is the live save, so tear down to one rather than assuming there is.
