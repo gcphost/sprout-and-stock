@@ -43,6 +43,12 @@ const PART = z.object({
    * stock with it, the same way a redrawn fixture already moves its own height.
    * Nothing else reads it: a model with no surfaces piles goods on its roof,
    * which is what a chest freezer wants anyway.
+   *
+   * Flagging a board does not make it *usable* — whatever you draw above it has
+   * to leave room to see into it. Goods fill top-down, so a lid close over the
+   * top board is where all of the stock goes and none of it shows. That is
+   * geometry rather than a second flag (`drawableBoards`, shared/model.js), and
+   * `npm run docs:fixtures` names any board that fails it.
    */
   surface: z.boolean().default(false),
   /**
@@ -323,8 +329,24 @@ export const FixtureSchema = z.object({
     capacity_mult: z.number().min(0.1).max(10).default(1),
     /** How long goods last on it, x this. Freezers mostly. */
     keeps_mult: z.number().min(0.1).max(20).default(1),
-    /** How fast it works, x this. Appliances, and crops in a plot. */
+    /** How fast it works, x this. Appliances, crops in a plot, and a till. */
     speed_mult: z.number().min(0.1).max(10).default(1),
+    /**
+     * What share of that speed it manages with NOBODY behind it. Checkouts.
+     *
+     * 0 — the default, and every till there has ever been — means the line
+     * stands there until a person walks up to it. Above 0 it is a self-service
+     * machine: the shopper rings themselves up at `speed_mult * unattended`,
+     * so 0.5 is a till that serves itself at half the speed somebody working
+     * it would manage.
+     *
+     * A number rather than a flag, because "does it serve itself" and "how
+     * well" are one question and a boolean can only answer the half nobody
+     * has to balance. It also keeps the ladder honest: a rung that moves this
+     * has moved a number the sim reads, which is the only thing that makes a
+     * rung worth its price.
+     */
+    unattended: z.number().min(0).max(1).default(0),
   })).min(1).max(6).default([{ name: 'Standard', cost: 0 }]),
   /**
    * What one costs to put down, or 0 to be priced by the upgrade that sells the

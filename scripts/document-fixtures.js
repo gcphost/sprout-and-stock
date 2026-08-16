@@ -11,14 +11,20 @@
  * So this reads the same registry the game reads and prints what is actually
  * there, including two things nobody would think to write down by hand:
  *
- *   - **a tier that changes no number.** `capacity_mult`, `keeps_mult` and
- *     `speed_mult` are the only knobs the sim reads, so a rung that moves none
- *     of them and costs money is a button that takes your cash and does nothing.
- *     They are flagged rather than hidden, because sometimes it is deliberate —
- *     the till ladder is priced at 0 for exactly this reason.
+ *   - **a tier that changes no number.** `capacity_mult`, `keeps_mult`,
+ *     `speed_mult` and `unattended` are the only knobs the sim reads, so a rung
+ *     that moves none of them and costs money is a button that takes your cash
+ *     and does nothing. They are flagged rather than hidden, because sometimes
+ *     it is deliberate — the till ladder was priced at 0 for exactly this
+ *     reason, until `serveSeconds` gave a checkout's speed something to mean.
  *   - **how many facings a piece really has.** A shelf's capacity to the *eye*
  *     is its `surface` boards times three, which is a fact about the model
  *     rather than about the row, and diverges from `capacity_mult` silently.
+ *   - **a board you cannot see into.** Goods fill top-down, so a piece that
+ *     grew a canopy puts the first thing you stock in the one place the camera
+ *     never reaches. It looks like an empty shelf, which reads as stock that
+ *     didn't arrive rather than as art. Judged by `drawableBoards`, the same
+ *     function the renderer uses to decide where stock actually goes.
  *
  *   npm run docs:fixtures
  */
@@ -29,7 +35,9 @@ import { dirname, resolve } from 'node:path';
 import { content } from '../server/content.js';
 import { FIXTURES, GROUND, isGround, isProp, blocksCell } from '../shared/build.js';
 import { kindOf, piecesOf } from '../shared/pieces.js';
-import { surfacesAt, partsAt, variantsOf, isStaged } from '../shared/model.js';
+import {
+  surfacesAt, partsAt, variantsOf, isStaged, drawableBoards, shownOn, tierProgress,
+} from '../shared/model.js';
 
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), '../docs/fixtures.md');
 
@@ -70,6 +78,7 @@ function tierLines(row) {
       t.capacity_mult !== 1 && t.capacity_mult != null ? `holds ×${t.capacity_mult}` : null,
       t.keeps_mult !== 1 && t.keeps_mult != null ? `keeps ×${t.keeps_mult}` : null,
       t.speed_mult !== 1 && t.speed_mult != null ? `speed ×${t.speed_mult}` : null,
+      t.unattended ? `serves itself at ×${t.unattended} speed` : null,
     ].filter(Boolean);
     // Tier 1 is what a new one already is, so it is exempt: it costs 0 and is
     // supposed to move nothing.
@@ -79,6 +88,56 @@ function tierLines(row) {
       + (dead ? ' ⚠️ **pays for nothing the sim reads**' : '');
   });
 }
+
+/**
+ * Boards a piece has that goods cannot be seen on, across every shape and tier.
+ *
+ * Split by what is doing the covering, because only one of the two is a bug.
+ * A **lid** — a canopy, a header, a chiller's top — is a mistake: goods fill
+ * top-down, so the covered board is the one they all land on, and the piece
+ * reads as empty while holding a full load. A board covered by **another
+ * board** is shelving: on an L the two wings overlap at the corner and the wing
+ * above genuinely hangs over the wing below. Nothing to raise there — that
+ * board is simply a poor place to display something, and the renderer puts the
+ * stock on the wings you can see.
+ *
+ * Told apart by asking the same question twice: once of the whole model, once
+ * of it with the boards taken out. If it only fails the first, a board is what
+ * is over it.
+ */
+function coveredBoards(row) {
+  const out = [];
+  const n = row.tiers?.length ?? 1;
+  for (const v of variantsOf(row)) {
+    if (!v.model) continue;
+    // An unstaged shape looks the same at every tier, so say it once.
+    const rungs = isStaged(v.model) ? [...Array(n).keys()].map((i) => i + 1) : [null];
+    for (const tier of rungs) {
+      const t = tierProgress(tier ?? 1, n);
+      const parts = partsAt(v.model, t);
+      const boards = surfacesAt(v.model, t);
+      if (!boards.length) continue;
+      const hidden = boards.filter((s) => !drawableBoards(parts, [s]).length);
+      if (!hidden.length) continue;
+      const bare = parts.filter((p) => !p.surface);
+      const lids = hidden.filter((s) => !drawableBoards(bare, [s]).length);
+      out.push({
+        shape: v.name, tier, of: boards.length,
+        hidden: hidden.length, lids: lids.length,
+        worst: Math.min(...hidden.map((s) => shownOn(parts, s))),
+      });
+    }
+  }
+  return out;
+}
+
+/** What is covered and by what — the half of the sentence both callers share. */
+const coveredTail = (c) => `${c.hidden} of ${c.of} boards `
+  + (c.lids ? `(**${c.lids} under a lid**)` : '(under another board — an L corner)');
+
+/** One covered-board finding, as a line for the headline list. */
+const coveredLine = (row, c) => `\`${row.id}\` · ${c.shape}`
+  + `${c.tier ? ` tier ${c.tier}` : ''} — ${coveredTail(c)}`;
 
 function describe(row) {
   const kind = kindOf(row);
@@ -110,6 +169,13 @@ function describe(row) {
     if (parts.some((p) => p.seam)) bits.push('seams against a neighbour');
     out.push(bits.join(' · '));
     out.push('');
+
+    for (const c of coveredBoards(row)) {
+      out.push(`${c.lids ? '⚠️ ' : ''}Covered — ${c.shape}${c.tier ? ` tier ${c.tier}` : ''}: `
+        + `${coveredTail(c)}. Goods there cannot be seen, so the renderer stocks the `
+        + 'boards you can.');
+      out.push('');
+    }
   }
 
   if (row.yields?.cash) {
@@ -174,6 +240,11 @@ for (const r of rows) {
   });
 }
 
+// Only lids get the headline. A board over a board is named on the piece
+// itself, because it is a fact about that shape rather than something to fix.
+const lidded = [];
+for (const r of rows) for (const c of coveredBoards(r)) if (c.lids) lidded.push(coveredLine(r, c));
+
 const md = [];
 md.push('# The build catalog');
 md.push('');
@@ -198,6 +269,19 @@ if (dead.length) {
   md.push('> nothing reads a till\'s speed yet — but a *paid* one is a bug:');
   md.push('>');
   for (const d of dead) md.push(`> - ${d}`);
+  md.push('');
+}
+
+if (lidded.length) {
+  md.push('> ⚠️ **Boards you cannot see into.** Goods fill a unit from the TOP board');
+  md.push('> down, because on a 45° camera each board covers the one below it. So a');
+  md.push('> piece with a canopy over its top board puts the first thing you stock in');
+  md.push('> the one place the camera never reaches: the unit holds a full load and');
+  md.push('> draws as empty, which reads as stock that never arrived rather than as art.');
+  md.push('> Raise the lid — and whatever carries it — until the board has the same');
+  md.push('> headroom the others have:');
+  md.push('>');
+  for (const l of lidded) md.push(`> - ${l}`);
   md.push('');
 }
 
@@ -233,6 +317,12 @@ md.push('  that reason — build the silhouette from the budget, not from what l
 md.push('- **A model faces east.** `-x` is its back, `+x` its face. Goods run along');
 md.push('  whichever horizontal axis a `surface` board is *longer* on, so make boards');
 md.push('  deeper (z) than wide (x) or a corner unit files its stock into the wall.');
+md.push('- **Anything you put over a board has to clear it.** Goods fill top-down, so a');
+md.push('  canopy 0.17 above the top board is not a detail — it is where every unit of');
+md.push('  stock goes, and none of it can be seen. Leave a board the same headroom its');
+md.push('  neighbours have (the shelf pitch is 0.35) and raise the uprights and glass');
+md.push('  with it, or the lid floats. `drawableBoards` in `shared/model.js` is the');
+md.push('  judge, and this file flags whatever it fails.');
 md.push('- **A hanging piece must hang.** `prop-ceiling` parts sit at negative `y`;');
 md.push('  `verify:build` asserts it, because one at `y: 0` is a sign lying on the floor.');
 md.push('- **`rot` turns a part about Y and nothing else.** Nothing can lean.');

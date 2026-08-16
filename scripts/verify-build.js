@@ -340,28 +340,60 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(!g.players.me.carry, 'stowing empties your hands');
   eq(totalOnFloor(g, anyItem.id), 4, 'every unit survives as a crate');
 
-  // Two loads of the same thing become one crate, not a forest of them.
+  // Two loads of the same thing top up one crate rather than building a forest
+  // of them — but only to the brim. A crate holds an armful, so a load that
+  // does not fit fills this one and starts the next, and the pile is how much
+  // is there. Merging without a ceiling was the other bug: sixteen carrots came
+  // out as one box wearing "x16" that four trips could not empty.
+  const cap = g.crateCapacity();
   g.players.me.carry = { item_id: anyItem.id, qty: 3 };
   g.stow('me');
-  eq(g.deliveries.length, 1, 'stowing the same item twice merges the crate');
-  eq(totalOnFloor(g, anyItem.id), 7, 'and keeps the total');
+  eq(totalOnFloor(g, anyItem.id), 7, 'stowing twice keeps the total');
+  eq(g.deliveries.length, 7 > cap ? 2 : 1, 'and tops up the crate rather than starting a forest');
+  check(g.deliveries.every((d) => d.qty <= cap), 'no crate holds more than an armful');
+  if (7 > cap) eq(g.deliveries[0].qty, cap, 'the first crate is filled to the brim before the next is opened');
+
+  // One armful is one crate, which is the whole point of the ceiling: taking a
+  // crate leaves nothing behind in it.
+  {
+    const one = fresh();
+    stand(one, one.dropPad());
+    one.players.me.carry = { item_id: anyItem.id, qty: one.carryCapacity() };
+    one.stow('me');
+    eq(one.deliveries.length, 1, 'an armful stows as exactly one crate');
+    check(one.unload('me', one.deliveries[0].id).ok, 'which can be picked up again');
+    eq(one.deliveries.length, 0, 'and nothing is left standing there');
+  }
 
   // ...and it can be picked straight back up.
   const back = g.unload('me', g.deliveries[0].id);
   check(back.ok, 'a stowed crate can be picked back up');
   check(g.players.me.carry?.qty > 0, 'picking it back up fills your hands');
 
-  // Putting down is still what standing there offers, and it has to be — it is
-  // the one half of the yard that has no target to name.
+  // Putting down is named too now, and the drop-off is the one target in the
+  // shop that has no id to name it by — it is painted ground rather than an
+  // object. Tapping one of its cells IS the naming, and `walkTo` is where that
+  // is read, which is why this half of the yard has no verb of its own.
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
   g.deliveries = [];
-  eq(g.actionFor(g.players.me)?.kind, 'stow', 'standing at the drop-off with full hands offers stow');
+  stand(g, g.dropPad());
+  eq(g.actionFor(g.players.me), null,
+    'standing at the drop-off with full hands does nothing on its own');
+
+  const pad = g.dropPad();
+  check(g.walkTo('me', pad.x, pad.z).ok, 'tapping a cell of the pad is accepted');
+  eq(g.actionFor(g.players.me)?.kind, 'stow', 'and tapping it is what arms the stow');
+  g.stepActions(5);
+  eq(g.players.me.carry, null, 'the ring puts it down');
+  eq(g.players.me.errand, null, 'and spends the errand');
+  eq(g.actionFor(g.players.me), null, 'so standing there does nothing again');
 
   // ...and picking up is the half that must never happen on its own. This used
   // to need a latch (`stowLock`): both halves re-armed the instant they
   // finished, so setting an armful down beside a crate of the same thing picked
   // it straight back up, for as long as you stood there. The latch is gone
-  // because the loop is — nothing is picked up that was not asked for by name.
+  // because the loop is — nothing is picked up or put down that was not asked
+  // for by name.
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
   g.dropGoods(anyItem.id, 5, g.dropPad());
   check(g.stow('me').ok, 'stowing beside a matching crate works');
@@ -397,11 +429,11 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(g.players.me.carry?.qty > 0, 'the charge fills your hands');
   eq(g.players.me.errand, null, 'and the errand is spent');
   check(g.actionFor(g.players.me)?.kind !== 'unload', 'so it does not arm again');
-  // A crate parked at the drop-off is a crate you are stood *on*, so the other
-  // half of the pad is armed the instant your hands are full — and tapping it
-  // filled your hands. Without `tookFrom` the pickup empties itself back into a
-  // crate on the same tile before you can take a step.
-  check(g.actionFor(g.players.me)?.kind !== 'stow',
+  // A crate parked at the drop-off is a crate you are stood *on*, so the pad
+  // used to arm the instant your hands were full — and tapping the crate filled
+  // your hands. That needed a latch (`tookFrom`) for exactly as long as putting
+  // down was something the floor decided; both are gone.
+  eq(g.actionFor(g.players.me), null,
     'nor does the pad you took it off put it straight back');
 }
 
@@ -505,26 +537,24 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check((g.players.me.carry?.qty ?? 0) > 0, 'and the charge fills your hands');
   eq(g.players.me.errand, null, 'one errand, one armful');
 
-  // ...and the unit does not take it straight back, which is the whole reason
-  // `tookFrom` exists. Stocking arms on full hands beside a shelf that will
-  // have them — which is exactly the state a pickup leaves you in — so a board
+  // ...and the unit does not take it straight back. This used to need a latch
+  // (`tookFrom`): stocking armed on full hands beside a shelf that would have
+  // them — which is exactly the state a pickup leaves you in — so a board
   // emptied by hand refilled itself on the very next tick. Same shape the
-  // retired `stowLock` was guarding, pointing the other way.
+  // retired `stowLock` was guarding, pointing the other way. Both latches are
+  // gone, because there is no loop left to break: an errand is spent when it
+  // fires and nothing arms on its own.
   const inHandNow = g.players.me.carry.qty;
-  check(g.actionFor(g.players.me)?.kind !== 'stock',
+  eq(g.actionFor(g.players.me), null,
     'the shelf you just took from does not immediately restock itself');
   g.stepActions(5);
   eq(g.players.me.carry?.qty, inHandNow, 'so standing there keeps it in your hands');
 
-  // The latch is a pause, not a ban: leave its reach and it stocks as normal,
-  // or an armful taken off a shelf could never go back on it at all.
-  stand(g, { x: 1, z: 1 });
-  g.setInput('me', 1, 0);
-  g.stepPlayers(0.1);
-  g.setInput('me', 0, 0);
-  eq(g.players.me.tookFrom, null, 'walking out of reach clears it');
-  stand(g, shelf.browseAt);
-  eq(g.actionFor(g.players.me)?.kind, 'stock', 'and coming back stocks it again');
+  // Putting it back on the very same unit is one tap and needs no walk away
+  // first, which is what makes this a rule rather than a pause: the latch had
+  // to expire, whereas naming a target simply says which shelf you meant.
+  check(g.walkToFixture('me', shelf.id).ok, 'pointing at that same shelf is accepted');
+  eq(g.actionFor(g.players.me)?.kind, 'stock', 'and naming it puts the armful back');
 }
 
 // ---------------------------------------------------------------------------
@@ -640,7 +670,8 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   stand(g, shelf.browseAt);
 
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
-  eq(g.actionFor(g.players.me)?.kind, 'stock', 'outside build mode a shelf gets stocked');
+  check(g.walkToFixture('me', shelf.id).ok, 'pointing at a shelf with full hands is accepted');
+  eq(g.actionFor(g.players.me)?.kind, 'stock', 'outside build mode a named shelf gets stocked');
 
   // Outside build mode, none of the destructive verbs answer at all — no menu
   // can be open, so nothing should reach them.
@@ -650,16 +681,21 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(!g.rotateFixture('me', shelf.id).ok, 'you cannot turn one outside build mode');
   eq(qtyOn(shelf), 5, 'and the shelf is untouched by any of it');
 
-  // Inside build mode, standing next to something arms nothing. Proximity used
-  // to pick a target here, and in a dense aisle it picked the wrong one.
+  // Inside build mode nothing is armed — not proximity, and not an errand you
+  // named before you turned the mode on. In build mode a tap is a purchase, so
+  // an errand surviving into it would fire under a gesture that meant something
+  // else entirely.
   g.setBuildMode('me', true);
-  eq(g.actionFor(g.players.me), null, 'build mode arms no proximity action at all');
+  eq(g.actionFor(g.players.me), null, 'build mode arms nothing at all, named or not');
   for (let i = 0; i < 60; i++) g.stepActions(0.1);
   eq(qtyOn(shelf), 5, 'and standing next to a shelf does nothing to it');
   eq(g.players.me.holding ?? null, null, 'nor picks anything up');
 
+  // It is suspended rather than thrown away, which is what makes Empty and
+  // Rotate safe to borrow the mode for: a job you named survives a trip through
+  // the palette and is still yours when you come back out.
   g.setBuildMode('me', false);
-  eq(g.actionFor(g.players.me)?.kind, 'stock', 'leaving build mode restores the normal job');
+  eq(g.actionFor(g.players.me)?.kind, 'stock', 'leaving build mode restores the named job');
 }
 
 // ---------------------------------------------------------------------------
@@ -846,9 +882,61 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 }
 
 // ---------------------------------------------------------------------------
+// 7d. Nothing goes into or out of your hands for standing there.
+//
+// The headline claim, and the one that is invisible in a screenshot of any one
+// moment: what it looks like is a shop where nothing happened. An aisle is a row
+// of shelves on a three-tile pitch, so stopping anywhere in one with an armful
+// used to mean one of them took it, and which one was a question about where
+// your feet happened to be — carrying stock across your own shop was not a
+// thing you could do. The bed is the same objection pointing the other way: a
+// harvest you did not ask for fills your hands, and full hands refuse you
+// everything else.
+//
+// Both directions are asserted over six seconds, not one tick, because the ring
+// is a second long and a one-tick check would pass against a shop that simply
+// had not got round to it yet.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
+  const before = qtyOn(shelf, plainItem.id);
+  g.players.me.carry = { item_id: plainItem.id, qty: 3 };
+  stand(g, shelf.browseAt);
+  for (let i = 0; i < 60; i++) g.stepActions(0.1);
+  eq(g.players.me.carry?.qty, 3, 'six seconds beside a shelf with an armful shelves nothing');
+  eq(qtyOn(shelf, plainItem.id), before, 'and the board is exactly as it was');
+
+  // ...and naming that same shelf is what does it, from where you already are.
+  check(g.walkToFixture('me', shelf.id).ok, 'pointing at it is accepted');
+  eq(g.actionFor(g.players.me)?.kind, 'stock', 'and that arms the stock');
+  g.stepActions(5);
+  eq(g.players.me.carry, null, 'which puts the armful on the shelf');
+
+  // The other direction: a ripe bed you are standing on.
+  const plot = g.layout.plots[0];
+  const crop = cropFor(g);
+  stand(g, plot);
+  g.till('me', plot.id);
+  check(g.plant('me', plot.id, crop.id).ok, 'a bed is sown to pick from');
+  plot.ready = true;
+  for (let i = 0; i < 60; i++) g.stepActions(0.1);
+  check(plot.ready, 'six seconds on a ripe bed picks nothing');
+  eq(g.players.me.carry, null, 'so your hands stay empty');
+
+  check(g.walkToFixture('me', plot.id).ok, 'pointing at the bed is accepted');
+  eq(g.actionFor(g.players.me)?.kind, 'harvest', 'and that arms the harvest');
+  g.stepActions(5);
+  check((g.players.me.carry?.qty ?? 0) > 0, 'which fills your hands');
+}
+
+// ---------------------------------------------------------------------------
 // 7b. Put an armful down in the yard and it stays down. Stowing and picking
-//     back up re-arm the instant they finish, so with no button to let go of
-//     this is a stow and a pickup on a loop until the goods are worn out.
+//     back up used to re-arm the instant they finished, so with no button to
+//     let go of this was a stow and a pickup on a loop until the goods were
+//     worn out. Both halves are named now and neither re-arms, so the loop has
+//     no way to start — but "no way to start" is exactly the kind of claim that
+//     is true until somebody puts one of the halves back on proximity.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -856,19 +944,24 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   me.carry = { item_id: anyItem.id, qty: 4 };
   stand(g, g.dropPad());
 
-  eq(g.actionFor(me)?.kind, 'stow', 'standing at the drop-off with full hands stows');
+  const pad = g.dropPad();
+  g.walkTo('me', pad.x, pad.z);
+  eq(g.actionFor(me)?.kind, 'stow', 'tapping the drop-off with full hands stows');
+  g.stepActions(5);
+  eq(me.carry, null, 'the goods went down');
+
   for (let i = 0; i < 200; i++) {
-    // A shuffle on the spot, going nowhere — which is what used to clear it.
-    // The key is *released* between nudges, and it has to be: an action only
-    // charges while you are stopped now, and a hand left on a direction for
-    // twenty seconds is a player walking, which is a decline. Held down, this
-    // loop would prove nothing except that steering suppresses actions.
+    // A shuffle on the spot, going nowhere — standing on your own crate for
+    // twenty seconds. The key is *released* between nudges, and it has to be:
+    // an action only charges while you are stopped, and a hand left on a
+    // direction is a player walking, which is a decline. Held down, this loop
+    // would prove nothing except that steering suppresses actions.
     me.input = { dx: i % 2 ? 1 : -1, dz: 0 };
     g.stepPlayers(0.02);
     me.input = { dx: 0, dz: 0 };
     g.stepActions(0.1);
   }
-  eq(me.carry, null, 'the goods went down and stayed down');
+  eq(me.carry, null, 'and stayed down — nothing filled your hands again');
   eq(g.deliveries.length, 1, 'as exactly one pallet');
   eq(g.deliveries[0].qty, 4, 'holding all of it');
 }

@@ -9,6 +9,7 @@ import { UI } from './ui.js';
 import { RAIL_ITEMS } from './sections.js';
 import { showFixture, refreshFixture } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
+import { showCrates, cratesAt } from './crate-menu.js';
 import { Menu, preselectedWorld } from './menu.js';
 
 const canvas = document.getElementById('game');
@@ -124,12 +125,25 @@ addEventListener('keyup', (e) => {
 // `onCanvas` matters as much as the coordinates: the HUD floats over the world
 // and swallows the clicks it covers, so a ghost or a target ring under an open
 // panel would be promising something that cannot happen.
-const pointer = { x: innerWidth / 2, y: innerHeight / 2, onCanvas: true };
+// `mouse` is for edge scrolling below, which is a hover gesture and therefore
+// a mouse-only one — a finger resting near the edge of the glass at the end of
+// a drag is not asking for anything.
+const pointer = { x: innerWidth / 2, y: innerHeight / 2, onCanvas: true, mouse: true };
 addEventListener('pointermove', (e) => {
   pointer.x = e.clientX;
   pointer.y = e.clientY;
   pointer.onCanvas = e.target === canvas;
+  pointer.mouse = e.pointerType !== 'touch';
   refreshGhost();
+});
+
+// Off the window entirely — `relatedTarget` is null only for the document
+// itself, so this is not the ordinary move onto a panel. It matters because
+// there is no *further* move event to say the pointer stopped resting in the
+// edge band, so without it the view sails on while the mouse is up in the
+// browser's own chrome.
+addEventListener('pointerout', (e) => {
+  if (!e.relatedTarget) pointer.onCanvas = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -198,9 +212,18 @@ function refreshGhost(force = false) {
     // No ghost outside build mode, but still ring whatever is under the
     // pointer: a tap opens that thing's menu now, and a target you can click
     // with nothing marking it is a secret rather than a feature.
-    const over = pointer.onCanvas && !ui.holding ? scene.pickFixture(pointer.x, pointer.y) : null;
-    scene.setAimTarget(over);
-    ui.setAim(over);
+    //
+    // Crates are in that "whatever" now, and they were the one thing you could
+    // point at that nothing marked — which mattered least while a crate stood
+    // alone on a pad and matters most now they stack: the ring at its own
+    // height is how you know which one of a pile the tap would take. `pickAim`
+    // weighs the two by distance rather than order, so a pendant lamp hanging
+    // over the same tile no longer quietly owns the pointer.
+    const aim = pointer.onCanvas && !ui.holding ? scene.pickAim(pointer.x, pointer.y) : null;
+    scene.setAimTarget(aim?.crate ?? aim?.fixture ?? null);
+    // Only the fixture: this names what a build verb would act on, and there is
+    // no build verb that takes a crate.
+    ui.setAim(aim?.fixture ?? null);
     return;
   }
   const tile = scene.pickTile(pointer.x, pointer.y);
@@ -276,9 +299,13 @@ canvas.addEventListener('wheel', (e) => {
 // So the player walks the way everybody else in the shop already walks: you
 // name a destination and the server routes there (`walkTo`, A* on the same
 // grid the customers use). That is not just a different input — it is what
-// makes one tap do a whole errand, because actions charge on proximity. Tap a
-// shelf, and you walk to the side you can work from and stock it, with no
-// second input at all.
+// makes one tap do a whole errand, because pointing at a thing names it as well
+// as routing to it. Tap a shelf, and you walk to the side you can work from and
+// stock it, with no second input at all.
+//
+// ...and *only* that shelf. The naming is the load-bearing half: with an armful
+// in your hands, walking down an aisle used to stock whichever unit your feet
+// ended up nearest. See the Actions block in `server/sim/index.js`.
 //
 // Which leaves the drag free for the camera, and that is the other half of
 // being playable on a phone: you can look somewhere before you go there.
@@ -703,6 +730,9 @@ canvas.addEventListener('pointercancel', (e) => {
 addEventListener('blur', () => {
   touches.clear();
   pinch = null;
+  // rAF keeps running in an unfocused-but-visible tab, so an edge scroll left
+  // armed here carries on panning a shop nobody is looking at.
+  pointer.onCanvas = false;
   endSpin();
   endPress();
   endDrag();
@@ -743,10 +773,15 @@ const myCarry = () => latestState?.players
  *
  * A ripe bed and a machine with a finished tray are the two, and they are the
  * same case an armful of stock is from the other end: the answer to pointing at
- * them is not "tell me about this", it is "go and get it". Proximity arms
- * `harvest` and `collect` the moment you arrive, so the walk is the entire
- * errand — which is what the tap already does with your hands full, and what it
- * did not do with them empty.
+ * them is not "tell me about this", it is "go and get it". Pointing at a thing
+ * *names* it (`walkToFixture`), and a named job fires when you arrive — so the
+ * walk is the entire errand, which is what the tap already did with your hands
+ * full and did not do with them empty.
+ *
+ * This is only about which gesture the tap spends, not about what is allowed:
+ * standing at a ripe bed does nothing at all now unless you pointed at it. What
+ * this decides is whether pointing means "go and get it" or "tell me about it",
+ * and a bed with fruit on it has an obvious answer to that.
  *
  * Read off the snapshot, not worked out here. `ready` and `output` are the same
  * fields the renderer draws the fruit and the thought bubble from, so the tap
@@ -797,10 +832,14 @@ function openAtPointer(cx, cy) {
  * What a tap means, decided by what you tapped and whether you're building.
  *
  * **Press and let go, and you go there.** Bare ground walks you to it, and a
- * *thing* walks you to the side of it you work from — which, because actions
- * charge on proximity, is the whole errand in one gesture: point at a shelf,
- * and you cross the shop and stock it with no second input. Looking at a thing
- * is the same press, held: see `openAtPointer`.
+ * *thing* walks you to the side of it you work from and names it — which is the
+ * whole errand in one gesture: point at a shelf, and you cross the shop and
+ * stock it with no second input. Looking at a thing is the same press, held:
+ * see `openAtPointer`.
+ *
+ * The naming is not a shortcut, it is the permission. Nothing goes into or out
+ * of your hands for standing near it, so the tap is the only way an armful ever
+ * leaves them — and the drop-off is a tap on the ground, because it is ground.
  *
  * One rule for a mouse and a finger, which is a decision that was made twice.
  * The middle version gave the mouse click-to-open and left the errand to
@@ -857,9 +896,20 @@ function tapAtPointer(cx, cy) {
     // front. Not gated on empty hands: topping up an armful from the same
     // pallet is the common case, and a mismatch is the server's refusal to
     // give, not a reason for the tap to do nothing.
+    // ...but a PILE of them is several verbs, and the tap cannot choose between
+    // them by aim alone. A crate stands about a fifth of a tile tall, which is
+    // a band of roughly a dozen pixels at the default zoom, and the ones
+    // underneath show nothing else of themselves — so on a stack the tap opens
+    // the pile as a list instead, and the row you press is the same `take` this
+    // would have sent. One tile, one crate: unchanged, still one tap.
+    //
+    // A menu on the tap rather than on the long press because the long press
+    // does not open anything any more (`HOLD_OPENS`) — a crate must not be the
+    // one thing in the shop that needs a gesture nothing else uses.
     const crate = ui.demolishArmed() ? null : scene.pickPallet(cx, cy);
     if (crate) {
       scene.ripple(crate.x, crate.z);
+      if (cratesAt(ui, crate).length > 1) { showCrates(ui, crate); return; }
       net.send('take', { palletId: crate.id });
       return;
     }
@@ -891,9 +941,11 @@ function tapAtPointer(cx, cy) {
       // question — so it goes, the same as pointing at the floor does. This is
       // the one branch where "a prop opens, the floor takes you somewhere"
       // gives the wrong answer: reading a shelf's menu is not what anybody
-      // wants while holding six loaves, and stocking charges on proximity, so
-      // walking there IS the whole job. The chevrons say which shelves are
-      // worth walking to; this is how you take one up on it.
+      // wants while holding six loaves, and pointing at a shelf both routes you
+      // there and says it is the one you meant, so this IS the whole job. The
+      // chevrons say which shelves are worth walking to; this is how you take
+      // one up on it — and now the only way to, since walking past a shelf with
+      // your hands full leaves them full.
       //
       // A bed with fruit on it and a machine with a full tray are the same
       // thing pointing the other way: goods and a person, one of them standing
@@ -1001,6 +1053,74 @@ function tapAtPointer(cx, cy) {
   net.send(ui.holding ? 'build-drop' : 'build-place', spec);
 }
 
+// ---------------------------------------------------------------------------
+// Edge scrolling
+//
+// Build mode is the one place the camera has no other way to move. Everywhere
+// else you tap where you want to go and the walk brings the view with it — but
+// in build mode a tap *places*, and the drag belongs to the wall and floor
+// brushes, which are exactly the tools you want to run off the side of the
+// screen. So anything you could not already see had to be reached by leaving
+// the mode, walking over there, and coming back.
+//
+// It is deliberately not on outside build mode: the pointer sits still over
+// the shop for minutes at a time while you watch it, and a view that drifts
+// because your hand is parked near an edge is worse than one that never moves.
+// ---------------------------------------------------------------------------
+
+/** How deep the band along each edge of the view is, in pixels. */
+const EDGE_BAND = 64;
+
+/**
+ * Pan speed at the very edge, in pixels of drag per second.
+ *
+ * Fed through the same `panBy` a finger uses, so it is *screen* speed: zoomed
+ * in the world crawls and zoomed out it sails, which is the same relationship
+ * a drag already has and the one the eye is expecting.
+ */
+const EDGE_SPEED = 1500;
+
+const buildBar = document.getElementById('build');
+
+/** How hard one axis is being pushed, -1..1, from where in the band it sits. */
+function edgePush(pos, lo, hi) {
+  if (pos < lo + EDGE_BAND) return Math.min(1, (lo + EDGE_BAND - pos) / EDGE_BAND);
+  if (pos > hi - EDGE_BAND) return -Math.min(1, (pos - (hi - EDGE_BAND)) / EDGE_BAND);
+  return 0;
+}
+
+function stepEdgeScroll(dt) {
+  // `paletteArmed` rather than `buildOn`, and for the same reason the ghost
+  // asks it: a mode a fixture menu borrowed for one press of Empty is not a
+  // mode you are building in, and a view that drifts while you read a menu is
+  // the thing this is supposed to be the cure for. Carrying counts though —
+  // that is the errand that most needs to reach a tile it cannot see.
+  if (!(ui.paletteArmed || ui.holding) || !pointer.mouse || !pointer.onCanvas) return;
+  // Steering already took the camera back (`pollInput` recentres on the first
+  // frame of it, every frame it lasts). Pushing here at the same time is two
+  // things pulling on one view, which shows up as a shudder rather than as
+  // either of them winning.
+  if (lastInput.dx || lastInput.dz) return;
+  // The bottom band sits *above* the toolbar rather than under it. The bar is
+  // pinned to the bottom of the screen and eats its own pointer events, so
+  // measuring that band from the window would put the only way to scroll south
+  // behind the buttons you pick tools with — the band would be unreachable and
+  // read as "it only scrolls three ways".
+  const floor = buildBar?.classList.contains('on')
+    ? Math.min(innerHeight, buildBar.getBoundingClientRect().top) : innerHeight;
+  const px = edgePush(pointer.x, 0, innerWidth);
+  const py = edgePush(pointer.y, 0, floor);
+  if (!px && !py) return;
+  // Sign follows the drag it stands in for: the world follows your hand, so
+  // pushing at the right edge is a drag to the *left*.
+  scene.panBy(px * EDGE_SPEED * dt, py * EDGE_SPEED * dt);
+  // A live run or stroke previews from the pointer, which has not moved — but
+  // the ground under it has. Without this the ghost stays on the tile the
+  // camera left behind, and the wall you get is the one you could already see.
+  if (edgeDrag) showEdgeDrag(pointer.x, pointer.y);
+  else if (floorDrag) showFloorDrag(pointer.x, pointer.y);
+}
+
 function pollInput() {
   // Camera is rotated 45°, so screen-up should move you diagonally in world
   // space — otherwise "up" feels wrong on an isometric view.
@@ -1038,8 +1158,21 @@ function pollInput() {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * When the last frame ran, so anything that moves per *second* can.
+ *
+ * Clamped where it is read: a backgrounded tab comes back with a delta of
+ * however long you were away, and an edge scroll fed that lands the camera at
+ * the far side of the world in one frame.
+ */
+let lastFrame = performance.now();
+
 function loop() {
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  lastFrame = now;
   pollInput();
+  stepEdgeScroll(dt);
   if (ui.buildOn) refreshGhost();
   // How far through a held press we are, recomputed per frame rather than
   // stepped by the timer that fires it: the timer knows when the press is over

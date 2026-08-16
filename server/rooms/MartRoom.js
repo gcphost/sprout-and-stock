@@ -240,6 +240,21 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.setRestockPriority(m?.shelfId, m?.priority));
     });
 
+    // What the shop does without being asked, and what that may cost per day.
+    // Each field is optional — the supplier sends the one row you pressed, for
+    // the same reason `assign` carries `on`: a message that re-sent the other
+    // two would race the snapshot and put back whatever it last saw.
+    this.onMessage('shop-orders', (client, m) => {
+      client.send('action-result', this.game.setOrders(m ?? {}));
+    });
+
+    // The same three decisions for one item. A stepper sends the value it
+    // arrived at rather than a direction, so two quick presses cannot land as
+    // one — the row already knows what it is showing.
+    this.onMessage('item-rule', (client, m) => {
+      client.send('action-result', this.game.setItemRule(m?.itemId, m ?? {}));
+    });
+
     this.onMessage('buy-upgrade', (client, m) => {
       const res = this.game.buyUpgrade(m?.upgradeId);
       client.send('action-result', res);

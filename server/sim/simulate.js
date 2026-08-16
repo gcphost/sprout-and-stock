@@ -58,6 +58,17 @@ export function simulate({
     world: worldId,
     staff: (game.roster ?? []).map((e) => e.name),
     ownedUpgrades: game.ownedUpgrades.length,
+    // The newest member of this list, and the clearest case for why the list
+    // exists: a shop whose owner switched auto-ordering off, or capped it, is a
+    // shop whose staff stop restocking — and every number below would move
+    // without a word about why. Same trap `ownedUpgrades` grew when a discount
+    // started changing what a fixture costs: ask what a save could now leak
+    // into the result, not only what fields were added.
+    // The settings only — `day` and `spent` are today's running total, which is
+    // a result rather than a starting condition.
+    orders: {
+      auto: game.orders.auto, assign: game.orders.assign, budget: game.orders.budget,
+    },
   };
 
   game.cash = startCash;
@@ -612,7 +623,33 @@ function pickItemForShelf(game, shelf, folded) {
   return (scored.find((s) => !already.has(s.it.id)) ?? scored[0]).it;
 }
 
+/**
+ * Put an armful away — all of it, over as many units as it takes.
+ *
+ * One board is not one armful. `stockShelf` fills the board it was given and
+ * hands the rest back, so a single call leaves goods in the bot's hands, and a
+ * harvest refuses full hands — which is how one full board could stop the whole
+ * farm for the rest of the run.
+ *
+ * This was a single call for as long as walking up to a shelf stocked it for
+ * free: the leftovers went on the *next* tick, from proximity, without anybody
+ * asking. Now that nothing is put down unless it is pointed at, the bot has to
+ * point at the next unit itself — which is exactly what a player does, and the
+ * reason this is a fix to the instrument rather than a thumb on the scale. It
+ * measured −12% on harvests over 40 days before it was put back.
+ */
 function dumpCarryToShelf(game, bot, priceMult, reserved = new Set()) {
+  // Bounded by the shelving, plus a check that each pass actually moved
+  // something: "nowhere left that will take this" has to end the loop, and it
+  // is not the same answer as "hands empty".
+  for (let guard = game.layout.shelves.length + 1; guard > 0 && bot.carry; guard--) {
+    const before = bot.carry.qty;
+    dumpArmfulOnce(game, bot, priceMult, reserved);
+    if (bot.carry && bot.carry.qty >= before) break;
+  }
+}
+
+function dumpArmfulOnce(game, bot, priceMult, reserved) {
   if (!bot.carry) return;
   const c = content();
   const item = c.byId.items[bot.carry.item_id];

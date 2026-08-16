@@ -922,6 +922,12 @@ function makeCheckout(L, id, x, z, rot, existing) {
     tier: 1,
     // Which shape it is. Empty means the kind's own model — Standard.
     variant: '',
+    // ...and its kind, for the same reason `makeStation` carries one: a record
+    // with no `kind` never resolves to a catalog row at all, so `fixtureStats`
+    // hands back 1/1/1 and the tier ladder above it is decoration. Harmless
+    // while nothing read a till's tier; the moment `serveSeconds` did, every
+    // till in the game would have been permanently tier 1.
+    kind: 'checkout',
     id,
     x,
     z,
@@ -1011,6 +1017,13 @@ function makePlot(id, x, z) {
     tier: 1,
     // Which shape it is. Empty means the kind's own model — Standard.
     variant: '',
+    // And the same missing field, found the same way and costing real money:
+    // `plotGrowth` reads `fixtureStats(plot).speed_mult` off the raw layout
+    // record, which resolved to no catalog row, so the shipped Raised Bed tier
+    // has been charging $90 for `speed_mult: 1.6` and growing crops at exactly
+    // the old rate. Nothing says so in play — a bed you paid to improve looks
+    // improved, and "crops feel slow" is not a bug report anybody files.
+    kind: 'plot',
     id,
     x,
     z,

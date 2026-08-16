@@ -105,6 +105,94 @@ export function surfacesAt(model, t = 1) {
 }
 
 /**
+ * How far the front row of goods stands proud of the middle of its board, as a
+ * share of the board's depth.
+ *
+ * Here rather than in the renderer that draws them, because `drawableBoards`
+ * below has to look up from exactly where `buildShelfGoods` puts things. Two
+ * spellings of where the goods are is how a board gets called visible and then
+ * filled somewhere you cannot see.
+ */
+export const FRONT_LIP = 0.14;
+
+/**
+ * How far the camera climbs for every step it travels back into a unit.
+ * Mirrors `BASE_CAM_OFFSET` in client/render/scene.js — 24 up over a 20×20
+ * diagonal, about 40°. Rounded up, so a board called visible really is one.
+ */
+const CAM_RISE = 0.85;
+
+/** How much of a good must clear what is over it before a board is worth using. */
+const MIN_SHOW = 0.04;
+
+/**
+ * How much of a good standing at the front of `s` clears everything above it,
+ * along the sightline the fixed camera actually has. Infinity means open sky.
+ *
+ *     shown = headroom − setback × CAM_RISE
+ *
+ * Glass does not count, because you can see through it — a chiller's own pane
+ * hangs over its boards and has never hidden anything. Nor does `drift`, which
+ * is vapour.
+ */
+export function shownOn(parts, s) {
+  // Where the front row will stand, taken from the same constant the renderer
+  // places it with. On a corner unit's second wing the goods run the other way,
+  // and looking up from the wrong point answers about the wall.
+  const alongZ = s.depth >= s.span;
+  const lip = (alongZ ? s.span : s.depth) * FRONT_LIP;
+  const gx = s.x + (alongZ ? lip : 0);
+  const gz = s.z + (alongZ ? 0 : lip);
+  const face = alongZ ? 0 : 2;
+  const at = alongZ ? gx : gz;
+
+  let shown = Infinity;
+  for (const p of parts ?? []) {
+    if ((p.alpha ?? 1) < 1 || p.drift) continue;
+    const under = (p.pos?.[1] ?? 0) - (p.scale?.[1] ?? 0) / 2;
+    // Anything not wholly above this board is the board itself, or below it.
+    if (under <= s.y + 1e-6) continue;
+    const over = (i, v) => Math.abs(v - (p.pos?.[i] ?? 0)) <= (p.scale?.[i] ?? 0) / 2 + 1e-6;
+    if (!over(0, gx) || !over(2, gz)) continue;
+    // Every cover, not just the lowest: a tier-3 shelf hangs a sign strip below
+    // its cap, and which of the two crops the view is not the same question as
+    // which of them is lower.
+    const setback = Math.max(0, (p.pos?.[face] ?? 0) + (p.scale?.[face] ?? 0) / 2 - at);
+    shown = Math.min(shown, (under - s.y) - setback * CAM_RISE);
+  }
+  return shown;
+}
+
+/**
+ * The boards of a unit you can actually see into, out of the ones its art
+ * flagged as `surface`.
+ *
+ * **A board under a lid is not a board.** Goods fill from the TOP down, which
+ * is right on an open unit and exactly wrong on one that grew a canopy: the
+ * first thing you stock lands in the one place the camera can never see. A
+ * tier-2 shelf did that — its top board sat 0.17 under a solid cap, the front
+ * row stands 0.20 back from the cap's lip, and at this camera pitch that leaves
+ * nothing showing. A shelf holding four loaves drew four loaves and looked
+ * empty, which reads as stock that never arrived.
+ *
+ * Measured rather than authored, the same argument `surfacesAt` and `seamStep`
+ * make: the art already says where the boards are and what hangs over them, and
+ * a second field saying "…and this one is covered" is a thing that can quietly
+ * disagree with the box you drew.
+ *
+ * In `shared/` for the reason everything else here is: the renderer resolves
+ * this to decide where stock goes, and `scripts/document-fixtures.js` resolves
+ * it to warn whoever is authoring a piece. Those two disagreeing is a lid the
+ * docs call fine and the game draws nothing under.
+ *
+ * A unit with nothing left heaps its goods on the roof, which is the fallback a
+ * unit with no boards at all already takes.
+ */
+export function drawableBoards(parts, surfaces) {
+  return (surfaces ?? []).filter((s) => shownOn(parts, s) >= MIN_SHOW);
+}
+
+/**
  * Which side of its own tile a `seam` part closes, as a step in model space —
  * or null if it isn't a seam, or doesn't sit against a side.
  *

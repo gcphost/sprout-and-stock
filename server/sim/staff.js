@@ -598,7 +598,12 @@ function serve(game, s) {
   if (game.collectCash(s) > 0) { s.cooldown = paceOf(s); return true; }
   if (!waiting(till)) return false;
   const res = game.serve(s.id, till.id);
-  s.cooldown = res.ok ? paceOf(s) : 0.5;
+  // How long the sale held them up is the worker's own pace over the till's
+  // speed — a hire on a scanner rings people through faster than the same hire
+  // on a manual till, which is the whole argument for buying one. Collecting
+  // the cash above is not: that is a walk and a pair of hands, and no register
+  // has ever made it quicker.
+  s.cooldown = res.ok ? game.serveSeconds(till, paceOf(s)) : 0.5;
   return true;
 }
 
@@ -614,13 +619,26 @@ function serve(game, s) {
  * aside for something the shop can't afford this minute, or for an item content
  * has since deleted — would otherwise wedge restocking permanently, and nothing
  * about a shop that quietly stopped ordering says why.
+ *
+ * Three of the limits on it are the player's rather than this file's — see
+ * `Game.orders`. Switching ordering off leaves every other job intact, which is
+ * the point: a shop that has stopped buying still unloads, shelves and tidies.
  */
 function restock(game, s) {
   if (s.carry) return false;
+  if (!game.orders.auto) return false;
   const c = content();
   if (game.deliveries.some((d) => shelfFor(game, d.item_id, c))) return false;
 
-  const budget = (game.cash - CASH_FLOOR) * SPEND_FRACTION;
+  // Two ceilings, and the lower one wins. `SPEND_FRACTION` of what sits above
+  // the float is the shop keeping itself solvent tick by tick; the daily cap is
+  // the player saying how much of the day's money the staff may commit at all.
+  // Neither replaces the other — a cap of $500 must still not spend the last
+  // $20 in the till, and a rich shop must still stop at the cap.
+  const budget = Math.min(
+    (game.cash - CASH_FLOOR) * SPEND_FRACTION,
+    game.orderBudgetLeft(),
+  );
   if (budget <= 0) return false;
 
   // The order the shop asks for. `restockQueue` is the sim's rule, not this
@@ -643,21 +661,46 @@ function restock(game, s) {
       const it = c.byId.items[id];
       return it ? game.shelfCapacity(target, it) - (game.shelfStack(target, id)?.qty ?? 0) : 0;
     };
+    // How many of this to actually put on a van, which is the board's room less
+    // everything that would reduce it: the shop's own supply (`homeSupply` —
+    // crates, hands and beds) and whatever headroom the item's own rule leaves.
+    //
+    // This has to drive the *choice* as well as the amount. Sorting on `need`
+    // would put the emptier board first and buy the thing already on its way in
+    // — or the thing you capped, which would then be ordered, refused as zero,
+    // and the shelf skipped with the other reservation never looked at.
+    const buy = (id) => {
+      const rule = game.itemRule(id);
+      if (rule.auto === false) return 0;
+      const supply = game.homeSupply(id);
+      const room = Math.max(0, need(id) - supply);
+      // `max` is about the whole shop, so it is measured against every board
+      // plus what is already on its way in — not against this one unit.
+      if (!(rule.max > 0)) return room;
+      return Math.max(0, Math.min(room, rule.max - game.itemHeld(id) - supply));
+    };
+    // `pickItem` is the only one of the three that is the shop deciding what
+    // your range should be, so it is the only one `assign` gates. Topping up a
+    // board that already holds something is not a decision anybody has to
+    // approve — you put it there.
     const item = kept.length
-      ? c.byId.items[[...kept].sort((a, b) => need(b) - need(a))[0]]
+      ? c.byId.items[[...kept].sort((a, b) => buy(b) - buy(a))[0]]
       : (c.byId.items[game.shelfStacks(target)
         .slice().sort((a, b) => a.qty - b.qty)[0]?.item_id]
-        ?? pickItem(game, target, c));
+        ?? (game.orders.assign ? pickItem(game, target, c) : null));
     if (!item) continue;
 
     const unit = wholesalePrice(item, game.folded(), game.season);
     // Orders arrive as a pallet, so they aren't capped by what one pair of hands
-    // can hold — the worker just makes more trips. Against the BOARD's room,
-    // which is a share of the unit, or a van turns up with three times what the
-    // shelf can take and the rest goes straight back out to a crate.
-    const room = need(item.id) || (game.shelfCapacity(target, item)
-      - (game.shelfStack(target, item.id)?.qty ?? 0));
-    const qty = Math.min(room, Math.floor(budget / Math.max(unit, 0.01)));
+    // can hold — the worker just makes more trips. Against the BOARD's room less
+    // what the shop can already fill it with, or a van turns up with three times
+    // what the shelf can take and the rest goes straight back out to a crate.
+    //
+    // Charged per board rather than against the shop's whole holding of the
+    // item, which under-orders slightly when one crate could serve two shelves.
+    // That is the safe direction: the next pass re-reads it once the crate has
+    // landed, and the other way round is the bug this replaced.
+    const qty = Math.min(buy(item.id), Math.floor(budget / Math.max(unit, 0.01)));
     if (qty <= 0) continue;
 
     if (!game.buyStock(s.id, item.id, qty).ok) continue;
@@ -890,6 +933,10 @@ function pickItem(game, shelf, c) {
   const scored = c.items
     .filter((it) => {
       if (crafted.has(it.id)) return false;   // whoever has `craft` makes these
+      // "Never order this" has to bite here as well as on the quantity, or the
+      // shop keeps choosing a banned item for every bare shelf, orders nothing,
+      // and quietly never stocks that shelf with anything else either.
+      if (game.itemRule(it.id).auto === false) return false;
       const frozen = it.tags.includes('needs-freezer') || it.tags.includes('frozen');
       return frozen ? shelf.kind === 'freezer' : shelf.kind !== 'freezer';
     })

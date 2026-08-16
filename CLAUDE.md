@@ -204,6 +204,7 @@ what the next step was meant to be.
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads and the break area alike | steps 1–9, 11, 13–14 built; 10 cancelled; 12 next |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, and the break area they are taken in | steps 1–6, 8 and 9 built |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
+| [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the three switches in the supplier, and why a refill line belongs on the shelf rather than on the item | steps 1–2 built; 3 proposed |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | proposed, nothing built |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
@@ -232,14 +233,31 @@ what the next step was meant to be.
   it becomes a pallet. That's deliberate: one entity means one renderer, one
   pickup path, and the stocker tidying every case of it for free. Never invent
   a second container; call `dropGoods`.
-- **Proximity arms an action and the ring fires it.** Standing near something
-  is not consent — the version before that harvested crops at you as you walked
-  past — but a button in between turned out not to be the answer either.
-  `actionFor` decides *what*, the charge decides *when*: an action takes a
-  second, the target lights up, and leaving the range throws the charge away, so
-  you say no by not standing there. The snapshot carries the armed action from
-  the tick it arms, at zero progress, so the client can light the target up and
-  name what is about to happen.
+- **You name it, and the ring fires it.** Anything that moves goods into or out
+  of your hands is pointed at first: a tap on a fixture is a *walk plus a name*
+  (`walkToFixture` sets `p.errand`), a tap on the drop-off is the same thing on
+  ground that has no id (`walkTo` reads the pad), and `errandAction` arms the
+  ordinary charge when you arrive. `actionAt` answers "what would *this* do";
+  the ring still decides *when* — a second, the target lit, and leaving throws
+  the charge away, so you say no by walking off. The snapshot carries the armed
+  action from the tick it arms, at zero progress, so the client can light the
+  target up and name what is about to happen.
+  Proximity is left with the two jobs that touch no goods: a till with somebody
+  waiting, and turning a rough bed over. Money is not even in that list — it is
+  scooped up by walking over it (`stepCashPickup`), which is the one thing
+  nobody has ever wanted to decline.
+- **…and it was the other way round for four steps, which is worth knowing
+  before you put anything back on proximity.** The ring made proximity *safe*
+  and never made it *precise*, and that distinction is the whole history here.
+  Pickups came out first: proximity can only offer the nearest pallet, which at
+  a bay stacked three deep is nobody's choice. Putting down is the same bug with
+  worse consequences, because your hands are already full when it fires — an
+  aisle is a row of shelves on a three-tile pitch, so stopping anywhere in one
+  meant one of them took your armful and which one was a question about your
+  feet. Carrying stock across your own shop was not a thing you could do. The
+  tell was the patches: `stowLock`, then `tookFrom`, both latches holding off an
+  action nobody had asked for. Both are gone, and neither is needed, because an
+  errand is spent when it fires and nothing re-arms.
 - **…and *standing* is the other half of "standing next to it".** `ACTION_TIME`
   was the whole defence against a walk-past — a second of charge against about
   three quarters of a second to cross a `REACH` — and that only ever described a
@@ -253,27 +271,22 @@ what the next step was meant to be.
   did put a state no player can reach inside the sweeps, though, which is why
   `verify-build`'s `stand` clears the path and the keys along with the position —
   `take` plans a route, and teleporting to its end *is* arriving.
-- **Picking things up is the exception, and it names its target.** Nothing is
-  ever put in your hands for standing near it. A crate is tapped
-  (`Scene.pickPallet`), a shelf board has a Take button in its own menu, and
-  both send `take`, which sets `p.errand` and walks you there — `errandAction`
-  arms the ordinary ring when you arrive. Proximity could only ever offer the
-  *nearest* pallet, which at a bay stacked three deep is not a choice anybody
-  made, and a pickup you did not choose is worse than a missed one because it
-  fills your hands and then everything else refuses you.
-- **Held actions still re-arm the instant they finish, and naming one does not
-  save you.** Fine for stocking and harvesting. Not fine for anything
-  destructive or reversible-in-place: a Clear tool that stayed armed ate seven
-  shelves in a row, and putting goods down beside a crate of the same thing
-  picked them straight back up forever. Making pickup explicit looked like it
-  retired that latch (`stowLock`) — the ping-pong needs both halves arming on
-  their own, and now one is a button. It didn't. **The pair just changed
-  partners**: a pickup leaves you holding something *stood at the thing it came
-  off*, which is exactly what `stock` arms on, so a board emptied by hand
-  refilled itself on the next tick. `p.tookFrom` is the latch now — set on a
-  pickup, cleared in `stepPlayers` once you are out of reach of the source, and
-  it holds off stocking that one unit and stowing anywhere. What matters is not
-  whether an action is explicit but **the state it leaves you in.**
+- **There is one errand and it has three kinds of address.** `p.errand` is
+  `{ at, itemId }`: a crate by its own id, a fixture by its id, or the literal
+  `'pad'`, which is the drop-off — the only target in the shop that is a
+  *region* of painted ground rather than an object, and the reason the errand is
+  not simply a fixture id. `take` still exists as its own verb for the one case
+  that names something finer than a fixture: a shelf holding three things is
+  three piles at one address, and only the shelf's own menu can say which board
+  you meant. Everything else is `walk-to`.
+- **Held actions re-arm the instant they finish, and that is now only true of
+  the two proximity ones.** It is why the `till` charge is long and why a Clear
+  tool that stayed armed once ate seven shelves in a row. The general rule
+  survives the change and is worth keeping in mind for anything new: what
+  matters is not whether an action is explicit but **the state it leaves you
+  in** — the retired `tookFrom` existed because a pickup leaves you holding
+  something *stood at the thing it came off*, which was exactly what `stock`
+  armed on, so a board emptied by hand refilled itself on the next tick.
 - **Build mode is the exception: it arms nothing.** `actionFor` returns null the
   moment `p.build.on` is set. Proximity picked the nearest fixture *centre*, and
   with seventeen shelves on a three-tile pitch that is not a choice anybody can
@@ -282,6 +295,22 @@ what the next step was meant to be.
   `build-lift` / `build-empty` / `build-rotate` / `build-remove` all carry an id.
   Reach is not checked either — you aimed at it, and placing never required you
   to walk over there. Being in build mode is the consent.
+- **…and build mode is two things wearing one flag.** It is the *permission* the
+  server gates every fixture verb on, and it is the *palette* that makes a tap
+  on the floor a purchase. A fixture menu opens with or without the mode, so
+  `withBuildMode` switches it on around one press of Empty or Rotate — quietly,
+  which by design leaves the bar where it was. What nobody noticed is that the
+  ghost read `buildOn` and then fell back to `buildTool`, which has a *default*
+  (`'shelf'`) because the palette is where you would normally have changed it.
+  So pressing Empty armed a shelf nobody had chosen, out of a mode with nothing
+  on screen saying it was on — and the tap that placed it called
+  `commitBuildMode`, so the borrowed mode also stopped ever being handed back.
+  `ui.paletteArmed` is the honest test now: build mode **and** the bar is up.
+  `showBar` already says why (a bar you cannot see is a mode you cannot see you
+  are in) — the quiet mode is the one exception to it, so anything that decides
+  what pointing at the world *does* has to ask the bar rather than the flag.
+  Carrying is asked first and separately: a Move errand borrows the mode the
+  same way and must still be able to put the thing down.
 - **A model can carry stages, and anything can drive them.** `shared/model.js`.
   A model is either `parts` (always looks the same) or `stages[]`, and whoever
   draws it passes one 0..1 number: a crop passes its growth, a fixture passes
@@ -471,6 +500,23 @@ what the next step was meant to be.
   and fading on a loop, for vapour and steam. Each is a flag one renderer knows
   how to read, and the pattern is deliberate: a new kind of behaviour on a part
   beats a second kind of model every time.
+- **…and flagging a board doesn't make it one you can see into.** Goods fill
+  from the TOP board down — right on an open unit, and exactly wrong on one
+  that grew a canopy, because the covered board is then the one every unit of
+  stock lands on. A tier-2 shelf sat 0.17 under a solid cap with its front row
+  0.20 back from the lip, which at this camera pitch leaves *nothing* showing:
+  a shelf holding four loaves drew four loaves and read as an empty shelf, so
+  it presented as stock that never arrived rather than as art. Seven pieces had
+  it, none of them visible in a screenshot of the one you happened to build.
+  `drawableBoards` (`shared/model.js`) measures it off the art the way
+  `surfacesAt` and `seamStep` do — `shown = headroom − setback × CAM_RISE`,
+  ignoring glass and vapour — and the renderer stocks the boards that pass.
+  It lives in `shared/` because `npm run docs:fixtures` is the other caller:
+  the guard and the authoring reference disagreeing would be a lid the docs
+  call fine and the game draws nothing under. A board covered by another
+  *board* is left alone — that is shelving, and an L's wings overlap at the
+  corner. The general trap: **a flag that says where something goes is not the
+  same as a claim that you can see it there.**
 - **A picture of a thing has to come from the thing.** The palette draws every
   entry from its own catalog row now (`client/thumb.js`) — which is the only way
   to tell five floors apart, since a floor *is* a look and the buttons were five
@@ -588,6 +634,20 @@ what the next step was meant to be.
   just picked. Those look equivalent and aren't: replanting the old crop
   charges for a seed you were about to replace, so every switch buys two. It
   cost a third of all profit and no playthrough would ever show you why.
+- **A check that looks like "don't buy what you already have" may be about
+  something else entirely.** `restock` opened with "is there a pallet at the bay
+  I could unload instead", which reads as a supply test and is a *scheduling*
+  one: it says what to do this tick and nothing about how much to order. So a
+  shelf reserved for carrot and stripped into crates two tiles away read as bare
+  and bought a full unit, and a shop with four beds of carrots bought carrots at
+  wholesale for ever — the farm competing with itself, which presents as the
+  farm being pointless rather than as the ordering being wrong. `homeSupply` is
+  the real test now (crates, hands, and beds scaled by how grown they are), and
+  it has to bound the *choice* as well as the amount or a shelf kept for two
+  things orders the one already on its way in. See docs/ordering.md, which also
+  covers the three switches in the supplier — and note that `assign` gates the
+  shop choosing your *range*, never a stocker putting away goods you have
+  already paid for.
 - **Whatever you change, check the balance bot still models a player doing it.**
   Auto-replant meant plots were never empty, and `simulate` skipped any planted
   plot — so every bed froze on its first crop and three crops reported as

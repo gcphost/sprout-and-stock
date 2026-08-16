@@ -445,7 +445,7 @@
 
          The height is the real space above the stack rather than a flat vh, so
          a taller bar shortens the panel instead of pushing it off the top. */
-      width: min(340px, calc(100vw - 24px));
+      width: min(430px, calc(100vw - 24px));
       max-height: min(72vh, calc(100vh - var(--nav-top) - var(--build-h) - 20px));
       background: var(--panel);
       border-radius: 18px; box-shadow: 0 10px 34px rgba(58,49,40,.22);
@@ -571,12 +571,21 @@
       white-space: normal; overflow: hidden;
       display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
     }
-    /* What the world wants of this one item today, folded down from whichever
-       of its tags an event is currently pushing around. Sits on the name line
-       rather than with the tags, because it is news rather than description. */
+    /* The name gets a line to itself, and everything said ABOUT the item shares
+       the one under it.
+       Three arrangements to get here and the middle one is the lesson: the pill
+       next to the name reads better in a mock-up and is wrong in the panel,
+       because it is a fixed-width thing competing with the only elastic thing in
+       the row. Nine characters of pill came straight off the name, so "Berry
+       Smoothie" ellipsised to "Berry S…" and the list stopped being readable at
+       the one column that identifies a row. News and description sit together on
+       line two; the name never gives way to either. */
+    .row .name > .t { overflow: hidden; text-overflow: ellipsis; }
+    .row .meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .row .meta .tags { min-width: 0; }
     .row .heat {
-      display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 99px;
-      font-size: 9.5px; font-weight: 800; letter-spacing: .01em; vertical-align: 1px;
+      flex: none; padding: 0 5px; border-radius: 99px;
+      font-size: 9.5px; font-weight: 800; letter-spacing: .01em;
       font-variant-numeric: tabular-nums;
     }
     .row .heat.up { background: #d8f0d2; color: #3f7a3c; }
@@ -592,6 +601,69 @@
       padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; flex: none;
     }
     .row .have { font-size: 10.5px; opacity: .6; }
+
+    /* One item's standing order, on the row it is about.
+       Inline rather than behind a tap, because these are the rows you scan to
+       decide what to set — a rule you have to open a thing to see is a rule you
+       forget you set. It is what the panel got wider for. */
+    /* Every selector here has to out-specify `.row button` above, which paints
+       any button in a row as the big green buy pill. It does not — a class beats
+       nothing but a class-plus-type beats a class — so the steppers came out as
+       seven green blobs across the row. Scoped to `.row` to win it back. */
+    .row .rule { display: flex; align-items: center; gap: 4px; flex: none; }
+    /* Min over max rather than beside it. The row is two lines tall because of
+       the name and its caption, so the second line is already paid for — and
+       side by side these two ran nearly the width of the panel and ellipsised
+       the name to buy back height nothing was going to use. */
+    .row .rule .stack { display: flex; flex-direction: column; gap: 2px; }
+    /* A label, a number and two nudges. The number is the widest thing in it and
+       it must not resize as it changes, or every press shuffles the row under
+       your finger — hence a fixed width and tabular figures. */
+    .row .stp {
+      display: flex; align-items: center; gap: 0;
+      background: rgba(58,49,40,.06); border-radius: 7px; padding: 1px;
+    }
+    .row .stp i {
+      font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .03em;
+      text-transform: uppercase; opacity: .38; padding: 0 3px 0 4px;
+    }
+    .row .stp b {
+      min-width: 15px; text-align: center; font-size: 10.5px; font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+    /* Unset is a dash, not a zero: "no minimum" and "a minimum of nothing" are
+       different sentences and only one of them is true here. */
+    .row .stp b.none { opacity: .28; font-weight: 700; }
+    .row .rbtn {
+      border: 0; background: transparent; color: var(--ink);
+      border-radius: 5px; padding: 0; width: 15px; height: 16px; line-height: 1;
+      font: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
+      display: grid; place-items: center; flex: none; opacity: .5;
+    }
+    .row .rbtn:hover { background: rgba(58,49,40,.14); opacity: 1; }
+    /* The one that is a state rather than a nudge. Off is the loud one, because
+       "never order this" is the exception and the default has nothing to say. */
+    .row .rbtn.tog {
+      width: 20px; height: 20px; font-size: 12px; opacity: .28;
+      background: rgba(58,49,40,.06); margin-right: 1px;
+    }
+    .row .rbtn.tog svg { display: block; width: 1em; height: 1em; }
+    .row .rbtn.tog.on { opacity: .7; }
+    .row .rbtn.tog.off { background: rgba(190,60,45,.13); color: var(--accent); opacity: 1; }
+
+    /* How many you are holding, on the row that orders more. The one number the
+       supplier never showed and the whole reason it read as a catalogue rather
+       than a stock list — "should I buy eggs" is unanswerable without it. */
+    .row .held {
+      flex: none; min-width: 30px; text-align: right;
+      font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
+    }
+    .row .held.zero { opacity: .25; font-weight: 700; }
+    .row .held.short { color: var(--accent); }
+    /* The sub-line is a reason now rather than a tag list, and the one reason
+       that is a refusal rather than a note says so in the accent colour: you
+       cannot put this anywhere, so buying it is a mistake whatever else is true. */
+    .row .tags.warn { color: var(--accent); opacity: .85; font-weight: 700; }
 
     /* Section rows. Where the whole row is the button — picking a thing to
        build, picking a seed — the row is clickable and says so. */
@@ -696,22 +768,41 @@
     .fx-ing span { opacity: .55; font-weight: 600; }
     .fx-ing b { font-weight: 800; font-variant-numeric: tabular-nums; color: #c8553d; }
     .fx-ing.ok b { color: #4e9a4e; }
-    .fx-price { display: flex; align-items: center; gap: 7px; padding: 5px 0 0; font-size: 11.5px; }
-    .fx-price span { opacity: .55; font-weight: 600; flex: 1; }
-    .fx-price b { font-weight: 800; min-width: 58px; text-align: center; font-variant-numeric: tabular-nums; }
+    /* One board, one line: name, count, price, and the button that takes an
+       armful. It used to be two lines — the name and count, then a "Price" row
+       under it — so a shelf holding three things read as six rows and you had
+       to pair them up by eye. A stepper reading `− $8.50 +` does not need the
+       word Price in front of it; sitting on the same line as the name is what
+       says which board it belongs to. */
+    .fx-board {
+      display: flex; align-items: center; gap: 5px;
+      padding: 2px 0; font-size: 11.5px;
+    }
+    /* The one flexible column, and the only one allowed to lose: an authored
+       item name has no length limit and everything to its right is a control
+       that stops working if it shrinks. */
+    .fx-board .nm {
+      flex: 1; min-width: 0; font-weight: 700; opacity: .85;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* How many, over what it holds — the capacity dimmed, because the number
+       that moves is the first one and it now has a price sat next to it. */
+    .fx-board .qty { font-weight: 800; font-variant-numeric: tabular-nums; }
+    .fx-board .qty i { font-style: normal; font-weight: 700; opacity: .4; }
+    /* The stepper itself is shared — a hire's job weights use it too (`wk-w`),
+       so what is specific to a board row is scoped to one below rather than
+       left here to move somebody else's buttons. */
+    .fx-price { display: flex; align-items: center; gap: 2px; font-size: 11.5px; }
+    .fx-board .fx-price { margin-left: 3px; }
+    .fx-price b { font-weight: 800; min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; }
     .fx-price button {
-      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 8px;
-      width: 30px; height: 26px; font: inherit; font-weight: 800; cursor: pointer;
+      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 7px;
+      width: 22px; height: 22px; font: inherit; font-weight: 800; line-height: 1; cursor: pointer;
     }
     .fx-price button:hover { background: rgba(58,49,40,.18); }
-    /* Take an armful off this board. Only inside a board row, where the name
-       has to give up its share of the line so the count and the button can sit
-       together at the right — every other .fx-line is a two-column read-out. */
-    .fx-board .fx-line { align-items: center; }
-    .fx-board .fx-line span { flex: 1; }
     .fx-take {
-      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 8px;
-      width: 26px; height: 22px; font-size: 12px; cursor: pointer;
+      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 7px;
+      width: 24px; height: 22px; font-size: 12px; cursor: pointer; flex: none;
       display: flex; align-items: center; justify-content: center;
     }
     .fx-take:hover { background: rgba(58,49,40,.18); }

@@ -11,7 +11,7 @@
  */
 
 import * as THREE from 'three';
-import { partsAt, seamStep, skinnedParts } from '../../shared/model.js';
+import { partsAt, seamStep, skinnedParts, FRONT_LIP } from '../../shared/model.js';
 import { FACE_CALM } from './palette.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
@@ -198,46 +198,89 @@ export function buildStack(model, qty, max) {
   return g;
 }
 
-/** Slots across one shelf row. Three reads as a row of goods, not a pair. */
+/** Slots across one shelf board. Three reads as a row of goods, not a pair. */
 const PER_ROW = 3;
 
+/**
+ * And rows back into it. A board is most of a tile deep and was using a
+ * fourteenth of that, because one row is all a unit holding one thing ever
+ * needed. Depth is what lets the picture keep the promise below: a shelf
+ * kept for one kind gets three boards, and `3 × 3 × 2` is eighteen, which is
+ * more than any shipped item's stack. So sixteen carrots draw sixteen carrots
+ * rather than a ceiling, and the number in the menu is a thing you can count.
+ */
+const PER_DEEP = 2;
+
+/** Slots on one board — see `PER_DEEP`. */
+const PER_BOARD = PER_ROW * PER_DEEP;
+
 /** Past this a shelf just reads as full — see `shelfSlots`. */
-export const shelfSlots = (surfaces) => (surfaces?.length ?? 0) * PER_ROW;
+export const shelfSlots = (surfaces) => (surfaces?.length ?? 0) * PER_BOARD;
+
+/**
+ * How many facings a quantity is worth on the boards it has been given.
+ *
+ * **A facing is one unit, not a bundle.** `stack` on an item is how many of
+ * the thing a unit holds — three cheese wheels, sixteen carrots — and a
+ * shopper takes one off, so a count you can do by eye is the whole point of
+ * drawing them at all. Every shipped item's stack fits in the slots its share
+ * of a shelf has, so this is one-to-one in practice.
+ *
+ * It scales rather than clamps where it can't be: a tier that multiplies
+ * capacity can put more units on a board than there is room to draw, and eight
+ * of thirty-two has to look like a quarter rather than like full. That is a
+ * concession to the art, the same one a crowded plot makes at `BED_MAX`, and
+ * it is bounded by the item's own stack rather than by a number in here.
+ *
+ * Anything on it at all draws at least one facing, because an empty board and
+ * a board with one carrot on it are different sentences.
+ */
+export function shelfShow(qty, cap, surfaces) {
+  const slots = shelfSlots(surfaces);
+  const n = Math.max(0, Math.round(qty ?? 0));
+  if (n <= 0 || slots <= 0) return 0;
+  const room = Math.max(1, Math.round(cap ?? n));
+  return Math.max(1, Math.min(n, slots, Math.round((n * slots) / room)));
+}
 
 /**
  * The same goods, but on a unit that has rows — the boards its model flagged as
  * `surface`, handed over by `surfacesAt`.
  *
- * **One prop per unit.** Four on the shelf draws four, which is the whole
- * reason a shelf is worth looking at from across the shop. It used to draw a
+ * **One prop per unit.** Sixteen on the shelf draws sixteen, which is the
+ * whole reason a shelf is worth looking at from across the shop, and it is why
+ * a board is `PER_ROW × PER_DEEP` rather than a single row. It used to draw a
  * *fraction*: three facings on every row that `ceil(qty / capacity × rows)`
- * said was occupied, so one unit and three both came out as three, and four out
- * of twelve rounded up to a whole row of stock that wasn't there.
+ * said was occupied, so one unit and three both came out as three.
  *
- * Past `shelfSlots` it fills up and stops, the same concession a crowded plot
- * makes at `BED_MAX` — nine identical jars is already "lots".
- *
- * Two things here are the camera's doing rather than the shop's. Goods run
- * along the unit's WIDTH and stand at the front of the board, because a model
- * is authored facing east: its depth is x and its face is +x, and spreading
- * them along x files them nose-to-tail where the row above hides all but the
- * first. And they fill from the TOP row down — bottom-up is how a real shop
- * stocks and it is invisible here, because on a 45° camera each board covers
- * the one below it.
+ * Three things here are the camera's doing rather than the shop's. Goods run
+ * along the unit's WIDTH, because a model is authored facing east: its depth
+ * is x and its face is +x, and spreading them along x files them nose-to-tail
+ * where the row above hides all but the first. They fill from the TOP board
+ * down — bottom-up is how a real shop stocks and it is invisible here, because
+ * on a 45° camera each board covers the one below it. And within a board they
+ * fill FRONT row first for the same reason: the back row is drawn up-screen
+ * and reads as depth behind the front one, so filling it first would put the
+ * first carrot somewhere that looks like the back of the shelf.
  */
-export function buildShelfGoods(model, qty, surfaces) {
+export function buildShelfGoods(model, qty, surfaces, cap) {
   const g = new THREE.Group();
-  const show = Math.max(0, Math.min(Math.round(qty), shelfSlots(surfaces)));
+  const show = shelfShow(qty, cap, surfaces);
   for (let n = 0; n < show; n++) {
-    const s = surfaces[surfaces.length - 1 - Math.floor(n / PER_ROW)];
-    // Goods run along whichever way the board is longer and stand at its
-    // near edge on the other axis. Assuming width is always z held for as long
-    // as every shelf was a straight one facing east — a corner unit's second
-    // wing runs the other way, and would have filed its stock into the wall.
+    const s = surfaces[surfaces.length - 1 - Math.floor(n / PER_BOARD)];
+    // Goods run along whichever way the board is longer, back in whichever way
+    // it is shallower. Assuming width is always z held for as long as every
+    // shelf was a straight one facing east — a corner unit's second wing runs
+    // the other way, and would have filed its stock into the wall.
     const alongZ = s.depth >= s.span;
     const run = alongZ ? s.depth : s.span;
-    const lip = (alongZ ? s.span : s.depth) * 0.14;
-    const off = ((n % PER_ROW) - (PER_ROW - 1) / 2) * (run / (PER_ROW + 0.4));
+    const back = alongZ ? s.span : s.depth;
+    const slot = n % PER_BOARD;
+    // Front row proud of centre, as it always sat; each row behind it steps
+    // back by a share of the board rather than by a constant, so a deep
+    // freezer board spreads and a shallow counter one doesn't collide.
+    const lip = back * (FRONT_LIP - Math.floor(slot / PER_ROW) * (0.56 / PER_DEEP));
+    const off = ((slot % PER_ROW) - (PER_ROW - 1) / 2) * (run / (PER_ROW + 0.4));
 
     const one = buildModel(model);
     one.scale.setScalar(0.6);
@@ -301,10 +344,27 @@ const CRATE_WALL = 0.055;
 const CRATE_DECK = 0.05;
 
 /**
+ * How tall one crate stands, and therefore how far up the next one sits.
+ *
+ * Boards plus walls, so a stacked crate's own boards land exactly on the rim of
+ * the one below with no gap and no overlap. Derived rather than typed, like
+ * everything else off `CRATE`: a taller crate has to keep stacking.
+ */
+export const CRATE_STEP = CRATE_DECK + CRATE_H;
+
+/**
  * A delivered pallet waiting at the bay: a crate, a sample of what's inside,
  * and how many are left to shift.
+ *
+ * `covered` says another crate is standing on this one, which changes what it
+ * can usefully draw. A crate is open-topped and its goods stand proud of the
+ * rim, so a stack drawn the ordinary way would push a sample of tomatoes up
+ * through the boards of the box above it — and the sample is *hidden* anyway,
+ * because the thing above is a lid in every sense except the name. So a covered
+ * crate says what is in it in words instead: the one place in the game a crate
+ * has ever needed to name itself is when you cannot see into it.
  */
-export function buildPallet(model, qty) {
+export function buildPallet(model, qty, { covered = false, name = '' } = {}) {
   const g = new THREE.Group();
 
   // Pallet boards.
@@ -331,7 +391,7 @@ export function buildPallet(model, qty) {
   wall(CRATE_WALL, CRATE, -rim, 0);
   wall(CRATE_WALL, CRATE, rim, 0);
 
-  if (model) {
+  if (model && !covered) {
     const rows = Math.min(3, Math.max(1, Math.ceil(qty / 6)));
     // Sized and spread off the crate's *inside*, not off literals: an item is
     // at most 0.36 across and the shortest wall stands the goods off centre, so
@@ -353,8 +413,16 @@ export function buildPallet(model, qty) {
     }
   }
 
-  const label = buildTextSprite(`x${qty}`, { fill: '#ffe9b8', scale: 0.7 });
-  label.position.y = 0.78;
+  // A lone crate hangs its count in the air above itself, where there is
+  // nothing to collide with. A covered one wears it on its own front instead,
+  // at rim height: in a stack the floating version would be drawn inside the
+  // crate above, which reads as that crate's number rather than as this one's.
+  // Sprites already ignore depth, so a buried crate's label stays legible
+  // through everything standing on it — which is the whole point of it.
+  const label = covered
+    ? buildTextSprite(name ? `${qty}x ${name}` : `x${qty}`, { fill: '#ffe9b8', scale: 0.62 })
+    : buildTextSprite(`x${qty}`, { fill: '#ffe9b8', scale: 0.7 });
+  label.position.y = covered ? CRATE_DECK + CRATE_H / 2 : 0.78;
   g.add(label);
 
   return g;
@@ -961,11 +1029,22 @@ export function buildTextSprite(text, { fill = '#ffffff', scale = 1 } = {}) {
   canvas.height = 96;
   const ctx = canvas.getContext('2d');
 
-  ctx.font = 'bold 58px system-ui, sans-serif';
+  // Shrunk to fit rather than clipped. The canvas is a fixed size and the
+  // sprite is a fixed shape, so a string longer than "x12" — a crate naming
+  // what is in it — used to run off both ends and lose its first and last
+  // letters. A smaller word is readable; half a word is not.
+  const MAX_W = canvas.width - 20;
+  let px = 58;
+  ctx.font = `bold ${px}px system-ui, sans-serif`;
+  const wide = ctx.measureText(text).width;
+  if (wide > MAX_W) {
+    px = Math.max(18, Math.floor(px * (MAX_W / wide)));
+    ctx.font = `bold ${px}px system-ui, sans-serif`;
+  }
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   // Outline first so the number stays readable against grass or floorboards.
-  ctx.lineWidth = 10;
+  ctx.lineWidth = Math.max(4, px / 5.8);
   ctx.strokeStyle = 'rgba(0,0,0,0.55)';
   ctx.strokeText(text, 128, 50);
   ctx.fillStyle = fill;

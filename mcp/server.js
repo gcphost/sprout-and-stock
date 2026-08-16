@@ -235,12 +235,16 @@ server.registerTool('create_fixture', {
     + 'TIERS are the progression. Tier 1 is what a newly built one already is, so it must cost 0. Every tier after it is something the player pays to step up to, in place, keeping its stock. The multipliers are what the upgrade is FOR — a tier that changes no numbers and no art is a button that takes money and does nothing:\n'
     + '  capacity_mult  how many units it holds (shelves, freezers)\n'
     + '  keeps_mult     how long goods last on it (freezers especially)\n'
-    + '  speed_mult     how fast it works (appliances; on a plot, how fast crops grow)\n\n'
+    + '  speed_mult     how fast it works (appliances; on a plot, how fast crops grow; on a till, how fast a sale rings through)\n'
+    + '  unattended     CHECKOUTS ONLY. What share of that speed it manages with nobody behind it. 0 (the default, and every till until one was authored otherwise) means the line waits for a person. Above 0 is self-service: the shopper rings themselves up at speed_mult x unattended, so 0.5 is a till that serves itself at half the speed somebody working it would manage.\n\n'
     + 'Give the model `stages` to make each tier look different — stage 1 is tier 1, the last stage is the top tier. '
     + 'Models are authored facing EAST (that is rotation 0, the side a shopper stands on), roughly one tile wide, sitting on y=0 upward. Keep the top below 1.1, which is wall height — anything taller stands over the building.\n\n'
     + 'A prop-ceiling piece is the exception: its origin IS the ceiling, so draw it DOWNWARD with negative y. A pendant is a cord at about y=-0.15, a shade at y=-0.36 and a bulb below that. Drawn upward it pushes through the roof and reads as a lamp floating outside the shop.\n\n'
     + 'A fixture that holds stock says WHERE it holds it: flag each part goods should stand on with `surface: true` and they are drawn on those boards, top row filling first. '
     + 'Leave it off and stock piles on top of the whole thing instead, which is what a counter wants. Face an open unit east so its rows are not drawn behind their own back panel.\n\n'
+    + 'ANYTHING YOU PUT OVER A BOARD HAS TO CLEAR IT. Goods fill from the TOP board down, because on this camera each board hides the one below, so a canopy, header or chiller top sitting close over the top board is not a detail — it is where every unit of stock goes, and none of it can be seen. '
+    + 'A shelf holding four loaves then draws four loaves and looks empty, which reads as stock that never arrived rather than as art. Leave each board the headroom its neighbours have (the shipped shelf pitch is 0.35) and raise the uprights and the glass with the lid, or it floats. '
+    + 'A board covered by another BOARD is fine — that is shelving, and on an L the wings overlap at the corner. `npm run docs:fixtures` flags whatever fails, and the renderer moves stock off a covered board rather than drawing into it.\n\n'
     + 'A part can also carry `alpha` (0.05..1) to be glass — a freezer door you see the stock through, a window. Glass casts no shadow.\n\n'
     + 'VARIANTS are other shapes of the same piece — a corner unit, an endcap, a low one — and they are looks only. They carry a model and nothing else, because the numbers live on the shared tier ladder: '
     + 'a corner shelf costs and holds exactly what a straight one does, restyling something already built is free and keeps its stock, and no variant can move the balance. Tiers cost money and change numbers; variants are taste.\n\n'
@@ -272,6 +276,8 @@ server.registerTool('create_fixture', {
       capacity_mult: z.number().min(0.1).max(10).default(1),
       keeps_mult: z.number().min(0.1).max(20).default(1),
       speed_mult: z.number().min(0.1).max(10).default(1),
+      unattended: z.number().min(0).max(1).default(0)
+        .describe('Checkouts only. What share of its speed it manages with nobody behind it. 0 = needs a person, which is every till until now; 0.5 = serves itself at half the speed a clerk would.'),
     })).min(1).max(6).describe('Lowest rung first. Tier 1 is what a new one already is.'),
     cost: z.number().min(0).optional()
       .describe('What one costs to build — per TILE for ground (floor, bay, drop, break). 0 (the default) means "priced by the upgrade that sells this kind" — right for fixtures, free for props and for ground, neither of which has an upgrade behind it.'),

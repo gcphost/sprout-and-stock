@@ -575,20 +575,20 @@ function fixtureDetail(ui, f, live) {
     const stacks = live?.stacks ?? [];
     const kept = live?.assigned ?? [];
     const boards = live?.boards ?? 1;
-    // The stack times what this unit's tier multiplies it by, divided by how
-    // many ways it is shared — which is what the server actually enforces.
-    // Reading `stack` alone said 12/12 on a shelf that would happily take six
-    // more, so the capacity you had paid for read as full and the rows below
-    // disagreed with the line above. The share is the same trap one level on.
-    const capMult = tiersOf(ui, f)[tierOf(ui, f) - 1]?.capacity_mult ?? 1;
-    const share = Math.max(1, new Set([...kept, ...stacks.map((k) => k.item_id)]).size || 1);
-    const capOf = (item) => Math.max(1, Math.floor((item.stack * capMult) / share));
 
-    // One row per board, each with its own number and its own price control.
+    // One row per board, and everything about that board is on it: what it is,
+    // how much of it, what it sells for, and the button that takes an armful.
+    //
     // The price had to come down here from the single line it used to be: a
     // unit holding three things has three prices, and one control at the top of
     // the panel could only ever have repriced one of them — silently, and not
-    // necessarily the one you were looking at.
+    // necessarily the one you were looking at. But it arrived as a *second*
+    // line under each board, labelled "Price", so a shelf holding three things
+    // read as six rows and you had to pair them up by eye to know which price
+    // belonged to which cheese. A stepper reading `− $8.50 +` does not need the
+    // word Price in front of it; being on the same line as the name is what
+    // says which board it is for.
+    //
     // What is already in your hands, which decides whether a board will give
     // you any of what is on it. Read here rather than guessed at: the refusal
     // is the server's, and a button that offers what it cannot deliver is
@@ -597,24 +597,31 @@ function fixtureDetail(ui, f, live) {
 
     const boardRows = stacks.map((k) => {
       const item = ui.itemById(k.item_id);
-      const cap = item ? capOf(item) : null;
+      const name = item?.name ?? k.item_id;
+      // Off the wire. It used to be the stack times the tier's multiplier
+      // divided by the shares — right, but a third spelling of a division the
+      // sim enforces and the renderer now draws against, and three of those is
+      // how a shelf starts disagreeing with the menu describing it.
+      const cap = k.cap ?? null;
       const clash = held && held.item_id !== k.item_id;
+      // Always drawn, disabled when there is nothing to take — an empty board
+      // is a labelled one waiting on a van, and dropping the button would slide
+      // that row's price stepper a button's width out of line with the others.
+      const why = k.qty <= 0 ? 'Nothing on this board yet.'
+        : (clash ? `Your hands are full of ${ui.itemName(held.item_id)}.`
+          : `Go and take an armful of ${name} off this board.`);
       return `<div class="fx-board">
-        <div class="fx-line">
-          <span>${esc(item?.name ?? k.item_id)}</span>
-          <b>${k.qty}${cap ? ` / ${cap}` : ''}</b>
-          ${k.qty > 0 ? `<button class="fx-take" ${clash ? 'disabled' : `data-take="${esc(k.item_id)}"`}
-            title="${esc(clash
-              ? `Your hands are full of ${ui.itemName(held.item_id)}.`
-              : 'Go and take an armful off this board.')}"
-            aria-label="Take some">${ICONS.crate}</button>` : ''}
-        </div>
-        <div class="fx-price">
-          <span>Price</span>
-          <button data-price="-1" data-item="${esc(k.item_id)}">−</button>
+        <span class="nm" title="${esc(name)}">${esc(name)}</span>
+        <b class="qty">${k.qty}${cap ? `<i>/${cap}</i>` : ''}</b>
+        <span class="fx-price">
+          <button data-price="-1" data-item="${esc(k.item_id)}"
+            title="${esc(`Charge less for ${name}`)}" aria-label="Charge less">−</button>
           <b>$${(k.price ?? 0).toFixed(2)}</b>
-          <button data-price="1" data-item="${esc(k.item_id)}">+</button>
-        </div>
+          <button data-price="1" data-item="${esc(k.item_id)}"
+            title="${esc(`Charge more for ${name}`)}" aria-label="Charge more">+</button>
+        </span>
+        <button class="fx-take" ${k.qty > 0 && !clash ? `data-take="${esc(k.item_id)}"` : 'disabled'}
+          title="${esc(why)}" aria-label="Take some">${ICONS.crate}</button>
       </div>`;
     }).join('');
 
@@ -811,6 +818,10 @@ function tierBlurb(tier) {
   if ((tier.capacity_mult ?? 1) !== 1) gains.push(`holds ${mult(tier.capacity_mult)} as much`);
   if ((tier.keeps_mult ?? 1) !== 1) gains.push(`keeps things ${mult(tier.keeps_mult)} as long`);
   if ((tier.speed_mult ?? 1) !== 1) gains.push(`works ${mult(tier.speed_mult)} as fast`);
+  // Said in words rather than as a number, because it is the only rung on any
+  // ladder that changes who has to be standing there — "0.45×" is a ratio
+  // nobody can price, and "serves its own queue" is the whole reason to buy it.
+  if ((tier.unattended ?? 0) > 0) gains.push('serves its own queue with nobody on it');
   return gains.length ? `${gains.join(', ')}.` : 'Same job, better looking.';
 }
 

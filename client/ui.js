@@ -435,8 +435,32 @@ export class UI {
    * ask `canPaintGround` which one it is holding. The server does not trust
    * this: it reads the kind off the catalog row the piece names.
    */
+  /**
+   * Is the palette up — that is, does pointing at the world build something?
+   *
+   * Build mode is two things wearing one flag: the **permission** the server
+   * gates its fixture verbs on, and the **palette** that turns a tap on the
+   * floor into a purchase. A menu that borrows the mode for one press of Empty
+   * or Rotate needs the first and never asked for the second — which `quiet`
+   * already says, by leaving the bar where it was. So the bar is the honest
+   * test of whether anything is armed.
+   *
+   * Without this, pressing Empty armed whatever `buildTool` was last set to —
+   * `'shelf'` out of the box, since it has a default and the palette is where
+   * you would normally have changed it — and the next tap on bare ground bought
+   * a shelf, out of a mode with nothing on screen saying it was on. Then
+   * `commitBuildMode` on that tap made the borrowed mode yours, so it also
+   * outlived the menu that lent it.
+   *
+   * Deliberately not `armedEdgeTool`'s test: that one asks what the *server*
+   * has been told, which is a different question and must keep its answer.
+   */
+  get paletteArmed() {
+    return this.buildOn && this.bar === 'build';
+  }
+
   groundForTool() {
-    if (!this.buildOn || this.holding) return undefined;
+    if (!this.paletteArmed || this.holding) return undefined;
     const t = buildTools(this).find((x) => x.id === this.toolId());
     if (!t?.paint) return undefined;
     return { kind: t.piece ? t.kind : null, piece: t.piece ?? '' };
@@ -455,7 +479,10 @@ export class UI {
    * tearing out. Everything that would otherwise open a menu has to ask.
    */
   demolishArmed() {
-    return !!this.armedTool()?.demolish && !this.holding;
+    // Same reason the ghost asks: a mode a menu borrowed for one press must not
+    // leave the bulldozer up, or pressing Empty and then tapping the next unit
+    // along tears it out.
+    return this.paletteArmed && !!this.armedTool()?.demolish && !this.holding;
   }
 
   /**
@@ -475,7 +502,7 @@ export class UI {
   /** The fixture the ghost should be showing, or null when there isn't one. */
   /** The edge kind this tool draws, or null if it places a fixture instead. */
   edgeKindForTool() {
-    if (!this.buildOn || this.holding) return null;
+    if (!this.paletteArmed || this.holding) return null;
     const t = buildTools(this).find((x) => x.id === this.toolId());
     return t && t.edge !== undefined ? t.edge : null;
   }
@@ -490,7 +517,11 @@ export class UI {
     if (this.groundForTool() !== undefined) return null;
     // What's in your hands outranks what's on the palette: while you're
     // carrying a shelf, every tile you point at is a candidate home for *it*.
-    return this.holding?.kind ?? this.buildTool;
+    // And carrying is the one thing that arms a tap without the palette being
+    // up at all — a Move errand borrows the mode the same way Empty does, so
+    // the hands are asked before `paletteArmed` refuses.
+    if (this.holding) return this.holding.kind;
+    return this.paletteArmed ? this.buildTool : null;
   }
 
   /**
@@ -987,13 +1018,18 @@ export class UI {
     if (r.run) cls.push('clickable');
     const stacked = !r.plain;
     return `<div class="${cls.join(' ')}"${r.run ? ` data-row="${i}"` : ''}${
+  r.acts ? ` data-acts="${i}"` : ''}${
   r.sub ? ` title="${r.sub.replace(/"/g, '&quot;')}"` : ''}>
       ${stacked && (r.icon || r.right) ? `<div class="lead">
         ${r.icon ? `<span class="bico">${r.icon}</span>` : ''}
         ${r.right ? `<span class="cost">${r.right}</span>` : ''}
       </div>` : ''}
-      <div class="name">${r.name}${r.heat ? r.heat : ''}${r.sub ? `<span class="tags">${r.sub}</span>` : ''}</div>
+      <div class="name"><span class="t">${r.name}</span>${
+  r.heat || r.sub ? `<span class="meta">${r.heat ?? ''}${
+    r.sub ? `<span class="tags${r.subWarn ? ' warn' : ''}">${r.sub}</span>` : ''}</span>` : ''}</div>
       ${!stacked && r.right ? `<div class="price">${r.right}</div>` : ''}
+      ${r.count ? `<span class="held ${r.countClass ?? ''}">${r.count}</span>` : ''}
+      ${r.rule ?? ''}
       ${r.button ? `<button data-btn="${i}">${r.button.label}</button>` : ''}
       ${r.tail ? `<span class="have">${r.tail}</span>` : ''}
     </div>`;
@@ -1002,6 +1038,17 @@ export class UI {
   wireRows(rows) {
     this.el.panelBody.querySelectorAll('[data-row]').forEach((el) => {
       el.onclick = () => rows[Number(el.dataset.row)]?.run?.(this);
+    });
+    // Any number of small presses inside one row, each naming itself with the
+    // same `data-act` a fixture verb uses — so a strip of squares and a row of
+    // steppers wire identically and neither knows which menu it landed in.
+    // `stopPropagation` because the row may itself be a button: nudging a
+    // minimum is not also a request to open the thing you nudged it on.
+    this.el.panelBody.querySelectorAll('[data-acts]').forEach((el) => {
+      const row = rows[Number(el.dataset.acts)];
+      el.querySelectorAll('[data-act]').forEach((b) => {
+        b.onclick = (e) => { e.stopPropagation(); row?.acts?.[b.dataset.act]?.(this); };
+      });
     });
     this.el.panelBody.querySelectorAll('[data-btn]').forEach((el) => {
       el.onclick = (e) => {
@@ -1159,8 +1206,13 @@ export class UI {
     this.el.clock.classList.toggle('shut', !state.isOpen);
 
     const me = state.players.find((p) => p.id === this.net.myId);
+    // ...and what to do with it, because that is the half nothing else on screen
+    // says. An armful used to leave your hands for standing in the wrong place,
+    // so "carrying six loaves" was the whole story; now it goes where you point
+    // it, and the chevrons showing which shelves will take it are no use to
+    // somebody who does not know a tap is what spends them.
     this.el.carry.textContent = me?.carry
-      ? `carrying ${me.carry.qty}x ${me.carry.item_id}`
+      ? `carrying ${me.carry.qty}x ${this.itemName(me.carry.item_id)} — tap where it goes`
       : '';
     this.updatePrompt(me?.action ?? null);
     this.ownedUpgrades = state.ownedUpgrades ?? this.ownedUpgrades;
@@ -1332,6 +1384,9 @@ export class UI {
     this.openPanel = null;
     this.setFixtureRef(null);
     this.workerRef = null;
+    // A pile of crates is a place rather than a thing, so what the crate menu
+    // holds on to is a tile — see client/crate-menu.js.
+    this.crateRef = null;
     // Whatever per-entity menu was open stops being kept up to date with it.
     this.panelTick = null;
     this.el.panel.classList.remove('show');

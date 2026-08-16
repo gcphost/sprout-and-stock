@@ -27,6 +27,8 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 8 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn)
 
+Covered — Wall corner: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
 Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner — looks only, same price and same ladder.
 
 1. **Plain shelving** — free, as built
@@ -63,6 +65,8 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 8 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn) · has glass
 
+Covered — Wall corner: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
 Shapes: Standard, Chest, Wall run, Wall corner, Endcap — looks only, same price and same ladder.
 
 1. **Glass-door freezer** — free, as built
@@ -85,6 +89,8 @@ Shapes: Standard, Chest, Wall run, Wall corner, Endcap — looks only, same pric
 
 8 parts · **3 boards of goods** (9 facings drawn)
 
+Covered — Wall corner: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
 Shapes: Standard, Wall run, Wall corner, Endcap — looks only, same price and same ladder.
 
 1. **Multideck** — free, as built
@@ -96,6 +102,8 @@ Shapes: Standard, Wall run, Wall corner, Endcap — looks only, same price and s
 `cooler` · kind `freezer` · $75 to build
 
 7 parts · **2 boards of goods** (6 facings drawn) · has glass
+
+Covered — Wall corner: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
 
 Shapes: Standard, Wall run, Wall corner, Endcap — looks only, same price and same ladder.
 
@@ -111,10 +119,10 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 `checkout` · kind `checkout` · $300 to build
 
-4 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+7 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-1. **Counter** — free, as built
-2. **With a register** — free, _no effect_
+1. **Till** — free, as built
+2. **Scanner** — free, _no effect_
 
 ### `station`
 
@@ -283,6 +291,12 @@ Authoring notes that cost real debugging time:
 - **A model faces east.** `-x` is its back, `+x` its face. Goods run along
   whichever horizontal axis a `surface` board is *longer* on, so make boards
   deeper (z) than wide (x) or a corner unit files its stock into the wall.
+- **Anything you put over a board has to clear it.** Goods fill top-down, so a
+  canopy 0.17 above the top board is not a detail — it is where every unit of
+  stock goes, and none of it can be seen. Leave a board the same headroom its
+  neighbours have (the shelf pitch is 0.35) and raise the uprights and glass
+  with it, or the lid floats. `drawableBoards` in `shared/model.js` is the
+  judge, and this file flags whatever it fails.
 - **A hanging piece must hang.** `prop-ceiling` parts sit at negative `y`;
   `verify:build` asserts it, because one at `y: 0` is a sign lying on the floor.
 - **`rot` turns a part about Y and nothing else.** Nothing can lean.

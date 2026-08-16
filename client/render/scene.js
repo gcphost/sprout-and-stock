@@ -10,9 +10,10 @@
 import * as THREE from 'three';
 import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, edgeBands, jitter, faceColor, patternColor } from './palette.js';
 import {
-  buildModel, buildCharacter, buildStack, buildShelfGoods, shelfSlots, buildBubble, buildCashDrop,
+  buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
+  buildBubble, buildCashDrop,
   buildHopperSlots,
-  buildTextSprite, buildPallet, buildProgressRing, setRingProgress, buildGhost,
+  buildTextSprite, buildPallet, CRATE_STEP, buildProgressRing, setRingProgress, buildGhost,
   buildSoil, buildFixtureGhost, buildTargetMarker, buildWorkSpot, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
   buildRipple,
@@ -25,7 +26,8 @@ import {
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { Lights, emittersIn } from './lights.js';
 import {
-  isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, variantModel, skinKey,
+  isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, drawableBoards,
+  variantModel, skinKey,
 } from '../../shared/model.js';
 import { buildPastimeProp, animateRest } from './pastime.js';
 
@@ -74,6 +76,14 @@ const BED_SPAN = 0.64;
 const PLANT_FOOTPRINT = 0.4;
 /** Past this a bed just reads as "full"; no authored crop comes close. */
 const BED_MAX = 12;
+
+/**
+ * Units drawn in someone's arms before the pile stops growing and the count
+ * carries the rest — the same concession `BED_MAX` makes. Low on purpose: this
+ * sits at chest height on a person who is walking, and a stack taller than they
+ * are stops reading as carried.
+ */
+const CARRY_SHOWN = 4;
 
 /**
  * A plain coloured box, for a fixture kind nobody has drawn yet.
@@ -1164,7 +1174,12 @@ export class Scene {
       // A want is a thought; a carry is a thing in your hands. Showing both
       // through one bubble meant you could never tell which you were looking at.
       this.syncBubble(rec, a.want ?? null);
-      this.syncCarry(rec, a.carry ?? null);
+      // Two spellings of one fact. A player or a hire has `carry` — one kind at
+      // a time, because your hands refuse anything else — and a shopper has a
+      // `basket`, which is several. Both are goods someone is holding, so both
+      // go through one sync as a list of lines rather than growing a second
+      // renderer that would drift from this one.
+      this.syncCarry(rec, a.carry ? [a.carry] : (a.basket ?? null));
       this.syncPastime(rec, a);
     }
     for (const [id, rec] of map) {
@@ -1219,20 +1234,61 @@ export class Scene {
     }
   }
 
-  /** Pallets at the delivery bay, rebuilt when the remaining count changes. */
+  /**
+   * Pallets at the bay, the drop-off and anywhere goods were tipped out.
+   *
+   * **Crates on one tile stack.** A pallet holds one kind, so a shelf of three
+   * things strips into three crates at one spot and the pad hands out its cells
+   * before it starts doubling up — which drew every one of them at floor level,
+   * inside each other, reading as one flattened crate rather than as three. A
+   * tile is the unit of storage everywhere else in the shop; this is that said
+   * in the one place it was only ever a coordinate.
+   *
+   * Stacking is a *look*, not a rule: nothing here caps a tile, because how much
+   * a pad holds is how big you painted it and that stays the server's business.
+   * So the pile grows as high as the goods dropped on it, and the height is what
+   * tells you the yard is backing up.
+   *
+   * Order is by id, oldest at the bottom, which is both what a stack does and
+   * the only ordering that stays put — the snapshot's array order changes as
+   * crates are taken and the tower must not shuffle underneath your pointer.
+   */
   syncDeliveries(deliveries) {
     const seen = new Set();
+    const stacks = new Map();
+    for (const d of deliveries) {
+      const tile = `${Math.round(d.x)},${Math.round(d.z)}`;
+      if (!stacks.has(tile)) stacks.set(tile, []);
+      stacks.get(tile).push(d);
+    }
+    const level = new Map();
+    const height = new Map();
+    for (const pile of stacks.values()) {
+      pile.sort((a, b) => (Number(a.id.slice(4)) || 0) - (Number(b.id.slice(4)) || 0));
+      pile.forEach((d, i) => { level.set(d.id, i); height.set(d.id, pile.length); });
+    }
+
     for (const d of deliveries) {
       seen.add(d.id);
-      const key = `${d.item_id}:${d.qty}`;
+      const at = level.get(d.id) ?? 0;
+      const covered = at < (height.get(d.id) ?? 1) - 1;
+      // The level is part of the key: taking the top crate off has to redraw the
+      // one under it, which is uncovered now and owes you a look at its goods.
+      const key = `${d.item_id}:${d.qty}:${at}:${covered ? 'c' : 'o'}`;
       const existing = this.deliveryProps.get(d.id);
       if (existing && existing.userData.key === key) continue;
       if (existing) {
         this.actorRoot.remove(existing);
         disposeGroup(existing);
       }
-      const obj = buildPallet(this.catalog.items[d.item_id]?.model ?? null, d.qty);
-      obj.position.set(d.x, 0, d.z);
+      const item = this.catalog.items[d.item_id];
+      const obj = buildPallet(item?.model ?? null, d.qty, { covered, name: item?.name ?? '' });
+      obj.position.set(d.x, at * CRATE_STEP, d.z);
+      // A hand's turn per crate, so a tower reads as boxes somebody put there
+      // rather than as one extruded box, and each one's edges stay findable to
+      // point at. Alternating rather than random: a prop rebuilt on every
+      // quantity change would otherwise jump each time you took one off it.
+      obj.rotation.y = (at % 2 ? 1 : -1) * (at ? 0.07 : 0);
       obj.userData.key = key;
       // The id alone, and by id rather than by tile — the opposite of
       // `pickFixture`, and for the opposite reason. A fixture's id is re-minted
@@ -1480,6 +1536,15 @@ export class Scene {
    * would swallow every hit if it were in here.
    */
   pickFixture(clientX, clientY) {
+    return this.pickFixtureHit(clientX, clientY)?.f ?? null;
+  }
+
+  /**
+   * The same answer with how far away it was, for `pickAim` to weigh a fixture
+   * against a crate. Every other caller wants the record and nothing else,
+   * which is why `pickFixture` stays the plain one.
+   */
+  pickFixtureHit(clientX, clientY) {
     if (!this.storeLayout) return null;
     const hits = this.pointerRay(clientX, clientY).intersectObjects(this.pickTargets(), true);
     for (const hit of hits) {
@@ -1492,7 +1557,7 @@ export class Scene {
       // which fixture it belongs to. Cheaper than an id to keep honest: ids are
       // re-minted on a re-flow and this is re-read from the layout every time.
       const f = this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
-      if (f) return f;
+      if (f) return { f, dist: hit.distance };
     }
     return null;
   }
@@ -1504,17 +1569,65 @@ export class Scene {
    * not a fixture and every caller of that one would have to learn it: the
    * build ghost, the bulldozer and "walk to the side you work it from" all
    * take a layout record, and none of them has an answer for a crate.
+   *
+   * It answers *which* crate of a stack, which is the honest answer and not a
+   * sufficient one: a crate is `CRATE_STEP` tall, which at the default zoom is
+   * a band of about a dozen pixels, and a buried one shows nothing but that
+   * band. So this is the aim, `y` is what lets the ring say which one it
+   * landed on, and the long press opens the pile as a list — see
+   * `client/crate-menu.js`. A target you can only hit by hunting for it is a
+   * target the menu has to be able to name.
+   *
+   * `dist` comes back for the same reason: a crate and a fixture are two
+   * separate rays, so which of them wins can no longer be decided by which
+   * method is called first. See `pickAim`.
    */
   pickPallet(clientX, clientY) {
     const crates = [...this.deliveryProps.values()];
     if (!crates.length) return null;
     const hits = this.pointerRay(clientX, clientY).intersectObjects(crates, true);
     for (const hit of hits) {
+      // Labels are not the thing they name. A sprite ignores depth and is drawn
+      // over whatever is in front of it, so letting one answer would hand you a
+      // buried crate when you pointed at the one standing on it. The ray carries
+      // on to the box behind the number, which is that crate anyway.
+      if (hit.object.isSprite) continue;
       let o = hit.object;
       while (o && !o.userData.delivery) o = o.parent;
-      if (o) return { id: o.userData.delivery, x: Math.round(o.position.x), z: Math.round(o.position.z) };
+      if (o) {
+        return {
+          id: o.userData.delivery,
+          x: Math.round(o.position.x),
+          z: Math.round(o.position.z),
+          y: o.position.y,
+          dist: hit.distance,
+        };
+      }
     }
     return null;
+  }
+
+  /**
+   * What the pointer is over on the shop floor — a crate or a fixture.
+   *
+   * Whichever is genuinely in FRONT, by ray distance, rather than whichever
+   * picker is called first. Order was fine while the two could not overlap, and
+   * a hanging lamp is exactly the case where they do: its art is drawn down from
+   * the ceiling, most of a tile up-screen of the tile it belongs to, which is
+   * the same patch of screen a crate stacked on that tile occupies. Ordered, one
+   * of them silently owned the pointer for pixels the other was drawn on — so
+   * the ring named the lamp while the tap took the crate, and a shop floor where
+   * the highlight and the click disagree is worse than one with no highlight.
+   *
+   * At most one comes back set. Only the fixture goes to `ui.setAim`, because
+   * that names what a BUILD verb would act on and there is no build verb that
+   * takes a crate.
+   */
+  pickAim(clientX, clientY) {
+    const crate = this.pickPallet(clientX, clientY);
+    const hit = this.pickFixtureHit(clientX, clientY);
+    if (crate && (!hit || crate.dist <= hit.dist)) return { crate, fixture: null };
+    return { crate: null, fixture: hit?.f ?? null };
   }
 
   /**
@@ -1564,7 +1677,12 @@ export class Scene {
     // The mode is part of the key: pointing at the same shelf with the bulldozer
     // up is a different marker, and comparing ids alone would leave an amber
     // ring on the thing the next tap deletes.
-    const key = f ? `${f.id}:${mode}` : null;
+    //
+    // So is the height, which is a crate's doing. A ring on the ground under a
+    // tower says "one of these three" — the whole reason to ring a crate is to
+    // say WHICH — and moving the pointer up the stack changes nothing else
+    // about the target but where it is.
+    const key = f ? `${f.id}:${mode}:${f.y ?? 0}` : null;
     if (this.aimKey === key) return;
     this.aimKey = key;
     if (this.aimMarker) {
@@ -1574,7 +1692,7 @@ export class Scene {
     }
     if (!f) return;
     this.aimMarker = buildTargetMarker(mode);
-    this.aimMarker.position.set(f.x, 0, f.z);
+    this.aimMarker.position.set(f.x, f.y ?? 0, f.z);
     this.actorRoot.add(this.aimMarker);
   }
 
@@ -2017,9 +2135,18 @@ export class Scene {
    * What someone is actually holding, shown in their hands with a count.
    * You can carry a whole crate, but a single icon made every load look like
    * one item — so there was no way to see a stack.
+   *
+   * A list of `{item_id, qty}` rather than one line, because a shopper's basket
+   * is a mix and drawing only the first thing they took would make everything
+   * after it invisible. The units are dealt out ROUND-ROBIN across the kinds,
+   * not kind by kind: four tomatoes and a cheese would otherwise spend the
+   * whole pile on tomatoes, and "they picked up a cheese" is exactly the fact
+   * this is here to show. Past `CARRY_SHOWN` the count does the talking.
    */
-  syncCarry(rec, carry) {
-    const key = carry ? `${carry.item_id}:${carry.qty}` : null;
+  syncCarry(rec, lines) {
+    const key = lines?.length
+      ? lines.map((l) => `${l.item_id}:${l.qty}`).join('|')
+      : null;
     if (rec.carryKey === key) return;
     rec.carryKey = key;
 
@@ -2028,24 +2155,42 @@ export class Scene {
       disposeGroup(rec.carry);
       rec.carry = null;
     }
-    if (!carry) return;
+    if (!key) return;
 
-    const item = this.catalog.items[carry.item_id];
-    if (!item) return;
+    // Deal one of each kind, then go round again, until the pile is full or
+    // there is nothing left to deal.
+    const left = lines.map((l) => l.qty);
+    const pile = [];
+    for (let round = 0; pile.length < CARRY_SHOWN; round++) {
+      let dealt = false;
+      for (let i = 0; i < lines.length && pile.length < CARRY_SHOWN; i++) {
+        if (left[i] <= 0) continue;
+        left[i]--;
+        pile.push(lines[i].item_id);
+        dealt = true;
+      }
+      if (!dealt) break;
+    }
 
     const held = new THREE.Group();
-    // A visible pile that grows with the load, capped so a full crate still
-    // fits in frame.
-    const shown = Math.min(carry.qty, 4);
-    for (let i = 0; i < shown; i++) {
+    let n = 0;
+    for (const itemId of pile) {
+      const item = this.catalog.items[itemId];
+      if (!item) continue;
       const one = buildModel(item.model, { castShadow: false });
       one.scale.setScalar(0.5);
-      one.position.set(((i % 2) - 0.5) * 0.16, i * 0.15, ((i % 2) - 0.5) * 0.1);
+      one.position.set(((n % 2) - 0.5) * 0.16, n * 0.15, ((n % 2) - 0.5) * 0.1);
       held.add(one);
+      n++;
     }
-    if (carry.qty > 1) {
-      const label = buildTextSprite(`x${carry.qty}`, { fill: '#fff3cf', scale: 0.62 });
-      label.position.set(0.3, 0.28 + shown * 0.15, 0);
+    // Nothing in the catalog answered to any of it — better to draw nothing
+    // than an empty group floating at chest height.
+    if (!n) return;
+
+    const total = lines.reduce((s, l) => s + l.qty, 0);
+    if (total > 1) {
+      const label = buildTextSprite(`x${total}`, { fill: '#fff3cf', scale: 0.62 });
+      label.position.set(0.3, 0.28 + n * 0.15, 0);
       held.add(label);
     }
     // Out in front at chest height, so it reads as carried rather than worn.
@@ -2113,7 +2258,15 @@ export class Scene {
       // content, a redesign or a tier that changes its shape would otherwise
       // leave every stack in the shop hanging in mid-air above it.
       const fx = { ...def, kind: def.kind === 'freezer' ? 'freezer' : 'shelf' };
-      const rows = surfacesAt(this.fixtureModel(fx), this.fixtureT(fx));
+      // The boards you can SEE INTO, not every board the model has. Those two
+      // were the same thing until a fixture grew a canopy — and since goods
+      // fill top-first, the covered board is the one they all land on. See
+      // `drawableBoards`. Capacity is untouched: `shelfBoards` on the server
+      // still counts every surface, so what a shelf HOLDS is not a rendering
+      // decision — this only moves where the picture puts it.
+      const model = this.fixtureModel(fx);
+      const t = this.fixtureT(fx);
+      const rows = drawableBoards(partsAt(model, t), surfacesAt(model, t));
       // Rows have a front and a back, so the goods have to turn with the unit.
       // A flat top doesn't care, which is why this never mattered before.
       rec.group.rotation.y = -(def.rot ?? 0) * (Math.PI / 2);
@@ -2124,38 +2277,70 @@ export class Scene {
       // `buildShelfGoods` already fills in and the reason no positions had to be
       // invented for this. A unit with no boards piles everything on its roof,
       // which is what a chest freezer and a counter want, so there the stacks
-      // are drawn one behind the other rather than side by side.
+      // are drawn one behind the other rather than side by side — and a unit
+      // whose every board is covered takes that same fallback, because a board
+      // you cannot see into is a board it does not have.
       const stacks = (s.stacks ?? []).filter((k) => k.qty > 0);
-      // On a unit with rows every single unit is a prop, so the redraw has to
-      // follow every single unit — `Math.ceil(qty / 4)` was fine when stock was
-      // a three-step pile and would now hold four sales' worth of goods on a
-      // shelf that no longer has them. Clamped one past what can be shown, so a
-      // busy shelf holding forty stops rebuilding once it just reads as full.
-      const perBoard = rows.length ? Math.max(1, Math.floor(shelfSlots(rows) / rows.length)) : 0;
-      const key = stacks.map((k) => `${k.item_id}:${rows.length
-        ? Math.min(k.qty, perBoard + 1)
-        : Math.ceil(k.qty / 4)}`).join('|') + `:${rows.length}`;
+
+      // A kind gets its SHARE of the boards, not one board. The unit's capacity
+      // is divided by how many ways it is spoken for (`shelfShares`, server
+      // side) and the art has to be divided the same way, or a shelf kept for
+      // one thing draws sixteen carrots' worth of stock on the top board and
+      // leaves two bare — which reads as two boards that never fill. Shares
+      // rather than stacks, so a board held open by a reservation with no goods
+      // behind it yet stays held open in the picture too.
+      const kinds = [...new Set([
+        ...(s.assigned ?? []), ...stacks.map((k) => k.item_id),
+      ])];
+      const shares = Math.max(1, kinds.length);
+      // Top down: `rows` runs bottom-first, and the top board is the one a 45°
+      // camera actually shows.
+      const topFirst = [...rows].reverse();
+      const each = Math.floor(rows.length / shares);
+      const spare = rows.length % shares;
+      const boardsFor = (gi) => {
+        if (!rows.length) return [];
+        // More kinds than boards — the server won't open a stack past
+        // `shelfBoards`, but a reservation can outnumber them. One each, wrapped.
+        if (each === 0) return [topFirst[gi % rows.length]];
+        const start = gi * each + Math.min(gi, spare);
+        return topFirst.slice(start, start + each + (gi < spare ? 1 : 0));
+      };
+
+      // What will actually be DRAWN, which is what the redraw has to follow.
+      // Keying on qty alone rebuilt geometry on every sale of a forty-unit
+      // shelf that already read as full; keying on a clamp of qty missed the
+      // sale that takes a facing away.
+      const plan = stacks.map((k) => {
+        const gi = Math.max(0, kinds.indexOf(k.item_id));
+        const boards = boardsFor(gi);
+        return {
+          k, gi, boards,
+          show: rows.length ? shelfShow(k.qty, k.cap, boards) : Math.ceil(k.qty / 4),
+        };
+      });
+      const key = plan.map((p) => `${p.k.item_id}:${p.gi}:${p.show}`).join('|')
+        + `:${rows.length}:${shares}`;
       if (rec.key === key) continue;
       rec.key = key;
       rec.group.clear();
       if (!stacks.length) continue;
 
-      stacks.forEach((k, n) => {
-        const item = this.catalog.items[k.item_id];
+      plan.forEach((p, n) => {
+        const item = this.catalog.items[p.k.item_id];
         if (!item) return;
         if (!rows.length) {
           // No boards: everything heaps on the roof. Nudged apart so two kinds
           // read as two heaps rather than one interpenetrating mess.
-          const heap = buildStack(item.model, k.qty, item.stack);
-          heap.position.x += (n - (stacks.length - 1) / 2) * 0.34;
+          const heap = buildStack(item.model, p.k.qty, item.stack);
+          heap.position.x += (n - (plan.length - 1) / 2) * 0.34;
           rec.group.add(heap);
           return;
         }
-        // One board each, from the top down. `buildShelfGoods` fills the boards
-        // it is handed top-first, so handing it exactly one board puts this
-        // kind on that board and nowhere else.
-        const board = rows[rows.length - 1 - (n % rows.length)];
-        rec.group.add(buildShelfGoods(item.model, k.qty, [board]));
+        // `buildShelfGoods` fills the boards it is handed top-first, so they go
+        // back bottom-first — this kind fills its own share of the unit from
+        // the top of it down, and touches nobody else's boards.
+        rec.group.add(buildShelfGoods(item.model, p.k.qty, [...p.boards].reverse(), p.k.cap));
       });
     }
   }

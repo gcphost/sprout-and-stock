@@ -618,6 +618,209 @@ const signed = (n) => `${n < 0 ? '−' : '+'}$${Math.abs(n).toFixed(2)}`;
 const dayProfits = (state) => (state?.ledger ?? []).map((d) => (d.revenue ?? 0) - (d.spent ?? 0));
 
 /**
+ * What a daily cap may be set to, in the order pressing the row walks them.
+ *
+ * A ring of presets rather than a number field, because the supplier is a
+ * 214px list of rows you press and one text input in the middle of it is a
+ * different kind of control that needs a keyboard, a commit and an undo. The
+ * ring wraps back to "no cap", so every value including off is reachable
+ * without ever leaving the row — and nothing can be typed that the server
+ * would then have to argue with.
+ */
+const ORDER_CAPS = [null, 25, 50, 100, 250, 500, 1000];
+const capLabel = (n) => (n > 0 ? `$${n}` : 'No cap');
+
+/** How many of an item are standing on the shop's shelves right now. */
+function heldOf(ui, itemId) {
+  let n = 0;
+  for (const s of ui.state?.shelves ?? []) {
+    for (const k of s.stacks ?? []) if (k.item_id === itemId) n += k.qty ?? 0;
+  }
+  return n;
+}
+
+/**
+ * Every item, as a row that says what to do about it.
+ *
+ * The three things a shopkeeper is actually asking of this list — how many have
+ * I got, does anybody want it, and have I anywhere to put it — were none of
+ * them on it. It showed a price and three tags, which is a catalogue entry, and
+ * a catalogue cannot answer "should I buy eggs".
+ *
+ * `short` and `hot` are computed here rather than in the buckets below, because
+ * the row wants to *say* which one it is: a tab that sorts you into a pile and
+ * then doesn't tell you why is the same scrolling problem one level up.
+ */
+function itemRows(ui) {
+  const shelves = ui.state?.shelves ?? [];
+  const hasFreezer = shelves.some((s) => s.kind === 'freezer');
+  const cash = ui._cash ?? 0;
+
+  return ui.catalog.items.map((it) => {
+    const rule = ui.state?.orders?.items?.[it.id] ?? {};
+    const held = heldOf(ui, it.id);
+    const stack = it.stack ?? 12;
+    const heat = ui.heatFor(it);
+    const needsCold = it.tags.includes('needs-freezer') || it.tags.includes('frozen');
+    // Nowhere to put it is a stronger fact than anything about demand: buying
+    // it is a mistake whatever the town thinks, and the old tabs said so only
+    // by which of three headings you happened to be under.
+    const homeless = needsCold && !hasFreezer;
+    // Below a floor you set beats below the shop's own default, because one of
+    // them is a thing you asked for. Both are "short".
+    // `<=` rather than `<`, to match `restockQueue` — the sim calls a board thin
+    // at the line, not below it, and a list that disagreed with the shop by one
+    // unit would show you a green row the staff were already ordering for.
+    const floor = rule.min > 0 ? rule.min : Math.max(1, Math.floor(stack * 0.25));
+    const short = !homeless && rule.auto !== false && held <= floor && (held > 0 || rule.min > 0);
+    const hot = !homeless && heat >= 1.25;
+    const on = shelves.filter((s) => (s.stacks ?? [])
+      .some((k) => k.item_id === it.id && k.qty > 0)).length;
+
+    const why = homeless ? 'no freezer to put it in'
+      : rule.auto === false ? "you've told staff not to order this"
+        : short ? (rule.min > 0 ? `below your minimum of ${rule.min}` : 'running low')
+          : hot ? 'in demand right now'
+            : held > 0 ? `on ${on} shelf${on === 1 ? '' : 'ves'}` : '';
+
+    return {
+      name: it.name,
+      heat: ui.heatPill(it),
+      // How many you have, in its own column, so scanning the list is reading
+      // one line of numbers rather than forty rows of prose.
+      count: held || '–',
+      countClass: held ? (short ? 'short' : '') : 'zero',
+      // Why this row is here, instead of three tags that said the same word on
+      // every row in a department. Plain text — it also becomes the hover title.
+      sub: why || it.tags.slice(0, 3).join(' · '),
+      subWarn: homeless,
+      right: money(it.base_cost),
+      // Search still reaches the tags even though the row has stopped printing
+      // them — "organic" was always a search, never a heading.
+      facets: it.tags,
+      tags: it.tags,
+      held,
+      short,
+      hot,
+      homeless,
+      dim: homeless || cash < it.base_cost * 6,
+      ...ruleFor(ui, it),
+      button: { label: '×6', run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }) },
+    };
+  }).sort((a, b) => b.hot - a.hot || a.held - b.held || a.name.localeCompare(b.name));
+}
+
+/**
+ * One item's standing order, drawn on the item's own row.
+ *
+ * The same three decisions the strip makes for the whole shop, made for one
+ * thing — and the two numbers are about **the shop**, not about a board, which
+ * is what makes them worth having: "keep 5 eggs, never more than 20" is a
+ * sentence no shelf can say, because a shop with three egg shelves would mean
+ * it three times over. The shelf still decides where a case goes and how much
+ * of that unit it may take; this decides how many you want to own.
+ *
+ * Unset is a dash rather than a zero, and pressing `+` on an unset number jumps
+ * to a useful one rather than to 1 — a quarter of a stack for a minimum, which
+ * is the line the shop already uses for everything nobody has said anything
+ * about, and a full stack for a maximum. Twenty presses to reach a sensible
+ * number is a control nobody uses twice.
+ */
+function ruleFor(ui, it) {
+  const rule = ui.state?.orders?.items?.[it.id] ?? {};
+  const auto = rule.auto !== false;
+  const stack = it.stack ?? 12;
+  const less = (now) => (now > 1 ? now - 1 : null);   // down off 1 clears it
+  const more = (now, first) => (now ? now + 1 : first);
+  const num = (key, now) => `<span class="stp"><i>${key}</i>
+    <button class="rbtn" data-act="${key}-" aria-label="less ${key}">−</button>
+    <b class="${now ? '' : 'none'}">${now ?? '–'}</b>
+    <button class="rbtn" data-act="${key}+" aria-label="more ${key}">+</button></span>`;
+
+  const send = (patch) => () => ui.net.send('item-rule', { itemId: it.id, ...patch });
+  // Stacked, because the row is two lines tall whatever this does — side by side
+  // the pair ran the full width of the panel and squeezed the name into an
+  // ellipsis, to buy back height that was never going to be spent.
+  return {
+    rule: `<span class="rule">
+      <button class="rbtn tog ${auto ? 'on' : 'off'}" data-act="auto"
+        title="${auto ? `Staff may order ${it.name}.` : `Staff never order ${it.name}.`}"
+        aria-label="auto-order ${it.name}">${auto ? ICONS.supplier : ICONS.close}</button>
+      <span class="stack">${num('min', rule.min ?? null)}${num('max', rule.max ?? null)}</span>
+    </span>`,
+    acts: {
+      auto: send({ auto: auto ? false : null }),
+      'min-': send({ min: less(rule.min ?? null) }),
+      'min+': send({ min: more(rule.min ?? null, Math.max(1, Math.ceil(stack * 0.25))) }),
+      'max-': send({ max: less(rule.max ?? null) }),
+      'max+': send({ max: more(rule.max ?? null, stack) }),
+    },
+  };
+}
+
+/**
+ * The three things the shop does without asking — its own tab, at the end.
+ *
+ * They started as three rows at the top of the list, which is where you put a
+ * thing you are worried nobody will find, and it cost a third of the panel on
+ * every scroll past forty items you were actually there to look at. Then they
+ * were one strip of icons, which fixed the height and lost the sentences — and
+ * these three genuinely need a sentence each, because "Claim" cannot say *which*
+ * shelves or that reserved boards keep refilling anyway.
+ *
+ * A tab is the answer to both: full rows with the copy intact, and none of it in
+ * the way of ordering. They are settings, and settings are somewhere you go.
+ *
+ * Each row sends only the field it changes. Sending all three back would race
+ * the snapshot exactly the way a re-read `assign` does — two quick presses and
+ * the second restores what the first replaced.
+ */
+function orderRows(ui) {
+  const o = ui.state?.orders ?? {};
+  const auto = o.auto !== false;
+  const assign = o.assign !== false;
+  const cap = o.budget ?? null;
+  const at = ORDER_CAPS.findIndex((n) => (n ?? null) === cap);
+  const next = ORDER_CAPS[(at < 0 ? 0 : at + 1) % ORDER_CAPS.length];
+  const set = (patch) => () => ui.net.send('shop-orders', patch);
+  return [
+    { sep: 'Settings', icon: ICONS.menus },
+    {
+      icon: ICONS.supplier,
+      name: 'Order stock',
+      sub: auto
+        ? 'Staff refill shelves from the supplier on their own.'
+        : 'Nobody orders. They still unload, shelve and tidy.',
+      picked: auto,
+      tail: auto ? 'On' : 'Off',
+      run: set({ auto: !auto }),
+    },
+    {
+      icon: ICONS.label,
+      name: 'Fill shelves you have not claimed',
+      sub: assign
+        ? 'A bare shelf with nothing reserved gets whatever sells best.'
+        : 'A bare shelf is left for you. Reserved boards still refill.',
+      picked: assign,
+      tail: assign ? 'On' : 'Off',
+      run: set({ assign: !assign }),
+    },
+    {
+      icon: ICONS.today,
+      name: 'Daily spend cap',
+      sub: cap
+        ? `${money(o.spent ?? 0)} of ${capLabel(cap)} spent today by staff. Press for ${capLabel(next)}.`
+        : `Staff spend whatever the till allows. Press for ${capLabel(next)}.`,
+      picked: !!cap,
+      // What is LEFT once a cap is set, because mid-day that is the number worth
+      // a glance — the sentence above already says what you chose.
+      tail: cap ? `${money(o.left ?? 0)} left` : 'No cap',
+      run: set({ budget: next }),
+    },
+  ];
+}
+
+/**
  * Sections, in rail order.
  *
  * - `id` doubles as `openPanel`, which is what `setCatalog` and `update` test
@@ -717,32 +920,40 @@ export const SECTIONS = [
       }).length;
       return low ? String(low) : null;
     },
-    live: (ui) => String(Math.floor(ui._cash ?? 0)),
-    // Grouped by where the thing has to live, not by what aisle it belongs in.
-    // The tag chips already slice by category; what the tabs answer is the
-    // question you cannot answer from the name — "do I even have somewhere to
-    // put this", which is what decides whether buying it was a mistake.
-    rows: (ui) => grouped(
-      ui.catalog.items.map((it) => ({
-        name: it.name,
-        // What the world thinks of this one today. The tag chips tell you what
-        // it *is*; this tells you whether buying it right now is clever.
-        heat: ui.heatPill(it),
-        sub: it.tags.slice(0, 3).join(' · '),
-        right: money(it.base_cost),
-        facets: it.tags,
-        tags: it.tags,
-        dim: (ui._cash ?? 0) < it.base_cost * 6,
-        button: { label: '×6', run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }) },
-      })),
-      [
-        { label: 'Frozen', icon: ICONS.cold, test: (r) => r.tags.includes('needs-freezer') },
-        { label: 'Fresh', icon: ICONS.fresh, test: (r) => r.tags.includes('perishable') },
-        // Everything else keeps at room temperature, including anything an
-        // author never tagged either way — a shelf is the safe default.
-        { label: 'Keeps', icon: ICONS.ambient },
-      ],
-    ),
+    // The settings rows at the top read the snapshot too, so they belong in the
+    // signature — a toggle that did not redraw would read as a press that
+    // didn't land, and the honest test of a switch is that it moved.
+    live: (ui) => `${Math.floor(ui._cash ?? 0)}:${JSON.stringify(ui.state?.orders ?? null)}`,
+    // Tabbed by what you should DO about a thing, not by where it has to live.
+    //
+    // Frozen / Fresh / Keeps answered "do I have somewhere to put this", which
+    // is a real question and the wrong one to organise a shop around: it splits
+    // the catalogue three ways and leaves every tab a flat alphabet you scroll
+    // hunting for the thing you meant. It also said the same word on every row
+    // in a department, so the list carried no information at the point you were
+    // reading it.
+    //
+    // These four are a queue of work instead. `grouped` puts a row in the FIRST
+    // bucket that takes it, so an item appears exactly once, in the most urgent
+    // thing that is true of it — deal with Short, then Wanted, then glance at
+    // what you hold, and Rest is the catalogue you were browsing before. Where
+    // it lives has not gone away; it moved onto the row, where it can be a
+    // warning about THIS item rather than a heading over forty.
+    rows: (ui) => [...grouped(itemRows(ui), [
+      {
+        label: 'Short',
+        icon: ICONS.trouble,
+        test: (r) => r.short,
+      },
+      {
+        label: 'Wanted',
+        icon: ICONS.report,
+        // Hot and you have none of it. Hot and well stocked is not a job.
+        test: (r) => r.hot && r.held <= 0,
+      },
+      { label: 'Stocked', icon: ICONS.crate, test: (r) => r.held > 0 },
+      { label: 'Rest', icon: ICONS.shop },
+    ]), ...orderRows(ui)],
     foot: () => 'Lands at the bay as a pallet.',
   },
 
