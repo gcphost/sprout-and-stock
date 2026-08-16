@@ -106,7 +106,7 @@ export function showFixture(ui, f) {
       checkout: 'Quarter turn. Sets where you serve and which way the queue runs.',
       station: 'Quarter turn. Sets which side you load it from.',
     }[kind] ?? 'Quarter turn. Sets which aisle shoppers browse it from.';
-    parts.push(act('rotate', ICONS.rotate, 'Turn it round', why));
+    parts.push(act('rotate', ICONS.rotate, 'Rotate', why));
   }
 
   // Upgrading sits above the destructive half of the list: it is the thing you

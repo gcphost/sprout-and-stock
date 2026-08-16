@@ -141,7 +141,16 @@ export class UI {
     // Build mode owns the bar while it is on, and hands it back to nobody when
     // it goes off — the roster does not come back just because you stopped
     // building, since you never asked for it.
-    this.bar = on ? 'build' : (this.bar === 'build' ? null : this.bar);
+    //
+    // Except when a menu borrowed the mode for one action of its own, which is
+    // what `quiet` means. Every verb in a fixture's menu is gated on build mode
+    // server-side, so pressing Rotate has to switch it on — but you asked to
+    // turn a shelf, not to go shopping for shelves, and throwing the build
+    // palette up over the menu you are still reading answers a question nobody
+    // asked. The mode goes on, the bar stays where you left it.
+    if (!quiet) {
+      this.bar = on ? 'build' : (this.bar === 'build' ? null : this.bar);
+    }
     this.rail.setBar(this.bar);
     document.body.classList.toggle('building', on);
     if (!on && this.openPanel === 'fixture') this.closePanel();

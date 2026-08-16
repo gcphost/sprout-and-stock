@@ -90,7 +90,20 @@ const TEST_PIECES = [
     model: { parts: [{ shape: 'box', color: '#9c5432', pos: [0, 0.2, 0], scale: [0.5, 0.4, 0.5] }] },
     cost: PLANTER_PRICE,
   },
+  // Only ever painted over a bed in section 7, to take the ground away from
+  // underneath it — which is the one thing left that legitimately drops a
+  // placement now that a wall moving around one does not.
+  {
+    id: 'zz-econ-floor',
+    kind: 'floor',
+    name: 'Priced Paving',
+    cost: 3,
+    surface: { color: '#8d8d88', pattern: 'plain' },
+    tiers: [{ name: 'Standard', cost: 0 }],
+  },
 ];
+
+const FLOOR_PIECE = 'zz-econ-floor';
 
 const TEST_UPGRADES = [
   // The one that would have set the price under the old scheme. `shelves: 100`
@@ -143,6 +156,11 @@ for (const u of TEST_UPGRADES) {
  * quietly measure a discounted shelf against an undiscounted literal. Every
  * other line here resets a piece of world state for the same reason: `Game.create`
  * reads the save, so anything left unreset is somebody else's shop.
+ *
+ * `floors` is the next one along, and it earned its line the same way: section 7
+ * now paves over a bed to drop it, so a save that arrived with any ground
+ * already painted would be a different experiment. Ask what a save could leak
+ * into your assertions, not just which fields are new.
  */
 function fresh() {
   const g = Game.create({ worldId: 'verify-economy', seed: 'econ', ephemeral: true });
@@ -150,6 +168,7 @@ function fresh() {
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
   g.edits = [];
+  g.floors = [];
   g.shell = null;
   g.ownedUpgrades = [];
   g.roster = [];
@@ -347,6 +366,14 @@ function spotFor(g, kind) {
 
 // ---------------------------------------------------------------------------
 // 7. Nothing is stranded silently. A dropped placement is paid for.
+//
+// Two halves, and the first one used to be the second. Roofing a bed was this
+// sweep's way of *causing* a drop — it was one fixture and nothing else in the
+// shop moved, which made the refund exact — and it turned out to be the bug
+// rather than the fixture: walls move, so "is this indoors" is not a fact about
+// a bed that a re-flow may act on. See `canKeep` in shared/build.js. So the
+// roofed bed is now the regression guard, and the drop is caused by paving over
+// it, which is physics that genuinely takes the cell away.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -356,9 +383,23 @@ function spotFor(g, kind) {
   check(dug.ok, 'a bed of an authored design can be dug', dug.error ?? '');
   eq(g.fixtureCounts()['zz-econ-plot'], 1, 'and it is standing there');
 
-  // Now build a shed round it. A plot has to be outdoors, so enclosing its cell
-  // makes it a placement the generator can no longer honour — one fixture, and
-  // nothing else in the shop moves, which is what makes the number below exact.
+  // Re-found every time rather than held: a re-flow builds a new `plots` array
+  // of new objects, so a reference taken before one is a bed from the last
+  // layout that nothing is looking at. (`findFixture` is no use for *writing*
+  // either — `allFixtures` hands out copies with a `ref` back to the original.)
+  const bed = () => g.layout.plots.find((pl) => pl.id === dug.placed) ?? null;
+
+  // Sown, so there is something to lose besides the bed itself. Written onto
+  // the plot rather than driven through `plant`, which wants a player stood next
+  // to it, the right season and the seed money — none of which this is about,
+  // and the last of which would land in the cash deltas below.
+  const crop = (content().crops ?? [])[0];
+  check(!!crop, 'there is a crop to plant');
+  Object.assign(bed(), {
+    soil: 'tilled', crop_id: crop.id, plantedAt: g.elapsed, ready: false,
+  });
+
+  // ---- a: build a shed round it. The wall moves; the bed does not. --------
   //
   // Written straight into `edits` rather than through `buildEdge`, so the wall's
   // own price stays out of the arithmetic.
@@ -369,9 +410,39 @@ function spotFor(g, kind) {
     { o: 'v', x: at.x + 1, z: at.z, k: E.WALL },
   ];
 
-  const cashWas = g.cash;
+  let cashWas = g.cash;
   g.regenerateLayout();
-  check(!g.findFixture(dug.placed), 'roofing a bed drops it — nothing grows indoors');
+  check(!!bed(), 'roofing a bed does NOT drop it — a wall is not a bulldozer');
+  eq(g.fixtureCounts()['zz-econ-plot'], 1, 'so it is still counted');
+  eq(round2(g.cash - cashWas), 0, 'and no money changes hands for a wall drawn nearby');
+  eq(bed().crop_id, crop.id, 'and what was growing in it is still growing in it');
+
+  // ...and a second re-flow doesn't lose it either, which is the form the wall
+  // bug actually took: the loss landed one action AFTER the wall, because the
+  // generator spent the freed budget on a replacement that then evaporated.
+  g.regenerateLayout();
+  check(!!bed(), 'nor does the re-flow after that one');
+
+  // What "nothing grows indoors" now means: the clock stops rather than the bed
+  // being deleted. Held, not reset — take the roof off and it carries on.
+  const grown = g.plotGrowth(bed());
+  for (let i = 0; i < 200; i++) g.step(1);
+  near(g.plotGrowth(bed()), grown, 'a roofed bed stops growing');
+  g.edits = [];
+  g.regenerateLayout();
+  for (let i = 0; i < 200; i++) g.step(1);
+  check(g.plotGrowth(bed()) > grown,
+    'and starts again where it left off once the roof comes off');
+
+  // ---- b: pave over it. That IS a cell taken away. ------------------------
+  //
+  // Straight into `floors` for the same reason the walls above went straight
+  // into `edits`, and because `canPaintFloor` refuses this in normal play —
+  // deliberately, since it would do exactly what is asserted below.
+  cashWas = g.cash;
+  g.floors = [{ x: at.x, z: at.z, p: FLOOR_PIECE }];
+  g.regenerateLayout();
+  check(!bed(), 'paving over a bed drops it — there is no grass left to dig');
   eq(g.fixtureCounts()['zz-econ-plot'], undefined, 'so it stops being counted');
   // Under the ledger it went back to the generator, which re-sited it somewhere
   // it still owned a budget for. There is nowhere to put it back now, so the

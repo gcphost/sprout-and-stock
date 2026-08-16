@@ -31,7 +31,7 @@
 
 import { Game } from '../server/sim/index.js';
 import { generateLayout } from '../server/layout.js';
-import { fixturesOf } from '../shared/build.js';
+import { fixturesOf, canPlaceEdges } from '../shared/build.js';
 
 const failures = [];
 let checks = 0;
@@ -40,6 +40,7 @@ const check = (ok, label, detail = '') => {
   if (!ok) failures.push(`${label}${detail ? ` — ${detail}` : ''}`);
 };
 const eq = (a, b, label) => check(a === b, label, `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
+const round2 = (v) => Math.round(v * 100) / 100;
 
 const SHOP = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
 
@@ -176,7 +177,82 @@ function fresh() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Given a shell, the generator reproduces rather than invents.
+// 4. A wall is not a bulldozer.
+//
+// The one that shipped. Knocking a single segment out of an outside wall took
+// six shelves, the freezer and the till with it — most of a shop, on a gesture
+// the game had described as a warning and charged as a refund.
+//
+// The mechanism is worth spelling out, because none of it is visible while it
+// is happening. Enclosure means indoors is "whatever the walls close in", so one
+// hole in the shell un-encloses the entire building at once; every fixture in it
+// then read as outdoors, failed `canPlace`'s indoor test on the re-flow that the
+// wall itself triggered, and was dropped as a placement that no longer fits.
+//
+// And then it hid. The dropped placements left their budget slots unspent, so
+// the generator immediately laid eight *generated* fixtures back at the same
+// tiles — the shop looked completely normal, and $920 had appeared. The next
+// re-flow, on whatever you did next, recounted the budget off the placements
+// that were left and the shelving went for real. The damage lands one action
+// after its cause, which is why it reads as random.
+//
+// So: four claims, in the order they failed.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  g.freezeShell();
+  const before = fingerprint(g);
+  const cashWas = g.cash;
+
+  // Stock on a shelf. A refund can make "your fixtures are gone" look survivable
+  // on the balance sheet; the goods on them have no such consolation.
+  const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
+  Object.assign(shelf, { item_id: 'zz-verify-goods', qty: 9, price: 3 });
+
+  // One segment of the north wall — the far side of the building from the door,
+  // so nothing about this is about sealing anybody in or out.
+  const L = g.layout;
+  const seg = { o: 'h', x: L.store.x + 2, z: L.store.z };
+  check(g.edgeKindAt(seg.o, seg.x, seg.z) > 0, 'there is a wall there to knock through');
+
+  // The game says what it will cost, and says it correctly — this warning was
+  // right all along. What was wrong is that the game then acted on it as if
+  // standing outside were fatal.
+  const verdict = canPlaceEdges(L, [seg], 0);
+  check(verdict.ok, 'demolishing a wall segment is allowed');
+  check(/standing outside/.test(verdict.warn ?? ''), 'and warns what it leaves outdoors',
+    JSON.stringify(verdict.warn ?? null));
+
+  const knocked = g.buildEdge('me', { ...seg, kind: 0 });
+  check(knocked.ok, 'the hole goes through', knocked.error ?? '');
+
+  eq((g.layout.droppedPlacements ?? []).length, 0, 'and it drops nothing');
+  eq(fingerprint(g), before, 'every fixture is still there, still where it was, still itself');
+  eq(g.placements.length, before.split('|').length, 'and still a placement rather than a re-generated one');
+
+  // The money is the tell. A full-price refund for eight fixtures is not a
+  // rounding error, and it is the same event as the loss — if this passes and
+  // the fingerprint above failed, the shop was deleted and paid for.
+  const moved = round2(g.cash - cashWas);
+  check(Math.abs(moved) < 50, 'no fixture is refunded for a wall being moved near it',
+    `cash moved ${moved}`);
+
+  const kept = g.layout.shelves.find((s) => s.id === shelf.id);
+  check(!!kept && kept.qty === 9, 'and the stock on the shelf is still on the shelf');
+
+  // The delayed half. This is the re-flow that used to empty the building.
+  g.regenerateLayout();
+  eq(fingerprint(g), before, 'nor does the re-flow after that one lose anything');
+
+  // Wall it back up: a round trip leaves the shop exactly as it started.
+  const sealed = g.buildEdge('me', { ...seg, kind: 1 });
+  check(sealed.ok, 'the wall goes back up', sealed.error ?? '');
+  g.regenerateLayout();
+  eq(fingerprint(g), before, 'and knocking a hole and repairing it is a round trip');
+}
+
+// ---------------------------------------------------------------------------
+// 5. Given a shell, the generator reproduces rather than invents.
 //
 // Asked of the generator directly, with no Game around it: same inputs, same
 // building, every time — and the size it was handed rather than a size it liked.

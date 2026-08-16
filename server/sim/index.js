@@ -28,7 +28,7 @@ import { stepStaff, breakProgress } from './staff.js';
 import {
   FIXTURES, FIXTURE_KINDS, FLOOR_KIND, canPlace, rot4, FIXTURE_REFUND,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, isFloor, fixturesOf,
-  canPaintFloor, floorStroke, floorIndex, FLOOR_STROKE_MAX,
+  canPaintFloor, floorStroke, floorIndex, FLOOR_STROKE_MAX, insideStore,
 } from '../../shared/build.js';
 import { pieceFor, kindOf, defaultPiece, countKey } from '../../shared/pieces.js';
 
@@ -746,7 +746,10 @@ export class Game {
     const folded = this.folded();
 
     this.stepPlayers(dt);
-    this.stepCrops(c);
+    // The *world's* delta, not the tick's: a roofed bed holds its clock still by
+    // moving `plantedAt` along with `elapsed`, and `elapsed` runs on the scaled
+    // night clock. Handed `dt` it would drift forward every night.
+    this.stepCrops(world);
     // Once per tick, before the two things that read it. Both the crowd
     // everyone inside is fed up with and the queue an arrival balks at have to
     // be the *same* number, or the shop turns people away over a crush its own
@@ -1276,11 +1279,37 @@ export class Game {
     return clamp(elapsedMin / crop.grow_minutes, 0, 1);
   }
 
-  stepCrops() {
+  /**
+   * Crops come on, unless somebody has built a roof over them.
+   *
+   * "Nothing grows indoors" is a sentence the game has said out loud since
+   * enclosure arrived — it is the warning you get for walling in your own farm
+   * (`whatThisUnroofs`) — and until now nothing whatsoever implemented it. What
+   * enforced it was the layout generator DROPPING a roofed bed as a placement it
+   * could no longer honour, which is not the same claim at all: one is a crop
+   * that stops ripening, the other is your bed and its crop deleted and refunded
+   * for the crime of your having drawn a wall nearby. That was half of the bug
+   * where knocking one wall through took most of a shop with it, so the drop is
+   * gone (`canKeep`, shared/build.js) and this is the half that should always
+   * have been here.
+   *
+   * The clock is *held* rather than reset: `plantedAt` is pushed along by exactly
+   * the time that just passed, so `elapsed - plantedAt` doesn't move and a crop
+   * three quarters grown is still three quarters grown when you take the roof
+   * back off. Resetting would make a wall drawn near the farm destroy a season's
+   * growth silently, which is the same class of thing as dropping the bed.
+   *
+   * A bed that was already ripe stays ripe. It finished; a roof is not a reason
+   * to un-harvest something.
+   */
+  stepCrops(world = 0) {
     for (const plot of this.layout.plots) {
-      if (plot.crop_id && !plot.ready && this.plotGrowth(plot) >= 1) {
-        plot.ready = true;
+      if (!plot.crop_id) continue;
+      if (insideStore(this.layout, plot.x, plot.z)) {
+        plot.plantedAt += world;
+        continue;
       }
+      if (!plot.ready && this.plotGrowth(plot) >= 1) plot.ready = true;
     }
   }
 
