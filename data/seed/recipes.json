@@ -1,5 +1,37 @@
 [
   {
+    "id": "berry-swirl-recipe",
+    "name": "Berry Swirl",
+    "station": "soft-serve",
+    "inputs": [
+      {
+        "item_id": "milk",
+        "qty": 1
+      },
+      {
+        "item_id": "frozen-berries",
+        "qty": 1
+      }
+    ],
+    "output_id": "berry-swirl",
+    "output_qty": 3,
+    "minutes": 9
+  },
+  {
+    "id": "hot-chips-recipe",
+    "name": "Hot Chips",
+    "station": "deep-fryer",
+    "inputs": [
+      {
+        "item_id": "oven-chips",
+        "qty": 2
+      }
+    ],
+    "output_id": "hot-chips",
+    "output_qty": 3,
+    "minutes": 6
+  },
+  {
     "id": "latte-recipe",
     "name": "Flat White",
     "station": "coffee-machine",
@@ -70,5 +102,41 @@
     "output_id": "toast",
     "output_qty": 2,
     "minutes": 8
+  },
+  {
+    "id": "toastie-recipe",
+    "name": "Cheese Toastie",
+    "station": "sandwich-press",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "cheese",
+        "qty": 1
+      }
+    ],
+    "output_id": "toastie",
+    "output_qty": 2,
+    "minutes": 7
+  },
+  {
+    "id": "veg-juice-recipe",
+    "name": "Garden Juice",
+    "station": "juicer",
+    "inputs": [
+      {
+        "item_id": "carrot",
+        "qty": 2
+      },
+      {
+        "item_id": "tomato",
+        "qty": 1
+      }
+    ],
+    "output_id": "veg-juice",
+    "output_qty": 2,
+    "minutes": 10
   }
 ]

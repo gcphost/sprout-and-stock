@@ -44,7 +44,7 @@ import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { FIXTURE_REFUND, canPlace, canPlaceEdges, fixturesOf, FIXTURES } from '../shared/build.js';
 import { E } from '../shared/edges.js';
-import { WALKABLE } from '../shared/tiles.js';
+import { WALKABLE, T } from '../shared/tiles.js';
 
 const failures = [];
 let checks = 0;
@@ -55,6 +55,19 @@ const check = (ok, label, detail = '') => {
 const eq = (a, b, label) => check(a === b, label, `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
 const near = (a, b, label) => check(Math.abs(a - b) < 0.005, label, `expected ${b}, got ${a}`);
 const round2 = (v) => Math.round(v * 100) / 100;
+
+/** The first indoor cell nothing is standing on, for a prop that needs a home. */
+function freeIndoorCell(g) {
+  const L = g.layout;
+  for (let z = L.store.z; z < L.store.z + L.store.h; z++) {
+    for (let x = L.store.x; x < L.store.x + L.store.w; x++) {
+      if (L.tiles[z * L.w + x] !== T.FLOOR) continue;
+      if (L.blocked?.[z * L.w + x]) continue;
+      return { x, z };
+    }
+  }
+  return null;
+}
 
 /** The same pinned shop the other build sweeps use. */
 const SHOP = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
@@ -157,10 +170,13 @@ for (const u of TEST_UPGRADES) {
  * other line here resets a piece of world state for the same reason: `Game.create`
  * reads the save, so anything left unreset is somebody else's shop.
  *
- * `floors` is the next one along, and it earned its line the same way: section 7
+ * `ground` is the next one along, and it earned its line the same way: section 7
  * now paves over a bed to drop it, so a save that arrived with any ground
- * already painted would be a different experiment. Ask what a save could leak
- * into your assertions, not just which fields are new.
+ * already painted would be a different experiment. It also carries the yard
+ * pads since they stopped being generated, so `yardStamped` has to come with
+ * it — reset one without the other and the shop opens with two loading bays it
+ * did not have last run. Ask what a save could leak into your assertions, not
+ * just which fields are new.
  */
 function fresh() {
   const g = Game.create({ worldId: 'verify-economy', seed: 'econ', ephemeral: true });
@@ -168,12 +184,17 @@ function fresh() {
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
   g.edits = [];
-  g.floors = [];
+  g.ground = [];
+  g.yardStamped = false;
   g.shell = null;
   g.ownedUpgrades = [];
   g.roster = [];
   g.regenerateLayout(null, {}, { want: SHOP });
   g.freezeShell();
+  // ...and the yard, so this drives a shop shaped like a real one. `fresh`
+  // cleared `yardStamped` above, which is what makes this lay pads rather than
+  // inherit whatever the live save had painted.
+  g.freezeYard();
   g.cash = 20000;
   g.stats.spent = 0;
   g.addPlayer('me', 'Tester');
@@ -436,11 +457,13 @@ function spotFor(g, kind) {
 
   // ---- b: pave over it. That IS a cell taken away. ------------------------
   //
-  // Straight into `floors` for the same reason the walls above went straight
-  // into `edits`, and because `canPaintFloor` refuses this in normal play —
-  // deliberately, since it would do exactly what is asserted below.
+  // Straight into `ground` for the same reason the walls above went straight
+  // into `edits`, and because `canPaintGround` refuses this in normal play —
+  // deliberately, since it would do exactly what is asserted below. It keeps
+  // whatever the yard was laid with: dropping the pads to pave one cell would
+  // measure a shop that also lost its delivery bay.
   cashWas = g.cash;
-  g.floors = [{ x: at.x, z: at.z, p: FLOOR_PIECE }];
+  g.ground = [...g.ground, { x: at.x, z: at.z, k: 'floor', p: FLOOR_PIECE }];
   g.regenerateLayout();
   check(!bed(), 'paving over a bed drops it — there is no grass left to dig');
   eq(g.fixtureCounts()['zz-econ-plot'], undefined, 'so it stops being counted');
@@ -494,6 +517,71 @@ function spotFor(g, kind) {
   const quiet = canPlaceEdges(g2.layout, [{ o: 'h', x: S.x + 1, z: S.z + 3 }], E.WALL);
   check(quiet.ok, 'an interior wall is allowed');
   check(!quiet.warn, 'and warns about nothing', quiet.warn ?? '');
+}
+
+// ---------------------------------------------------------------------------
+// A piece that EARNS, and a piece that is merely nice.
+//
+// `yields` is the only field on a fixture that prints money, so it gets the
+// same treatment every other price here gets: the expected figure is the
+// authored number, never the function that pays it out. And `charm` is the
+// first thing that has ever moved catchment from inside the shop, so what is
+// asserted is the CEILING — an unbounded content field feeding an unbounded
+// term is how a room full of pot plants becomes the best strategy in the game.
+// ---------------------------------------------------------------------------
+{
+  const PAY = 13.5;                       // deliberately odd, like every price here
+  const CHARM = 3;
+  const EARNER = 'zz-econ-earner';
+  writeContent('fixture', {
+    id: EARNER, kind: 'prop-floor', name: 'Econ Earner', cost: 0, charm: CHARM,
+    yields: { cash: PAY, every: 1 },
+    model: { parts: [{ shape: 'box', color: '#7fbf6a', pos: [0, 0.2, 0], scale: [0.3, 0.4, 0.3] }] },
+    tiers: [{ name: 'Standard', cost: 0 }],
+  }, 'verify');
+
+  const g = fresh();
+  const bare = g.catchment();
+  eq(g.charm(), 0, 'a shop with nothing nice in it has no charm');
+
+  // A cell the generator has not already furnished. Hardcoding one picks a
+  // shelf on most seeds, and the placement fails for a reason that has nothing
+  // to do with earning.
+  const spot = freeIndoorCell(g);
+  check(!!spot, 'there is an empty cell indoors to stand it on');
+  const put = g.placeFixture('me', { kind: 'prop-floor', piece: EARNER, ...spot, rot: 0 });
+  check(put.ok, 'the earner goes down', put.error ?? '');
+  eq(g.charm(), CHARM, 'and the shop is exactly as charming as the row says');
+  check(g.catchment() > bare, 'which reaches further into the town', `${bare} -> ${g.catchment()}`);
+
+  // The ceiling. Charm is authored content and unbounded; catchment must not be.
+  const many = Array.from({ length: 60 }, (_, i) => ({
+    id: `charm-${i}`, kind: 'prop-floor', piece: EARNER, x: 1, z: 1, rot: 0, tier: 1, variant: '',
+  }));
+  g.placements = [...g.placements, ...many];
+  check(g.charm() > 100, 'sixty of them is a lot of charm', String(g.charm()));
+  check(g.catchment() - bare <= 8.001,
+    'but catchment saturates — a warehouse of pot plants is not a destination',
+    `+${round2(g.catchment() - bare)}`);
+  g.placements = g.placements.filter((p) => !p.id.startsWith('charm-'));
+
+  // It pays what it says, into the pile a till already drops.
+  g.cashDrops = [];
+  const cashWas = g.cash;
+  for (let i = 0; i < 400 && g.cashDrops.length < 1; i++) g.step(0.1);
+  eq(g.cashDrops.length, 1, 'it pays out on its own clock');
+  eq(g.cashDrops[0].amount, PAY, 'exactly what the row authored');
+  eq(g.cash, cashWas, 'and into the floor, not the bank — somebody has to fetch it');
+
+  // Nothing authored to earn must be unable to. The failure this guards is a
+  // default that pays: every existing piece in the game has `yields` null.
+  const plain = fresh();
+  plain.cashDrops = [];
+  plain.placeFixture('me', { kind: 'prop-floor', piece: 'terracotta-planter', ...freeIndoorCell(plain), rot: 0 });
+  for (let i = 0; i < 400; i++) plain.step(0.1);
+  eq(plain.cashDrops.length, 0, 'a planter earns nothing, because nothing authored it to');
+
+  remove('fixtures', EARNER);
 }
 
 // ---------------------------------------------------------------------------

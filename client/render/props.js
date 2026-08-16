@@ -523,57 +523,122 @@ export function buildFixtureGhost(height, color, verdict, anchor) {
 }
 
 /**
+ * A square outline lying in the XY plane, drawn as one shape with a hole.
+ *
+ * A square rather than a circle because the thing being marked stands on a
+ * *tile*, and the outline that answers "which one" is the one that agrees with
+ * the grid the shop is built on. A circle inside a tile is a smaller shape than
+ * its tile, so it reads as a spot on the floor rather than as the square being
+ * claimed — and one big enough to contain the tile spills over its neighbours.
+ *
+ * `half` is the half-width, so 0.5 is exactly a tile. `band` is how thick the
+ * line is, drawn inwards.
+ */
+function frameShape(half, band) {
+  const s = new THREE.Shape();
+  s.moveTo(-half, -half);
+  s.lineTo(half, -half);
+  s.lineTo(half, half);
+  s.lineTo(-half, half);
+  s.closePath();
+  const inner = half - band;
+  const hole = new THREE.Path();
+  hole.moveTo(-inner, -inner);
+  hole.lineTo(-inner, inner);
+  hole.lineTo(inner, inner);
+  hole.lineTo(inner, -inner);
+  hole.closePath();
+  s.holes.push(hole);
+  return s;
+}
+
+/**
+ * The same square with its sides taken out — four corner brackets.
+ *
+ * This is the marker that has to coexist with the other one, and shape is what
+ * separates them at a glance: brackets and a continuous frame stay legible
+ * stacked on one tile in a way that two frames, or two colours of the same
+ * frame, do not. `arm` is how far each leg runs from its corner.
+ */
+function cornerShapes(half, band, arm) {
+  return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => {
+    const s = new THREE.Shape();
+    const x = sx * half;
+    const y = sy * half;
+    s.moveTo(x, y);
+    s.lineTo(x - sx * arm, y);
+    s.lineTo(x - sx * arm, y - sy * band);
+    s.lineTo(x - sx * band, y - sy * band);
+    s.lineTo(x - sx * band, y - sy * arm);
+    s.lineTo(x, y - sy * arm);
+    s.closePath();
+    return s;
+  });
+}
+
+/**
  * What each marker looks like.
  *
- * The radii are the load-bearing part, not the colours. Two of these can be
- * ringing the *same* tile — the thing under your pointer is very often the
- * thing whose menu is open — so they are concentric rather than stacked, and
- * only the pointer's ring carries the chevron. Drawing them at one radius made
- * the selection invisible the moment you pointed at it, which is precisely the
- * case you most want it in.
+ * The geometry is the load-bearing part, not the colours. Two of these can be
+ * marking the *same* tile — the thing under your pointer is very often the
+ * thing whose menu is open — so one is a frame and the other is brackets, and
+ * only the pointer's carries the chevron. Two rings of the same size meant the
+ * selection vanished the moment you pointed at it, which is exactly the case
+ * you most want it in.
  *
- * They also sit inside the tile now (0.44 against the 0.66 they started at).
- * A ring wider than the thing it marks reads as "this area", and on a three-
- * tile pitch it overlapped its neighbours — the one question the ring exists
- * to answer.
+ * Both now claim the whole tile rather than a coin in the middle of it. The
+ * original ring was 1.3 tiles across, which on a three-tile aisle overlapped
+ * the shelves either side of the one it was answering about.
  */
 const MARKER_LOOK = {
   // Amber is "this is what you are pointing at". Red is the same sentence with
-  // a bulldozer in your hands, and the ring is the only warning that arrives
+  // a bulldozer in your hands, and the outline is the only warning that arrives
   // before the tap rather than after it.
-  aim: { color: 0xffd66b, radius: [0.34, 0.44], chevron: true },
-  raze: { color: 0xe2564a, radius: [0.34, 0.44], chevron: true },
+  aim: { color: 0xffd66b, half: 0.45, band: 0.08, chevron: true },
+  raze: { color: 0xe2564a, half: 0.45, band: 0.08, chevron: true },
   // The one whose menu is open. Cool, because it is not a verb — nothing is
   // about to happen to it, it is simply the thing you are reading about — and
-  // wide, so the aim ring lands inside it.
-  selected: { color: 0x5fd6c4, radius: [0.5, 0.57], chevron: false },
+  // pushed out to the tile edge, so the aim frame sits inside it.
+  selected: { color: 0x5fd6c4, half: 0.5, band: 0.07, arm: 0.24, chevron: false },
+  // "This would take what you are holding." The only one with no outline on
+  // the ground, because it is the only one that appears in *numbers* — eight
+  // of these at once, and eight squares painted on the floor is a shop you
+  // cannot read. A chevron floats over the thing and stacks visually the way a
+  // row of signposts does.
+  stock: { color: 0x7cc46a, chevron: true, outline: false },
 };
 
 /**
  * The "you can do something to this" marker.
  *
  * Once actions need a deliberate hold, being in range stops being self-evident —
- * nothing happens, so without this the game just feels unresponsive. A ring on
- * the ground under the thing, plus a floating chevron, says *which* object your
- * hold would land on, which matters when a shelf, a till and a pallet are all
- * within arm's reach of each other.
+ * nothing happens, so without this the game just feels unresponsive. An outline
+ * on the ground under the thing, plus a floating chevron, says *which* object
+ * your hold would land on, which matters when a shelf, a till and a pallet are
+ * all within arm's reach of each other.
  */
 export function buildTargetMarker(mode = 'aim') {
   const g = new THREE.Group();
   const look = MARKER_LOOK[mode] ?? MARKER_LOOK.aim;
 
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(look.radius[0], look.radius[1], 28),
-    new THREE.MeshBasicMaterial({
-      color: look.color, transparent: true, opacity: 0.9,
-      side: THREE.DoubleSide, depthTest: false,
-    }),
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.06;
-  ring.renderOrder = 9;
-  g.add(ring);
-  g.userData.ring = ring;
+  // `outline: false` is a marker that only floats. Whoever animates one has to
+  // cope with `userData.ring` being absent, the same way it does the chevron.
+  if (look.outline !== false) {
+    const ring = new THREE.Mesh(
+      new THREE.ShapeGeometry(look.arm
+        ? cornerShapes(look.half, look.band, look.arm)
+        : frameShape(look.half, look.band)),
+      new THREE.MeshBasicMaterial({
+        color: look.color, transparent: true, opacity: 0.9,
+        side: THREE.DoubleSide, depthTest: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    ring.renderOrder = 9;
+    g.add(ring);
+    g.userData.ring = ring;
+  }
 
   // A little downward chevron bobbing over the target. Whoever animates this
   // has to cope with it being absent — a marker that says "this is open"
@@ -606,15 +671,46 @@ export function buildTargetMarker(mode = 'aim') {
  * caller each frame; this only builds the shape.
  */
 export function buildRipple(color = '#ffd66b') {
+  // Thin-walled, so scaling it up reads as a wave spreading rather than as a
+  // disc growing. The geometry is unit-sized and the scale does the work —
+  // which also means the wall thickness is a *proportion*, so shrinking the
+  // ripple thins the line by the same factor. This is 0.28 of the radius
+  // rather than 0.14 because the ripple was halved after it was first drawn,
+  // and halving it again in weight turned "smaller" into "fainter".
+  return groundFlash(new THREE.RingGeometry(0.72, 1, 40), color);
+}
+
+/**
+ * The square that closes on a tile something was just built on.
+ *
+ * The same throwaway ground mark as the press ripple, which is why it shares
+ * one shape and one animator — and the opposite motion, which is the whole
+ * point. A ripple spreads *out* because a walk order is something leaving your
+ * finger; a build is something arriving, so this comes in and stops dead on
+ * the tile. It is a square rather than a circle for the same reason the aim
+ * marker is: what landed is a tile-shaped object, and a circle closing on a
+ * square unit misses its corners at the moment it is meant to agree with it.
+ *
+ * Unit-sized like the ripple, so `to: 1` is exactly one tile.
+ */
+export function buildStamp(color = '#7cc46a') {
+  return groundFlash(new THREE.ShapeGeometry(frameShape(0.5, 0.1)), color);
+}
+
+/**
+ * A flat unlit outline on the ground, scaled and faded by whoever owns it.
+ *
+ * Both ground marks are the same object with a different outline and a
+ * different pair of endpoints, so the difference between them is a geometry
+ * argument rather than a second copy of the render settings — `depthTest:
+ * false` and a `renderOrder` above the markers are what stop either of them
+ * being swallowed by the floor they are lying on, and getting that wrong in
+ * only one of two copies is a bug you see once and never reproduce.
+ */
+function groundFlash(geo, color) {
   const g = new THREE.Group();
   const ring = new THREE.Mesh(
-    // Thin-walled, so scaling it up reads as a wave spreading rather than as a
-    // disc growing. The geometry is unit-sized and the scale does the work —
-    // which also means the wall thickness is a *proportion*, so shrinking the
-    // ripple thins the line by the same factor. This is 0.28 of the radius
-    // rather than 0.14 because the ripple was halved after it was first drawn,
-    // and halving it again in weight turned "smaller" into "fainter".
-    new THREE.RingGeometry(0.72, 1, 40),
+    geo,
     new THREE.MeshBasicMaterial({
       color: new THREE.Color(color), transparent: true, opacity: 0.9,
       side: THREE.DoubleSide, depthTest: false,

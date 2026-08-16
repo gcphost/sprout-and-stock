@@ -35,6 +35,7 @@ import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import {
   BUILD_KINDS, FIXTURE_KINDS, PROP_KINDS, FIXTURES, isProp, isFloor, canPlace,
+  GROUND, GROUND_KINDS, PAD_KINDS, isGround, groundTile, groundKindOfTile,
 } from '../shared/build.js';
 import { kindOf, pieceFor, defaultPiece, piecesOf, countKey } from '../shared/pieces.js';
 import { WALKABLE } from '../shared/tiles.js';
@@ -146,21 +147,42 @@ for (const p of TEST_PIECES) {
 // 1. The vocabulary itself.
 // ---------------------------------------------------------------------------
 {
-  // Three buckets now, not two. A floor joined the vocabulary without joining
+  // Three buckets, not two. Ground joined the vocabulary without joining
   // `FIXTURES`, because everything in that table answers "where may this stand
-  // and who reaches it" and a floor answers neither — it is what the cell is
+  // and who reaches it" and ground answers neither — it is what the cell is
   // made of. Counted rather than asserted per kind so that adding a fourth
   // category has to come past this line: a kind in no bucket is a kind nothing
   // in the game knows how to treat, which is the scenery failure the whole
   // kinds/pieces split exists to prevent.
-  const floors = BUILD_KINDS.filter((k) => isFloor(k));
-  eq(floors.length, 1, 'there is exactly one kind that is ground rather than a thing');
-  eq(BUILD_KINDS.length, FIXTURE_KINDS.length + PROP_KINDS.length + floors.length,
-    'every kind is exactly one of: a fixture, a decoration, or the floor');
-  for (const k of floors) {
+  //
+  // The bucket has three kinds in it now rather than one. Floor was alone until
+  // the yard pads moved in — they were procedural furniture, re-stamped on
+  // every re-flow, and became designs for the same brush. Which is why this
+  // counts `isGround` rather than naming floor: the claim is about the shape of
+  // the vocabulary, not about how many ways there are to pave.
+  const ground = BUILD_KINDS.filter((k) => isGround(k));
+  check(ground.length >= 1, 'nothing in the vocabulary is ground rather than a thing');
+  eq(GROUND_KINDS.length, ground.length, 'a ground kind is missing from BUILD_KINDS');
+  eq(BUILD_KINDS.length, FIXTURE_KINDS.length + PROP_KINDS.length + ground.length,
+    'every kind is exactly one of: a fixture, a decoration, or ground');
+  for (const k of ground) {
     check(!FIXTURES[k], `${k} has no placement rules — it is not placed, it is painted`);
     check(!isProp(k), `${k} is not a decoration`);
     check(!FIXTURE_KINDS.includes(k), `${k} is not a fixture — nothing procedural has a budget for ground`);
+    // What a cell painted with it becomes, and back again. A ground kind with
+    // no tile paints nothing; two sharing one tile makes the pads impossible to
+    // tell apart, which is the entire reason the split exists.
+    check(groundTile(k) != null, `${k} does not say what a cell painted with it is made of`);
+    eq(groundKindOfTile(groundTile(k)), k, `${k} does not read back off its own tile`);
+  }
+  // A pad carries a job; floor carries only a look. `verify:floor` pins the
+  // second half — two floors must leave byte-identical tiles — and this pins
+  // that the first half is a real distinction rather than a comment.
+  for (const k of PAD_KINDS) {
+    check(isGround(k), `${k} is a pad but not ground`);
+    check(!isFloor(k), `${k} is a pad, so it is not the floor`);
+    check(typeof GROUND[k].lastGone === 'string',
+      `${k} cannot say what losing the last of it costs you`);
   }
   for (const k of FIXTURE_KINDS) {
     // A fixture is something you own and the generator has a budget for. It

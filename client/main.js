@@ -2,7 +2,7 @@
  * CLIENT ENTRY POINT — input, render loop, and glue.
  */
 
-import { canPlaceEdges, edgeRun, canPaintFloor, floorStroke } from '../shared/build.js';
+import { canPlaceEdges, edgeRun, canPaintGround, groundStroke } from '../shared/build.js';
 import { Scene } from './render/scene.js';
 import { Net } from './net.js';
 import { UI } from './ui.js';
@@ -178,11 +178,11 @@ function refreshGhost(force = false) {
   // you whether the ground will take it — the drag then previews the rectangle.
   // `undefined` is "this tool is not a brush"; the empty string is Bare Ground,
   // which is very much a tool.
-  const brush = pointer.onCanvas ? ui.floorPieceForTool() : undefined;
+  const brush = pointer.onCanvas ? ui.groundForTool() : undefined;
   if (brush !== undefined) {
     const cell = scene.pickTile(pointer.x, pointer.y);
     if (!cell) { scene.setFloorGhost(null, null); ui.setBuildVerdict(null); return; }
-    const verdict = canPaintFloor(scene.storeLayout, [cell], brush || null);
+    const verdict = canPaintGround(scene.storeLayout, [cell], brush.kind, brush.piece || null);
     scene.setFloorGhost([cell], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
     ui.setBuildVerdict(verdict);
     scene.setAimTarget(null);
@@ -444,11 +444,11 @@ let floorDrag = null;
 function showFloorDrag(cx, cy) {
   if (!floorDrag) return null;
   const to = scene.pickTile(cx, cy);
-  const cells = floorStroke(floorDrag.start, to);
+  const cells = groundStroke(floorDrag.start, to);
   if (!cells.length) { scene.setFloorGhost(null, null); return null; }
   // The empty string is Bare Ground, which is a real choice; null is what
-  // `canPaintFloor` reads as "take it up".
-  const verdict = canPaintFloor(scene.storeLayout, cells, floorDrag.piece || null);
+  // `canPaintGround` reads as "take it up".
+  const verdict = canPaintGround(scene.storeLayout, cells, floorDrag.kind, floorDrag.piece || null);
   const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
   scene.setFloorGhost(cells, state);
   ui.setBuildVerdict(verdict);
@@ -518,11 +518,11 @@ canvas.addEventListener('pointerdown', (e) => {
   // ...and a brush takes it the same way, over an area rather than a line. It
   // aims with `pickTile` because it is painting the ground itself — using
   // `pickFixture` here would let you tile the roof of a shelf.
-  const brush = ui.floorPieceForTool();
+  const brush = ui.groundForTool();
   if (brush !== undefined) {
     const start = scene.pickTile(e.clientX, e.clientY);
     if (start) {
-      floorDrag = { start, piece: brush, id: e.pointerId };
+      floorDrag = { start, kind: brush.kind, piece: brush.piece, id: e.pointerId };
       canvas.setPointerCapture(e.pointerId);
       showFloorDrag(e.clientX, e.clientY);
       return;
@@ -642,10 +642,10 @@ function endPress(e) {
       // Two corners and a piece, never the list. Same cap, same reasoning as a
       // wall run — a full-size stroke is 256 cells — and one message is also
       // one re-flow rather than 256 of them. The far corner goes over unclamped:
-      // the server runs the same `floorStroke` and trims it to the same
+      // the server runs the same `groundStroke` and trims it to the same
       // rectangle, so clamping twice could only ever disagree.
       const to = drawn.to ? { x: drawn.to.x, z: drawn.to.z } : null;
-      net.send('build-floor', { x: start.x, z: start.z, piece, to });
+      net.send('build-ground', { x: start.x, z: start.z, piece, to });
     }
     return;
   }
@@ -722,6 +722,15 @@ function walkTo(spec) {
   net.send('walk-to', spec);
   scene.recentre();
 }
+
+/**
+ * What we are carrying, if anything. Straight off the snapshot, which is the
+ * only place it lives — the HUD reads the same field to print "carrying 6x
+ * bread", and a second copy kept on this side is one that goes stale the tick
+ * somebody takes it off you.
+ */
+const myCarry = () => latestState?.players
+  ?.find((p) => p.id === net.myId)?.carry ?? null;
 
 /**
  * Look at what you are pointing at. The long press, and nothing else.
@@ -803,19 +812,6 @@ function tapAtPointer(cx, cy) {
     const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
     if (who?.hire) { showWorker(ui, who.hire); return; }
 
-    // An open panel eats the first press. Pressing the world with a menu up has
-    // always meant "put that away", and taking a walk order out of the same
-    // press would send you across the shop every time you dismissed something.
-    // Rippling pale rather than amber is the difference between "I heard you"
-    // and "you are on your way", which is exactly the thing this press did not
-    // do — press again and you go.
-    if (ui.openPanel) {
-      const spot = scene.pickTile(cx, cy);
-      if (spot) scene.ripple(spot.x, spot.z, 'miss');
-      ui.closePanel();
-      return;
-    }
-
     // Aim at the thing, not the floor under it — `pickFixture` is the one that
     // answers "what am I pointing at" for a box drawn most of a tile up-screen
     // of the ground it stands on. The walk names the fixture rather than a
@@ -825,11 +821,62 @@ function tapAtPointer(cx, cy) {
     // "tell me about this" and pointing at the ground means "go there", which
     // is the same division a person already gets one branch up.
     //
+    // Above the dismissal below, and for the same reason a person is: pointing
+    // at a thing is a positive act, so with a menu already up it means "that
+    // one instead" and not "put this away and ask me again". Underneath, every
+    // second prop you looked at cost two presses — dismiss, then point — and
+    // the marker made that plain, since the ring you were aiming at and the
+    // brackets you were leaving were both on screen saying the tap had a
+    // target. `showFixture` re-points the open panel rather than opening a
+    // second one, so switching is one call and nothing has to close first.
+    //
     // Pale rather than amber, and this is the only thing distinguishing the two
     // presses at a glance: amber is "you are on your way", pale is "I heard
     // you". A press that opens a panel must not flash the going colour.
     const over = scene.pickFixture(cx, cy);
-    if (over) { scene.ripple(over.x, over.z, 'miss'); showFixture(ui, over); return; }
+    if (over) {
+      // With an armful of stock, pointing at a shelf is an errand and not a
+      // question — so it goes, the same as pointing at the floor does. This is
+      // the one branch where "a prop opens, the floor takes you somewhere"
+      // gives the wrong answer: reading a shelf's menu is not what anybody
+      // wants while holding six loaves, and stocking charges on proximity, so
+      // walking there IS the whole job. The chevrons say which shelves are
+      // worth walking to; this is how you take one up on it.
+      //
+      // By fixture rather than by tile, so the server routes you to the side
+      // you work from — the same call the hint means by "tap to go". Holding
+      // still opens the menu (`openAtPointer`), which is what keeps a shelf's
+      // menu reachable with your hands full.
+      if (myCarry()) {
+        // Amber, not pale: this one really is "you are on your way".
+        scene.ripple(over.x, over.z);
+        walkTo({ fixture: over.id });
+        return;
+      }
+      scene.ripple(over.x, over.z, 'miss');
+      // ...and the one already open puts itself away, which is the same toggle
+      // the rail gives its own buttons. The dismissal below used to provide
+      // this by accident, and without it the second press on the thing you are
+      // already reading about would be the only press on the whole shop floor
+      // that does nothing you can see. By tile rather than by id, for the
+      // reason `refreshFixture` is: turning something re-mints its id.
+      const open = ui.openPanel === 'fixture' && ui.fixtureRef;
+      if (open && ui.fixtureRef.x === over.x && ui.fixtureRef.z === over.z) ui.closePanel();
+      else showFixture(ui, over);
+      return;
+    }
+
+    // An open panel eats a press that landed on nothing. Pressing the world
+    // with a menu up has always meant "put that away", and taking a walk order
+    // out of the same press would send you across the shop every time you
+    // dismissed something. Rippling pale rather than amber is the difference
+    // between "I heard you" and "you are on your way" — press again and you go.
+    if (ui.openPanel) {
+      const spot = scene.pickTile(cx, cy);
+      if (spot) scene.ripple(spot.x, spot.z, 'miss');
+      ui.closePanel();
+      return;
+    }
 
     const tile = scene.pickTile(cx, cy);
     if (tile) { scene.ripple(tile.x, tile.z); walkTo({ x: tile.x, z: tile.z }); }

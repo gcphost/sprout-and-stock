@@ -52,24 +52,92 @@ export const FIXTURES = {
 };
 
 /**
- * The one kind that is GROUND rather than something standing on it, which is
- * why it is not in `FIXTURES` above.
+ * The kinds that are GROUND rather than something standing on it, which is why
+ * none of them is in `FIXTURES` above.
  *
  * Everything in that table answers "where may this stand, and who can reach
- * it". A floor answers neither: it is what the cell is *made of*, so it has no
+ * it". Ground answers neither: it is what the cell is *made of*, so it has no
  * anchor, blocks nobody, cannot be lifted, rotated or reached round the back,
- * and is painted over an area rather than placed on a tile. Giving it a row
+ * and is painted over an area rather than placed on a tile. Giving one a row
  * there would mean five fields that are lies and a `canPlace` branch that skips
  * every rule in the function.
  *
- * It is still a build KIND, because it is still a thing content designs: "Oak
- * Boards" and "Chequer Tile" are rows in the same catalog a planter is a row
- * in, and `create_fixture` gates on this list.
+ * They are still build KINDS, because they are still things content designs:
+ * "Oak Boards" and "Chequer Tile" are rows in the same catalog a planter is a
+ * row in, and `create_fixture` gates on this list.
+ *
+ * `floor` was the only one until the yard pads came in here. The delivery bay
+ * and the drop-off were generated furniture — two 2x2 patches the generator
+ * stamped against the back wall, that you could neither move, resize nor get
+ * rid of — and they are ground in exactly the sense floor is: a cell is made of
+ * bay, nothing stands on it. So they became two more designs for the same
+ * brush rather than a second mechanism, which is the whole reason `tile` is a
+ * field here: one painter, and the KIND of what you painted decides what the
+ * cell becomes.
+ *
+ * The difference between them, and the only one: a floor is a *look*, and a pad
+ * is a *job*. `verify:floor` pins the first half — two floors of different
+ * colours must produce byte-identical `tiles` — and `pad` is how the second
+ * half says so out loud, because a cell that says "deliveries land here" is
+ * carrying meaning no colour ever could.
+ *
+ * `does` is that job in one sentence, and it is a field rather than prose in
+ * `docs/fixtures.md` because the generated doc used to branch on the kind id to
+ * describe it — two pads, one ternary, and a third would have read as the
+ * second. Whatever a pad is for, the row that defines it is where it says so.
  */
+export const GROUND = {
+  floor: { label: 'Floor', tile: T.FLOOR },
+  bay: {
+    label: 'Delivery Bay',
+    tile: T.BAY,
+    pad: true,
+    does: 'wholesale orders land here, and how big you paint it is how many crates it holds',
+    lastGone: 'that is your last delivery bay — an order would have nowhere to land',
+  },
+  drop: {
+    label: 'Storage',
+    tile: T.DROP,
+    pad: true,
+    does: 'hands are cleared here and stock waits, and how big you paint it is how much waits at once',
+    lastGone: 'that is your last storage tile — there would be nowhere to put goods down',
+  },
+  /**
+   * The break area — the first pad that holds people rather than goods.
+   *
+   * A break has always happened *somewhere*: `PASTIME_SPOTS` names the back of
+   * the yard, the front step or the till, which is a pastime saying where it
+   * looks right rather than the shop saying where its staff go. This is the
+   * shop's answer, and it outranks all of them (`spotFor`, server/sim/staff.js).
+   *
+   * It is ground rather than a bench on two counts. A bench is one worker and a
+   * facing, so a second hire needs a second bench and the shop needs to know
+   * which is free; an area is however big you painted it, and one cell seats one
+   * person with no fixture, no anchor and no rotation. And it is what makes the
+   * size mean something in the same breath the yard does: paint one cell and one
+   * hire rests in it while the rest take theirs where they stand.
+   *
+   * Losing it is a warning rather than a refusal, because the fallback is
+   * genuinely the whole of what the game did before — a shop with no break area
+   * plays exactly as it always has.
+   */
+  break: {
+    label: 'Break Area',
+    tile: T.BREAK,
+    pad: true,
+    does: 'staff take their breaks here, and how big you paint it is how many of them it seats at once',
+    lastGone: 'that is your last break tile — staff would go back to resting wherever they finished',
+  },
+};
+
 export const FLOOR_KIND = 'floor';
 
 /** Every kind a piece may name. The closed vocabulary, in one place. */
-export const BUILD_KINDS = [...Object.keys(FIXTURES), FLOOR_KIND];
+export const GROUND_KINDS = Object.keys(GROUND);
+export const BUILD_KINDS = [...Object.keys(FIXTURES), ...GROUND_KINDS];
+
+/** The ground kinds that carry a job rather than only a look. */
+export const PAD_KINDS = GROUND_KINDS.filter((k) => GROUND[k].pad);
 
 /**
  * The kinds the generator has a budget for, and the kinds it doesn't.
@@ -88,7 +156,24 @@ export const FIXTURE_KINDS = Object.keys(FIXTURES).filter((k) => FIXTURES[k].at 
 
 export const isProp = (kind) => FIXTURES[kind]?.at != null;
 
+export const isGround = (kind) => GROUND[kind] != null;
+
 export const isFloor = (kind) => kind === FLOOR_KIND;
+
+/** Does this ground kind carry a job — a place deliveries land, or stock waits? */
+export const isPad = (kind) => GROUND[kind]?.pad === true;
+
+/** What a cell painted with this kind is made of. */
+export const groundTile = (kind) => GROUND[kind]?.tile ?? null;
+
+/**
+ * Which ground kind a tile value IS, or null for ground nobody painted.
+ *
+ * The inverse of `groundTile`, and the reason the pads never needed a second
+ * array: `tiles` already says which cells are bay, so "where is the bay" is a
+ * read rather than a record that can drift out of step with the ground.
+ */
+export const groundKindOfTile = (tile) => GROUND_KINDS.find((k) => GROUND[k].tile === tile) ?? null;
 
 /** Does one of these own the cell it stands in? */
 export const blocksCell = (kind) => FIXTURES[kind]?.blocks === true;
@@ -416,12 +501,12 @@ function whatThisUnroofs(L, probe) {
 /**
  * Longest side of one paint stroke.
  *
- * A cap on the gesture, not on how much floor you may own — drag again. It is
+ * A cap on the gesture, not on how much ground you may own — drag again. It is
  * here because a stroke is charged and re-flowed as one action: the drag has to
  * arrive as two corners (the 4KB inbound cap), it is priced per cell, and every
  * cell of it is validated before any of it is paid for.
  */
-export const FLOOR_STROKE_MAX = 16;
+export const GROUND_STROKE_MAX = 16;
 
 /**
  * The cells a drag from `start` to `to` would paint.
@@ -432,7 +517,7 @@ export const FLOOR_STROKE_MAX = 16;
  * drag on, so an oversized stroke up and to the left walks away from your
  * finger instead of stopping under it.
  */
-export function floorStroke(start, to, max = FLOOR_STROKE_MAX) {
+export function groundStroke(start, to, max = GROUND_STROKE_MAX) {
   const x0 = Math.round(start.x);
   const z0 = Math.round(start.z);
   const near = (from, end) => (end > from
@@ -448,46 +533,86 @@ export function floorStroke(start, to, max = FLOOR_STROKE_MAX) {
 }
 
 /**
- * Which design of floor is painted on each cell, as a lookup.
+ * Which design of ground is painted on each cell, as a lookup.
  *
- * The layer that carries the *look*, kept clear of `tiles`, which carries what
- * may stand there. Sparse and rebuilt per call rather than emitted as a
+ * The layer that carries the *design*, kept clear of `tiles`, which carries
+ * what may stand there. Sparse and rebuilt per call rather than emitted as a
  * full-grid array: an unpainted shop sends nothing at all, and the alternative
  * is a second w×h array on the wire on every re-flow to say "plain" 500 times.
+ *
+ * Reads `ground`, falling back to `floors` — the name this carried while floor
+ * was the only thing you could paint. A read-time default rather than a
+ * migration, the same bargain `kindOf` strikes for a row with no `kind`, so an
+ * old save, an old export and a fresh seed all agree with no ceremony.
  */
-export function floorIndex(L) {
+export function groundIndex(L) {
   const m = new Map();
-  for (const f of L?.floors ?? []) m.set(`${f.x},${f.z}`, f.p);
+  for (const f of L?.ground ?? L?.floors ?? []) m.set(`${f.x},${f.z}`, f.p);
   return m;
 }
 
-export const floorPieceAt = (L, x, z) => floorIndex(L).get(`${x},${z}`) ?? null;
+export const groundPieceAt = (L, x, z) => groundIndex(L).get(`${x},${z}`) ?? null;
+
+/**
+ * Every cell of one pad, read off `tiles`.
+ *
+ * A read, deliberately, rather than a list kept beside the ground — the same
+ * argument `Game.fixtureCounts` makes against the fixture ledger it replaced. A
+ * stored region can disagree with what the cells actually are; a scan cannot.
+ * It also means a pad is however many cells you painted, in whatever shape, and
+ * nothing has to be taught what an L looks like.
+ */
+export function padCells(L, kind) {
+  const want = groundTile(kind);
+  const out = [];
+  if (want == null || !L?.tiles) return out;
+  for (let z = 0; z < L.h; z++) {
+    for (let x = 0; x < L.w; x++) if (L.tiles[z * L.w + x] === want) out.push({ x, z });
+  }
+  return out;
+}
+
+/** Is this cell part of that pad? */
+export const isPadAt = (L, kind, x, z) => tileAt(L, x, z) === groundTile(kind);
 
 /**
  * May this stroke be painted?
  *
  * Same two answers as everything else here, and the split falls in a slightly
- * different place because a floor is ground: almost all of this is physics.
- * There is no "you could seal yourself in" to warn about, since floor and grass
- * are both walkable and swapping one for the other cuts nothing off from
- * anything.
+ * different place because this is ground: almost all of it is physics. There is
+ * no "you could seal yourself in" to warn about, since every ground kind is
+ * walkable and swapping one for another cuts nothing off from anything.
  *
- * The one refusal that is worth spelling out is taking floor out from under
- * something standing on it. That reads like the kind of consequence this
- * codebase usually allows you to cause — and it isn't, because the generator
- * would not leave the shelf standing on grass, it would DROP the placement on
- * the next re-flow and refund it. A tool that quietly sells your shelving and
- * its stock back is not a choice anybody made; it is a bulldozer wearing a
- * paintbrush. So it is a no, and the bulldozer is right there.
+ * The one refusal worth spelling out is taking ground out from under something
+ * standing on it. That reads like the kind of consequence this codebase usually
+ * allows you to cause — and it isn't, because the generator would not leave the
+ * shelf standing on grass, it would DROP the placement on the next re-flow and
+ * refund it. A tool that quietly sells your shelving and its stock back is not a
+ * choice anybody made; it is a bulldozer wearing a paintbrush. So it is a no,
+ * and the bulldozer is right there.
+ *
+ * One kind of ground may be painted straight over another, and that is what
+ * makes the pads editable at all: moving your delivery bay is painting a new
+ * one and then flooring over the old, with no separate verb for erasing.
  *
  * @param {object} L        the layout
- * @param {object[]} cells  [{x, z}], from `floorStroke`
- * @param {?string} piece   which design to lay, or null to take the floor up
+ * @param {object[]} cells  [{x, z}], from `groundStroke`
+ * @param {?string} kind    which ground kind to lay, or null to take it up
+ * @param {?string} piece   which design of that kind
  */
-export function canPaintFloor(L, cells, piece = null) {
+export function canPaintGround(L, cells, kind = null, piece = null) {
   if (!cells?.length) return no('nothing to lay');
-  const laying = piece != null;
-  const painted = floorIndex(L);
+  const laying = kind != null;
+  if (laying && groundTile(kind) == null) return no('that is not a kind of ground');
+  const want = laying ? groundTile(kind) : T.GRASS;
+  const painted = groundIndex(L);
+
+  // What the pads have now, so the stroke can be judged against what it would
+  // leave rather than against each cell in isolation. Painting over the last
+  // bay is only a consequence when it was the last one.
+  const padWas = new Map(PAD_KINDS.map((k) => [k, 0]));
+  const padLost = new Map(PAD_KINDS.map((k) => [k, 0]));
+  for (const k of PAD_KINDS) padWas.set(k, padCells(L, k).length);
 
   let changed = 0;
   let bared = 0;
@@ -497,50 +622,66 @@ export function canPaintFloor(L, cells, piece = null) {
     if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return no('off the edge of the world');
 
     const ground = tileAt(L, x, z);
+    const was = groundKindOfTile(ground);
+
     if (laying) {
-      // Only ever over plain ground. Everything else a cell can be made of is
-      // something with a job — a bed, the delivery bay, the drop-off, the path
-      // out to the fields — and paving one over would take that job away
-      // silently, with no fixture removed and nothing to put back.
-      if (ground !== T.GRASS && ground !== T.FLOOR) return no(groundIsBusy(ground));
-      // Restyling counts. Floor that is already floor still changes hands when
-      // the design differs, which is most of what this tool is for — asking
-      // only whether the GROUND moved would report a whole shop re-tiled as
-      // "nothing to do".
-      if (ground !== T.FLOOR || (painted.get(`${x},${z}`) ?? null) !== piece) changed++;
+      // Only ever over ground. Everything else a cell can be made of is
+      // something with a job of a different sort — a bed, the path out to the
+      // fields, a wall — and paving one over would take that job away silently,
+      // with no fixture removed and nothing to put back.
+      if (ground !== T.GRASS && was == null) return no(groundIsBusy(ground));
+      // Restyling counts. Ground that is already this kind still changes hands
+      // when the design differs, which is most of what this tool is for —
+      // asking only whether the TILE moved would report a whole shop re-tiled
+      // as "nothing to do".
+      if (ground !== want || (painted.get(`${x},${z}`) ?? null) !== piece) changed++;
     } else {
-      if (ground !== T.FLOOR) continue;              // nothing to take up
+      if (was == null) continue;                     // nothing to take up
       // See above: this would drop the fixture rather than strand it.
       if (blockedAt(L, x, z)) return no('something is standing on it');
       changed++;
-      if (insideStore(L, x, z)) bared++;
     }
+
+    if (ground === want && was === kind) continue;
+    // Two consequences, counted the same way in both directions: a cell that
+    // ends up indoors and is not floor is one nothing can ever be built or dug
+    // on, and a pad cell this stroke paints over is one that pad no longer has.
+    if (was && was !== kind && padWas.has(was)) padLost.set(was, padLost.get(was) + 1);
+    if (want !== T.FLOOR && insideStore(L, x, z)) bared++;
   }
 
   if (!changed) return { ok: true, unchanged: true };
 
-  // The one genuine consequence, and it only exists in one direction. Bare
-  // ground indoors is a cell nothing can ever use: a shelf needs floor and a
-  // bed needs to be outdoors, so it is not a patch of garden in your shop, it
-  // is a hole. Allowed, because knocking your own floor out is a move and the
-  // sim copes with it perfectly well — people walk over it.
-  if (bared) {
-    return {
-      ok: true,
-      warn: bared === 1
-        ? 'that leaves bare ground indoors — nothing can be built or dug on it'
-        : `that leaves ${bared} cells of bare ground indoors — nothing can be built or dug on them`,
-    };
+  const warns = [];
+
+  // Losing the last of a pad. Allowed — the whole point of the pads being
+  // paintable is that you may move them, and moving one is two strokes with a
+  // moment in between where you own none. But orders land on the bay and hands
+  // are cleared at the drop-off, so a shop with neither is one where `order`
+  // has nowhere to put a pallet, and that is worth being told before rather
+  // than discovering it at the wholesaler.
+  for (const k of PAD_KINDS) {
+    if (padWas.get(k) > 0 && padLost.get(k) >= padWas.get(k)) warns.push(GROUND[k].lastGone);
   }
-  return { ok: true };
+
+  // Bare ground indoors is a cell nothing can ever use: a shelf needs floor and
+  // a bed needs to be outdoors, so it is not a patch of garden in your shop, it
+  // is a hole. Allowed, because knocking your own floor out is a move and the
+  // sim copes with it perfectly well — people walk over it. A stockroom floored
+  // as bay is the same shape of hole, deliberately: it is a room for crates.
+  if (bared) {
+    warns.push(bared === 1
+      ? 'that leaves a cell indoors that nothing can be built or dug on'
+      : `that leaves ${bared} cells indoors that nothing can be built or dug on`);
+  }
+
+  return warns.length ? { ok: true, warn: warns.join('; ') } : { ok: true };
 }
 
 const groundIsBusy = (ground) => {
   if (ground === T.PLOT) return 'there is a bed there — clear it first';
-  if (ground === T.BAY) return 'that is the delivery bay';
-  if (ground === T.DROP) return 'that is the drop-off';
   if (ground === T.PATH) return 'that is the path out to the fields';
-  return 'you can only lay floor over bare grass';
+  return 'you can only lay ground over bare grass';
 };
 
 /** Every fixture currently in the layout, as uniform placement specs. */
@@ -831,7 +972,14 @@ function whatThisBlocks(L, spec, def, ignoreId) {
   }
 
   if (!reaches(L.spawn)) return 'that would block the way through';
-  if (L.bay && !reaches(L.bay)) return 'that would cut the delivery bay off';
-  if (L.drop && !reaches(L.drop)) return 'that would cut the drop-off off';
+  // A pad is a region rather than a point now, so the question is whether ANY
+  // of it is still reachable — walling off one corner of a big stockroom is a
+  // choice, and sealing the whole thing is what this is here to catch.
+  for (const k of PAD_KINDS) {
+    const cells = padCells(L, k);
+    if (cells.length && !cells.some(reaches)) {
+      return `that would cut off the ${GROUND[k].label.toLowerCase()}`;
+    }
+  }
   return null;
 }

@@ -152,6 +152,17 @@ export function showFixture(ui, f) {
     group('When it gets refilled', ICONS.supplier, priorityRows(ui, f, live));
   }
 
+  // The switches: things that are true of THIS unit rather than of its design.
+  //
+  // A tab and a list rather than more icons in the foot, and the reason is that
+  // the foot is a FIXED row you learn the shape of — five pictograms in the same
+  // order on every fixture in the game. A set that grows is the opposite of
+  // that: the sixth switch would push the row into two, and by the tenth nobody
+  // could find any of them. A list has room for the sentence each one needs, and
+  // adding the next is a row in `MODIFIERS` rather than a decision about layout.
+  const mods = modifierRows(ui, f, live);
+  if (mods.length) group('Set up', ICONS.label, mods);
+
   // A shape is free and keeps whatever is on it, so it is a browse rather than a
   // decision — which is exactly what belongs in the scrolling half. One shape is
   // not a choice, so a kind nobody has drawn a second design for gets no tab.
@@ -358,6 +369,49 @@ const PRIORITIES = [
   { at: 0, name: 'As it comes', sub: 'Emptiest shelf first, like everything else.' },
   { at: -1, name: 'Fill it last', sub: 'Only once nothing else needs filling.' },
 ];
+
+/**
+ * Every switch a unit can carry, and which kinds carry it.
+ *
+ * A table because this is the shape that grows: a modifier is a boolean about
+ * one placement, the server has a verb for it, and the menu should need nothing
+ * but a row here. `on` reads the live snapshot rather than the layout, because
+ * a switch changes while the shop stands still.
+ */
+const MODIFIERS = [
+  {
+    id: 'boh',
+    kinds: ['shelf', 'freezer'],
+    icon: ICONS.crate,
+    on: (live) => live?.boh === true,
+    name: (on) => (on ? 'In the back' : 'On the shop floor'),
+    sub: (on) => (on
+      ? 'Staff-only. Shoppers cannot see it, and the chef takes ingredients from here before stripping a shelf people are buying from.'
+      : 'Shoppers browse it. Tap to make it staff-only storage — a kitchen is a room you mark out, not furniture you buy.'),
+    verb: 'build-boh',
+  },
+];
+
+function modifierRows(ui, f, live) {
+  return MODIFIERS.filter((m) => m.kinds.includes(f.kind)).map((m) => {
+    const on = m.on(live);
+    return {
+      icon: m.icon,
+      name: m.name(on),
+      sub: m.sub(on),
+      picked: on,
+      // Tapping a switch flips it, so there is no dead row here — unlike a
+      // picker, where the one you are already on has nothing to do.
+      //
+      // Through `withBuildMode` for the same reason every verb in the foot goes
+      // through it: the server gates these on build mode and this menu opens
+      // with or without it, so the press has to carry the mode in rather than
+      // bounce off it. Sent raw it comes back "not in build mode" and the row
+      // simply does nothing, which reads as a dead button.
+      run: () => ui.withBuildMode(() => ui.net.send(m.verb, { id: f.id, on: !on })),
+    };
+  });
+}
 
 function priorityRows(ui, f, live) {
   const at = live?.priority ?? 0;

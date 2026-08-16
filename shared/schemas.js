@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { ALL_TAGS } from './tags.js';
 // One spelling of the kind that is ground. `shared/build.js` reaches only
 // tiles.js and edges.js, so there is no cycle to pay for taking it from source.
-import { FLOOR_KIND } from './build.js';
+import { isGround } from './build.js';
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lowercase kebab/snake case');
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb hex colour');
@@ -339,6 +339,40 @@ export const FixtureSchema = z.object({
     range: z.number().min(0.5).max(12).default(4),
   }).nullable().default(null),
   /**
+   * A thing that produces money on its own — the first thing a piece can do
+   * that is neither a look nor a place to put stock.
+   *
+   * It pays into the pile of cash on the floor rather than into the bank, and
+   * that is the whole design. Money you have to walk to is money the shop can
+   * be too busy to collect, which makes it a decision rather than a trickle;
+   * it reuses the one entity, one renderer and one pickup path a till already
+   * has (`dropCash`); and the stocker sweeping it up is a job that already
+   * exists. Never invent a second kind of money on the floor.
+   *
+   * `every` is in-game MINUTES. Authored on the piece, so any fixture can earn
+   * — a money tree, a vending machine, a busker's hat — and nothing in the sim
+   * knows what a money tree is.
+   */
+  yields: z.object({
+    cash: z.number().min(0).max(500),
+    every: z.number().min(1).max(1440).default(60),
+  }).nullable().default(null),
+  /**
+   * How much nicer this makes the shop look, which is how far word of it
+   * travels — see `Game.charm`.
+   *
+   * It feeds CATCHMENT rather than reputation or pull, and the difference
+   * matters. Reputation is what the people who came in think of you, and it is
+   * already a closed loop the shop can max out. Catchment is how much of the
+   * town is within reach at all — the one term shopkeeping could not move — so
+   * "my shop is worth crossing town for" is exactly the sentence a decoration
+   * should be able to say. It saturates hard (`CHARM_MAX`), because a hundred
+   * planters is a warehouse, not a destination.
+   *
+   * Unitless and small: 1 is a nice pot plant, 5 is a centrepiece.
+   */
+  charm: z.number().min(0).max(20).default(0),
+  /**
    * What a floor is made of. The `model` of a piece that hasn't got one.
    *
    * Two colours and a pattern, which is the whole vocabulary on purpose. A
@@ -364,12 +398,14 @@ export const FixtureSchema = z.object({
 }).refine((v) => (v.tiers?.[0]?.cost ?? 0) === 0, {
   message: 'tier 1 is what a new one already is, so it must cost 0',
   path: ['tiers'],
-}).refine((v) => (v.kind === FLOOR_KIND ? v.surface != null : v.model != null), {
+}).refine((v) => (isGround(v.kind) ? v.surface != null : v.model != null), {
   // Split rather than one required field each way round, because the two halves
-  // fail for opposite reasons and a shared message would explain neither: a
-  // floor with a model is asking for geometry nothing draws, and a shelf with
-  // no model is a shelf nobody can see.
-  message: 'a floor is authored as a `surface` (colour + pattern) and everything else as a `model`',
+  // fail for opposite reasons and a shared message would explain neither:
+  // ground with a model is asking for geometry nothing draws, and a shelf with
+  // no model is a shelf nobody can see. Every ground kind is on the same side
+  // of this — a delivery bay is seen edge-on at 45° with a shop standing on it,
+  // exactly like a floor, so what content authors for one is a colour too.
+  message: 'ground is authored as a `surface` (colour + pattern) and everything else as a `model`',
   path: ['model'],
 });
 
@@ -453,6 +489,12 @@ export const WorkerSchema = z.object({
  * Where a pastime has to be done. Anything that needs a *place* names one the
  * layout already has, because a break spot nobody can path to is a worker who
  * stands still forever and looks broken.
+ *
+ * These are the FALLBACK now. A shop that has painted itself a break area
+ * (`GROUND.break`) sends every hire there instead, whatever they are doing —
+ * see `spotFor` in server/sim/staff.js for why that is a full override rather
+ * than a fifth entry in this list. What a spot answers is where a break happens
+ * in a shop with nowhere of its own to put one.
  */
 export const PASTIME_SPOTS = [
   'here',     // wherever they finished — leaning on the nearest thing

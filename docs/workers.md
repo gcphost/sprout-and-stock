@@ -745,10 +745,8 @@ their usual band. `npm run verify` green.
 - **Laziness as a tag.** `choosePastime` already filters by the worker kind's
   tags, so `outdoor` workers get `stare-at-the-field`. Draining *faster* by tag
   is step 7's machinery and one multiplier in `spend()`.
-- **A break spot as a fixture.** A bench, a vending machine, a back step —
-  rules in `shared/build.js`, looks in `fixtures`. That is what would turn the
-  constraint into something you build in response to. `spot` is deliberately a
-  small closed vocabulary so adding `fixture:bench` later is additive.
+- ~~**A break spot as a fixture.**~~ Built as step 9 below, and as *ground*
+  rather than as a fixture — see there for why a bench was the wrong shape.
 - **The prop does not sit down.** `sit-on-the-step` slumps like everything else
   rather than actually sitting, because the pose is one rotation applied to a
   whole authored body. A second pose — or a `posture` on the pastime, the same
@@ -771,6 +769,123 @@ their usual band. `npm run verify` green.
 - **A break has to be legible.** A worker who stops working for reasons the
   player cannot see reads as the same bug this section started with. Their menu
   says what they are doing; it needs to say *why* they are not.
+
+## Step 9 — a break area you paint
+
+**Built.** Step 8 left "a break spot as a fixture" on the list: a bench, a
+vending machine, a back step, with rules in `shared/build.js` and looks in
+`fixtures`. It is built, and it is not a fixture. It is a **kind of ground**,
+laid with the brush that lays floor and the two yard pads —
+`GROUND.break` → `T.BREAK`, `L.break`, one row in the catalog.
+
+### Why ground, and not the bench the last step imagined
+
+A bench is one worker and a facing. So a shop with four hires needs four
+benches, something has to know which of them is free, and the answer to "where
+do my staff rest" becomes an inventory. An **area** answers it in one gesture:
+you drag out however much of the shop you are willing to give them, and
+**one cell seats one person**. No anchor, no rotation, no facing, nothing
+standing in the cell — and the size of it is a decision rather than a count of
+furniture. That is the same claim the yard already makes about crates, so it
+arrived with a brush, a validator, an overlay and a renderer already written.
+
+It is the third `pad` — the first that holds people rather than goods, which is
+what `does` on the GROUND row is for. `document-fixtures` used to describe a pad
+with a ternary over two kinds, which reads as correct right up until a third one
+is described as the second.
+
+### The break area outranks what the pastime authored
+
+`spot` — `bay`, `outside`, `till` — is a *pastime* saying where it looks right,
+authored when the shop had nowhere of its own to send anybody. `spotFor` now
+asks the shop first and the pastime second.
+
+A full override, deliberately, and it was the one real design decision here. The
+alternative was to override only the pastimes with no place of their own, so a
+"sit on the step" still happened on the step — which is better flavour and a
+worse *feature*: you pay for a room, half your hires use it, and the half
+standing in the aisle read as broken. `PASTIME_SPOTS` is now what a break looks
+like in a shop that has nowhere to put one, and that is exactly the shop
+everybody has today.
+
+**A shop with no break area is unchanged, to the cent.** `seatIn` returns null,
+`spotFor` falls through, and no rng is drawn on the way past — measured below.
+
+### Three traps, all of them found by writing the sweep
+
+- **A seat has to be held, not recomputed.** `s.breakAt` is claimed when the
+  break is taken and given back when they stand up. Recomputing "the first free
+  cell" every tick means two hires pick the same one the moment a third stands
+  up, and a worker who changes seats halfway is a worker who turns round for no
+  reason anybody watching could explain.
+- **A seat with no route is not a seat.** This is the one the override makes
+  possible, and it is the worst failure available: wall the room off and every
+  hire walks at a cell they can never reach, never rests, and drags at
+  `TIRED_PACE` forever — strictly worse than having no break area at all. So the
+  seat search asks `findPath` and falls back when there is no answer.
+- **The room has to move a number.** Walking round to it costs the shop time it
+  would not otherwise have spent, so a room that restored the same amount would
+  be ground you pay for that only ever makes things worse — the "tier that
+  changes no number" trap wearing a paintbrush. `SEATED_RESTORE` is 1.5.
+
+### Measured
+
+One frozen database (`VACUUM INTO`, driven in-process against `SNS_DB`), so both
+halves are the same shop with the same four hires and the same content — the
+control CLAUDE.md insists on, since `simulate` rebuilds from the saved world.
+
+**With no break area painted, the two halves are byte-identical:** −198.50,
+−170.76, −140.77, −150.15, −232.39 on five seeds, before and after, to the cent.
+That is the fallback claim proved rather than asserted.
+
+**With one, 12 seeds × 120 days**, laid on grass two tiles from the door:
+
+| | mean profit | seeds better |
+|---|---|---|
+| no break area | −220.02 | — |
+| beside the door | **−172.94** (+47.08) | 11/12 |
+| far corner of the map | −208.12 (+11.90) | 6/12 |
+
+(This world runs at a loss with four hires on wages whatever you do; the delta is
+the measurement, not the level.) **Where you put it is most of what it is
+worth** — which is the right shape for a thing you paint, and it falls out of the
+walk rather than out of a rule anybody wrote. Laying it on shop *floor* measured
+worse still, and that is honest too: a break tile indoors is a cell nothing can
+ever be built on again.
+
+The balance bot never paints ground, so `simulate` cannot reach the second half
+on its own — the measurement paints a room into a throwaway copy of the save,
+persists it, and runs the ordinary runner against that world.
+
+### What 9 touched
+
+| File | Why |
+|---|---|
+| `shared/tiles.js` | `T.BREAK`, and it is walkable |
+| `shared/build.js` | `GROUND.break`, and `does` on all three pads |
+| `server/layout.js` | `padRegion('break')` → `L.break`. Nothing seeds it |
+| `server/sim/staff.js` | `spotFor` / `seatIn` / `authoredSpot`, `breakAt`, `SEATED_RESTORE` |
+| `shared/schemas.js` | `PASTIME_SPOTS` says it is the fallback now |
+| `client/render/palette.js` | the tile's own colour, for a pad nobody has styled |
+| `client/sections.js` | the palette entry, and a Staff sub-tab under Building |
+| `mcp/server.js` | `break` in `create_fixture` |
+| `scripts/document-fixtures.js` | reads `does` instead of branching on the kind |
+| `scripts/verify-break.js` | new — the whole sweep |
+| the database | `break-room`, $12/tile |
+
+### Watch out for
+
+- **`break` is a reserved word.** Fine as a property (`L.break`, `GROUND.break`)
+  and illegal as a variable, so the layout's local is `breakRoom`. Do not rename
+  the field to match the local — the layout speaks the kind's own name, the way
+  `bay` and `drop` do.
+- **Nothing seeds a break area, and nothing should.** `freezeYard` stamps the bay
+  and the drop-off because a shop with nowhere for a delivery to land is broken.
+  A shop with nowhere to rest is the shop everybody already has.
+- **The sweep cannot force which pastime is drawn.** An untagged pastime is
+  offered to anybody, so there is no way to author your way to a fixed draw —
+  every assertion reads the row the worker actually drew. The first draft
+  asserted against its own row and passed for the wrong reason twice.
 
 ## Once a worker is data-driven
 
@@ -812,6 +927,8 @@ Each step leaves the game playable.
 8. ✅ **Breaks and being a person** — energy, the `pastimes` table, staff as
    customers of their own shop, and (8b) a staged prop driven by how far
    through the break they are.
+9. ✅ **A break area you paint** — a third kind of ground, one cell per person,
+   and a shop without one plays exactly as it always did.
 
 Steps 1 and 2 are the ones that matter; everything after is only worth doing
 once a worker is genuinely data-driven. `guard` is deliberately not on this

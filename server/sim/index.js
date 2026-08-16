@@ -15,7 +15,7 @@
 import { content, world as loadWorld, saveWorld, freshEconomy } from '../content.js';
 import { JOBS } from '../../shared/schemas.js';
 import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '../db.js';
-import { generateLayout, buildWalkGrid, T } from '../layout.js';
+import { generateLayout, defaultPads, buildWalkGrid, T } from '../layout.js';
 import { E, SOLID, edgeBetween } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
@@ -26,9 +26,10 @@ import { spoilRate, requiredFixture, desireFor, impulsePull } from '../../shared
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
 import {
-  FIXTURES, FIXTURE_KINDS, FLOOR_KIND, canPlace, rot4, FIXTURE_REFUND,
-  canPlaceEdge, canPlaceEdges, edgeRun, isProp, isFloor, fixturesOf,
-  canPaintFloor, floorStroke, floorIndex, FLOOR_STROKE_MAX, insideStore,
+  FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND,
+  canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore,
+  canPaintGround, groundStroke, groundIndex, GROUND_STROKE_MAX,
+  GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt,
 } from '../../shared/build.js';
 import { pieceFor, kindOf, defaultPiece, countKey } from '../../shared/pieces.js';
 
@@ -80,8 +81,28 @@ const REACH = 1.6;             // how close you must be to interact
 const MAX_UNITS_PER_SHELF = 3;
 const CASH_REACH = 1.8;        // how close you stand to scoop up the till
 const CASH_MIN_LIFE = 3.5;     // seconds a pile stays put so you can see it
+
+/** Real seconds in one in-game minute. The same conversion a recipe uses. */
+const SECONDS_PER_MIN = DAY_SECONDS / (24 * 60);
+
+/**
+ * The most catchment a beautiful shop can ever buy, and how much charm gets you
+ * half of it. See `Game.charmReach`.
+ *
+ * A ceiling rather than a rate, because charm is content-authored and unbounded
+ * — nothing stops somebody authoring a planter at 20 and standing forty of them
+ * in a room. Saturating means the answer to that is "a warehouse full of pot
+ * plants is worth about as much as a nice shop", which is correct.
+ */
+const CHARM_MAX = 8;
+const CHARM_HALF = 10;
 const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
-const BAY_REACH = 2.2;         // the loading pad is 2x2, so reach from its middle
+/**
+ * The four tiles touching one. A pad is asked about by cell rather than by
+ * distance now (`onPad`), which replaced a `BAY_REACH` of 2.2 — a fair
+ * description of a 2x2 pad and a bad one of any other shape.
+ */
+const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const ACTION_TIME = 1.0;       // seconds of standing still before an action fires
 const RESTOCK_THIN = 2;        // at or below this many, a shelf is worth a van — see restockQueue
 
@@ -204,7 +225,17 @@ const FALLBACK_FIXTURE_COST = { shelf: 60, freezer: 260, checkout: 300, plot: 40
 const MAX_FIXTURE_DISCOUNT = 0.6;
 
 /** What a brand new shop is furnished with, before anybody has built anything. */
-const BASE_FIXTURES = { shelf: 6, freezer: 0, checkout: 1, plot: 4 };
+/**
+ * What a shop nobody has opened yet starts with.
+ *
+ * The freezer went from 0 to 1 the day milk, eggs and soda became chilled
+ * goods. Those are the three biggest sellers in the game, and with no freezer
+ * to put them in a new shop could not trade its own staples: measured over five
+ * seeds it stopped varying at all and sat at a flat loss, which is what a shop
+ * that cannot sell anything looks like. A starting freezer is the difference
+ * between "buy a cooler early" and "the opening is unwinnable".
+ */
+const BASE_FIXTURES = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
 
 /**
  * How many people are within reach of a shop nobody has moved yet — a back
@@ -248,6 +279,20 @@ export class Game {
     this.walk = buildWalkGrid(this.layout);
     // Money waiting on a counter for someone to pick it up.
     this.cashDrops = state.cashDrops ?? [];
+    /**
+     * When each earning fixture last paid out, by placement id.
+     *
+     * Deliberately NOT saved, and that is the opposite of the obvious choice.
+     * These are stamps against `elapsed`, which restarts at zero on every load
+     * — so a saved stamp puts the last payout in the *future* and the tree
+     * never pays again. `persist` already learned this about `plantedAt` and
+     * stores crops as how long they HAVE grown for exactly this reason.
+     *
+     * The cost of not saving it is that a restart resets the clock, which is
+     * at most one payout period. `stepYields` guards the same trap from the
+     * other side.
+     */
+    this.yieldedAt = new Map();
     this.nextCashId = state.nextCashId ?? 1;
     // Pallets waiting at the bay to be unloaded.
     this.deliveries = state.deliveries ?? [];
@@ -273,15 +318,29 @@ export class Game {
     // Walls, windows and doorways the player drew, as an overlay on the shell.
     this.edits = state.edits ?? [];
     /**
-     * Floor the player laid, as an overlay on the ground — [{x, z, p}], `p`
-     * null where they took it back up.
+     * Ground the player laid, as an overlay — [{x, z, k, p}], `k` the ground
+     * KIND and `p` the design of it, both null where they took it back up.
      *
      * The same shape as `edits` and for the same reason: the generator restamps
      * the shell's whole footprint as bare floor on every re-flow, so ground
      * anybody chose has to be re-applied on top of that or buying a shelf
      * repaints the shop.
+     *
+     * It carries the two yard pads as well as flooring. They were procedural
+     * furniture until they moved in here, re-stamped against the back wall on
+     * every re-flow, which is why they could never be moved — the shop put them
+     * back. `Game.freezeShell` seeds them once and they are ordinary ground
+     * from then on. Reads `floors` too, the name this held while floor was the
+     * only thing you could paint.
      */
-    this.floors = state.floors ?? [];
+    this.ground = state.ground ?? state.floors ?? [];
+    /**
+     * Whether the yard has ever been stamped — see `freezeYard`.
+     *
+     * A mark, not a count. "Does this shop own a bay" answers a different
+     * question the moment somebody paints over their last one.
+     */
+    this.yardStamped = state.yardStamped ?? false;
     /**
      * How big the building is, once somebody has one.
      *
@@ -310,7 +369,8 @@ export class Game {
     const grow = w.storeGrow ?? { w: 0, h: 0 };
     const doorShift = w.doorShift ?? 0;
     const edits = w.edits ?? [];
-    const floors = w.floors ?? [];
+    const ground = w.ground ?? w.floors ?? [];
+    const yardStamped = w.yardStamped ?? false;
     const shell = w.shell ?? null;
     // A stamped shop asks for what is standing in it; one nobody has opened yet
     // asks for a starter shop. `starterShop` is the second case only, and it is
@@ -328,7 +388,7 @@ export class Game {
       grow,
       doorShift,
       edits,
-      floors,
+      ground,
       shell,
     });
 
@@ -357,7 +417,8 @@ export class Game {
       grow,
       doorShift,
       edits,
-      floors,
+      ground,
+      yardStamped,
       shell,
       layout,
       layoutVersion: 1,
@@ -376,6 +437,9 @@ export class Game {
     // shop, an old save, a balance run, a restored room. A migration that only
     // one caller remembers to run is a migration that has already been skipped.
     game.freezeShell();
+    // ...and the yard, which stamps on its own mark rather than on `shell`'s —
+    // see `freezeYard` for the save this order exists to rescue.
+    game.freezeYard();
     // After the stamp, not before: `freezeShell` can re-flow the layout, and
     // restoring onto shelves that are about to be replaced puts the stock back
     // on objects nobody keeps.
@@ -405,7 +469,8 @@ export class Game {
       grow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
-      floors: this.floors,
+      ground: this.ground,
+      yardStamped: this.yardStamped,
       shell: this.shell,
       layout: this.layout,
       layoutVersion: this.layoutVersion,
@@ -456,7 +521,8 @@ export class Game {
       storeGrow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
-      floors: this.floors,
+      ground: this.ground,
+      yardStamped: this.yardStamped,
       shell: this.shell,
       plots: budgetOf(this.placements).plot,
       shelves: budgetOf(this.placements).shelf,
@@ -608,6 +674,12 @@ export class Game {
       players: Object.values(this.players).map((p) => ({
         id: p.id, name: p.name, x: r2(p.x), z: r2(p.z), facing: r2(p.facing),
         carry: p.carry, color: p.color, staff: p.staff ?? null,
+        // ...and where it could go, so an armful of tomatoes points at the
+        // shelves that would have it rather than making you walk the shop
+        // trying each one. Only for a human: staff already know, and five
+        // hires carrying five things would be recomputed ten times a second
+        // for a marker nobody draws.
+        takers: !p.staff && p.carry ? this.stockTargets(p.carry.item_id) : null,
         // Which roster row this body belongs to, and which rung it is on. The
         // roster says who works here and this says what they are up to; without
         // a key the UI can only join them by reconstructing `staff-${id}`,
@@ -657,6 +729,10 @@ export class Game {
         // stands still — a menu reading them off the layout would show the shelf
         // you set aside ten seconds ago as still taking anything.
         assigned: s.assigned ?? null, priority: s.priority ?? 0,
+        // Whether shoppers can see it, so the menu can say which it is. Two
+        // units of the same design differ only by this, and nothing about the
+        // model shows it — without it on the wire the button has no state.
+        boh: s.boh === true,
       })),
       plots: this.layout.plots.map((p) => ({
         id: p.id, crop_id: p.crop_id, growth: r2(this.plotGrowth(p)), ready: p.ready,
@@ -758,6 +834,10 @@ export class Game {
     this.stepCustomers(dt, c, folded);
     this.stepSpawning(dt, c, folded);
     stepStaff(this, dt);
+    // Before the pickup, so a payout is collectable on the tick after it lands
+    // rather than the one after that. `CASH_MIN_LIFE` is what stops it being
+    // swept the instant it appears.
+    this.stepYields();
     this.stepCashPickup();
     this.stepStations(dt);
     this.stepActions(dt);
@@ -1027,7 +1107,7 @@ export class Game {
     if (canTake) {
       return { kind: 'unload', target: pallet.id, label: 'Unload', at: pallet, run: () => this.unload(p.id, pallet.id) };
     }
-    if (p.carry && near(p, this.dropPad(), BAY_REACH)) {
+    if (p.carry && this.onPad(p, this.dropPadKind())) {
       return {
         kind: 'stow', target: 'drop', label: 'Put back', time: ACTION_TIMES.stow, at: this.dropPad(),
         run: () => this.stow(p.id),
@@ -1088,6 +1168,30 @@ export class Game {
     if (shelf.assigned && shelf.assigned !== itemId) return false;
     if (shelf.item_id && shelf.qty > 0 && shelf.item_id !== itemId) return false;
     return shelf.qty < this.shelfCapacity(shelf, item);
+  }
+
+  /**
+   * Everything standing in the shop that would take what you are holding.
+   *
+   * Answered here rather than on the client, and that is the same call the
+   * build ghost makes for the opposite reason. The ghost has to *predict*, so
+   * it shares a validator; this has nothing to predict — the shop already
+   * knows — and the four things that decide it (a freezer's cold, a shelf set
+   * aside, a label with stock still under it, how much room is left at this
+   * tier) are four facts the client would need shipping to it before it could
+   * even ask. One array of ids is smaller than any of them.
+   *
+   * Appliances are in here too, because "where can this go" is a question
+   * about the shop and not about shelving: a blender that wants tomatoes is a
+   * place tomatoes can go. The drop-off pad deliberately is not — it takes
+   * anything, always, so marking it says nothing you did not already know.
+   */
+  stockTargets(itemId) {
+    if (!itemId) return null;
+    return [
+      ...this.layout.shelves.filter((s) => this.shelfAccepts(s, itemId)),
+      ...(this.layout.stations ?? []).filter((st) => this.stationWants(st, itemId)),
+    ].map((f) => f.id);
   }
 
   /**
@@ -1164,7 +1268,10 @@ export class Game {
    * out of order could make the town smaller.
    */
   catchment() {
-    return BASE_CATCHMENT + countUpgrade(this, 'catchment', 'reach');
+    // Charm sits alongside the upgrade rather than inside it: an upgrade is
+    // land you bought, charm is a shop worth crossing town for, and they are
+    // different sentences that happen to add.
+    return BASE_CATCHMENT + countUpgrade(this, 'catchment', 'reach') + this.charmReach();
   }
 
   carryCapacity() {
@@ -1656,6 +1763,14 @@ export class Game {
     const take = Math.min(qty, item.stack);
     if (take <= 0) return err('order at least one');
 
+    // Physics rather than a consequence, so this one refuses — and it refuses
+    // up here with the other refusals, before a penny moves. A wholesaler with
+    // nowhere to unload does not deliver into a field, and taking the money for
+    // a pallet that then has nowhere to exist is the worst of the three
+    // answers. `canPaintGround` warns you before you paint over your last bay,
+    // which is where this is meant to be prevented.
+    if (!this.layout.bay) return err('nowhere for it to land — lay a delivery bay first');
+
     const unit = wholesalePrice(item, this.folded(), this.season);
     const cost = unit * take;
     if (this.cash < cost) return err(`need $${cost.toFixed(2)}, you have $${this.cash.toFixed(2)}`);
@@ -1679,39 +1794,49 @@ export class Game {
    * unloading pallets is already the first thing on their list.
    */
   dropGoods(itemId, qty, at) {
-    if (!(qty > 0)) return null;
-    // Merge into a crate of the same thing already sitting here rather than
-    // building a little forest of one-unit pallets.
-    const existing = this.deliveries.find((d) => d.item_id === itemId
-      && Math.hypot(d.x - at.x, d.z - at.z) <= 2.2);
+    if (!(qty > 0) || !at) return null;
+
+    // Where a crate may stand.
+    //
+    // A pad hands over its own cells, so goods fill the area you actually
+    // painted: the 2x2 the shop starts with holds four crates, and a back room
+    // you floored as storage holds as many as it has tiles. How big your yard
+    // is became a decision the day the pads became paintable, and this is the
+    // line that gives that decision an effect.
+    //
+    // Anywhere else — goods off a stripped shelf, an emptied hopper — there is
+    // no region, and the crate stands on the tile it was let go of. A crate
+    // stands in the MIDDLE of a tile either way: the ±0.9 spread this replaced
+    // sat the first one on the seam between two tiles and hung the second a
+    // third of a tile off the edge of the pad onto the grass.
+    const slots = at.cells?.length
+      ? at.cells
+      : [{ x: Math.round(at.x), z: Math.round(at.z) }];
+
+    // Merge into a crate of the same thing already standing in this area rather
+    // than building a little forest of one-unit pallets. Membership rather than
+    // a radius, because a radius around one point is the wrong shape for a room
+    // — the far end of a big stockroom is still the stockroom.
+    const here = (d) => slots.some((s) => s.x === d.x && s.z === d.z)
+      || Math.hypot(d.x - at.x, d.z - at.z) <= 2.2;
+    const existing = this.deliveries.find((d) => d.item_id === itemId && here(d));
     if (existing) {
       existing.qty += qty;
       return existing;
     }
+
     const n = this.nextDeliveryId++;
-    // A crate stands in the middle of a tile.
-    //
-    // `at` is either a yard pad — whose point is the *corner* its four tiles
-    // share — or a fixture's anchor, which is a tile centre. Rounding either to
-    // a tile and stepping back in whole tiles from there lands on exactly the
-    // pad's 2x2 and nothing outside it. The ±0.9 spread it replaces was neither:
-    // it sat the first crate on the seam between two tiles and hung the second
-    // a third of a tile off the edge of the pad onto the grass.
-    const bx = Math.round(at.x);
-    const bz = Math.round(at.z);
-    const slots = [[0, 0], [-1, 0], [0, -1], [-1, -1]];
-    // Four slots and no limit on kinds of goods, so a free one is preferred and
-    // the id only decides who shares once the pad is full — otherwise the fifth
-    // crate is drawn inside whichever one the counter happened to land on.
-    const free = slots.find((s) => !this.deliveries
-      .some((d) => d.x === bx + s[0] && d.z === bz + s[1]));
-    const spread = free ?? slots[n % slots.length];
+    // A free cell is preferred, and the counter only decides who shares once the
+    // whole pad is full — otherwise the next crate is drawn inside whichever one
+    // the counter happened to land on.
+    const taken = new Set(this.deliveries.map((d) => `${d.x},${d.z}`));
+    const spot = slots.find((s) => !taken.has(`${s.x},${s.z}`)) ?? slots[n % slots.length];
     const del = {
       id: `del-${n}`,
       item_id: itemId,
       qty,
-      x: r2(bx + spread[0]),
-      z: r2(bz + spread[1]),
+      x: r2(spot.x),
+      z: r2(spot.z),
       day: this.day,
     };
     this.deliveries.push(del);
@@ -1741,7 +1866,8 @@ export class Game {
     const p = this.players[playerId];
     if (!p) return err('no such player');
     if (!p.carry || p.carry.qty <= 0) return err('nothing in hand');
-    if (!near(p, this.dropPad(), BAY_REACH)) return err('take it round to the drop-off');
+    if (!this.dropPad()) return err('nowhere to put it down — lay some storage first');
+    if (!this.onPad(p, this.dropPadKind())) return err('take it round to the drop-off');
 
     const { item_id: itemId, qty } = p.carry;
     this.dropGoods(itemId, qty, this.dropPad());
@@ -1758,10 +1884,33 @@ export class Game {
    *
    * Falls back to the delivery bay, because a world saved before the yard
    * existed has a layout with no `drop` in it and "you cannot put that down
-   * anywhere" is a worse answer than the old one.
+   * anywhere" is a worse answer than the old one. Null when a shop has neither,
+   * which is now a thing you can do to yourself on purpose — see `freezeYard`.
    */
   dropPad() {
     return this.layout.drop ?? this.layout.bay;
+  }
+
+  /** ...and which KIND that is, which is what `onPad` needs to test against. */
+  dropPadKind() {
+    if (this.layout.drop) return 'drop';
+    return this.layout.bay ? 'bay' : null;
+  }
+
+  /**
+   * Are you standing on this pad, or on a tile touching it?
+   *
+   * Five tile reads rather than a distance to a point, and the difference is
+   * the whole reason pads became regions. A radius from the middle of a 2x2 was
+   * a fair description of a 2x2; measured from the middle of a stockroom it
+   * says you are too far from the storage you are standing in the back of.
+   */
+  onPad(p, kind) {
+    if (!kind) return false;
+    const x = Math.round(p.x);
+    const z = Math.round(p.z);
+    if (isPadAt(this.layout, kind, x, z)) return true;
+    return NEIGHBOURS.some(([dx, dz]) => isPadAt(this.layout, kind, x + dx, z + dz));
   }
 
   // -------------------------------------------------------------------------
@@ -2520,11 +2669,11 @@ export class Game {
     // kind, so those entries land on exactly the keys the line above wrote.
     for (const row of content().fixtures ?? []) {
       const k = kindOf(row);
-      // A floor is priced per tile off its own row and has no kind-level entry
+      // Ground is priced per tile off its own row and has no kind-level entry
       // to fall back to, because no upgrade ever sold flooring. It is also the
       // one price here that is not "what one of these costs" but "what a tile
       // of it costs" — which the palette says on the button.
-      if (isFloor(k)) { costs[row.id] = this.floorUnitCost(row.id); continue; }
+      if (isGround(k)) { costs[row.id] = this.groundUnitCost(row.id); continue; }
       if (!FIXTURES[k]) continue;
       costs[row.id] = this.fixtureUnitCost(k, null, row.id);
     }
@@ -2707,6 +2856,64 @@ export class Game {
   }
 
   /**
+   * Make a unit back-of-house, or put it back on the shop floor.
+   *
+   * A property of THIS unit rather than of its design, which is the whole point
+   * of it being a toggle: the same shelving is a shop fitting out front and a
+   * pantry in the kitchen, and which one it is is a decision about the room it
+   * stands in. Wall off a back room, put ordinary shelving and a cooler in it,
+   * flip them, and you have a kitchen — a room you designate rather than
+   * furniture you buy, the same way the yard pads work.
+   *
+   * Only stock-holding units, because it means one thing and one thing only:
+   * shoppers cannot see it. A till or a plot has no shoppers to hide from.
+   *
+   * It changes nothing about where the thing may stand, so this does not go
+   * through `repositionFixture` — a toggle that re-sited the fixture would move
+   * your kitchen every time you changed your mind about it.
+   *
+   * It does not re-flow *at all*, and that is the second half of the same
+   * argument. `regenerateLayout` is not a repaint: it re-runs the generator,
+   * carries every shelf's stock across, rebuilds the walk grid, throws away the
+   * path of every shopper in the building, and bumps `layoutVersion` — which on
+   * the client disposes the entire static scene and every stock prop in it and
+   * builds them again. All of that to change who is allowed to look at one
+   * shelf. What you saw was the shop visibly redrawing under a checkbox, and
+   * what you did not see was the re-pathing.
+   *
+   * So it writes both copies by hand instead. The placement is the durable one —
+   * `compose` reads `p.boh` back onto the shelf on the next genuine re-flow —
+   * and `f.ref` is the live layout row. **`f` itself is not it.** `allFixtures`
+   * spreads every record into a fresh object to stamp a `kind` on it and hangs
+   * the original off `ref`, so writing to `f` writes to a copy that is thrown
+   * away when this function returns. It fails silently and in the most
+   * convincing way there is: the placement is correct, so the flag is right
+   * again the moment anything else re-flows the shop — which, while this handler
+   * re-flowed on its own, it always immediately did.
+   *
+   * Nothing else needs telling: the sim reads the layout row when it picks a
+   * shelf for a shopper, so do the staff, and the snapshot already carries `boh`
+   * at 10Hz for exactly the reason the comment beside it gives — it changes
+   * while the shop stands still.
+   */
+  setBackOfHouse(playerId, id, on = true) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+    if (f.kind !== 'shelf' && f.kind !== 'freezer') {
+      return err('only somewhere that holds stock can be back of house');
+    }
+    const placement = this.placements.find((p) => p.id === id);
+    if (!placement) return err('that fixture is gone');
+
+    placement.boh = on === true;
+    if (f.ref) f.ref.boh = placement.boh;
+    this.pushLog(placement.boh
+      ? 'Moved a unit into the back — shoppers will not see it.'
+      : 'Put a unit back on the shop floor.');
+    return ok({ id, boh: placement.boh });
+  }
+
+  /**
    * Put an existing fixture somewhere (possibly the same tile, turned).
    *
    * The one path that both moving and turning go through, so a fixture can
@@ -2721,6 +2928,10 @@ export class Game {
     const placement = {
       id: `fx-${this.nextFixtureId}`,
       kind: spec.kind,
+      // Rides along with the tier and the shape. Without it, turning a pantry
+      // shelf puts it back on the shop floor — and the unit looks identical
+      // either way, so what you would see is customers browsing your kitchen.
+      boh: from.boh === true,
       // Which design it is rides along exactly as the tier and the shape do. Let
       // it fall back to the kind's default here and picking a shelf up would set
       // it down as whichever shelf the catalog lists first.
@@ -2874,7 +3085,7 @@ export class Game {
   }
 
   /**
-   * Paint an area of ground, or take the floor back up.
+   * Paint an area of ground, or take it back up.
    *
    * The third build verb, and the one that finally makes the second one worth
    * something. Walls have enclosed since step 3, so an annex you drew *counted*
@@ -2892,8 +3103,14 @@ export class Game {
    * shop becomes one enormous drag and the pricing quietly argues against the
    * odd shapes enclosure exists to allow. Running out halfway lays what you
    * could afford, the same way a wall does.
+   *
+   * It paints the yard pads as well as flooring, and that is the entire
+   * mechanism by which they became yours — one brush, and the KIND of the row
+   * you named decides whether the cell becomes floor, delivery bay or storage.
+   * There is deliberately no second verb for "designate a bay": a pad you can
+   * lay with the tool you already know is a pad you will actually move.
    */
-  buildFloor(playerId, spec = {}) {
+  buildGround(playerId, spec = {}) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
     if (!p.build?.on) return err('not in build mode');
@@ -2902,27 +3119,31 @@ export class Game {
     const z = Math.round(Number(spec.z));
     if (!Number.isFinite(x) || !Number.isFinite(z)) return err('nowhere to lay that');
 
-    // An empty piece is the bulldozer: take the floor up. Anything else has to
-    // name a row that really is a floor — falling back to a default the way
+    // An empty piece is the bulldozer: take the ground up. Anything else has to
+    // name a row that really is ground — falling back to a default the way
     // `placeFixture` does would mean a typo silently laying oak.
     const want = String(spec.piece ?? '');
     const piece = want
-      ? (content().fixtures ?? []).find((f) => f.id === want && kindOf(f) === FLOOR_KIND)
+      ? (content().fixtures ?? []).find((f) => f.id === want && isGround(kindOf(f)))
       : null;
     if (want && !piece) return err('nothing in the catalog lays that');
+    // Read off the row rather than taken from the message. The client sends
+    // which tool it thinks it is holding, and a client that said `bay` while
+    // naming a flooring row would paint a delivery bay the colour of oak.
+    const kind = piece ? kindOf(piece) : null;
 
     const to = spec.to ? { x: Number(spec.to.x), z: Number(spec.to.z) } : null;
-    const cells = floorStroke({ x, z }, to, FLOOR_STROKE_MAX);
+    const cells = groundStroke({ x, z }, to, GROUND_STROKE_MAX);
 
     // Asked for the whole stroke before any of it is paid for, so a drag that
-    // clips the delivery bay at one corner is refused as a gesture rather than
-    // laid up to the bay and then billed for.
-    const check = canPaintFloor(this.layout, cells, piece?.id ?? null);
+    // clips a bed at one corner is refused as a gesture rather than laid up to
+    // the bed and then billed for.
+    const check = canPaintGround(this.layout, cells, kind, piece?.id ?? null);
     if (!check.ok) return err(check.reason);
 
-    const unit = piece ? this.floorUnitCost(piece.id) : 0;
-    const painted = floorIndex(this.layout);
-    const kept = new Map(this.floors.map((f) => [`${f.x},${f.z}`, f]));
+    const unit = piece ? this.groundUnitCost(piece.id) : 0;
+    const painted = groundIndex(this.layout);
+    const kept = new Map(this.ground.map((f) => [`${f.x},${f.z}`, f]));
 
     let spent = 0;
     let laid = 0;
@@ -2930,16 +3151,16 @@ export class Game {
     for (const c of cells) {
       const key = `${c.x},${c.z}`;
       const had = painted.get(key) ?? null;
-      if (had === (piece?.id ?? null) && this.groundIsFloor(c.x, c.z) === !!piece) continue;
+      if (had === (piece?.id ?? null) && this.groundKindAt(c.x, c.z) === kind) continue;
 
       // Pay the difference, exactly as swapping a wall for a window does: what
       // was underfoot is worth `FIXTURE_REFUND` of what it cost, whether you
       // laid it or the shell came with it.
-      const cost = round2(unit - this.floorUnitCost(had) * FIXTURE_REFUND);
+      const cost = round2(unit - this.groundUnitCost(had) * FIXTURE_REFUND);
       if (cost > 0 && this.cash - spent < cost) { short = true; break; }
 
       spent = round2(spent + cost);
-      kept.set(key, { x: c.x, z: c.z, p: piece?.id ?? null });
+      kept.set(key, { x: c.x, z: c.z, k: kind, p: piece?.id ?? null });
       laid++;
     }
 
@@ -2947,41 +3168,53 @@ export class Game {
       return short ? err(`need $${unit.toFixed(2)}`) : ok({ laid: 0, unchanged: true });
     }
 
-    this.floors = [...kept.values()];
+    this.ground = [...kept.values()];
     this.cash = round2(this.cash - spent);
     if (spent > 0) this.stats.spent += spent;
     this.regenerateLayout();
 
-    const what = piece ? piece.name.toLowerCase() : 'floor';
+    const what = piece ? piece.name.toLowerCase() : 'ground';
     this.pushLog(piece
       ? `Laid ${laid} ${laid === 1 ? 'tile' : 'tiles'} of ${what}`
         + `${spent > 0 ? ` for $${spent.toFixed(2)}` : ''}.`
-      : `Took up ${laid} ${laid === 1 ? 'tile' : 'tiles'} of floor.`);
+      : `Took up ${laid} ${laid === 1 ? 'tile' : 'tiles'} of ground.`);
     return ok({ laid, cost: spent, short, warn: check.warn ?? null });
   }
 
-  /** Is this cell floor right now? The half of a repaint `floors` can't answer. */
-  groundIsFloor(x, z) {
-    return this.layout.tiles[z * this.layout.w + x] === T.FLOOR;
+  /**
+   * Which ground kind this cell is right now, or null for bare grass.
+   *
+   * The half of a repaint the overlay can't answer: `ground` says what you
+   * painted, and this says what the cell actually ended up as, which differ for
+   * exactly as long as it takes a re-flow to run.
+   */
+  groundKindAt(x, z) {
+    return groundKindOfTile(this.layout.tiles[z * this.layout.w + x]);
   }
 
   /**
-   * What one tile of a floor costs to lay.
+   * What one tile of ground costs to lay.
    *
-   * Off the catalog row and nowhere else, which is what a floor gets for
+   * Off the catalog row and nowhere else, which is what ground gets for
    * arriving after step 9 rather than before it — there is no upgrade that ever
    * sold flooring, so there is no payload to fall back to and no
-   * `FALLBACK_FIXTURE_COST` entry pretending otherwise. A floor authored at 0
+   * `FALLBACK_FIXTURE_COST` entry pretending otherwise. Ground authored at 0
    * is genuinely free, the same way a prop is: it *is* its row, so bare
    * concrete costing nothing is an authoring decision rather than a hole.
    *
    * Null is the ground the shell came with, which cost nothing and refunds
-   * nothing — you never bought it.
+   * nothing — you never bought it. The seeded yard pads are that too: they
+   * arrive with no piece, so tearing out the bay the shop gave you refunds
+   * nothing, which is right — nobody charged you for it.
+   *
+   * The discount is read against the row's own kind rather than against
+   * `floor`, or a Storage upgrade would quietly discount parquet.
    */
-  floorUnitCost(pieceId) {
+  groundUnitCost(pieceId) {
     if (!pieceId) return 0;
-    const row = (content().fixtures ?? []).find((f) => f.id === pieceId && kindOf(f) === FLOOR_KIND);
-    return round2((row?.cost ?? 0) * this.fixtureDiscount(FLOOR_KIND));
+    const row = (content().fixtures ?? []).find((f) => f.id === pieceId && isGround(kindOf(f)));
+    if (!row) return 0;
+    return round2((row.cost ?? 0) * this.fixtureDiscount(kindOf(row)));
   }
 
   /** What is currently on a lattice line, generated shell included. */
@@ -3141,6 +3374,7 @@ export class Game {
         rot: f.rot ?? 0,
         tier: f.tier ?? 1,
         variant: f.variant ?? '',
+        boh: f.boh === true,
       });
     }
 
@@ -3154,8 +3388,46 @@ export class Game {
     }
 
     this.placements = [...this.placements, ...frozen];
-    this.shell = { w: this.layout.store.w, h: this.layout.store.h };
+    // Where it is, as well as how big. A shop that predates the field reads as
+    // the position it was generated at, so nothing standing in one moves — see
+    // `storeNorth` in server/layout.js for why that matters more than it looks.
+    this.shell = { w: this.layout.store.w, h: this.layout.store.h, z: this.layout.store.z };
     this.regenerateLayout(null, alias);
+    return true;
+  }
+
+  /**
+   * Stamp the yard once, by exactly the argument `freezeShell` makes about the
+   * shelving.
+   *
+   * The delivery bay and the drop-off were procedural until this landed:
+   * `compose` re-stamped them against the corners of the back wall on every
+   * single re-flow, so they could not be moved, resized or got rid of — buying
+   * a shelf put them back where they were. Laid into the ground overlay they
+   * are painted cells like any other, and the generator has no opinion about
+   * them at all.
+   *
+   * Its own stamp rather than a branch inside `freezeShell`, and the reason is
+   * the case `freezeShell`'s early return would miss: a world saved before this
+   * existed already has a shell, so it would never run — and its yard tiles came
+   * from a generator that no longer draws them, which means the shop would open
+   * with no bay at all. This runs on every load and stamps once, so that world
+   * gets its pads handed to it on the very tiles they used to occupy and
+   * notices nothing.
+   *
+   * The mark is its own boolean and not "does this shop own any pads", because
+   * those are different questions the moment a player paints over the last one.
+   * Deleting your bay has to stay deleted; re-seeding it on the next load would
+   * make the pads the one thing in the shop you are not allowed to get rid of,
+   * which is the whole complaint this feature answers.
+   */
+  freezeYard() {
+    if (this.yardStamped) return false;
+    this.yardStamped = true;
+    const yard = defaultPads(this.layout);
+    if (!yard.length) return false;
+    this.ground = [...this.ground, ...yard];
+    this.regenerateLayout();
     return true;
   }
 
@@ -3202,7 +3474,8 @@ export class Game {
       grow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
-      floors: this.floors,
+      ground: this.ground,
+      yardStamped: this.yardStamped,
       shell: this.shell,
     });
 
@@ -3650,7 +3923,12 @@ export class Game {
     }
 
     const ranked = rankShelves({
-      shelves: this.layout.shelves.filter((s) => !cust.visited.includes(s.id)),
+      // Back-of-house units are invisible to a shopper. One condition, here,
+      // because `chooseShelf` is the single gate every shopping decision passes
+      // through — filtering anywhere else would leave a customer able to *want*
+      // something they can never walk to, which is how a shop starts turning
+      // people away over stock it is holding in the kitchen.
+      shelves: this.layout.shelves.filter((s) => !s.boh && !cust.visited.includes(s.id)),
       items: c.byId.items,
       archetype: arch,
       folded,
@@ -3901,21 +4179,106 @@ export class Game {
     if (amount <= 0) return;
     const till = this.layout.checkouts.find((t) => t.id === cust.till) ?? this.layout.checkouts[0];
     const at = till?.serveAt ?? cust;
-    // Fan successive piles across the counter — stacked at one point they read
-    // as a single sale no matter how many are waiting.
+    // Nudge onto the till itself so the pile reads as "on the counter" rather
+    // than standing in the queue.
+    this.dropCashAt(till ? till.x : at.x, till ? till.z : at.z, amount);
+  }
+
+  /**
+   * ...and the same pile, anywhere.
+   *
+   * Split out when fixtures started earning: a money tree pays into the exact
+   * entity a till does, so it renders, is picked up and is tidied away by the
+   * code that already existed. A second kind of money on the floor would need
+   * its own everything, which is the mistake `dropGoods` exists not to repeat.
+   */
+  dropCashAt(x, z, amount) {
+    if (amount <= 0) return null;
+    // Fan successive piles — stacked at one point they read as a single sale no
+    // matter how many are waiting.
     const n = this.nextCashId;
     const spread = [[0, 0], [0.3, 0.16], [-0.28, 0.2], [0.16, -0.22], [-0.18, -0.16]][n % 5];
 
-    this.cashDrops.push({
+    const drop = {
       id: `cash-${this.nextCashId++}`,
-      // Nudge onto the till itself so the pile reads as "on the counter"
-      // rather than standing in the queue.
-      x: (till ? till.x : at.x) + spread[0],
-      z: (till ? till.z : at.z) + spread[1],
+      x: x + spread[0],
+      z: z + spread[1],
       amount: round2(amount),
       bornDay: this.day,
       bornAt: this.elapsed,
-    });
+    };
+    this.cashDrops.push(drop);
+    return drop;
+  }
+
+  /**
+   * Everything in the shop that earns on its own, paid out on its own clock.
+   *
+   * Per fixture rather than on one global cadence, so two trees planted an hour
+   * apart do not pay in lockstep — and the clock is stored, because a tree that
+   * reset its timer on every restart would pay nothing in a session anybody was
+   * actively building in, which is every session.
+   *
+   * It pays whether or not the shop is open. A money tree does not keep hours,
+   * and the pile is still there in the morning.
+   */
+  stepYields() {
+    for (const p of this.placements) {
+      const piece = pieceFor(content().fixtures ?? [], p);
+      const y = piece?.yields;
+      if (!y?.cash || !(y.every > 0)) continue;
+      const period = y.every * SECONDS_PER_MIN;
+      const last = this.yieldedAt.get(p.id);
+      // A fixture that has never paid starts its clock now rather than owing a
+      // payout for every minute since the world began. A stamp in the FUTURE
+      // means the world reloaded under it and `elapsed` went back to zero —
+      // same reset, same reason.
+      if (last == null || last > this.elapsed) { this.yieldedAt.set(p.id, this.elapsed); continue; }
+      if (this.elapsed - last < period) continue;
+      // One payout per tick at most, even if the shop was closed for hours.
+      // Banking up eight of them dumps a pile you did not watch accumulate,
+      // which reads as a bug rather than as a reward.
+      this.yieldedAt.set(p.id, this.elapsed);
+      this.dropCashAt(p.x, p.z, y.cash);
+    }
+    // A fixture that was torn out should not keep a clock — otherwise the map
+    // grows for the life of the save.
+    if (this.yieldedAt.size > this.placements.length) {
+      const live = new Set(this.placements.map((p) => p.id));
+      for (const id of this.yieldedAt.keys()) if (!live.has(id)) this.yieldedAt.delete(id);
+    }
+  }
+
+  /**
+   * How nice the shop looks, as one number.
+   *
+   * Summed off what is actually standing in the shop — the same recount
+   * `fixtureCounts` makes, for the same reason a stored total would drift. Plus
+   * whatever `decor` upgrades are owned, which is the first thing that has ever
+   * read that upgrade kind: it has been in the schema and dead since the day it
+   * was written.
+   */
+  charm() {
+    const rows = content().fixtures ?? [];
+    const fromShop = this.placements.reduce(
+      (s, p) => s + (pieceFor(rows, p)?.charm ?? 0), 0,
+    );
+    return round2(fromShop + countUpgrade(this, 'decor', 'charm'));
+  }
+
+  /**
+   * ...and how much of the town that reaches, which saturates.
+   *
+   * Diminishing on purpose, and hard: without it the cheapest strategy in the
+   * game is a room full of pot plants, and "a hundred planters" is a warehouse
+   * rather than a destination. The curve gives roughly half of `CHARM_MAX` at
+   * ten charm and never quite arrives, so there is always a reason to add one
+   * more and never a reason to add twenty.
+   */
+  charmReach() {
+    const c = this.charm();
+    if (c <= 0) return 0;
+    return round2(CHARM_MAX * (1 - Math.exp(-c / CHARM_HALF)));
   }
 
   /** Anyone standing close enough scoops up the till. */
@@ -4005,7 +4368,7 @@ export class Game {
     if (pallet && (!p.carry || p.carry.item_id === pallet.item_id)) {
       return this.unload(playerId, pallet.id);
     }
-    if (p.carry && near(p, this.dropPad(), BAY_REACH)) return this.stow(playerId);
+    if (p.carry && this.onPad(p, this.dropPadKind())) return this.stow(playerId);
 
     // 3. An appliance: take the finished product, or tip in what you're holding.
     const station = this.nearest(this.layout.stations ?? [], p, REACH, (o) => o.useAt);

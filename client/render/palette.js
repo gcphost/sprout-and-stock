@@ -27,6 +27,10 @@ export const PALETTE = {
    *  sit in the same yard holding the same crates, so telling them apart at a
    *  glance is the entire reason there are two of them. */
   drop: '#c2a173',
+  /** The break area: a soft indoor mat, warmer and quieter than either pad, so
+   *  the one patch of ground that is for the staff rather than for the stock
+   *  does not read as more yard. */
+  break: '#b59ab8',
   floor: '#f0ddb8',
   floorAlt: '#e8d2a8',
   wall: '#fbf8f0',
@@ -78,6 +82,7 @@ export const TILE_STYLE = {
   [T.FENCE]: { color: PALETTE.fence, h: 0.45 },
   [T.BAY]: { color: PALETTE.bay, h: 0.07 },
   [T.DROP]: { color: PALETTE.drop, h: 0.07 },
+  [T.BREAK]: { color: PALETTE.break, h: 0.07 },
 };
 
 /**
@@ -121,6 +126,40 @@ export const EDGE_STYLE = {
   [E.GATE]: { color: PALETTE.fence, h: 0.5, t: 0.14, opening: true },
   [E.FENCE]: { color: PALETTE.fence, h: 0.5, t: 0.14 },
 };
+
+/** How see-through a pane of glass is. Read by the geometry and the material. */
+export const GLASS = 0.35;
+
+/**
+ * The stack of boxes one edge is built from, bottom to top.
+ *
+ * Lives here, beside the style it reads, because two things draw an edge now:
+ * the shop, and the palette button offering to sell you one. A button that drew
+ * its own idea of a window is a picture of a thing the game does not build —
+ * and it would be a *convincing* picture, since nobody compares a 38px button
+ * against a wall across the room. So the shape is derived once from the style
+ * and both callers ask for it.
+ *
+ * `opening` and `glass` stay the authored facts — "you can walk through this",
+ * "you can see through this" — and this is the one place that turns either into
+ * geometry.
+ */
+export function edgeBands(style) {
+  // A way through: a header across the top, a threshold underfoot, nothing in
+  // between.
+  if (style.opening) {
+    return [{ y0: style.h - 0.16, y1: style.h }, { y0: 0.02, y1: 0.05 }];
+  }
+  // Glazed: sill, header, and a see-through band filling the gap.
+  if (style.glass) {
+    return [
+      { y0: 0, y1: 0.34 },
+      { y0: 0.9, y1: style.h },
+      { y0: 0.34, y1: 0.9, alpha: GLASS },
+    ];
+  }
+  return [{ y0: 0, y1: style.h }];
+}
 
 /**
  * Where a hanging prop hangs.

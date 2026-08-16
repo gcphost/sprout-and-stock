@@ -1,7 +1,8 @@
 import { ICONS, icon } from './icons.js';
 import { pinLast } from './bar.js';
-import { FIXTURES, isProp, isFloor, FLOOR_KIND } from '../shared/build.js';
+import { FIXTURES, isProp, isGround, FLOOR_KIND } from '../shared/build.js';
 import { kindOf, countKey } from '../shared/pieces.js';
+import { artForTool, artForStation } from './thumb.js';
 import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
 
 /**
@@ -34,17 +35,84 @@ import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
  * Groups with nothing in them never render, the same way an empty tab bucket
  * doesn't (`grouped`). A world where nobody has authored an appliance has four
  * tabs, not five with one that opens onto nothing.
+ *
+ * A group may split again, and Building is the one that had to. It began as
+ * three edge tools and collected the floor catalogue and both yard pads, so it
+ * was a dozen entries and the only tab you had to scroll — which hides its far
+ * end behind a gesture nobody makes on a strip that looks complete. `subs` is
+ * the same tab shape one level down and is drawn by the same code; the split is
+ * still by what you are doing, so laying a floor and painting a bay are two
+ * jobs even though they are one brush. Subs are resolved exactly like groups
+ * below: empty ones are dropped, and a tab left with fewer than two of them
+ * shows none at all.
  */
 export const BUILD_GROUPS = [
   { id: 'shop', name: 'Shop', icon: ICONS.shelf, blurb: 'Where goods sit and money changes hands.' },
   { id: 'farm', name: 'Farm', icon: ICONS.plot, blurb: 'Beds to grow in, and what fences them off.' },
   { id: 'appliance', name: 'Appliances', icon: ICONS.station, blurb: 'Machines that turn stock into something worth more.' },
-  { id: 'shell', name: 'Building', icon: ICONS.build, blurb: 'The building itself — what makes a room a room.' },
+  {
+    id: 'shell',
+    name: 'Building',
+    icon: ICONS.build,
+    blurb: 'The building itself — what makes a room a room.',
+    // In the order you do them: walls make the room, floor makes it usable, and
+    // the yard is what you lay once the shop it serves exists.
+    subs: [
+      {
+        id: 'walls',
+        name: 'Walls',
+        icon: ICONS.build,
+        blurb: 'Drawn along the lines between tiles. Anything they close in is indoors.',
+      },
+      {
+        id: 'floors',
+        name: 'Floors',
+        icon: ICONS.floor,
+        blurb: 'What a shelf needs under it. Walls alone only make a room.',
+      },
+      {
+        id: 'yard',
+        name: 'Yard',
+        icon: ICONS.crate,
+        blurb: 'Where deliveries land, and where stock waits to be shelved.',
+      },
+      // Its own tab rather than a third swatch under Yard, and the distinction
+      // is the player's rather than the code's: the yard is where the goods go
+      // and this is where the people go. A break area is as often a corner of
+      // the shop floor as it is out the back, so filing it under Yard would put
+      // it behind the one word that says it is not indoors.
+      {
+        id: 'staff',
+        name: 'Staff',
+        icon: ICONS.staff,
+        blurb: 'Ground for the people who work here. Paint a break area and that is where they rest.',
+      },
+    ],
+  },
   { id: 'decor', name: 'Decoration', icon: ICONS.fixtures, blurb: 'Looks. Weighs nothing and stops nobody.' },
 ];
 
 /** Whether a palette entry belongs to a group. A tool may name several. */
 const inGroup = (t, id) => (Array.isArray(t.group) ? t.group.includes(id) : t.group === id);
+
+/** The same question one level down. A tool may name several sub-tabs too. */
+const inSub = (t, id) => (Array.isArray(t.sub) ? t.sub.includes(id) : t.sub === id);
+
+/**
+ * Which sub-tab of a split group an entry sits on.
+ *
+ * Falling through to the first rather than to nothing, for the same reason a
+ * kind nobody grouped lands in the shop: an entry on no sub-tab is one no tab
+ * shows, which is the same as not existing. So authoring a new kind under
+ * Building misfiles it at worst, rather than making it unbuildable.
+ */
+const subIdFor = (g, t) => g.subs.find((s) => inSub(t, s.id))?.id ?? g.subs[0]?.id ?? null;
+
+/** Which sub-tab a palette entry is found on, for a selection made elsewhere. */
+export function subOfTool(t, groupId) {
+  const g = BUILD_GROUPS.find((x) => x.id === groupId);
+  return g?.subs && t ? subIdFor(g, t) : null;
+}
 
 /**
  * What each buildable KIND is, for a palette entry that names one.
@@ -97,7 +165,33 @@ export const KIND_TOOLS = {
     // room, floor makes it usable, and finding those on two different tabs
     // would hide the second half of a job from anyone doing the first.
     group: 'shell',
+    sub: 'floors',
     blurb: 'Drag out an area. Floor is what a shelf needs under it — walls alone only make a room.',
+  },
+  // The yard, which is the same brush laying ground that carries a job rather
+  // than a look. Under Building, because it is drawn the way floor is — but on
+  // its own sub-tab, because what it is *for* has nothing to do with how the
+  // shop looks: you pick a floor by taste and a bay by how big a delivery you
+  // want to take.
+  bay: {
+    icon: ICONS.crate,
+    group: 'shell',
+    sub: 'yard',
+    blurb: 'Drag out an area. Wholesale orders land here as pallets — make it bigger to take bigger deliveries.',
+  },
+  drop: {
+    icon: ICONS.crate,
+    group: 'shell',
+    sub: 'yard',
+    blurb: 'Drag out an area. Where hands get cleared and stock waits to be shelved. Indoors it is a stockroom.',
+  },
+  // The same brush again, laying ground that carries a job for the staff rather
+  // than for the stock.
+  break: {
+    icon: ICONS.staff,
+    group: 'shell',
+    sub: 'staff',
+    blurb: 'Drag out an area. Staff take their breaks here instead of wherever they finished, and come back fresher. One cell seats one.',
   },
 };
 
@@ -109,6 +203,7 @@ export const BUILD_TOOLS = [
     id: 'wall',
     edge: 1,
     group: 'shell',
+    sub: 'walls',
     icon: ICONS.build,
     name: 'Wall',
     blurb: 'Encloses. Anything the walls close in counts as indoors.',
@@ -117,6 +212,7 @@ export const BUILD_TOOLS = [
     id: 'window',
     edge: 2,
     group: 'shell',
+    sub: 'walls',
     icon: ICONS.ambient,
     name: 'Window',
     blurb: 'A wall you can see through. Still encloses.',
@@ -125,6 +221,7 @@ export const BUILD_TOOLS = [
     id: 'door',
     edge: 3,
     group: 'shell',
+    sub: 'walls',
     icon: ICONS.shop,
     name: 'Doorway',
     blurb: 'A way through. Still counts as part of the enclosure.',
@@ -212,22 +309,28 @@ export function buildTools(ui) {
     // the same claim from the other end: an undrawn floor has no colour, so
     // offering one would be a button that paints the ground the shade the
     // renderer happens to default to.
-    const artOnly = isProp(kind) || isFloor(kind);
+    const artOnly = isProp(kind) || isGround(kind);
     const entries = mine.length ? mine : (artOnly ? [] : [{ id: kind, name: FIXTURES[kind]?.label ?? kind }]);
     for (const p of entries) {
+      const paint = isGround(kind);
       pieces.push({
         id: p.id,
         kind,
         piece: p.id,
+        // A picture of the thing, off its own row. `icon` stays as the fallback
+        // for a kind nobody has drawn — those are the entries with no `p.model`
+        // to draw, and a generic box would claim they look like something.
+        art: artForTool({ paint, kind }, p),
         // What the gesture is. A fixture is tapped onto a tile, a wall is
         // dragged along a line, and this one is dragged over an area — the bar
         // needs to know which without asking the kind, because `edge` already
         // works exactly this way for walls.
-        ...(isFloor(kind) ? { paint: true } : {}),
+        ...(paint ? { paint: true } : {}),
         icon: KIND_TOOLS[kind]?.icon ?? ICONS.fixtures,
         // A kind nobody grouped lands in the shop rather than nowhere: an entry
         // in no group is one no tab shows, which is the same as not existing.
         group: KIND_TOOLS[kind]?.group ?? 'shop',
+        sub: KIND_TOOLS[kind]?.sub,
         name: p.name,
         blurb: KIND_TOOLS[kind]?.blurb ?? '',
       });
@@ -250,12 +353,22 @@ export function buildTools(ui) {
       piece: '',
       paint: true,
       group: 'shell',
+      sub: 'floors',
       icon: ICONS.remove,
+      // Grass, not a dustbin. It is the same question as the five swatches
+      // beside it — what the ground looks like when you have finished — and
+      // answering four pictures with a verb makes taking a floor up read as a
+      // different kind of act from laying one.
+      art: artForTool({ paint: true }, null),
       name: 'Bare Ground',
       blurb: 'Takes the floor back up. Indoors that leaves a cell nothing can use — outdoors it is grass again.',
     });
   }
 
+  // An appliance is still an upgrade rather than a piece, so it has no row of
+  // its own — but it is not artless: each machine is a *variant* of the one
+  // `station` row, which is how the renderer draws them too.
+  const machine = rows.find((p) => kindOf(p) === 'station');
   const stations = (ui?.catalog?.upgrades ?? [])
     .filter((u) => u.kind === 'station' && u.payload?.station)
     .map((u) => ({
@@ -264,11 +377,16 @@ export function buildTools(ui) {
       station: u.payload.station,
       group: 'appliance',
       icon: ICONS.station,
+      art: artForStation(machine, u.payload.station),
       name: u.name,
       blurb: u.description || 'An appliance. Turns what goes in into something worth more.',
     }));
 
-  return [...pieces, ...BUILD_TOOLS, ...stations];
+  // A wall has no row to draw — the renderer builds one from `EDGE_STYLE` — so
+  // its art is built from that same record. See `client/thumb.js`.
+  const shell = BUILD_TOOLS.map((t) => ({ ...t, art: artForTool(t, null) }));
+
+  return [...pieces, ...shell, ...stations];
 }
 
 /**
@@ -293,12 +411,35 @@ export function buildGroups(ui) {
     };
   });
   return BUILD_GROUPS
-    .map((g) => ({ ...g, items: pinLast(tools.filter((t) => inGroup(t, g.id))) }))
+    .map((g) => {
+      const items = pinLast(tools.filter((t) => inGroup(t, g.id)));
+      return { ...g, items, subs: splitGroup(g, items) };
+    })
     // A tab holding nothing but the bulldozer opens onto nothing you can build,
     // which is worse than no tab — and it is what an Appliances tab looks like
     // in a world where nobody has authored a machine yet. Pinned entries do not
     // count towards a tab earning its place.
     .filter((g) => g.items.some((t) => !t.last));
+}
+
+/**
+ * A group's sub-tabs, or null for a group that doesn't earn any.
+ *
+ * The same two rules the tabs above them follow, one level down: an empty
+ * sub-tab never renders, and a group left with fewer than two of them shows the
+ * flat list instead — one sub-tab is a row of chrome asking a question with a
+ * single answer. That is what a world with no floors authored gets, and it means
+ * the split can never make Building *harder* to read than it was flat.
+ *
+ * Pinned entries are on every sub-tab, the way Demolish is on every tab: "get
+ * rid of that" is not a question about which part of the building it is.
+ */
+function splitGroup(g, items) {
+  if (!g.subs) return null;
+  const subs = g.subs
+    .map((s) => ({ ...s, items: items.filter((t) => t.last || subIdFor(g, t) === s.id) }))
+    .filter((s) => s.items.some((t) => !t.last));
+  return subs.length >= 2 ? subs : null;
 }
 
 /** Which tab a palette entry is found under, for a selection made elsewhere. */
@@ -731,7 +872,7 @@ export const SECTIONS = [
       { name: 'Build mode', sub: 'tap ground to place, tap a fixture to open', right: 'G', plain: true },
       { name: 'Turn a fixture', sub: 'a quarter turn', right: 'R', plain: true },
       { name: 'Bottom bar', sub: 'the open tab while building, seeds otherwise', right: '1–9', plain: true },
-      { name: 'Next tab', sub: 'shop, farm, appliances, building, decoration', right: 'Tab', plain: true },
+      { name: 'Next tab', sub: 'every tab in turn, and every part of a split one', right: 'Tab', plain: true },
     ],
   },
 ];

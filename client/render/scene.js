@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, jitter, faceColor, patternColor } from './palette.js';
+import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, edgeBands, jitter, faceColor, patternColor } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfSlots, buildBubble, buildCashDrop,
   buildHopperSlots,
@@ -16,9 +16,12 @@ import {
   buildSoil, buildFixtureGhost, buildTargetMarker, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
   buildRipple,
+  buildStamp,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
-import { FIXTURES, anchorTile, canPlace, turn, rot4, floorIndex } from '../../shared/build.js';
+import {
+  FIXTURES, anchorTile, canPlace, turn, rot4, groundIndex, groundKindOfTile,
+} from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { Lights, emittersIn } from './lights.js';
 import {
@@ -175,6 +178,55 @@ const RIPPLE_TO = 0.46;
 /** What the press meant, said in colour. Amber matches the aim marker. */
 const RIPPLE_COLORS = { go: '#ffd66b', no: '#e2564a', miss: '#f4efe2' };
 
+/**
+ * The stamp: what a fixture does on arriving somewhere.
+ *
+ * Fired where the thing *landed* rather than where you pressed, which is the
+ * one way it differs from every other bit of feedback in here. A press ripple
+ * has to beat the round trip because a walk order has nothing else to show for
+ * itself; a build already answered the pointer with a green ghost before you
+ * committed, so this one's job is the other end — saying the thing is really
+ * there. Splitting it across the round trip would draw the mark, wait, and
+ * then drop the fixture into it, which reads as two events rather than one
+ * impact.
+ *
+ * The square starts a shop-aisle wide and slams shut on its own tile. Same
+ * ease-out the ripple uses, run backwards by swapping the endpoints — fast
+ * then settling is what makes a thing read as landing under its own weight.
+ */
+const STAMP_MS = 300;
+const STAMP_FROM = 2.1;
+const STAMP_COLOR = '#7cc46a';
+
+/**
+ * The drop that lands inside the stamp: fall, then squash, then settle.
+ *
+ * Two phases because one is not a plop. A model that only scales up arrives
+ * without ever having come from anywhere, and one that only falls stops like a
+ * lift reaching a floor. `LAND_SQUASH` is a damped bounce on the vertical
+ * scale with the horizontal taking the opposite sign, so the thing keeps its
+ * volume the way anything soft would.
+ *
+ * Every model is authored with its base at y=0 — see `buildModel` — so scaling
+ * about the group origin squashes it into the floor rather than through it.
+ */
+const LAND_MS = 340;
+const LAND_DROP = 1.2;
+const LAND_FALL = 0.42;
+const LAND_SQUASH = 0.24;
+
+/**
+ * Past this many fixtures moving in one re-flow it is the shop rearranging,
+ * not you placing something.
+ *
+ * A `space` upgrade re-flows the whole building, and a shop where twenty
+ * shelves bounce at once reads as the renderer having a fit rather than as
+ * anything you did. The cap also covers the first layout of a session for
+ * free, though `_fixtureSpots` starting null is what actually says "there was
+ * no previous shop to have arrived from".
+ */
+const STAMP_MAX = 4;
+
 
 
 /** Day-cycle endpoints, resolved once so syncState allocates nothing. */
@@ -210,6 +262,16 @@ export class Scene {
     this.camAngle = 0;
     this.camTarget = new THREE.Vector3(22, 0, 17);
     this.camLook = this.camTarget.clone();
+    // Whether anybody has claimed the view yet. The camera follows you, and
+    // until the first snapshot says where you are it has to look at *something*
+    // — which is the shop door, aimed in `buildWorld`. That aim is an opening
+    // shot and nothing else: `buildWorld` runs on every re-flow, so without this
+    // flag every rotate, move, paint and back-of-house toggle yanked the view a
+    // few frames toward the door and let it drift back over the next second.
+    // Cheap to miss, because the pull is bounded by how far the door is from
+    // where you are standing — at the till it is a twitch, and out on the farm
+    // it is half the screen.
+    this.camFollowing = false;
     // Where the view has been dragged to, relative to whoever it follows. Kept
     // apart from camTarget because that is overwritten from the player's
     // position every sync — a pan folded into it would be erased 10 times a
@@ -225,11 +287,18 @@ export class Scene {
     // turned is edge-on.
     this.readoutAngle = null;
     this.readoutsDirty = true;
-    // Live press ripples, and how far through a held press we are. Both are
-    // pure feedback: nothing in the world reads them, and dropping them all on
-    // the floor would change nothing except how the game feels to press.
+    // Live ground marks — press ripples and build stamps, which are one kind of
+    // throwaway outline with two sets of endpoints — plus whatever is currently
+    // dropping into place, and how far through a held press we are. All pure
+    // feedback: nothing in the world reads them, and dropping them all on the
+    // floor would change nothing except how the game feels to press.
     this.ripples = [];
+    this.landings = [];
     this.holdProgress = null;
+    // Where every fixture stood last time the shop was built, so the next build
+    // can tell what arrived. Null rather than empty, because "no previous shop"
+    // and "a shop with nothing in it" want opposite answers — see `addFixtureProps`.
+    this._fixtureSpots = null;
     // Two values, like camTarget/camLook: where the wheel says we're going, and
     // where we've eased to. Set before resize(), which bakes the projection.
     this.camZoom = ZOOM_DEFAULT;
@@ -423,8 +492,23 @@ export class Scene {
     // Born at the moment of the press, not at the next frame: `render` reads
     // the age off this, and a ripple that starts its life a frame late starts
     // it visibly grown.
-    this.ripples.push({ g, born: performance.now() });
+    this.ripples.push({ g, born: performance.now(), ms: RIPPLE_MS, from: RIPPLE_FROM, to: RIPPLE_TO });
     return g;
+  }
+
+  /**
+   * Slam a square shut on a tile, and drop what is standing on it into place.
+   *
+   * The two halves are one effect and are fired together for that reason — a
+   * mark on the ground with nothing landing in it is a scorch, and a fixture
+   * bouncing on bare floor has nothing to have hit.
+   */
+  land(prop, x, z) {
+    this.landings.push({ g: prop, y: prop.position.y, born: performance.now() });
+    const g = buildStamp(STAMP_COLOR);
+    g.position.set(x, 0.07, z);
+    this.actorRoot.add(g);
+    this.ripples.push({ g, born: performance.now(), ms: STAMP_MS, from: STAMP_FROM, to: 1 });
   }
 
   /**
@@ -440,11 +524,11 @@ export class Scene {
     this.holdProgress = t === null ? null : Math.max(0, Math.min(1, t));
   }
 
-  /** Advance every live ripple, and retire the ones that have finished. */
+  /** Advance every live ground mark, and retire the ones that have finished. */
   animateRipples(now) {
     for (let i = this.ripples.length - 1; i >= 0; i--) {
       const r = this.ripples[i];
-      const k = (now - r.born) / RIPPLE_MS;
+      const k = (now - r.born) / r.ms;
       if (k >= 1) {
         this.actorRoot.remove(r.g);
         disposeGroup(r.g);
@@ -454,9 +538,43 @@ export class Scene {
       // Out fast and then slower, which is what makes it read as a wave losing
       // energy rather than as a circle being animated. Fading on a square so
       // most of the life is spent visible and the tail is quick.
+      //
+      // A stamp is this same curve with `from` above `to`, so "fast then
+      // settling" becomes weight arriving instead of energy leaving. One eased
+      // interpolation, read backwards.
       const ease = 1 - (1 - k) ** 3;
-      r.g.scale.setScalar(RIPPLE_FROM + (RIPPLE_TO - RIPPLE_FROM) * ease);
+      r.g.scale.setScalar(r.from + (r.to - r.from) * ease);
       r.g.userData.ring.material.opacity = 0.9 * (1 - k) ** 2;
+    }
+  }
+
+  /** Fall, hit, wobble, settle. Retired back to exactly where it belongs. */
+  animateLandings(now) {
+    for (let i = this.landings.length - 1; i >= 0; i--) {
+      const r = this.landings[i];
+      const k = (now - r.born) / LAND_MS;
+      if (k >= 1) {
+        r.g.position.y = r.y;
+        r.g.scale.set(1, 1, 1);
+        this.landings.splice(i, 1);
+        continue;
+      }
+      if (k < LAND_FALL) {
+        // Squared, so it accelerates rather than descends at a constant rate.
+        // A fixture arriving at walking pace reads as being lowered by somebody
+        // rather than as being dropped.
+        const t = k / LAND_FALL;
+        r.g.position.y = r.y + LAND_DROP * (1 - t * t);
+        r.g.scale.set(1, 1, 1);
+      } else {
+        const t = (k - LAND_FALL) / (1 - LAND_FALL);
+        // A bounce that dies out: the cosine gives it a second, smaller
+        // compression on the way to still, and the squared envelope means it is
+        // genuinely finished at the end rather than cut off mid-wobble.
+        const s = LAND_SQUASH * (1 - t) ** 2 * Math.cos(t * 8);
+        r.g.position.y = r.y;
+        r.g.scale.set(1 + s * 0.6, 1 - s, 1 + s * 0.6);
+      }
     }
   }
 
@@ -538,7 +656,6 @@ export class Scene {
     this.layoutVersion = layout.version;
     this._layout = layout;
     const L = layout.layout ?? layout;
-    this._pickPlanes = null;
 
     // Every geometry under staticRoot was built for the previous layout, and
     // `clear()` alone drops the references without freeing the GPU buffers.
@@ -546,6 +663,9 @@ export class Scene {
     // mode re-flows on every placement.
     disposeGroup(this.staticRoot);
     this.staticRoot.clear();
+    // Anything still dropping was a group under that root, and is now a freed
+    // buffer the animator would go on scaling every frame.
+    this.landings.length = 0;
     // Shelf and plot props live in `actorRoot`, not `staticRoot`, so emptying
     // the maps without taking the meshes out of the scene orphans every one of
     // them. They stayed exactly where the old shelves used to be, which is why
@@ -566,11 +686,11 @@ export class Scene {
 
     // Everything raised gets an instanced box per tile kind — and, for floor,
     // per DESIGN of floor. Which design a cell is painted lives in its own
-    // sparse layer (`L.floors`) rather than in `tiles`, so the grouping key has
+    // sparse layer (`L.ground`) rather than in `tiles`, so the grouping key has
     // to carry both: `tiles` still decides what may stand there and this only
     // decides what it looks like. One mesh per kind would have collapsed four
     // floors into one colour; one mesh per cell would be five hundred draws.
-    const painted = floorIndex(L);
+    const painted = groundIndex(L);
     const byKind = new Map();
     for (let z = 0; z < L.h; z++) {
       for (let x = 0; x < L.w; x++) {
@@ -578,7 +698,10 @@ export class Scene {
         // floor under it is floor — which it always was, and now says so.
         const kind = L.tiles[z * L.w + x];
         if (kind === 0) continue;
-        const piece = kind === T.FLOOR ? (painted.get(`${x},${z}`) ?? null) : null;
+        // Any painted ground, not just floor: a delivery bay is a design on a
+        // cell the same way parquet is, and one that only floor could carry
+        // would draw every authored bay in the palette's default colour.
+        const piece = groundKindOfTile(kind) ? (painted.get(`${x},${z}`) ?? null) : null;
         const key = piece ? `${kind}|${piece}` : String(kind);
         if (!byKind.has(key)) byKind.set(key, { kind, piece, cells: [] });
         byKind.get(key).cells.push([x, z]);
@@ -647,7 +770,10 @@ export class Scene {
     this.addEdges(L);
     this.addFixtureProps(L);
     this.addAwning(L);
-    this.camTarget.set(L.door.x, 0, L.door.z + 2);
+    // Only before there is anybody to follow — see `camFollowing`. A shop that
+    // re-flows is still the shop you are standing in, and where you are looking
+    // is not something a re-flow gets an opinion about.
+    if (!this.camFollowing) this.camTarget.set(L.door.x, 0, L.door.z + 2);
     this.storeLayout = L;
     // The fixture the pointer was over belongs to the old layout — a re-flow can
     // renumber it or move it out from under the marker. Whoever is aiming will
@@ -730,7 +856,28 @@ export class Scene {
     // Built here rather than read off `fixtureAt`, because `storeLayout` is
     // still the *previous* shop until the end of `buildWorld`.
     const byTile = new Map();
-    for (const f of fixturesIn(L)) byTile.set(`${f.x},${f.z}`, f);
+    const spots = new Map();
+    for (const f of fixturesIn(L)) {
+      byTile.set(`${f.x},${f.z}`, f);
+      spots.set(f.id, `${f.x},${f.z}`);
+    }
+
+    // What arrived since the last build, and therefore what should land rather
+    // than simply be standing there. Keyed by *where* each id was and not by
+    // whether the id is new, so setting down something you picked up lands too
+    // — a fixture you carried across the shop and put down is the clearest case
+    // of plopping there is, and it keeps its id the whole way.
+    //
+    // Ids are only comparable at all because a stamped shop stops re-minting
+    // them (`Game.freezeShell`); against the old generator every re-flow would
+    // have looked like a shop full of arrivals.
+    const was = this._fixtureSpots;
+    this._fixtureSpots = spots;
+    let landed = new Set();
+    if (was) {
+      for (const [id, at] of spots) if (was.get(id) !== at) landed.add(id);
+      if (landed.size > STAMP_MAX) landed = new Set();
+    }
 
     for (const f of fixturesIn(L)) {
       const model = this.fixtureModel(f);
@@ -749,7 +896,11 @@ export class Scene {
       // the layout generator has always used for which side you work from.
       prop.rotation.y = -(f.rot ?? 0) * (Math.PI / 2);
       prop.position.set(f.x, this.fixtureBaseY(f), f.z);
+      // One thing you can point at, whatever it is made of. `pickFixture`
+      // raycasts these and walks back up to whichever group wears the flag.
+      prop.userData.pick = true;
       this.staticRoot.add(prop);
+      if (landed.has(f.id)) this.land(prop, f.x, f.z);
     }
 
     // Lamps. Rebuilt with the world because a light is a position, and the
@@ -826,22 +977,13 @@ export class Scene {
       runs.get(k).boxes.push(spec);
     };
 
+    // What an edge is made of comes from `edgeBands`, beside the style it reads,
+    // because the palette button offering to sell you one draws from it too —
+    // see client/thumb.js.
     const emit = (kind, vertical, cx, cz) => {
       const style = EDGE_STYLE[kind];
       if (!style) return;
-      if (style.opening) {
-        // Header across the top, threshold underfoot, nothing between.
-        push(kind, vertical, { cx, cz, y0: style.h - 0.16, y1: style.h });
-        push(kind, vertical, { cx, cz, y0: 0.02, y1: 0.05 });
-        return;
-      }
-      if (style.glass) {
-        push(kind, vertical, { cx, cz, y0: 0, y1: 0.34 });
-        push(kind, vertical, { cx, cz, y0: 0.9, y1: style.h });
-        push(kind, vertical, { cx, cz, y0: 0.34, y1: 0.9, alpha: 0.35 });
-        return;
-      }
-      push(kind, vertical, { cx, cz, y0: 0, y1: style.h });
+      for (const band of edgeBands(style)) push(kind, vertical, { cx, cz, ...band });
     };
 
     for (let z = 0; z < L.h; z++) {
@@ -862,7 +1004,7 @@ export class Scene {
       const style = EDGE_STYLE[kind];
       const opaque = boxes.filter((b) => b.alpha === undefined);
       const clear = boxes.filter((b) => b.alpha !== undefined);
-      for (const [set, alpha] of [[opaque, 1], [clear, 0.35]]) {
+      for (const [set, alpha] of [[opaque, 1], [clear, GLASS]]) {
         if (!set.length) continue;
         const mesh = new THREE.InstancedMesh(box, material(style.color, alpha), set.length);
         mesh.castShadow = alpha === 1;
@@ -938,9 +1080,13 @@ export class Scene {
     this.syncActionRings(state.players, myId);
     this.syncLifted(state.players.find((p) => p.id === myId));
     this.syncActionTarget(state.players.find((p) => p.id === myId));
+    this.syncStockTargets(state.players.find((p) => p.id === myId));
 
     const me = state.players.find((p) => p.id === myId);
-    if (me) this.camTarget.set(me.x, 0, me.z);
+    if (me) {
+      this.camTarget.set(me.x, 0, me.z);
+      this.camFollowing = true;
+    }
 
     // The day cycle. `daylight` is 0 at open and close, 1 at midday.
     //
@@ -1180,27 +1326,43 @@ export class Scene {
   // -------------------------------------------------------------------------
 
   /**
-   * Which tile is under the pointer, on the flat plane `y` units up.
+   * The pointer as a ray into the world, reused by everything that aims.
    *
-   * Raycast against a plane rather than against geometry, so pointing at the
-   * floor *behind* a shelf still gives you the floor and not the shelf's roof.
-   * `y` is what lets `pickFixture` ask the other question — which box is the
-   * pointer actually on top of.
+   * One place that turns client coordinates into a ray, because the canvas is
+   * not the window: it sits under a HUD and inside a `getBoundingClientRect`
+   * that changes when the bar grows. Two copies of this arithmetic is two
+   * chances for one of them to be off by the offset of the canvas.
    */
-  pickTile(clientX, clientY, y = 0) {
-    if (!this.storeLayout) return null;
+  pointerRay(clientX, clientY) {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
+    this._ray ??= new THREE.Raycaster();
+    this._ndc ??= new THREE.Vector2();
+    this._ndc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
-    this._ray ??= new THREE.Raycaster();
+    this._ray.setFromCamera(this._ndc, this.camera);
+    return this._ray;
+  }
+
+  /**
+   * Which tile is under the pointer, on the flat plane `y` units up.
+   *
+   * A plane rather than geometry, so pointing at the floor *behind* a shelf
+   * still gives you the floor and not the shelf's roof. That is the right
+   * answer for a question about *ground* — where a wall goes, where a floor is
+   * painted, where a fixture you are carrying lands. It is the wrong answer to
+   * "which thing am I pointing at", which is why `pickFixture` stopped being
+   * built out of this and raycasts the art instead.
+   */
+  pickTile(clientX, clientY, y = 0) {
+    if (!this.storeLayout) return null;
+    const ray = this.pointerRay(clientX, clientY);
     this._plane ??= new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this._hit ??= new THREE.Vector3();
 
     this._plane.constant = -y;
-    this._ray.setFromCamera(ndc, this.camera);
-    if (!this._ray.ray.intersectPlane(this._plane, this._hit)) return null;
+    if (!ray.ray.intersectPlane(this._plane, this._hit)) return null;
 
     const x = Math.round(this._hit.x);
     const z = Math.round(this._hit.z);
@@ -1279,33 +1441,61 @@ export class Scene {
   }
 
   /**
-   * Which fixture the pointer is actually over.
+   * Which fixture the pointer is actually over — the art, not a plane.
    *
-   * Not the same question as `pickTile`. A shelf is a three-quarter-tile-tall
-   * box, and on a 45° camera its top face is drawn a good tile up-screen of the
-   * ground it stands on — so a ground-plane pick aimed at the middle of a shelf
-   * lands on the floor *behind* it. That is the difference between clicking a
-   * shelf and getting its neighbour.
+   * Not the same question as `pickTile`, and it took two goes to answer. The
+   * first was a ground-plane pick, which lands on the floor *behind* a shelf
+   * because a 45° camera draws a three-quarter-tile box most of a tile
+   * up-screen of the ground it stands on. The second aimed at the plane each
+   * fixture's *top face* lives on, which fixes the neighbour bug and quietly
+   * introduces a worse one: the region that answers is a full tile square
+   * floating at roof height, so what you have to point at is not the thing —
+   * it is a patch of air above and behind it, offset further the taller the
+   * piece. Nothing on screen says where that patch is, so aiming becomes
+   * hunting for a magic spot, and a lamp is nearly unhittable.
    *
-   * So: intersect the plane each fixture height's top face lives on, tallest
-   * first, and take the first one that has a fixture of that exact height on
-   * it. Tallest first because a taller box in front occludes a shorter one
-   * behind, which is precisely the pixel you clicked.
+   * So: raycast the meshes. The answer is then the same shape as the pixels,
+   * whatever anybody authors — a corner unit's wing, a tall thin post, a
+   * hanging sign — and it stays right the day a model changes, which neither
+   * of the constants-and-planes versions could.
+   *
+   * Deliberately only the fixtures, not the whole scene. A shopper stood in
+   * front of a shelf must not shield it (see docs/ui-shell.md), and the ground
+   * would swallow every hit if it were in here.
    */
   pickFixture(clientX, clientY) {
     if (!this.storeLayout) return null;
-    // Taken from what is actually standing in this shop, so a tier-3 shelf that
-    // is taller than a tier-1 one gets its own plane. Rebuilt with the world.
-    this._pickPlanes ??= [...new Set(this.allFixtures().map((f) => this.fixtureHeight(f)))]
-      .sort((a, b) => b - a);
-
-    for (const h of this._pickPlanes) {
-      const t = this.pickTile(clientX, clientY, h);
-      if (!t) continue;
-      const f = this.fixtureAt(t.x, t.z);
-      if (f && Math.abs(this.fixtureHeight(f) - h) < 1e-6) return f;
+    const hits = this.pointerRay(clientX, clientY).intersectObjects(this.pickTargets(), true);
+    for (const hit of hits) {
+      // Up to whichever group was tagged as one pickable thing — the hit
+      // itself is one board of a shelf or one apple on it.
+      let o = hit.object;
+      while (o && !o.userData.pick) o = o.parent;
+      if (!o) continue;
+      // Every tagged group stands on its fixture's tile, so where it *is* says
+      // which fixture it belongs to. Cheaper than an id to keep honest: ids are
+      // re-minted on a re-flow and this is re-read from the layout every time.
+      const f = this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
+      if (f) return f;
     }
     return null;
+  }
+
+  /**
+   * The groups `pickFixture` is allowed to hit.
+   *
+   * The stock and the crops are in here alongside the fixtures themselves,
+   * because they are what you can see: a full shelf is mostly goods from this
+   * angle, and a ripe plot is entirely plant. Pointing at a tomato and being
+   * told there is nothing there would be the same class of bug this method
+   * exists to end.
+   */
+  pickTargets() {
+    const out = [];
+    for (const o of this.staticRoot.children) if (o.userData.pick) out.push(o);
+    for (const rec of this.shelfProps.values()) out.push(rec.group);
+    for (const rec of this.plotProps.values()) out.push(rec.group);
+    return out;
   }
 
   /**
@@ -1350,6 +1540,35 @@ export class Scene {
     this.aimMarker = buildTargetMarker(mode);
     this.aimMarker.position.set(f.x, 0, f.z);
     this.actorRoot.add(this.aimMarker);
+  }
+
+  /**
+   * Ring the fixture whose menu is open, and keep it ringed.
+   *
+   * A third marker rather than a mode on the aim ring, because the two answer
+   * different questions and are both live at once: the aim ring is wherever
+   * the pointer happens to be, and this stays on the thing the panel is
+   * talking about even while you point somewhere else entirely. Folding them
+   * together loses the answer exactly when you move the pointer off to read
+   * the menu — which is the whole of the time the menu is open.
+   *
+   * Positioned by the record it is handed, so following a fixture through a
+   * re-flow is `showFixture`'s existing tile lookup rather than a second one
+   * in here.
+   */
+  setSelectedTarget(f) {
+    const key = f ? `${f.x},${f.z}` : null;
+    if (this.selectedKey === key) return;
+    this.selectedKey = key;
+    if (this.selectedMarker) {
+      this.actorRoot.remove(this.selectedMarker);
+      disposeGroup(this.selectedMarker);
+      this.selectedMarker = null;
+    }
+    if (!f) return;
+    this.selectedMarker = buildTargetMarker('selected');
+    this.selectedMarker.position.set(f.x, 0, f.z);
+    this.actorRoot.add(this.selectedMarker);
   }
 
   /**
@@ -1433,6 +1652,55 @@ export class Scene {
     ring.position.set(f.x, 1.5, f.z);
     this.actorRoot.add(ring);
     this.liftedRing = ring;
+  }
+
+  /**
+   * A chevron over everything that would take what you are carrying.
+   *
+   * The list is the server's (`takers` on your own player) — see `stockTargets`
+   * for why the shop answers this rather than the client working it out. All
+   * this does is find each one and float a pip over it.
+   *
+   * Keyed by fixture id and rebuilt only when the *set* changes, because the
+   * set is stable for a whole armful and this runs ten times a second. Heights
+   * are re-read every sync all the same: a shelf that fills up as you stock it
+   * drops out of the list, and one you moved has to take its pip with it — the
+   * same reason `syncShelves` re-reads positions rather than trusting them.
+   */
+  syncStockTargets(me) {
+    this.stockPips ??= new Map();
+    const want = new Set(me?.takers ?? []);
+    const key = [...want].sort().join(',');
+
+    if (key !== this.stockPipKey) {
+      this.stockPipKey = key;
+      for (const [id, pip] of this.stockPips) {
+        if (want.has(id)) continue;
+        this.actorRoot.remove(pip);
+        disposeGroup(pip);
+        this.stockPips.delete(id);
+      }
+      for (const id of want) {
+        if (this.stockPips.has(id)) continue;
+        const pip = buildTargetMarker('stock');
+        // Offset so a shop full of them doesn't bob in lockstep, which reads as
+        // one flashing object rather than several separate signposts. The same
+        // trick the thought bubbles use, off the same kind of stable number.
+        pip.userData.phase = (id.length * 1.7 + id.charCodeAt(id.length - 1)) % 6.28;
+        this.actorRoot.add(pip);
+        this.stockPips.set(id, pip);
+      }
+    }
+
+    // Position every sync, not only on the ones that rebuilt: what a pip sits
+    // over can change height (a tier bought) or move (a unit carried across the
+    // shop) without the set of ids changing at all.
+    for (const [id, pip] of this.stockPips) {
+      const f = this.allFixtures().find((o) => o.id === id);
+      if (!f) { pip.visible = false; continue; }
+      pip.visible = true;
+      pip.position.set(f.x, this.fixtureHeight(f), f.z);
+    }
   }
 
   /**
@@ -1744,6 +2012,8 @@ export class Scene {
 
       if (!rec) {
         rec = { group: new THREE.Group(), key: null };
+        // Goods are part of the shelf as far as aiming goes — see pickTargets.
+        rec.group.userData.pick = true;
         this.actorRoot.add(rec.group);
         this.shelfProps.set(s.id, rec);
       }
@@ -1809,6 +2079,9 @@ export class Scene {
           group: new THREE.Group(), overlay: new THREE.Group(),
           key: null, bar: null, bubble: null, bubbleKey: null,
         };
+        // The plants, but not the readout floating over them: a growth bar is
+        // something to read, not something to point at.
+        rec.group.userData.pick = true;
         this.actorRoot.add(rec.group, rec.overlay);
         this.plotProps.set(p.id, rec);
       }
@@ -1959,11 +2232,31 @@ export class Scene {
       this.liftedRing.rotation.z = now / 1000 * 1.2;
     }
     if (this.aimMarker) {
+      // No spin any more, here or below. A ring is rotationally symmetric, so
+      // the spin these markers were given was invisible — and the moment they
+      // became squares that agree with the tile grid it stopped being
+      // invisible and started being wrong.
+      this.aimMarker.userData.arrow.position.y = 1.62 + Math.sin(now / 1000 * 4) * 0.11;
+    }
+    if (this.stockPips?.size) {
+      // Per-frame rather than per-sync, like every other marker here: something
+      // that only moved ten times a second reads as the renderer stuttering.
       const t = now / 1000;
-      this.aimMarker.userData.arrow.position.y = 1.62 + Math.sin(t * 4) * 0.11;
-      this.aimMarker.userData.ring.rotation.z = t * 0.5;
+      for (const pip of this.stockPips.values()) {
+        pip.userData.arrow.position.y = 0.62 + Math.sin(t * 3 + (pip.userData.phase ?? 0)) * 0.09;
+      }
+    }
+    if (this.selectedMarker) {
+      // A slow breathe, half the rate of anything armed. It has to be alive —
+      // a still outline on a shop floor reads as scenery, and this one can be
+      // the only marker on screen while you work through the menu — but it must
+      // not read as something waiting to be pressed, which is what the aim
+      // marker's beat means.
+      const s = 1 + Math.sin(now / 1000 * 2) * 0.035;
+      this.selectedMarker.userData.ring.scale.setScalar(s);
     }
     this.animateRipples(now);
+    this.animateLandings(now);
     if (this.targetMarker) {
       const t = now / 1000;
       const held = this.targetMarker.userData.held;
@@ -1971,7 +2264,6 @@ export class Scene {
       // running — so the marker answers before the ring has visibly moved.
       this.targetMarker.userData.arrow.position.y = held ? 1.5 : 1.62 + Math.sin(t * 4) * 0.11;
       this.targetMarker.userData.ring.scale.setScalar(held ? 1.12 : 1 + Math.sin(t * 4) * 0.045);
-      this.targetMarker.userData.ring.rotation.z = t * (held ? 1.8 : 0.5);
     }
     // A held press winds the aim ring in and speeds it up, so the thing you are
     // pointing at is the thing that reacts. Drawn on `aimMarker` — what your
@@ -1980,12 +2272,10 @@ export class Scene {
     // wrong one tells you the game heard a press somewhere else.
     if (this.aimMarker) {
       const k = this.holdProgress;
-      const t = now / 1000;
       const ring = this.aimMarker.userData.ring;
       if (k === null) {
         ring.scale.setScalar(1);
         ring.material.opacity = 0.9;
-        ring.rotation.z = t * 0.5;
       } else {
         // Tightening rather than filling: a ring that shrinks onto its target
         // says "this one, keep going" without needing a second ring in a
@@ -1998,7 +2288,6 @@ export class Scene {
         // indistinguishable from a glitch.
         ring.scale.setScalar(1 - 0.26 * k);
         ring.material.opacity = 0.9 + 0.1 * k;
-        ring.rotation.z = t * (0.5 + 4 * k);
       }
     }
     // Eased like camLook, and for the same reason: a wheel notch that snapped

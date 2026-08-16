@@ -456,6 +456,100 @@ Two consequences worth knowing:
   brush that quietly sells your shelving and its stock back is a bulldozer
   wearing a paintbrush, and the bulldozer is right there.
 
+### The yard stops being furniture
+
+**Built** — step 14, and it is the floor brush's argument applied to the last two
+cells in the game that were neither content nor code.
+
+The delivery bay and the drop-off were *generated*. `compose` stamped two 2×2
+patches against the corners of the back wall, on every single re-flow. That last
+clause is the whole bug: they could not be moved, resized or removed, because
+buying a shelf put them back. They were the only thing left in the shop that
+step 4 had not made yours.
+
+They are ground, in exactly the sense floor is — a cell is *made of* bay, nothing
+stands on it — so they became two more designs for the brush that already
+existed rather than a second mechanism. Four decisions, and the first is the one
+that kept it small.
+
+**One overlay, not two.** `layout.floors` became `layout.ground`, and a cell
+holds one painted piece whose KIND decides the tile: `floor` → `T.FLOOR`, `bay` →
+`T.BAY`, `drop` → `T.DROP`. A separate pad layer would have needed its own
+validator, its own re-flow, its own precedence against flooring, and an answer
+for "what happens when a cell is both". One array has no such question — a cell
+has one ground, and `GROUND` in `shared/build.js` is the whole vocabulary. The
+kind rides beside the piece on each entry rather than being looked up from it,
+for the same reason a placement stores both: `generateLayout` is pure and has
+never seen the catalog.
+
+**A pad is a region, not a point.** `L.bay` was `{x, z}` and is now
+`{x, z, cells}`, read back off `tiles` rather than remembered — the argument
+`fixtureCounts` makes against the ledger it replaced. That is what makes the
+size you paint mean something: `dropGoods` fills the pad's own cells, so the
+2×2 you start with holds four crates and a floored back room holds as many as it
+has tiles. It is also why `near(p, pad, BAY_REACH)` had to go. A radius from the
+middle of a 2×2 is a fair description of a 2×2; measured from the middle of a
+stockroom it tells you that you are too far from the storage you are standing in
+the back of. `onPad` is five tile reads instead.
+
+**Deleting has to stick, which is why the mark is a boolean.** `freezeYard`
+stamps the default pads once, the way `freezeShell` stamps the shelving — and
+the tempting mark is "does this shop own any pads". It is wrong: paint over your
+last bay and the next load hands it back, which makes the yard the one thing in
+the shop you are not allowed to get rid of. That is the complaint this answers,
+so `world.yardStamped` is its own field and gone stays gone. `canPaintGround`
+*warns* before the last cell of a pad goes, and `buyStock` *refuses* when there
+is no bay — a consequence you are told about, and physics, in that order.
+
+**The seed may only lay ground the player could lay.** The pads used to be 2×2
+at `store.z - 2`, which put half of each on row 0 — the world's border ring,
+which every build tool refuses. A pad you can delete three quarters of is worse
+than one you cannot delete at all, because it looks like it worked. So the seed
+runs four along the wall on the first paintable row.
+
+And that exposed the real constraint: `storeZ` was hardcoded at **2**, so the
+building stood two rows off the north edge and the yard was *one usable row*.
+The shop is centred east–west and was never centred north–south. Fixing it meant
+moving the building south, which this document had already ruled out in step 4 —
+every fixture in a live save is a placement at an absolute tile, so the whole
+contents of the building would land outside it and be refunded. So the position
+joined `w` and `h` on the stored shell: a shop with `shell.z` uses it, one
+without reads 2 and does not move, and new worlds start at 5 with four rows of
+yard. A read-time default rather than a migration, the same bargain `kindOf`
+strikes.
+
+`verify:yard` guards the four claims that are invisible in a screenshot, because
+a seeded pad and a generated one look identical on the day it lands: stamped
+once means once, an old save gets a yard *and does not move*, area is capacity,
+and a pad indoors is walkable but never buildable.
+
+### The third pad holds people
+
+**Built** — the break area, `GROUND.break` → `T.BREAK` → `L.break`, and the first
+test of whether "a pad is a job" was a real idea or a description of the two
+things that happened to exist.
+
+It was. The whole feature is one entry in `GROUND`, one line in `TILE_STYLE`, one
+palette entry and one row in the catalog; everything that makes it *work* —
+painting it, pricing it per tile, warning before the last cell goes, refusing to
+strand a fixture on it, drawing it in its own colour, reading its region back off
+`tiles` — was already written for the bay. What is genuinely new lives in
+`server/sim/staff.js`, where the shop stopped taking the pastime's word for
+where a break happens. See **step 9 of docs/workers.md**.
+
+Two things it changed here, both small and both worth keeping:
+
+- **`does` is a field on the GROUND row.** `document-fixtures` described a pad by
+  branching on its kind, which is fine for two and wrong for three — a third pad
+  gets described as the second. What a pad is FOR now lives on the row that
+  defines it.
+- **Nothing seeds it, and that is the difference between a pad and a *yard*.**
+  `freezeYard` stamps a bay because a shop with nowhere for a delivery to land is
+  broken. A shop with nowhere to rest is the shop everybody already has, so the
+  break area starts at zero cells and `L.break` is null until somebody drags one
+  out. A pad that seeds itself is answering "this shop cannot work without one";
+  a pad that doesn't is answering "this is worth building".
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:

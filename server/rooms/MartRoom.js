@@ -264,8 +264,8 @@ export class MartRoom extends Room {
     // Painting an area of ground rather than drawing along a line. Two corners
     // for the same reason a wall sends two ends: a stroke is up to 256 cells
     // and the inbound cap is 4KB.
-    this.onMessage('build-floor', (client, m) => {
-      const res = this.game.buildFloor(client.sessionId, m ?? {});
+    this.onMessage('build-ground', (client, m) => {
+      const res = this.game.buildGround(client.sessionId, m ?? {});
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
@@ -282,6 +282,14 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.emptyFixture(client.sessionId, m?.id));
     });
 
+    // The one fixture verb that sends no layout, because nothing about the shop
+    // moved: `boh` rides the snapshot, beside `assigned` and `priority` and for
+    // the same reason — it changes while the building stands still. This used to
+    // claim the opposite and broadcast one anyway, which cost a full teardown
+    // and rebuild of the scene every time somebody flipped a shelf.
+    this.onMessage('build-boh', (client, m) => {
+      client.send('action-result', this.game.setBackOfHouse(client.sessionId, m?.id, m?.on !== false));
+    });
     this.onMessage('build-rotate', (client, m) => {
       const res = this.game.rotateFixture(client.sessionId, m?.id, m?.dir);
       client.send('action-result', res);

@@ -59,7 +59,7 @@ its canvas and hands you the PNG. Look at it. `stock_shop` first if you want
 the shelves full rather than an empty building.
 
 **After touching `layout.js`, `shared/build.js` or an action — run `npm run verify`.**
-Six sweeps, about five seconds:
+Ten sweeps, about ten seconds:
 
 - `verify:layout` generates ~100k layouts across seeds × counts and asserts the
   generator placed *exactly* what it was asked for, that every fixture has a
@@ -86,6 +86,25 @@ Six sweeps, about five seconds:
   floors exist to fix, end to end — wall an annex, fail to put a shelf in it,
   floor it, succeed — and that paint survives three re-flows and a purchase,
   because an overlay that didn't would mean buying a shelf repaints the shop.
+- `verify:yard` guards the delivery bay and the drop-off, which stopped being
+  generated furniture and became ground you paint. Four claims, none of them
+  visible in a screenshot because a seeded pad and a generated one look
+  identical on day one: the yard is stamped ONCE (a boolean on the save, not
+  "does this shop own any pads" — otherwise deleting your bay hands it back on
+  the next load), a save that predates it gets a yard *and does not move*, how
+  big you paint a pad is how many crates it holds, and a pad indoors is walkable
+  but never buildable. It authors its own ground rows and removes them on exit.
+- `verify:break` guards the break area — the third pad, and the first that holds
+  people rather than goods. Its claims are invisible in a screenshot and mostly
+  invisible in play, which is why they are here: that a shop with **no** break
+  area still takes breaks at the spot the pastime authored (the fallback is the
+  whole promise, and the override sits in the same function it falls back to),
+  that one cell seats one person so the fifth hire rests elsewhere rather than
+  queueing, that a room nobody can reach is not a room — otherwise walling one
+  off pins every hire at `TIRED_PACE` forever — and that a break taken in it
+  restores more than the same break taken leaning on a shelf, or the room is
+  ground you pay for that only costs you the walk. It authors its own ground,
+  pastime and worker rows and removes them on exit.
 - `verify:economy` guards what a fixture costs and how many of them there are:
   that the price comes off the catalog row and not off an upgrade payload, that
   a build-and-sell round trip always loses money rather than printing it, that a
@@ -120,11 +139,12 @@ Keep to your side and you'll almost never touch the same file.
 | Content (items, crops, customers, events, upgrades, recipes, **fixture art + tiers**) | *the database* | Either person, any time, via MCP. No conflicts possible. |
 | Look of things (colours, props, characters) | `client/render/palette.js`, `client/render/props.js` | Safe, self-contained, very visible. Good place for a kid to start. |
 | UI and HUD | `client/ui.js`, `client/index.html` | |
+| What a palette button shows | `client/thumb.js` | Draws a fixture, a floor or a wall from its own art, as inline SVG. Reads `palette.js` — never its own colours. |
 | Rendering internals | `client/render/scene.js` | |
 | Economy and balance | `server/sim/economy.js` | Re-run `simulate` after every change. |
 | Customer behaviour, crops, actions | `server/sim/index.js` | The biggest file. Coordinate before restructuring. |
 | Layout generation | `server/layout.js` | Re-run `npm run verify` after every change. |
-| Build placement rules | `shared/build.js` | Imported by **both** client and server on purpose — see below. Also owns the floor brush, which is ground rather than a fixture. |
+| Build placement rules | `shared/build.js` | Imported by **both** client and server on purpose — see below. Also owns `GROUND` — the brush that paints floor, the delivery bay and the storage pad, none of which is a fixture. |
 | Tile vocabulary | `shared/tiles.js` | The one place tile kinds are defined. |
 | Tag vocabulary | `shared/tags.js` | Adding a tag is safe. Changing what one *means* affects everything. |
 | Validation rules | `shared/schemas.js` | Loosen carefully — this is what stops bad content reaching the game. |
@@ -181,10 +201,11 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, and prices that live on the catalog | steps 1–9 and 11 built; 10 cancelled; 12 next |
-| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks and the props that make them visible | steps 1–6 and 8 built |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads and the break area alike | steps 1–9, 11, 13–14 built; 10 cancelled; 12 next |
+| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, and the break area they are taken in | steps 1–6, 8 and 9 built |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
+| [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
 
 ---
 
@@ -268,6 +289,60 @@ what the next step was meant to be.
   **not in `FIXTURES`** — a floor has no anchor, blocks nobody and is painted
   rather than placed, so `BUILD_KINDS` partitions in three now, which
   `verify:catalog` counts rather than trusting anyone to remember.
+- **The yard is ground you paint, and the mark that it was seeded is a boolean
+  rather than a count.** The delivery bay and the drop-off used to be stamped by
+  `compose` against the corners of the back wall on every re-flow, which is
+  exactly why they could never be moved: buying a shelf put them back. They are
+  designs for the floor brush now — one overlay (`layout.ground`, formerly
+  `floors`), where the KIND of the piece you painted decides the tile. Two traps
+  came out of it. `freezeYard`'s mark has to be its own field, because "does
+  this shop own any pads" hands your bay back on the next load the moment you
+  paint over the last one — which makes the yard the one thing in the shop you
+  may not get rid of. And **the seed may only lay ground the player could lay**:
+  the old 2×2 sat half on row 0, the world's border ring, which every build tool
+  refuses — a pad you can delete three quarters of is worse than one you cannot
+  delete at all, because it looks like it worked.
+- **The shop is centred east–west and was never centred north–south.** `storeZ`
+  was hardcoded at 2, so there were two rows behind the building and the border
+  ring ate one of them. It lives on the stored shell as `shell.z` now: a save
+  without one reads 2 and does not move — every fixture in it is a placement at
+  an absolute tile, so pushing the building south would drop the entire contents
+  of the building outside it and refund them — and a new world starts at 5.
+  Anything that changes where the building *sits* has to be opt-in per shop for
+  the same reason.
+- **A refusal has to come before the money moves, not after the decision.**
+  `buyStock` deducted cash, then checked there was a bay to deliver onto — so an
+  order with nowhere to land was refused *and* charged for. It read as correct
+  in isolation, because the check itself was right and sat next to the code it
+  guarded. `verify:yard` caught it on the assertion that nothing was charged, not
+  on the one that the order was refused. Put a new guard with the other guards.
+- **A fixture can earn now, and its clock must not be saved.** `yields` on a
+  piece pays into `dropCash`'s pile — the till's entity, renderer and pickup
+  path, never a second kind of money on the floor. The trap is the timer: stamps
+  are against `elapsed`, which **restarts at zero on every load**, so a saved
+  stamp puts the last payout in the future and the thing never pays again.
+  `persist` already learned this about `plantedAt` and stores crops as how long
+  they *have* grown. `yieldedAt` is in-memory with a `last > elapsed` guard.
+- **A pad is a job, and the third one holds people.** The break area
+  (`GROUND.break` → `T.BREAK` → `L.break`) is painted with the same brush the bay
+  is, and *one cell seats one person* — the yard's "how big you paint it is how
+  much it holds", said about staff. Three things about it are not obvious. It is
+  the one pad **nothing seeds**, because a shop with no bay is broken and a shop
+  with no break room is every shop that exists today. It **outranks the pastime's
+  own `spot`** rather than joining `PASTIME_SPOTS`, because a room half your
+  hires ignore reads as broken — so `spot` is now the fallback. And the fallback
+  has to survive a room nobody can *reach*: the seat search asks `findPath`, or
+  walling off your break room pins every hire at `TIRED_PACE` forever, which is
+  strictly worse than never having painted one. Measured at +47 mean profit over
+  12 seeds beside the door and +12 in the far corner — where you put it is most
+  of what it is worth, and that falls out of the walk rather than out of a rule.
+- **`charm` feeds catchment, and the ceiling is the point.** Reputation is what
+  the people who already came in think of you and the shop can max it out;
+  catchment is how much of the town is in reach at all, which is the term
+  shopkeeping could never move. Charm is content-authored and unbounded, so the
+  curve saturates at `CHARM_MAX` — otherwise the cheapest strategy in the game
+  is a room full of pot plants. It is also the first thing that has ever read
+  the `decor` upgrade kind, which sat in the schema dead since it was written.
 - **A tile is ground. What is standing on it is `layout.blocked`.** They were
   one array until step 5 of docs/building.md, which is why there was nowhere to
   put a rug — a rug is not a floor material and not an occupant, and one value
@@ -366,6 +441,17 @@ what the next step was meant to be.
   and fading on a loop, for vapour and steam. Each is a flag one renderer knows
   how to read, and the pattern is deliberate: a new kind of behaviour on a part
   beats a second kind of model every time.
+- **A picture of a thing has to come from the thing.** The palette draws every
+  entry from its own catalog row now (`client/thumb.js`) — which is the only way
+  to tell five floors apart, since a floor *is* a look and the buttons were five
+  names in one grey glyph. The trap is the half with no row: a wall is built by
+  the renderer, so its button was hand-drawn to match, and the hand-drawn
+  version was wrong twice over — a blue pane where the game glazes with the
+  wall's own colour at a third opacity, posts and rails where the game builds a
+  low solid slab. Neither would ever have been caught, because nobody holds a
+  38px button up against a wall across the room. The shape lives in `edgeBands`
+  in `palette.js` now and both callers ask for it. Anything that draws a second
+  picture of something the game already draws has to derive it, not match it.
 - **Aiming at a fixture is not the same as picking a tile.** A shelf is a
   three-quarter-tile-tall box, so on a 45° camera its top face is drawn most of
   a tile up-screen of the ground it stands on. `pickTile` answers "which floor

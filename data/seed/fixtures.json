@@ -1,5 +1,620 @@
 [
   {
+    "id": "a-frame-sign",
+    "name": "A-Frame Sign",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#3a3a34",
+          "pos": [
+            0.02,
+            0.34,
+            -0.13
+          ],
+          "scale": [
+            0.06,
+            0.6,
+            0.48
+          ],
+          "rot": 22,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#3a3a34",
+          "pos": [
+            0.02,
+            0.34,
+            0.13
+          ],
+          "scale": [
+            0.06,
+            0.6,
+            0.48
+          ],
+          "rot": -22,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#8a5a3b",
+          "pos": [
+            0.02,
+            0.64,
+            -0.13
+          ],
+          "scale": [
+            0.08,
+            0.06,
+            0.5
+          ],
+          "rot": 22,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#8a5a3b",
+          "pos": [
+            0.02,
+            0.64,
+            0.13
+          ],
+          "scale": [
+            0.08,
+            0.06,
+            0.5
+          ],
+          "rot": -22,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8e2d2",
+          "pos": [
+            -0.02,
+            0.44,
+            -0.14
+          ],
+          "scale": [
+            0.02,
+            0.05,
+            0.3
+          ],
+          "rot": 22,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8e2d2",
+          "pos": [
+            -0.02,
+            0.32,
+            -0.14
+          ],
+          "scale": [
+            0.02,
+            0.05,
+            0.22
+          ],
+          "rot": 22,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Chalked",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "prop-floor",
+    "cost": 25,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "aisle-sign",
+    "name": "Aisle Sign",
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#3b3630",
+          "pos": [
+            0,
+            -0.1,
+            -0.3
+          ],
+          "scale": [
+            0.03,
+            0.2,
+            0.03
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#3b3630",
+          "pos": [
+            0,
+            -0.1,
+            0.3
+          ],
+          "scale": [
+            0.03,
+            0.2,
+            0.03
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#2f6f8f",
+          "pos": [
+            0,
+            -0.34,
+            0
+          ],
+          "scale": [
+            0.08,
+            0.3,
+            0.92
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#f2f6f8",
+          "pos": [
+            0.05,
+            -0.34,
+            -0.16
+          ],
+          "scale": [
+            0.02,
+            0.11,
+            0.44
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#f2f6f8",
+          "pos": [
+            0.05,
+            -0.3,
+            0.22
+          ],
+          "scale": [
+            0.02,
+            0.06,
+            0.22
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Hung",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "prop-ceiling",
+    "cost": 45,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "bakery-case",
+    "name": "Bakery Case",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#8a5a3b",
+          "pos": [
+            0,
+            0.08,
+            0
+          ],
+          "scale": [
+            0.7,
+            0.16,
+            0.8
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#efe6d8",
+          "pos": [
+            -0.3,
+            0.55,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.78,
+            0.78
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#efe6d8",
+          "pos": [
+            0,
+            0.55,
+            -0.36
+          ],
+          "scale": [
+            0.6,
+            0.78,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#efe6d8",
+          "pos": [
+            0,
+            0.55,
+            0.36
+          ],
+          "scale": [
+            0.6,
+            0.78,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8dcc8",
+          "pos": [
+            0.02,
+            0.28,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.05,
+            0.64
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8dcc8",
+          "pos": [
+            0.02,
+            0.62,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.05,
+            0.64
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#cfe9f2",
+          "pos": [
+            0.32,
+            0.6,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.72,
+            0.72
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.32,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#a06c48",
+          "pos": [
+            0,
+            0.96,
+            0
+          ],
+          "scale": [
+            0.72,
+            0.06,
+            0.82
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Bakery case",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Heated case",
+        "cost": 120,
+        "capacity_mult": 1,
+        "keeps_mult": 1.6,
+        "speed_mult": 1
+      },
+      {
+        "name": "Patisserie case",
+        "cost": 300,
+        "capacity_mult": 1.35,
+        "keeps_mult": 2,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "shelf",
+    "cost": 95,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "basket-stack",
+    "name": "Basket Stack",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c8503f",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.42,
+            0.18,
+            0.34
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#a8402f",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.36,
+            0.03,
+            0.28
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#c8503f",
+          "pos": [
+            0.02,
+            0.26,
+            0
+          ],
+          "scale": [
+            0.42,
+            0.18,
+            0.34
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#a8402f",
+          "pos": [
+            0.02,
+            0.34,
+            0
+          ],
+          "scale": [
+            0.36,
+            0.03,
+            0.28
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#d8604f",
+          "pos": [
+            -0.01,
+            0.43,
+            0
+          ],
+          "scale": [
+            0.42,
+            0.18,
+            0.34
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#7d3527",
+          "pos": [
+            -0.01,
+            0.53,
+            0
+          ],
+          "scale": [
+            0.06,
+            0.06,
+            0.26
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Stacked",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "prop-floor",
+    "cost": 20,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "break-room",
+    "name": "Break Room",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Lino",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "break",
+    "cost": 12,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#b59ab8",
+      "accent": "#9d84a1",
+      "pattern": "checker"
+    },
+    "yields": null,
+    "charm": 0
+  },
+  {
     "id": "checkout",
     "name": "Till",
     "model": {
@@ -153,7 +768,9 @@
     "cost": 300,
     "emits": null,
     "tags": [],
-    "surface": null
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "chequer-tile",
@@ -177,7 +794,777 @@
       "color": "#e6e2d8",
       "accent": "#4a4a52",
       "pattern": "checker"
-    }
+    },
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "cooler",
+    "name": "Cooler",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c2d3dc",
+          "pos": [
+            -0.28,
+            0.32,
+            0
+          ],
+          "scale": [
+            0.09,
+            0.64,
+            0.74
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#d8e6ec",
+          "pos": [
+            0.02,
+            0.32,
+            -0.34
+          ],
+          "scale": [
+            0.52,
+            0.64,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#d8e6ec",
+          "pos": [
+            0.02,
+            0.32,
+            0.34
+          ],
+          "scale": [
+            0.52,
+            0.64,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#eaf4f8",
+          "pos": [
+            0.02,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.48,
+            0.05,
+            0.6
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#eaf4f8",
+          "pos": [
+            0.02,
+            0.4,
+            0
+          ],
+          "scale": [
+            0.48,
+            0.05,
+            0.6
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#aec4d0",
+          "pos": [
+            0.02,
+            0.66,
+            0
+          ],
+          "scale": [
+            0.62,
+            0.07,
+            0.8
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#cfe9f2",
+          "pos": [
+            0.28,
+            0.34,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.56,
+            0.66
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.33,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Under-counter",
+        "cost": 0,
+        "capacity_mult": 0.6,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Upright cooler",
+        "cost": 140,
+        "capacity_mult": 1.1,
+        "keeps_mult": 1.2,
+        "speed_mult": 1
+      },
+      {
+        "name": "Glass-door cooler",
+        "cost": 300,
+        "capacity_mult": 1.6,
+        "keeps_mult": 1.5,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [
+      {
+        "id": "run",
+        "name": "Wall run",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.34,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.09,
+                1.04,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.07,
+                0
+              ],
+              "scale": [
+                0.66,
+                0.14,
+                0.96
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.94,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#aec4d0",
+              "pos": [
+                0.02,
+                1.06,
+                0
+              ],
+              "scale": [
+                0.72,
+                0.08,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#cfe9f2",
+              "pos": [
+                0.34,
+                0.55,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.92,
+                0.96
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.33,
+              "drift": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "run-corner",
+        "name": "Wall corner",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.3,
+                0.52,
+                0.1
+              ],
+              "scale": [
+                0.08,
+                1.04,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                0.1,
+                0.52,
+                -0.3
+              ],
+              "scale": [
+                0.8,
+                1.04,
+                0.08
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.3,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.3,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.64,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.64,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.98,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.98,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "endcap",
+        "name": "Endcap",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.22,
+                0.46,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.92,
+                0.72
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#d8e6ec",
+              "pos": [
+                0,
+                0.46,
+                -0.33
+              ],
+              "scale": [
+                0.44,
+                0.92,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#d8e6ec",
+              "pos": [
+                0,
+                0.46,
+                0.33
+              ],
+              "scale": [
+                0.44,
+                0.92,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.12,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.46,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.8,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#aec4d0",
+              "pos": [
+                0,
+                0.96,
+                0
+              ],
+              "scale": [
+                0.56,
+                0.07,
+                0.78
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      }
+    ],
+    "kind": "freezer",
+    "cost": 75,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "deli-counter",
+    "name": "Deli Counter",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#b9c6cd",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.72,
+            0.2,
+            0.82
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#d8e6ec",
+          "pos": [
+            -0.1,
+            0.45,
+            0
+          ],
+          "scale": [
+            0.52,
+            0.5,
+            0.78
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#eaf4f8",
+          "pos": [
+            0.02,
+            0.72,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.05,
+            0.66
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#cfe9f2",
+          "pos": [
+            0.3,
+            0.86,
+            0
+          ],
+          "scale": [
+            0.06,
+            0.34,
+            0.74
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.32,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#aec4d0",
+          "pos": [
+            0.06,
+            1.04,
+            0
+          ],
+          "scale": [
+            0.62,
+            0.06,
+            0.8
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#56656f",
+          "pos": [
+            0.34,
+            0.6,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.05,
+            0.7
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Serve-over",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Chilled well",
+        "cost": 150,
+        "capacity_mult": 1,
+        "keeps_mult": 1.8,
+        "speed_mult": 1
+      },
+      {
+        "name": "Butcher’s counter",
+        "cost": 380,
+        "capacity_mult": 1.3,
+        "keeps_mult": 2.6,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "freezer",
+    "cost": 240,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "freezer",
@@ -748,13 +2135,1297 @@
             }
           ]
         }
+      },
+      {
+        "id": "run",
+        "name": "Wall run",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.34,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.09,
+                1.04,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.07,
+                0
+              ],
+              "scale": [
+                0.66,
+                0.14,
+                0.96
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.94,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#aec4d0",
+              "pos": [
+                0.02,
+                1.06,
+                0
+              ],
+              "scale": [
+                0.72,
+                0.08,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#cfe9f2",
+              "pos": [
+                0.34,
+                0.55,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.92,
+                0.96
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.33,
+              "drift": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "run-corner",
+        "name": "Wall corner",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.3,
+                0.52,
+                0.1
+              ],
+              "scale": [
+                0.08,
+                1.04,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                0.1,
+                0.52,
+                -0.3
+              ],
+              "scale": [
+                0.8,
+                1.04,
+                0.08
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.3,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.3,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.64,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.64,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.98,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.98,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "endcap",
+        "name": "Endcap",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.22,
+                0.46,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.92,
+                0.72
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#d8e6ec",
+              "pos": [
+                0,
+                0.46,
+                -0.33
+              ],
+              "scale": [
+                0.44,
+                0.92,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#d8e6ec",
+              "pos": [
+                0,
+                0.46,
+                0.33
+              ],
+              "scale": [
+                0.44,
+                0.92,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.12,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.46,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.8,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#aec4d0",
+              "pos": [
+                0,
+                0.96,
+                0
+              ],
+              "scale": [
+                0.56,
+                0.07,
+                0.78
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
       }
     ],
     "kind": "freezer",
     "cost": 260,
     "emits": null,
     "tags": [],
-    "surface": null
+    "surface": null,
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "loading-bay",
+    "name": "Loading Bay",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Hardstanding",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "bay",
+    "cost": 8,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9aa79b",
+      "accent": "#8c9a8d",
+      "pattern": "checker"
+    },
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "money-tree",
+    "name": "Money Tree",
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#b1613a",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.4,
+            0.28,
+            0.4
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c47048",
+          "pos": [
+            0,
+            0.29,
+            0
+          ],
+          "scale": [
+            0.44,
+            0.06,
+            0.44
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#6b4a30",
+          "pos": [
+            0,
+            0.6,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.62,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#4f7a3a",
+          "pos": [
+            0,
+            1,
+            0
+          ],
+          "scale": [
+            0.52,
+            0.42,
+            0.52
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#63914a",
+          "pos": [
+            0.16,
+            1.14,
+            -0.1
+          ],
+          "scale": [
+            0.3,
+            0.26,
+            0.3
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#3f6631",
+          "pos": [
+            -0.16,
+            1.06,
+            0.12
+          ],
+          "scale": [
+            0.26,
+            0.22,
+            0.26
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#7fbf6a",
+          "pos": [
+            0.2,
+            0.86,
+            0.14
+          ],
+          "scale": [
+            0.14,
+            0.09,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#9ad285",
+          "pos": [
+            -0.18,
+            0.78,
+            -0.12
+          ],
+          "scale": [
+            0.13,
+            0.08,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "In leaf",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "prop-floor",
+    "cost": 400,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": {
+      "cash": 12,
+      "every": 180
+    },
+    "charm": 4
+  },
+  {
+    "id": "open-chiller",
+    "name": "Open Chiller",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c2d3dc",
+          "pos": [
+            -0.32,
+            0.6,
+            0
+          ],
+          "scale": [
+            0.1,
+            1.2,
+            0.8
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#d8e6ec",
+          "pos": [
+            0.02,
+            0.6,
+            -0.37
+          ],
+          "scale": [
+            0.58,
+            1.2,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#d8e6ec",
+          "pos": [
+            0.02,
+            0.6,
+            0.37
+          ],
+          "scale": [
+            0.58,
+            1.2,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#eaf4f8",
+          "pos": [
+            0.02,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.05,
+            0.64
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#eaf4f8",
+          "pos": [
+            0.02,
+            0.56,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.05,
+            0.64
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#eaf4f8",
+          "pos": [
+            0.02,
+            0.96,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.05,
+            0.64
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#aec4d0",
+          "pos": [
+            0.02,
+            1.24,
+            0
+          ],
+          "scale": [
+            0.66,
+            0.08,
+            0.84
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#fff2cd",
+          "pos": [
+            0.12,
+            1.17,
+            0
+          ],
+          "scale": [
+            0.38,
+            0.03,
+            0.7
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Multideck",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Night-blind multideck",
+        "cost": 190,
+        "capacity_mult": 1,
+        "keeps_mult": 1.7,
+        "speed_mult": 1
+      },
+      {
+        "name": "Glass-end multideck",
+        "cost": 420,
+        "capacity_mult": 1.4,
+        "keeps_mult": 2.4,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [
+      {
+        "id": "run",
+        "name": "Wall run",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.34,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.09,
+                1.04,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.07,
+                0
+              ],
+              "scale": [
+                0.66,
+                0.14,
+                0.96
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.94,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.96
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#aec4d0",
+              "pos": [
+                0.02,
+                1.06,
+                0
+              ],
+              "scale": [
+                0.72,
+                0.08,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#cfe9f2",
+              "pos": [
+                0.34,
+                0.55,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.92,
+                0.96
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.33,
+              "drift": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "run-corner",
+        "name": "Wall corner",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.3,
+                0.52,
+                0.1
+              ],
+              "scale": [
+                0.08,
+                1.04,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                0.1,
+                0.52,
+                -0.3
+              ],
+              "scale": [
+                0.8,
+                1.04,
+                0.08
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.3,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.3,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.64,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.64,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.04,
+                0.98,
+                0.12
+              ],
+              "scale": [
+                0.6,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.28,
+                0.98,
+                0.04
+              ],
+              "scale": [
+                0.44,
+                0.05,
+                0.6
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "endcap",
+        "name": "Endcap",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#c2d3dc",
+              "pos": [
+                -0.22,
+                0.46,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.92,
+                0.72
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#d8e6ec",
+              "pos": [
+                0,
+                0.46,
+                -0.33
+              ],
+              "scale": [
+                0.44,
+                0.92,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#d8e6ec",
+              "pos": [
+                0,
+                0.46,
+                0.33
+              ],
+              "scale": [
+                0.44,
+                0.92,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.12,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.46,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#eaf4f8",
+              "pos": [
+                0.02,
+                0.8,
+                0
+              ],
+              "scale": [
+                0.42,
+                0.05,
+                0.62
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#aec4d0",
+              "pos": [
+                0,
+                0.96,
+                0
+              ],
+              "scale": [
+                0.56,
+                0.07,
+                0.78
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      }
+    ],
+    "kind": "freezer",
+    "cost": 285,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "pendant-lamp",
@@ -838,7 +3509,9 @@
       "range": 5.5
     },
     "tags": [],
-    "surface": null
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "pine-boards",
@@ -862,7 +3535,9 @@
       "color": "#c09a63",
       "accent": "#a8834f",
       "pattern": "planks"
-    }
+    },
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "plot",
@@ -999,7 +3674,9 @@
     "cost": 30,
     "emits": null,
     "tags": [],
-    "surface": null
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "poured-concrete",
@@ -1023,7 +3700,427 @@
       "color": "#9b9a94",
       "accent": null,
       "pattern": "plain"
-    }
+    },
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "produce-table",
+    "name": "Produce Table",
+    "model": {
+      "stages": [
+        {
+          "name": "Trestle",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.02,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.62,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.02,
+                0.2,
+                0
+              ],
+              "scale": [
+                0.56,
+                0.04,
+                0.68
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.2,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.52,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0.26,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.52,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Tiered",
+          "at": 0.5,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.02,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.62,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.02,
+                0.2,
+                0
+              ],
+              "scale": [
+                0.56,
+                0.04,
+                0.68
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.2,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.52,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0.26,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.52,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#b07c56",
+              "pos": [
+                -0.18,
+                0.74,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.05,
+                0.72
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.18,
+                0.63,
+                -0.34
+              ],
+              "scale": [
+                0.24,
+                0.22,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.18,
+                0.63,
+                0.34
+              ],
+              "scale": [
+                0.24,
+                0.22,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        },
+        {
+          "name": "Covered",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.02,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.62,
+                0.05,
+                0.76
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0.02,
+                0.2,
+                0
+              ],
+              "scale": [
+                0.56,
+                0.04,
+                0.68
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                -0.2,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.52,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0.26,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.52,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#b07c56",
+              "pos": [
+                -0.18,
+                0.74,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.05,
+                0.72
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#6b4a30",
+              "pos": [
+                -0.26,
+                1.12,
+                -0.34
+              ],
+              "scale": [
+                0.06,
+                0.72,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#6b4a30",
+              "pos": [
+                -0.26,
+                1.12,
+                0.34
+              ],
+              "scale": [
+                0.06,
+                0.72,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#c8503f",
+              "pos": [
+                0.04,
+                1.5,
+                0
+              ],
+              "scale": [
+                0.78,
+                0.07,
+                0.88
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Trestle table",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Tiered display",
+        "cost": 90,
+        "capacity_mult": 1.4,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      },
+      {
+        "name": "Covered stall",
+        "cost": 220,
+        "capacity_mult": 1.8,
+        "keeps_mult": 1.3,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "shelf",
+    "cost": 38,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "shelf",
@@ -2088,7 +5185,9 @@
     "cost": 45,
     "emits": null,
     "tags": [],
-    "surface": null
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "slate-flags",
@@ -2112,7 +5211,9 @@
       "color": "#5c626b",
       "accent": "#4a4f57",
       "pattern": "planks"
-    }
+    },
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "station",
@@ -2138,6 +5239,7 @@
               ],
               "rot": 0,
               "surface": false,
+              "seam": false,
               "alpha": 1,
               "drift": false
             },
@@ -2156,6 +5258,7 @@
               ],
               "rot": 0,
               "surface": false,
+              "seam": false,
               "alpha": 1,
               "drift": false
             },
@@ -2174,6 +5277,7 @@
               ],
               "rot": 0,
               "surface": false,
+              "seam": false,
               "alpha": 1,
               "drift": false
             }
@@ -2198,6 +5302,7 @@
               ],
               "rot": 0,
               "surface": false,
+              "seam": false,
               "alpha": 1,
               "drift": false
             },
@@ -2216,6 +5321,7 @@
               ],
               "rot": 0,
               "surface": false,
+              "seam": false,
               "alpha": 1,
               "drift": false
             },
@@ -2234,6 +5340,7 @@
               ],
               "rot": 0,
               "surface": false,
+              "seam": false,
               "alpha": 1,
               "drift": false
             },
@@ -2252,6 +5359,7 @@
               ],
               "rot": 0,
               "surface": false,
+              "seam": false,
               "alpha": 1,
               "drift": false
             }
@@ -2300,6 +5408,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2318,6 +5427,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2336,6 +5446,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2354,6 +5465,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2372,6 +5484,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2390,6 +5503,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2408,6 +5522,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2426,6 +5541,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 }
@@ -2450,6 +5566,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2468,6 +5585,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2486,6 +5604,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2504,6 +5623,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2522,6 +5642,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2540,6 +5661,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2558,6 +5680,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2576,6 +5699,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 }
@@ -2608,6 +5732,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2626,6 +5751,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2644,6 +5770,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2662,6 +5789,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2680,6 +5808,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 0.45,
                   "drift": false
                 },
@@ -2698,6 +5827,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2716,6 +5846,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 }
@@ -2740,6 +5871,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2758,6 +5890,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2776,6 +5909,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2794,6 +5928,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2812,6 +5947,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 0.42,
                   "drift": false
                 },
@@ -2830,6 +5966,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2848,6 +5985,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 }
@@ -2880,6 +6018,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2898,6 +6037,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2916,6 +6056,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2934,6 +6075,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2952,6 +6094,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2970,6 +6113,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -2988,6 +6132,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -3006,6 +6151,7 @@
                   ],
                   "rot": 90,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 }
@@ -3030,6 +6176,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -3048,6 +6195,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -3066,6 +6214,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -3084,6 +6233,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -3102,6 +6252,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -3120,6 +6271,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -3138,6 +6290,7 @@
                   ],
                   "rot": 0,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 },
@@ -3156,6 +6309,7 @@
                   ],
                   "rot": 90,
                   "surface": false,
+                  "seam": false,
                   "alpha": 1,
                   "drift": false
                 }
@@ -3163,13 +6317,691 @@
             }
           ]
         }
+      },
+      {
+        "id": "sandwich-press",
+        "name": "Sandwich Press",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#8a8f94",
+              "pos": [
+                0,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.6,
+                0.58
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#5c6166",
+              "pos": [
+                0,
+                0.62,
+                0
+              ],
+              "scale": [
+                0.64,
+                0.06,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#b8bec4",
+              "pos": [
+                -0.04,
+                0.72,
+                0
+              ],
+              "scale": [
+                0.52,
+                0.14,
+                0.54
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#3a3f44",
+              "pos": [
+                0.26,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.14,
+                0.06,
+                0.1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#e8b23c",
+              "pos": [
+                0.32,
+                0.44,
+                0.2
+              ],
+              "scale": [
+                0.04,
+                0.06,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#eef4f6",
+              "pos": [
+                0.05,
+                0.92,
+                0
+              ],
+              "scale": [
+                0.2,
+                0.14,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.4,
+              "drift": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "juicer",
+        "name": "Juicer",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#dfe4e8",
+              "pos": [
+                0,
+                0.22,
+                0
+              ],
+              "scale": [
+                0.52,
+                0.44,
+                0.52
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#c9ced4",
+              "pos": [
+                0,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.2,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#f2a03d",
+              "pos": [
+                0,
+                0.66,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.1,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#9aa0a6",
+              "pos": [
+                -0.18,
+                0.72,
+                0
+              ],
+              "scale": [
+                0.06,
+                0.3,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#7fbf6a",
+              "pos": [
+                0.24,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.1,
+                0.22,
+                0.18
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#e8d88a",
+              "pos": [
+                0.22,
+                0.12,
+                0
+              ],
+              "scale": [
+                0.16,
+                0.2,
+                0.16
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "soft-serve",
+        "name": "Soft-Serve Machine",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#eef2f5",
+              "pos": [
+                0,
+                0.36,
+                0
+              ],
+              "scale": [
+                0.56,
+                0.72,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#d0d8de",
+              "pos": [
+                0,
+                0.76,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.1,
+                0.6
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#e8504f",
+              "pos": [
+                0,
+                0.86,
+                0
+              ],
+              "scale": [
+                0.44,
+                0.12,
+                0.44
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#c9ced4",
+              "pos": [
+                0.22,
+                0.5,
+                0
+              ],
+              "scale": [
+                0.1,
+                0.22,
+                0.1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#3a3f44",
+              "pos": [
+                0.26,
+                0.64,
+                0
+              ],
+              "scale": [
+                0.1,
+                0.06,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "cylinder",
+              "color": "#f7f2e8",
+              "pos": [
+                0.22,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.12,
+                0.09
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#2f6f9f",
+              "pos": [
+                -0.02,
+                0.58,
+                0.29
+              ],
+              "scale": [
+                0.28,
+                0.14,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "deep-fryer",
+        "name": "Deep Fryer",
+        "model": {
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#8a8f94",
+              "pos": [
+                0,
+                0.28,
+                0
+              ],
+              "scale": [
+                0.6,
+                0.56,
+                0.58
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#c9ced4",
+              "pos": [
+                0,
+                0.58,
+                0
+              ],
+              "scale": [
+                0.62,
+                0.06,
+                0.6
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#3a3f44",
+              "pos": [
+                -0.08,
+                0.64,
+                -0.14
+              ],
+              "scale": [
+                0.34,
+                0.1,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#e8c96a",
+              "pos": [
+                -0.08,
+                0.68,
+                -0.14
+              ],
+              "scale": [
+                0.28,
+                0.04,
+                0.18
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#5c6166",
+              "pos": [
+                -0.08,
+                0.74,
+                0.2
+              ],
+              "scale": [
+                0.3,
+                0.22,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "box",
+              "color": "#e8504f",
+              "pos": [
+                0.3,
+                0.4,
+                0.18
+              ],
+              "scale": [
+                0.04,
+                0.06,
+                0.06
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false
+            },
+            {
+              "shape": "sphere",
+              "color": "#eef4f6",
+              "pos": [
+                -0.06,
+                0.88,
+                -0.12
+              ],
+              "scale": [
+                0.18,
+                0.12,
+                0.18
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.4,
+              "drift": true
+            }
+          ]
+        }
       }
     ],
-    "kind": "",
+    "kind": "station",
     "cost": 0,
     "emits": null,
     "tags": [],
-    "surface": null
+    "surface": null,
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "stockroom-floor",
+    "name": "Storage",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Decking",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "drop",
+    "cost": 8,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#c2a173",
+      "accent": "#a8865c",
+      "pattern": "planks"
+    },
+    "yields": null,
+    "charm": 0
+  },
+  {
+    "id": "string-lights",
+    "name": "String Lights",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#3b3630",
+          "pos": [
+            0,
+            -0.06,
+            0
+          ],
+          "scale": [
+            0.02,
+            0.02,
+            0.98
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#fff2cd",
+          "pos": [
+            0,
+            -0.16,
+            -0.34
+          ],
+          "scale": [
+            0.1,
+            0.12,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#ffe6a8",
+          "pos": [
+            0,
+            -0.2,
+            -0.11
+          ],
+          "scale": [
+            0.1,
+            0.12,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#fff2cd",
+          "pos": [
+            0,
+            -0.2,
+            0.11
+          ],
+          "scale": [
+            0.1,
+            0.12,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#ffe6a8",
+          "pos": [
+            0,
+            -0.16,
+            0.34
+          ],
+          "scale": [
+            0.1,
+            0.12,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Strung",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "prop-ceiling",
+    "cost": 55,
+    "emits": {
+      "color": "#ffe0b0",
+      "intensity": 0.8,
+      "range": 4
+    },
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "terracotta-planter",
@@ -3287,7 +7119,9 @@
     "cost": 35,
     "emits": null,
     "tags": [],
-    "surface": null
+    "surface": null,
+    "yields": null,
+    "charm": 0
   },
   {
     "id": "terracotta-tile",
@@ -3311,6 +7145,8 @@
       "color": "#c2724a",
       "accent": "#a75f3d",
       "pattern": "checker"
-    }
+    },
+    "yields": null,
+    "charm": 0
   }
 ]

@@ -42,7 +42,9 @@
 import { Game } from '../server/sim/index.js';
 import { writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
-import { canPaintFloor, floorStroke, floorIndex, FLOOR_STROKE_MAX, fixturesOf } from '../shared/build.js';
+import {
+  canPaintGround, groundStroke, groundIndex, GROUND_STROKE_MAX, fixturesOf,
+} from '../shared/build.js';
 import { surfaceOf } from '../shared/pieces.js';
 import { T } from '../shared/tiles.js';
 import { E } from '../shared/edges.js';
@@ -100,8 +102,11 @@ for (const f of TEST_FLOORS) {
 
 /**
  * `fresh()` has to clear everything `Game.create` reads off the save, and the
- * list grew again — by `floors`. A run that did not clear it would measure a
- * shop somebody else had already tiled and call the leftover paint a bug.
+ * list grew again — by `ground`, and then by `yardStamped` beside it. A run
+ * that did not clear the first would measure a shop somebody else had already
+ * tiled and call the leftover paint a bug; one that cleared it without the
+ * second would open a shop whose yard had been stamped into ground that is no
+ * longer there, and get no delivery bay at all.
  * Ask what a save could now leak into your assertions, not just what you added.
  */
 function fresh() {
@@ -110,11 +115,13 @@ function fresh() {
   g.grow = { w: 0, h: 0 };
   g.doorShift = 0;
   g.edits = [];
-  g.floors = [];
+  g.ground = [];
+  g.yardStamped = false;
   g.shell = null;
   g.ownedUpgrades = [];
   g.regenerateLayout(null, {}, { want: SHOP });
   g.freezeShell();
+  g.freezeYard();
   g.cash = 50000;
   g.addPlayer('me', 'Tester');
   g.players.me.build = { on: true, tool: 'shelf' };
@@ -151,23 +158,23 @@ function grassPatch(g, w = 2, h = 2) {
 // the corner your finger is actually on and walk the selection away from you.
 // ---------------------------------------------------------------------------
 {
-  eq(floorStroke({ x: 4, z: 4 }, { x: 6, z: 5 }).length, 6, 'a 3x2 drag is six cells');
-  eq(floorStroke({ x: 4, z: 4 }, null).length, 1, 'a drag that never moved is one cell');
-  eq(floorStroke({ x: 4, z: 4 }, { x: 4, z: 4 }).length, 1, 'and so is one that came back');
+  eq(groundStroke({ x: 4, z: 4 }, { x: 6, z: 5 }).length, 6, 'a 3x2 drag is six cells');
+  eq(groundStroke({ x: 4, z: 4 }, null).length, 1, 'a drag that never moved is one cell');
+  eq(groundStroke({ x: 4, z: 4 }, { x: 4, z: 4 }).length, 1, 'and so is one that came back');
 
   // Clamped around the start in both directions, which is the fix.
-  const right = floorStroke({ x: 2, z: 2 }, { x: 99, z: 2 }, 5);
+  const right = groundStroke({ x: 2, z: 2 }, { x: 99, z: 2 }, 5);
   eq(right.length, 5, 'an oversized drag right is trimmed to the cap');
   check(right.some((c) => c.x === 2), 'and keeps the corner it started on');
   eq(Math.max(...right.map((c) => c.x)), 6, 'trimming the far end, not the near one');
 
-  const left = floorStroke({ x: 20, z: 2 }, { x: 0, z: 2 }, 5);
+  const left = groundStroke({ x: 20, z: 2 }, { x: 0, z: 2 }, 5);
   eq(left.length, 5, 'an oversized drag left is trimmed to the same cap');
   check(left.some((c) => c.x === 20), 'and still keeps the corner it started on');
   eq(Math.min(...left.map((c) => c.x)), 16, 'trimming the far end again — this is the half edgeRun gets wrong');
 
-  const big = floorStroke({ x: 2, z: 2 }, { x: 99, z: 99 });
-  eq(big.length, FLOOR_STROKE_MAX * FLOOR_STROKE_MAX, 'the cap is per side, so a full stroke is a square of it');
+  const big = groundStroke({ x: 2, z: 2 }, { x: 99, z: 99 });
+  eq(big.length, GROUND_STROKE_MAX * GROUND_STROKE_MAX, 'the cap is per side, so a full stroke is a square of it');
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +189,7 @@ function grassPatch(g, w = 2, h = 2) {
   const cash = g.cash;
   eq(groundAt(g, spot.x, spot.z), T.GRASS, 'it starts as grass');
 
-  const res = g.buildFloor('me', {
+  const res = g.buildGround('me', {
     x: spot.x, z: spot.z, piece: 'verify-floor-cheap', to: { x: spot.x + 1, z: spot.z + 1 },
   });
   check(res.ok, 'a 2x2 patch of floor can be laid on grass', res.error ?? '');
@@ -214,8 +221,8 @@ function grassPatch(g, w = 2, h = 2) {
   const spot = grassPatch(a, 3, 2);
   const stroke = { x: spot.x, z: spot.z, to: { x: spot.x + 2, z: spot.z + 1 } };
 
-  check(a.buildFloor('me', { ...stroke, piece: 'verify-floor-cheap' }).ok, 'one shop lays concrete');
-  check(b.buildFloor('me', { ...stroke, piece: 'verify-floor-dear' }).ok, 'the other lays parquet');
+  check(a.buildGround('me', { ...stroke, piece: 'verify-floor-cheap' }).ok, 'one shop lays concrete');
+  check(b.buildGround('me', { ...stroke, piece: 'verify-floor-dear' }).ok, 'the other lays parquet');
 
   eq(JSON.stringify(a.layout.tiles), JSON.stringify(b.layout.tiles),
     'two different floors leave exactly the same ground');
@@ -223,12 +230,12 @@ function grassPatch(g, w = 2, h = 2) {
     'and exactly the same cells occupied');
   eq(JSON.stringify(a.layout.indoor), JSON.stringify(b.layout.indoor),
     'and exactly the same cells indoors — paint cannot roof anything');
-  check(JSON.stringify(a.layout.floors) !== JSON.stringify(b.layout.floors),
+  check(JSON.stringify(a.layout.ground) !== JSON.stringify(b.layout.ground),
     'while the layer that carries the look does differ, or this proves nothing');
 
   // ...and the two are told apart where it counts: on the way to the renderer.
   const look = (g) => surfaceOf(
-    [...TEST_FLOORS], floorIndex(g.layout).get(`${spot.x},${spot.z}`), '#000000',
+    [...TEST_FLOORS], groundIndex(g.layout).get(`${spot.x},${spot.z}`), '#000000',
   );
   eq(look(a).color, '#8d8d88', 'the concrete shop resolves to concrete');
   eq(look(b).color, '#8a5f36', 'and the parquet shop to parquet');
@@ -272,7 +279,7 @@ function grassPatch(g, w = 2, h = 2) {
   const beforeFloor = g.placeFixture('me', bay);
   check(!beforeFloor.ok, 'so a shelf cannot go in it yet — this is the whole bug');
 
-  const laid = g.buildFloor('me', {
+  const laid = g.buildGround('me', {
     x: ax, z: az, piece: 'verify-floor-cheap', to: { x: ax + 1, z: az + 1 },
   });
   check(laid.ok, 'the annex can be floored', laid.error ?? '');
@@ -296,21 +303,21 @@ function grassPatch(g, w = 2, h = 2) {
   const g = fresh();
   const L = g.layout;
   const cell = { x: L.store.x + 1, z: L.store.z + 1 };
-  check(g.buildFloor('me', { ...cell, piece: 'verify-floor-dear' }).ok, 'a tile inside the shop is re-tiled');
-  eq(floorIndex(g.layout).get(`${cell.x},${cell.z}`), 'verify-floor-dear', 'and reads back as that design');
+  check(g.buildGround('me', { ...cell, piece: 'verify-floor-dear' }).ok, 'a tile inside the shop is re-tiled');
+  eq(groundIndex(g.layout).get(`${cell.x},${cell.z}`), 'verify-floor-dear', 'and reads back as that design');
 
   // Three re-flows deep, the way verify:catalog checks a second shelf design —
   // one is not enough to catch a list that is rebuilt from the wrong source.
   for (let i = 0; i < 3; i++) g.regenerateLayout();
-  eq(floorIndex(g.layout).get(`${cell.x},${cell.z}`), 'verify-floor-dear',
+  eq(groundIndex(g.layout).get(`${cell.x},${cell.z}`), 'verify-floor-dear',
     'and is still that design three re-flows later');
 
   // ...and specifically across the action that used to be the culprit.
   const spot = grassPatch(g, 1, 1);
-  g.buildFloor('me', { ...spot, piece: 'verify-floor-cheap' });
+  g.buildGround('me', { ...spot, piece: 'verify-floor-cheap' });
   const bought = g.placeFixture('me', { kind: 'plot', x: spot.x + 1, z: spot.z, rot: 0 });
   check(bought.ok, 'a plot can be bought next to it', bought.error ?? '');
-  eq(floorIndex(g.layout).get(`${spot.x},${spot.z}`), 'verify-floor-cheap',
+  eq(groundIndex(g.layout).get(`${spot.x},${spot.z}`), 'verify-floor-cheap',
     'and buying something did not repaint the floor');
 }
 
@@ -326,40 +333,50 @@ function grassPatch(g, w = 2, h = 2) {
 {
   const g = fresh();
   const shelf = g.layout.shelves[0];
-  const under = canPaintFloor(g.layout, [{ x: shelf.x, z: shelf.z }], null);
+  const under = canPaintGround(g.layout, [{ x: shelf.x, z: shelf.z }], null, null);
   check(!under.ok, 'the floor under a shelf cannot be taken up');
   eq(under.reason, 'something is standing on it', 'and says why');
 
   // A stroke is judged whole, so one bad cell refuses the gesture rather than
   // laying up to it and then billing for the part that worked.
-  const spanning = canPaintFloor(g.layout, floorStroke(
+  const spanning = canPaintGround(g.layout, groundStroke(
     { x: shelf.x - 1, z: shelf.z }, { x: shelf.x + 1, z: shelf.z },
-  ), null);
+  ), null, null);
   check(!spanning.ok, 'and a stroke that merely clips one is refused entire');
 
-  // Everything with a job is off limits too, and each says which job.
+  // A bed is off limits, and says which job it is you would be taking away.
   const L = g.layout;
-  // The pad's second row, not its first: the yard starts at z=0 and the border
-  // cell is off limits to every build tool, so aiming at row 0 would prove only
-  // that the map has an edge.
-  const bay = canPaintFloor(L, [{ x: Math.floor(L.bay.x), z: Math.floor(L.bay.z) + 1 }], 'verify-floor-cheap');
-  check(!bay.ok, 'the delivery bay cannot be paved over');
-  eq(bay.reason, 'that is the delivery bay', 'and says which pad it is');
   const plot = g.layout.plots[0];
-  const bed = canPaintFloor(L, [{ x: plot.x, z: plot.z }], 'verify-floor-cheap');
-  check(!bed.ok, 'and a bed cannot be paved over');
+  const bed = canPaintGround(L, [{ x: plot.x, z: plot.z }], 'floor', 'verify-floor-cheap');
+  check(!bed.ok, 'a bed cannot be paved over');
   eq(bed.reason, 'there is a bed there — clear it first', 'and says so');
+
+  // The delivery bay is NOT, and that reversal is the whole yard feature: it
+  // used to answer 'that is the delivery bay' and refuse, because the pads were
+  // procedural and paving one would have left the shop with a bay the generator
+  // put straight back. They are ground somebody owns now, so this is a
+  // consequence you are told about and allowed to cause — the same answer
+  // walling in your own shelf gets.
+  const oneCell = canPaintGround(L, [L.bay.cells[0]], 'floor', 'verify-floor-cheap');
+  check(oneCell.ok, 'a corner of the delivery bay can be paved over');
+  check(!oneCell.warn, 'and says nothing, because the bay still has three cells left');
+
+  const allOfIt = canPaintGround(L, L.bay.cells, 'floor', 'verify-floor-cheap');
+  check(allOfIt.ok, 'and so can the whole thing');
+  check(/last delivery bay/.test(allOfIt.warn ?? ''),
+    'but that one warns, because an order would have nowhere to land', allOfIt.warn ?? 'none');
 
   // Empty floor comes up, and warns about what it leaves, because bare ground
   // indoors is a cell nothing can ever use: a shelf needs floor, a bed needs
   // to be outdoors, and there is no third thing to do with it.
   const open = { x: L.store.x + 1, z: L.store.z + 1 };
   eq(groundAt(g, open.x, open.z), T.FLOOR, 'there is empty shop floor to test on');
-  const up = canPaintFloor(L, [open], null);
+  const up = canPaintGround(L, [open], null, null);
   check(up.ok, 'empty floor can be taken up');
-  check(/bare ground indoors/.test(up.warn ?? ''), 'with a warning about what it leaves', up.warn ?? 'none');
+  check(/nothing can be built or dug on/.test(up.warn ?? ''),
+    'with a warning about what it leaves', up.warn ?? 'none');
 
-  const res = g.buildFloor('me', { ...open, piece: '' });
+  const res = g.buildGround('me', { ...open, piece: '' });
   check(res.ok, 'and the action goes through', res.error ?? '');
   eq(groundAt(g, open.x, open.z), T.GRASS, 'leaving bare ground where the floor was');
   const onBare = g.placeFixture('me', { kind: 'shelf', x: open.x, z: open.z, rot: 0 });
@@ -373,16 +390,16 @@ function grassPatch(g, w = 2, h = 2) {
   const g = fresh();
   const spot = grassPatch(g, 1, 1);
 
-  const first = g.buildFloor('me', { ...spot, piece: 'verify-floor-cheap' });
+  const first = g.buildGround('me', { ...spot, piece: 'verify-floor-cheap' });
   eq(first.cost, CHEAP, 'laying on bare grass costs the full tile price');
 
-  const same = g.buildFloor('me', { ...spot, piece: 'verify-floor-cheap' });
+  const same = g.buildGround('me', { ...spot, piece: 'verify-floor-cheap' });
   check(same.ok, 'laying the same floor again is allowed');
   eq(same.laid, 0, 'and lays nothing');
   eq(same.unchanged, true, 'reporting that it changed nothing rather than charging for it');
 
   const cash = g.cash;
-  const swap = g.buildFloor('me', { ...spot, piece: 'verify-floor-dear' });
+  const swap = g.buildGround('me', { ...spot, piece: 'verify-floor-dear' });
   check(swap.ok, 'and it can be re-tiled', swap.error ?? '');
   eq(swap.laid, 1, 'one tile');
   // 13.19 - (7.31 x 0.5). Arithmetic on the authored numbers, never on the
@@ -395,7 +412,7 @@ function grassPatch(g, w = 2, h = 2) {
   // other way round, and it is worth pinning both directions.
   const g2 = fresh();
   const inside = { x: g2.layout.store.x + 1, z: g2.layout.store.z + 1 };
-  const over = g2.buildFloor('me', { ...inside, piece: 'verify-floor-dear' });
+  const over = g2.buildGround('me', { ...inside, piece: 'verify-floor-dear' });
   eq(over.cost, DEAR, 'tiling over floor the building came with costs full price');
 }
 
@@ -412,7 +429,7 @@ function grassPatch(g, w = 2, h = 2) {
   check(!!spot, 'there is a four-wide run of grass');
   g.cash = CHEAP * 2.5;                       // enough for two tiles, not three
 
-  const res = g.buildFloor('me', { x: spot.x, z: spot.z, piece: 'verify-floor-cheap', to: { x: spot.x + 3, z: spot.z } });
+  const res = g.buildGround('me', { x: spot.x, z: spot.z, piece: 'verify-floor-cheap', to: { x: spot.x + 3, z: spot.z } });
   check(res.ok, 'the stroke goes through', res.error ?? '');
   eq(res.laid, 2, 'laying what could be afforded');
   eq(res.short, true, 'and saying it ran out');

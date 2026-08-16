@@ -41,6 +41,9 @@ export const T = {
    *  rather than more bay, because the whole point of the split is being able
    *  to tell "this arrived" from "I put this here" at a glance. */
   DROP: 12,
+  /** Where the staff go when they stop. The first pad that is not about goods:
+   *  a bay holds crates and this one holds people, one per cell. */
+  BREAK: 13,
 };
 
 /**
@@ -48,7 +51,7 @@ export const T = {
  * taken into account. Ask `isWalkableTile` in `shared/build.js` for the whole
  * question; this one only knows about the floor.
  */
-export const WALKABLE = new Set([T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY, T.DROP]);
+export const WALKABLE = new Set([T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY, T.DROP, T.BREAK]);
 
 /** Ground you can stand a shop fixture on — bare indoor floor and nothing else. */
 export const BUILDABLE_INDOOR = new Set([T.FLOOR]);

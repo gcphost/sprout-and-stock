@@ -15,7 +15,7 @@
  *   node scripts/verify-layout.js -v         # print every failure, not a sample
  */
 
-import { generateLayout, buildWalkGrid, T } from '../server/layout.js';
+import { generateLayout, defaultPads, buildWalkGrid, T } from '../server/layout.js';
 import { insideStore } from '../shared/build.js';
 
 const argv = process.argv.slice(2);
@@ -287,8 +287,13 @@ for (let s = 0; s < Math.min(SEEDS, 8); s++) {
   // ends of the back wall, so the service door lands between them however far
   // it has been dragged. What must hold is that both pads stay behind the
   // shop, stay apart, and stay walkable from the street.
+  //
+  // Through `withYard`, because the generator does not draw a pad any more: the
+  // yard is ground somebody owns, seeded once by `defaultPads`. Asserting this
+  // against a bare `generateLayout` would be asserting it against a shop that
+  // legitimately has no yard at all.
   for (const shift of [-4, -2, 0, 2, 4]) {
-    const L = generateLayout({ ...base, doorShift: shift });
+    const L = withYard({ ...base, doorShift: shift });
     const grid = buildWalkGrid(L);
     check(L.door.x >= L.store.x && L.door.x + 1 < L.store.x + L.store.w,
       'moved door left the wall', `${seed}: shift ${shift} -> door ${L.door.x}`);
@@ -340,6 +345,86 @@ function flood(L, grid, sx, sz) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 4: the yard is ground somebody owns.
+//
+// The delivery bay and the drop-off used to be stamped by `compose` on every
+// re-flow, which is exactly why they could never be moved: buying a shelf put
+// them back. They are painted cells now, seeded once into the ground overlay by
+// `defaultPads` and never touched by the generator again.
+//
+// That claim has two halves and both are invisible in a screenshot, because a
+// seeded pad and a generated one look identical on day one:
+//
+//   - the generator, asked for a shop and given no ground, draws NO pad. If it
+//     ever draws one again the two mechanisms are both live, and the one that
+//     runs second wins on a re-flow — which is the bug this replaced, wearing
+//     different clothes.
+//   - a pad laid as ground comes back as a pad: right tiles, right count, and
+//     reachable from the street, which is what the old assertions checked when
+//     the generator was the thing making them.
+// ---------------------------------------------------------------------------
+
+for (let s = 0; s < Math.min(SEEDS, 8); s++) {
+  const seed = `yard-${s}`;
+  const base = { seed, shelves: 6, freezers: 1, checkouts: 1, plots: 6 };
+
+  const bare = generateLayout(base);
+  check(bare.bay === null && bare.drop === null,
+    'the generator still draws its own yard pads', `${seed}`);
+  check((bare.ground ?? []).length === 0,
+    'a shop nobody has painted emits ground anyway', `${seed}`);
+
+  const pads = defaultPads(bare);
+  check(pads.length === 8, 'the seeded yard is not two 2x2 pads', `${seed}: ${pads.length} cells`);
+  check(pads.every((c) => bare.tiles[c.z * bare.w + c.x] === T.GRASS),
+    'the yard was seeded onto something that was not grass', `${seed}`);
+
+  const L = generateLayout({ ...base, ground: pads });
+  const grid = buildWalkGrid(L);
+  const reach = flood(L, grid, L.spawn.x, L.spawn.z);
+
+  for (const [kind, tile, pad] of [['bay', T.BAY, L.bay], ['drop', T.DROP, L.drop]]) {
+    check(pad != null, `laying a ${kind} did not produce one`, `${seed}`);
+    if (!pad) continue;
+    check(pad.cells.length === 4, `the ${kind} is not the four cells it was laid as`,
+      `${seed}: ${pad.cells.length}`);
+    check(pad.cells.every((c) => L.tiles[c.z * L.w + c.x] === tile),
+      `a ${kind} cell is not a ${kind} tile`, `${seed}`);
+    // The point it reports has to be one of its own cells, or everything that
+    // walks to a pad walks to a spot beside it.
+    check(pad.cells.some((c) => c.x === pad.x && c.z === pad.z),
+      `the ${kind}'s point is not one of its cells`, `${seed}: ${pad.x},${pad.z}`);
+    check(pad.cells.some((c) => reach.has(`${c.x},${c.z}`)),
+      `the ${kind} is unreachable from the street`, `${seed}`);
+  }
+
+  // They hold the same pallets, so a yard that let them overlap would read as
+  // "the split didn't work" in exactly the way nobody would think to check.
+  check(Math.hypot(L.drop.x - L.bay.x, L.drop.z - L.bay.z) >= 3,
+    'the two yard pads are on top of each other', `${seed}`);
+
+  // ...and the whole point: a re-flow leaves them exactly where they were. This
+  // is the assertion the old generated pads could never fail and the new ones
+  // could, so it is the one that matters.
+  const again = generateLayout({ ...base, shelves: 9, ground: L.ground });
+  check(JSON.stringify(again.bay?.cells) === JSON.stringify(L.bay.cells)
+    && JSON.stringify(again.drop?.cells) === JSON.stringify(L.drop.cells),
+    'buying a shelf moved the yard', `${seed}`);
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * A layout with its yard laid, the way a real world gets one.
+ *
+ * Two passes because that is genuinely what happens: `Game.create` composes the
+ * shop, `freezeYard` reads `defaultPads` off it and lays them into the ground
+ * overlay, and the re-flow that follows is what puts bay tiles on the map.
+ */
+function withYard(opts) {
+  const bare = generateLayout(opts);
+  return generateLayout({ ...opts, ground: [...(opts.ground ?? []), ...defaultPads(bare)] });
+}
 
 const byLabel = new Map();
 for (const f of failures) {

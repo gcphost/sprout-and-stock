@@ -132,19 +132,47 @@ palette, and the bar could only ever be a preview: nine is how many number keys
 there are, so a tenth fixture had nowhere to go but the panel. The bar has tiers
 now and it scrolls, so it *is* the catalogue and the panel copy is gone.
 
-Three tiers, top to bottom, all in `#build-bar`:
+Four tiers, top to bottom, all in `#build-bar`. Two of them come and go:
 
 | Tier | Element | Build | Roster |
 |---|---|---|---|
 | Category | `#build-groups` | `BUILD_GROUPS` — Shop, Farm, Appliances, Building, Decoration | Everyone, then one per kind actually hired |
+| Part | `#build-subs` | a split group's `subs` — Building is Walls, Floors, Yard | unused |
 | Entries | `#build-tools` | palette entries. `1`–`9` reach the first nine | one per hire, note = what they are doing now |
-| Sub | `#build-shapes` | `variantsOf` the piece, when there are two or more | unused |
+| Choice | `#build-shapes` | `variantsOf` the piece, when there are two or more | unused |
 
 **A tab that opens onto nothing never renders.** For Build that means dropping
 any group whose only entry is the pinned bulldozer — which is what Appliances
 looks like before anybody authors a machine. The roster's Everyone tab is the
 exception and always shows, because with nobody hired it is still where the
 Hire button lives.
+
+**A tab may split once, and Building had to.** It started as three edge tools
+and collected the floor catalogue and both yard pads on top, so it was a dozen
+entries and the only tab you had to scroll — which hides its far end behind a
+gesture nobody makes on a strip that looks complete. `subs` on a `BUILD_GROUPS`
+entry is the same tab shape one level down, drawn by the same code, resolved by
+the same two rules: an empty sub-tab is dropped, and a group left with fewer
+than two shows its flat list instead. So a world where nobody has authored a
+floor sees Building exactly as it was. A tool names its sub-tab beside its group
+(`sub: 'walls'`), one that names none falls to the first — the same "misfiled
+beats invisible" default `group` already has — and a pinned entry is on all of
+them, because "get rid of that" is not a question about which part of the
+building it is. Depth stops there: two levels is as far as you can go and still
+see where you are.
+
+`UI.barSub` remembers the open sub-tab per group, the way `barTab` remembers the
+open tab per bar, so coming back to Building puts you back on the job you were
+doing. `Tab` cycles the **leaves** — a split group offers its sub-tabs and never
+itself, since stopping on a Building that immediately redirects you to Walls is
+a press that changes nothing you can see.
+
+**The last tier belongs to the picked entry, so it leaves when that entry
+does.** Browsing to another tab used to leave the shape row behind, labelling a
+fixture no longer anywhere in front of you — a row of buttons that appear to do
+nothing, because picking a shape for something you cannot see changes nothing
+you can see. `renderBar` draws it only while `picked` is among the entries on
+screen.
 
 **Picking is not the same verb in both.** A build entry *arms* — it stays lit
 and the next tap on the ground places it. A person *opens* — `showWorker` puts
@@ -161,6 +189,48 @@ is in your hands, what you are pointing at, or an amber warning. It used to
 carry a standing "tap bare ground to build a shelf", which restated the button
 already lit beside it, sat on the bottom edge of the screen, and held the rest
 of the corner HUD up for a line nobody read twice.
+
+### A button shows the thing
+
+`client/thumb.js` draws every palette entry from its own row: an item may carry
+`art` (a picture of *that* shelf) as well as `icon` (the glyph for its
+category), and the button prefers the art.
+
+Five floor designs wearing one grey glyph is the whole argument. A floor **is**
+a look — that is the entire thing you are choosing between — and the palette was
+asking you to pick one by reading five names, which is a colour chart printed in
+black and white. A catalogue anyone can add to has the same problem one step
+out: the day somebody authors a second shelf, two buttons say "shelf" and show
+the same picture.
+
+| Entry | Drawn from |
+|---|---|
+| a piece | `partsAt(model, 0)` — the tier you get for buying one, not the tier you could upgrade to |
+| a plot | …plus the tile its kind lays (`FIXTURES[kind].ground` → `TILE_STYLE`), because a bed **is** the ground and its model is one edging board |
+| ground | a 3×3 patch through `patternColor`, the function the floor itself uses |
+| an appliance | `variantModel(stationRow, station)` — the same resolution `Scene.fixtureModel` makes |
+| a wall, window, doorway, fence, gate | `edgeBands(style)`, in a stub of plain wall either side |
+| Demolish | nothing. It is a verb, and a picture of a thing would lie about what tapping it does |
+
+Boxes and cylinders, projected on `BASE_CAM_OFFSET`'s own angle and lit by
+`scene.js`'s own sun, painter-sorted, in inline SVG — so art is just a longer
+icon string, needs no lifecycle, and is sharp at any density. Nothing is
+recomputed: the caches are keyed on the model and surface **objects**, so a
+catalogue reload hands over new objects and the old art falls off the end with
+them. There is no version to remember to bump.
+
+**A lookalike is worse than a glyph, and you will never catch it.** The edge art
+was hand-drawn for about ten minutes and it was wrong in two ways — a blue pane
+for a window, posts and rails for a fence — where the game glazes with the
+wall's own colour at `GLASS` opacity and builds a fence as a low solid slab.
+Nobody holds a 38px button up against a wall across the room. So the shape moved
+into `edgeBands` in `palette.js`, beside the style it reads, and `scene.js` and
+the thumbnail both ask for it. What the thumbnail still owns is the *context*,
+and an opening needs it to be a picture at all: a doorway alone is a lintel
+floating over a threshold, and only the wall either side makes that a way
+through rather than a bench. The neighbour is `{...style, opening: false, glass:
+false}` — by construction the plain wall it would sit in, so there is no table
+of which piece pairs with which.
 
 `--build-h` is the bar's measured height, set in `renderHotbar` → `measureBar`,
 and `#log`/`#carry`/`#prompt` clear the bar with `calc()` off it. It is measured
@@ -230,7 +300,7 @@ moment it exists.
 | `H` | the roster along the bottom — a bar, not a panel (`bar: 'staff'` on the section) |
 | `G` | build mode on and off — the rail's Build button presses this |
 | `1`–`9` | the open tab of whichever bar is up, seeds when neither is |
-| `Tab` | next tab of the bar that is up (`shift` for back). Prevented hard, or focus lands in the search box |
+| `Tab` | next tab of the bar that is up, sub-tabs counting as their own stops (`shift` for back). Prevented hard, or focus lands in the search box |
 | `R` | turn what you're placing |
 | hold `E` / `Space` | use what you're stood by |
 | hold `Q` | seed wheel |
@@ -639,9 +709,17 @@ supplier's search box.
 
 - **`client/ui.js` is 1140 lines**, well over the 600 cap. The fixture menu
   already left for `client/fixture-menu.js`; the build bar (`renderHotbar`,
-  `renderBuildShapes`, `buildGroupList`, `openBuildGroup`, `selectBuildGroup`,
-  `cycleBuildGroup`, `hotbarTools`, `renderBuildHint`, `measureBar`) is the next
-  ~200 self-contained lines and wants `client/build-bar.js`.
+  `renderBuildBar`, `buildGroupList`, `openBuildGroup`, `selectBuildGroup`,
+  `selectBuildSub`, `buildStops`, `cycleBuildGroup`, `hotbarTools`,
+  `renderBuildHint`, `measureBar`) is the next ~200 self-contained lines and
+  wants `client/build-bar.js`.
+- **A method nobody calls twice is a method nobody notices is missing.**
+  `selectBuildVariant` called `this.renderBuildShapes()`, which has never
+  existed, so every press of a shape button threw before it reached the hint
+  below it. It survived because the throw is *late*: the variant is set on the
+  line above, so the next shelf you placed really was a corner unit and only the
+  bar disagreed. Nothing here is covered by `npm run verify` (see below), and
+  this is the shape that gap has.
 - Nothing verifies the rail or the bar at narrow widths beyond a look — `#panel`
   is `calc(100vw - 72px)` under 720px to clear the rail, and `.cat .nm` is
   hidden there so five tabs still fit.

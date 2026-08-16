@@ -1,5 +1,82 @@
 [
   {
+    "id": "berry-swirl",
+    "name": "Berry Swirl",
+    "tags": [
+      "prepared",
+      "frozen",
+      "needs-freezer",
+      "kids",
+      "summer",
+      "premium"
+    ],
+    "base_cost": 1.9,
+    "base_price": 6.2,
+    "shelf_life_days": 20,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "cone",
+          "color": "#e0b070",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.28,
+            0.2
+          ],
+          "rot": 180,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#f2dcea",
+          "pos": [
+            0,
+            0.32,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.2,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#c05a8a",
+          "pos": [
+            0,
+            0.42,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.14,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
     "id": "bread",
     "name": "Bread",
     "tags": [
@@ -254,7 +331,8 @@
       "perishable",
       "breakfast",
       "cheap",
-      "classic"
+      "classic",
+      "needs-freezer"
     ],
     "base_cost": 1.1,
     "base_price": 2.8,
@@ -275,7 +353,11 @@
             0.14,
             0.24
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         },
         {
           "shape": "sphere",
@@ -290,7 +372,11 @@
             0.14,
             0.12
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         },
         {
           "shape": "sphere",
@@ -305,7 +391,107 @@
             0.14,
             0.12
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "fish-fingers",
+    "name": "Fish Fingers",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "kids",
+      "cheap",
+      "dinner",
+      "classic"
+    ],
+    "base_cost": 1.6,
+    "base_price": 3.9,
+    "shelf_life_days": 50,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#2f6f9f",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.34,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e6b268",
+          "pos": [
+            0,
+            0.2,
+            0.09
+          ],
+          "scale": [
+            0.09,
+            0.2,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e6b268",
+          "pos": [
+            0.1,
+            0.2,
+            0.09
+          ],
+          "scale": [
+            0.09,
+            0.2,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#f2f6f8",
+          "pos": [
+            0,
+            0.32,
+            0.09
+          ],
+          "scale": [
+            0.22,
+            0.07,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         }
       ]
     }
@@ -376,6 +562,489 @@
     }
   },
   {
+    "id": "frozen-berries",
+    "name": "Frozen Berries",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "produce",
+      "healthy",
+      "organic",
+      "breakfast",
+      "premium"
+    ],
+    "base_cost": 2.3,
+    "base_price": 5.8,
+    "shelf_life_days": 60,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#5b3a6b",
+          "pos": [
+            0,
+            0.19,
+            0
+          ],
+          "scale": [
+            0.27,
+            0.38,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#8f4fa8",
+          "pos": [
+            -0.05,
+            0.13,
+            0.08
+          ],
+          "scale": [
+            0.08,
+            0.08,
+            0.03
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#c05a8a",
+          "pos": [
+            0.06,
+            0.1,
+            0.08
+          ],
+          "scale": [
+            0.07,
+            0.07,
+            0.03
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8dcf0",
+          "pos": [
+            0,
+            0.31,
+            0.08
+          ],
+          "scale": [
+            0.19,
+            0.12,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "frozen-peas",
+    "name": "Frozen Peas",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "produce",
+      "healthy",
+      "vegan",
+      "cheap"
+    ],
+    "base_cost": 1.1,
+    "base_price": 2.6,
+    "shelf_life_days": 60,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#3f7d44",
+          "pos": [
+            0,
+            0.19,
+            0
+          ],
+          "scale": [
+            0.28,
+            0.38,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#8fd18a",
+          "pos": [
+            0,
+            0.3,
+            0.08
+          ],
+          "scale": [
+            0.2,
+            0.13,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#6fbf6a",
+          "pos": [
+            -0.06,
+            0.11,
+            0.08
+          ],
+          "scale": [
+            0.07,
+            0.07,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#6fbf6a",
+          "pos": [
+            0.05,
+            0.09,
+            0.08
+          ],
+          "scale": [
+            0.06,
+            0.06,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "frozen-pizza",
+    "name": "Frozen Pizza",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "junk",
+      "dinner",
+      "party",
+      "cheap",
+      "bulky"
+    ],
+    "base_cost": 2.1,
+    "base_price": 5.2,
+    "shelf_life_days": 55,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c8503f",
+          "pos": [
+            0,
+            0.06,
+            0
+          ],
+          "scale": [
+            0.42,
+            0.1,
+            0.42
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e8c96a",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.03,
+            0.34
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#a8402f",
+          "pos": [
+            0.08,
+            0.14,
+            0.06
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#a8402f",
+          "pos": [
+            -0.09,
+            0.14,
+            -0.05
+          ],
+          "scale": [
+            0.06,
+            0.03,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "gelato",
+    "name": "Pistachio Gelato",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "artisanal",
+      "premium",
+      "luxury",
+      "gift",
+      "summer"
+    ],
+    "base_cost": 3.4,
+    "base_price": 9.5,
+    "shelf_life_days": 40,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e8e2d2",
+          "pos": [
+            0,
+            0.15,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.3,
+            0.32
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#9fbf6a",
+          "pos": [
+            0,
+            0.3,
+            0
+          ],
+          "scale": [
+            0.33,
+            0.04,
+            0.33
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#3a5a2a",
+          "pos": [
+            0,
+            0.22,
+            0.17
+          ],
+          "scale": [
+            0.16,
+            0.1,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "sphere",
+          "color": "#8fae5a",
+          "pos": [
+            0,
+            0.34,
+            0
+          ],
+          "scale": [
+            0.14,
+            0.06,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "hot-chips",
+    "name": "Hot Chips",
+    "tags": [
+      "prepared",
+      "snack",
+      "junk",
+      "kids",
+      "party",
+      "cheap"
+    ],
+    "base_cost": 1.1,
+    "base_price": 3.6,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c8503f",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.28,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8c96a",
+          "pos": [
+            -0.04,
+            0.3,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.2,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8d88a",
+          "pos": [
+            0.04,
+            0.32,
+            0.03
+          ],
+          "scale": [
+            0.05,
+            0.22,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#d8b85a",
+          "pos": [
+            0.01,
+            0.28,
+            -0.04
+          ],
+          "scale": [
+            0.05,
+            0.16,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
     "id": "ice-cream",
     "name": "Ice Cream",
     "tags": [
@@ -421,6 +1090,84 @@
             0.28
           ],
           "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "ice-lolly",
+    "name": "Ice Lolly",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "candy",
+      "junk",
+      "kids",
+      "cheap",
+      "summer"
+    ],
+    "base_cost": 0.6,
+    "base_price": 1.8,
+    "shelf_life_days": 60,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c9a227",
+          "pos": [
+            0,
+            0.07,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.14,
+            0.04
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8504f",
+          "pos": [
+            0,
+            0.26,
+            0
+          ],
+          "scale": [
+            0.17,
+            0.26,
+            0.09
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#f2a03d",
+          "pos": [
+            0,
+            0.32,
+            0.05
+          ],
+          "scale": [
+            0.13,
+            0.1,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         }
       ]
     }
@@ -583,7 +1330,8 @@
       "perishable",
       "breakfast",
       "classic",
-      "heavy"
+      "heavy",
+      "needs-freezer"
     ],
     "base_cost": 1.3,
     "base_price": 3.2,
@@ -604,7 +1352,11 @@
             0.44,
             0.24
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         },
         {
           "shape": "box",
@@ -619,7 +1371,108 @@
             0.12,
             0.25
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "oven-chips",
+    "name": "Oven Chips",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "junk",
+      "kids",
+      "cheap",
+      "bulky",
+      "dinner"
+    ],
+    "base_cost": 1.2,
+    "base_price": 3.1,
+    "shelf_life_days": 60,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#d8c05a",
+          "pos": [
+            0,
+            0.22,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.44,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8d88a",
+          "pos": [
+            0,
+            0.36,
+            0.09
+          ],
+          "scale": [
+            0.22,
+            0.14,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#c9a227",
+          "pos": [
+            -0.07,
+            0.13,
+            0.09
+          ],
+          "scale": [
+            0.04,
+            0.14,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#c9a227",
+          "pos": [
+            0.04,
+            0.13,
+            0.09
+          ],
+          "scale": [
+            0.04,
+            0.14,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         }
       ]
     }
@@ -859,11 +1712,11 @@
     "name": "Fizzy Soda",
     "tags": [
       "beverage",
-      "shelf-stable",
       "junk",
       "kids",
       "summer",
-      "cheap"
+      "cheap",
+      "needs-freezer"
     ],
     "base_cost": 0.6,
     "base_price": 2.2,
@@ -884,7 +1737,11 @@
             0.4,
             0.2
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         },
         {
           "shape": "cylinder",
@@ -899,7 +1756,11 @@
             0.04,
             0.19
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         }
       ]
     }
@@ -955,6 +1816,83 @@
     }
   },
   {
+    "id": "toastie",
+    "name": "Cheese Toastie",
+    "tags": [
+      "prepared",
+      "bakery",
+      "lunch",
+      "classic",
+      "kids",
+      "cheap"
+    ],
+    "base_cost": 1.4,
+    "base_price": 4.2,
+    "shelf_life_days": 1,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e0b070",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.14,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#c98f4a",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.03,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "box",
+          "color": "#e8c96a",
+          "pos": [
+            0,
+            0.15,
+            0.13
+          ],
+          "scale": [
+            0.26,
+            0.05,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        }
+      ]
+    }
+  },
+  {
     "id": "tomato",
     "name": "Tomato",
     "tags": [
@@ -1000,6 +1938,83 @@
             0.14
           ],
           "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "veg-juice",
+    "name": "Garden Juice",
+    "tags": [
+      "prepared",
+      "beverage",
+      "healthy",
+      "organic",
+      "vegan",
+      "breakfast"
+    ],
+    "base_cost": 1.8,
+    "base_price": 5.4,
+    "shelf_life_days": 2,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f7f2e8",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.18,
+            0.4,
+            0.18
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.55,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e8804f",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.3,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
+        },
+        {
+          "shape": "cylinder",
+          "color": "#7fbf6a",
+          "pos": [
+            0.06,
+            0.44,
+            0.04
+          ],
+          "scale": [
+            0.03,
+            0.22,
+            0.03
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false
         }
       ]
     }

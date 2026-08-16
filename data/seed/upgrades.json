@@ -230,6 +230,50 @@
     "requires": []
   },
   {
+    "id": "station-deep-fryer",
+    "name": "Deep Fryer",
+    "description": "Adds a deep fryer to the shop floor.",
+    "cost": 210,
+    "kind": "station",
+    "payload": {
+      "station": "deep-fryer"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-juicer",
+    "name": "Juicer",
+    "description": "Adds a juicer to the shop floor.",
+    "cost": 190,
+    "kind": "station",
+    "payload": {
+      "station": "juicer"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-sandwich-press",
+    "name": "Sandwich Press",
+    "description": "Adds a sandwich press to the shop floor.",
+    "cost": 170,
+    "kind": "station",
+    "payload": {
+      "station": "sandwich-press"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-soft-serve",
+    "name": "Soft-Serve Machine",
+    "description": "Adds a soft-serve machine to the shop floor.",
+    "cost": 320,
+    "kind": "station",
+    "payload": {
+      "station": "soft-serve"
+    },
+    "requires": []
+  },
+  {
     "id": "station-toaster",
     "name": "Toaster Oven",
     "description": "Bakes and toasts. Bread in, better bread out.",

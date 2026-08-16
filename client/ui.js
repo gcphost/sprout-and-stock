@@ -9,7 +9,7 @@
 import { FIXTURES } from '../shared/build.js';
 import { variantsOf } from '../shared/model.js';
 import {
-  buildTools, buildGroups, groupOfTool, sectionById, staffGroups, upgradeGroups,
+  buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups, upgradeGroups,
 } from './sections.js';
 import { renderBar, groupAt, nextGroup, KEYED } from './bar.js';
 import { showWorker } from './worker-menu.js';
@@ -18,6 +18,7 @@ import { Rail } from './rail.js';
 import { ICONS } from './icons.js';
 import { showFixture } from './fixture-menu.js';
 import { wireDrag, restorePos } from './panel-drag.js';
+import { artForVariant } from './thumb.js';
 
 /**
  * Tag and label text reaches these panels from the database, which anyone can
@@ -76,6 +77,11 @@ export class UI {
     // per bar rather than one shared value: they have nothing in common but the
     // strip of screen, and a roster tab is not an answer to a build question.
     this.barTab = { build: null, staff: null, upgrades: null };
+    // And which sub-tab each split tab was last left on, keyed by the tab. Same
+    // reasoning one level down: Walls and Floors are two jobs, so coming back to
+    // Building should put you back on the one you were doing rather than at the
+    // start of the list. Only the build bar has any.
+    this.barSub = {};
     this.bar = null;
     this.el = {
       cash: document.getElementById('cash'),
@@ -95,6 +101,7 @@ export class UI {
       carry: document.getElementById('carry'),
       build: document.getElementById('build'),
       buildGroups: document.getElementById('build-groups'),
+      buildSubs: document.getElementById('build-subs'),
       buildTools: document.getElementById('build-tools'),
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
@@ -281,9 +288,18 @@ export class UI {
     // Selections arrive from off-bar too — the server disarms Clear by kind —
     // and a lit button on a hidden tab is an armed tool nothing on screen names.
     // An entry that lives on two tabs stays on whichever one you found it on.
+    //
+    // Against what is *drawn*, which since Building split is one sub-tab rather
+    // than the whole group: a wall armed while you are looking at Floors is as
+    // hidden as one armed while you are looking at Farm.
     const here = this.openBuildGroup();
-    if (!here?.items?.some((x) => x.id === t.id)) {
-      this.barTab.build = groupOfTool(t) ?? this.barTab.build;
+    if (!here.items.some((x) => x.id === t.id)) {
+      const g = groupOfTool(t);
+      if (g) {
+        this.barTab.build = g;
+        const s = subOfTool(t, g);
+        if (s) this.barSub[g] = s;
+      }
     }
     // Shapes belong to a piece, so switching piece drops back to Standard rather
     // than asking for a "corner till" nobody drew.
@@ -296,11 +312,11 @@ export class UI {
     // doorway have always done this — the Farm tab just put two more of them
     // one press away, which is how a silent refusal became a visible one.
     this._sentTool = null;
-    // A floor is in the same position as a wall here and for the same reason:
-    // `setBuildTool` refuses anything outside FIXTURES, and a floor is
-    // deliberately not in FIXTURES because it is ground rather than a thing
-    // standing on it. Painting names its own piece in `build-floor`, so there
-    // is nothing to tell the server.
+    // A brush is in the same position as a wall here and for the same reason:
+    // `setBuildTool` refuses anything outside FIXTURES, and ground is
+    // deliberately not in FIXTURES because it is what a cell is made of rather
+    // than a thing standing on it. Painting names its own piece in
+    // `build-ground`, so there is nothing to tell the server.
     if (t.edge === undefined && !t.paint) {
       this._sentTool = this.buildTool;
       this.net.send('build-tool', { tool: this.buildTool });
@@ -318,8 +334,13 @@ export class UI {
    */
   selectBuildVariant(id) {
     this.buildVariant = id ?? '';
-    this.renderBuildShapes();
-    this.renderBuildHint();
+    // `renderHotbar`, not a repaint of the shape row alone — there is no such
+    // method and there never was, so every press of a shape button threw before
+    // it reached the hint below it. It read as a row that ignores you: the
+    // variant *was* set and the next shelf you placed was a corner unit, but
+    // nothing on screen moved, so the way to get a corner shelf was to press
+    // Corner and then not believe the bar.
+    this.renderHotbar();
   }
 
   /**
@@ -376,17 +397,23 @@ export class UI {
   }
 
   /**
-   * The floor this tool paints, or undefined if it doesn't paint.
+   * The ground this tool paints, or undefined if it doesn't paint.
    *
-   * Three states, not two, which is why this returns the piece id rather than a
-   * boolean: a design lays that floor, the empty string takes floor up, and
+   * Three states, not two, which is why this returns a pair rather than a
+   * boolean: a design lays that ground, an empty piece takes it up, and
    * undefined means this tool is not a brush at all. Collapsing the first two
    * would make "Bare Ground" indistinguishable from "no tool".
+   *
+   * The KIND comes back alongside the piece because a brush lays three
+   * different things now — floor, delivery bay, storage — and the ghost has to
+   * ask `canPaintGround` which one it is holding. The server does not trust
+   * this: it reads the kind off the catalog row the piece names.
    */
-  floorPieceForTool() {
+  groundForTool() {
     if (!this.buildOn || this.holding) return undefined;
     const t = buildTools(this).find((x) => x.id === this.toolId());
-    return t?.paint ? (t.piece ?? '') : undefined;
+    if (!t?.paint) return undefined;
+    return { kind: t.piece ? t.kind : null, piece: t.piece ?? '' };
   }
 
   /** The palette entry currently armed, or null outside build mode. */
@@ -434,7 +461,7 @@ export class UI {
     // A brush aims at a square but paints what it is made of rather than
     // standing something on it, so the fixture ghost would be a shelf-shaped
     // box hovering over ground you were about to tile.
-    if (this.floorPieceForTool() !== undefined) return null;
+    if (this.groundForTool() !== undefined) return null;
     // What's in your hands outranks what's on the palette: while you're
     // carrying a shelf, every tile you point at is a candidate home for *it*.
     return this.holding?.kind ?? this.buildTool;
@@ -456,6 +483,9 @@ export class UI {
   renderHotbar() {
     if (!this.el.buildTools) return;
     this.el.build.classList.toggle('on', !!this.bar);
+    // The two browse bars have no art to stand in a slot, and an empty well
+    // under a glyph reads as a slot with the thing missing out of it.
+    this.el.build.classList.toggle('browse', this.bar === 'staff' || this.bar === 'upgrades');
     // Nothing up: the bar is still in the document and still has a height, so
     // say zero explicitly. Everything above it in the stack is `calc()` off
     // this, and a stale value floats the panel over empty screen.
@@ -471,22 +501,30 @@ export class UI {
 
   renderBuildBar() {
     const groups = this.buildGroupList();
-    const open = renderBar(this.barEl(), {
+    const at = groupAt(groups, this.barTab.build);
+    const { group, sub } = renderBar(this.barEl(), {
       groups,
       at: this.barTab.build,
+      atSub: at ? this.barSub[at.id] : null,
       picked: this.toolId(),
       // Shapes are not palette entries of their own — a corner shelf is a shelf,
       // at a shelf's price, and the number keys should keep meaning one fixture.
-      sub: {
+      choice: {
         label: 'Shape',
-        options: variantsOf(this.catalog.fixtures?.find((x) => x.id === this.buildPiece)),
+        // Each shape wearing its own shape. A corner unit and a straight one are
+        // the same word in two spellings otherwise, which is the thing a picture
+        // is actually for.
+        options: variantsOf(this.catalog.fixtures?.find((x) => x.id === this.buildPiece))
+          .map((v) => ({ ...v, art: artForVariant(v) })),
         picked: this.buildVariant ?? '',
         onPick: (id) => { this.commitBuildMode(); this.selectBuildVariant(id); },
       },
       onTab: (id) => this.selectBuildGroup(id),
+      onSubTab: (id) => this.selectBuildSub(id),
       onPick: (t) => { this.commitBuildMode(); this.selectBuildTool(t.id); },
     });
-    this.barTab.build = open?.id ?? null;
+    this.barTab.build = group?.id ?? null;
+    if (group && sub) this.barSub[group.id] = sub.id;
     // Measures the bar itself, so it goes last.
     this.renderBuildHint();
     return undefined;
@@ -506,22 +544,32 @@ export class UI {
    * unrefundable twenty thousand dollars.
    */
   renderBrowseBar(groups, onPick, picked) {
-    const open = renderBar(this.barEl(), {
+    const { group } = renderBar(this.barEl(), {
       groups,
       at: this.barTab[this.bar],
       picked,
-      sub: null,
+      choice: null,
       onTab: (id) => { this.barTab[this.bar] = id; this.renderHotbar(); },
       onPick,
     });
-    this.barTab[this.bar] = open?.id ?? null;
+    this.barTab[this.bar] = group?.id ?? null;
     this.renderBuildHint();
     return undefined;
   }
 
-  /** The three elements `bar.js` draws into. */
+  /**
+   * The four elements `bar.js` draws into. Neither browse bar has sub-tabs or a
+   * choice row, and both are hidden rather than absent — one strip of screen
+   * means one set of elements, and a bar that swapped its own markup would have
+   * to put the height back too.
+   */
   barEl() {
-    return { groups: this.el.buildGroups, items: this.el.buildTools, sub: this.el.buildShapes };
+    return {
+      groups: this.el.buildGroups,
+      subs: this.el.buildSubs,
+      items: this.el.buildTools,
+      choice: this.el.buildShapes,
+    };
   }
 
   /**
@@ -550,11 +598,21 @@ export class UI {
     return buildGroups(this);
   }
 
-  /** The open tab of whichever bar is up, resolved against what exists. */
+  /**
+   * The open tab of the build bar, its open sub-tab, and the entries actually in
+   * front of you — resolved against what exists, since a remembered tab can stop
+   * existing (the last floor design is deleted, nobody has authored a machine).
+   *
+   * `items` is the leaf's rather than the group's, because everything that asks
+   * this question — the number keys, "is the armed tool on screen" — is asking
+   * about what is drawn, and a split group never draws its own flat list.
+   */
   openBuildGroup(groups = this.buildGroupList()) {
-    const open = groupAt(groups, this.barTab.build);
-    this.barTab.build = open?.id ?? null;
-    return open;
+    const group = groupAt(groups, this.barTab.build);
+    this.barTab.build = group?.id ?? null;
+    const sub = group?.subs ? groupAt(group.subs, this.barSub[group.id]) : null;
+    if (group && sub) this.barSub[group.id] = sub.id;
+    return { group, sub, items: (sub ?? group)?.items ?? [] };
   }
 
   selectBuildGroup(id) {
@@ -565,6 +623,25 @@ export class UI {
     this.renderHotbar();
   }
 
+  selectBuildSub(id) {
+    const { group } = this.openBuildGroup();
+    if (!group || this.barSub[group.id] === id) return;
+    this.barSub[group.id] = id;
+    this.renderHotbar();
+  }
+
+  /**
+   * Every stop the tab key makes, in order: a split group offers its sub-tabs
+   * and not itself. Tab means "the next set of buttons", and stopping on a
+   * Building that immediately redirects you to Walls is a press that changes
+   * nothing you can see.
+   */
+  buildStops() {
+    return this.buildGroupList().flatMap((g) => (g.subs
+      ? g.subs.map((s) => ({ id: `${g.id}/${s.id}`, group: g.id, sub: s.id }))
+      : [{ id: g.id, group: g.id, sub: null }]));
+  }
+
   /** Round the tabs, for the key that cycles them. Whichever bar is up. */
   cycleBuildGroup(dir = 1) {
     if (this.bar === 'staff') {
@@ -572,7 +649,14 @@ export class UI {
       this.renderHotbar();
       return;
     }
-    this.selectBuildGroup(nextGroup(this.buildGroupList(), this.barTab.build, dir));
+    const stops = this.buildStops();
+    const { group, sub } = this.openBuildGroup();
+    const here = group ? `${group.id}${sub ? `/${sub.id}` : ''}` : null;
+    const to = stops.find((s) => s.id === nextGroup(stops, here, dir));
+    if (!to) return;
+    this.barTab.build = to.group;
+    if (to.sub) this.barSub[to.group] = to.sub;
+    this.renderHotbar();
   }
 
   /**
@@ -702,7 +786,7 @@ export class UI {
    */
   hotbarTools() {
     if (this.bar === 'staff') return groupAt(staffGroups(this), this.staffGroup)?.items ?? [];
-    return this.openBuildGroup()?.items ?? [];
+    return this.openBuildGroup().items;
   }
 
   /**

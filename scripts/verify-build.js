@@ -17,7 +17,7 @@ import { Game } from '../server/sim/index.js';
 import { shelfFor } from '../server/sim/staff.js';
 import { content } from '../server/content.js';
 import { requiredFixture } from '../shared/tags.js';
-import { canPlace, canPlaceCleanly, isFloor } from '../shared/build.js';
+import { canPlace, canPlaceCleanly, isGround } from '../shared/build.js';
 import { kindOf } from '../shared/pieces.js';
 import {
   partsAt, stageIndexAt, isStaged, modelHeight, tierProgress,
@@ -832,15 +832,19 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   );
 
   for (const fx of c.fixtures ?? []) {
-    // A floor is not aimable and must not be: it has no model, because it is not
+    // Ground is not aimable and must not be: it has no model, because it is not
     // a thing standing in a cell — it *is* the cell. `pickFixture` never returns
     // one and `pickTile` answers for the ground it paints, so "can you click it"
     // is a question about the tile rather than about the piece. Skipped by kind
     // rather than by "has no model", which would quietly excuse a shelf somebody
     // forgot to draw.
-    if (isFloor(kindOf(fx))) {
-      check(fx.surface?.color != null, `floor ${fx.id} says what it is made of`);
-      check(fx.model == null, `floor ${fx.id} carries no model to draw`);
+    //
+    // Every ground kind, not just floor: the yard pads are painted the same way
+    // and are just as unaimable, and a check that named floor would start
+    // demanding geometry from a delivery bay the day one was authored.
+    if (isGround(kindOf(fx))) {
+      check(fx.surface?.color != null, `ground ${fx.id} says what it is made of`);
+      check(fx.model == null, `ground ${fx.id} carries no model to draw`);
       continue;
     }
     const rungs = fx.tiers?.length || 1;
@@ -1396,6 +1400,53 @@ function findFreeGrass(g) {
  */
 function canPlaceHere(g, spec, ignoreId = null) {
   return canPlaceCleanly(g.layout, spec, { ignoreId }).ok;
+}
+
+// ---------------------------------------------------------------------------
+// Back of house: the same unit, hidden from shoppers.
+//
+// Every claim here is a negative, which is why it needs a sweep. Two shelves of
+// one design differ only by this flag, nothing about the model shows it, and
+// the failure mode — customers browsing your kitchen, or a pantry quietly
+// rejoining the shop floor when you turn it — looks exactly like working
+// software until you notice the stock going somewhere you did not put it.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  // Every build verb gates on build mode — the menu press carries it in, and a
+  // sweep driving the verbs directly has to say so too.
+  g.players.me.build = { on: true };
+  const shelf = g.layout.shelves.find((s) => s.kind === 'shelf');
+  const total = g.layout.shelves.length;
+  eq(shelf.boh, false, 'shelving starts on the shop floor');
+
+  const on = g.setBackOfHouse('me', shelf.id, true);
+  check(on.ok, 'a shelf can be moved to the back', on.error ?? '');
+  const back = g.layout.shelves.find((s) => s.id === shelf.id);
+  eq(back.boh, true, 'and reads back as back-of-house');
+  eq(g.layout.shelves.length, total, 'without adding or losing a unit');
+  check(!!back.browseAt, 'it is still a shelf with a working spot — staff use it');
+
+  // The one thing it is FOR. Filtered in `chooseShelf`, which is the single
+  // gate every shopping decision passes through: filter anywhere else and a
+  // customer can want something they are unable to walk to.
+  eq(g.layout.shelves.filter((s) => !s.boh).length, total - 1,
+    'and shoppers are offered one fewer shelf');
+
+  // Turning it must not put it back out front. Rotation mints a NEW id, which
+  // is exactly how a carried flag gets dropped.
+  const rot = g.rotateFixture('me', shelf.id, 1);
+  const turned = g.layout.shelves.find((s) => s.id === (rot.rotated ?? shelf.id));
+  eq(turned?.boh, true, 'turning it leaves it in the back');
+
+  // ...and back again, or one misplaced tap costs you the unit.
+  const off = g.setBackOfHouse('me', turned.id, false);
+  check(off.ok, 'and it comes back out front', off.error ?? '');
+  eq(g.layout.shelves.find((s) => s.id === turned.id)?.boh, false, 'onto the shop floor');
+
+  // It means one thing only, so it is refused where that thing is meaningless.
+  const till = g.setBackOfHouse('me', g.layout.checkouts[0].id, true);
+  check(!till.ok, 'a till cannot be back of house — it has no shoppers to hide from');
 }
 
 console.log(`\n${checks} assertions\n`);

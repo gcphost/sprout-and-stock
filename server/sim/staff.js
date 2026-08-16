@@ -25,7 +25,7 @@
  */
 
 import { content } from '../content.js';
-import { followPath } from './pathing.js';
+import { findPath, followPath } from './pathing.js';
 import { suggestedPrice, wholesalePrice } from './economy.js';
 
 /** Don't let a hire spend the shop down to nothing restocking. */
@@ -50,6 +50,18 @@ const DRAIN = 0.035;        // per job taken, so ~28 jobs on a full tank
 const SPENT = 0.25;         // below this they down tools
 /** How much slower a worker on an empty tank is than a fresh one. */
 const TIRED_PACE = 1.8;
+/**
+ * What a break taken in a proper break area is worth, against the same break
+ * taken leaning on a shelf.
+ *
+ * The one number the break area moves, and it has to move one. Walking round to
+ * the room costs the shop time it would not otherwise have spent, so a room
+ * that restored the same amount would be ground you pay for that only ever
+ * makes things worse — the "tier that changes no number" trap in CLAUDE.md,
+ * wearing a paintbrush. At 1.5 a hire comes back off a break that much closer to
+ * full, which means fewer of them, which is what pays for the walk.
+ */
+const SEATED_RESTORE = 1.5;
 
 /** 1 when fresh, TIRED_PACE when empty. Everything they do stretches by this. */
 const tiredness = (s) => 1 + (TIRED_PACE - 1) * (1 - clamp01(s.energy ?? 1));
@@ -132,6 +144,8 @@ export function syncStaff(game) {
       breakFrom: 0,
       breakUntil: 0,
       pastime: null,
+      /** Which cell of the break area is theirs, while they have one. */
+      breakAt: null,
     };
   }
 }
@@ -227,6 +241,9 @@ function tryBreak(game, s, evenCarrying = false) {
     s.breakFrom = 0;
     s.breakUntil = 0;
     s.pastime = null;
+    // The seat goes back with everything else. A claim left on a worker who is
+    // no longer on a break is a cell of the room nobody may ever sit in again.
+    s.breakAt = null;
     s.energy = 1;   // rather than leaving them stuck at empty and useless
     return false;
   }
@@ -279,8 +296,12 @@ function onBreak(game, s, evenCarrying = false) {
   if (s.pastime) {
     if (game.elapsed < s.breakUntil) { s.cooldown = 0.4; return true; }
     const done = content().byId.pastimes?.[s.pastime];
-    s.energy = clamp01((s.energy ?? 0) + (done?.restores ?? 0.5));
+    // `breakAt` is set when and only when a seat in the break area was claimed,
+    // so it is the whole test for "was this break taken in the room" — no
+    // second flag, and nothing to keep in step with where they actually went.
+    s.energy = clamp01((s.energy ?? 0) + (done?.restores ?? 0.5) * (s.breakAt ? SEATED_RESTORE : 1));
     s.pastime = null;
+    s.breakAt = null;   // the seat is free again the moment they stand up
     s.job = null;
     return false;
   }
@@ -295,9 +316,9 @@ function onBreak(game, s, evenCarrying = false) {
   const pick = choosePastime(game, s);
   // Nothing authored to do, so they soldier on rather than freezing at empty.
   // A shop with no pastimes in the database plays exactly as it did before.
-  if (!pick) { s.energy = 1; return false; }
+  if (!pick) { s.breakAt = null; s.energy = 1; return false; }
 
-  const spot = spotFor(game, pick);
+  const spot = spotFor(game, s, pick);
   if (spot && !goTo(game, s, spot, 1.2)) { s.job = 'break'; return true; }
 
   // Buying is the *reason* for some breaks, not a condition of them: no stock,
@@ -355,8 +376,70 @@ function choosePastime(game, s) {
   return options[options.length - 1];
 }
 
-/** Where a pastime happens. `here` is wherever they finished, so it has none. */
-function spotFor(game, p) {
+/**
+ * Where this break happens — and claims the seat, if there is one to claim.
+ *
+ * **A break area outranks whatever the pastime authored.** That is the whole of
+ * the feature, and the reason it is a full override rather than one more entry
+ * in `PASTIME_SPOTS`: `bay`, `outside` and `till` are a pastime saying where it
+ * looks right, from a time when the shop had nowhere of its own to send anyone.
+ * If half your hires used the room you paid for and half stood in the aisle,
+ * the room would read as broken. So `spot` is now the fallback — where a break
+ * happens in a shop that has nowhere for it — and a shop with no break area
+ * plays exactly as it always did.
+ *
+ * Not a pure query, deliberately: choosing a seat and taking it are the same
+ * act, or two hires pick the same cell and stand inside each other.
+ */
+function spotFor(game, s, p) {
+  return seatIn(game, s) ?? authoredSpot(game, p);
+}
+
+/**
+ * A cell of the break area for this worker, or null to take it where they are.
+ *
+ * One cell seats one person, which is what makes how big you paint it a
+ * decision — the same claim the yard makes about crates, made about people. A
+ * room with no free seat is not a queue: the fifth hire takes their break where
+ * the pastime says, which is what all five did before there was a room.
+ *
+ * The reachability check is not paranoia. Since the room outranks the authored
+ * spot, a break area somebody has walled off — or painted behind a shelf —
+ * would otherwise be a shop whose staff walk at a seat they can never reach and
+ * never rest again, at `TIRED_PACE`, forever. A seat with no route is not a
+ * seat, and they fall back to what they did before.
+ */
+function seatIn(game, s) {
+  const room = game.layout.break;
+  // The common case, and it stays the cheap one: no room means no roster walk
+  // and no pathfinding, so a shop that has not painted one does no work here at
+  // all. The claim still has to be cleared rather than skipped — a stale seat is
+  // a cell of a room somebody painted later that nobody may ever sit in.
+  if (!room) { s.breakAt = null; return null; }
+
+  const taken = new Set();
+  for (const o of Object.values(game.players)) {
+    if (o !== s && o.breakAt) taken.add(`${o.breakAt.x},${o.breakAt.z}`);
+  }
+  // Their own claim first, and without re-testing the route: a hire who changed
+  // seats halfway to one is a worker who turns round for no reason anyone
+  // watching could explain. It is looked up in the room rather than trusted, so
+  // a seat painted over while they walked to it is one they give up.
+  const held = s.breakAt
+    ? room.cells.find((c) => c.x === s.breakAt.x && c.z === s.breakAt.z)
+    : null;
+  const seat = held
+    ?? room.cells.find((c) => !taken.has(`${c.x},${c.z}`) && reaches(game, s, c))
+    ?? null;
+  s.breakAt = seat ? { x: seat.x, z: seat.z } : null;
+  return s.breakAt;
+}
+
+/** Is there a route from where they are standing to there? */
+const reaches = (game, s, c) => findPath(game.walk, game.layout, s, c) !== null;
+
+/** Where the pastime itself says. `here` is wherever they finished, so it has none. */
+function authoredSpot(game, p) {
   const L = game.layout;
   if (p.spot === 'bay') return L.bay;
   if (p.spot === 'outside') return { x: L.door.x, z: L.door.z + 2 };
@@ -449,7 +532,12 @@ function goTo(game, s, goal, reach = 1.2) {
  * arrived, and piling both on one pad makes the yard unreadable.
  */
 function putDown(game, s) {
-  if (!goTo(game, s, game.dropPad(), 1.6)) return;
+  // A shop can have no drop-off at all now that the pads are ground somebody
+  // paints — see `Game.freezeYard`. Nothing to walk to, so they keep hold of it
+  // and try again later rather than pathing to `undefined`.
+  const pad = game.dropPad();
+  if (!pad) { s.cooldown = 2; return; }
+  if (!goTo(game, s, pad, 1.6)) return;
   const res = game.stow(s.id);
   if (!res.ok) { s.carry = null; s.cooldown = 2; return; }
   s.cooldown = paceOf(s);
@@ -648,7 +736,14 @@ function craft(game, s) {
     for (const input of recipe.inputs) {
       const short = input.qty - (st.contents[input.item_id] ?? 0);
       if (short <= 0) continue;
-      const shelf = game.layout.shelves.find((sh) => sh.item_id === input.item_id && sh.qty > 0);
+      // Back of house first, shop floor second. Stripping a shelf customers
+      // are still buying from is the behaviour the kitchen exists to stop —
+      // and it stays as the FALLBACK rather than being forbidden, because a
+      // shop with no kitchen yet must still be able to make things.
+      const stocked = game.layout.shelves.filter(
+        (sh) => sh.item_id === input.item_id && sh.qty > 0,
+      );
+      const shelf = stocked.find((sh) => sh.boh) ?? stocked[0];
       if (!shelf) continue;
       if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
       // Take only the shortfall — hoarding an ingredient strips a shelf

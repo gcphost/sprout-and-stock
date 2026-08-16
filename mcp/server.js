@@ -249,16 +249,22 @@ server.registerTool('create_fixture', {
     + STAGE_HELP,
   inputSchema: {
     id: z.string().describe('Slug, yours to choose, e.g. "terracotta-planter" or "chiller-shelf". Reuse one to update it.'),
-    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor'])
+    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor', 'bay', 'drop', 'break'])
       .describe('Which build rules it plays by. Closed set — this is not a way to invent kinds.'),
     name: z.string().describe('Display name, e.g. "Shelving". This is what the build palette calls it.'),
-    model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except a floor, which has no model. ' + STAGE_HELP),
+    model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except GROUND (floor, bay, drop, break), which has no model. ' + STAGE_HELP),
     surface: z.object({
       color: z.string().describe('#rrggbb. The main colour of the floor.'),
       accent: z.string().optional().describe('#rrggbb, the second colour of the pattern. Left out it is a darker shade of the first, which is usually what you want.'),
       pattern: z.enum(['plain', 'checker', 'planks']).default('plain')
         .describe('How the two colours repeat, tile by tile. "plain" uses only the first.'),
-    }).optional().describe('FLOORS ONLY, and required for one. A floor is a colour and a repeat — there is no geometry, because the ground is seen edge-on at 45° with a shop standing on it and nothing finer than a tile survives that.'),
+    }).optional().describe('GROUND ONLY (floor, bay, drop, break), and required for one. Ground is a colour and a repeat — there is no geometry, because it is seen edge-on at 45° with a shop standing on it and nothing finer than a tile survives that. `bay` is where wholesale orders land as pallets, `drop` is where hands are cleared and stock waits, and `break` is where the staff go when they stop working; all three are painted the same way floor is, and how big you paint one is how much it holds — crates for the two yard pads, one worker per cell for a break area.'),
+    yields: z.object({
+      cash: z.number().min(0).max(500).describe('How much money one payout is.'),
+      every: z.number().min(1).max(1440).default(60).describe('In-game MINUTES between payouts. A day is 24x60 of these.'),
+    }).optional().describe('Makes this piece EARN. It pays into a pile of cash on the floor that somebody has to walk over and collect \u2014 the same entity a till drops, so it renders, is picked up and is tidied away by code that already exists. Money you have to fetch is a decision; money that appears in the bank is a trickle nobody sees. Run `simulate` after authoring one: this is the only field on a fixture that prints money.'),
+    charm: z.number().min(0).max(20).optional()
+      .describe('How much nicer this makes the shop look, which is how far word of it travels. It raises CATCHMENT \u2014 how much of the town is within reach at all \u2014 rather than reputation, because reputation is what the people who already came in think of you. Saturating: about half the maximum at 10 total charm across the whole shop, so a room full of pot plants is worth about as much as one nice centrepiece. 1 is a pleasant pot plant, 5 is a centrepiece.'),
     variants: z.any().optional().describe('Optional other shapes of this kind: [{id, name, model}]. Looks only — no costs, no multipliers, and the kind\'s own model is always offered alongside them as "Standard".'),
     tiers: z.array(z.object({
       name: z.string().describe('What this rung is called, e.g. "Chilled" or "Deep Freeze".'),
@@ -268,7 +274,7 @@ server.registerTool('create_fixture', {
       speed_mult: z.number().min(0.1).max(10).default(1),
     })).min(1).max(6).describe('Lowest rung first. Tier 1 is what a new one already is.'),
     cost: z.number().min(0).optional()
-      .describe('What one costs to build — per TILE for a floor. 0 (the default) means "priced by the upgrade that sells this kind" — right for fixtures, free for props and for floors, neither of which has an upgrade behind it.'),
+      .describe('What one costs to build — per TILE for ground (floor, bay, drop, break). 0 (the default) means "priced by the upgrade that sells this kind" — right for fixtures, free for props and for ground, neither of which has an upgrade behind it.'),
     emits: z.object({
       color: z.string().describe('#rrggbb. Warm for a bulb, cold for a chiller light.'),
       intensity: z.number().min(0).max(4).default(1).describe('Brightness. 1 is a room fitting; above 2 washes an aisle out.'),

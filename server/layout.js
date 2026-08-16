@@ -24,7 +24,9 @@
 import { makeRng } from '../shared/rng.js';
 import { T, WALKABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
-import { anchorTile, queueAxis, canPlace, canKeep, isProp } from '../shared/build.js';
+import {
+  anchorTile, queueAxis, canPlace, canKeep, isProp, FLOOR_KIND, groundTile, padCells,
+} from '../shared/build.js';
 
 export { T };
 
@@ -47,6 +49,34 @@ const MIN_STORE_H = 9;
 /** Farm plots per side of the path, per row. */
 const PLOTS_PER_SIDE = 4;
 
+/**
+ * How far the building stands from the north edge — the depth of the yard.
+ *
+ * Two numbers, and which one you get is a fact about your shop rather than a
+ * constant, which is the whole point.
+ *
+ * It was hardcoded at 2 for as long as the yard was two pads the generator drew
+ * and nobody could touch. Two rows is barely a yard, and it is really *one*:
+ * row 0 is the world's border ring, which `canPaintGround` refuses to everybody
+ * — so the moment the pads became ground you paint, half the space behind your
+ * shop was somewhere you could look at and never use.
+ *
+ * A shop that already exists does not move, and that is not a nicety. Every
+ * fixture in a live save is a placement at an absolute tile; push the floor
+ * three rows south and the entire contents of the building are suddenly outside
+ * it, get dropped on the next re-flow and refunded. docs/building.md wrote the
+ * old constant down specifically to stop that happening. So the position joins
+ * `w` and `h` on the stored shell, and a save that predates the field reads as
+ * the number it was built with — a read-time default rather than a migration,
+ * the same bargain `kindOf` strikes for a row with no `kind`.
+ */
+const STORE_NORTH = 5;
+const STORE_NORTH_LEGACY = 2;
+const storeNorth = (shell) => {
+  if (!shell) return STORE_NORTH;                       // a world nobody has stamped
+  return Math.max(1, Math.trunc(shell.z ?? STORE_NORTH_LEGACY));
+};
+
 /** Longest queue a till will lay out behind its serving spot. */
 const QUEUE_MAX = 8;
 
@@ -67,10 +97,17 @@ const ROW_PITCH = 2;
  * @param {object[]} opts.placements player-positioned fixtures, honoured first
  * @param {object} opts.grow        bought floor area, {w, h} extra tiles
  * @param {number} opts.doorShift   player-moved door, tiles east of centre
- * @param {object[]} opts.floors    floor the player laid, [{x, z, p}]. `p` null
- *   means they took it back up, which is a thing that has to be recorded rather
- *   than simply absent: the shell stamps its whole footprint as floor, so
- *   "there is no floor here" is only expressible as an override.
+ * @param {object[]} opts.ground    ground the player laid, [{x, z, k, p}]. `k`
+ *   is the ground KIND, which is what decides the tile — floor, delivery bay or
+ *   storage — and `p` the design of it. `k` null means they took it back up,
+ *   which is a thing that has to be recorded rather than simply absent: the
+ *   shell stamps its whole footprint as floor, so "there is no floor here" is
+ *   only expressible as an override.
+ *
+ *   Kind is stored beside the piece rather than looked up from it for the same
+ *   reason a placement stores both: this function is pure and has never seen the
+ *   catalog, and a generator that had to resolve a piece id to decide what a
+ *   cell is made of would need one.
  * @param {object} [opts.shell]     a building that already exists, {w, h}. Given
  *   one, this stops searching for a size and builds exactly that — see below.
  */
@@ -85,7 +122,7 @@ export function generateLayout({
   grow = { w: 0, h: 0 },
   doorShift = 0,
   edits = [],
-  floors = [],
+  ground = [],
   shell = null,
 } = {}) {
   const req = {
@@ -97,7 +134,7 @@ export function generateLayout({
     // shelf purchase quietly demolishes your back room.
     edits: edits ?? [],
     /** ...and the same again for ground, for exactly the same reason. */
-    floors: floors ?? [],
+    ground: ground ?? [],
     doorShift: Math.trunc(doorShift) || 0,
     // Whether this shop has been stamped, which `compose` needs for exactly one
     // decision: what a dropped placement does to the budget. See `shed`.
@@ -199,7 +236,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const worldW = Math.max(WORLD_W, storeW + 8, farmHalfSpan * 2 + 10);
 
   const storeX = Math.floor((worldW - storeW) / 2);
-  const storeZ = 2;
+  const storeZ = storeNorth(req.shell);
   const store = { x: storeX, z: storeZ, w: storeW, h: storeH };
 
   // The last row of shop floor. Walls sit on the boundary *between* cells now,
@@ -327,44 +364,66 @@ function compose(req, storeW, storeH, allowDrops = true) {
   // Anchored to the building rather than to the door, one pad at each end of
   // the back wall, so the door sits between them however far it has been
   // dragged and neither can ever land on top of the other.
-  const yardZ = Math.max(0, store.z - 2);
-  const pad = (px, kind) => {
-    const x = clampInt(px, 1, worldW - 3);
-    for (let dz = 0; dz < 2; dz++) {
-      for (let dx = 0; dx < 2; dx++) {
-        if (at(x + dx, yardZ + dz) === T.GRASS) set(x + dx, yardZ + dz, kind);
-      }
-    }
-    return { x: x + 0.5, z: yardZ + 0.5 };
-  };
-  const bay = pad(store.x + 1, T.BAY);
-  const drop = pad(store.x + store.w - 3, T.DROP);
-
   // ---- the ground the player laid -----------------------------------------
   //
   // Last of everything procedural, and first of everything the player owns, so
-  // a floor is the last word on what its cell is made of the same way an edit
-  // is the last word on its line. Above this: the shell's footprint, the path
-  // out to the fields, the two yard pads. Below it: every placement, which is
-  // checked against the ground as it finally is — so a shelf may stand on floor
-  // somebody painted this morning, and `canPaintFloor` refusing to pave the bay
-  // is the rule that keeps the order from mattering in the other direction.
+  // ground is the last word on what its cell is made of the same way an edit is
+  // the last word on its line. Above this: the shell's footprint and the path
+  // out to the fields. Below it: every placement, which is checked against the
+  // ground as it finally is — so a shelf may stand on floor somebody painted
+  // this morning.
   //
-  // Only cells that ended up as floor are carried out. A cell taken back up is
-  // grass with nothing painted on it, which is the same thing as never having
+  // The two yard pads used to be stamped just above here, procedurally, against
+  // the corners of the back wall — which is why you could never move them. They
+  // are ground the player owns now, seeded once by `Game.freezeShell` the same
+  // way the shop's fixtures are, and after that they are just painted cells:
+  // editable, movable, and gone if you paint over them. So this loop is the ONLY
+  // thing that writes a yard pad, and there is no procedural half left to
+  // disagree with it.
+  //
+  // Only cells that ended up as something are carried out. A cell taken back up
+  // is grass with nothing painted on it, which is the same thing as never having
   // been painted — so the emitted list stays a list of what IS, and a shop
   // nobody has redecorated emits an empty array.
-  const floorsOut = [];
-  for (const f of req.floors) {
+  const groundOut = [];
+  for (const f of req.ground) {
     const fx = Math.round(f.x);
     const fz = Math.round(f.z);
     if (fx < 0 || fz < 0 || fx >= worldW || fz >= worldH) continue;
-    // A floor is a look, never a permission: what it can write is FLOOR or
-    // GRASS and nothing else. If that ever grows a third answer, every rule
-    // that reads `tiles` has to be re-read with a painter in mind.
-    set(fx, fz, f.p ? T.FLOOR : T.GRASS);
-    if (f.p) floorsOut.push({ x: fx, z: fz, p: f.p });
+    // What a painter can write is one of the ground kinds or GRASS, and nothing
+    // else. If that ever grows an answer outside `GROUND`, every rule that reads
+    // `tiles` has to be re-read with a painter in mind.
+    const kind = f.k ?? (f.p ? FLOOR_KIND : null);
+    const tile = kind ? groundTile(kind) : null;
+    set(fx, fz, tile ?? T.GRASS);
+    if (tile != null) groundOut.push({ x: fx, z: fz, k: kind, p: f.p ?? null });
   }
+
+  // ---- where the pads ended up --------------------------------------------
+  // Read back off the tiles rather than remembered from what was asked for, so
+  // a pad is exactly the cells that really are one — including none, if you
+  // painted over the lot. `padCells` is the same read `canPaintGround` uses to
+  // decide whether a stroke takes your last bay away.
+  const padRegion = (kind) => {
+    const cells = padCells({ w: worldW, h: worldH, tiles }, kind);
+    if (!cells.length) return null;
+    // A point for whoever just needs somewhere to walk: the cell nearest the
+    // middle of the region, which for the old 2x2 is one of its four and for an
+    // L-shaped stockroom is inside it rather than in the notch.
+    const mx = cells.reduce((a, c) => a + c.x, 0) / cells.length;
+    const mz = cells.reduce((a, c) => a + c.z, 0) / cells.length;
+    const mid = cells.reduce((best, c) => (
+      Math.hypot(c.x - mx, c.z - mz) < Math.hypot(best.x - mx, best.z - mz) ? c : best
+    ), cells[0]);
+    return { x: mid.x, z: mid.z, cells };
+  };
+  const bay = padRegion('bay');
+  const drop = padRegion('drop');
+  // The third pad, and the only one nothing seeds: a shop opens without a break
+  // area and its staff rest where the pastime says, which is what they did
+  // before there was one to paint. `break` is a reserved word, so the local is
+  // spelled out and the field is not — the layout speaks the kind's own name.
+  const breakRoom = padRegion('break');
 
   // ---- where shoppers walk on from ----------------------------------------
   // The edge of the map, not a point in the middle of the field. A customer
@@ -420,11 +479,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const propsOut = [];
   const layoutSoFar = () => ({
     w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ },
-    bay, drop,
+    bay, drop, break: breakRoom,
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
     props: propsOut,
-    floors: floorsOut,
+    ground: groundOut,
     blocked,
   });
 
@@ -458,11 +517,21 @@ function compose(req, storeW, storeH, allowDrops = true) {
     if (req.shell && budget[p.kind] > 0) budget[p.kind]--;
   };
 
-  // Working spots already spoken for. Nothing may be *built* on one of these —
-  // otherwise the generator happily drops a shelf onto the exact tile you have
-  // to stand on to reach a shelf you positioned by hand, and you end up with a
-  // fixture you can see but can never use. (Two fixtures *sharing* a working
-  // spot is fine; a person only stands on one at a time.)
+  // Working spots already spoken for. Nothing may be *generated* onto one of
+  // these — otherwise the generator happily drops a shelf onto the exact tile
+  // you have to stand on to reach a shelf you positioned by hand, and you end
+  // up with a fixture you can see but can never use. (Two fixtures *sharing* a
+  // working spot is fine; a person only stands on one at a time.)
+  //
+  // *Generated*, and only generated — read `free` below and note that the loop
+  // re-applying your own placements does not consult this. It used to, which
+  // was the third arrival of the bug the comment under this one describes, and
+  // the worst-hidden: a corner unit reserves the tile beside it along the other
+  // wall, so the one square that continues the run was the one square you could
+  // never keep. `placeFixture` warned you and charged you, this shed it on the
+  // re-flow that same call triggers, and the refund made it look like the tap
+  // had simply not registered. A reservation is the generator promising not to
+  // build somewhere; it was never a rule about what you may do.
   const reserved = new Set();
   const reserve = (a) => a && reserved.add(`${a.x},${a.z}`);
   const free = (x, z) => at(x, z) === T.FLOOR
@@ -529,7 +598,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // An appliance whose upgrade has been sold isn't a fit problem, so this
       // one is always just dropped rather than grown for.
       if (i === -1) { shed(p); continue; }
-      if (reserved.has(`${p.x},${p.z}`) || !canKeep(layoutSoFar(), p).ok) {
+      if (!canKeep(layoutSoFar(), p).ok) {
         // Same as `shed` does for a budget, for the queue an appliance is
         // counted in instead: in a stamped shop a dropped machine must not come
         // back as a generated one down the east wall.
@@ -548,7 +617,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
       continue;
     }
     if (!(budget[p.kind] > 0)) { shed(p); continue; }
-    if (reserved.has(`${p.x},${p.z}`) || !canKeep(layoutSoFar(), p).ok) {
+    if (!canKeep(layoutSoFar(), p).ok) {
       if (!drop()) return incomplete(layoutSoFar(), null);
       continue;
     }
@@ -576,6 +645,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // chose one, so it draws as whatever its kind currently defaults to, and
       // redrawing that kind reaches every unit the generator ever laid.
       shelf.piece = p.piece ?? null;
+      // Back of house: staff use it, shoppers never see it. Carried across the
+      // re-flow like the tier and the shape, because it is a decision somebody
+      // made about this unit rather than a fact about its design — the same
+      // shelving is a shop fitting out front and a pantry in the kitchen.
+      shelf.boh = p.boh === true;
       shelvesOut.push(shelf);
       reserve(shelf.browseAt);
     }
@@ -740,6 +814,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
       bay,
       /** Where clearing your hands puts a crate. The other half of the yard. */
       drop,
+      /** Where the staff take their breaks, if anybody has painted them one. */
+      break: breakRoom,
       /** Where players clock on, and the anchor for "is outside still reachable". */
       spawn: layout.spawn,
       /** Map-edge tiles shoppers walk on from and back off to. */
@@ -758,7 +834,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
        * become one field is the day a paint colour can decide whether a shelf
        * fits. Empty for a shop nobody has redecorated.
        */
-      floors: floorsOut,
+      ground: groundOut,
       /** Placements that no longer fit (the building re-flowed under them). */
       droppedPlacements: dropped.map((p) => p.id),
     },
@@ -791,6 +867,8 @@ function makeShelf(id, kind, x, z, rot) {
     // What the player *decided* goes here, as opposed to `item_id`, which is
     // whatever happens to be on it. Null means anything may. See `assignShelf`.
     assigned: null,
+    /** Staff-only storage. Generated shelving is always shop floor. */
+    boh: false,
     // Which shelf the next van fills. -1, 0 or 1 — see `restockQueue`.
     priority: 0,
   };
@@ -915,3 +993,50 @@ export function isWalkable(grid, layout, x, z) {
 }
 
 const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
+
+/**
+ * The yard pads a shop starts life with, as ground for somebody to own.
+ *
+ * This is the *seed*, not the rule. `Game.freezeShell` lays these once, the
+ * first time a world is stamped, and from that moment they are ordinary painted
+ * cells — the generator never looks at this again, and nothing re-applies it.
+ * That is the whole difference from what was here before: the pads used to be
+ * re-stamped on every single re-flow, which is why moving one was impossible
+ * rather than merely unimplemented. Buying a shelf put it back.
+ *
+ * Four cells each, at the two ends of the back wall, which is where the
+ * generator used to put them — so an existing shop and a brand-new one hold the
+ * same number of crates in the same corners of the yard on the day this lands.
+ *
+ * They run four ALONG the wall rather than as the 2x2 the generator drew, and
+ * that is not cosmetic. **The seed must only lay ground the player could lay
+ * themselves**, or the pads are not really theirs. The yard is the two rows
+ * north of the building and the building starts at z=2, so a 2x2 has half of
+ * itself on row 0 — and row 0 is the world's border, which `canPaintGround`
+ * refuses to anybody. A pad you can delete three quarters of is worse than one
+ * you cannot delete at all, because it looks like it worked.
+ *
+ * They are laid with no design (`p: null`) on purpose. A pad with no piece
+ * renders in the tile's own palette colour — `surfaceOf` falls back — so the
+ * seed does not have to reach for the catalog, and a world stamped before
+ * anybody authored a bay design still gets a bay.
+ */
+export const PAD_SEED_W = 4;
+
+export function defaultPads(L) {
+  // The row immediately behind the building, never the border.
+  const z = Math.max(1, L.store.z - 1);
+  const out = [];
+  const pad = (px, kind) => {
+    const x0 = clampInt(px, 1, L.w - 1 - PAD_SEED_W);
+    for (let dx = 0; dx < PAD_SEED_W; dx++) {
+      const cx = x0 + dx;
+      // Grass only, the same test the procedural version made: a shop pushed
+      // hard against the north edge of the world has less yard than this wants.
+      if (L.tiles[z * L.w + cx] === T.GRASS) out.push({ x: cx, z, k: kind, p: null });
+    }
+  };
+  pad(L.store.x, 'bay');
+  pad(L.store.x + L.store.w - PAD_SEED_W, 'drop');
+  return out;
+}
