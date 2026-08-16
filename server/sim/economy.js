@@ -10,7 +10,7 @@
  * yourself writing `if (item.id === ...)` here, stop — add a tag instead.
  */
 
-import { desireFor } from '../../shared/tags.js';
+import { desireFor, DEPARTMENTS } from '../../shared/tags.js';
 
 /**
  * Collapse the active modifier rows into per-tag multipliers.
@@ -78,6 +78,101 @@ export function modifierMeter({ demand, price }) {
     .map((tag) => ({ tag, demand: round2(demand[tag] ?? 1), price: round2(price[tag] ?? 1) }))
     .filter((m) => m.demand !== 1 || m.price !== 1)
     .sort((a, b) => Math.abs(Math.log(b.demand)) - Math.abs(Math.log(a.demand)));
+}
+
+/**
+ * Fewest asks a department needs before a missed one is allowed to fill the bar.
+ *
+ * One shopper coming in for meat on a quiet Tuesday and finding none is a 100%
+ * failure rate on a sample of one, and without a floor it draws exactly as long
+ * a bar as a department failing forty people. The smoothing in `demand` damps
+ * this across days; this damps it within one.
+ */
+const MIN_WANT = 3;
+
+/**
+ * THE DEMAND METER — what the town is asking of each department, against what
+ * your shop actually does about it.
+ *
+ * This is an RCI meter and it is built like one: a fixed set of channels in a
+ * fixed order, present whether or not anything is happening, each showing
+ * *pressure* rather than activity. Its predecessor drew the active world-event
+ * modifiers folded per tag, which looks similar and is a different thing
+ * entirely — the rows were whichever tags the director had written about, so
+ * they appeared and expired under you, and a week with no events drew nothing
+ * at all. You cannot learn to read a panel whose rows move.
+ *
+ * Every bar is one signed number in -1..1, and the two halves are two different
+ * measurements deliberately, because "stock more of this" and "you are wasting
+ * shelves on this" are not ends of one scale:
+ *
+ *   right — the share of asks naming that department you failed to fill. People
+ *           came in for it and walked out without it.
+ *   left  — the share of your shelf boards given to that department beyond what
+ *           its share of *sales* justifies. It is sat there not earning.
+ *
+ * The two halves read two different tallies on purpose, and the first cut got
+ * this wrong in a way worth recording. Both were asks, which meant a department
+ * nobody names directly pinned at full negative forever however well it sold —
+ * `frozen` and `prepared` are in no archetype's affinities, so a frozen pizza
+ * only ever leaves the shop by answering a `cheap` or `kids` line. Measured on
+ * asks, a shop selling nine frozen lines a day was told to tear its freezers
+ * out. Sales are observable for every department whether or not anyone can name
+ * it, which is why the left half is `moved` and not `served`.
+ *
+ * Boards rather than units, and that is the other load-bearing choice: a *full*
+ * shelf of tinned goods is a shop doing its job, and measuring stock in units
+ * would read forty tins against six sales and call a well-kept aisle an
+ * overstock. What can actually be wrong is the *allocation* — three boards given
+ * to a department nobody shops — and allocation is counted in boards. It is also
+ * the half a player can act on: you cannot un-buy stock, but you can relabel a
+ * shelf.
+ *
+ * With nothing recorded at all, every bar is zero rather than fully negative. A
+ * shop on its first morning has stocked shelves and no shoppers yet, and a meter
+ * reading "get rid of all of it" is worse than one reading nothing, which is at
+ * least true.
+ *
+ * @param asked  smoothed asks per tag — see `Game.demandNow`
+ * @param served smoothed fills per tag, same scale
+ * @param moved  smoothed units sold per department, same scale
+ * @param boards how many shelf boards carry each department
+ * @param folded the active modifier tables, so an event that says the town
+ *               wants twice the bakery moves the bakery bar
+ */
+export function departmentMeter({ asked, served, moved, boards, folded }) {
+  const rows = DEPARTMENTS.map((dept) => {
+    const event = folded.demand[dept] ?? 1;
+    return {
+      dept,
+      event: round2(event),
+      want: (asked[dept] ?? 0) * event,
+      got: served[dept] ?? 0,
+      sales: moved[dept] ?? 0,
+      boards: boards[dept] ?? 0,
+    };
+  });
+
+  const totalSales = rows.reduce((s, r) => s + r.sales, 0);
+  const totalWant = rows.reduce((s, r) => s + r.want, 0);
+  const totalBoards = rows.reduce((s, r) => s + r.boards, 0);
+
+  // Only `net`, `fill`, `boards` and `event` leave here. `want`, `got` and
+  // `sales` are smoothed indices rather than counts of shoppers — see
+  // `Game.demandNow` — so putting them on the wire would hand the HUD figures
+  // that look like counts and are not. `fill` is the same information as a
+  // share, which is true at any scale, and `boards` really is a count.
+  return rows.map(({ dept, event, want, got, sales, boards: b }) => {
+    const fill = want > 0 ? round2(Math.min(1, got / want)) : null;
+    // Nobody has shopped here yet, so nothing is short and nothing is spare.
+    if (totalWant <= 0 && totalSales <= 0) return { dept, net: 0, fill, boards: b, event };
+    const short = want > 0
+      ? Math.min(1, Math.max(0, want - got) / Math.max(MIN_WANT, want))
+      : 0;
+    const deserves = totalSales > 0 ? (sales / totalSales) * totalBoards : 0;
+    const spare = b > 0 ? Math.max(0, b - deserves) / b : 0;
+    return { dept, net: round2(clamp(short - spare, -1, 1)), fill, boards: b, event };
+  });
 }
 
 /** Strongest multiplier across all of an item's tags. */

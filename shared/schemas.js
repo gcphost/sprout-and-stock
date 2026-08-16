@@ -83,6 +83,21 @@ const PART = z.object({
    * `surface`. On anything else it is simply ignored.
    */
   drift: z.boolean().default(false),
+  /**
+   * "Whoever is wearing this decides what colour this part is."
+   *
+   * A skin is a palette, not a body — see `SkinSchema`. A part naming a slot
+   * takes its colour from the worn skin; a part that names none keeps the
+   * colour it was authored with, forever. That split is the whole design: the
+   * chassis is tinted and the JOB PAYLOAD is not, so a skin can repaint a bot
+   * head to toe and never touch the thing that says which bot it is.
+   *
+   * The authored `color` stays required and is what an unskinned bot draws, so
+   * a model is always a complete picture on its own — a slot is an override,
+   * not a hole. Same shape of idea as `surface` and `drift`: a flag on a part
+   * one renderer knows how to read, rather than a second kind of model.
+   */
+  tint: z.enum(['chassis', 'trim', 'glow']).nullable().default(null),
 });
 
 /**
@@ -486,6 +501,57 @@ export const WorkerSchema = z.object({
 });
 
 /**
+ * A SKIN — what one hire looks like, worn over whatever kind they are.
+ *
+ * Deliberately **not** a variant. A fixture variant carries a whole model, and
+ * that works there because a corner shelf really is a different shape. Applied
+ * to staff it fails twice: a skin would belong to one worker kind, so "Rust
+ * Bucket" would have to be drawn once per kind and again for every kind anyone
+ * adds later — and nothing would stop a skin from redrawing a bot into
+ * something that reads as a shopper, which is the exact problem staff art was
+ * changed to fix.
+ *
+ * So a skin is a PALETTE and some trim, and it owns no silhouette at all:
+ *
+ *   slots   colours, keyed by the `tint` slot a part names. A part with no
+ *           `tint` is untouchable — that is where the job payload lives.
+ *   extras  parts ADDED to the body. A hat, an antenna, a scarf. They cannot
+ *           replace or remove anything, so the base shape always survives.
+ *
+ * The consequences are the point. One row works on every worker kind that
+ * exists and every kind that ever will, a skin can never move a number or need
+ * `simulate` re-run (it has nowhere to put one), and "that one works for me" is
+ * a guarantee of the format rather than a thing authors have to keep in mind.
+ *
+ * Slots are a closed set for the same reason `BUILD_KINDS` is: an open one
+ * means a skin painting `torso` and a bot tinting `chassis` both validate, both
+ * look authored, and quietly never meet.
+ */
+export const SkinSchema = z.object({
+  id: slug,
+  name: z.string().min(1).max(32),
+  /**
+   * Every slot is optional. A skin that only sets `glow` is a legitimate skin —
+   * it changes the visor and leaves the bot otherwise as drawn, which is the
+   * cheapest possible way to tell two of the same kind apart.
+   */
+  slots: z.object({
+    chassis: hexColor.optional(),
+    trim: hexColor.optional(),
+    glow: hexColor.optional(),
+  }).default({}),
+  /**
+   * Bolted on, never swapped in. Capped low because these are cosmetics on top
+   * of a model that is already capped at 8 parts, and a hat is one box.
+   *
+   * An extra may name a `tint` slot itself, so a skin can hang a hat and have
+   * it come out in its own trim colour without authoring the hex twice.
+   */
+  extras: z.array(PART).max(4).default([]),
+  tags: z.array(slug).max(12).default([]),
+});
+
+/**
  * Where a pastime has to be done. Anything that needs a *place* names one the
  * layout already has, because a break spot nobody can path to is a worker who
  * stands still forever and looks broken.
@@ -567,4 +633,5 @@ export const SCHEMAS = {
   fixture: FixtureSchema,
   worker: WorkerSchema,
   pastime: PastimeSchema,
+  skin: SkinSchema,
 };

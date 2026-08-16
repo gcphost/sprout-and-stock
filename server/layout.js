@@ -25,7 +25,8 @@ import { makeRng } from '../shared/rng.js';
 import { T, WALKABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
-  anchorTile, queueAxis, canPlace, canKeep, isProp, FLOOR_KIND, groundTile, padCells,
+  anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
+  FLOOR_KIND, groundTile, padCells,
 } from '../shared/build.js';
 
 export { T };
@@ -76,9 +77,6 @@ const storeNorth = (shell) => {
   if (!shell) return STORE_NORTH;                       // a world nobody has stamped
   return Math.max(1, Math.trunc(shell.z ?? STORE_NORTH_LEGACY));
 };
-
-/** Longest queue a till will lay out behind its serving spot. */
-const QUEUE_MAX = 8;
 
 /** How far apart shelf columns sit: one unit, then a walkable aisle. */
 const COL_PITCH = 3;
@@ -635,6 +633,9 @@ function compose(req, storeW, storeH, allowDrops = true) {
       till.piece = p.piece ?? null;
       checkoutsOut.push(till);
       reserve(till.serveAt);
+      // Both sides, or the generator fills the clerk's spot with a shelf on the
+      // next re-flow and the till you hand-placed quietly stops being staffable.
+      reserve(till.tendAt);
     } else {
       occupy(p.x, p.z);
       const shelf = makeShelf(p.id, p.kind, p.x, p.z, p.rot ?? 0);
@@ -662,6 +663,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
   // the till can never reach.
   const checkoutZ = doorZ - 2;
   const serveRow = checkoutZ + 1;
+  // And the row the clerk works from, on the other side. Always interior floor
+  // at any legal store height (MIN_STORE_H is 9 and this is `h - 4` in from the
+  // north wall), so this guard is really about a hand-placed shelf having taken
+  // the tile — the same thing the `serveRow` guard above is about.
+  const tendRow = checkoutZ - 1;
 
   // West of the door first (that's how the shop has always read), then east.
   const tillSlots = [];
@@ -675,6 +681,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     if (cx <= store.x || cx >= store.x + store.w - 1) continue;
     if (checkoutZ <= store.z || !free(cx, checkoutZ)) continue;
     if (at(cx, serveRow) !== T.FLOOR || blocked[idx(cx, serveRow)]) continue;
+    if (at(cx, tendRow) !== T.FLOOR || blocked[idx(cx, tendRow)]) continue;
     if (takenServe.has(`${cx},${serveRow}`)) continue;
 
     occupy(cx, checkoutZ);
@@ -683,6 +690,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     nTill++;
     checkoutsOut.push(till);
     reserve(till.serveAt);
+    reserve(till.tendAt);
     takenServe.add(`${cx},${serveRow}`);
     budget.checkout--;
   }
@@ -787,6 +795,19 @@ function compose(req, storeW, storeH, allowDrops = true) {
   // changes is that the way round the farm is open until you fence it yourself.
 
   const layout = layoutSoFar();
+
+  // ---- how long each line really is ---------------------------------------
+  // Re-measured here rather than trusted from `makeCheckout`, because the
+  // shelving goes in *after* the tills — so a lane measured then is a lane
+  // measured through an aisle whose shelves did not exist yet. The direction is
+  // kept: which way a queue faces is a decision made when the till was placed,
+  // and re-deciding it on every re-flow would swing the line across the shop
+  // every time somebody bought a freezer.
+  for (const [id, lane] of queueLanes(layout)) {
+    const till = checkoutsOut.find((c) => c.id === id);
+    if (till) till.queueMax = lane.length - 1;
+  }
+
   return {
     complete: true,
     want: null,
@@ -894,7 +915,7 @@ function makeCheckout(L, id, x, z, rot, existing) {
   const taken = new Set(existing.map((c) => `${c.serveAt.x},${c.serveAt.z}`));
   const runs = queueAxis(rot).map((dir) => ({
     dir,
-    n: openRunAvoiding(L, serveAt, dir, taken),
+    n: queueLane(L, serveAt, dir, { claimed: taken }).length - 1,
   }));
   const best = runs[0].n >= runs[1].n ? runs[0] : runs[1];
   return {
@@ -905,11 +926,31 @@ function makeCheckout(L, id, x, z, rot, existing) {
     x,
     z,
     rot,
-    // Where shoppers stand to be served, and where the queue trails off to.
+    // Where shoppers stand to be served, and which way the line sets off.
     serveAt,
+    /**
+     * And the other side — where whoever is working it stands.
+     *
+     * Stored rather than derived at the point of use for the same reason
+     * `serveAt` is: staff, the validator and the ghost all have to agree on one
+     * tile, and three callers each doing their own arithmetic off `rot` is
+     * three chances to disagree. It was `till.z - 1` in `server/sim/staff.js`
+     * until this field existed, which is this arithmetic done once, wrongly,
+     * for one facing out of four.
+     */
+    tendAt: behindTile(x, z, rot),
     queueDir: best.dir,
-    // Slots behind the front one. Past this the line would leave the floor, so
-    // shoppers stack on the last slot instead of walking into a wall.
+    /**
+     * Slots behind the front one — how long the line came out when this shop
+     * was laid, corners included, not how far it runs in a straight line.
+     *
+     * Advisory, and deliberately so. It picks which way the queue faces here,
+     * guards a till with nowhere at all to put shopper #2, and is what the
+     * fixture menu prints. Where people actually *stand* is `Game.laneOf`,
+     * walked against the finished shop every time the walk grid is rebuilt —
+     * this is measured mid-compose, when the shelves that will share the aisle
+     * with the line may not have been placed yet.
+     */
     queueMax: best.n,
   };
 }
@@ -979,22 +1020,6 @@ function makePlot(id, x, z) {
     plantedAt: 0,
     ready: false,
   };
-}
-
-/** Queue run that also refuses to overlap another till's serving spot. */
-function openRunAvoiding(L, from, dir, taken) {
-  let n = 0;
-  for (let i = 1; i <= QUEUE_MAX; i++) {
-    const x = from.x + dir.x * i;
-    const z = from.z + dir.z * i;
-    const inside = x > L.store.x && x < L.store.x + L.store.w - 1
-      && z > L.store.z && z < L.store.z + L.store.h - 1;
-    if (!inside) break;
-    if (!WALKABLE.has(L.tiles[z * L.w + x])) break;
-    if (taken.has(`${x},${z}`)) break;
-    n++;
-  }
-  return n;
 }
 
 /**

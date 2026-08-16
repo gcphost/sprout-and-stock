@@ -227,11 +227,17 @@ function refreshGhost(force = false) {
   // Validity involves a flood fill, so only ask when something actually moved —
   // the camera tracks the player, so the tile under a still pointer drifts and
   // this runs from the render loop too.
-  const key = `${kind}:${tile.x}:${tile.z}:${ui.buildRot}:${ui.holding?.id ?? ''}`;
+  //
+  // Which design is armed is part of "something moved": picking a second shelf
+  // shape without moving the pointer changes what the preview should be, and a
+  // key blind to it would hold the old model under your pointer.
+  const drawn = ui.ghostPiece();
+  const key = `${kind}:${tile.x}:${tile.z}:${ui.buildRot}:${ui.holding?.id ?? ''}`
+    + `:${drawn.piece ?? ''}/${drawn.variant}/${drawn.station ?? ''}/${drawn.tier}`;
   if (key === ghostKey && !force) return;
   ghostKey = key;
   const verdict = scene.setBuildGhost({
-    kind, x: tile.x, z: tile.z, rot: ui.buildRot, moveId: ui.holding?.id ?? null,
+    kind, x: tile.x, z: tile.z, rot: ui.buildRot, moveId: ui.holding?.id ?? null, ...drawn,
   });
   ui.setBuildVerdict(verdict);
 }
@@ -733,6 +739,34 @@ const myCarry = () => latestState?.players
   ?.find((p) => p.id === net.myId)?.carry ?? null;
 
 /**
+ * Is this thing holding something that standing at it would hand you?
+ *
+ * A ripe bed and a machine with a finished tray are the two, and they are the
+ * same case an armful of stock is from the other end: the answer to pointing at
+ * them is not "tell me about this", it is "go and get it". Proximity arms
+ * `harvest` and `collect` the moment you arrive, so the walk is the entire
+ * errand — which is what the tap already does with your hands full, and what it
+ * did not do with them empty.
+ *
+ * Read off the snapshot, not worked out here. `ready` and `output` are the same
+ * fields the renderer draws the fruit and the thought bubble from, so the tap
+ * agrees with the picture by construction; deciding it a second time on this
+ * side is how a tap starts sending you across the shop for a bed that came on
+ * two ticks ago in somebody else's game.
+ *
+ * Not shelves, deliberately. Their goods are merchandise rather than something
+ * waiting to be taken — one board of one shelf is a choice, which is why `take`
+ * names its target from that shelf's own menu — and swallowing the tap would
+ * put pricing and assignment behind a long press on every stocked unit in the
+ * shop.
+ */
+function readyToTake(f) {
+  if (f.kind === 'plot') return !!latestState?.plots?.find((p) => p.id === f.id)?.ready;
+  if (f.kind === 'station') return !!latestState?.stations?.find((s) => s.id === f.id)?.output;
+  return false;
+}
+
+/**
  * Look at what you are pointing at. The long press, and nothing else.
  *
  * This was what a *tap* did, back when tapping only ever looked. Tapping now
@@ -861,11 +895,26 @@ function tapAtPointer(cx, cy) {
       // walking there IS the whole job. The chevrons say which shelves are
       // worth walking to; this is how you take one up on it.
       //
+      // A bed with fruit on it and a machine with a full tray are the same
+      // thing pointing the other way: goods and a person, one of them standing
+      // still, and the only thing between them is the walk. It read as
+      // inconsistent because it was — the identical gesture went somewhere or
+      // asked a question depending on which end the stock was at, and the
+      // question is never the one you have when you can see tomatoes.
+      // `readyToTake` is the test, and it is deliberately only those two.
+      //
       // By fixture rather than by tile, so the server routes you to the side
-      // you work from — the same call the hint means by "tap to go". Holding
-      // still opens the menu (`openAtPointer`), which is what keeps a shelf's
-      // menu reachable with your hands full.
-      if (myCarry()) {
+      // you work from — the same call the hint means by "tap to go".
+      //
+      // What it costs is that a bed with fruit on it has no menu while it is
+      // ripe, and with `HOLD_OPENS` off there is no second gesture to put it
+      // behind. Build mode is the way back in — a tap there opens anything you
+      // own — and the bed stops being ripe the moment you get there, which is
+      // the whole point of the branch. Sowing is the only thing the menu is
+      // really for and `sow` refuses a ripe bed anyway ("harvest it first"), so
+      // what is behind the mode is move, sell and restyle: the three things you
+      // do to a bed you are not currently farming.
+      if (myCarry() || readyToTake(over)) {
         // Amber, not pale: this one really is "you are on your way".
         scene.ripple(over.x, over.z);
         walkTo({ fixture: over.id });
@@ -927,7 +976,12 @@ function tapAtPointer(cx, cy) {
   const spec = {
     kind, piece, station, x: tile.x, z: tile.z, rot: ui.buildRot, variant: ui.buildVariant ?? '',
   };
-  const verdict = scene.setBuildGhost({ ...spec, moveId: ui.holding?.id ?? null });
+  // `tier` rides along for the drawing only — the server decides what a new one
+  // is built at. Without it this call would redraw the ghost at tier 1 on the
+  // very click that places a maxed-out freezer you are carrying.
+  const verdict = scene.setBuildGhost({
+    ...spec, moveId: ui.holding?.id ?? null, tier: ui.holding?.tier ?? 1,
+  });
   if (verdict && !verdict.ok) { ui.toast(verdict.reason, true); return; }
   // A warning is not a refusal. Blocking your own shop is a legal move, so say
   // what it will cost and let it land — the amber ghost already asked once.

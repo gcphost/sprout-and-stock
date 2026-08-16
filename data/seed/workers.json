@@ -13,61 +13,104 @@
           "at": 0,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#d98b4a",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
-                0.34,
+                0.08,
                 0
               ],
               "scale": [
-                0.3,
-                0.44,
-                0.3
+                0.34,
+                0.16,
+                0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
             },
             {
-              "shape": "sphere",
-              "color": "#e8c9a0",
+              "shape": "box",
+              "color": "#b8c2cc",
               "pos": [
                 0,
-                0.64,
+                0.42,
                 0
               ],
               "scale": [
-                0.24,
-                0.24,
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
                 0.24
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
             },
             {
               "shape": "box",
-              "color": "#b06a2f",
+              "color": "#5fe0d0",
               "pos": [
                 0,
-                0.3,
-                0.15
+                0.79,
+                0.125
               ],
               "scale": [
-                0.26,
-                0.26,
-                0.04
+                0.2,
+                0.07,
+                0.02
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "glow"
+            },
+            {
+              "shape": "cylinder",
+              "color": "#b06a2f",
+              "pos": [
+                0,
+                0.5,
+                0.225
+              ],
+              "scale": [
+                0.23,
+                0.07,
+                0.23
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": null
             }
           ]
         },
@@ -76,80 +119,144 @@
           "at": 1,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#d98b4a",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
-                0.34,
+                0.08,
                 0
               ],
               "scale": [
-                0.3,
-                0.44,
-                0.3
+                0.34,
+                0.16,
+                0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
             },
             {
-              "shape": "sphere",
-              "color": "#e8c9a0",
+              "shape": "box",
+              "color": "#b8c2cc",
               "pos": [
                 0,
-                0.64,
+                0.42,
                 0
               ],
               "scale": [
-                0.24,
-                0.24,
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
                 0.24
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
             },
             {
               "shape": "box",
-              "color": "#b06a2f",
+              "color": "#5fe0d0",
               "pos": [
                 0,
-                0.3,
-                0.15
+                0.79,
+                0.125
               ],
               "scale": [
-                0.26,
-                0.26,
-                0.04
+                0.2,
+                0.07,
+                0.02
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "glow"
             },
             {
               "shape": "cylinder",
-              "color": "#f5f2ec",
+              "color": "#b06a2f",
               "pos": [
                 0,
-                0.82,
-                0
+                0.5,
+                0.225
               ],
               "scale": [
-                0.22,
-                0.18,
-                0.22
+                0.23,
+                0.07,
+                0.23
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.95,
+                0
+              ],
+              "scale": [
+                0.03,
+                0.14,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "trim"
+            },
+            {
+              "shape": "sphere",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                1.04,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
             }
           ]
         }
@@ -208,61 +315,104 @@
           "at": 0,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#4aa3a3",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
-                0.34,
+                0.08,
                 0
               ],
               "scale": [
-                0.3,
-                0.44,
-                0.3
+                0.34,
+                0.16,
+                0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
             },
             {
-              "shape": "sphere",
-              "color": "#e8c9a0",
+              "shape": "box",
+              "color": "#b8c2cc",
               "pos": [
                 0,
-                0.64,
+                0.42,
                 0
               ],
               "scale": [
-                0.24,
-                0.24,
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
                 0.24
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
             },
             {
               "shape": "box",
               "color": "#2f7373",
               "pos": [
                 0,
-                0.3,
-                0.15
+                0.5,
+                0.205
               ],
               "scale": [
-                0.26,
-                0.26,
+                0.19,
+                0.15,
                 0.04
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": null
             }
           ]
         },
@@ -271,80 +421,144 @@
           "at": 1,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#4aa3a3",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
-                0.34,
+                0.08,
                 0
               ],
               "scale": [
-                0.3,
-                0.44,
-                0.3
+                0.34,
+                0.16,
+                0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
             },
             {
-              "shape": "sphere",
-              "color": "#e8c9a0",
+              "shape": "box",
+              "color": "#b8c2cc",
               "pos": [
                 0,
-                0.64,
+                0.42,
                 0
               ],
               "scale": [
-                0.24,
-                0.24,
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
                 0.24
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
             },
             {
               "shape": "box",
               "color": "#2f7373",
               "pos": [
                 0,
-                0.3,
-                0.15
+                0.5,
+                0.205
               ],
               "scale": [
-                0.26,
-                0.26,
+                0.19,
+                0.15,
                 0.04
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.95,
+                0
+              ],
+              "scale": [
+                0.03,
+                0.14,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "trim"
             },
             {
               "shape": "sphere",
-              "color": "#ffd66b",
+              "color": "#5fe0d0",
               "pos": [
-                0.11,
-                0.44,
-                0.15
+                0,
+                1.04,
+                0
               ],
               "scale": [
                 0.07,
                 0.07,
-                0.04
+                0.07
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "glow"
             }
           ]
         }
@@ -399,61 +613,104 @@
           "at": 0,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#7a9e4b",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
-                0.34,
+                0.08,
                 0
               ],
               "scale": [
-                0.3,
-                0.44,
-                0.3
+                0.34,
+                0.16,
+                0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
             },
             {
-              "shape": "sphere",
-              "color": "#e8c9a0",
+              "shape": "box",
+              "color": "#b8c2cc",
               "pos": [
                 0,
-                0.64,
+                0.42,
                 0
               ],
               "scale": [
-                0.24,
-                0.24,
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
                 0.24
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
             },
             {
               "shape": "box",
-              "color": "#5c7a37",
+              "color": "#5fe0d0",
               "pos": [
                 0,
-                0.3,
-                0.15
+                0.79,
+                0.125
               ],
               "scale": [
-                0.26,
-                0.26,
-                0.04
+                0.2,
+                0.07,
+                0.02
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "glow"
+            },
+            {
+              "shape": "cone",
+              "color": "#5c7a37",
+              "pos": [
+                0,
+                0.52,
+                0.215
+              ],
+              "scale": [
+                0.17,
+                0.26,
+                0.17
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": null
             }
           ]
         },
@@ -462,80 +719,144 @@
           "at": 1,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#7a9e4b",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
-                0.34,
-                0
-              ],
-              "scale": [
-                0.3,
-                0.44,
-                0.3
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "drift": false
-            },
-            {
-              "shape": "sphere",
-              "color": "#e8c9a0",
-              "pos": [
-                0,
-                0.64,
-                0
-              ],
-              "scale": [
-                0.24,
-                0.24,
-                0.24
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "drift": false
-            },
-            {
-              "shape": "box",
-              "color": "#5c7a37",
-              "pos": [
-                0,
-                0.3,
-                0.15
-              ],
-              "scale": [
-                0.26,
-                0.26,
-                0.04
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "drift": false
-            },
-            {
-              "shape": "cone",
-              "color": "#d8b45c",
-              "pos": [
-                0,
-                0.8,
+                0.08,
                 0
               ],
               "scale": [
                 0.34,
-                0.12,
+                0.16,
                 0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.42,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
+            },
+            {
+              "shape": "cone",
+              "color": "#5c7a37",
+              "pos": [
+                0,
+                0.52,
+                0.215
+              ],
+              "scale": [
+                0.17,
+                0.26,
+                0.17
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.95,
+                0
+              ],
+              "scale": [
+                0.03,
+                0.14,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "trim"
+            },
+            {
+              "shape": "sphere",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                1.04,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
             }
           ]
         }
@@ -602,42 +923,104 @@
           "at": 0,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#c2703d",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
-                0.34,
+                0.08,
                 0
               ],
               "scale": [
-                0.3,
-                0.44,
-                0.3
+                0.34,
+                0.16,
+                0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
             },
             {
-              "shape": "sphere",
-              "color": "#e8c9a0",
+              "shape": "box",
+              "color": "#b8c2cc",
               "pos": [
                 0,
-                0.64,
+                0.42,
                 0
               ],
               "scale": [
-                0.24,
-                0.24,
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
                 0.24
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
+            },
+            {
+              "shape": "sphere",
+              "color": "#8a4b28",
+              "pos": [
+                0,
+                0.5,
+                0.225
+              ],
+              "scale": [
+                0.19,
+                0.19,
+                0.19
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": null
             }
           ]
         },
@@ -646,61 +1029,144 @@
           "at": 1,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#c2703d",
-              "pos": [
-                0,
-                0.34,
-                0
-              ],
-              "scale": [
-                0.3,
-                0.44,
-                0.3
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "drift": false
-            },
-            {
-              "shape": "sphere",
-              "color": "#e8c9a0",
-              "pos": [
-                0,
-                0.64,
-                0
-              ],
-              "scale": [
-                0.24,
-                0.24,
-                0.24
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "drift": false
-            },
-            {
               "shape": "cylinder",
-              "color": "#8a4b28",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.08,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.16,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "trim"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.42,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
               "pos": [
                 0,
                 0.78,
                 0
               ],
               "scale": [
-                0.27,
-                0.06,
-                0.27
+                0.26,
+                0.2,
+                0.24
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
+            },
+            {
+              "shape": "sphere",
+              "color": "#8a4b28",
+              "pos": [
+                0,
+                0.5,
+                0.225
+              ],
+              "scale": [
+                0.19,
+                0.19,
+                0.19
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.95,
+                0
+              ],
+              "scale": [
+                0.03,
+                0.14,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "trim"
+            },
+            {
+              "shape": "sphere",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                1.04,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
             }
           ]
         }
@@ -767,61 +1233,104 @@
           "at": 0,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#b07cc6",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
-                0.34,
+                0.08,
                 0
               ],
               "scale": [
-                0.3,
-                0.44,
-                0.3
+                0.34,
+                0.16,
+                0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
             },
             {
-              "shape": "sphere",
-              "color": "#e8c9a0",
+              "shape": "box",
+              "color": "#b8c2cc",
               "pos": [
                 0,
-                0.64,
+                0.42,
                 0
               ],
               "scale": [
-                0.24,
-                0.24,
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
                 0.24
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
             },
             {
               "shape": "box",
               "color": "#8a5aa0",
               "pos": [
                 0,
-                0.3,
-                0.15
+                0.5,
+                0.235
               ],
               "scale": [
-                0.26,
-                0.26,
-                0.04
+                0.21,
+                0.21,
+                0.19
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": null
             }
           ]
         },
@@ -830,80 +1339,144 @@
           "at": 1,
           "parts": [
             {
-              "shape": "capsule",
-              "color": "#b07cc6",
+              "shape": "cylinder",
+              "color": "#4a5560",
               "pos": [
                 0,
+                0.08,
+                0
+              ],
+              "scale": [
                 0.34,
-                0
-              ],
-              "scale": [
-                0.3,
-                0.44,
-                0.3
+                0.16,
+                0.34
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
-            },
-            {
-              "shape": "sphere",
-              "color": "#e8c9a0",
-              "pos": [
-                0,
-                0.64,
-                0
-              ],
-              "scale": [
-                0.24,
-                0.24,
-                0.24
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "trim"
             },
             {
               "shape": "box",
-              "color": "#8a5aa0",
+              "color": "#b8c2cc",
               "pos": [
                 0,
-                0.3,
-                0.15
-              ],
-              "scale": [
-                0.26,
-                0.26,
-                0.04
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "drift": false
-            },
-            {
-              "shape": "cylinder",
-              "color": "#8a5aa0",
-              "pos": [
-                0,
-                0.77,
+                0.42,
                 0
               ],
               "scale": [
-                0.26,
-                0.06,
+                0.32,
+                0.52,
                 0.26
               ],
               "rot": 0,
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
+            },
+            {
+              "shape": "box",
+              "color": "#8a5aa0",
+              "pos": [
+                0,
+                0.5,
+                0.235
+              ],
+              "scale": [
+                0.21,
+                0.21,
+                0.19
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.95,
+                0
+              ],
+              "scale": [
+                0.03,
+                0.14,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "trim"
+            },
+            {
+              "shape": "sphere",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                1.04,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "drift": false,
+              "tint": "glow"
             }
           ]
         }

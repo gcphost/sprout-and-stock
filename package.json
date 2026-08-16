@@ -36,7 +36,7 @@
     "@anthropic-ai/sdk": "^0.70.0",
     "@colyseus/tools": "0.16.20",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "better-sqlite3": "^13.0.2",
+    "better-sqlite3": "^13.0.3",
     "colyseus": "0.16.5",
     "colyseus.js": "0.16.22",
     "express": "^5.1.0",

@@ -192,6 +192,12 @@ export class Menu {
    * says what a second one does, the card says what goes with it, and the shop
    * you are about to lose is still in front of you with its day and its cash
    * on it. A `confirm()` had to reprint all of that, badly, and by name.
+   *
+   * Which is why arming may not resize anything: the warning takes over the
+   * `.wsub` line's cell and the button holds both spellings of its label, so
+   * the card is the same size armed as not (`.wswap`, index.html). Growing the
+   * card moved every card below it — and the Play button of the one you were
+   * aiming at — under a cursor that had just been told to click again.
    */
   async remove(world) {
     if (!this.armed(world)) {
@@ -226,26 +232,33 @@ export class Menu {
         <div class="wstats">
           <b>Day ${w.day}</b><span>${money(w.cash)}</span><span>${esc(w.season)}</span>
         </div>
-        <div class="wsub">
-          ${w.upgrades} upgrade${w.upgrades === 1 ? '' : 's'} ·
-          ${w.staff} staff · played ${ago(w.played_at)}
-          ${w.pinned ? ' · kept' : ''}
+        <div class="wswap${arm ? ' on' : ''}">
+          <div class="wsub">
+            ${w.upgrades} upgrade${w.upgrades === 1 ? '' : 's'} ·
+            ${w.staff} staff · played ${ago(w.played_at)}
+            ${w.pinned ? ' · kept' : ''}
+          </div>
+          <div class="wwarn">This shop goes for good. Items and crops you made stay.</div>
         </div>
-        ${arm ? `<div class="wwarn">This shop goes for good. Items, crops and everything
-          else you have made are shared between shops and stay.</div>` : ''}
         <div class="wacts">
           <button class="wplay" data-play="${i}">${w.live ? 'Join' : 'Play'}</button>
-          <button class="wghost" data-pin="${i}" title="${w.pinned
+          <button class="wghost wswap${w.pinned ? ' on' : ''}" data-pin="${i}" title="${w.pinned
             ? 'Kept — never cleaned up automatically'
-            : 'Keep this shop, whatever happens'}">${w.pinned ? 'Kept' : 'Keep'}</button>
-          <button class="wghost wdel${arm ? ' armed' : ''}" data-del="${i}">${arm
-            ? 'Click again' : 'Delete'}</button>
+            : 'Keep this shop, whatever happens'}"><span>Keep</span><span>Kept</span></button>
+          <button class="wghost wdel wswap${arm ? ' on' : ''}" data-del="${i}"
+            ><span>Delete</span><span>Click again</span></button>
         </div>
       </div>`;
   }
 
   render() {
     const name = localStorage.getItem('sns-name') ?? '';
+    // `this.root` is the scroll container as well as the thing being rebuilt,
+    // so emptying it collapses the content and the browser pins scroll to 0.
+    // With eight shops in the list that reads as the menu jumping to the top
+    // every time you arm, pin or delete one — the card you clicked leaves the
+    // screen. Nothing above resizes now, so putting it back always lands.
+    const scroll = this.root.scrollTop;
     this.root.innerHTML = `
       <div class="menu-box">
         <h1>Sprout <span>&amp;</span> Stock</h1>
@@ -289,13 +302,14 @@ export class Menu {
                   <input id="menu-new-plots" type="number" min="1" max="32" placeholder="4" />
                 </label>
               </div>
-              <p class="menu-note">The seed decides the shape of the building and the fields.
-                The three numbers are what you open with — leave any of them blank for what
-                it already says. Cash up to $1,000,000, shelves 1–25, plots 1–32; anything
-                wilder than that gets trimmed rather than refused. Shelves and plots can only
-                be chosen now: the building is stamped the first time you walk in, and after
-                that you build it yourself. Everything you and your agents have made — items,
-                crops, customers, fixtures — is shared with every shop.</p>
+              <!-- Everything cut from here is said better by the thing it was
+                   describing: each box's placeholder is its own default, and a
+                   silly number is clamped rather than refused, so printing the
+                   ranges was three limits nobody was going to hit. What is left
+                   is the one fact no field can tell you — that these two are
+                   asked once, because the building is stamped when you walk in. -->
+              <p class="menu-note">Blank takes the number shown. Shelves and plots can only
+                be chosen now — after that you build them yourself.</p>
               <div class="wacts">
                 <button class="wplay" id="menu-create">Start it</button>
                 <button class="wghost" id="menu-cancel">Cancel</button>
@@ -306,6 +320,7 @@ export class Menu {
         <p class="menu-foot">${this.busy ? 'Working…' : '&nbsp;'}</p>
       </div>`;
 
+    this.root.scrollTop = scroll;
     this.wire();
   }
 

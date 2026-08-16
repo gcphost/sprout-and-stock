@@ -77,8 +77,20 @@ function fresh() {
   g.addPlayer('me', 'Tester');
   return g;
 }
-/** Stand next to something (the bot in simulate.js does the same thing). */
-const stand = (g, at) => Object.assign(g.players.me, { x: at.x, z: at.z });
+/**
+ * Stand next to something (the bot in simulate.js does the same thing).
+ *
+ * The route and the keys go with you, and that is not tidiness: an action only
+ * charges while you are stopped now (`moving` in `sim/index.js`), so a blink to
+ * a shelf's working spot with the route it was planned by still hanging off the
+ * player — or with a direction still held from a shuffle six lines up — is a
+ * person the sim can see is mid-walk, and nothing arms for them. `take` plans a
+ * route, so the pickup cases teleported into a state no player can be in and
+ * then measured it. Standing means stopped.
+ */
+const stand = (g, at) => Object.assign(g.players.me, {
+  x: at.x, z: at.z, path: null, input: { dx: 0, dz: 0 },
+});
 const totalOnFloor = (g, itemId) => g.deliveries
   .filter((d) => !itemId || d.item_id === itemId)
   .reduce((s, d) => s + d.qty, 0);
@@ -374,6 +386,9 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   const crate = g.deliveries.find((d) => d.item_id === anyItem.id);
   const named = g.take('me', { palletId: crate.id });
   check(named.ok, `naming a crate sets off to get it (${named.error ?? ''})`);
+  // "Sets off" is literal — `take` plans the walk — so the walk has to end
+  // before the charge means anything. `stand` is how this sweep arrives.
+  stand(g, crate);
   eq(g.actionFor(g.players.me)?.kind, 'unload', 'and standing at it then arms the pickup');
 
   // One errand, one armful. Firing it spends it, or a crate you tapped once
@@ -843,10 +858,15 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   eq(g.actionFor(me)?.kind, 'stow', 'standing at the drop-off with full hands stows');
   for (let i = 0; i < 200; i++) {
-    g.stepActions(0.1);
     // A shuffle on the spot, going nowhere — which is what used to clear it.
+    // The key is *released* between nudges, and it has to be: an action only
+    // charges while you are stopped now, and a hand left on a direction for
+    // twenty seconds is a player walking, which is a decline. Held down, this
+    // loop would prove nothing except that steering suppresses actions.
     me.input = { dx: i % 2 ? 1 : -1, dz: 0 };
     g.stepPlayers(0.02);
+    me.input = { dx: 0, dz: 0 };
+    g.stepActions(0.1);
   }
   eq(me.carry, null, 'the goods went down and stayed down');
   eq(g.deliveries.length, 1, 'as exactly one pallet');

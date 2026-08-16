@@ -144,6 +144,45 @@ export function variantModel(kind, variant) {
 }
 
 /**
+ * The parts to draw for a body wearing a skin: every part it was authored with,
+ * repainted where it named a slot, plus whatever the skin bolts on.
+ *
+ * The asymmetry with `variantModel` above is the whole design and is worth
+ * stating. A variant ANSWERS WITH A MODEL — it replaces the art, which is right
+ * for a corner shelf and wrong for a hire, because a skin that can replace the
+ * art can redraw a bot into something that reads as a customer. This one takes
+ * the art as given and can only ever repaint it and add to it. There is no
+ * argument you can pass that removes a part, so no skin anybody authors can
+ * cost the shop the one thing staff art is for: telling at a glance who works
+ * for you.
+ *
+ * Parts naming no slot come through untouched, which is where the job payload
+ * lives — the till a clerk carries stays the clerk's colour under every skin in
+ * the game. A slot the skin didn't set is the same as no slot: the authored
+ * colour stands, so a half-written skin degrades to a partly-repainted bot
+ * rather than to a black one.
+ */
+export function skinnedParts(parts, skin) {
+  if (!skin) return parts ?? NONE;
+  const slots = skin.slots ?? {};
+  const paint = (p) => {
+    const c = p.tint ? slots[p.tint] : null;
+    return c ? { ...p, color: c } : p;
+  };
+  return [...(parts ?? NONE).map(paint), ...(skin.extras ?? NONE).map(paint)];
+}
+
+/**
+ * What a renderer caches a skinned body against. Just the id: a skin edited in
+ * place is a content change, and content changes already drop every cached key
+ * (`setCatalog`), which is what lets an MCP redraw reach the bots on shift
+ * rather than only the next one you hire.
+ */
+export function skinKey(skin) {
+  return skin?.id ?? '';
+}
+
+/**
  * Where tier N of M sits on the 0..1 line, so a discrete ladder can drive the
  * same resolver a continuous quantity does. Tier 1 of 3 is 0, tier 3 is 1.
  */

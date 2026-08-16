@@ -28,7 +28,7 @@ export const SEED_DIR = path.join(DATA_DIR, 'seed');
 const DB_PATH = process.env.SNS_DB ?? path.join(DATA_DIR, 'game.db');
 
 /** Content tables — anything an agent is allowed to write to. */
-export const CONTENT_TABLES = ['items', 'crops', 'archetypes', 'events', 'upgrades', 'recipes', 'fixtures', 'workers', 'pastimes'];
+export const CONTENT_TABLES = ['items', 'crops', 'archetypes', 'events', 'upgrades', 'recipes', 'fixtures', 'workers', 'pastimes', 'skins'];
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -171,6 +171,21 @@ CREATE TABLE IF NOT EXISTS pastimes (
   weight     REAL NOT NULL DEFAULT 1,
   tags       TEXT NOT NULL DEFAULT '[]',   -- JSON array
   model      TEXT NOT NULL DEFAULT 'null', -- JSON, staged by break progress
+  created_by TEXT NOT NULL DEFAULT 'seed',
+  created_at INTEGER NOT NULL
+);
+
+-- What one hire looks like, worn over whatever kind they are. Deliberately not
+-- shaped like a variant: there is no model column and there never should be.
+-- A skin is a palette (slots) plus cosmetics that bolt on (extras), so one row
+-- fits every worker kind that exists and every kind added later, and no skin
+-- can redraw a bot into something that reads as a customer. See SkinSchema.
+CREATE TABLE IF NOT EXISTS skins (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  slots      TEXT NOT NULL DEFAULT '{}',   -- JSON {chassis, trim, glow}
+  extras     TEXT NOT NULL DEFAULT '[]',   -- JSON array of parts, added not swapped
+  tags       TEXT NOT NULL DEFAULT '[]',   -- JSON array
   created_by TEXT NOT NULL DEFAULT 'seed',
   created_at INTEGER NOT NULL
 );
@@ -355,6 +370,7 @@ const JSON_FIELDS = {
   fixtures: ['model', 'tiers', 'variants', 'emits', 'surface', 'yields', 'tags'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
+  skins: ['slots', 'extras', 'tags'],
 };
 
 function hydrate(table, row) {

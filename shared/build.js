@@ -31,11 +31,28 @@ import { E, SOLID, edgeBetween, reachable, withEdge, computeIndoor } from './edg
  *
  * `ground` is the other half: a plot doesn't stand on the floor, it *is* the
  * floor, dug. So it changes what the cell is made of and blocks nobody.
+ *
+ * `behind` is the second working spot, and only a till has one. Everything else
+ * in this table is used from ONE side by ONE person: a shopper browses a shelf,
+ * a worker loads an appliance, and the far side is the back of the unit. A
+ * counter is used from both sides at once, by two different people, and the
+ * shop only works when both of them can stand where they need to.
+ *
+ * It was hardcoded as `{ x: till.x, z: till.z - 1 }` in `server/sim/staff.js`
+ * before it was a field — "one tile north", which is right for exactly the
+ * facing the generator happens to use and wrong for the other three. Turning a
+ * till sent the clerk to a wall, or to a shelf, or onto the head of the queue,
+ * and nothing refused the rotation because nothing knew the spot existed.
+ * `anchor` was validated, reserved, drawn under the ghost and flooded for
+ * reachability; this one was a literal in a job function.
  */
 export const FIXTURES = {
   shelf: { label: 'Shelf', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt' },
   freezer: { label: 'Freezer', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt' },
-  checkout: { label: 'Till', blocks: true, where: 'indoor', rotates: true, anchor: 'serveAt' },
+  checkout: {
+    label: 'Till', blocks: true, where: 'indoor', rotates: true,
+    anchor: 'serveAt', behind: 'tendAt',
+  },
   station: { label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt' },
   plot: { label: 'Plot', blocks: false, ground: T.PLOT, where: 'outdoor', rotates: false, anchor: null },
   /**
@@ -206,6 +223,63 @@ export function anchorTile(x, z, rot) {
 }
 
 /**
+ * The tile on the far side — where whoever WORKS a fixture stands, as opposed
+ * to whoever uses it.
+ *
+ * Two quarter turns, which is the whole implementation, and that is the reason
+ * this is a function rather than a stored offset: a counter's two sides are
+ * always opposite, so there is nothing to author and nothing that can drift out
+ * of step with the facing.
+ */
+export function behindTile(x, z, rot) {
+  return anchorTile(x, z, rot + 2);
+}
+
+/**
+ * Every tile a person has to be able to stand on to use this, placed like this.
+ *
+ * One function, so the ghost, the validator, the generator and the staff all
+ * agree about how many spots a thing has and where they are. The `role` is what
+ * the preview draws differently: the two sides of a till are not
+ * interchangeable, and a player who cannot tell which is which will stand their
+ * counter with the queue forming in the stockroom.
+ *
+ * Ordered use-side first, because that is the side rotation is *about* — a till
+ * faces its customers the way a shelf faces its browsers.
+ *
+ * @returns {Array<{x: number, z: number, role: 'use'|'tend', field: string}>}
+ */
+export function workSpots(kind, x, z, rot = 0) {
+  const def = FIXTURES[kind];
+  if (!def) return [];
+  const out = [];
+  if (def.anchor) out.push({ ...anchorTile(x, z, rot), role: 'use', field: def.anchor });
+  if (def.behind) out.push({ ...behindTile(x, z, rot), role: 'tend', field: def.behind });
+  return out;
+}
+
+/**
+ * The working spots a fixture ALREADY STANDING has, read off the record rather
+ * than recomputed.
+ *
+ * Not the same question as `workSpots` above, and the difference has bitten
+ * this codebase before (`canPlace` vs `canKeep`): that one asks where the spots
+ * WOULD be for a placement being judged, this one asks where they ARE for
+ * something the generator has already laid down. A record is the authority on
+ * its own spots — `serveAt` is stored, not derived, because a till that was
+ * turned mid-compose would otherwise report the facing it used to have.
+ */
+export function spotsOf(f) {
+  const def = FIXTURES[f?.kind];
+  if (!def) return [];
+  const out = [];
+  const use = f.browseAt ?? f.serveAt ?? f.useAt;
+  if (use) out.push({ ...use, role: 'use' });
+  if (def.behind && f[def.behind]) out.push({ ...f[def.behind], role: 'tend' });
+  return out;
+}
+
+/**
  * A step in model space, turned to face the way a fixture was actually stood.
  *
  * Models are authored facing east — rot 0 — so "the +z end of this unit" is
@@ -292,20 +366,147 @@ export function insideStore(L, x, z) {
   return x >= s.x && x < s.x + s.w && z >= s.z && z < s.z + s.h;
 }
 
-/** How far a queue can run from `from` in `dir` before it leaves the shop. */
-export function openRun(L, from, dir, max = 8, blocked = () => false) {
-  let n = 0;
-  for (let i = 1; i <= max; i++) {
-    const x = from.x + dir.x * i;
-    const z = from.z + dir.z * i;
-    // A queue may not run through a wall, so the boundary crossed to reach each
-    // successive tile counts as much as the tile itself.
-    const prev = { x: x - dir.x, z: z - dir.z };
-    if (SOLID.has(edgeBetween(L, prev.x, prev.z, x, z))) break;
-    if (!insideStore(L, x, z) || !isWalkableTile(L, x, z) || blocked(x, z)) break;
-    n++;
+/**
+ * How long a line may get before the shop is the problem rather than the lane.
+ *
+ * Not a tuning knob for how a queue *looks* — a lane that bends has as many
+ * slots as the room has floor, and the reason to stop counting is that a
+ * sixteenth shopper at one till means the turn-away rule should have fired
+ * long ago. It is a backstop on the walk, not a shape.
+ */
+export const QUEUE_LANE_MAX = 16;
+
+/** Rotate a step 90°, in a grid where +x is east and +z is south. */
+const cwTurn = (d) => ({ x: -d.z, z: d.x });
+const ccwTurn = (d) => ({ x: d.z, z: -d.x });
+
+/**
+ * Where a till's line actually stands — one tile per place in it.
+ *
+ * This replaces `openRun`, which measured a *straight* run and stopped at the
+ * first thing in the way — the shape the queue used to be. A fixed count of
+ * slots, and anybody past the end of it was handed the last one, so a till that
+ * was doing well grew a pile of shoppers standing inside one another instead of
+ * a line. It got worse exactly as the shop got better, which is why it read as
+ * the game breaking under load rather than as a missing turn.
+ *
+ * A line in a room turns the corner rather than ending. This walks the lane a
+ * tile at a time — straight while it can, and round when it can't, preferring
+ * to keep bending the way it bent last so the tail curls along the wall instead
+ * of jittering side to side. Every rule the straight run enforced still holds
+ * at every step, including the one only an edge can answer: a queue may not run
+ * through a wall, so the boundary crossed to reach each tile counts as much as
+ * the tile does. `used` is what stops the curl eating its own tail.
+ *
+ * **`lane[0]` is `from`** — the person being served is in the queue. That is
+ * what lets every caller say "slot i is `lane[i]`" with no arithmetic, which is
+ * where the old off-by-one pile-up lived.
+ *
+ * `claimed` is passed in by whoever lays every till at once, so two tills side
+ * by side grow two lines rather than one line twice. Without it the first lane
+ * laid runs through the second till's front, and which till that is comes down
+ * to array order.
+ *
+ * A lane is grown a step at a time rather than in one go because `queueLanes`
+ * needs to interleave them — see there.
+ */
+export function queueLane(L, from, dir, opts = {}) {
+  const lane = startLane(L, from, dir, opts);
+  while (growLane(lane));
+  return lane.tiles;
+}
+
+const sameStep = (a, b) => a.x === b.x && a.z === b.z;
+
+function startLane(L, from, dir, opts = {}) {
+  const { max = QUEUE_LANE_MAX, claimed = null, blocked = () => false } = opts;
+  return {
+    L,
+    max,
+    claimed,
+    blocked,
+    tiles: [{ x: from.x, z: from.z }],
+    used: new Set([`${from.x},${from.z}`]),
+    heading: dir,
+    // Which way the line bent last, so the second corner turns the same way as
+    // the first. A lane that alternates reads as a crowd; one that keeps
+    // curling reads as a line that went round something.
+    bend: cwTurn,
+  };
+}
+
+/**
+ * Add one place to the end of a line, or report that there is nowhere to add
+ * one. Never writes to `claimed` — the caller sharing that set decides when a
+ * tile is spoken for, and `queueLane` calls this twice per till to choose a
+ * direction, which would otherwise have the first choice block the second.
+ */
+function growLane(s) {
+  if (s.tiles.length > s.max) return false;
+  const at = s.tiles[s.tiles.length - 1];
+  // Straight first, then the two corners — never the reverse, which is the one
+  // turn that would walk the line back up itself.
+  const turn = s.bend(s.heading);
+  for (const d of [s.heading, turn, (s.bend === cwTurn ? ccwTurn : cwTurn)(s.heading)]) {
+    const x = at.x + d.x;
+    const z = at.z + d.z;
+    const key = `${x},${z}`;
+    if (s.used.has(key) || s.claimed?.has(key)) continue;
+    if (SOLID.has(edgeBetween(s.L, at.x, at.z, x, z))) continue;
+    if (!insideStore(s.L, x, z) || !isWalkableTile(s.L, x, z) || s.blocked(x, z)) continue;
+    // Bent the other way, so the next corner should follow this one. Compared
+    // by value: every turn helper mints a fresh object, so `===` on a step is
+    // always false and the line would forget which way it last bent.
+    if (!sameStep(d, s.heading) && !sameStep(d, turn)) {
+      s.bend = s.bend === cwTurn ? ccwTurn : cwTurn;
+    }
+    s.heading = d;
+    s.tiles.push({ x, z });
+    s.used.add(key);
+    return true;
   }
-  return n;
+  return false;
+}
+
+/**
+ * Every till's lane, keyed by till id, laid against one shared `claimed` set.
+ *
+ * The lanes are grown **in step with each other**, a place at a time, and that
+ * is the whole of this function. Laying one line to its full length before
+ * starting the next hands the first till the entire aisle: with the generator's
+ * tills three tiles apart, till #1's line runs the length of the shop, round
+ * the corner and back, and till #2 then finds every tile beside it spoken for
+ * and gets a line of nobody. It reads as "the second till is broken", and the
+ * shop it happens in looks completely ordinary.
+ *
+ * Interleaving is also just what a queue is. Two lines beside each other grow
+ * away from one another because each has already taken the tile the other
+ * would have wanted next — nobody has to arbitrate.
+ *
+ * The sim, the generator's final measure and `verify:layout` all come through
+ * here, so there is one answer to where a line stands rather than three that
+ * agree right up until one of them is edited.
+ */
+export function queueLanes(L) {
+  const tills = (L.checkouts ?? []).filter((t) => t.serveAt && t.queueDir);
+  const claimed = new Set();
+  // Every serving spot is spoken for before any line is laid, including the
+  // ones whose line has not started yet — otherwise the first lane runs through
+  // the second till's front.
+  for (const t of tills) claimed.add(`${t.serveAt.x},${t.serveAt.z}`);
+
+  const growing = tills.map((t) => startLane(L, t.serveAt, t.queueDir, { claimed }));
+  for (let moved = true; moved;) {
+    moved = false;
+    for (const s of growing) {
+      if (!growLane(s)) continue;
+      const end = s.tiles[s.tiles.length - 1];
+      claimed.add(`${end.x},${end.z}`);
+      moved = true;
+    }
+  }
+
+  return new Map(tills.map((t, i) => [t.id, growing[i].tiles]));
 }
 
 /**
@@ -400,11 +601,15 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
         (P, x, z) => indoors(x, z) && isWalkableTile(P, x, z));
       const joined = (p) => onFloor.has(`${Math.round(p.x)},${Math.round(p.z)}`);
 
+      // ANY of a fixture's working spots being cut off strands it, which for a
+      // till means the clerk's side counts: a wall drawn between the counter
+      // and the back of the shop leaves a till the queue can still reach and
+      // nobody can ever staff, and that is exactly the wall worth warning about.
       const stranded = fixturesOf(L)
-        .map((f) => ({ f, spot: f.browseAt ?? f.serveAt ?? f.useAt }))
-        .filter(({ f, spot }) => spot
+        .map((f) => ({ f, spots: spotsOf(f) }))
+        .filter(({ f, spots }) => spots.length
           && indoors(Math.round(f.x), Math.round(f.z))
-          && !joined(spot));
+          && !spots.every(joined));
       if (stranded.length) {
         const what = FIXTURES[stranded[0].f.kind]?.label.toLowerCase() ?? 'fixture';
         return {
@@ -872,6 +1077,18 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
     return 'nothing can get to it';
   }
 
+  // ---- ...and can anyone stand behind it and work it? ---------------------
+  // A warning rather than a refusal, like everything else here: a till with its
+  // back to a wall still takes money, because a *player* serves from anywhere
+  // within reach (`Game.serve` checks a radius, not a tile). What it costs you
+  // is staff — a hire walks to this spot and no other, so a till without one is
+  // a till you have to work yourself, forever.
+  if (def.behind) {
+    const b = behindTile(x, z, spec.rot ?? 0);
+    if (!open(b.x, b.z)) return 'nowhere to stand behind it — staff could never work it';
+    if (!insideStore(L, b.x, b.z)) return 'its working side is outside the shop';
+  }
+
   // ---- a till wants a queue ----------------------------------------------
   if (spec.kind === 'checkout') {
     const serve = anchorTile(x, z, spec.rot ?? 0);
@@ -881,7 +1098,14 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
     // Measured against a shop with this till already standing in it, which used
     // to mean cloning the tile array. A mask is cheaper to say "and this one" to.
     const probe = { ...L, blocked: withBlocked(L, x, z) };
-    const best = Math.max(...queueAxis(spec.rot ?? 0).map((d) => openRun(probe, serve, d)));
+    // The same walk the line itself will take, so the warning cannot promise a
+    // pile-up the lane then bends its way out of. A till in a corner used to be
+    // warned about on the strength of a straight run it never had.
+    const others = new Set((L.checkouts ?? [])
+      .filter((c) => c.id !== ignoreId && c.serveAt)
+      .map((c) => `${c.serveAt.x},${c.serveAt.z}`));
+    const best = Math.max(...queueAxis(spec.rot ?? 0)
+      .map((d) => queueLane(probe, serve, d, { claimed: others }).length - 1));
     if (best < 1) return 'no room for a queue — shoppers will pile up on one tile';
   }
 
@@ -956,6 +1180,10 @@ function whatThisBlocks(L, spec, def, ignoreId) {
     const mine = anchorTile(spec.x, spec.z, spec.rot ?? 0);
     if (!reaches(mine)) return 'you could never get round to that side of it';
   }
+  if (def.behind) {
+    const mine = behindTile(spec.x, spec.z, spec.rot ?? 0);
+    if (!reaches(mine)) return 'nobody could get round behind it to serve';
+  }
 
   for (const f of fixturesOf(L)) {
     if (f.id === ignoreId) continue;
@@ -965,10 +1193,21 @@ function whatThisBlocks(L, spec, def, ignoreId) {
       if (!anySide) return 'that would leave a plot with no way in';
       continue;
     }
-    const a = f.browseAt ?? f.serveAt ?? f.useAt;
-    if (!a) continue;
-    if (isHere(a)) return `that is where you stand to use the ${label(f.kind)} behind it`;
-    if (!reaches(a)) return `that would cut off a ${label(f.kind)} you own`;
+    // Both sides of a counter, and the reason this reads them off the record
+    // rather than recomputing from `rot`: a re-flow judges placements against a
+    // half-built layout, and `serveAt` is what the till was actually laid with.
+    for (const s of spotsOf(f)) {
+      if (s.role === 'tend') {
+        // Said differently on purpose. "Where you stand to use it" is wrong for
+        // this side — you never do — and a player told that about a tile behind
+        // a counter goes looking for a shelf that isn't there.
+        if (isHere(s)) return `that is where your clerk stands to work the ${label(f.kind)}`;
+        if (!reaches(s)) return `that would leave a ${label(f.kind)} nobody can get behind`;
+        continue;
+      }
+      if (isHere(s)) return `that is where you stand to use the ${label(f.kind)} behind it`;
+      if (!reaches(s)) return `that would cut off a ${label(f.kind)} you own`;
+    }
   }
 
   if (!reaches(L.spawn)) return 'that would block the way through';

@@ -606,6 +606,16 @@ export function upgradeGroups(ui) {
 const LOW_STOCK = 0.2;
 
 const money = (n) => `$${n.toFixed(2)}`;
+/** A delta, where the sign is most of what is being read. */
+const signed = (n) => `${n < 0 ? '−' : '+'}$${Math.abs(n).toFixed(2)}`;
+/**
+ * Profit for each finished day the snapshot carries, oldest first.
+ *
+ * The Shop report and its own rail badge both need it and would otherwise
+ * subtract the same two fields in two places — which is how one of them ends up
+ * quietly measuring revenue while the other measures profit.
+ */
+const dayProfits = (state) => (state?.ledger ?? []).map((d) => (d.revenue ?? 0) - (d.spent ?? 0));
 
 /**
  * Sections, in rail order.
@@ -795,17 +805,26 @@ export const SECTIONS = [
     name: 'Shop',
     key: 't',
     title: 'How the shop is doing',
-    // Today's numbers only. The server keeps yesterday's in `_lastDayStats` but
-    // does not send them, so this deliberately says "today" rather than inventing
-    // a comparison it cannot make.
+    // Today's numbers, and now the finished days behind them: `state.ledger` is
+    // the last week, oldest first. Before it the server kept yesterday in
+    // `_lastDayStats` and never sent it, so every readout here compared today
+    // against zero and could not answer "is this going up or down" at all.
+    //
+    // The badge is against **yesterday** rather than against zero, because zero
+    // is not the question — a shop taking $400 a day is not doing well because
+    // $400 is positive. On day one there is no yesterday and it falls back,
+    // rather than calling the first day of every shop a triumph.
     badge: (ui) => {
       const s = ui.state?.stats;
       if (!s) return null;
-      const profit = (s.revenue ?? 0) - (s.spent ?? 0);
       if (!s.revenue && !s.spent) return null;
-      return profit >= 0 ? '▲' : '▼';
+      const profit = (s.revenue ?? 0) - (s.spent ?? 0);
+      const y = dayProfits(ui.state).at(-1);
+      if (y === undefined) return profit >= 0 ? '▲' : '▼';
+      return profit >= y ? '▲' : '▼';
     },
     live: (ui) => JSON.stringify([ui.state?.stats, ui.state?.fixtures, ui.state?.modifiers?.length,
+      ui.state?.ledger?.length, ui.state?.ledger?.at(-1)?.day,
       (ui.state?.shelves ?? []).filter((s) => !(s.stacks ?? []).some((k) => k.qty > 0)).length]),
     rows: (ui) => {
       const s = ui.state;
@@ -815,12 +834,26 @@ export const SECTIONS = [
       const plots = s.plots ?? [];
       const stat = (name, right, sub) => ({ name, right, sub, plain: true });
       const best = Object.entries(st.byItem ?? {}).sort((a, b) => b[1] - a[1])[0];
+      const profit = (st.revenue ?? 0) - (st.spent ?? 0);
+      const past = dayProfits(s);
+      const yesterday = past.at(-1);
+      const mean = past.length ? past.reduce((a, b) => a + b, 0) / past.length : null;
 
       return [
         { sep: 'Today', icon: ICONS.today },
         stat('Taken', money(st.revenue ?? 0), `${st.sold ?? 0} sold`),
         stat('Spent', money(st.spent ?? 0), 'stock, seed and building'),
-        stat('Profit', money((st.revenue ?? 0) - (st.spent ?? 0)), 'what is actually left'),
+        stat('Profit', money(profit), 'what is actually left'),
+        // Signed, because a delta is the one number here where the direction is
+        // the whole of the reading — `money()` alone would print "$40" for a day
+        // that is forty dollars *worse* than yesterday.
+        yesterday === undefined
+          ? null
+          : stat('vs yesterday', signed(profit - yesterday), `yesterday made ${money(yesterday)}`),
+        mean === null
+          ? null
+          : stat('Daily average', money(mean),
+            `across the last ${past.length} day${past.length === 1 ? '' : 's'}`),
         best ? stat('Best seller', `${best[1]}`, ui.itemName(best[0])) : null,
 
         { sep: 'Going wrong', icon: ICONS.trouble },

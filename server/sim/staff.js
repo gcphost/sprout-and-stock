@@ -114,6 +114,11 @@ export function syncStaff(game) {
       have.tier = entry.tier ?? 1;
       have.name = entry.name;
       have.color = w.color;
+      // Same argument as `tier` above, and the same bug if it is missed: the
+      // roster is where a change of look lands, so a skin set on someone
+      // already on shift has to reach their body here or it would not show
+      // until the shop restarted.
+      have.skin = entry.skin ?? null;
       continue;
     }
 
@@ -129,6 +134,8 @@ export function syncStaff(game) {
       staff: entry.kind,
       hire: entry.id,
       tier: entry.tier ?? 1,
+      /** Which look they have on. Null is "as the kind was drawn", not a gap. */
+      skin: entry.skin ?? null,
       x: spawn.x + ((nth % 5) - 2) * 0.3,
       z: spawn.z - 1,
       facing: 0,
@@ -438,15 +445,30 @@ function seatIn(game, s) {
 /** Is there a route from where they are standing to there? */
 const reaches = (game, s, c) => findPath(game.walk, game.layout, s, c) !== null;
 
+/**
+ * The tile you stand on to work a till — its `tendAt`, the far side from the
+ * queue.
+ *
+ * This was written out longhand as `{ x: till.x, z: till.z - 1 }` in the three
+ * places below, which is the correct arithmetic for a till facing south and
+ * wrong for the other three facings. A till turned to face east put its clerk
+ * inside the wall to the north; one turned to face north put the clerk on the
+ * head of its own queue. Neither was visible in a screenshot of a generated
+ * shop, because the generator only ever lays tills at rot 1.
+ *
+ * The fallback is for a layout composed before the field existed — the layout
+ * is regenerated from placements on every load, so in practice nothing reaches
+ * it, and it is the old expression rather than a throw for the same reason
+ * `kindOf` defaults instead of migrating.
+ */
+const tendSpot = (till) => (till ? (till.tendAt ?? { x: till.x, z: till.z - 1 }) : null);
+
 /** Where the pastime itself says. `here` is wherever they finished, so it has none. */
 function authoredSpot(game, p) {
   const L = game.layout;
   if (p.spot === 'bay') return L.bay;
   if (p.spot === 'outside') return { x: L.door.x, z: L.door.z + 2 };
-  if (p.spot === 'till') {
-    const till = L.checkouts[0];
-    return till ? { x: till.x, z: till.z - 1 } : null;
-  }
+  if (p.spot === 'till') return tendSpot(L.checkouts[0]);
   return null;
 }
 
@@ -508,7 +530,7 @@ function idle(game, s) {
     .filter((p) => p && !p.carry && topJob(game, p) === 'serve');
 
   const post = tills[servers.indexOf(s)];
-  if (post) goTo(game, s, { x: post.x, z: post.z - 1 }, 0.6);
+  if (post) goTo(game, s, tendSpot(post), 0.6);
 }
 
 /** The job this hire gives most of their day to. */
@@ -566,7 +588,7 @@ function serve(game, s) {
 
   const waiting = (t) => (t.queue ?? []).some((id) => game.customers[id]?.state === 'QUEUE');
   const till = tills.find(waiting) ?? tills[0];
-  const post = { x: till.x, z: till.z - 1 };
+  const post = tendSpot(till);
   const standing = Math.hypot(s.x - post.x, s.z - post.z) <= 0.6;
 
   // Cash left on the counter is worth collecting even with nobody in the line.

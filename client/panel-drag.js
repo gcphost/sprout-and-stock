@@ -38,14 +38,27 @@ let drag = null;
 function place(el, x, y) {
   const w = el.offsetWidth;
   const h = el.offsetHeight;
+  // Set explicitly, because not everything draggable was already taking itself
+  // out of the flow. `#panel` is `.hud` and has always been fixed, so this is a
+  // no-op for it; the demand meter is a plain child of the top-left column and
+  // would otherwise take `left`/`top` as static offsets and not move at all.
+  el.style.position = 'fixed';
   el.style.left = `${Math.max(8, Math.min(x, innerWidth - w - 8))}px`;
   el.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
   el.style.bottom = 'auto';
   el.style.transform = 'none';
 }
 
-/** Back to wherever the stylesheet says this panel lives. */
+/**
+ * Back to wherever the stylesheet says this thing lives.
+ *
+ * Clearing `position` too is what makes the reset honest for something that
+ * lived in a flow column: it goes back INTO the column, under whatever is above
+ * it, rather than staying fixed at the last place the stylesheet's own left/top
+ * happened to put it.
+ */
 export function clearPos(el) {
+  el.style.position = '';
   el.style.left = '';
   el.style.top = '';
   el.style.bottom = '';

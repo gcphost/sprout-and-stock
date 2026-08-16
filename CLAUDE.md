@@ -205,6 +205,7 @@ what the next step was meant to be.
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, and the break area they are taken in | steps 1–6, 8 and 9 built |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
+| [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | proposed, nothing built |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
 
 ---
@@ -239,6 +240,19 @@ what the next step was meant to be.
   you say no by not standing there. The snapshot carries the armed action from
   the tick it arms, at zero progress, so the client can light the target up and
   name what is about to happen.
+- **…and *standing* is the other half of "standing next to it".** `ACTION_TIME`
+  was the whole defence against a walk-past — a second of charge against about
+  three quarters of a second to cross a `REACH` — and that only ever described a
+  straight line through the middle at full speed. Clip the edge of the circle,
+  turn inside it, slow at a corner or walk the length of an aisle, and you are in
+  range for as long as you like: crops got picked and crates got lifted by people
+  on their way somewhere else, which then fills your hands and refuses you
+  everything. `stepActions` drops the charge for anyone `moving` — a route with
+  legs left, or a direction held — exactly as if they had left the reach. It
+  costs nothing: every route ends stopped at the working spot the tap named. It
+  did put a state no player can reach inside the sweeps, though, which is why
+  `verify-build`'s `stand` clears the path and the keys along with the position —
+  `take` plans a route, and teleporting to its end *is* arriving.
 - **Picking things up is the exception, and it names its target.** Nothing is
   ever put in your hands for standing near it. A crate is tapped
   (`Scene.pickPallet`), a shelf board has a Take button in its own menu, and

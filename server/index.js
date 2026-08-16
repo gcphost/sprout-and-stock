@@ -38,8 +38,9 @@ if (content().items.length === 0) {
   console.warn('\n⚠️  No content in the database. Run `npm run seed` first.\n');
 }
 
-// A menu with nothing in it is a dead end, so a database that has never been
-// played gets its first save slot here rather than on the first join.
+// A database that has never been played gets its first save slot here rather
+// than on the first join. Once only, marked on the save: deleting every shop is
+// allowed, and a boot that refilled the menu would take it straight back.
 ensureAWorld();
 
 // Sweep abandoned saves on boot and once every six hours after. Pinned worlds,

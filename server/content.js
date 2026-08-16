@@ -30,6 +30,7 @@ function load() {
   const fixtures = all('fixtures');
   const workers = all('workers');
   const pastimes = all('pastimes');
+  const skins = all('skins');
 
   cache = {
     items,
@@ -41,6 +42,7 @@ function load() {
     fixtures,
     workers,
     pastimes,
+    skins,
     byId: {
       items: Object.fromEntries(items.map((i) => [i.id, i])),
       crops: Object.fromEntries(crops.map((c) => [c.id, c])),
@@ -51,6 +53,7 @@ function load() {
       fixtures: Object.fromEntries(fixtures.map((f) => [f.id, f])),
       workers: Object.fromEntries(workers.map((w) => [w.id, w])),
       pastimes: Object.fromEntries(pastimes.map((p) => [p.id, p])),
+      skins: Object.fromEntries(skins.map((s) => [s.id, s])),
     },
     version: loadedVersion,
   };
@@ -146,7 +149,7 @@ export function writeContent(kind, data, createdBy = 'agent') {
     if (unknown.length) warnings.push(`affinities reference unrecognised tags: ${unknown.join(', ')}`);
   }
 
-  const table = { item: 'items', crop: 'crops', archetype: 'archetypes', event: 'events', upgrade: 'upgrades', recipe: 'recipes', fixture: 'fixtures', worker: 'workers', pastime: 'pastimes' }[kind];
+  const table = { item: 'items', crop: 'crops', archetype: 'archetypes', event: 'events', upgrade: 'upgrades', recipe: 'recipes', fixture: 'fixtures', worker: 'workers', pastime: 'pastimes', skin: 'skins' }[kind];
   const row = upsert(table, value, createdBy);
   refresh();
   return { ok: true, row, warnings };
@@ -165,6 +168,15 @@ export const DEFAULT_WORLD = {
   reputation: 0.5,
   season: 'spring',
   ownedUpgrades: [],
+  // One row per finished day, oldest first. What makes "is this going up or
+  // down" a question the shop can answer at all — before it, only *today* was
+  // ever on the wire, so every readout compared today's profit against zero.
+  ledger: [],
+  // The demand meter's memory: smoothed asks and fills per tag. An average
+  // rather than a window, so it is two small objects instead of a per-day
+  // history, and it cannot be empty at 08:00 on a day that has had no shoppers
+  // yet — see `Game.rollDemand`.
+  demand: { asked: {}, served: {}, moved: {} },
   plots: 4,
   // Six is the floor for a shop to feel stocked: with six archetypes shopping,
   // fewer than this and a third of them find nothing they want and leave.

@@ -1,0 +1,122 @@
+[
+  {
+    "id": "cherry",
+    "name": "Cherry",
+    "slots": {
+      "chassis": "#d94f5c",
+      "trim": "#7a2630",
+      "glow": "#ffd66b"
+    },
+    "extras": [
+      {
+        "shape": "box",
+        "color": "#7a2630",
+        "pos": [
+          0,
+          0.66,
+          0
+        ],
+        "scale": [
+          0.3,
+          0.07,
+          0.27
+        ],
+        "rot": 0,
+        "surface": false,
+        "seam": false,
+        "alpha": 1,
+        "drift": false,
+        "tint": "trim"
+      }
+    ],
+    "tags": [
+      "staff"
+    ]
+  },
+  {
+    "id": "gold",
+    "name": "Employee of the Month",
+    "slots": {
+      "chassis": "#d4af37",
+      "trim": "#8a6f1f",
+      "glow": "#fff4c2"
+    },
+    "extras": [],
+    "tags": [
+      "staff"
+    ]
+  },
+  {
+    "id": "hi-vis",
+    "name": "Hi-Vis",
+    "slots": {
+      "chassis": "#f0b429",
+      "trim": "#3a3a3a",
+      "glow": "#ffffff"
+    },
+    "extras": [
+      {
+        "shape": "sphere",
+        "color": "#3a3a3a",
+        "pos": [
+          0,
+          0.88,
+          0
+        ],
+        "scale": [
+          0.3,
+          0.15,
+          0.28
+        ],
+        "rot": 0,
+        "surface": false,
+        "seam": false,
+        "alpha": 1,
+        "drift": false,
+        "tint": "trim"
+      }
+    ],
+    "tags": [
+      "staff"
+    ]
+  },
+  {
+    "id": "midnight",
+    "name": "Midnight",
+    "slots": {
+      "chassis": "#2e3440",
+      "trim": "#1b2027",
+      "glow": "#7aa2f7"
+    },
+    "extras": [],
+    "tags": [
+      "staff"
+    ]
+  },
+  {
+    "id": "mint",
+    "name": "Mint",
+    "slots": {
+      "chassis": "#a8e6cf",
+      "trim": "#4a7a68",
+      "glow": "#ffffff"
+    },
+    "extras": [],
+    "tags": [
+      "staff"
+    ]
+  },
+  {
+    "id": "rust-bucket",
+    "name": "Rust Bucket",
+    "slots": {
+      "chassis": "#8a6a4b",
+      "trim": "#5c4632",
+      "glow": "#ff9b3d"
+    },
+    "extras": [],
+    "tags": [
+      "staff"
+    ]
+  }
+]

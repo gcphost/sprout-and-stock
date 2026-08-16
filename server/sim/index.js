@@ -19,15 +19,17 @@ import { generateLayout, defaultPads, buildWalkGrid, T } from '../layout.js';
 import { E, SOLID, edgeBetween } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
-  foldModifiers, modifierMeter, rankShelves, purchaseChance, suggestedPrice,
-  wholesalePrice, footfall, pull, clamp, round2,
+  foldModifiers, modifierMeter, departmentMeter, rankShelves, purchaseChance,
+  suggestedPrice, wholesalePrice, footfall, pull, clamp, round2,
 } from './economy.js';
-import { spoilRate, requiredFixture, desireFor, impulsePull } from '../../shared/tags.js';
+import {
+  spoilRate, requiredFixture, desireFor, impulsePull, DEPARTMENTS,
+} from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND,
-  canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore,
+  canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt,
 } from '../../shared/build.js';
@@ -97,6 +99,31 @@ const SECONDS_PER_MIN = DAY_SECONDS / (24 * 60);
 const CHARM_MAX = 8;
 const CHARM_HALF = 10;
 const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
+
+/**
+ * How many finished days the save remembers, and how many of them go on the wire.
+ *
+ * Two numbers rather than one because they answer different questions. Thirty is
+ * how far back a report could ever look; seven is what the corner readout draws,
+ * and a sparkline of thirty points in 40 pixels is a smudge. Sending the tail
+ * rather than the lot keeps a month of history off a 10Hz snapshot.
+ */
+const LEDGER_DAYS = 30;
+const LEDGER_SHOWN = 7;
+
+/**
+ * How much of the demand meter's memory survives a day, 0..1.
+ *
+ * The meter has to read correctly at 08:00, when today has had no shoppers, and
+ * it has to stop reading yesterday by mid-afternoon. So it is yesterday's
+ * average carried forward at this weight plus today's tally in full — early on
+ * the memory is the whole signal, and by evening today outweighs it.
+ *
+ * Also why it is an average and not a window: a per-day history of twelve
+ * departments is an array on the save that has to be capped, migrated and sent,
+ * where this is two small objects that cannot grow.
+ */
+const DEMAND_MEMORY = 0.55;
 /**
  * The four tiles touching one. A pad is asked about by cell rather than by
  * distance now (`onPad`), which replaced a `BAY_REACH` of 2.2 — a fair
@@ -311,6 +338,7 @@ export class Game {
     Object.assign(this, state);
     this.rng = makeRng(`${this.seed}:${this.day}`);
     this.walk = buildWalkGrid(this.layout);
+    this.layQueueLanes();
     // Money waiting on a counter for someone to pick it up.
     this.cashDrops = state.cashDrops ?? [];
     /**
@@ -442,6 +470,16 @@ export class Game {
       // event on every cold start — see `runDirector`.
       lastDirectorDay: w.lastDirectorDay ?? null,
       ownedUpgrades: w.ownedUpgrades ?? [],
+      // Every day that has finished, and the demand meter's memory of them. A
+      // save from before either reads as a shop with no history, which is what
+      // it is — the readouts say "not yet" for a day rather than inventing a
+      // past, and both fill in on the next rollover.
+      ledger: (w.ledger ?? []).slice(-LEDGER_DAYS),
+      demand: {
+        asked: w.demand?.asked ?? {},
+        served: w.demand?.served ?? {},
+        moved: w.demand?.moved ?? {},
+      },
       // Who actually works here. Derived once from the old staff upgrades for a
       // save that predates the roster, and authoritative from then on.
       roster,
@@ -496,6 +534,8 @@ export class Game {
       reputation: this.reputation,
       lastDirectorDay: this.lastDirectorDay ?? null,
       ownedUpgrades: this.ownedUpgrades,
+      ledger: this.ledger,
+      demand: this.demand,
       roster: this.roster,
       nextWorkerId: this.nextWorkerId,
       placements: this.placements,
@@ -542,6 +582,11 @@ export class Game {
       season: this.season,
       lastDirectorDay: this.lastDirectorDay ?? null,
       ownedUpgrades: this.ownedUpgrades,
+      // Both are written at the day rollover, *before* this runs — see
+      // `onNewDay`. Saved after the day they describe rather than during the day
+      // that follows, or a restart loses the day you just finished.
+      ledger: this.ledger,
+      demand: this.demand,
       roster: this.roster,
       nextWorkerId: this.nextWorkerId,
       // `placements` is what the shop *is*. The three counts under it are
@@ -737,6 +782,9 @@ export class Game {
         // which makes an id format a protocol.
         hire: p.hire ?? null,
         tier: p.tier ?? null,
+        // Which look they have on. Rides beside `tier` because the two together
+        // are exactly what decides the body the client builds — see `actorKey`.
+        skin: p.skin ?? null,
         // How worn out they are, and what they are doing about it. Both are
         // read straight off the body, so the roster says the same thing you
         // can watch happening on the floor.
@@ -822,9 +870,23 @@ export class Game {
           ? r2(Math.min(1, 1 - (s.busyUntil - this.elapsed) / Math.max(0.001, s.busyUntil - (s.startedAt ?? s.busyUntil - 1))))
           : 0,
       })),
-      // Folded to one net number per tag — the HUD draws a meter off these, and
-      // it should be reading the same numbers the economy charges against.
+      // Folded to one net number per tag. Not the HUD meter any more — that is
+      // `departments` below — but still what the supplier's heat pills and the
+      // to-do chips read, and it should stay the same numbers the economy
+      // charges against rather than a second opinion about the same events.
       modifiers: modifierMeter(this.folded()),
+      // The demand meter: one row per department, always all of them, always in
+      // the same order. See `departmentMeter` for what the sign means.
+      departments: departmentMeter({
+        ...this.demandNow(),
+        boards: this.departmentBoards(),
+        folded: this.folded(),
+      }),
+      // The last week of finished days, oldest first, so the corner readout can
+      // say whether today is better than yesterday and draw the shape of the
+      // week. Only the tail: a month of history on a 10Hz snapshot is a month of
+      // history sent six hundred times a minute.
+      ledger: this.ledger.slice(-LEDGER_SHOWN),
       log: this.log.slice(-8),
     };
   }
@@ -936,6 +998,11 @@ export class Game {
     this.invalidateModifiers();
     this.spoilStock();
     this.payWages();
+    // Before `persist`, and after the last thing that touches the day's money —
+    // `payWages` is it, since `spoilStock` counts units rather than cash. File
+    // the finished day the other side of the save and a restart drops it.
+    this.closeLedger();
+    this.rollDemand();
     this.persist();
     this.rng = makeRng(`${this.seed}:${this.day}`);
     // Turned-away only appears once it has happened, because a shop that isn't
@@ -948,6 +1015,106 @@ export class Game {
     // this, since `stats` is about to be wiped for the new day).
     this._lastDayStats = this.stats;
     this.stats = freshStats();
+  }
+
+  /**
+   * File the day that just ended, so tomorrow has something to compare against.
+   *
+   * `this.day` has already moved on by the time `onNewDay` runs — it is called
+   * *because* it moved — so the row being closed is the day before it.
+   */
+  closeLedger() {
+    this.ledger.push({
+      day: this.day - 1,
+      revenue: round2(this.stats.revenue),
+      spent: round2(this.stats.spent),
+    });
+    if (this.ledger.length > LEDGER_DAYS) this.ledger = this.ledger.slice(-LEDGER_DAYS);
+  }
+
+  /**
+   * Fold today's asks into the demand meter's memory.
+   *
+   * A true running average of finished days, so what it holds is "asks on a
+   * normal day here" and stays in that unit however many days pass. A tag that
+   * has faded below noticing is dropped rather than kept at 0.001 forever — the
+   * vocabulary grows every time somebody authors an archetype, and a map that
+   * only ever gains keys is a save that only ever gets bigger.
+   */
+  rollDemand() {
+    const roll = (memory, today) => {
+      const out = {};
+      for (const tag of new Set([...Object.keys(memory), ...Object.keys(today)])) {
+        const v = round2((memory[tag] ?? 0) * DEMAND_MEMORY + (today[tag] ?? 0) * (1 - DEMAND_MEMORY));
+        if (v >= 0.05) out[tag] = v;
+      }
+      return out;
+    };
+    this.demand = {
+      asked: roll(this.demand.asked, this.stats.asked),
+      served: roll(this.demand.served, this.stats.served),
+      moved: roll(this.demand.moved, this.stats.moved),
+    };
+  }
+
+  /**
+   * What the town is asking of you, as the meter should read it right now.
+   *
+   * A normal day here plus today so far. Both halves go on both sides, which is
+   * the only thing that has to be true: the meter divides asks by fills and
+   * compares one department's share against another's, so the *scale* is free as
+   * long as it is the same scale on the top and the bottom. That is why the
+   * result is an index rather than a count of shoppers, and why nothing hands it
+   * to the client to print.
+   *
+   * The alternative — read today only — is a meter that is blank at 08:00 and
+   * built on four shoppers at 09:00, which is the shuffling it exists to fix.
+   */
+  demandNow() {
+    const add = (memory, today) => {
+      const out = { ...memory };
+      for (const [tag, n] of Object.entries(today)) out[tag] = (out[tag] ?? 0) + n;
+      return out;
+    };
+    return {
+      asked: add(this.demand.asked, this.stats.asked),
+      served: add(this.demand.served, this.stats.served),
+      moved: add(this.demand.moved, this.stats.moved),
+    };
+  }
+
+  /**
+   * How many shelf boards are given over to each department.
+   *
+   * By *board*, because that is the unit of shelf space a player allocates — a
+   * unit holding milk and cheese has committed one board to dairy and one to
+   * dairy again, and a unit holding forty tins has committed one board to
+   * pantry, not forty. Counting units of stock instead would call a well-kept
+   * full aisle an overstock, which is the whole reason the meter's left half is
+   * measured this way. See `departmentMeter`.
+   *
+   * A board that is *labelled* and empty does not count, and getting that wrong
+   * inverted the meter. The bar's left half asks "is this space earning?", and an
+   * empty board is not failing to earn — it has nothing on it to earn with.
+   * Counting them read a department that people ask for and you have run out of
+   * as *overstocked*, which is the opposite of what it needs to say, and it is
+   * the more common state of the two: a bare shelf keeps its label on purpose
+   * (see `stockShelf`). Bare shelves are the to-do chip's job, not this meter's.
+   */
+  departmentBoards() {
+    const items = content().byId.items;
+    const out = {};
+    for (const shelf of this.layout.shelves) {
+      for (const stack of this.shelfStacks(shelf)) {
+        if (!(stack.qty > 0)) continue;
+        const item = items[stack.item_id];
+        if (!item) continue;
+        for (const tag of item.tags) {
+          if (DEPARTMENTS.includes(tag)) out[tag] = (out[tag] ?? 0) + 1;
+        }
+      }
+    }
+    return out;
   }
 
   /**
@@ -1052,8 +1219,7 @@ export class Game {
       // reason the two schemes can share a player: you take the wheel by
       // touching it, and there is never a moment where both are driving.
       if (steering) { p.path = null; p.errand = null; }
-      const walking = steering || p.path?.length > 0;
-      if (!walking) continue;
+      if (!moving(p)) continue;
 
       // Walking away is what clears "don't put that straight back", and *away*
       // has to mean out of reach of what you took it off. Anything less and a
@@ -1124,6 +1290,29 @@ export class Game {
   stepActions(dt) {
     for (const p of Object.values(this.players)) {
       if (p.staff) continue;              // hires drive themselves
+
+      // Standing still is half of "standing next to it", and it was missing.
+      //
+      // ACTION_TIME is a second and crossing a REACH takes about three quarters
+      // of one, so the arithmetic said a walk-past could not fire. The
+      // arithmetic is about the straight line through the middle: clip the edge
+      // of the circle, turn, slow down at a corner, or walk *along* an aisle of
+      // shelves and you are in range of one thing or another for as long as you
+      // like. So goods got picked up, tills got served and beds got harvested by
+      // people who were on their way somewhere else — and a pickup you did not
+      // ask for fills your hands, which then refuses you everything.
+      //
+      // Stopping is the consent, and it is the same consent leaving throws away:
+      // the charge is dropped exactly as if you had walked out of reach, because
+      // from the action's point of view you did. It costs nothing anybody wanted
+      // — every route ends stopped at the working spot, which is where the tap
+      // was aiming the whole time, and the errand still fires the moment you
+      // arrive. What it removes is the only class of action in the game that
+      // happened *to* you.
+      //
+      // Read after `stepPlayers` has moved everyone this tick, or arriving would
+      // spend a tick still looking like walking.
+      if (moving(p)) { p.action = null; continue; }
 
       const candidate = this.actionFor(p);
 
@@ -1846,6 +2035,10 @@ export class Game {
       kind: kindId,
       tier: 1,
       name,
+      // Nobody is issued a look. Null means "as the kind was drawn", which is a
+      // complete bot — so a shop that has never heard of skins is not a shop of
+      // undressed robots, and a save written before them reads the same way.
+      skin: null,
       // Copied, not referenced: the kind is the default, and this hire's list
       // is theirs to change from here on.
       jobs: w.jobs.map((j) => ({ job: j.job, weight: j.weight })),
@@ -1922,6 +2115,32 @@ export class Game {
     this.pushLog(`${entry.name} is now ${next.name}.`);
     this.persist();
     return ok({ promoted: workerId, tier: entry.tier });
+  }
+
+  /**
+   * Change what one hire looks like. Free, instant, and reversible.
+   *
+   * The counterpart to `promote`, and deliberately its opposite in every
+   * respect: a promotion costs money and moves numbers, a skin costs nothing
+   * and moves none. That is not generosity, it is the same split `variants` and
+   * `tiers` make on a fixture — if a look could be paid for it would sooner or
+   * later be balanced, and then `simulate` would have to be re-run every time
+   * somebody recoloured a robot.
+   *
+   * Null is a real argument, not a missing one: it puts them back in the
+   * factory colours, so there is a way out of every skin without needing a
+   * "default" row that could be deleted.
+   */
+  setSkin(workerId, skinId) {
+    const entry = this.roster.find((e) => e.id === workerId);
+    if (!entry) return err('nobody by that name works here');
+    if (skinId != null && !content().byId.skins[skinId]) return err('no such skin');
+
+    entry.skin = skinId ?? null;
+    // `syncStaff` copies this onto the body on the next tick, which is also
+    // what makes the change survive a hire who is halfway across the shop.
+    this.persist();
+    return ok({ worker: workerId, skin: entry.skin });
   }
 
   harvest(playerId, plotId) {
@@ -4090,6 +4309,7 @@ export class Game {
     this.layout = layout;
     this.layoutVersion++;
     this.walk = buildWalkGrid(layout);
+    this.layQueueLanes();
 
     // Everyone mid-path is now walking to somewhere that may not exist.
     for (const cu of Object.values(this.customers)) {
@@ -4349,6 +4569,23 @@ export class Game {
     // that bites — must not be able to bill the shop for them twice.
     const first = !cust.settled;
     cust.settled = true;
+
+    // The whole exchange, tallied here because this is already the once-per-
+    // shopper point the shop is billed at — and it has to be once, or a layout
+    // re-flow that puts a finished shopper back on the floor counts their list
+    // twice and the demand meter reads a shop that was busier than it was.
+    //
+    // A line they never reached counts as asked and not served, which is right
+    // whatever stopped them: they came in for it and left without it. It does
+    // mean a till so slow that people give up shows as unserved *demand* rather
+    // than as a queue, so the two readouts have to be read together — the
+    // walked-out count in the Shop report is the other half.
+    if (first) {
+      for (const line of cust.list) {
+        this.stats.asked[line.tag] = (this.stats.asked[line.tag] ?? 0) + line.qty;
+        this.stats.served[line.tag] = (this.stats.served[line.tag] ?? 0) + line.got;
+      }
+    }
 
     if (first && cust.missed.length) {
       this.reputation = clamp(
@@ -4614,6 +4851,52 @@ export class Game {
     }
   }
 
+  /**
+   * Walk every till's line and remember where its places are.
+   *
+   * Laid beside the walk grid and for the same reason: a lane *is* a walk, so
+   * anything that changes what can be walked over changes where the line
+   * stands. Both are rebuilt at the two points the layout is set and there is
+   * no third — a fixture you place re-flows the layout, which comes back
+   * through here, so parking a shelf in the aisle pushes the line round it.
+   *
+   * `queueMax` is re-stamped rather than trusted, and the reason is the save
+   * rather than the generator — `compose` already re-measures it at the end of
+   * a fresh flow. The layout is *persisted*, so a shop stamped before lanes
+   * existed carries a `queueMax` that is the old straight run, and the fixture
+   * menu would print it. A read-time correction rather than a migration, the
+   * same way `kindOf` handles a fixture row written before kinds.
+   */
+  layQueueLanes() {
+    this.lanes = queueLanes(this.layout);
+    for (const t of this.layout.checkouts ?? []) {
+      t.queueMax = (this.lanes.get(t.id)?.length ?? 1) - 1;
+    }
+  }
+
+  /** Where this till's line stands, `lane[0]` being the serving spot itself. */
+  laneOf(till) {
+    return this.lanes?.get(till.id) ?? [till.serveAt];
+  }
+
+  /**
+   * Where the i-th person in a line stands. A copy, so a caller handing this
+   * to `pathTo` can never write through it into the cached lane.
+   *
+   * The clamp is a last resort and should almost never fire now: a lane turns
+   * corners, so it runs out only in a shop with nowhere left to put anybody,
+   * and a queue that long means the turn-away rule should have stopped them at
+   * the door. It used to fire constantly — the lane was a straight run of at
+   * most eight and every shopper past the end was handed the last slot, which
+   * is exactly what a pile of people standing inside one another at a busy
+   * till was.
+   */
+  queueSlot(till, i) {
+    const lane = this.laneOf(till);
+    const c = lane[Math.min(i, lane.length - 1)];
+    return { x: c.x, z: c.z };
+  }
+
   goToTill(cust, arch = null) {
     if (cust.basket.length === 0) return this.leaveShop(cust);
 
@@ -4629,11 +4912,7 @@ export class Game {
     cust.state = 'TO_TILL';
     cust.waited = 0;
 
-    const slot = Math.min(till.queue.length - 1, till.queueMax ?? Infinity);
-    const goal = {
-      x: till.serveAt.x + till.queueDir.x * slot,
-      z: till.serveAt.z + till.queueDir.z * slot,
-    };
+    const goal = this.queueSlot(till, till.queue.length - 1);
     if (!this.pathTo(cust, goal)) return this.leaveShop(cust);
 
     this.impulseBuy(cust, arch, till, ahead);
@@ -4742,8 +5021,19 @@ export class Game {
       this.dropCash(cust, total);
     }
     this.stats.sold += cust.basket.length;
+    const items = content().byId.items;
     for (const line of cust.basket) {
       this.stats.byItem[line.item_id] = (this.stats.byItem[line.item_id] ?? 0) + 1;
+      // ...and again by department, which is not the same tally read a second
+      // way. A shelf earns its space by what leaves it, and most of what leaves
+      // a shop was never asked for by department: a `cheap` line is filled by a
+      // frozen pizza and a `kids` line by a chocolate bar, so counting asks
+      // would have the demand meter tell you to tear the freezers out of a shop
+      // that sells nine frozen lines. Tallied at the sale rather than at the
+      // shelf, because an abandoned basket is not a sale.
+      for (const tag of items[line.item_id]?.tags ?? []) {
+        if (DEPARTMENTS.includes(tag)) this.stats.moved[tag] = (this.stats.moved[tag] ?? 0) + 1;
+      }
     }
     // Happy customers nudge reputation up; a long wait blunts that.
     this.reputation = clamp(this.reputation + 0.004 * cust.mood, 0, 1);
@@ -4898,15 +5188,28 @@ export class Game {
     const till = this.layout.checkouts.find((t) => t.id === cust.till);
     if (till?.queue) {
       till.queue = till.queue.filter((id) => id !== cust.id);
-      // Everyone behind shuffles forward.
+      /**
+       * Everyone behind shuffles forward — *everyone*, including the ones still
+       * walking up to the place they were given.
+       *
+       * This used to skip anybody not already standing still (`state !==
+       * 'QUEUE'`), and that is the second way a line piled up, at ordinary
+       * lengths that fit the lane with room to spare. A shopper's place is
+       * their index in `till.queue`, and this call is where that index moves.
+       * Skipping the walkers left one heading for a slot the line no longer
+       * reached — and the next arrival is handed `queue.length - 1`, which is
+       * exactly the slot the walker is still crossing the shop towards. Two
+       * people, one tile, and neither of them ever did anything wrong.
+       *
+       * The two states are one thing here: both are people whose place in this
+       * line just changed, and a walker is only a stander who has not arrived.
+       * The gap it leaves the rest of the time is the same bug wearing a
+       * disguise — a line with a hole in it where somebody left.
+       */
       till.queue.forEach((id, i) => {
         const other = this.customers[id];
-        if (!other || other.state !== 'QUEUE') return;
-        const slot = Math.min(i, till.queueMax ?? Infinity);
-        this.pathTo(other, {
-          x: till.serveAt.x + till.queueDir.x * slot,
-          z: till.serveAt.z + till.queueDir.z * slot,
-        });
+        if (!other || (other.state !== 'QUEUE' && other.state !== 'TO_TILL')) return;
+        this.pathTo(other, this.queueSlot(till, i));
         other.state = 'TO_TILL';
       });
     }
@@ -5004,6 +5307,17 @@ function freshStats() {
     // Staples people came in for and you did not stock, by tag. The one number
     // in here that says what to do about itself.
     unmet: {}, impulse: 0,
+    // What every shopping list asked for and how much of it got filled, by tag.
+    // `unmet` is the same idea narrowed to staples-missed-entirely, because it
+    // exists to move reputation; these two are the whole exchange, which is what
+    // a demand meter needs — a department served nine asks out of ten is doing
+    // well, and `unmet` cannot tell that from silence. Tallied once per shopper
+    // in `stopShopping`.
+    asked: {}, served: {},
+    // Units that actually left, by department, tallied at the till. The other
+    // half of the demand meter, and it has to be its own count rather than a
+    // projection of `served`: see `completeSale`.
+    moved: {},
   };
 }
 
@@ -5139,6 +5453,20 @@ function countUpgrade(w, kind, key) {
 }
 
 const near = (a, b, radius = REACH) => Math.hypot(a.x - b.x, a.z - b.z) <= radius;
+
+/**
+ * Is this player going somewhere — under their own steering or on a route?
+ *
+ * One spelling for the two movers, because `stepActions` now asks the same
+ * question `stepPlayers` does and a second opinion about whether somebody is
+ * walking is a charge that fires on a frame the legs disagree about. Keys are
+ * live input rather than a velocity, and a finished route is a null `path`, so
+ * neither mover needs a position from last tick to answer it.
+ */
+function moving(p) {
+  const { dx = 0, dz = 0 } = p.input ?? {};
+  return dx !== 0 || dz !== 0 || p.path?.length > 0;
+}
 const r2 = (v) => Math.round(v * 100) / 100;
 /**
  * One id, several, or none — always as a list.

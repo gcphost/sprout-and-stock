@@ -16,7 +16,7 @@
 
 import { Game, DAY_SECONDS, OPEN_HOUR, CLOSE_HOUR } from './index.js';
 import { content } from '../content.js';
-import { wholesalePrice, suggestedPrice } from './economy.js';
+import { wholesalePrice, suggestedPrice, departmentMeter } from './economy.js';
 import { requiredFixture } from '../../shared/tags.js';
 import { canPlaceCleanly } from '../../shared/build.js';
 import { WALKABLE } from '../../shared/tiles.js';
@@ -76,6 +76,11 @@ export function simulate({
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
     spoiled: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
     unmet: {}, impulse: 0,
+    // The demand meter's two tallies over the whole run. `unmet` below is the
+    // same territory narrowed to staples-missed-entirely; these are the whole
+    // exchange, which is what tells a department that served nine asks out of ten
+    // apart from one nobody has ever asked for.
+    asked: {}, served: {}, moved: {},
   };
 
   // Run until the calendar says so, not until a step count says so. A day used
@@ -131,6 +136,22 @@ export function simulate({
     .sort((a, b) => b[1] - a[1])
     .map(([tag, count]) => ({ tag, count }));
 
+  // The demand meter, over the run instead of over a smoothed day — the same
+  // function the HUD draws, handed the whole-run tallies. `folded` is deliberately
+  // neutral: a world event that was live for three of forty days would stretch
+  // every bar as though it had been live for all of them, and a balance report is
+  // the one place that must describe the shop rather than the weather.
+  //
+  // Boards are read at the *end*, because that is the shop the run left behind —
+  // and a bar is only ever a judgement on shelf space as it stands now.
+  const departments = departmentMeter({
+    asked: totals.asked,
+    served: totals.served,
+    moved: totals.moved,
+    boards: game.departmentBoards(),
+    folded: { demand: {}, price: {} },
+  }).filter((d) => d.net !== 0 || d.boards > 0);
+
   const finalCash = round2(game.cash);
   const profit = round2(finalCash - startCash);
 
@@ -160,10 +181,11 @@ export function simulate({
     bestSellers,
     deadStock,
     unmetDemand,
+    departments,
     daily: daily.slice(-30),
     startedWith,
     verdict: [
-      ...verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold, unmetDemand }),
+      ...verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold, unmetDemand, departments }),
       ...(startedWith.staff.length
         ? [`Started with ${startedWith.staff.join(', ')} already on the books — a run that inherited different staff is not comparable to this one.`]
         : []),
@@ -184,7 +206,10 @@ const FLOAT = 250;
  * A plain-language read on the run, so an agent doesn't have to interpret
  * raw numbers to know whether something's wrong.
  */
-function verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold = [], unmetDemand = [] }) {
+function verdict({
+  profit, days, bankruptOn, totals, deadStock,
+  uncraftedUnsold = [], unmetDemand = [], departments = [],
+}) {
   const notes = [];
   if (bankruptOn) notes.push(`BANKRUPT on day ${bankruptOn} — the shop cannot sustain itself.`);
   else if (profit <= 0) notes.push(`Lost $${Math.abs(profit).toFixed(2)} over ${days} days — costs exceed revenue.`);
@@ -208,6 +233,18 @@ function verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold 
   }
   if (uncraftedUnsold.length) {
     notes.push(`Not modelled: ${uncraftedUnsold.join(', ')} are crafted goods — this bot doesn't work the appliances, so hire a Chef and watch the live shop to judge them.`);
+  }
+  // The two halves of the demand meter, said out loud. Separate notes rather than
+  // one, because they are separate jobs: the first is a shopping list, the second
+  // is shelf space to take back, and a shop can very easily need both at once.
+  const short = departments.filter((d) => d.net >= 0.25).map((d) => d.dept);
+  if (short.length) {
+    notes.push(`Short on ${short.join(', ')} — asked for more than the shelves answered over the run.`);
+  }
+  const idle = departments.filter((d) => d.net <= -0.25 && d.boards > 0)
+    .map((d) => `${d.dept} (${d.boards})`);
+  if (idle.length) {
+    notes.push(`Shelf space not earning: ${idle.join(', ')} — boards held for departments that barely sold. Relabel them.`);
   }
   return notes;
 }
@@ -626,8 +663,14 @@ function accumulate(totals, s) {
   for (const [id, n] of Object.entries(s.byItem ?? {})) {
     totals.byItem[id] = (totals.byItem[id] ?? 0) + n;
   }
-  for (const [tag, n] of Object.entries(s.unmet ?? {})) {
-    totals.unmet[tag] = (totals.unmet[tag] ?? 0) + n;
+  // Every tag-keyed tally, by the same rule, rather than one loop each. The list
+  // above is explicit on purpose — a scalar that gains a key silently starts
+  // reporting `undefined` — but these four are all "map of tag to a count", so a
+  // fifth costs a word here instead of five lines.
+  for (const key of ['unmet', 'asked', 'served', 'moved']) {
+    for (const [tag, n] of Object.entries(s[key] ?? {})) {
+      totals[key][tag] = (totals[key][tag] ?? 0) + n;
+    }
   }
 }
 

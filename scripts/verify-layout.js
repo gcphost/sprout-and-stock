@@ -16,7 +16,7 @@
  */
 
 import { generateLayout, defaultPads, buildWalkGrid, T } from '../server/layout.js';
-import { insideStore } from '../shared/build.js';
+import { insideStore, queueLanes } from '../shared/build.js';
 
 const argv = process.argv.slice(2);
 const flag = (name, dflt) => {
@@ -127,20 +127,48 @@ for (const opts of cases()) {
     check(reachable, 'plot has no walkable neighbour', `${where}: ${p.id} at ${p.x},${p.z}`);
   }
 
-  // ---- 4. queues stay indoors --------------------------------------------
+  // ---- 4. queues stay indoors, and no two people stand in one place -------
   // The one that bit hardest: a queue slot on grass is a shopper the till can
   // never serve, and it looks fine in a screenshot.
+  //
+  // The lane turns corners now rather than running straight and then giving
+  // every extra shopper the last slot, so "the slots are distinct" has to be
+  // asserted rather than assumed — that used to be true by construction of the
+  // straight run, and it is the exact claim the pile-up broke. Walking the real
+  // lane also means each of these is checked around the bend, where a straight
+  // run was never looking.
+  const lanes = queueLanes(L);
+  const standing = new Map();
   for (const t of L.checkouts) {
     check(taken(t.x, t.z), 'checkout cell not occupied', `${where}: ${t.id} at ${t.x},${t.z}`);
     check(walkable(t.serveAt.x, t.serveAt.z) && onShopFloor(L, t.serveAt.x, t.serveAt.z),
       'till serveAt not on the shop floor', `${where}: ${t.id} serveAt ${t.serveAt.x},${t.serveAt.z}`);
-    check(t.queueMax >= 1, 'till has nowhere to queue', `${where}: ${t.id} queueMax ${t.queueMax}`);
-    for (let i = 1; i <= t.queueMax; i++) {
-      const qx = t.serveAt.x + t.queueDir.x * i;
-      const qz = t.serveAt.z + t.queueDir.z * i;
-      check(walkable(qx, qz) && onShopFloor(L, qx, qz),
-        'queue slot outside the shop floor', `${where}: ${t.id} slot ${i} at ${qx},${qz} (tile ${at(qx, qz)})`);
-    }
+
+    const lane = lanes.get(t.id) ?? [];
+    check(lane.length - 1 >= 1, 'till has nowhere to queue', `${where}: ${t.id} lane ${lane.length - 1}`);
+    check(lane[0]?.x === t.serveAt.x && lane[0]?.z === t.serveAt.z,
+      'a lane must start at the serving spot', `${where}: ${t.id}`);
+    check(lane.length - 1 === t.queueMax, 'queueMax disagrees with the lane it was measured from',
+      `${where}: ${t.id} queueMax ${t.queueMax} lane ${lane.length - 1}`);
+
+    lane.forEach((c, i) => {
+      check(walkable(c.x, c.z) && onShopFloor(L, c.x, c.z),
+        'queue slot outside the shop floor', `${where}: ${t.id} slot ${i} at ${c.x},${c.z} (tile ${at(c.x, c.z)})`);
+      // A line is a line: every place in it is one step from the one in front.
+      // Without this a lane could jump a wall and still pass every other check.
+      if (i > 0) {
+        const p = lane[i - 1];
+        check(Math.abs(c.x - p.x) + Math.abs(c.z - p.z) === 1,
+          'queue slots are not adjacent', `${where}: ${t.id} slot ${i} at ${c.x},${c.z} after ${p.x},${p.z}`);
+      }
+      // The pile-up itself, stated: nobody shares a tile with anybody, in this
+      // line or in the one at the next till.
+      const key = `${c.x},${c.z}`;
+      check(!standing.has(key), 'two shoppers stand on one tile',
+        `${where}: ${t.id} slot ${i} at ${key}, already ${standing.get(key)}`);
+      standing.set(key, `${t.id} slot ${i}`);
+    });
+
     // Two tills must not try to serve the same shopper.
     const clash = L.checkouts.filter((o) => o !== t
       && o.serveAt.x === t.serveAt.x && o.serveAt.z === t.serveAt.z);

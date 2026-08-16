@@ -29,6 +29,7 @@ const KINDS = {
   event: 'events', upgrade: 'upgrades', recipe: 'recipes', fixture: 'fixtures',
   worker: 'workers',
   pastime: 'pastimes',
+  skin: 'skins',
 };
 
 /**
@@ -237,6 +238,14 @@ export function createApi() {
   api.post('/stock', wrapAsync(async (req, res) => {
     const g = await gameFor(req);
     res.json({ ...g.autoStock(), world: g.worldId });
+  }));
+
+  // Dressing one hire. `?? null` and not a bare read, because taking a skin off
+  // has to be sayable — an omitted field and an explicit null both mean "back
+  // to the colours the kind was drawn in".
+  api.post('/worker/skin', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
+    res.json({ ...g.setSkin(req.body?.workerId, req.body?.skin ?? null), world: g.worldId });
   }));
 
   api.post('/spawn', wrapAsync(async (req, res) => {

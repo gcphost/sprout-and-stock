@@ -285,7 +285,11 @@ export function showFixture(ui, f) {
 
   parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
 
-  ui.showPanel(`${FIXTURE_ICON[kind] ?? ICONS.crate} ${ui.fixtureName(f)}`, parts.join(''));
+  // Which unit, and which tab of it. Reserving an item or picking a shape
+  // redraws the whole menu and must keep your place in a list that can run to
+  // forty items; changing tab or aiming at another shelf must not.
+  ui.showPanel(`${FIXTURE_ICON[kind] ?? ICONS.crate} ${ui.fixtureName(f)}`, parts.join(''),
+    `fixture:${f.id}:${at}`);
   wireFixtureMenu(ui, f, live);
   if (rows.length) ui.wireRows(rows);
   ui.el.panelBody.querySelectorAll('[data-fxtab]').forEach((el) => {

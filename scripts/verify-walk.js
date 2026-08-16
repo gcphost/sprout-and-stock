@@ -146,6 +146,43 @@ for (const shelf of g.layout.shelves) {
 
 check(!g.walkToFixture('me', 'no-such-fixture').ok, 'an unknown fixture is refused');
 
+// ---------------------------------------------------------------------------
+// 5. An action wants you STOPPED, not merely near
+//
+// The other half of "tap it and it happens", and the half that used to fire on
+// people who never asked. `ACTION_TIME` was the whole defence — a second of
+// charge against about three quarters of a second to cross a reach — and that
+// only describes a straight line through the middle at full speed. Crawl,
+// corner, or walk the length of an aisle and you are in range the whole time.
+//
+// Tested on `till`, which needs no crop, no cash and no season, so this stays a
+// claim about the charge rather than about content. And tested at 2% throttle:
+// the player never leaves the bed's reach and never stops either, which is
+// exactly the case the arithmetic missed. Asserting on the *soil* as well as on
+// `p.action` is deliberate — a charge that is thrown away every tick and re-armed
+// the next still reads as null from outside, and would still till the bed.
+// ---------------------------------------------------------------------------
+
+const tick = (seconds) => {
+  for (let i = 0; i < seconds * 20; i++) { g.stepPlayers(1 / 20); g.stepActions(1 / 20); }
+};
+
+const bed = g.layout.plots[0];
+bed.crop_id = null;
+bed.soil = 'untilled';
+p.path = null;
+p.x = bed.x;
+p.z = bed.z;
+
+g.setInput('me', 0.02, 0);
+tick(4);
+check(p.action === null, 'nothing arms while you are moving');
+check(bed.soil === 'untilled', 'and four seconds of crawling over a bed does not till it');
+
+g.setInput('me', 0, 0);
+tick(4);
+check(bed.soil === 'tilled', 'and standing still on the same bed does');
+
 console.log(`\nverify:walk — ${checks} assertions\n`);
 if (!failures.length) {
   console.log('  ✅  a click routes you to where you can actually work.\n');

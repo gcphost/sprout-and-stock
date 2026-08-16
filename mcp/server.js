@@ -112,7 +112,7 @@ server.registerTool('delete_world', {
   description:
     'Permanently delete one save slot: its shop, its money, its upgrades, its staff and its world events. Content is untouched, because content belongs to every world.\n\n'
     + 'This cannot be undone and there is no backup. Confirm with the person you are working with before calling it — "my world is bust" usually means reset_economy, which keeps the shop you built. '
-    + 'Refuses to delete the only remaining world.',
+    + 'It will delete the last remaining world if you ask it to, leaving an empty menu that new_world starts again from.',
   inputSchema: {
     world: z.string().describe('World id from list_worlds. Exact — there is no fuzzy match on purpose.'),
   },
@@ -199,7 +199,7 @@ server.registerTool('list_content', {
   title: 'List existing content',
   description: 'List all items, crops, customer archetypes, events, upgrades or recipes currently in the game. Check here before creating something to avoid duplicating an id.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime']).describe('Which kind of content to list.'),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin']).describe('Which kind of content to list.'),
   },
 }, async ({ kind }) => text(await call('GET', `/content/${kind}`)));
 
@@ -367,6 +367,47 @@ server.registerTool('create_pastime', {
   },
 }, async (args) => text(await call('POST', '/content/pastime', args)));
 
+server.registerTool('create_skin', {
+  title: 'Design a look a hire can wear',
+  description:
+    'Create or update a skin — what ONE hire looks like, worn over whatever kind of worker they are. Live in the running shop within about a second, including on the staff already on shift.\n\n'
+    + 'A skin is a PALETTE, not a body. This is the important thing about it and the reason it is not a fixture-style variant: one skin row works on every kind of worker that exists and every kind anybody adds later, so "Rust Bucket" is authored once rather than once per kind. It also means no skin can ever redraw a bot into something that reads as a customer, which is what staff art exists to prevent.\n\n'
+    + 'SLOTS are the colours. A worker model flags each part with a `tint` naming one of three slots, and this is what fills them:\n'
+    + '  chassis  the main body\n'
+    + '  trim     panels, limbs, the base\n'
+    + '  glow     the visor and any lights\n'
+    + 'Every slot is optional. A skin that sets only `glow` changes the visor and leaves the bot otherwise as drawn — the cheapest way to tell two of the same kind apart.\n\n'
+    + 'A part that names NO slot is untouchable, and that is where the job payload lives. A clerk\'s till and a chef\'s pan keep their own colours under every skin in the game, which is what keeps "which bot is that" answerable after you have recoloured all five.\n\n'
+    + 'EXTRAS are parts bolted ON — a hat, an antenna, a scarf. They are added to the body and can never replace or remove any of it, so the silhouette always survives. An extra may name a `tint` itself, so a hat can come out in the skin\'s own trim colour without authoring the hex twice. A worker stands about 0.9 tall on y=0 facing EAST, so y above 0.95 is hat territory.\n\n'
+    + 'A skin is free to wear, free to change and moves no number — there is nowhere on it to put one. So it never needs `simulate` re-run, which is exactly the same split a fixture makes between its variants and its tiers.',
+  inputSchema: {
+    id: z.string().describe('Slug, e.g. "rust-bucket".'),
+    name: z.string().describe('Display name, e.g. "Rust Bucket". Max 32 chars — it goes in a menu.'),
+    slots: z.object({
+      chassis: z.string().optional().describe('Main body colour, #rrggbb.'),
+      trim: z.string().optional().describe('Panels, limbs and base, #rrggbb.'),
+      glow: z.string().optional().describe('Visor and lights, #rrggbb.'),
+    }).optional().describe('Which tint slots this skin fills. All optional — an unset slot keeps the authored colour.'),
+    extras: z.array(z.any()).max(4).optional().describe(
+      'Cosmetic parts bolted onto the body, e.g. [{shape:"cone", color:"#c94f3d", pos:[0,1.02,0], scale:[0.18,0.16,0.18]}]. '
+      + 'Added, never swapped in, so the base silhouette always survives. May carry `tint` to take a slot colour.',
+    ),
+    tags: z.array(z.string()).optional().describe('For events to aim at. Never aim at an id.'),
+  },
+}, async (args) => text(await call('POST', '/content/skin', args)));
+
+server.registerTool('set_worker_skin', {
+  title: 'Put a look on one hire',
+  description:
+    'Dress one member of staff in a skin, or strip them back to the colours their kind was drawn in.\n\n'
+    + 'Free, instant and reversible — a skin costs nothing and moves no number, so this is not a purchase and never needs `simulate` re-run. Get worker ids from get_state; skin ids from list_content with kind "skin".\n\n'
+    + 'Omit `skin` (or pass null) to take the current one off. That is a real argument rather than a missing one: it is how a bot gets back to factory colours without needing a "default" skin row that somebody could delete.',
+  inputSchema: {
+    workerId: z.string().describe('Roster id of the hire, e.g. "w3". From get_state.'),
+    skin: z.string().nullable().optional().describe('Skin id to put on them, or null/omitted to take it off.'),
+  },
+}, async (args) => text(await call('POST', '/worker/skin', args)));
+
 server.registerTool('create_item', {
   title: 'Create or update an item',
   description:
@@ -495,7 +536,7 @@ server.registerTool('delete_content', {
   title: 'Delete content',
   description: 'Remove an item, crop, archetype, event, upgrade or recipe from the live game. Deleting an item also deletes crops that produce it.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime']),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin']),
     id: z.string(),
   },
 }, async ({ kind, id }) => text(await call('DELETE', `/content/${kind}/${id}`)));

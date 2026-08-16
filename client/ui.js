@@ -19,6 +19,7 @@ import { ICONS } from './icons.js';
 import { showFixture } from './fixture-menu.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { artForVariant } from './thumb.js';
+import { rciHtml, cashflowHtml } from './hud-meters.js';
 
 /**
  * Tag and label text reaches these panels from the database, which anyone can
@@ -48,6 +49,19 @@ function tabGroups(all) {
     groups[groups.length - 1].rows.push(r);
   }
   return groups.length >= 2 ? groups : null;
+}
+
+/**
+ * The thing that actually scrolls inside a panel body.
+ *
+ * There are two layouts and they scroll different elements: a menu that
+ * declared a middle pane scrolls THAT and leaves the body fixed, everything
+ * else scrolls the body itself. Asked of the wrong one the answer is 0, which
+ * is indistinguishable from "was at the top" — so this is read rather than
+ * assumed, the same way `showPanel` decides `paned` from the content.
+ */
+function scrollerOf(body) {
+  return body.querySelector('.pnl-mid') ?? body;
 }
 
 /** How each kind of fixture shows up in its own menu. */
@@ -93,7 +107,8 @@ export class UI {
       season: document.getElementById('season'),
       toast: document.getElementById('toast'),
       log: document.getElementById('log'),
-      mods: document.getElementById('mods'),
+      rci: document.getElementById('rci'),
+      flow: document.getElementById('flow'),
       todo: document.getElementById('todo'),
       panel: document.getElementById('panel'),
       panelTitle: document.getElementById('panel-title'),
@@ -124,6 +139,17 @@ export class UI {
     // Grab it by its header. Filed under whichever menu is open when you let
     // go, so each one remembers its own spot — see client/panel-drag.js.
     wireDrag(this.el.panel, this.el.panel.querySelector('header'), () => this.openPanel ?? null);
+    // The demand meter moves too, by the same machinery and into the same store.
+    //
+    // Two differences from the panel, both falling out of what it is. It is its
+    // OWN handle rather than having a header to grab — there is nothing else on
+    // it, and a bar chart with a title bar would be mostly title bar. And its id
+    // is a constant instead of `openPanel`: one element showing one thing
+    // remembers one place, where the panel is six menus sharing a frame.
+    //
+    // Filed under a name no section uses, since both share `sns-panel-pos`.
+    wireDrag(this.el.rci, this.el.rci, () => 'rci');
+    restorePos(this.el.rci, 'rci');
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.escape();
     });
@@ -465,6 +491,37 @@ export class UI {
     // What's in your hands outranks what's on the palette: while you're
     // carrying a shelf, every tile you point at is a candidate home for *it*.
     return this.holding?.kind ?? this.buildTool;
+  }
+
+  /**
+   * Which catalog row the ghost should be DRAWN as — the design, the shape and
+   * the rung, none of which changes where the thing may go.
+   *
+   * Separate from `ghostKindForTool` on purpose, and the split is the same one
+   * `shared/pieces.js` makes: the kind is what `canPlace` judges, the piece is
+   * what gets drawn. The ghost only ever knew the first half, so every design of
+   * a kind previewed as the same grey box — you could tell a Bakery Case from a
+   * Produce Table on the palette button and not at the moment you placed it.
+   *
+   * A tier of 1 for something new, because that is what you get for your money;
+   * a carried fixture keeps the rung it has already been upgraded to, or moving
+   * a maxed-out freezer would preview as the base model.
+   */
+  ghostPiece() {
+    if (this.holding) {
+      return {
+        piece: this.holding.piece ?? null,
+        variant: this.holding.variant ?? '',
+        station: this.holding.station ?? null,
+        tier: this.holding.tier ?? 1,
+      };
+    }
+    return {
+      piece: this.buildPiece || null,
+      variant: this.buildVariant ?? '',
+      station: this.buildStation ?? null,
+      tier: 1,
+    };
   }
 
   rotateBuild() {
@@ -859,8 +916,11 @@ export class UI {
 
     let rows;
     let tabs = '';
+    // Hoisted out of the branch because the scroll key below needs it: which
+    // tab you are on is part of what is on screen, not just part of drawing it.
+    let at = 0;
     if (groups) {
-      const at = Math.min(this.tab ?? 0, groups.length - 1);
+      at = Math.min(this.tab ?? 0, groups.length - 1);
       tabs = `<div class="tabs">${groups.map((g, n) => `
         <button class="tab${n === at ? ' on' : ''}" data-tab="${n}" title="${esc(g.label)}"
           aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`;
@@ -873,7 +933,11 @@ export class UI {
       ? rows.map((r, i) => this.rowHtml(r, i)).join('')
       : '<div class="foot">Nothing matches that.</div>';
 
-    this.showPanel(sec.title, tabs + body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''));
+    // Which section, which tab of it, and what it is filtered to. All three
+    // change what the list IS, so all three have to drop your place — a search
+    // that kept its offset would leave you scrolled past three results.
+    this.showPanel(sec.title, tabs + body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''),
+      `section:${this.openPanel}:${tabs ? at : ''}:${this.query}`);
     this.el.filter.hidden = !filterable;
     this.wireRows(rows);
     this.el.panelBody.querySelectorAll('[data-tab]').forEach((el) => {
@@ -1145,30 +1209,26 @@ export class UI {
     }
     this.syncBuildTool(me?.build);
 
-    // The demand meter. Bars are on a log scale, so ×2 and ×0.5 are the same
-    // length in opposite directions — on a linear scale a slump can only ever
-    // be a stub next to a boom, and half the readout would be unreadable by
-    // construction. Full deflection is ×4, which is where `foldModifiers`
-    // clamps, so a bar that fills its half of the plot means "as far as this
-    // ever goes" rather than an arbitrary ceiling.
+    // The demand meter and the cashflow readout. Both are pure functions of a
+    // slice of the snapshot (`client/hud-meters.js`), so all this owes them is a
+    // signature: innerHTML at 10Hz would throw away the DOM under the cursor
+    // every tick and take the hover explanation with it.
     //
-    // Six rows, because past that it stops being a shape and goes back to being
-    // a list. They arrive sorted by strength, so the six that show are the six
-    // worth acting on.
-    const mods = state.modifiers.slice(0, 6);
-    const modKey = mods.map((m) => `${m.tag}${m.demand}`).join('|');
-    if (modKey !== this._modKey) {
-      this._modKey = modKey;
-      this.el.mods.innerHTML = mods
-        .map((m) => {
-          const up = m.demand >= 1;
-          const w = Math.max(2, Math.min(1, Math.abs(Math.log2(m.demand)) / 2) * 26);
-          return `<span class="mtr ${up ? 'up' : 'down'}">`
-            + `<span class="mtr-tag">${esc(m.tag)}</span>`
-            + `<span class="mtr-plot"><span class="mtr-bar" style="width:${w.toFixed(1)}px"></span></span>`
-            + `</span>`;
-        })
-        .join('');
+    // The signature is the whole of what each draws and nothing else. `net` is
+    // rounded to two places server-side, so it settles rather than jittering, and
+    // a meter that redrew on `fill` — which it shows but does not draw a bar off
+    // — would be redrawing on a number nobody can see move.
+    const rciKey = (state.departments ?? []).map((d) => `${d.dept}${d.net}${d.event}`).join('|');
+    if (rciKey !== this._rciKey) {
+      this._rciKey = rciKey;
+      this.el.rci.innerHTML = rciHtml(state.departments);
+    }
+
+    const flowKey = `${state.stats?.revenue}/${state.stats?.spent}/`
+      + (state.ledger ?? []).map((d) => `${d.day}:${d.revenue}-${d.spent}`).join(',');
+    if (flowKey !== this._flowKey) {
+      this._flowKey = flowKey;
+      this.el.flow.innerHTML = cashflowHtml(state.stats, state.ledger);
     }
 
     // innerHTML at 10Hz would throw away the DOM under the cursor every tick,
@@ -1337,7 +1397,32 @@ export class UI {
     this.toggleBuild(false, { quiet });
   }
 
-  showPanel(title, html) {
+  /**
+   * @param scrollKey what is on screen, for the purpose of keeping your place.
+   *
+   * A REDRAW IS NOT A NEW PANEL. Every menu here re-renders whole against the
+   * snapshot — that is what keeps them honest when the other player changes
+   * something — and assigning innerHTML sends the scroller back to the top. So
+   * picking the eleventh skin, or nudging a weight on the ninth job, threw you
+   * back to the first and you had to find your place again to press it twice.
+   *
+   * The key is what decides whether your place still means anything, and it is
+   * a parameter rather than the title because the title cannot tell. Changing
+   * TAB keeps the title and is a different list — restoring 300px into it lands
+   * you in the middle of something you have not seen the top of. Filtering is
+   * the same. So callers with either say so, and everyone else gets the title,
+   * which is exactly right for a menu whose content only ever redraws in place.
+   */
+  showPanel(title, html, scrollKey = title) {
+    // Measured BEFORE the swap, off the old content, and only kept when the key
+    // says it is the same list. `scrollerOf` because a paned menu scrolls its
+    // middle and a plain one scrolls the body — reading the wrong one is a
+    // silent zero, which looks exactly like the bug this fixes.
+    const keep = scrollKey === this._panelScrollKey
+      ? scrollerOf(this.el.panelBody).scrollTop
+      : 0;
+    this._panelScrollKey = scrollKey;
+
     // innerHTML because a fixture menu's title leads with its icon, and an
     // icon is now an inline SVG rather than a character.
     this.el.panelTitle.innerHTML = title;
@@ -1355,6 +1440,11 @@ export class UI {
     this.el.panel.classList.add('show');
     // After `show`, or the element has no size to clamp a position against.
     restorePos(this.el.panel, this.openPanel);
+    // ...and after that too, for the same reason: a hidden panel has no
+    // scrollable height, so an offset set against it is silently clamped to 0.
+    // Over-scrolling clamps itself, so a list that got shorter lands at its new
+    // bottom rather than refusing.
+    if (keep) scrollerOf(this.el.panelBody).scrollTop = keep;
     // Only a section has anything to filter. `paintSection` turns it back on
     // straight after; a fixture menu never does, so it can't inherit the
     // supplier's search box.

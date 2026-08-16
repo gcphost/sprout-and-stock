@@ -13,19 +13,19 @@ import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfSlots, buildBubble, buildCashDrop,
   buildHopperSlots,
   buildTextSprite, buildPallet, buildProgressRing, setRingProgress, buildGhost,
-  buildSoil, buildFixtureGhost, buildTargetMarker, disposeGroup, material,
+  buildSoil, buildFixtureGhost, buildTargetMarker, buildWorkSpot, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
   buildRipple,
   buildStamp,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
 import {
-  FIXTURES, anchorTile, canPlace, turn, rot4, groundIndex, groundKindOfTile,
+  FIXTURES, workSpots, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { Lights, emittersIn } from './lights.js';
 import {
-  isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, variantModel,
+  isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, variantModel, skinKey,
 } from '../../shared/model.js';
 import { buildPastimeProp, animateRest } from './pastime.js';
 
@@ -623,6 +623,9 @@ export class Scene {
       // pastime, for the same reason: a break redrawn over MCP should reach the
       // person already sat on the step, not only the next one who stops.
       pastimes: Object.fromEntries((catalog.pastimes ?? []).map((p) => [p.id, p])),
+      // What a hire is wearing, keyed the same way, and cleared by the same
+      // sweep below — a skin recoloured over MCP repaints whoever has it on.
+      skins: Object.fromEntries((catalog.skins ?? []).map((s) => [s.id, s])),
       // Kept as a list, not keyed: what an appliance shows is chosen by looking
       // across every recipe its kind can make, not by looking one up.
       recipes: catalog.recipes ?? [],
@@ -1187,7 +1190,12 @@ export class Scene {
   buildActor(p) {
     const kind = p.staff ? this.catalog.workers?.[p.staff] : null;
     if (!kind?.model) return buildCharacter(p.color, { hat: '#ffffff' });
-    return buildModel(kind.model, { t: tierProgress(p.tier ?? 1, kind.tiers?.length ?? 1) });
+    // A skin is worn, not owned: it is looked up per HIRE rather than per kind,
+    // which is the whole reason two stockers can be told apart. An id naming a
+    // skin that has since been deleted resolves to nothing and draws the bot as
+    // authored — the same shrug `variantModel` gives a missing variant.
+    const skin = p.skin ? this.catalog.skins?.[p.skin] : null;
+    return buildModel(kind.model, { t: tierProgress(p.tier ?? 1, kind.tiers?.length ?? 1), skin });
   }
 
   /** Money sitting on a counter waiting to be picked up. */
@@ -1585,7 +1593,12 @@ export class Scene {
    * in here.
    */
   setSelectedTarget(f) {
-    const key = f ? `${f.x},${f.z}` : null;
+    // `rot` is in the key, and it has to be: the menu is where the Rotate
+    // button lives, so the one thing you do to a selected fixture is the one
+    // thing that moves no tile. Keyed on position alone, turning a till redrew
+    // nothing and its working spots stayed pointing the old way — a preview
+    // that lies specifically while you are watching it.
+    const key = f ? `${f.x},${f.z},${f.rot ?? 0}` : null;
     if (this.selectedKey === key) return;
     this.selectedKey = key;
     if (this.selectedMarker) {
@@ -1596,6 +1609,20 @@ export class Scene {
     if (!f) return;
     this.selectedMarker = buildTargetMarker('selected');
     this.selectedMarker.position.set(f.x, 0, f.z);
+    // Where the people who use it stand, marked the same way the build ghost
+    // marks them — the ghost is the only place they were ever shown, so the
+    // moment a fixture was actually standing there they became invisible. For a
+    // till that means the difference between the two sides was something you
+    // could see while placing it and never again, including while rotating it.
+    //
+    // Read off the record rather than recomputed from `rot`: `serveAt` is what
+    // the shop was actually laid with, and a facing the generator refused would
+    // otherwise be drawn as though it had been honoured.
+    for (const s of spotsOf(f)) {
+      this.selectedMarker.add(buildWorkSpot(
+        s.role, { x: s.x - f.x, z: s.z - f.z }, this.selectedMarker.userData.color,
+      ));
+    }
     this.actorRoot.add(this.selectedMarker);
   }
 
@@ -1606,7 +1633,10 @@ export class Scene {
    * when the click lands. Reimplementing the rules here to keep the ghost snappy
    * is exactly how a ghost starts lying to you.
    *
-   * @param {?object} spec { kind, x, z, rot, moveId }
+   * @param {?object} spec { kind, x, z, rot, moveId, piece, variant, station, tier }
+   *        The last four are what it will be DRAWN as. They take no part in
+   *        `canPlace` — where a thing may go is a fact about its kind — but a
+   *        preview that ignores them is a preview of a different object.
    * @returns {?{ok: boolean, reason?: string}}
    */
   setBuildGhost(spec) {
@@ -1618,26 +1648,43 @@ export class Scene {
     // Three answers, so the cache key has to carry which one — an amber ghost
     // and a green one are the same `ok`.
     const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
-    const key = `${spec.kind}:${spec.x}:${spec.z}:${spec.rot}:${state}`;
+    // Which piece is armed is in the key too, or arming a second shelf design
+    // would leave the first one's ghost under your pointer until you moved to
+    // another tile — the exact bug this whole change exists to remove.
+    const drawnAs = `${spec.piece ?? ''}/${spec.variant ?? ''}/${spec.station ?? ''}/${spec.tier ?? 1}`;
+    const key = `${spec.kind}:${spec.x}:${spec.z}:${spec.rot}:${state}:${drawnAs}`;
     if (this.buildGhostKey === key) return verdict;
     this.buildGhostKey = key;
     this.clearBuildGhost(true);
 
     const def = FIXTURES[spec.kind];
     if (!def) return verdict;
-    const a = anchorTile(0, 0, spec.rot ?? 0);
+    // Every side somebody has to stand on, not just the one rotation points at.
+    // Asked in fixture-local coordinates (0,0) because the ghost group is what
+    // gets positioned — see below.
+    const spots = workSpots(spec.kind, 0, 0, spec.rot ?? 0)
+      .map((s) => ({ dx: s.x, dz: s.z, role: s.role }));
+    // The actual model of the actual piece, resolved exactly the way the
+    // standing fixture is (`fixtureModel`) — one resolver, so the ghost and the
+    // thing it becomes cannot disagree about which shelf you picked.
+    const model = this.fixtureModel(spec);
+    const piece = this.pieceOf(spec);
     // A prop has no tile, so there is no tile style to size its ghost from. It
     // gets a low pad instead — enough to read as "a thing lands here" without
     // pretending to be the shape of whatever piece you picked.
     const look = FIXTURE_LOOK[spec.kind] ?? { h: 0.5, color: TILE_STYLE[T.FLOOR]?.color };
-    const g = buildFixtureGhost(
-      // A plot's look is flat, and a ghost you cannot see is not a preview — so
-      // the ghost keeps a minimum body whatever it is standing in for.
-      Math.max(look.h, 0.12),
-      look.color,
-      state,
-      def.anchor ? { dx: a.x, dz: a.z } : null,
-    );
+    const t = tierProgress(spec.tier ?? 1, piece?.tiers?.length ?? 1);
+    const g = buildFixtureGhost({
+      model,
+      t,
+      rot: rot4(spec.rot ?? 0),
+      // The cage is sized to the model when there is one, so a low counter is
+      // not caged like a full-height freezer. A plot's look is flat, and a ghost
+      // you cannot see is not a preview — hence the floor either way.
+      height: Math.max(model ? modelHeight(partsAt(model, t)) : look.h, 0.12),
+      verdict: state,
+      spots,
+    });
     // Hung things preview where they will hang. A ghost on the floor under a
     // pendant answers the wrong question — the floor is not what you are aiming
     // at, and every cell in the room looks equally available from down there.
@@ -2399,7 +2446,7 @@ export class Scene {
  * their bodies are built once and left alone.
  */
 function actorKey(p) {
-  return p.staff ? `${p.staff}:${p.tier ?? 1}` : null;
+  return p.staff ? `${p.staff}:${p.tier ?? 1}:${skinKey({ id: p.skin })}` : null;
 }
 
 /**

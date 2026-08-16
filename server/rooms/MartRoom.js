@@ -202,6 +202,13 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.promote(m?.workerId));
     });
 
+    // `?? null` rather than a bare read, so "take their skin off" is something
+    // the wire can actually say — an absent field and a cleared one have to
+    // mean the same thing or there is no way back to the factory colours.
+    this.onMessage('set-skin', (client, m) => {
+      client.send('action-result', this.game.setSkin(m?.workerId, m?.skin ?? null));
+    });
+
     this.onMessage('buy-stock', (client, m) => {
       client.send('action-result', this.game.buyStock(client.sessionId, m?.itemId, Number(m?.qty) || 1));
     });
@@ -444,6 +451,11 @@ export class MartRoom extends Room {
       // What a worn-out hire goes off and does. Authored, so the roster can
       // name it without the client keeping its own list of breaks.
       pastimes: c.pastimes,
+      // Every look a hire can wear. Sent whole because a skin is small (a few
+      // colours and at most four parts) and because the renderer resolves them
+      // per body — a skin edited over MCP has to reach the bots already on
+      // shift, and it does that by riding the catalog rebroadcast.
+      skins: c.skins,
       // What one more of each fixture costs in build mode. Derived from the
       // upgrades that sell them, so adding a cheaper shelf upgrade via MCP
       // reprices the build palette with no code change.

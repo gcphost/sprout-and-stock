@@ -15,6 +15,9 @@
 
 import { ICONS, icon } from './icons.js';
 import { actIcon } from './fixture-menu.js';
+// A swatch is drawn from the kind's own art, so this menu resolves a model the
+// same way the renderer does rather than keeping a second idea of one.
+import { partsAt } from '../shared/model.js';
 
 /** Worker names and kind names come out of the database, so never raw. */
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
@@ -130,16 +133,49 @@ export function showWorker(ui, workerId) {
   // started with five lines of read-out you had already read.
   const parts = [`<div class="pnl-head">${detail(ui, entry, kind, body)}</div>`];
 
+  // The scrolling half, tabbed by the same rule the fixture menu uses: two or
+  // more groups earns tabs, one does not. What they do and what they look like
+  // are both long and neither ever wants the other on screen — a job list you
+  // scroll past to reach the skins is the shape that made the fixture menu grow
+  // tabs in the first place.
+  const groups = [
+    {
+      label: 'What they do',
+      icon: ICONS.staff,
+      html: vocabulary.map((j) => jobRow(j, weights.get(j) ?? 0)).join('')
+        // With the rows it explains, rather than in the pinned foot: it is read
+        // once, and two lines of standing prose is more than the foot now has.
+        + '<div class="foot">A weight is how much of their day a job gets. '
+        + 'Nothing means never — and everyone needs at least one.</div>',
+    },
+  ];
+
+  // A look is free and changes no number, so it is a browse rather than a
+  // decision — the same call `styleRows` makes about a fixture's shape. A shop
+  // where nobody has authored a skin gets no tab at all, rather than a tab
+  // holding one row that says "as built".
+  const skins = skinRows(ui, entry);
+  if (skins.length > 1) {
+    groups.push({ label: 'Look', icon: ICONS.floor, rows: skins });
+  }
+
+  const at = Math.min(ui._wkTab ?? 0, groups.length - 1);
+  // Tabs sit OUTSIDE the scroller — they choose what it holds, so scrolling
+  // them away would leave you in a list with no way back to the other one.
+  if (groups.length > 1) {
+    parts.push(`<div class="tabs">${groups.map((g, n) => `
+      <button class="tab${n === at ? ' on' : ''}" data-wktab="${n}" title="${esc(g.label)}"
+        aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`);
+  }
+
   // The one pane that scrolls. A real element rather than whatever is left
-  // between two sticky ones, so the scrollbar belongs to the job list instead
+  // between two sticky ones, so the scrollbar belongs to the list instead
   // of running the whole height of the panel behind the pinned regions.
-  parts.push('<div class="pnl-mid">'
-    + '<div class="sep">What they do</div>'
-    + vocabulary.map((j) => jobRow(j, weights.get(j) ?? 0)).join('')
-    // With the rows it explains, rather than in the pinned foot: it is read
-    // once, and two lines of standing prose is more than the foot now has.
-    + '<div class="foot">A weight is how much of their day a job gets. '
-    + 'Nothing means never — and everyone needs at least one.</div>'
+  const open = groups[at];
+  // Named above its rows even with the tabs up, because an icon row is a shape
+  // you learn and a heading is a thing you read.
+  parts.push(`<div class="pnl-mid"><div class="sep">${esc(open.label)}</div>`
+    + (open.html ?? open.rows.map((r, i) => ui.rowHtml(r, i)).join(''))
     + '</div>');
 
   const foot = [];
@@ -172,8 +208,12 @@ export function showWorker(ui, workerId) {
 
   parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
 
-  ui.showPanel(`${icon(entry.kind, ICONS.staff)} ${esc(entry.name)}`, parts.join(''));
-  wireWorkerMenu(ui, entry, weights, vocabulary);
+  // Who, and which tab of them. Nudging a weight or picking a skin redraws the
+  // whole menu and must keep your place; changing tab or opening someone else
+  // is a different list and must not.
+  ui.showPanel(`${icon(entry.kind, ICONS.staff)} ${esc(entry.name)}`, parts.join(''),
+    `worker:${entry.id}:${at}`);
+  wireWorkerMenu(ui, entry, weights, vocabulary, open.rows ?? []);
 }
 
 /**
@@ -273,6 +313,83 @@ function jobRow(job, weight) {
   </div>`;
 }
 
+/**
+ * The tint slots, in the order a swatch reads them. One spelling, shared by the
+ * swatch and the fallback merge below — `shared/schemas.js` owns the vocabulary
+ * and this is the client's single copy of the order to draw them in.
+ */
+const SLOTS = ['chassis', 'trim', 'glow'];
+
+/** Only ever paint with something the schema would have accepted. */
+const isHex = (c) => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+
+/**
+ * What this kind was drawn in — the colour each slot has when nothing is worn.
+ *
+ * Read off the art rather than kept as a second list, the same argument
+ * `surfacesAt` makes about shelf boards: the model already says what colour its
+ * chassis is, and a swatch that held its own copy would quietly disagree with
+ * the bot the day somebody redrew it over MCP.
+ */
+function authoredSlots(kind) {
+  const parts = partsAt(kind?.model, 0);
+  const out = {};
+  for (const s of SLOTS) out[s] = parts.find((p) => p.tint === s)?.color ?? null;
+  return out;
+}
+
+/**
+ * A skin as a picture, out of the skin's own colours.
+ *
+ * Three bars rather than a drawn robot, and that is a deliberate stop short of
+ * `thumb.js`: what tells two skins apart IS the palette, so the palette is the
+ * honest picture. What it must not do is hold colours of its own — hence the
+ * merge with what the kind was authored in, so a skin that sets only `glow`
+ * swatches the two colours it is actually leaving alone rather than blanks.
+ */
+function skinSwatch(slots) {
+  const cols = SLOTS.map((s) => slots?.[s]).filter(isHex);
+  if (!cols.length) return ICONS.staff;
+  const w = 16 / cols.length;
+  return `<svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true">${cols.map((c, i) => `<rect x="${(i * w).toFixed(2)}" y="2" width="${w.toFixed(2)}" height="12" fill="${c}"/>`).join('')}</svg>`;
+}
+
+/**
+ * Every look this person could have on, as pickable rows.
+ *
+ * "As built" is a real row with a null id rather than a special case, the same
+ * shape `variantsOf` gives a fixture's Standard — it is how you get back out of
+ * a skin without there having to be a "default" row somebody could delete.
+ *
+ * Nothing here is priced, and that is the point rather than an omission: a skin
+ * moves no number, so there is no affordability to check and no confirmation to
+ * ask for. Compare the foot of this menu, where both are the whole story.
+ */
+function skinRows(ui, entry) {
+  const here = entry.skin ?? null;
+  const base = authoredSlots(kindOf(ui, entry));
+  const all = [{ id: null, name: 'As built', slots: null }, ...(ui.catalog.skins ?? [])];
+  return all.map((s) => ({
+    // Merged, not the skin's own slots: an unset slot keeps the authored colour
+    // when the renderer draws it, so the swatch has to say the same thing.
+    icon: skinSwatch({ ...base, ...(s.slots ?? {}) }),
+    name: esc(s.name),
+    sub: s.id === here ? 'what they have on'
+      : s.id === null ? 'back to the colours their kind was drawn in'
+        : extrasBlurb(s),
+    picked: s.id === here,
+    // A look is free and instant, so the row IS the action — no button, no
+    // arming, nothing to undo it but picking another one.
+    run: s.id === here ? null : () => ui.net.send('set-skin', { workerId: entry.id, skin: s.id }),
+  }));
+}
+
+/** Say what a skin brings beyond paint, since a bolted-on part is the one thing about it you cannot read off the swatch. */
+function extrasBlurb(skin) {
+  const n = skin.extras?.length ?? 0;
+  return n ? `free — repaints them, and adds ${n === 1 ? 'a piece' : `${n} pieces`}` : 'free — repaints them head to toe';
+}
+
 /** The next rung up, or null when they are already at the top of the ladder. */
 function nextTier(kind, tier) {
   const tiers = kind?.tiers ?? [];
@@ -298,7 +415,19 @@ function armedToFire(ui, id) {
   return true;
 }
 
-function wireWorkerMenu(ui, entry, weights, vocabulary) {
+function wireWorkerMenu(ui, entry, weights, vocabulary, rows) {
+  // Which tab is showing belongs to the MENU rather than to the person, the
+  // same call the fixture menu makes: opening two hires in a row to compare
+  // their weights should not put you back on Look every time.
+  ui.el.panelBody.querySelectorAll('[data-wktab]').forEach((el) => {
+    el.onclick = () => { ui._wkTab = Number(el.dataset.wktab); showWorker(ui, entry.id); };
+  });
+
+  // The Look tab's rows are ordinary picker rows, so they wire the ordinary
+  // way. The job rows are not — a stepper is three controls and `rowHtml`
+  // carries one button — which is why they keep their own template below.
+  ui.wireRows(rows);
+
   ui.el.panelBody.querySelectorAll('[data-step]').forEach((el) => {
     el.onclick = () => setWeight(ui, entry, weights, vocabulary, el.dataset.job, Number(el.dataset.step));
   });

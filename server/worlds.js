@@ -135,8 +135,10 @@ const START_LIMITS = {
  *
  * Blank has to mean the default rather than zero, because every one of these
  * arrives from a text box somebody left alone. Out of range is clamped rather
- * than refused — the menu prints the limits, and bouncing a whole new shop over
- * a typo'd shelf count is a worse trade than quietly giving you 25.
+ * than refused: bouncing a whole new shop over a typo'd shelf count is a worse
+ * trade than quietly giving you 25. The menu used to print all three ranges to
+ * say so, which is a paragraph spent on a rule that only fires for numbers
+ * nobody types — the boxes carry `min`/`max` and this clamps whatever arrives.
  */
 function startingNumber(v, { min, max, cents = false }) {
   if (v === undefined || v === null || String(v).trim() === '') return undefined;
@@ -211,12 +213,17 @@ export function pinWorld(id, pinned) {
  * room ticking a world with no save row, which persists happily to a key
  * nothing will ever read again and looks — from inside the game — completely
  * normal.
+ *
+ * **The last world may go too.** It used to be refused, on the grounds that a
+ * menu with nothing in it is a dead end — but it isn't one: the list says "no
+ * shops yet" and the button under it makes one, which is the same place a new
+ * install starts. What the guard actually did was make deleting your shops
+ * depend on the order you did it in, and leave the one you least wanted
+ * (usually the throwaway you were testing with) as the one that would not go.
+ * The sweep still stops at one, because that is unattended.
  */
 export async function deleteWorld(id) {
   if (!worldRow(id)) return { ok: false, error: `no world "${id}"` };
-  if (listWorldRows().length <= 1) {
-    return { ok: false, error: 'that is the only world there is — make another one first' };
-  }
 
   for (const room of roomsFor(id)) {
     // Ephemeral, so the dispose hook cannot write the save back over the delete.
@@ -338,8 +345,19 @@ export async function roomForWorld(worldId) {
   return started[0];
 }
 
-/** On boot: never present a menu with nothing in it. */
+/**
+ * On boot: a brand new database gets a shop to walk into.
+ *
+ * The mark that it has done so is its own boolean, and it has to be — "does
+ * this database have any worlds" is a different question, and answering it
+ * instead hands you a shop back on the next boot every time you delete your
+ * last one. In dev that is every file save, so a deliberate clean-out would
+ * undo itself within seconds and read as the delete having silently failed.
+ * Same trap, same shape, as `freezeYard`'s mark: see CLAUDE.md.
+ */
 export function ensureAWorld() {
+  if (getWorld('worldsSeeded')) return null;
+  setWorld('worldsSeeded', true);
   if (listWorldRows().length) return null;
   return createWorld({ name: 'First shop', seed: DEFAULT_WORLD.seed });
 }

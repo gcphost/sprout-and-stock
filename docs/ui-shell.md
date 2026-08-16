@@ -23,7 +23,7 @@ Three zones, three jobs, no overlap:
 
 | Zone | Contains | Interactive? |
 |---|---|---|
-| **Top-left column** | cash, day, season, clock, reputation, then active modifiers | no — passive readout |
+| **Top-left column** | cash, cashflow, day, season, clock, the three gauges, then the demand meter | no — passive readout |
 | **Bottom nav** | one icon per menu, each with a live badge — plus Build, which is a mode | yes — this is the menu |
 | **Bottom bar** | the build palette, or the roster — one at a time, never both | yes — one tap or number key each |
 
@@ -40,11 +40,11 @@ element is still in the document with a height of its own, and a stale value
 floats the panel over empty screen. `#log`, `#carry` and `#prompt` share one
 `calc()` off the same stack, which retired the `body.building` overrides.
 
-`#mods` moved from top-right to under `#stats` on the left: it is a passive
-readout and belongs with the other passive readouts, and the rail now owns the
-right-hand edge. `#help` was deleted as a permanent line and became the `/`
-section — it used to hide itself in build mode, which is exactly when a new
-player most needs it.
+The demand meter (`#rci`, once `#mods`) moved from top-right to under `#stats` on
+the left: it is a passive readout and belongs with the other passive readouts,
+and the rail now owns the right-hand edge. `#help` was deleted as a permanent
+line and became the `/` section — it used to hide itself in build mode, which is
+exactly when a new player most needs it.
 
 ## Files
 
@@ -59,6 +59,7 @@ player most needs it.
 | `client/icons.js` | **Generated.** Inline SVG strings. `npm run icons`. |
 | `client/fixture-menu.js` | Everything one fixture can do, including its seed list. |
 | `client/ui.js` | `showSection`/`paintSection` — the one renderer — plus the HUD, the panel and the seed wheel. |
+| `client/hud-meters.js` | The cashflow readout and the demand meter, as pure snapshot → HTML functions. Owns `DEADBAND` and the sparkline. |
 | `scripts/build-icons.js` | Bakes the icons we name into `client/icons.js`. |
 
 ## Adding a menu
@@ -420,9 +421,61 @@ It is checked before the open-panel dismissal, so a worker is one press away
 rather than two whenever anything else is up, and skipped entirely while the
 bulldozer is armed — a clerk wandering in front of a shelf must not shield it.
 
+**Goods waiting on somebody outrank the menu, and they do it at both ends.** A
+thing opens, except where the answer to pointing at it is plainly *go and get
+that*. Holding an armful and pointing at a shelf was always the first half of
+that; a bed with fruit on it and a machine with a full tray are the same case
+with the goods at the other end, and they were not. What that split actually
+produced was one gesture with two meanings picked by which side the stock
+happened to be sitting on — and standing there looking at tomatoes, the question
+is never the thing you want. `readyToTake` in `main.js` is the test: it reads
+`ready` and `output` off the snapshot, the same two fields the renderer draws
+the fruit and the thought bubble from, so the tap cannot disagree with the
+picture it is aimed at.
+
+Shelves stay out of it on purpose. Their stock is merchandise rather than
+something waiting to be collected, one board of one shelf is a choice that has
+to be named (see *Picking things up is asked for*), and swallowing the tap would
+put pricing, assignment and priority behind a gesture that currently does
+nothing. The rule does cost a ripe bed its menu for as long as it is ripe, since
+there is no second gesture to move it to: build mode is the way back in, and
+`sow` refuses a ripe bed regardless, so what ends up behind the mode is move,
+sell and restyle — the three things you do to a bed you are not farming.
+
 Steering always outranks a route: `stepPlayers` drops `p.path` on the first
 frame of key input rather than blending the two, because a key that only slowed
 a route down reads as the game ignoring you.
+
+### Stopping is the consent
+
+An action charges only while you are **stopped** — `stepActions` drops the
+charge outright for anyone `moving` (a route with legs left, or a direction
+held), exactly as if you had walked out of reach, because from the action's
+point of view you have.
+
+`ACTION_TIME` was supposed to cover this on its own: a second of charge against
+roughly three quarters of a second to cross a `REACH` at `PLAYER_SPEED`, so a
+walk-past could never close. That arithmetic describes one straight line through
+the middle of the circle at full tilt. Clip its edge, turn inside it, slow at a
+corner, or walk the *length* of an aisle of shelves, and you are in range of
+something for as long as you like — so goods went into the hands of people on
+their way somewhere else, and full hands then refuse you everything until you
+reach the drop-off.
+
+It costs nothing anybody wanted, which is the test of a rule like this: every
+route ends stopped at the working spot the tap was aiming at, so "tap it and it
+happens" is untouched, and an errand still fires the moment you arrive. What
+goes away is the only class of action in the game that happened *to* you.
+
+`moving` is one function both movers read (`stepPlayers` asks it too), because a
+second opinion about whether somebody is walking is a charge that fires on a
+frame the legs disagree about. `verify:walk` holds the claim at 2% throttle —
+crawling over a bed for four seconds, never leaving its reach and never stopping
+— because the interesting case is not the one the arithmetic already covered.
+
+It also put a state no player can be in inside the sweeps: `verify-build`
+teleports to a working spot, and `take` plans a route, so `stand` now clears the
+path and the keys as well as the position. Teleporting *is* arriving.
 
 ### Picking things up is asked for
 
@@ -566,6 +619,108 @@ The CS2 lesson, and the part most likely to get quietly dropped.
   data and re-rendered, never by hiding DOM nodes — the sections already
   re-render wholesale on catalog changes, and a second path would diverge.
 
+## The corner readouts
+
+Two things in the top-left that are not menus and never will be: how the money
+is going, and what the town wants. Both are pure functions of the snapshot in
+`client/hud-meters.js`, both diffed on a signature before they touch the DOM.
+
+### Cashflow — a balance is not a rate
+
+Cash on hand was the only money on screen, and it cannot answer "how am I
+doing". You can watch it climb all week while every individual day loses money
+against the wages, because the climb is a loan, a good Saturday or the till you
+finally cashed up. Three parts, in the order the questions get asked:
+
+| Part | Says | Read from |
+|---|---|---|
+| today's net, signed | am I making money right now | `state.stats` |
+| an arrow | is that better than yesterday | last row of `state.ledger` |
+| a 7-bar sparkline | what has the week looked like | all of `state.ledger` |
+
+Three details are load-bearing:
+
+- **The arrow only exists when there is a yesterday.** Day one has nothing to
+  compare against, and defaulting to zero would make the first day of every shop
+  a triumph. Same reason the Shop report's `vs yesterday` row is absent rather
+  than zero.
+- **The sparkline is finished days only.** Today is a part-day, and standing a
+  half-written bar beside seven whole ones reads as a slump every single
+  morning. Today is the *number*; the shape is the days that are done.
+- **The arrow is coloured separately from the number.** They answer different
+  questions and can disagree — a day that is better than yesterday can still be
+  a loss, and one colour for both would say the day went well.
+
+`world.ledger` is a **saved** field, capped at 30 days, and the snapshot sends
+the last 7. It has to be saved because profit per day is not recoverable from
+anything else once money has moved: a cash balance is a running total, and
+`_lastDayStats` was one day deep and never on the wire. It is written in
+`onNewDay` *before* `persist()`, after `payWages` — the last thing that touches
+the day's money — because filing it the other side of the save loses the day you
+just finished on a restart.
+
+### The demand meter — an RCI, and why the old one wasn't
+
+`#rci` is twelve departments, in `DEPARTMENTS` order, on screen whether or not
+anything is happening. It replaced a panel that looked almost identical and was
+a different thing entirely: `state.modifiers`, the active **world events** folded
+per tag.
+
+That is worth spelling out, because the two are easy to confuse and the old one
+read as broken without ever being wrong:
+
+- **Its rows moved.** They were whichever tags the director had written about, so
+  they appeared and expired under you. You cannot learn to read a panel whose
+  rows move — the only shape it ever had was "some things are happening".
+- **It mixed dimensions.** `PANTRY` next to `CLASSIC` next to `DAIRY` next to
+  `TRENDY` — departments and moods on one axis, and "how much trendy have you
+  got" is not a question a shop floor can answer.
+- **It vanished.** No active events meant no rows, and `#rci:empty` hides the
+  panel. The readout was absent exactly when the shop was calm enough to plan.
+- **Nothing in it was measured against your shop.** It said what the world
+  wanted. It never said whether you were doing anything about it.
+
+Now each row is one signed number and the sign is the instruction. Right: they
+asked and you were short. Left: this space is not earning. `state.modifiers`
+stays on the wire untouched — the supplier's heat pills and the to-do chips read
+it, and it is still the right shape for "what is the world doing today".
+
+**The two halves read two different tallies, and that is the whole correctness
+story.** Both were asks in the first cut, which pinned any department nobody
+names directly at full negative forever — `frozen` and `prepared` are in no
+archetype's affinities, so a frozen pizza only ever leaves the shop by answering
+a `cheap` or a `kids` line. A shop selling nine frozen lines a day was told to
+tear its freezers out. The left half is sales now (`stats.moved`, tallied at the
+till), because sales are observable for every department whether or not anyone
+can name it.
+
+**Boards, not units, and only boards with stock on them.** A full shelf of tins
+is a shop doing its job; measuring stock in units read forty tins against six
+sales and called a well-kept aisle an overstock. What can be wrong is the
+*allocation*. And counting **empty labelled** boards inverted it outright — a
+bare shelf keeps its label on purpose, so a department people ask for and you
+have run out of reported as *overstocked*, which is the opposite instruction.
+Bare shelves are the to-do chip's job.
+
+**A department with nothing to say draws no bar.** Twelve rows are always up and
+most are level most of the time; a 1px stub on every row makes the meter always
+look like it is reporting something, and the eye has to measure twelve lengths
+to discover eleven mean nothing. Bare axis means nothing to do here.
+
+**The client owns the row set.** `rciHtml` maps over its own `DEPARTMENTS`
+import rather than over what arrived, so a snapshot can only ever change the
+*lengths* — there is no message the server can send that reorders the meter or
+drops a row out of it. Given the complaint that retired the old panel was that
+its rows moved, that is worth a line of code.
+
+The smoothing is server-side (`Game.demandNow`, `rollDemand`): a running average
+of finished days plus today so far, on both sides. It exists so the meter reads
+correctly at 08:00 rather than being blank at opening and built on four shoppers
+by 09:00 — the same shuffling, one layer down. The numbers are therefore an
+index and not a count of shoppers, which is why only `net`, `fill`, `boards` and
+`event` go on the wire and nothing hands the HUD a figure that looks like a
+count and isn't.
+
 ## Badges
 
 The display half of the rail — what a menu would tell you if you opened it.
@@ -576,16 +731,19 @@ The display half of the rail — what a menu would tell you if you opened it.
 | Supplier | shelves empty or under a fifth of a stack |
 | Staff | how many are on shift |
 | Upgrades | how many you can afford and don't own |
-| Shop | `▲`/`▼` on today's profit |
+| Shop | `▲`/`▼` on today's profit **against yesterday's** |
 
 `Rail.update()` runs every snapshot but only writes to the DOM when the text
 changes. Ten DOM writes a second for a dot nobody is looking at is how a 60fps
 canvas starts stuttering.
 
-The Shop report is **today's** numbers, straight out of `state.stats`. The
-server keeps yesterday's in `_lastDayStats` but does not send it, so nothing
-here claims a comparison it cannot make. Sending it is a `snapshot()` change if
-we ever want "vs yesterday".
+The Shop report is today's numbers out of `state.stats`, and now the finished
+days behind them out of `state.ledger`. It used to be today's only — the server
+kept yesterday in `_lastDayStats` and never sent it — so every readout in the
+game compared today against **zero**, which cannot answer "am I doing better or
+worse". `world.ledger` is the fix and it is a saved field, not a derived one:
+profit per day is not recoverable from a cash balance once anything has been
+spent out of it.
 
 ## Staff
 

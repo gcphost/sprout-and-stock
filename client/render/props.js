@@ -11,7 +11,7 @@
  */
 
 import * as THREE from 'three';
-import { partsAt, seamStep } from '../../shared/model.js';
+import { partsAt, seamStep, skinnedParts } from '../../shared/model.js';
 import { FACE_CALM } from './palette.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
@@ -59,9 +59,24 @@ export function material(color, alpha = 1) {
  *
  * Returns a Group positioned so its origin sits on the ground.
  */
-export function buildModel(model, { castShadow = true, t = 1, abuts = null } = {}) {
+/**
+ * @param {number} [opts.alpha]  Multiplies every part's own opacity, for
+ *        drawing a model as a ghost. A multiplier rather than an override
+ *        because a part that authored itself as glass has to stay *more*
+ *        see-through than the box beside it — flattening every part to one
+ *        opacity turns a freezer's door into another wall of the freezer.
+ *        It goes through the same `material()` cache, so a shop previewing a
+ *        shelf shares materials with the shelves already standing in it.
+ */
+export function buildModel(model, {
+  castShadow = true, t = 1, abuts = null, skin = null, alpha: ghost = 1,
+} = {}) {
   const group = new THREE.Group();
-  const parts = partsAt(model, t);
+  // Repainted and bolted-on before anything else looks at the list, so every
+  // reader below — the seam test, the shadow rule, the mesh loop — sees the
+  // parts as worn. A skin that only got applied at colour-setting time would
+  // work until the first extra needed a shadow.
+  const parts = skinnedParts(partsAt(model, t), skin);
   if (!parts.length) return group;
 
   for (const part of parts) {
@@ -72,7 +87,7 @@ export function buildModel(model, { castShadow = true, t = 1, abuts = null } = {
     if (seam && abuts(seam)) continue;
 
     const geo = GEO[part.shape] ?? GEO.box;
-    const alpha = part.alpha ?? 1;
+    const alpha = (part.alpha ?? 1) * ghost;
     const mesh = new THREE.Mesh(geo, material(part.color, alpha));
     const [sx, sy, sz] = part.scale ?? [0.3, 0.3, 0.3];
     const [px, py, pz] = part.pos ?? [0, 0, 0];
@@ -478,7 +493,81 @@ const GHOST_COLOURS = {
   no:   { body: 0xe2564a, cage: 0x8c2a22, pad: 0xe2564a },
 };
 
-export function buildFixtureGhost(height, color, verdict, anchor) {
+/**
+ * A working spot, drawn on the ground.
+ *
+ * `role` is the whole reason this is its own function. One ring meant one spot,
+ * and a till has two of them that are not interchangeable in the slightest: the
+ * queue forms on one and your clerk stands on the other, so a player who cannot
+ * tell them apart has a fifty-fifty chance of standing their counter with the
+ * line trailing into the stockroom. Two identical rings would be worse than one,
+ * because it would look like information.
+ *
+ * Told apart by SHAPE rather than by colour, because the colour is already
+ * spoken for — it carries the verdict, and a red ghost has to stay legible as
+ * red. So: an open ring is somewhere a customer stands, and a ring with a post
+ * standing in it is somewhere one of YOURS stands. The post is upright rather
+ * than flat for the same reason: on a 45° camera a mark on the floor is read at
+ * a glance and a thing standing up is read as a person.
+ */
+export function buildWorkSpot(role, at, colour = 0xffd66b) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({
+    color: colour, transparent: true, opacity: 0.85,
+    side: THREE.DoubleSide, depthTest: false,
+  });
+
+  const pad = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.34, 18), mat);
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.y = 0.1;
+  pad.renderOrder = 12;
+  g.add(pad);
+
+  if (role === 'tend') {
+    const post = new THREE.Mesh(GEO.capsule, mat);
+    post.scale.set(0.2, 0.34, 0.2);
+    post.position.y = 0.34;
+    post.renderOrder = 12;
+    g.add(post);
+  }
+
+  g.position.set(at.x, 0, at.z);
+  return g;
+}
+
+/** How see-through a previewed model is. Enough to read as not-yet-real. */
+const GHOST_ALPHA = 0.45;
+
+/**
+ * @param {object}  o
+ * @param {?object} o.model   The piece's authored model, drawn translucent. The
+ *        preview IS the thing when there is one — see the note below.
+ * @param {number}  o.t       Where on its tier ladder, 0..1, so a ghost of a
+ *        tier-3 shelf is the tier-3 shelf.
+ * @param {number}  o.rot     Which way it will face. Applied to the model only:
+ *        the cage is a tile and a tile does not turn, and the spots are already
+ *        computed in world axes by `workSpots`.
+ * @param {number}  o.height  Fallback body height, for a kind with no model.
+ * @param {string}  o.verdict 'ok' | 'warn' | 'no'.
+ * @param {?Array<{dx: number, dz: number, role: 'use'|'tend'}>} o.spots
+ *        Every tile somebody has to be able to stand on, in fixture-local
+ *        coordinates. An array rather than the single `anchor` it used to take,
+ *        because a till has two and the second one had no way to be drawn.
+ *
+ * The body used to be a coloured box the size of the kind, for every piece of
+ * that kind — so a Bakery Case, a Produce Table and a plain Shelf all previewed
+ * as one identical grey slab, and the only way to find out which one you had
+ * armed was to buy it. The palette buttons solved this for themselves in
+ * `client/thumb.js` (a picture of a thing has to come from the thing) and the
+ * ghost was the other half nobody had done: the preview of a purchase is a
+ * worse place to be generic than the button that arms it, because by then you
+ * have already chosen and are deciding *where*.
+ *
+ * The cage stays, and now it is the only thing carrying the verdict — a real
+ * model in real colours cannot be tinted red without becoming unreadable as the
+ * model. That split is deliberate: the body says WHAT, the cage says WHETHER.
+ */
+export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spots }) {
   // `true`/`false` still mean what they always did, so nothing that only knows
   // about two answers has to be found and changed.
   const key = verdict === true ? 'ok' : (verdict === false ? 'no' : (verdict ?? 'ok'));
@@ -491,10 +580,22 @@ export function buildFixtureGhost(height, color, verdict, anchor) {
 
   const g = new THREE.Group();
   const h = Math.max(height, 0.12);
-  const body = new THREE.Mesh(GEO.box, GHOST_MATS[key]);
-  body.scale.set(0.94, h, 0.94);
-  body.position.y = h / 2;
-  g.add(body);
+
+  const drawn = model ? buildModel(model, { castShadow: false, t, alpha: GHOST_ALPHA }) : null;
+  if (drawn?.children.length) {
+    // Models are authored facing east — rot 0 — the same convention
+    // `addFixtureProps` turns the real one by.
+    drawn.rotation.y = -rot * (Math.PI / 2);
+    g.add(drawn);
+  } else {
+    // No model, or a model whose stage draws nothing at this tier. The old
+    // coloured slab, which is still the right answer for a kind nobody has
+    // drawn: an invisible ghost is worse than a generic one.
+    const body = new THREE.Mesh(GEO.box, GHOST_MATS[key]);
+    body.scale.set(0.94, h, 0.94);
+    body.position.y = h / 2;
+    g.add(body);
+  }
 
   // A wireframe cage so the ghost doesn't dissolve into a pale shelf behind it.
   const cage = new THREE.LineSegments(
@@ -505,20 +606,8 @@ export function buildFixtureGhost(height, color, verdict, anchor) {
   cage.renderOrder = 11;
   g.add(cage);
 
-  if (anchor) {
-    // The tile you'd work from — this is what rotation actually changes.
-    const pad = new THREE.Mesh(
-      new THREE.RingGeometry(0.18, 0.34, 18),
-      new THREE.MeshBasicMaterial({
-        color: c.pad, transparent: true, opacity: 0.85,
-        side: THREE.DoubleSide, depthTest: false,
-      }),
-    );
-    pad.rotation.x = -Math.PI / 2;
-    pad.position.set(anchor.dx, 0.1, anchor.dz);
-    pad.renderOrder = 12;
-    g.add(pad);
-  }
+  // The tiles you'd work it from — this is what rotation actually changes.
+  for (const s of spots ?? []) g.add(buildWorkSpot(s.role, { x: s.dx, z: s.dz }, c.pad));
   return g;
 }
 
@@ -620,6 +709,9 @@ const MARKER_LOOK = {
 export function buildTargetMarker(mode = 'aim') {
   const g = new THREE.Group();
   const look = MARKER_LOOK[mode] ?? MARKER_LOOK.aim;
+  // Published so whoever hangs something else off this marker can match it
+  // rather than re-declare it — see `setSelectedTarget` and its working spots.
+  g.userData.color = look.color;
 
   // `outline: false` is a marker that only floats. Whoever animates one has to
   // cope with `userData.ring` being absent, the same way it does the chevron.

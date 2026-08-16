@@ -38,6 +38,23 @@ export const TAG_GROUPS = {
 /** Flat list of every known tag. */
 export const ALL_TAGS = Object.values(TAG_GROUPS).flat();
 
+/**
+ * The channels of the demand meter, in the order it draws them.
+ *
+ * The category group and nothing else, because a department is the one tag
+ * dimension a shop is *organised* by — you buy in produce, you give it shelves,
+ * and you can tell at a glance whether you have any. `cheap` and `trendy` are
+ * real demand and belong on an item, but "how much cheap have you got" is not a
+ * question the shop floor can answer, so a bar reading it would be a number
+ * with nowhere to act on it.
+ *
+ * It is a named export rather than `TAG_GROUPS.category` at the call site so
+ * that the meter's channel set is a decision recorded here, beside the
+ * vocabulary, rather than a group somebody reads and might reorder for
+ * unrelated reasons — the order is load-bearing (see docs/ui-shell.md).
+ */
+export const DEPARTMENTS = TAG_GROUPS.category;
+
 /** Reverse lookup: tag -> which group it belongs to. */
 export const TAG_GROUP_OF = Object.fromEntries(
   Object.entries(TAG_GROUPS).flatMap(([group, tags]) => tags.map((t) => [t, group])),

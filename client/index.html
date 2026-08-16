@@ -136,8 +136,27 @@
        list of five cards is scanned by shape — a single word swapped inside one
        of three buttons is exactly the thing a mis-click already wasn't reading. */
     .wcard.arm { box-shadow: 0 4px 16px rgba(58,49,40,.13), inset 0 0 0 2px var(--accent); }
+
+    /* Two things that take it in turns, stacked in one grid cell so the cell is
+       always as big as the biggest of them and swapping which one shows moves
+       nothing. Arming a delete used to insert the warning and relabel the
+       button, which grew the card, pushed every card under it down and widened
+       the row — under a cursor that is one button from Play, on a screen where
+       the latch also expires by itself and puts it all back four seconds later.
+       Both halves of a swap are in the DOM at rest; the resting one is child 1.
+       `visibility` rather than `opacity`, so a screen reader reads one label. */
+    .wswap { display: grid; }
+    .wswap > * { grid-area: 1 / 1; }
+    .wswap > :nth-child(2) { visibility: hidden; }
+    .wswap.on > :nth-child(1) { visibility: hidden; }
+    .wswap.on > :nth-child(2) { visibility: visible; }
+
+    /* Shares the `.wsub` line's cell — the one line on the card that isn't the
+       shop's name or what it is worth, and so the one you can spend on saying
+       what a second click does. Keep it to a line at this width or every card
+       carries the taller of the two as blank space for a state that is off. */
     .wwarn {
-      margin-top: 7px; font-size: 11px; line-height: 1.4; font-weight: 700;
+      margin-top: 1px; font-size: 11px; line-height: 1.4; font-weight: 700;
       color: var(--accent);
     }
 
@@ -150,7 +169,7 @@
     .wghost { background: rgba(58,49,40,.08); color: var(--ink); }
     .wghost:hover { background: rgba(58,49,40,.16); }
     .wdel:hover { background: var(--accent); color: #fff; }
-    .wdel.armed { background: var(--accent); color: #fff; }
+    .wdel.on { background: var(--accent); color: #fff; }
 
     .menu-add {
       width: 100%; border: 0; font: inherit; cursor: pointer; border-radius: 12px;
@@ -171,11 +190,12 @@
     .ico > svg, .bico > svg, #panel-title > svg, #panel-close > svg { display: block; margin: 0 auto; }
 
     /* ---- top left: the passive readouts, stacked --------------------------
-       One fixed column rather than two independently-pinned panels. #mods used
-       to carry `top: 58px`, which is the height #stats happened to be on the
-       day it was written — adding a row to the gauges slid the money panel
-       down over the demand meter. Nothing up here has a fixed height, so
-       nothing up here gets to hardcode where the next thing starts. */
+       One fixed column rather than two independently-pinned panels. The demand
+       meter used to carry `top: 58px`, which is the height #stats happened to be
+       on the day it was written — adding a row to the gauges slid the money
+       panel down over it. Nothing up here has a fixed height, so nothing up here
+       gets to hardcode where the next thing starts, and the cashflow readout
+       going into #stats is exactly the change that would have broken it. */
     #topleft {
       top: 12px; left: 12px;
       display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
@@ -202,6 +222,33 @@
     #season { text-transform: capitalize; opacity: .65; font-size: 10px; line-height: 1.25; }
     #clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
     #clock.shut { opacity: .4; text-decoration: line-through; }
+
+    /* ---- cashflow: the rate, beside the balance -------------------------------
+       Cash on hand was the only money on screen, and a balance is not a rate —
+       you can watch it climb all week while every single day loses money against
+       the wages. This is today's net, an arrow against yesterday, and the week's
+       shape, in that order: the number you want most, then the comparison, then
+       the trend. Tabular numerals because it changes ten times a second and
+       proportional digits make it jitter sideways as it does. */
+    #flow { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+    .flow {
+      display: inline-flex; align-items: baseline; gap: 3px;
+      font-variant-numeric: tabular-nums; font-size: 12.5px; font-weight: 800;
+      letter-spacing: -.01em;
+    }
+    .flow.up { color: var(--good); }
+    .flow.down { color: var(--accent); }
+    /* The arrow says which way against *yesterday*, which is a different
+       question from whether today is in profit — a better-than-yesterday day can
+       still be a loss. So it is coloured on its own and never inherits. */
+    .flow i { font-style: normal; font-size: 8.5px; }
+    .flow i.up { color: var(--good); }
+    .flow i.down { color: var(--accent); }
+    .flow i.flat { color: var(--ink); opacity: .35; }
+    .spark { display: block; overflow: visible; }
+    .spark rect.up { fill: var(--good); opacity: .75; }
+    .spark rect.down { fill: var(--accent); opacity: .8; }
+    .spark line.axis { stroke: rgba(58, 49, 40, .22); stroke-width: .75; }
     /* ---- the three gauges -------------------------------------------------
        Reputation is the shop's long memory, mood is how the room feels right
        now, and full is whether there is room for anybody else. One was an
@@ -227,28 +274,61 @@
     @keyframes fullpulse { 50% { opacity: .35; } }
 
     /* ---- top left, under the money: the demand meter ----------------------
-       What the world wants more or less of today, as a meter the way SimCity's
-       RCI is a meter rather than one sentence per tag. Seven pills reading
-       "▲ bakery ×2.4" is a paragraph you parse word by word; seven bars off one
-       shared axis is a shape you take in without reading.
+       An RCI meter, and built like one: a fixed set of channels in a fixed
+       order, on screen whether or not anything is happening.
+
+       It used to draw the active world-event modifiers folded per tag, which
+       looks like this and was a different thing entirely — the rows were
+       whichever tags the AI director had written about, so they appeared and
+       expired under you, mixed departments with moods (PANTRY next to TRENDY),
+       and a week with no events drew nothing at all. You cannot learn to read a
+       panel whose rows move; the only shape it ever had was "some things are
+       happening". Now the twelve departments are always all there, always in
+       `DEPARTMENTS` order, and only the lengths change.
+
+       Right is "they asked and you were short", left is "this space is not
+       earning". A department with nothing to say draws no bar — see DEADBAND in
+       client/hud-meters.js for why a stub on every row is worse than a gap.
 
        It stacks under #stats because it is a passive readout and belongs with
        the other passive readouts, and because a column can carry its labels
-       inline — a row of columns has to write each tag sideways-on under a
-       narrow bar, and "beverage" does not fit under nine pixels. Right is
-       wanted, left is not, length is how much. */
-    #mods {
+       inline — a row of columns has to write each name sideways-on under a
+       narrow bar, and "beverage" does not fit under nine pixels. */
+    /* Faded until you want it, because it is the one readout up here that is
+       always saying something. Twelve rows of live bars over the shop floor is
+       a lot of ink for a thing you consult rather than watch, and the corner it
+       sits in is where the farm is. Full strength the moment you point at it —
+       so it costs a glance to read and nothing to ignore.
+
+       It is also draggable (see `wireDrag` in client/ui.js): it is its own
+       handle, hence `cursor: grab`. Dragging pins it with an inline
+       `position: fixed`, and double-clicking gives it back to this column —
+       which is why nothing here hardcodes a `top`. See the note above #topleft
+       for what happened the last time anything up here did. */
+    #rci {
       width: 146px;
-      display: flex; flex-direction: column; gap: 3px;
+      display: flex; flex-direction: column; gap: 2px;
       background: var(--panel); border-radius: 13px; padding: 7px 10px;
       box-shadow: 0 4px 14px rgba(58,49,40,.14);
+      opacity: .45; transition: opacity .12s ease;
+      cursor: grab; touch-action: none;
     }
+    /* `:active` as well as `:hover`, because a drag captures the pointer and can
+       take it outside the element — without it the meter fades out from under
+       you halfway through moving it, which reads as having dropped it. */
+    #rci:hover, #rci:active { opacity: 1; }
+    #rci:active { cursor: grabbing; }
     .mtr { display: grid; grid-template-columns: 1fr 56px; align-items: center; gap: 7px; }
     .mtr-tag {
       font-size: 8.5px; font-weight: 800; letter-spacing: .02em;
       text-transform: uppercase; opacity: .55; text-align: right;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    /* A world event pulling this department. On the label rather than the bar,
+       because the bar already has the event folded into its length and marking
+       it twice would read as two facts. */
+    .mtr-tag.hot { opacity: .95; color: var(--accent); }
+    .mtr-tag.cold { opacity: .3; }
     /* A fixed plot with the zero line down its middle, so every bar is measured
        against the same axis instead of against its own. Each row draws its own
        segment; stacked, they form one continuous line. */
@@ -265,7 +345,7 @@
        same snapshot — no new server field — and capped at three, because a
        to-do list you can't finish is wallpaper rather than a prompt. */
     #todo { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-    #todo:empty, #mods:empty { display: none; }
+    #todo:empty, #rci:empty { display: none; }
     .todo {
       background: var(--panel); border-radius: 99px; padding: 2px 9px 2px 7px;
       font-size: 11.5px; font-weight: 600; color: var(--ink);
@@ -876,6 +956,7 @@
         <div id="day">Day 1</div>
         <div id="season">spring</div>
       </div>
+      <div id="flow"></div>
       <span id="clock">08:00</span>
       <div class="gauges">
         <div class="gg"><span class="gg-tag">Rep</span>
@@ -886,7 +967,7 @@
           <div class="repwrap"><div id="full" style="width:100%"></div></div></div>
       </div>
     </div>
-    <div id="mods"></div>
+    <div id="rci"></div>
   </div>
   <div id="hq" class="hud">
     <div id="todo"></div>
