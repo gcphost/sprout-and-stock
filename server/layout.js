@@ -24,7 +24,7 @@
 import { makeRng } from '../shared/rng.js';
 import { T, WALKABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
-import { anchorTile, queueAxis, canPlace, isProp } from '../shared/build.js';
+import { anchorTile, queueAxis, canPlace, canKeep, isProp } from '../shared/build.js';
 
 export { T };
 
@@ -99,6 +99,9 @@ export function generateLayout({
     /** ...and the same again for ground, for exactly the same reason. */
     floors: floors ?? [],
     doorShift: Math.trunc(doorShift) || 0,
+    // Whether this shop has been stamped, which `compose` needs for exactly one
+    // decision: what a dropped placement does to the budget. See `shed`.
+    shell: shell ?? null,
   };
 
   // ---- a building that already exists ------------------------------------
@@ -434,6 +437,27 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const stationQueue = [...req.stations];
   const dropped = [];
 
+  /**
+   * Let go of a placement — and, in a stamped shop, of the budget slot it held.
+   *
+   * That second half is the difference between a loss you can see and one that
+   * arrives two actions later wearing a disguise, which is most of why the wall
+   * bug read as "deleting randomly bugs out on shit".
+   *
+   * In a stamped shop the budget IS the placements (`budgetOf`), so every
+   * placement either lands and spends its slot or drops and leaves it unspent —
+   * and an unspent slot is an instruction to the procedural loops below. So the
+   * shop that had just lost eight fixtures immediately grew eight *generated*
+   * ones back, at the same tiles, and looked completely fine. The next re-flow
+   * then recounted the budget off the placements that were left, asked for four,
+   * and the shelves, the freezer and the till went for real — one wall's width
+   * of damage, showing up a step after the wall.
+   */
+  const shed = (p) => {
+    dropped.push(p);
+    if (req.shell && budget[p.kind] > 0) budget[p.kind]--;
+  };
+
   // Working spots already spoken for. Nothing may be *built* on one of these —
   // otherwise the generator happily drops a shelf onto the exact tile you have
   // to stand on to reach a shelf you positioned by hand, and you end up with a
@@ -447,8 +471,23 @@ function compose(req, storeW, storeH, allowDrops = true) {
 
   // ---- what the player has positioned by hand, honoured as placed ----------
   //
-  // `canPlace`, NOT `canPlaceCleanly`, and the difference is a bug that ate
-  // people's shelving. `canPlace` gives two kinds of no: `ok: false` is physics,
+  // `canKeep`, NOT `canPlace`, and NOT `canPlaceCleanly`. Three entry points to
+  // one rule, and this loop has now been the wrong one twice — both times with
+  // the same symptom, a fixture vanishing a tick after you touched something
+  // near it, and both times because a rule written for somebody putting a thing
+  // DOWN was asked of the code re-applying what is already THERE.
+  //
+  // The second one is the reason `canKeep` exists. `where` is not a fact about
+  // a shelf, it is a fact about the walls around the shelf — so knocking one
+  // hole in your wall un-enclosed the building, every fixture in it read as
+  // "outdoors", every one failed the indoor test, and the whole shop was
+  // dropped and refunded on a gesture the game had called a warning. See
+  // `canKeep` in shared/build.js. Physics still drops a placement; the walls
+  // moving around one no longer does.
+  //
+  // The first one is below, and still worth keeping in view:
+  //
+  // `canPlace` gives two kinds of no: `ok: false` is physics,
   // and `ok: true` with a `warn` is a consequence you are allowed to cause —
   // wall a shelf in, stand a till where nobody can queue, turn a unit to face
   // the wall. That is the whole "warn, don't refuse" design, and `placeFixture`
@@ -470,7 +509,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   for (const p of req.placements) {
     const drop = () => {
       if (!allowDrops) return false;
-      dropped.push(p);
+      shed(p);
       return true;
     };
 
@@ -480,7 +519,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     // arm neither `set`s nor `reserve`s — the cell it stands in is still the
     // floor it was, and everything below flows over it as if it weren't there.
     if (isProp(p.kind)) {
-      if (!canPlace(layoutSoFar(), p).ok) { dropped.push(p); continue; }
+      if (!canKeep(layoutSoFar(), p).ok) { shed(p); continue; }
       propsOut.push(makeProp(p));
       continue;
     }
@@ -489,8 +528,12 @@ function compose(req, storeW, storeH, allowDrops = true) {
       const i = stationQueue.indexOf(p.station);
       // An appliance whose upgrade has been sold isn't a fit problem, so this
       // one is always just dropped rather than grown for.
-      if (i === -1) { dropped.push(p); continue; }
-      if (reserved.has(`${p.x},${p.z}`) || !canPlace(layoutSoFar(), p).ok) {
+      if (i === -1) { shed(p); continue; }
+      if (reserved.has(`${p.x},${p.z}`) || !canKeep(layoutSoFar(), p).ok) {
+        // Same as `shed` does for a budget, for the queue an appliance is
+        // counted in instead: in a stamped shop a dropped machine must not come
+        // back as a generated one down the east wall.
+        if (req.shell) stationQueue.splice(i, 1);
         if (!drop()) return incomplete(layoutSoFar(), null);
         continue;
       }
@@ -504,8 +547,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
       reserve(st.useAt);
       continue;
     }
-    if (!(budget[p.kind] > 0)) { dropped.push(p); continue; }
-    if (reserved.has(`${p.x},${p.z}`) || !canPlace(layoutSoFar(), p).ok) {
+    if (!(budget[p.kind] > 0)) { shed(p); continue; }
+    if (reserved.has(`${p.x},${p.z}`) || !canKeep(layoutSoFar(), p).ok) {
       if (!drop()) return incomplete(layoutSoFar(), null);
       continue;
     }

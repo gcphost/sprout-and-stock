@@ -14,7 +14,9 @@
  */
 
 import { Game } from '../server/sim/index.js';
+import { shelfFor } from '../server/sim/staff.js';
 import { content } from '../server/content.js';
+import { requiredFixture } from '../shared/tags.js';
 import { canPlace, canPlaceCleanly, isFloor } from '../shared/build.js';
 import { kindOf } from '../shared/pieces.js';
 import {
@@ -83,6 +85,11 @@ const totalOnFloor = (g, itemId) => g.deliveries
 
 const c = content();
 const anyItem = c.items.find((i) => !c.recipes.some((r) => r.output_id === i.id));
+/** Two things that live on a plain shelf, and one that has to be frozen. */
+const warm = c.items.filter((i) => requiredFixture(i) !== 'freezer');
+const plainItem = warm[0];
+const otherItem = warm[1] ?? warm[0];
+const frozenItem = c.items.find((i) => requiredFixture(i) === 'freezer') ?? null;
 /** A crop that will actually grow in whatever season the world is in. */
 const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.includes(g.season))
   ?? c.crops[0];
@@ -1042,6 +1049,210 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     const outside = fresh();
     check(!outside.styleFixture('me', outside.layout.shelves[0].id, want).ok,
       'you cannot restyle outside build mode');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 14. Keeping a shelf for something. A reservation is a decision, not a label.
+//
+// `item_id` is what happens to be on a shelf and is written by whoever last put
+// something there; `assigned` is what somebody decided goes there. Two fields
+// rather than one, because they stop agreeing the moment the last carton sells
+// — and the entire value of the second is that it survives exactly the events
+// that clear the first. Most of what follows is one of those events.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
+  const spare = g.layout.shelves.find((s) => s.kind !== 'freezer' && s.id !== shelf.id);
+  const cash0 = g.cash;
+  const floor0 = totalOnFloor(g);
+
+  check(g.assignShelf('me', shelf.id, plainItem.id).ok, 'a shelf can be kept for an item');
+  eq(shelf.assigned, plainItem.id, 'and it remembers which');
+  eq(shelf.qty, 0, 'keeping it for something puts nothing on it');
+  eq(shelf.item_id, null, 'and labels it with nothing');
+  eq(totalOnFloor(g), floor0, 'no goods are conjured');
+  eq(g.cash, cash0, 'and it is free');
+
+  check(g.shelfAccepts(shelf, plainItem.id), 'the shelf takes what it is kept for');
+  check(!g.shelfAccepts(shelf, otherItem.id), 'and refuses what it is not, while bare');
+  // Bare is the case that matters. An *unkept* empty shelf takes anything — a
+  // documented rule this one is deliberately the exception to, so both halves
+  // have to be asserted or the exception could simply be the rule breaking.
+  check(g.shelfAccepts(spare, otherItem.id), 'a shelf nobody kept still takes anything');
+
+  // Your own hands are refused too, and the refusal has to say where to undo
+  // it: a shelf that silently rejects you reads as broken rather than reserved.
+  stand(g, shelf);
+  g.players.me.carry = { item_id: otherItem.id, qty: 3 };
+  const pushed = g.stockShelf('me', shelf.id);
+  check(!pushed.ok, 'stocking it by hand with something else is refused');
+  check(/menu/.test(pushed.error ?? ''), 'and says where to change it', pushed.error);
+  eq(g.players.me.carry?.qty, 3, 'a refused stocking leaves your hands alone');
+
+  g.players.me.carry = { item_id: plainItem.id, qty: 3 };
+  check(g.stockShelf('me', shelf.id).ok, 'what it is kept for goes straight on');
+  eq(shelf.qty, 3, 'and lands on it');
+
+  // Selling out. `item_id` was already documented as surviving this; the
+  // reservation has to survive everything after it as well.
+  shelf.qty = 0;
+  check(g.shelfAccepts(shelf, plainItem.id), 'a sold-out shelf still wants the same thing');
+  check(!g.shelfAccepts(shelf, otherItem.id), 'and still refuses everything else');
+
+  // Emptying it by hand is the first half of restocking it, so it keeps the
+  // reservation and loses only the label.
+  shelf.item_id = plainItem.id;
+  shelf.qty = 4;
+  check(g.stripShelf('me', shelf.id).ok, 'a kept shelf can still be emptied');
+  eq(shelf.item_id, null, 'which takes the label off');
+  eq(shelf.assigned, plainItem.id, 'but never forgets what the shelf is for');
+
+  // Handing it back is its own choice, in its own row.
+  check(g.assignShelf('me', shelf.id, null).ok, 'it can be handed back to "anything"');
+  eq(shelf.assigned, null, 'and then it is kept for nothing');
+  check(g.shelfAccepts(shelf, otherItem.id), 'so it takes anything again');
+  check(!g.assignShelf('me', shelf.id, null).ok, 'handing back what nobody kept is refused');
+
+  // Relabelling under stock would leave goods somewhere nothing tops up.
+  shelf.item_id = plainItem.id;
+  shelf.qty = 4;
+  check(!g.assignShelf('me', shelf.id, otherItem.id).ok,
+    'you cannot keep it for something else while stock sits on it');
+  check(g.assignShelf('me', shelf.id, plainItem.id).ok,
+    'but you can name what is already on it');
+
+  // The freezer rule is the *staff* rule, not the looser one hands get: a
+  // reservation nobody can carry out just leaves the shelf empty for ever.
+  if (frozenItem) {
+    const freezer = g.layout.shelves.find((s) => s.kind === 'freezer');
+    check(!g.assignShelf('me', spare.id, frozenItem.id).ok,
+      'frozen goods cannot be kept on a warm shelf');
+    check(g.assignShelf('me', freezer.id, frozenItem.id).ok,
+      'but can be kept in a freezer');
+    check(!g.assignShelf('me', freezer.id, plainItem.id).ok,
+      'and a freezer is not kept for something that does not need freezing');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 14b. ...and the people you employ believe in it too.
+//
+// `shelfFor` in staff.js is a second implementation of "where may this go".
+// Two rules that disagree are invisible from any screenshot: the shelf you set
+// aside this morning is simply full of something else tonight, filled by
+// somebody you pay.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const kept = g.layout.shelves.find((s) => s.kind !== 'freezer');
+  g.assignShelf('me', kept.id, plainItem.id);
+
+  check(shelfFor(g, otherItem.id, c)?.id !== kept.id,
+    'a stocker never puts anything else on a kept shelf');
+  eq(shelfFor(g, plainItem.id, c)?.id, kept.id,
+    'and takes what it is kept for straight to it, ahead of every bare one');
+}
+
+// ---------------------------------------------------------------------------
+// 14c. Which shelf the next van fills.
+//
+// Priority sorts before emptiness rather than adjusting it, so the assertions
+// deliberately put the marked shelf on the wrong side of the emptiness test:
+// "first" is the fullest shelf in the queue and "last" is the barest. Sorted by
+// how empty they are, both would land at the opposite end.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const shelves = g.layout.shelves;
+  for (const s of shelves) s.qty = 1;
+
+  const first = shelves[shelves.length - 1];
+  const last = shelves[0];
+  first.qty = 2;
+  last.qty = 0;
+  check(g.setRestockPriority(first.id, 1).ok, 'a shelf can be marked to fill first');
+  check(g.setRestockPriority(last.id, -1).ok, 'and another to fill last');
+
+  const queue = g.restockQueue();
+  eq(queue.length, shelves.length, 'every thin shelf is in the queue');
+  eq(queue[0].id, first.id, 'the marked one is filled first, fuller than the rest');
+  eq(queue[queue.length - 1].id, last.id, 'and the one marked last goes to the back, bare');
+
+  // Three steps, whatever gets sent. A number nobody can type is a number
+  // nothing has to defend against later.
+  g.setRestockPriority(first.id, 7);
+  eq(first.priority, 1, 'anything above the top step clamps to it');
+  g.setRestockPriority(first.id, -12);
+  eq(first.priority, -1, 'and anything below the bottom one clamps to that');
+  g.setRestockPriority(first.id, 'nonsense');
+  eq(first.priority, 0, 'and nonsense is the middle step, not a crash');
+
+  // A shelf with plenty on it is not in the queue at all, marked or not.
+  g.setRestockPriority(first.id, 1);
+  first.qty = 99;
+  check(!g.restockQueue().some((s) => s.id === first.id),
+    'a full shelf is not queued however eagerly it is marked');
+
+  // The client draws this menu off the snapshot, so both fields have to be in
+  // it — reading them off the layout would show a shelf you set aside ten
+  // seconds ago as still taking anything.
+  const snap = g.snapshot().shelves.find((s) => s.id === last.id);
+  eq(snap.priority, -1, 'the snapshot carries where a shelf sits in the queue');
+  g.assignShelf('me', last.id, plainItem.id);
+  eq(g.snapshot().shelves.find((s) => s.id === last.id).assigned, plainItem.id,
+    'and what it is kept for');
+}
+
+// ---------------------------------------------------------------------------
+// 14d. Both survive everything that rebuilds the shop under them.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const kept = g.layout.shelves.find((s) => s.kind !== 'freezer');
+  const { x, z } = kept;
+  g.assignShelf('me', kept.id, plainItem.id);
+  g.setRestockPriority(kept.id, 1);
+
+  g.regenerateLayout();
+  const after = g.layout.shelves.find((s) => s.x === x && s.z === z);
+  eq(after?.assigned, plainItem.id, 'a re-flow carries what a shelf is kept for');
+  eq(after?.priority, 1, 'and where it sits in the queue');
+
+  const restored = Game.restore(g.serialize());
+  restored.regenerateLayout();
+  const back = restored.layout.shelves.find((s) => s.x === x && s.z === z);
+  eq(back?.assigned, plainItem.id, 'and so does a save/restore round trip');
+  eq(back?.priority, 1, 'with the queue position intact');
+
+  // The cold path is a different one: a server restart rebuilds the shelves
+  // from nothing and pours the saved contents back in. A bare shelf carries no
+  // stock rows, which is exactly why a reservation on one has to be saved.
+  const cold = fresh();
+  const target = cold.layout.shelves.find((s) => s.kind !== 'freezer');
+  cold.restoreContents([{
+    id: target.id, item_id: null, qty: 0, price: 0, stockedDay: 0,
+    assigned: plainItem.id, priority: -1,
+  }], []);
+  eq(target.assigned, plainItem.id, 'a cold restart puts the reservation back');
+  eq(target.priority, -1, 'and the queue position with it');
+
+  // A re-flow can land a shelf's contents on a different unit. A reservation
+  // that ends up on the wrong kind of one is dropped — but dropping it must
+  // never cost the goods, which is why it is a sweep afterwards rather than
+  // another clause in the compatibility test that skips the whole row.
+  if (frozenItem) {
+    const g2 = fresh();
+    const warm = g2.layout.shelves.find((s) => s.kind !== 'freezer');
+    const at = { x: warm.x, z: warm.z };
+    warm.assigned = frozenItem.id;
+    warm.item_id = plainItem.id;
+    warm.qty = 3;
+    g2.regenerateLayout();
+    const now = g2.layout.shelves.find((s) => s.x === at.x && s.z === at.z);
+    eq(now?.assigned, null, 'a reservation on the wrong kind of unit is dropped');
+    eq(now?.qty, 3, 'and dropping it never takes the goods with it');
   }
 }
 

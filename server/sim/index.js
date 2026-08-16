@@ -771,7 +771,18 @@ export class Game {
       this.pushLog(`Cashed up $${swept.toFixed(2)} left on the counter.`);
     }
     this.season = SEASONS[Math.floor((this.day - 1) / 7) % SEASONS.length];
-    pruneModifiers(this.day, this.worldId);
+    // Housekeeping, and only a real game's to do. An ephemeral run shares the
+    // live world's id, so this line is `simulate` deleting the world events of
+    // the shop it was only supposed to be measuring — sixty simulated days
+    // expire every modifier the director has written, permanently. `ephemeral`
+    // already covers `persist()`; this was the other write, and it hid because
+    // `activeModifiers` filters by day itself, so no run has ever needed it.
+    //
+    // It also made a balance run unrepeatable, which is how it was found: the
+    // first `simulate` against a fresh `VACUUM INTO` copy measures a shop with
+    // the modifiers, every run after it measures a shop without them, and one
+    // measured seed came back 9305 / 6723 / 25 on identical code.
+    if (!this.ephemeral) pruneModifiers(this.day, this.worldId);
     this.invalidateModifiers();
     this.spoilStock();
     this.payWages();

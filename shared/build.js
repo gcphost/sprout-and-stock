@@ -580,13 +580,18 @@ export function fixturesOf(L) {
  * a procedurally furnished shop nobody can walk through is a bug, not a choice.
  * `canPlaceCleanly` is that caller's entry point.
  *
+ * And there is a third question, which is not "may this go here" at all but "is
+ * this still allowed to be where it already is". `canKeep` is that one, and
+ * `keeping` is what it sets — see there for why the two cannot be the same rule.
+ *
  * @param {object} L      the layout
  * @param {object} spec   { kind, x, z, rot }
  * @param {object} [opts] { ignoreId } — the fixture being moved, so it doesn't
  *                        block its own new position when they overlap.
+ *                        { keeping } — judging something already standing.
  * @returns {{ok: boolean, reason?: string, warn?: string}}
  */
-export function canPlace(L, spec, { ignoreId = null } = {}) {
+export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
   const def = FIXTURES[spec.kind];
   if (!def) return no(`"${spec.kind}" is not something you can build`);
 
@@ -594,7 +599,7 @@ export function canPlace(L, spec, { ignoreId = null } = {}) {
   const z = Math.round(spec.z);
   if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return no('off the edge of the world');
 
-  if (isProp(spec.kind)) return canPlaceProp(L, def, x, z, ignoreId);
+  if (isProp(spec.kind)) return canPlaceProp(L, def, x, z, ignoreId, keeping);
 
   // Two questions where there used to be one, because a tile used to answer
   // both. What the ground is made of is `tiles`; whether something already
@@ -603,14 +608,17 @@ export function canPlace(L, spec, { ignoreId = null } = {}) {
   const ground = tileAt(L, x, z);
   const taken = blockedAt(L, x, z, ignoreId);
 
+  // `where` is asked only of something being put down. Of something already
+  // standing it is not a fact about the fixture at all — it is a fact about the
+  // walls around it, and those move. See `canKeep`.
   if (def.where === 'indoor') {
-    if (!insideStore(L, x, z)) return no('that has to go inside the shop');
+    if (!keeping && !insideStore(L, x, z)) return no('that has to go inside the shop');
     if (taken) return no('something is already there');
     if (!BUILDABLE_INDOOR.has(ground)) {
       return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
   } else {
-    if (insideStore(L, x, z)) return no('plots go outside, on the grass');
+    if (!keeping && insideStore(L, x, z)) return no('plots go outside, on the grass');
     if (taken) return no('something is already there');
     if (!BUILDABLE_OUTDOOR.has(ground)) return no('you can only dig into bare grass');
   }
@@ -633,8 +641,10 @@ export function canPlace(L, spec, { ignoreId = null } = {}) {
  * the same reason build mode aims at named targets rather than at whatever is
  * nearest. A cell holds one thing you can point at.
  */
-function canPlaceProp(L, def, x, z, ignoreId) {
-  if (def.where === 'indoor' && !insideStore(L, x, z)) return no('that has to go inside the shop');
+function canPlaceProp(L, def, x, z, ignoreId, keeping = false) {
+  if (!keeping && def.where === 'indoor' && !insideStore(L, x, z)) {
+    return no('that has to go inside the shop');
+  }
   // A prop stands *in* the cell, so the cell has to be somewhere a person could
   // stand. This is also what keeps one out of a shelf without a second rule.
   if (!WALKABLE.has(tileAt(L, x, z)) || blockedAt(L, x, z, ignoreId)) {
@@ -653,6 +663,46 @@ function canPlaceProp(L, def, x, z, ignoreId) {
 export function canPlaceCleanly(L, spec, opts = {}) {
   const r = canPlace(L, spec, opts);
   return r.ok && r.warn ? no(r.warn) : r;
+}
+
+/**
+ * `canPlace`, for the question the re-flow actually asks: may this stay where it
+ * already is?
+ *
+ * The third entry point, and it exists because "may this go here" and "may this
+ * stay here" are different questions that looked like one. `compose` re-judges
+ * every placement on every re-flow, and it was asking the *placement* rule — so
+ * a rule about where you may PUT a shelf became a rule about where a shelf is
+ * allowed to CONTINUE STANDING, and the difference is a bug that deleted
+ * people's shops.
+ *
+ * `where` is the whole of it. Being indoors is not a property of a shelf, it is
+ * a property of the walls around the shelf, and walls are a thing the player
+ * moves. So knocking one hole in your wall un-enclosed the building, every
+ * fixture in it was suddenly "outdoors", and every one of them failed
+ * `canPlace` and was dropped — six shelves, a freezer and the till, refunded at
+ * full price and gone, on a gesture the game had described as a warning. The
+ * warning was even correct ("that leaves 8 fixtures standing outside"); what
+ * was wrong was that standing outside was fatal.
+ *
+ * It is fatal nowhere else, deliberately. `whatThisUnroofs` has said since the
+ * day enclosure arrived that putting your shelving out in the weather is
+ * allowed and the sim copes — a shelf outdoors keeps its stock and keeps
+ * selling, and what you lose is the right to build another one beside it. That
+ * was true of everything except the one piece of code that could act on it.
+ *
+ * Everything else stays exactly as strict, because everything else is physics
+ * that really can take a cell away: off the map, ground it cannot stand on,
+ * something else already in it. Those are the cases `droppedPlacements` was
+ * written for and they still drop.
+ *
+ * This is the same mistake as the `canPlaceCleanly` one directly above, one
+ * layer further down: a rule written for a caller putting something down, asked
+ * of a caller re-applying what is already there. Both times the symptom was a
+ * fixture vanishing a tick after you touched something near it.
+ */
+export function canKeep(L, spec, opts = {}) {
+  return canPlace(L, spec, { ...opts, keeping: true });
 }
 
 const no = (reason) => ({ ok: false, reason });

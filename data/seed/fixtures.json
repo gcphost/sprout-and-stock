@@ -1865,44 +1865,6 @@
             },
             {
               "shape": "box",
-              "color": "#8a5a3b",
-              "pos": [
-                0.04,
-                0.51,
-                -0.5
-              ],
-              "scale": [
-                0.64,
-                1.02,
-                0.05
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": true,
-              "alpha": 1,
-              "drift": false
-            },
-            {
-              "shape": "box",
-              "color": "#8a5a3b",
-              "pos": [
-                0.04,
-                0.51,
-                0.5
-              ],
-              "scale": [
-                0.64,
-                1.02,
-                0.05
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": true,
-              "alpha": 1,
-              "drift": false
-            },
-            {
-              "shape": "box",
               "color": "#a06c48",
               "pos": [
                 0.04,
