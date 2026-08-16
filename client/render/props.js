@@ -523,6 +523,33 @@ export function buildFixtureGhost(height, color, verdict, anchor) {
 }
 
 /**
+ * What each marker looks like.
+ *
+ * The radii are the load-bearing part, not the colours. Two of these can be
+ * ringing the *same* tile — the thing under your pointer is very often the
+ * thing whose menu is open — so they are concentric rather than stacked, and
+ * only the pointer's ring carries the chevron. Drawing them at one radius made
+ * the selection invisible the moment you pointed at it, which is precisely the
+ * case you most want it in.
+ *
+ * They also sit inside the tile now (0.44 against the 0.66 they started at).
+ * A ring wider than the thing it marks reads as "this area", and on a three-
+ * tile pitch it overlapped its neighbours — the one question the ring exists
+ * to answer.
+ */
+const MARKER_LOOK = {
+  // Amber is "this is what you are pointing at". Red is the same sentence with
+  // a bulldozer in your hands, and the ring is the only warning that arrives
+  // before the tap rather than after it.
+  aim: { color: 0xffd66b, radius: [0.34, 0.44], chevron: true },
+  raze: { color: 0xe2564a, radius: [0.34, 0.44], chevron: true },
+  // The one whose menu is open. Cool, because it is not a verb — nothing is
+  // about to happen to it, it is simply the thing you are reading about — and
+  // wide, so the aim ring lands inside it.
+  selected: { color: 0x5fd6c4, radius: [0.5, 0.57], chevron: false },
+};
+
+/**
  * The "you can do something to this" marker.
  *
  * Once actions need a deliberate hold, being in range stops being self-evident —
@@ -533,15 +560,12 @@ export function buildFixtureGhost(height, color, verdict, anchor) {
  */
 export function buildTargetMarker(mode = 'aim') {
   const g = new THREE.Group();
-  // Amber is "this is what you are pointing at". Red is the same sentence with
-  // a bulldozer in your hands, and the ring is the only warning that arrives
-  // before the tap rather than after it.
-  const color = mode === 'raze' ? 0xe2564a : 0xffd66b;
+  const look = MARKER_LOOK[mode] ?? MARKER_LOOK.aim;
 
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.52, 0.66, 28),
+    new THREE.RingGeometry(look.radius[0], look.radius[1], 28),
     new THREE.MeshBasicMaterial({
-      color, transparent: true, opacity: 0.9,
+      color: look.color, transparent: true, opacity: 0.9,
       side: THREE.DoubleSide, depthTest: false,
     }),
   );
@@ -549,18 +573,21 @@ export function buildTargetMarker(mode = 'aim') {
   ring.position.y = 0.06;
   ring.renderOrder = 9;
   g.add(ring);
-
-  // A little downward chevron bobbing over the target.
-  const arrow = new THREE.Mesh(GEO.cone, new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 0.95, depthTest: false,
-  }));
-  arrow.scale.set(0.26, 0.3, 0.26);
-  arrow.rotation.x = Math.PI;
-  arrow.renderOrder = 10;
-  g.add(arrow);
-
   g.userData.ring = ring;
-  g.userData.arrow = arrow;
+
+  // A little downward chevron bobbing over the target. Whoever animates this
+  // has to cope with it being absent — a marker that says "this is open"
+  // rather than "this is armed" points at nothing.
+  if (look.chevron) {
+    const arrow = new THREE.Mesh(GEO.cone, new THREE.MeshBasicMaterial({
+      color: look.color, transparent: true, opacity: 0.95, depthTest: false,
+    }));
+    arrow.scale.set(0.26, 0.3, 0.26);
+    arrow.rotation.x = Math.PI;
+    arrow.renderOrder = 10;
+    g.add(arrow);
+    g.userData.arrow = arrow;
+  }
   return g;
 }
 

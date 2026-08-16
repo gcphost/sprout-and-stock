@@ -534,6 +534,13 @@
        stops the press — greying without it is a button that lies. */
     .fx-verb.off { opacity: .25; cursor: default; }
     .fx-verb.off:hover { background: transparent; }
+    /* One press from something that cannot be taken back. It has to be loud
+       here in a way it did not have to be as a row: a row said "Tap again to
+       let them go" in words, and a caption has no room for a sentence. */
+    .fx-verb.armed {
+      opacity: 1; background: var(--accent); color: #fff;
+    }
+    .fx-verb.armed:hover { background: var(--accent); color: #fff; }
     .fx-verb svg { display: block; }
     /* The price or the count — the two things an icon cannot say. Same corner
        and same treatment the build bar's `.have` badge uses. */

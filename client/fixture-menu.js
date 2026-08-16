@@ -70,8 +70,9 @@ export const act = (id, icon, name, sub, { danger = false, off = false, right = 
  * `data-act` is unchanged, so every one of these wires up exactly as the rows
  * did: this is a different shape for the same button, not a different button.
  */
-export const actIcon = (id, icon, name, sub, short, { danger = false, off = false, right = '' } = {}) => `
-  <button class="fx-verb${off ? ' off' : ''}${danger ? ' danger' : ''}"
+export const actIcon = (id, icon, name, sub, short,
+  { danger = false, off = false, armed = false, right = '' } = {}) => `
+  <button class="fx-verb${off ? ' off' : ''}${danger ? ' danger' : ''}${armed ? ' armed' : ''}"
     ${off ? 'disabled' : `data-act="${id}"`}
     title="${esc(sub ? `${name} — ${sub}` : name)}" aria-label="${esc(name)}">
     ${right ? `<span class="have">${esc(right)}</span>` : ''}

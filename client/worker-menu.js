@@ -14,7 +14,7 @@
  */
 
 import { ICONS, icon } from './icons.js';
-import { act } from './fixture-menu.js';
+import { actIcon } from './fixture-menu.js';
 
 /** Worker names and kind names come out of the database, so never raw. */
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
@@ -147,19 +147,25 @@ export function showWorker(ui, workerId) {
     // fixture menu makes, for the same reason. The title is the verb, which is
     // short and fixed; the line under it says what you are actually buying.
     const blurb = `${esc(next.name)} — ${tierBlurb(next)}`;
-    foot.push(act('promote', ICONS.tierup, 'Promote',
-      afford ? blurb : `${blurb} You cannot afford it yet.`,
+    foot.push(actIcon('promote', ICONS.tierup, 'Promote',
+      afford ? blurb : `${blurb} You cannot afford it yet.`, 'Promote',
       // A purely cosmetic rung is free, and `$0` reads as a broken number.
       { off: !afford, right: next.cost > 0 ? `$${next.cost.toFixed(0)}` : 'free' }));
   }
 
+  // The latch has to be visible in a square, and it used to be visible in the
+  // row's own title — "Tap again to let them go" is a sentence, and a sentence
+  // is what a caption is not. So the caption becomes the question and the
+  // square lights up: `armed` is the one state here you must not be able to
+  // walk past, because the next tap is a person leaving and nothing comes back.
   const armed = armedToFire(ui, entry.id);
-  foot.push(act('fire', ICONS.remove,
+  foot.push(actIcon('fire', ICONS.remove,
     armed ? 'Tap again to let them go' : 'Let them go',
     armed ? 'They walk out now, and nothing comes back.' : 'No refund — you cannot sell a person back.',
-    { danger: true }));
+    armed ? 'Sure?' : 'Let go',
+    { danger: true, armed }));
 
-  parts.push(`<div class="pnl-foot">${foot.join('')}</div>`);
+  parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
 
   ui.showPanel(`${icon(entry.kind, ICONS.staff)} ${esc(entry.name)}`, parts.join(''));
   wireWorkerMenu(ui, entry, weights, vocabulary);
