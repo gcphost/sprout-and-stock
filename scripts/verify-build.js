@@ -339,14 +339,17 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(back.ok, 'a stowed crate can be picked back up');
   check(g.players.me.carry?.qty > 0, 'picking it back up fills your hands');
 
-  // The proximity list must offer it, or none of the above is reachable.
+  // Putting down is still what standing there offers, and it has to be — it is
+  // the one half of the yard that has no target to name.
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
   g.deliveries = [];
-  g.players.me.stowLock = false;
   eq(g.actionFor(g.players.me)?.kind, 'stow', 'standing at the drop-off with full hands offers stow');
 
-  // Putting something down next to a crate of the same thing must not pick it
-  // straight back up — both actions re-arm instantly, so that loops forever.
+  // ...and picking up is the half that must never happen on its own. This used
+  // to need a latch (`stowLock`): both halves re-armed the instant they
+  // finished, so setting an armful down beside a crate of the same thing picked
+  // it straight back up, for as long as you stood there. The latch is gone
+  // because the loop is — nothing is picked up that was not asked for by name.
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
   g.dropGoods(anyItem.id, 5, g.dropPad());
   check(g.stow('me').ok, 'stowing beside a matching crate works');
@@ -355,21 +358,36 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // something else, and asserting silence made this fail whenever the other
   // half of the co-op happened to build near the loading pad.
   check(g.actionFor(g.players.me)?.kind !== 'unload',
-    'and does not immediately offer to unload it again');
+    'and standing on the crate does not offer to unload it');
 
-  // Any movement at all used to clear the lock, which was enough while a
-  // button had to fire the pickup. Nothing has to be pressed now, so a shuffle
-  // beside the crate would put it straight back in your hands: *away* has to
-  // mean out of reach of the goods.
+  // Not after a shuffle, and not after leaving and coming back either — there
+  // is no state that decays into a pickup, which is the whole claim.
   g.setInput('me', 1, 0);
   g.stepPlayers(0.1);
-  check(g.actionFor(g.players.me)?.kind !== 'unload',
-    'nor after a step on the spot, which still leaves you stood over it');
   stand(g, { x: 1, z: 1 });
   g.stepPlayers(0.1);
-  check(!g.players.me.stowLock, 'walking out of reach of the goods clears the lock');
   stand(g, g.dropPad());
-  eq(g.actionFor(g.players.me)?.kind, 'unload', 'so coming back picks them up again');
+  check(g.actionFor(g.players.me)?.kind !== 'unload',
+    'nor after walking out of reach of it and back');
+
+  // Naming it is the only thing that arms it.
+  const crate = g.deliveries.find((d) => d.item_id === anyItem.id);
+  const named = g.take('me', { palletId: crate.id });
+  check(named.ok, `naming a crate sets off to get it (${named.error ?? ''})`);
+  eq(g.actionFor(g.players.me)?.kind, 'unload', 'and standing at it then arms the pickup');
+
+  // One errand, one armful. Firing it spends it, or a crate you tapped once
+  // would refill your hands every time you walked past for the rest of the day.
+  g.stepActions(5);
+  check(g.players.me.carry?.qty > 0, 'the charge fills your hands');
+  eq(g.players.me.errand, null, 'and the errand is spent');
+  check(g.actionFor(g.players.me)?.kind !== 'unload', 'so it does not arm again');
+  // A crate parked at the drop-off is a crate you are stood *on*, so the other
+  // half of the pad is armed the instant your hands are full — and tapping it
+  // filled your hands. Without `tookFrom` the pickup empties itself back into a
+  // crate on the same tile before you can take a step.
+  check(g.actionFor(g.players.me)?.kind !== 'stow',
+    'nor does the pad you took it off put it straight back');
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +431,85 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   } else {
     check(false, 'no appliance to test dumping with');
   }
+}
+
+// ---------------------------------------------------------------------------
+// 3b. Taking one board back off a shelf.
+//
+// The other direction of `stockShelf`, and until it existed the only way to get
+// goods off a shelf was to tip the whole unit on the floor. Two of these are
+// invisible in play and are the reason this block is here: that an emptied
+// board keeps its label — a stack at zero is what lets an empty shelf be
+// relabelled, so clearing it hands a reserved board to the next van — and that
+// nothing is created on the way, which a max-of-two-numbers is one typo from.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
+  put(shelf, plainItem, 9, { price: 3 });
+  stand(g, shelf.browseAt);
+
+  const took = g.unshelve('me', shelf.id, plainItem.id);
+  check(took.ok, `taking off a board works (${took.error ?? ''})`);
+  const inHand = g.players.me.carry?.qty ?? 0;
+  check(inHand > 0, 'and fills your hands');
+  eq(qtyOn(shelf, plainItem.id) + inHand, 9, 'nothing is created or destroyed taking it');
+
+  // An armful, not the board — a shelf holds more than a person does.
+  eq(inHand, Math.min(9, g.carryCapacity()), 'as much as you can hold, no more');
+
+  // Take the rest and the label survives, because a stack at zero IS the label.
+  while (qtyOn(shelf, plainItem.id) > 0) {
+    g.players.me.carry = null;
+    g.unshelve('me', shelf.id, plainItem.id);
+  }
+  eq(held(shelf), plainItem.id, 'a board emptied by hand keeps its label');
+  check(!g.unshelve('me', shelf.id, plainItem.id).ok, 'and a bare board gives nothing');
+
+  // Hands full of something else is a refusal, not a swap.
+  put(shelf, plainItem, 5);
+  g.players.me.carry = { item_id: otherItem.id, qty: 1 };
+  const clash = g.unshelve('me', shelf.id, plainItem.id);
+  check(!clash.ok, 'you cannot take with your hands full of something else');
+  eq(qtyOn(shelf, plainItem.id), 5, 'and the refused board keeps all of it');
+
+  // Reach is real, and it is what the walk in `take` exists to satisfy — a menu
+  // button that filled your arms from across the shop would make the floor
+  // irrelevant the way ordering straight into your hands once did.
+  g.players.me.carry = null;
+  stand(g, { x: 1, z: 1 });
+  check(!g.unshelve('me', shelf.id, plainItem.id).ok, 'and not from across the shop');
+
+  // Naming the board sets off toward it rather than reaching for it.
+  const named = g.take('me', { shelfId: shelf.id, itemId: plainItem.id });
+  check(named.ok, `naming a board is accepted from anywhere (${named.error ?? ''})`);
+  eq(g.players.me.carry, null, 'and takes nothing on its own');
+  stand(g, shelf.browseAt);
+  eq(g.actionFor(g.players.me)?.kind, 'take', 'arriving is what arms it');
+  g.stepActions(5);
+  check((g.players.me.carry?.qty ?? 0) > 0, 'and the charge fills your hands');
+  eq(g.players.me.errand, null, 'one errand, one armful');
+
+  // ...and the unit does not take it straight back, which is the whole reason
+  // `tookFrom` exists. Stocking arms on full hands beside a shelf that will
+  // have them — which is exactly the state a pickup leaves you in — so a board
+  // emptied by hand refilled itself on the very next tick. Same shape the
+  // retired `stowLock` was guarding, pointing the other way.
+  const inHandNow = g.players.me.carry.qty;
+  check(g.actionFor(g.players.me)?.kind !== 'stock',
+    'the shelf you just took from does not immediately restock itself');
+  g.stepActions(5);
+  eq(g.players.me.carry?.qty, inHandNow, 'so standing there keeps it in your hands');
+
+  // The latch is a pause, not a ban: leave its reach and it stocks as normal,
+  // or an armful taken off a shelf could never go back on it at all.
+  stand(g, { x: 1, z: 1 });
+  g.setInput('me', 1, 0);
+  g.stepPlayers(0.1);
+  g.setInput('me', 0, 0);
+  eq(g.players.me.tookFrom, null, 'walking out of reach clears it');
+  stand(g, shelf.browseAt);
+  eq(g.actionFor(g.players.me)?.kind, 'stock', 'and coming back stocks it again');
 }
 
 // ---------------------------------------------------------------------------

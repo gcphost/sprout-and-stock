@@ -231,19 +231,35 @@ what the next step was meant to be.
   it becomes a pallet. That's deliberate: one entity means one renderer, one
   pickup path, and the stocker tidying every case of it for free. Never invent
   a second container; call `dropGoods`.
-- **Proximity arms an action; holding the button fires it.** Standing near
-  something is not consent — that version harvested crops at you as you walked
-  past. `actionFor` decides *what*, `p.holdInput` decides *when*, and the
-  snapshot carries the armed action even at zero progress so the client can
-  light the target up and say what holding would do. Anything driving a player
-  headlessly (the balance bot) has to set `holdInput` or it silently stops
-  acting.
-- **Held actions still re-arm the instant they finish.** Fine for stocking and
-  harvesting. Not fine for anything destructive or reversible-in-place: a Clear
-  tool that stayed armed ate seven shelves in a row, and putting goods down next
-  to a crate of the same thing picked them straight back up forever. Anything
-  that can pair with its own opposite needs a latch (`stowLock`) or has to
-  disarm itself.
+- **Proximity arms an action and the ring fires it.** Standing near something
+  is not consent — the version before that harvested crops at you as you walked
+  past — but a button in between turned out not to be the answer either.
+  `actionFor` decides *what*, the charge decides *when*: an action takes a
+  second, the target lights up, and leaving the range throws the charge away, so
+  you say no by not standing there. The snapshot carries the armed action from
+  the tick it arms, at zero progress, so the client can light the target up and
+  name what is about to happen.
+- **Picking things up is the exception, and it names its target.** Nothing is
+  ever put in your hands for standing near it. A crate is tapped
+  (`Scene.pickPallet`), a shelf board has a Take button in its own menu, and
+  both send `take`, which sets `p.errand` and walks you there — `errandAction`
+  arms the ordinary ring when you arrive. Proximity could only ever offer the
+  *nearest* pallet, which at a bay stacked three deep is not a choice anybody
+  made, and a pickup you did not choose is worse than a missed one because it
+  fills your hands and then everything else refuses you.
+- **Held actions still re-arm the instant they finish, and naming one does not
+  save you.** Fine for stocking and harvesting. Not fine for anything
+  destructive or reversible-in-place: a Clear tool that stayed armed ate seven
+  shelves in a row, and putting goods down beside a crate of the same thing
+  picked them straight back up forever. Making pickup explicit looked like it
+  retired that latch (`stowLock`) — the ping-pong needs both halves arming on
+  their own, and now one is a button. It didn't. **The pair just changed
+  partners**: a pickup leaves you holding something *stood at the thing it came
+  off*, which is exactly what `stock` arms on, so a board emptied by hand
+  refilled itself on the next tick. `p.tookFrom` is the latch now — set on a
+  pickup, cleared in `stepPlayers` once you are out of reach of the source, and
+  it holds off stocking that one unit and stowing anywhere. What matters is not
+  whether an action is explicit but **the state it leaves you in.**
 - **Build mode is the exception: it arms nothing.** `actionFor` returns null the
   moment `p.build.on` is set. Proximity picked the nearest fixture *centre*, and
   with seventeen shelves on a three-tile pitch that is not a choice anybody can

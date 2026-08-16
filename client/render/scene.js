@@ -38,6 +38,7 @@ const FRUSTUM = 17;
  * `unproject` already folds zoom into the inverse projection, which is why
  * pickTile and pickFixture keep working at any zoom without knowing it exists.
  */
+const RING_Y = 1.2;           // charge ring height — just clear of a head at 0.96
 const ZOOM_MIN = 0.7;         // wider than the old fixed view, for finding things
 const ZOOM_MAX = 2.4;         // close enough to read a single shelf
 const ZOOM_DEFAULT = 1.45;    // ~12 tiles tall: the shop, not the whole county
@@ -1225,6 +1226,13 @@ export class Scene {
       const obj = buildPallet(this.catalog.items[d.item_id]?.model ?? null, d.qty);
       obj.position.set(d.x, 0, d.z);
       obj.userData.key = key;
+      // The id alone, and by id rather than by tile — the opposite of
+      // `pickFixture`, and for the opposite reason. A fixture's id is re-minted
+      // on every re-flow so its tile is the honest name; a pallet's id lasts as
+      // long as the pallet does, while its tile is shared with whatever lands
+      // there next. Nothing else off `d` is kept, because this group outlives
+      // the snapshot that built it — the qty on it would be last minute's.
+      obj.userData.delivery = d.id;
       this.actorRoot.add(obj);
       this.deliveryProps.set(d.id, obj);
     }
@@ -1477,6 +1485,26 @@ export class Scene {
       // re-minted on a re-flow and this is re-read from the layout every time.
       const f = this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
       if (f) return f;
+    }
+    return null;
+  }
+
+  /**
+   * Which crate the pointer is over, if any.
+   *
+   * Its own method rather than a branch in `pickFixture`, because a pallet is
+   * not a fixture and every caller of that one would have to learn it: the
+   * build ghost, the bulldozer and "walk to the side you work it from" all
+   * take a layout record, and none of them has an answer for a crate.
+   */
+  pickPallet(clientX, clientY) {
+    const crates = [...this.deliveryProps.values()];
+    if (!crates.length) return null;
+    const hits = this.pointerRay(clientX, clientY).intersectObjects(crates, true);
+    for (const hit of hits) {
+      let o = hit.object;
+      while (o && !o.userData.delivery) o = o.parent;
+      if (o) return { id: o.userData.delivery, x: Math.round(o.position.x), z: Math.round(o.position.z) };
     }
     return null;
   }
@@ -1870,6 +1898,18 @@ export class Scene {
   /**
    * The charge-up ring — how long you have to walk away. It sits over the
    * player; the marker above says which thing it's aimed at.
+   *
+   * `RING_Y` is measured off the character rather than off the thought bubble,
+   * which is what it used to clear. A head tops out at 0.96 (`buildCharacter`),
+   * so 1.2 leaves the ring floating just above it. At 0.60 radius the old one
+   * could sit at 2.05 — twice a person's height up — and still read as attached
+   * because it was wide enough to enclose them; shrunk to a badge, the same
+   * height reads as a speck in the air with nothing under it. Anything small
+   * has to be placed against the head, not against the space above it.
+   *
+   * It draws over the bubble rather than clearing it, which the ring's
+   * `depthTest: false` and renderOrder 9/10 already guarantee against the
+   * bubble's 1.
    */
   syncActionRings(players, myId) {
     const seen = new Set();
@@ -1883,7 +1923,7 @@ export class Scene {
         this.actorRoot.add(rec);
         this.actionRings.set(p.id, rec);
       }
-      rec.position.set(p.x, 2.05, p.z);
+      rec.position.set(p.x, RING_Y, p.z);
       setRingProgress(rec, p.action.progress ?? 0);
     }
     for (const [id, rec] of this.actionRings) {

@@ -158,6 +158,17 @@ export class MartRoom extends Room {
       client.send('action-result', res);
     });
 
+    // Name what you are picking up — a crate, or one board of a shelf — and
+    // walk there to do it. Nothing is ever picked up unasked. See `Game.take`.
+    this.onMessage('take', (client, m) => {
+      const res = this.game.take(client.sessionId, {
+        palletId: m?.palletId ? String(m.palletId) : null,
+        shelfId: m?.shelfId ? String(m.shelfId) : null,
+        itemId: m?.itemId ? String(m.itemId) : null,
+      });
+      if (!res.ok) client.send('action-result', res);
+    });
+
     // Which seed this player is holding. The plot action reads it server-side,
     // so planting is "stand at a bare plot with a seed chosen", not a keypress.
     this.onMessage('select-crop', (client, m) => {

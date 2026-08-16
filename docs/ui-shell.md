@@ -424,6 +424,62 @@ Steering always outranks a route: `stepPlayers` drops `p.path` on the first
 frame of key input rather than blending the two, because a key that only slowed
 a route down reads as the game ignoring you.
 
+### Picking things up is asked for
+
+Everything else in `actionFor` is proximity offering you the most useful thing
+within arm's reach. Taking is not, and it is the one place where the ring is not
+enough on its own.
+
+The reason is that proximity can only ever answer with the *nearest* one. At a
+bay stacked three deep, or in an aisle on a three-tile pitch, that is not a
+choice anybody made — it is the same argument build mode already won when every
+build verb started naming its target. And the cost of getting it wrong is
+asymmetric: a pickup you did not ask for fills your hands, and full hands
+refuse every other action in the game until you walk to the drop-off.
+
+So there are two ways to say which, and one verb behind both:
+
+| you point at | you press | it sends |
+|---|---|---|
+| a crate in the yard | the crate itself | `take { palletId }` |
+| one board of a shelf or freezer | its Take button, beside the count | `take { shelfId, itemId }` |
+
+`Game.take` sets `p.errand` — a target and nothing else, no timer — and walks
+you to it. `errandAction` arms the ordinary charge once you are in reach, so a
+pickup looks and cancels exactly like harvesting does: the ring winds in, and
+walking off before it closes throws it away. The errand is spent when it fires,
+refused or not, so one tap is one armful and a refusal cannot retry itself
+against the same full hands forever.
+
+**The walk is part of it, not a convenience.** A menu button that filled your
+arms from across the shop is the bug `buyStock` already fixed once, where
+ordering delivered straight into your hands and the shop floor stopped
+mattering. `unshelve` checks reach for the same reason `stockShelf` does.
+
+The refusal is spoken: `errandAction` pushes the error into the log, because
+this is the one action somebody asked for by name and a silent no reads as a
+broken button.
+
+**Taking still needs a latch, and this is where the first cut got it wrong.**
+`stowLock` used to stop a crate you had just put down picking itself back up,
+and it looked like naming the pickup retired it — the loop needs both halves to
+arm on their own, and now one of them is a button. It doesn't. The pair just
+changed partners: a pickup *leaves you holding something, stood at the thing it
+came off*, which is precisely the state `stock` arms in. So taking a board off
+a shelf put it straight back on the next tick, and taking a crate parked at the
+drop-off stowed it into a crate on the same tile.
+
+`p.tookFrom` is the latch, set in `errandAction` on a pickup that worked and
+cleared in `stepPlayers` once you are out of reach of the source — *away* means
+out of reach, for the same reason it did before, or a shuffle on the spot hands
+it back. It holds off exactly two things: stocking **that unit** (a neighbour
+still takes it, which is a real errand), and stowing at all while it is live.
+
+The general rule is the one the old latch already stated, and it survives the
+scheme that was supposed to remove the need for it: **two actions that undo each
+other and both arm by themselves will ping-pong, and making one of them explicit
+is not enough — what matters is the state the first one leaves you in.**
+
 ### Looking without going
 
 `camPan` is an offset added to `camTarget`, not a second camera — `camTarget` is

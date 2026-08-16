@@ -25,6 +25,14 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
 
+/**
+ * What this player has in their hands, off the snapshot — the same field the
+ * HUD prints "carrying 6x bread" from, because a second copy on this side is
+ * one that goes stale the tick somebody takes it off you.
+ */
+const carrying = (ui) => (ui.state?.players ?? [])
+  .find((p) => p.id === ui.net.myId)?.carry ?? null;
+
 /** How each kind of fixture shows up in its own menu. */
 const FIXTURE_ICON = {
   shelf: ICONS.shelf, freezer: ICONS.freezer, checkout: ICONS.checkout,
@@ -540,6 +548,10 @@ export function liveFixture(ui, f) {
 export function fixtureSignature(ui, f, live) {
   return JSON.stringify([f.id, f.rot, f.tier, live, ui.state?.cash?.toFixed(0),
     ui.ownedUpgrades?.length, ui.selectedCrop, ui._season,
+    // What is in your hands. Every board's Take button greys out while you are
+    // holding something else, so a menu blind to this would still be offering
+    // a pickup you cannot make — or refusing one you now can.
+    carrying(ui)?.item_id ?? null,
     // Which tab is showing. In here because a snapshot redraw rebuilds the
     // whole panel from this function's verdict, and a signature blind to the
     // tab would let the next tick repaint the menu on the tab you had just
@@ -573,13 +585,25 @@ function fixtureDetail(ui, f, live) {
     // unit holding three things has three prices, and one control at the top of
     // the panel could only ever have repriced one of them — silently, and not
     // necessarily the one you were looking at.
+    // What is already in your hands, which decides whether a board will give
+    // you any of what is on it. Read here rather than guessed at: the refusal
+    // is the server's, and a button that offers what it cannot deliver is
+    // worse than one that says why it can't.
+    const held = carrying(ui);
+
     const boardRows = stacks.map((k) => {
       const item = ui.itemById(k.item_id);
       const cap = item ? capOf(item) : null;
+      const clash = held && held.item_id !== k.item_id;
       return `<div class="fx-board">
         <div class="fx-line">
           <span>${esc(item?.name ?? k.item_id)}</span>
           <b>${k.qty}${cap ? ` / ${cap}` : ''}</b>
+          ${k.qty > 0 ? `<button class="fx-take" ${clash ? 'disabled' : `data-take="${esc(k.item_id)}"`}
+            title="${esc(clash
+              ? `Your hands are full of ${ui.itemName(held.item_id)}.`
+              : 'Go and take an armful off this board.')}"
+            aria-label="Take some">${ICONS.crate}</button>` : ''}
         </div>
         <div class="fx-price">
           <span>Price</span>
@@ -727,6 +751,14 @@ function wireFixtureMenu(ui, f, live) {
         ui.closePanel();
       }
     });
+  });
+
+  // Not through `withBuildMode`, unlike every verb in the foot: taking stock
+  // off a shelf is shopkeeping, not building, and the server gates it on
+  // standing there instead. The menu stays open — the count on this row is
+  // what tells you it worked, and it drops as you arrive.
+  ui.el.panelBody.querySelectorAll('[data-take]').forEach((el) => {
+    el.onclick = () => send('take', { shelfId: f.id, itemId: el.dataset.take });
   });
 
   ui.el.panelBody.querySelectorAll('[data-price]').forEach((el) => {

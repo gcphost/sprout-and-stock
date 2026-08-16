@@ -747,6 +747,22 @@ export function faceCam(obj) {
 }
 
 /**
+ * How big the charge ring is, in tiles — inner and outer radius.
+ *
+ * A quarter of what it was. At 0.42–0.60 it was 1.2 tiles across: wider than
+ * the person wearing it and wider than the shelf they were working, so the one
+ * thing you wanted to watch while an action ran was the thing the timer sat on
+ * top of. A charge meter is a glance, not a subject.
+ *
+ * An eighth was the first cut and read as a speck — the sweep is the whole
+ * point of a ring, and past a certain smallness you cannot tell a quarter full
+ * from a half. Proportions are kept either way; roughly 19px across at the
+ * default zoom.
+ */
+const RING_INNER = 0.105;
+const RING_OUTER = 0.15;
+
+/**
  * A radial charge-up meter that floats over whoever is mid-action. Built from
  * a ring geometry whose sweep we rewrite each frame, so it reads as filling up
  * rather than just changing colour.
@@ -755,14 +771,14 @@ export function buildProgressRing(color) {
   const g = new THREE.Group();
 
   const track = new THREE.Mesh(
-    new THREE.RingGeometry(0.42, 0.60, 32),
+    new THREE.RingGeometry(RING_INNER, RING_OUTER, 32),
     new THREE.MeshBasicMaterial({
       color: 0x3a3128, transparent: true, opacity: 0.35,
       side: THREE.DoubleSide, depthTest: false,
     }),
   );
   const fill = new THREE.Mesh(
-    new THREE.RingGeometry(0.42, 0.60, 32, 1, Math.PI / 2, 0.001),
+    new THREE.RingGeometry(RING_INNER, RING_OUTER, 32, 1, Math.PI / 2, 0.001),
     new THREE.MeshBasicMaterial({
       color: new THREE.Color(color), transparent: true,
       side: THREE.DoubleSide, depthTest: false,
@@ -786,7 +802,7 @@ export function setRingProgress(group, t) {
   const sweep = Math.max(0.001, Math.min(1, t) * Math.PI * 2);
   fill.geometry.dispose();
   // Sweep clockwise from the top, which is how every other progress ring reads.
-  fill.geometry = new THREE.RingGeometry(0.42, 0.60, 32, 1, Math.PI / 2 - sweep, sweep);
+  fill.geometry = new THREE.RingGeometry(RING_INNER, RING_OUTER, 32, 1, Math.PI / 2 - sweep, sweep);
 }
 
 const BAR_W = 0.62;

@@ -624,6 +624,19 @@
       width: 30px; height: 26px; font: inherit; font-weight: 800; cursor: pointer;
     }
     .fx-price button:hover { background: rgba(58,49,40,.18); }
+    /* Take an armful off this board. Only inside a board row, where the name
+       has to give up its share of the line so the count and the button can sit
+       together at the right — every other .fx-line is a two-column read-out. */
+    .fx-board .fx-line { align-items: center; }
+    .fx-board .fx-line span { flex: 1; }
+    .fx-take {
+      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 8px;
+      width: 26px; height: 22px; font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .fx-take:hover { background: rgba(58,49,40,.18); }
+    .fx-take:disabled { opacity: .25; cursor: default; background: transparent; }
+    .fx-take svg { display: block; }
     .fx-act { cursor: pointer; align-items: flex-start; }
     .fx-act:hover { background: rgba(58,49,40,.07); }
     .fx-act .bico { font-size: 14px; line-height: 1.2; width: 18px; text-align: center; }

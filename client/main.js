@@ -812,6 +812,24 @@ function tapAtPointer(cx, cy) {
     const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
     if (who?.hire) { showWorker(ui, who.hire); return; }
 
+    // A crate is a verb, and the only one on the shop floor that a tap fires
+    // directly. Everything else you point at either opens (a fixture, a hire)
+    // or is somewhere to stand — a pallet is neither. It has nothing to read
+    // and one thing to do, and until now that one thing happened to you for
+    // standing too close to it.
+    //
+    // Above the fixture check because a crate at the bay can sit on the same
+    // screen space as the shelving behind it, and the crate is the thing in
+    // front. Not gated on empty hands: topping up an armful from the same
+    // pallet is the common case, and a mismatch is the server's refusal to
+    // give, not a reason for the tap to do nothing.
+    const crate = ui.demolishArmed() ? null : scene.pickPallet(cx, cy);
+    if (crate) {
+      scene.ripple(crate.x, crate.z);
+      net.send('take', { palletId: crate.id });
+      return;
+    }
+
     // Aim at the thing, not the floor under it — `pickFixture` is the one that
     // answers "what am I pointing at" for a box drawn most of a tile up-screen
     // of the ground it stands on. The walk names the fixture rather than a

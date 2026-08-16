@@ -1051,18 +1051,18 @@ export class Game {
       // route down would read as the game ignoring you — and this is the whole
       // reason the two schemes can share a player: you take the wheel by
       // touching it, and there is never a moment where both are driving.
-      if (steering) p.path = null;
+      if (steering) { p.path = null; p.errand = null; }
       const walking = steering || p.path?.length > 0;
       if (!walking) continue;
 
-      // Walking away is what clears the "don't pick that straight back up"
-      // lock — and *away* has to mean out of reach, not one step. It used to
-      // clear on any movement at all, which was fine while a finger had to be
-      // on the button: you shuffled, and nothing happened until you pressed.
-      // With the charge running on its own, that same shuffle re-arms the
-      // pallet you are still stood on and you stow, pick up, stow, pick up,
-      // for as long as you stand there.
-      if (p.stowLock && !this.nearest(this.deliveries, p, UNLOAD_REACH)) p.stowLock = false;
+      // Walking away is what clears "don't put that straight back", and *away*
+      // has to mean out of reach of what you took it off. Anything less and a
+      // shuffle on the spot hands the armful back to the shelf you just took it
+      // from — which is the shape the old `stowLock` had, for the same reason:
+      // taking and putting back are opposites that both re-arm on their own, so
+      // one of them has to be held off until you have actually left.
+      // At the wider of the two reaches, so it outlives either rule arming.
+      if (p.tookFrom && !near(p, p.tookFrom, UNLOAD_REACH)) p.tookFrom = null;
 
       // A routed walk is the same mover customers and staff are: A* planned it
       // against `this.walk`, which is the grid `canStand` reads, so there is no
@@ -1112,9 +1112,13 @@ export class Game {
   // quarters of a second, so passing a ripe plot doesn't pick it and stopping
   // at one does.
   //
-  // What this does cost: anything that can pair with its own opposite now
-  // needs its latch to actually hold, because there is no finger to lift. See
-  // `stowLock` below and where it's cleared in `stepPlayers`.
+  // Taking things is the exception, and it is the same exception build mode
+  // is. Proximity can only ever offer the *nearest* pallet or the nearest
+  // shelf, which at a bay stacked three deep is not a choice anybody made —
+  // and a pickup you did not choose is worse than a missed one, because it
+  // fills your hands and every other action then refuses you. So `take` names
+  // its target, walks you to it, and the ring only starts once you arrive.
+  // See `errandAction`.
   // -------------------------------------------------------------------------
 
   stepActions(dt) {
@@ -1161,28 +1165,24 @@ export class Game {
     // proximity to decide.
     if (p.build?.on) return null;
 
+    // What you *asked for* outranks everything standing here would offer, and
+    // it is the only entry in this list that is not a guess about what you
+    // meant. See `errandAction`.
+    const named = this.errandAction(p);
+    if (named) return named;
+
     const till = this.nearest(this.layout.checkouts, p, 2.2);
     if (till?.queue?.length
         && till.queue.some((id) => this.customers[id]?.state === 'QUEUE')) {
       return { kind: 'serve', target: till.id, label: 'Serve', at: till, run: () => this.serve(p.id, till.id) };
     }
 
-    // At the bay: take goods off a pallet, or put down what you're holding.
-    // These are two halves of one spot, so which you get depends on whether
-    // your hands are free.
-    //
-    // `stowLock` is why this isn't just an if/else. Both actions re-arm the
-    // moment they finish, so putting an armful down next to a crate of the same
-    // thing would pick it straight back up, put it down, pick it back up —
-    // forever. Stowing therefore locks pickup until you walk out of reach of
-    // the goods, which is the same "leave to cancel" rule the ring already uses.
-    const pallet = this.nearest(this.deliveries, p, UNLOAD_REACH);
-    const canTake = pallet && !p.stowLock
-      && (!p.carry || (p.carry.item_id === pallet.item_id && p.carry.qty < this.carryCapacity()));
-    if (canTake) {
-      return { kind: 'unload', target: pallet.id, label: 'Unload', at: pallet, run: () => this.unload(p.id, pallet.id) };
-    }
-    if (p.carry && this.onPad(p, this.dropPadKind())) {
+    // Putting an armful down is the end of an errand rather than the start of
+    // one, so the pad still does it for you — but not the armful you just
+    // picked up off this very pad. `tookFrom` is why: a crate parked at the
+    // drop-off is a crate you are standing on, so tapping it filled your hands
+    // and the next tick emptied them again into a crate in the same spot.
+    if (p.carry && !p.tookFrom && this.onPad(p, this.dropPadKind())) {
       return {
         kind: 'stow', target: 'drop', label: 'Put back', time: ACTION_TIMES.stow, at: this.dropPad(),
         run: () => this.stow(p.id),
@@ -1199,9 +1199,15 @@ export class Game {
       }
     }
 
+    // Walking up to a shelf with an armful still stocks it — that is the whole
+    // "one tap does the errand" scheme and it stays. What it must not do is
+    // stock the shelf you are stood at *because you just took this off it*:
+    // taking re-arms stocking instantly, so a board emptied by hand refilled
+    // itself before you could turn round. Only that unit is held back, so an
+    // armful lifted off one shelf can still go straight onto its neighbour.
     if (p.carry) {
       const shelf = this.nearest(this.layout.shelves, p, REACH, (s) => s.browseAt);
-      if (shelf && this.shelfAccepts(shelf, p.carry.item_id)) {
+      if (shelf && shelf.id !== p.tookFrom?.id && this.shelfAccepts(shelf, p.carry.item_id)) {
         return { kind: 'stock', target: shelf.id, label: 'Stock', at: shelf, run: () => this.stockShelf(p.id, shelf.id) };
       }
     }
@@ -1231,6 +1237,88 @@ export class Game {
       // decision.
     }
     return null;
+  }
+
+  /**
+   * The pickup you named, once you are close enough to make it.
+   *
+   * An errand is a target and nothing else — no progress, no timer. It arms
+   * the ordinary charge when you get there, so a pickup looks and cancels
+   * exactly like every other action: the ring winds in, the crate lights up,
+   * and walking off before it closes throws it away. What the naming buys is
+   * that it is *that* crate and *that* board, rather than whichever happened
+   * to be nearest a pair of feet.
+   *
+   * It is spent whether or not it worked — a refusal ("hands full of something
+   * else") must not sit here retrying every tick against the same full hands.
+   * And the refusal is *said*: this is the one action in the game somebody
+   * asked for by name, so a silent no is a button that looks broken.
+   *
+   * A pickup that worked leaves `tookFrom` behind, which is what stops the
+   * shop putting it straight back. See `stepPlayers`, where it is cleared.
+   */
+  errandAction(p) {
+    const e = p.errand;
+    if (!e) return null;
+
+    const attempt = (from, fn) => {
+      p.errand = null;
+      const res = fn();
+      if (!res.ok) { this.pushLog(res.error); return res; }
+      p.tookFrom = { id: from.id, x: from.x, z: from.z };
+      return res;
+    };
+
+    if (e.kind === 'unload') {
+      const del = this.deliveries.find((d) => d.id === e.id);
+      // Somebody else got there first, or a stocker tidied it away. There is
+      // nothing left to walk to, so stop pointing at it.
+      if (!del) { p.errand = null; return null; }
+      if (!near(p, del, UNLOAD_REACH)) return null;
+      return {
+        kind: 'unload', target: del.id, label: 'Take it', at: del,
+        run: () => attempt(del, () => this.unload(p.id, del.id)),
+      };
+    }
+
+    const shelf = this.layout.shelves.find((s) => s.id === e.id);
+    if (!shelf) { p.errand = null; return null; }
+    if (!near(p, shelf)) return null;
+    return {
+      kind: 'take', target: shelf.id, label: 'Take it', at: shelf,
+      run: () => attempt(shelf, () => this.unshelve(p.id, shelf.id, e.itemId)),
+    };
+  }
+
+  /**
+   * Say what you are going to pick up, and set off to get it.
+   *
+   * One verb for both, because a crate and a shelf board are the same errand
+   * with a different address: go there, fill your hands from that pile. The
+   * walk is part of it — a menu button that filled your arms from across the
+   * shop would be the supplier-as-vending-machine bug again (see `buyStock`),
+   * where the shop floor stops mattering because the goods come to you.
+   */
+  take(playerId, { palletId = null, shelfId = null, itemId = null } = {}) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+
+    const target = palletId
+      ? this.deliveries.find((d) => d.id === palletId)
+      : this.layout.shelves.find((s) => s.id === shelfId);
+    if (!target) return err('nothing there to take');
+
+    // Refused *before* the errand is set, so a shelf behind a wall you have not
+    // put a door in yet leaves you where you stand with nothing pending, rather
+    // than committed to a walk that never happens.
+    const spot = target.browseAt ?? target;
+    const walk = this.walkTo(playerId, spot.x, spot.z);
+    if (!walk.ok) return walk;
+
+    p.errand = palletId
+      ? { kind: 'unload', id: palletId }
+      : { kind: 'take', id: shelfId, itemId };
+    return ok({ walking: walk.steps });
   }
 
   /** Would this shelf take that item right now? */
@@ -1556,6 +1644,9 @@ export class Game {
   walkTo(id, x, z) {
     const p = this.players[id];
     if (!p) return err('no such player');
+    // Going somewhere else is changing your mind about the pickup you named.
+    // `take` sets its errand *after* calling this, so it survives its own walk.
+    p.errand = null;
     const goal = { x: Math.round(x), z: Math.round(z) };
     if (!this.pathTo(p, goal)) {
       p.path = null;
@@ -2101,8 +2192,6 @@ export class Game {
     const { item_id: itemId, qty } = p.carry;
     this.dropGoods(itemId, qty, this.dropPad());
     p.carry = null;
-    // Don't hand it straight back — see the note in actionFor.
-    p.stowLock = true;
     const name = content().byId.items[itemId]?.name ?? itemId;
     this.pushLog(`${qty}x ${name} put back in a crate at the drop-off.`);
     return ok({ stowed: qty, item_id: itemId });
@@ -2370,6 +2459,49 @@ export class Game {
     p.carry = { item_id: del.item_id, qty: have + take };
     if (del.qty <= 0) this.deliveries = this.deliveries.filter((d) => d.id !== del.id);
     return ok({ unloaded: take, item_id: del.item_id, left: del.qty });
+  }
+
+  /**
+   * Take an armful off one of a shelf's boards.
+   *
+   * `unshelve` because `takeFromShelf` is already taken — by a *shopper*
+   * putting one in their basket, which is a different act with the same English
+   * name. This one pairs with the `shelve` job instead, which is the thing it
+   * undoes.
+   *
+   * The other direction of `stockShelf`, and the answer to a shop where the
+   * only way to get goods back off a shelf was to tip the whole unit onto the
+   * floor. One board, because a unit holds three kinds and "empty it" already
+   * covers meaning all of them.
+   *
+   * An emptied board keeps its label. A stack at zero is what a shelf
+   * *remembers* — it is why an empty shelf can be relabelled but a stocked one
+   * cannot — so clearing it here would quietly hand a reserved board back to
+   * whatever the next delivery happened to be. Taking the labels off is its own
+   * row in the menu.
+   */
+  unshelve(playerId, shelfId, itemId) {
+    const p = this.players[playerId];
+    const shelf = this.layout.shelves.find((s) => s.id === shelfId);
+    if (!p || !shelf) return err('no such shelf');
+    if (!near(p, shelf)) return err('too far from that shelf');
+
+    const stack = this.shelfStack(shelf, itemId);
+    if (!stack || stack.qty <= 0) return err('nothing on that board');
+
+    const item = content().byId.items[itemId];
+    if (p.carry && p.carry.item_id !== itemId) {
+      const held = content().byId.items[p.carry.item_id]?.name ?? p.carry.item_id;
+      return err(`hands full of ${held} — put it down first`);
+    }
+    const have = p.carry?.qty ?? 0;
+    const take = Math.min(stack.qty, this.carryCapacity() - have);
+    if (take <= 0) return err('hands full');
+
+    stack.qty -= take;
+    p.carry = { item_id: itemId, qty: have + take };
+    this.pushLog(`Took ${take}x ${item?.name ?? itemId} off ${shelf.id}.`);
+    return ok({ took: take, item_id: itemId, left: stack.qty });
   }
 
   stockShelf(playerId, shelfId) {
