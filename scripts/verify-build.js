@@ -1096,6 +1096,52 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 }
 
 // ---------------------------------------------------------------------------
+// Rotate reaches all four angles, including in a corner.
+//
+// The second half of the same bug, and the one you actually feel. `rotate` used
+// to skip ahead to the first facing that drew no warning, which was sane while
+// a warned facing was fatal — and meant that in a corner, where nearly every
+// facing is warned, it found the same one or two clean angles and cycled
+// between them forever. Measured before the fix: six presses gave 1, 0, 1, 0,
+// 1, 0. Half the angles were unreachable, and from the outside that reads as a
+// shelf refusing to turn the way you are asking rather than as a rule.
+//
+// Asserted as the SEQUENCE rather than as a set, because "can it reach rot 2"
+// would pass on a tool that jumps straight there — and one quarter turn per
+// press is the thing being claimed.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  g.setBuildMode('me', true, 'shelf');
+  const L = g.layout;
+  // A corner: the browsing spot is against a wall on most facings, so most
+  // facings warn. That is what made this reachable-in-theory only.
+  let id = g.placeFixture('me', { kind: 'shelf', x: L.store.x, z: L.store.z, rot: 0 }).placed;
+  check(!!id, 'a shelf goes in the corner');
+
+  const forward = [];
+  for (let i = 0; i < 5; i++) {
+    const r = g.rotateFixture('me', id, 1);
+    if (!r.ok) { forward.push(`ERR ${r.error}`); break; }
+    id = r.rotated;
+    forward.push(r.rot);
+  }
+  eq(forward.join(','), '1,2,3,0,1', 'rotating turns one quarter at a time, all the way round');
+
+  const back = [];
+  for (let i = 0; i < 4; i++) {
+    const r = g.rotateFixture('me', id, -1);
+    if (!r.ok) { back.push(`ERR ${r.error}`); break; }
+    id = r.rotated;
+    back.push(r.rot);
+  }
+  eq(back.join(','), '0,3,2,1', 'and the other way is the same four angles in reverse');
+
+  check(!!g.layout.shelves.find((s) => s.id === id),
+    'and the shelf is still standing after nine turns');
+}
+
+// ---------------------------------------------------------------------------
 
 function findFreeFloor(g, ignoreId = null) {
   const L = g.layout;

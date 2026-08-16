@@ -12,6 +12,7 @@
 
 import { FIXTURES, FIXTURE_REFUND } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
+import { requiredFixture } from '../shared/tags.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
 
@@ -82,6 +83,18 @@ export function showFixture(ui, f) {
     parts.push(asRows(seeds));
   }
 
+  // Anything that holds stock gets the same treatment a bed gets: what goes in
+  // it is decided at the thing itself. A shelf's answer is a standing one
+  // rather than a single sowing, so it also gets to say how eagerly the shop
+  // keeps that promise — which is the difference between "we sell milk here"
+  // and "we are never out of milk".
+  if (kind === 'shelf' || kind === 'freezer') {
+    parts.push(`<div class="sep">${live?.assigned ? 'This one is kept for' : 'Keep it for'}</div>`);
+    parts.push(asRows(stockRows(ui, f, live)));
+    parts.push('<div class="sep">When it gets refilled</div>');
+    parts.push(asRows(priorityRows(ui, f, live)));
+  }
+
   parts.push('<div class="sep">Do something with it</div>');
   parts.push(act('move', ICONS.move, 'Move it',
     'Picks it up with everything on it. Nothing shifts until you set it down.'));
@@ -126,8 +139,13 @@ export function showFixture(ui, f) {
   if (holds.n > 0) {
     parts.push(act('empty', ICONS.empty, 'Empty it', holds.blurb, { right: `${holds.n}` }));
   } else if ((kind === 'shelf' || kind === 'freezer') && live?.item_id) {
+    // A label is what was last on it; what it is *kept* for is the section
+    // above and survives this. Saying "anything can go on" while the shelf is
+    // set aside for milk would be the menu contradicting itself.
     parts.push(act('empty', ICONS.label, 'Take the label off',
-      `Still reserved for ${ui.itemName(live.item_id)}. Clear it and anything can go on.`));
+      live.assigned
+        ? `Last held ${ui.itemName(live.item_id)}. It stays kept for ${ui.itemName(live.assigned)}.`
+        : `Still labelled ${ui.itemName(live.item_id)}. Clear it and anything can go on.`));
   }
 
   parts.push(act('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
@@ -158,6 +176,82 @@ function styleRows(ui, f) {
     run: v.id === here ? null : () => ui.withBuildMode(() => {
       ui.net.send('build-style', { id: f.id, variant: v.id });
     }),
+  }));
+}
+
+/**
+ * Every item this fixture could be kept for, as pickable rows.
+ *
+ * The list is what a *freezer* is for or what a *shelf* is for, never both, and
+ * that is the rule `assignShelf` enforces rather than the looser one your own
+ * hands get. You may stand a loaf in a freezer by hand; reserving one for bread
+ * is an instruction no stocker will ever carry out, and a row that can only
+ * ever error is worse than a row that isn't there.
+ */
+function stockRows(ui, f, live) {
+  const freezer = f.kind === 'freezer';
+  const kept = live?.assigned ?? null;
+  // Where else this is already spoken for — so nobody reserves the same thing
+  // on three shelves and wonders why two of them stay empty.
+  const elsewhere = new Set((ui.state?.shelves ?? [])
+    .filter((s) => s.id !== f.id && s.assigned)
+    .map((s) => s.assigned));
+  // What this particular unit would hold of it, tier included: "12x" on a shelf
+  // you have upgraded twice is the number that shelf actually takes.
+  const capMult = tiersOf(ui, f)[tierOf(ui, f) - 1]?.capacity_mult ?? 1;
+
+  const rows = (ui.catalog.items ?? [])
+    .filter((it) => (requiredFixture(it) === 'freezer') === freezer)
+    .map((it) => ({
+      icon: ICONS.crate,
+      name: it.name,
+      sub: kept === it.id
+        ? 'kept for this — staff refill it with nothing else'
+        : (elsewhere.has(it.id)
+          ? 'another shelf is already kept for this'
+          : (it.tags ?? []).join(', ')),
+      right: `${Math.max(1, Math.floor((it.stack ?? 1) * capMult))}×`,
+      picked: kept === it.id,
+      dim: kept !== it.id && elsewhere.has(it.id),
+      run: kept === it.id ? null
+        : () => ui.net.send('assign', { shelfId: f.id, itemId: it.id }),
+    }));
+
+  // Handing it back, at the top — and only once there is something to hand
+  // back, because "anything at all" is what a shelf already is by default.
+  if (kept) {
+    rows.unshift({
+      icon: ICONS.label,
+      name: 'Anything at all',
+      sub: 'Stop keeping it for one thing. Staff fill it with whatever sells.',
+      run: () => ui.net.send('assign', { shelfId: f.id, itemId: null }),
+    });
+  }
+  return rows;
+}
+
+/**
+ * Where this shelf sits in the queue when the van goes out.
+ *
+ * Three steps rather than a number, because the only thing anyone wants to say
+ * is which end of the queue this goes on — a shop of eleven shelves each
+ * holding its own integer is a spreadsheet, not a decision.
+ */
+const PRIORITIES = [
+  { at: 1, name: 'Fill this one first', sub: 'Ahead of every other shelf that is running low.' },
+  { at: 0, name: 'As it comes', sub: 'Emptiest shelf first, like everything else.' },
+  { at: -1, name: 'Fill it last', sub: 'Only once nothing else needs filling.' },
+];
+
+function priorityRows(ui, f, live) {
+  const at = live?.priority ?? 0;
+  return PRIORITIES.map((p) => ({
+    icon: ICONS.supplier,
+    name: p.name,
+    sub: p.sub,
+    picked: p.at === at,
+    run: p.at === at ? null
+      : () => ui.net.send('restock-order', { shelfId: f.id, priority: p.at }),
   }));
 }
 
@@ -237,7 +331,11 @@ export function liveFixture(ui, f) {
 /** Everything the open menu draws from, so it can redraw when any of it moves. */
 export function fixtureSignature(ui, f, live) {
   return JSON.stringify([f.id, f.rot, f.tier, live, ui.state?.cash?.toFixed(0),
-    ui.ownedUpgrades?.length, ui.selectedCrop, ui._season]);
+    ui.ownedUpgrades?.length, ui.selectedCrop, ui._season,
+    // What every *other* shelf is kept for. This menu says which items are
+    // already spoken for elsewhere, so it has to redraw when somebody else
+    // spoke for one — `live` is only ever this shelf's own row.
+    (ui.state?.shelves ?? []).map((s) => s.assigned ?? '').join(',')]);
 }
 
 /** The read-out at the top: what this particular thing is doing right now. */
@@ -246,10 +344,17 @@ function fixtureDetail(ui, f, live) {
 
   if (f.kind === 'shelf' || f.kind === 'freezer') {
     const item = live?.item_id ? ui.itemById(live.item_id) : null;
-    const cap = item?.stack ?? null;
+    // The stack times what this unit's tier multiplies it by, which is what the
+    // server actually enforces. Reading `stack` alone said 12/12 on a shelf
+    // that would happily take six more — so the capacity you had paid for read
+    // as full, and the rows below would have disagreed with the line above.
+    const capMult = tiersOf(ui, f)[tierOf(ui, f) - 1]?.capacity_mult ?? 1;
+    const cap = item ? Math.max(1, Math.floor(item.stack * capMult)) : null;
     return `<div class="fx-detail">
       ${line('Holding', item ? item.name : '<i>nothing</i>')}
       ${line('Stock', cap ? `${live.qty} / ${cap}` : `${live?.qty ?? 0}`)}
+      ${live?.assigned ? line('Kept for', ui.itemName(live.assigned)) : ''}
+      ${live?.priority ? line('Refilled', live.priority > 0 ? 'first' : 'last') : ''}
       ${item ? `<div class="fx-price">
         <span>Price</span>
         <button data-price="-1">−</button>

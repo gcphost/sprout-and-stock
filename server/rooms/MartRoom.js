@@ -199,6 +199,19 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.setPrice(m?.shelfId, Number(m?.price)));
     });
 
+    // What a shelf is for, and where it sits in the restock queue. Both are
+    // sent from the fixture menu but neither is a `build-` verb: deciding what
+    // goes on a shelf is a choice about stock, like sowing a bed, so — like
+    // `sow` above — it needs no build mode and carries no gate.
+    this.onMessage('assign', (client, m) => {
+      client.send('action-result',
+        this.game.assignShelf(client.sessionId, m?.shelfId, m?.itemId ?? null));
+    });
+
+    this.onMessage('restock-order', (client, m) => {
+      client.send('action-result', this.game.setRestockPriority(m?.shelfId, m?.priority));
+    });
+
     this.onMessage('buy-upgrade', (client, m) => {
       const res = this.game.buyUpgrade(m?.upgradeId);
       client.send('action-result', res);

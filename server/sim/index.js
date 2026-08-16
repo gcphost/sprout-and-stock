@@ -2615,15 +2615,35 @@ export class Game {
     if (!FIXTURES[f.kind]?.rotates) return err('that does not face anywhere');
 
     const step = Number(dir) < 0 ? 3 : 1;
-    // Every facing is legal now that walling something in is your business, so
-    // this is about which one you *meant*: take the next quarter turn that
-    // leaves it usable, and only fall back to a facing that doesn't if all
-    // three would. Turning it should not silently make it useless, but nor
-    // should it refuse to turn.
+    /**
+     * One quarter turn, and then the next one, in order.
+     *
+     * This used to skip ahead to the first facing that drew no *warning* —
+     * "turning it should not silently make it useless" — and that was a
+     * workaround for a bug rather than a feature. A warned facing used to be
+     * fatal: the generator dropped the placement on the next re-flow, so
+     * avoiding warned facings was the only way a rotation could survive at all.
+     *
+     * The cost of that workaround is that you cannot reach the angle you want.
+     * In a corner almost every facing is warned — the browsing spot is against
+     * a wall — so rotate found the same one or two clean facings every time and
+     * cycled between them forever. Measured on a corner shelf: six presses gave
+     * 1, 0, 1, 0, 1, 0. Two of the four angles were simply unreachable, which
+     * is not something you can tell from the outside; it reads as the shelf
+     * refusing to turn the way you are asking.
+     *
+     * With warned placements honoured (see `compose` in server/layout.js), a
+     * facing you were warned about is a facing you can have. So this steps one
+     * quarter turn, every time, and the warning rides back to say what it cost.
+     * Which side a shelf faces is a decision about how your shop looks as much
+     * as how it works, and that decision is yours.
+     */
     const tries = [1, 2, 3].map((i) => rot4((f.rot ?? 0) + step * i));
     const spec = (rot) => ({ kind: f.kind, station: f.station ?? null, x: f.x, z: f.z, rot });
-    const clean = tries.find((rot) => !canPlace(this.layout, { ...spec(rot), id }, { ignoreId: id }).warn);
-    for (const rot of clean != null ? [clean, ...tries] : tries) {
+    // Still a list rather than a single turn, because a rotation can be refused
+    // outright — a till whose serving spot is already claimed by another till.
+    // That is physics, and stepping over it beats refusing to turn.
+    for (const rot of tries) {
       const res = this.repositionFixture(id, spec(rot));
       if (res.ok) return ok({ rotated: res.id, rot });
     }

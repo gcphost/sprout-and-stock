@@ -674,8 +674,13 @@ const total = (contents) => Object.values(contents ?? {}).reduce((a, b) => a + b
  * `restock`, `unload` and `shelve` all rest on this, so losing it costs you
  * every job that touches a shelf at once — and `stepStaff` swallows a throw per
  * job, so it costs them silently. See the note on that catch.
+ *
+ * Exported for `verify-build`, which is the only caller outside this file. It
+ * is a second implementation of "where may this go" alongside `shelfAccepts`,
+ * and the two disagreeing is invisible from any screenshot: a shelf you set
+ * aside would simply get filled with something else by somebody you employ.
  */
-function shelfFor(game, itemId, c) {
+export function shelfFor(game, itemId, c) {
   const item = c.byId.items[itemId];
   if (!item) return null;
   const needsFreezer = item.tags.includes('needs-freezer') || item.tags.includes('frozen');
@@ -705,7 +710,11 @@ function shelfFor(game, itemId, c) {
 /** Best unstocked item for an empty shelf: margin weighted by who wants it. */
 function pickItem(game, shelf, c) {
   const folded = game.folded();
-  const already = new Set(game.layout.shelves.map((sh) => sh.item_id).filter(Boolean));
+  // Reservations count as "already stocked" even where the shelf is still bare.
+  // Choosing for a free shelf is a choice about the *range*, and something
+  // another shelf is being kept for is already in it.
+  const already = new Set(game.layout.shelves
+    .flatMap((sh) => [sh.item_id, sh.assigned]).filter(Boolean));
 
   const crafted = new Set(c.recipes.map((r) => r.output_id));
 
