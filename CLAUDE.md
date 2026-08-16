@@ -335,6 +335,17 @@ what the next step was meant to be.
   still refuse a warning is the layout generator, which is why
   `canPlaceCleanly` exists: a procedurally furnished shop nobody can walk
   through is a bug, not a choice. `verify-build` uses it for the same reason.
+- **…and the generator has to honour a warning it did not issue.** `compose`
+  re-judged *player* placements with `canPlaceCleanly`, so anything you were
+  warned about was accepted by `placeFixture`, charged for, and then dropped on
+  the re-flow that same call triggers. The refund came back in full, which is
+  why it never read as an error — what you lost was the fixture and its stock,
+  and what you saw was a shelf vanishing as you turned it. Rotation was the
+  worst of it: `rotateFixture` deliberately settles for a warned facing when all
+  three are warned, so a unit in a corner had no angle that could survive. The
+  rule is that `canPlaceCleanly` belongs to callers building *unattended* — the
+  generator furnishing its own loops, the balance bot — and never to a fixture
+  somebody positioned by hand after being told what it would cost.
 - **A variant is a look; a tier is a number.** Both are content on the same
   `fixtures` row, and the split is structural rather than a convention anyone
   has to remember: a variant carries only a `model`, while `tiers` is one

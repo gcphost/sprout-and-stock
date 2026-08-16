@@ -83,6 +83,7 @@ const CASH_MIN_LIFE = 3.5;     // seconds a pile stays put so you can see it
 const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
 const BAY_REACH = 2.2;         // the loading pad is 2x2, so reach from its middle
 const ACTION_TIME = 1.0;       // seconds of standing still before an action fires
+const RESTOCK_THIN = 2;        // at or below this many, a shelf is worth a van — see restockQueue
 
 /**
  * MOOD.
@@ -466,10 +467,15 @@ export class Game {
       // untouched, which is exactly why it read as a mystery rather than a
       // reload. Keyed by fixture id, the same key `carryOver` re-homes stock on
       // during a re-flow.
+      // A shelf with nothing on it is still worth saving once it has been set
+      // aside for something: the reservation is the half a restart would
+      // otherwise quietly drop, and it would present as the stocker refilling
+      // your freezer aisle with whatever it fancied.
       stock: this.layout.shelves
-        .filter((s) => s.item_id)
+        .filter((s) => s.item_id || s.assigned || s.priority)
         .map((s) => ({
           id: s.id, item_id: s.item_id, qty: s.qty, price: s.price, stockedDay: s.stockedDay ?? 0,
+          assigned: s.assigned ?? null, priority: s.priority ?? 0,
         })),
       crops: this.layout.plots
         .filter((p) => p.crop_id || p.soil !== 'untilled')
@@ -501,6 +507,8 @@ export class Game {
       shelf.qty = row.qty;
       shelf.price = row.price;
       shelf.stockedDay = row.stockedDay ?? 0;
+      shelf.assigned = row.assigned ?? null;
+      shelf.priority = row.priority ?? 0;
     }
     for (const row of crops ?? []) {
       const plot = this.layout.plots.find((p) => p.id === row.id);
@@ -644,6 +652,11 @@ export class Game {
       })),
       shelves: this.layout.shelves.map((s) => ({
         id: s.id, item_id: s.item_id, qty: s.qty, price: r2(s.price), kind: s.kind,
+        // What it is *for* and where it sits in the restock queue. Both ride the
+        // snapshot rather than the layout, because they change while the shop
+        // stands still — a menu reading them off the layout would show the shelf
+        // you set aside ten seconds ago as still taking anything.
+        assigned: s.assigned ?? null, priority: s.priority ?? 0,
       })),
       plots: this.layout.plots.map((p) => ({
         id: p.id, crop_id: p.crop_id, growth: r2(this.plotGrowth(p)), ready: p.ready,
@@ -834,6 +847,9 @@ export class Game {
       if (age > effLife) {
         const lost = shelf.qty;
         shelf.qty = 0;
+        // The label goes; the reservation stays. Binning a shelf of milk is not
+        // a decision to stop selling milk there — leaving `assigned` alone is
+        // what sends the stocker back with more of it.
         shelf.item_id = null;
         this.stats.spoiled += lost;
         this.pushLog(`${lost}x ${item.name} spoiled and was binned.`);
@@ -1053,8 +1069,29 @@ export class Game {
     const item = content().byId.items[itemId];
     if (!item) return false;
     if (requiredFixture(item) === 'freezer' && shelf.kind !== 'freezer') return false;
+    // A reservation binds even when the shelf is bare — that is the whole
+    // difference between it and the label below.
+    if (shelf.assigned && shelf.assigned !== itemId) return false;
     if (shelf.item_id && shelf.qty > 0 && shelf.item_id !== itemId) return false;
     return shelf.qty < this.shelfCapacity(shelf, item);
+  }
+
+  /**
+   * Which shelves want stock, most urgent first.
+   *
+   * The rule lives here rather than inside the stocker's job because it is a
+   * rule about the shop — it is what the player set when they marked a shelf —
+   * and a second copy of it in `staff.js` would be the half that quietly
+   * disagreed with the menu.
+   *
+   * Priority sorts *before* emptiness rather than adjusting it. "Fill this one
+   * first" is a decision about which shelf gets the next van, not a claim that
+   * a shelf with four on it is somehow emptier than a shelf with one.
+   */
+  restockQueue() {
+    return this.layout.shelves
+      .filter((s) => s.qty <= RESTOCK_THIN)
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.qty - b.qty);
   }
 
   /**
@@ -1827,6 +1864,12 @@ export class Game {
     if (fixture === 'freezer' && shelf.kind !== 'freezer') {
       return err(`${item.name} needs a freezer`);
     }
+    // A reservation refuses your hands too, and says how to take it back —
+    // otherwise the shelf you set aside this morning reads as broken tonight.
+    if (shelf.assigned && shelf.assigned !== p.carry.item_id) {
+      const want = content().byId.items[shelf.assigned]?.name ?? shelf.assigned;
+      return err(`that shelf is set aside for ${want} — change it in the shelf's menu`);
+    }
     // An empty shelf can be relabelled to anything — only a shelf with stock
     // still on it is "claimed". Without this, farm produce has nowhere to go
     // once every shelf has been labelled by a previous delivery.
@@ -1857,6 +1900,73 @@ export class Game {
     if (!shelf) return err('no such shelf');
     shelf.price = Math.max(0, round2(price));
     return ok({ price: shelf.price });
+  }
+
+  /**
+   * Say what a shelf is *for*, whether or not anything is on it yet.
+   *
+   * `item_id` is what is physically on the shelf, and it is set by whoever last
+   * put something there — a delivery, a harvest, a stocker with their hands
+   * full. That is exactly why an empty one can be relabelled (see `stockShelf`):
+   * a leftover label is a record of what happened, not a decision, and treating
+   * it as one strands farm produce the day every shelf has been claimed once.
+   *
+   * `assigned` is the other half — a decision somebody made. So it binds, it
+   * survives the shelf selling out and spoiling, and it is what the stocker
+   * refills with instead of picking for themselves. Two fields rather than one
+   * flag on `item_id`, because "there is milk on this" and "milk goes here" stop
+   * agreeing the moment the last carton sells.
+   *
+   * Not gated on build mode: this is a choice about stock, like sowing a bed,
+   * not construction.
+   */
+  assignShelf(playerId, shelfId, itemId) {
+    const shelf = this.layout.shelves.find((s) => s.id === shelfId);
+    if (!shelf) return err('no such shelf');
+
+    // Handing it back is always allowed — "anything at all" cannot fail.
+    if (!itemId) {
+      if (!shelf.assigned) return err('that shelf already takes anything');
+      shelf.assigned = null;
+      this.pushLog(`${shelf.id} takes anything again.`);
+      return ok({ assigned: null, shelf: shelf.id });
+    }
+
+    const item = content().byId.items[itemId];
+    if (!item) return err('no such item');
+
+    // The rule here is the one the *staff* work to, not the looser one your own
+    // hands get. By hand you may stand a loaf in a freezer if you like; a
+    // reservation is an instruction to the shop, and one nobody will ever carry
+    // out is worse than none at all — the shelf just sits empty for ever.
+    const frozen = requiredFixture(item) === 'freezer';
+    if (frozen && shelf.kind !== 'freezer') return err(`${item.name} needs a freezer`);
+    if (!frozen && shelf.kind === 'freezer') return err(`${item.name} doesn't need freezing`);
+
+    // Stock already on it that isn't this is the one refusal. Relabelling under
+    // a full shelf would leave goods sitting somewhere nothing will top up.
+    if (shelf.qty > 0 && shelf.item_id && shelf.item_id !== itemId) {
+      const held = content().byId.items[shelf.item_id]?.name ?? shelf.item_id;
+      return err(`empty the ${held} off it first`);
+    }
+
+    shelf.assigned = itemId;
+    this.pushLog(`${shelf.id} is set aside for ${item.name}.`);
+    return ok({ assigned: itemId, shelf: shelf.id });
+  }
+
+  /**
+   * Which shelf the next van fills. -1 last, 0 as it comes, 1 first.
+   *
+   * Three steps rather than a number you type, because the only thing anybody
+   * wants to say is which end of the queue this goes on, and a shop of eleven
+   * shelves each holding its own integer is a spreadsheet.
+   */
+  setRestockPriority(shelfId, priority) {
+    const shelf = this.layout.shelves.find((s) => s.id === shelfId);
+    if (!shelf) return err('no such shelf');
+    shelf.priority = Math.sign(Math.trunc(Number(priority) || 0));
+    return ok({ priority: shelf.priority, shelf: shelf.id });
   }
 
   /**
@@ -2181,7 +2291,14 @@ export class Game {
     return err('nothing to empty there');
   }
 
-  /** Take a shelf's stock off it and hand the shelf back unlabelled. */
+  /**
+   * Take a shelf's stock off it and hand the shelf back unlabelled.
+   *
+   * Unlabelled, not unreserved: `assigned` and `priority` deliberately survive.
+   * Emptying a shelf is nearly always the first half of restocking it, and a
+   * clear-out that also forgot what the shelf was for would mean re-choosing it
+   * every time. Handing it back to "anything" is its own choice, in its own row.
+   */
   stripShelf(playerId, shelfId) {
     const p = this.players[playerId];
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
@@ -3039,12 +3156,25 @@ export class Game {
       (from, to) => from.station === to.station);
 
     carryOver(layout.shelves, oldShelves, alias,
-      ['item_id', 'qty', 'price', 'stockedDay'],
+      ['item_id', 'qty', 'price', 'stockedDay', 'assigned', 'priority'],
       (from, to) => {
         // Don't move freezer-only goods onto a normal shelf.
         const item = from.item_id ? c.byId.items[from.item_id] : null;
         return !(item && requiredFixture(item) === 'freezer' && to.kind !== 'freezer');
       });
+
+    // A reservation that landed on the wrong kind of unit is dropped, not
+    // carried. It has to be a sweep afterwards rather than another clause in
+    // the predicate above: failing that test skips *every* key, so refusing the
+    // row over a bad reservation would destroy the goods on it to save the
+    // label. Clearing it costs the player a choice they can remake; the other
+    // way round costs them a shelf full of stock.
+    for (const s of layout.shelves) {
+      const want = s.assigned ? c.byId.items[s.assigned] : null;
+      if (want && (requiredFixture(want) === 'freezer') !== (s.kind === 'freezer')) {
+        s.assigned = null;
+      }
+    }
 
     // `yield` rides along or a re-flow would hand the bed a different harvest
     // than the one it has been drawing.

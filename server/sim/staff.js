@@ -488,11 +488,17 @@ function serve(game, s) {
 }
 
 /**
- * Order wholesale for the emptiest shelf.
+ * Order wholesale for whichever shelf wants it most.
  *
  * Refuses while there is a pallet at the bay it could be unloading instead —
  * ordering on top of stock already on the floor is how a shop ends up with the
  * whole delivery bay full and the shelves still bare.
+ *
+ * It walks the queue rather than taking the head on faith, for the reason the
+ * balance bot's spend queue does: one shelf that cannot be ordered for — set
+ * aside for something the shop can't afford this minute, or for an item content
+ * has since deleted — would otherwise wedge restocking permanently, and nothing
+ * about a shop that quietly stopped ordering says why.
  */
 function restock(game, s) {
   if (s.carry) return false;
@@ -502,24 +508,29 @@ function restock(game, s) {
   const budget = (game.cash - CASH_FLOOR) * SPEND_FRACTION;
   if (budget <= 0) return false;
 
-  // The emptiest shelf first — an empty shelf is a customer walking out.
-  const target = game.layout.shelves
-    .filter((sh) => sh.qty <= 2)
-    .sort((a, b) => a.qty - b.qty)[0];
-  if (!target) return false;
+  // The order the shop asks for. `restockQueue` is the sim's rule, not this
+  // job's: it is what the player set in the shelf menu, and a second copy of it
+  // here is the one that would drift from what the menu promised.
+  for (const target of game.restockQueue()) {
+    // What it is set aside for beats what happens to be on it, which beats
+    // picking for yourself. An assignment is the whole point of assigning — a
+    // shelf reserved for milk is never restocked with anything else, even when
+    // something else would sell better.
+    const item = c.byId.items[target.assigned ?? target.item_id]
+      ?? (target.assigned ? null : pickItem(game, target, c));
+    if (!item) continue;
 
-  const item = target.item_id ? c.byId.items[target.item_id] : pickItem(game, target, c);
-  if (!item) return false;
+    const unit = wholesalePrice(item, game.folded(), game.season);
+    // Orders arrive as a pallet, so they aren't capped by what one pair of hands
+    // can hold — the worker just makes more trips.
+    const qty = Math.min(item.stack - target.qty, Math.floor(budget / Math.max(unit, 0.01)));
+    if (qty <= 0) continue;
 
-  const unit = wholesalePrice(item, game.folded(), game.season);
-  // Orders arrive as a pallet, so they aren't capped by what one pair of hands
-  // can hold — the worker just makes more trips.
-  const qty = Math.min(item.stack - target.qty, Math.floor(budget / Math.max(unit, 0.01)));
-  if (qty <= 0) return false;
-
-  if (!game.buyStock(s.id, item.id, qty).ok) return false;
-  s.cooldown = paceOf(s);
-  return true;
+    if (!game.buyStock(s.id, item.id, qty).ok) continue;
+    s.cooldown = paceOf(s);
+    return true;
+  }
+  return false;
 }
 
 /** Pick up a pallet at the bay — but only one with somewhere legal to go. */
@@ -671,6 +682,10 @@ function shelfFor(game, itemId, c) {
   const usable = game.layout.shelves.filter((sh) => {
     if (needsFreezer && sh.kind !== 'freezer') return false;
     if (!needsFreezer && sh.kind === 'freezer') return false;
+    // Set aside for something else is a no even when it's bare — otherwise a
+    // stocker with an armful fills the shelf you reserved and the reservation
+    // only means anything until the next delivery lands.
+    if (sh.assigned && sh.assigned !== itemId) return false;
     if (sh.qty > 0 && sh.item_id !== itemId) return false;
     // Ask the shelf how much it holds rather than assuming a stack fits it.
     // `item.stack` is what fits a *standard* unit; an upgraded one holds
@@ -679,8 +694,12 @@ function shelfFor(game, itemId, c) {
     // so the capacity you paid for was only ever reachable by hand.
     return sh.qty < game.shelfCapacity(sh, item);
   });
-  // Top up a shelf already holding it before claiming an empty one.
-  return usable.sort((a, b) => (b.item_id === itemId) - (a.item_id === itemId))[0] ?? null;
+  // A shelf set aside for it first, then one already holding it, then whatever
+  // the player marked to fill first. Topping up beats claiming a bare shelf,
+  // and being asked for beats both.
+  return usable.sort((a, b) => (b.assigned === itemId) - (a.assigned === itemId)
+    || (b.item_id === itemId) - (a.item_id === itemId)
+    || (b.priority ?? 0) - (a.priority ?? 0))[0] ?? null;
 }
 
 /** Best unstocked item for an empty shelf: margin weighted by who wants it. */

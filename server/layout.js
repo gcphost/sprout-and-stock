@@ -24,7 +24,7 @@
 import { makeRng } from '../shared/rng.js';
 import { T, WALKABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
-import { anchorTile, queueAxis, canPlaceCleanly, isProp } from '../shared/build.js';
+import { anchorTile, queueAxis, canPlace, isProp } from '../shared/build.js';
 
 export { T };
 
@@ -232,7 +232,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
 
   // What is *standing* on a cell, which used to be the same array as what the
   // cell is made of. Kept alongside rather than derived at the end, because
-  // `canPlaceCleanly` is asked about the half-built shop as it goes: every
+  // `canPlace` is asked about the half-built shop as it goes: every
   // fixture placed has to be visible to the next one's reachability flood.
   const blocked = new Uint8Array(worldW * worldH);
   const occupy = (x, z) => {
@@ -445,6 +445,28 @@ function compose(req, storeW, storeH, allowDrops = true) {
     && blocked[idx(x, z)] === 0
     && !reserved.has(`${x},${z}`);
 
+  // ---- what the player has positioned by hand, honoured as placed ----------
+  //
+  // `canPlace`, NOT `canPlaceCleanly`, and the difference is a bug that ate
+  // people's shelving. `canPlace` gives two kinds of no: `ok: false` is physics,
+  // and `ok: true` with a `warn` is a consequence you are allowed to cause —
+  // wall a shelf in, stand a till where nobody can queue, turn a unit to face
+  // the wall. That is the whole "warn, don't refuse" design, and `placeFixture`
+  // and `rotateFixture` both honour it: they accept the warning and charge you.
+  //
+  // Then this loop re-judged the same placement with the STRICT variant, which
+  // treats a warning as a refusal — so anything you were warned about was
+  // accepted, paid for, and dropped on the very next re-flow, one tick later.
+  // It came back as a full refund, so nothing was stolen; what you lost was the
+  // fixture and whatever was on it, and what you saw was a shelf vanishing as
+  // you turned it. Rotation was the worst of it because `rotateFixture`
+  // deliberately settles for a warned facing when all three are warned, so a
+  // unit in a corner had no angle that could survive.
+  //
+  // `canPlaceCleanly` is for the caller that cannot accept a warning on your
+  // behalf — the generator furnishing a shop nobody has looked at, and the
+  // balance bot building unattended. A fixture you positioned yourself is the
+  // opposite of that: you were told what it would cost and you did it anyway.
   for (const p of req.placements) {
     const drop = () => {
       if (!allowDrops) return false;
@@ -458,7 +480,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     // arm neither `set`s nor `reserve`s — the cell it stands in is still the
     // floor it was, and everything below flows over it as if it weren't there.
     if (isProp(p.kind)) {
-      if (!canPlaceCleanly(layoutSoFar(), p).ok) { dropped.push(p); continue; }
+      if (!canPlace(layoutSoFar(), p).ok) { dropped.push(p); continue; }
       propsOut.push(makeProp(p));
       continue;
     }
@@ -468,7 +490,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // An appliance whose upgrade has been sold isn't a fit problem, so this
       // one is always just dropped rather than grown for.
       if (i === -1) { dropped.push(p); continue; }
-      if (reserved.has(`${p.x},${p.z}`) || !canPlaceCleanly(layoutSoFar(), p).ok) {
+      if (reserved.has(`${p.x},${p.z}`) || !canPlace(layoutSoFar(), p).ok) {
         if (!drop()) return incomplete(layoutSoFar(), null);
         continue;
       }
@@ -483,7 +505,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
       continue;
     }
     if (!(budget[p.kind] > 0)) { dropped.push(p); continue; }
-    if (reserved.has(`${p.x},${p.z}`) || !canPlaceCleanly(layoutSoFar(), p).ok) {
+    if (reserved.has(`${p.x},${p.z}`) || !canPlace(layoutSoFar(), p).ok) {
       if (!drop()) return incomplete(layoutSoFar(), null);
       continue;
     }
@@ -723,6 +745,11 @@ function makeShelf(id, kind, x, z, rot) {
     qty: 0,
     price: 0,
     stockedDay: 0,
+    // What the player *decided* goes here, as opposed to `item_id`, which is
+    // whatever happens to be on it. Null means anything may. See `assignShelf`.
+    assigned: null,
+    // Which shelf the next van fills. -1, 0 or 1 — see `restockQueue`.
+    priority: 0,
   };
 }
 

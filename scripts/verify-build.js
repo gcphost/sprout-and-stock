@@ -1046,6 +1046,56 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 }
 
 // ---------------------------------------------------------------------------
+// A thing you were WARNED about still exists a tick later.
+//
+// This is a regression, and it was a nasty one because the money came back:
+// `canPlace` says `ok: true` with a `warn` for every consequence you are
+// allowed to cause, `placeFixture` honours that and charges you — and then the
+// generator re-judged the same placement with the strict variant, which reads a
+// warning as a refusal, and dropped it on the very next re-flow. Full refund,
+// no error, and a shelf that vanished as you turned it.
+//
+// So the assertion is not "can you place it" — that always passed. It is that
+// the thing is still standing in the shop AFTER the re-flow the placement
+// itself triggers. Rotation gets its own case because `rotateFixture` settles
+// for a warned facing when all three are warned, which is exactly what a unit
+// in a corner has, and that is how this was found.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  g.setBuildMode('me', true, 'shelf');
+  const L = g.layout;
+
+  // A corner of the shop, facing the wall: legal, useless, and warned about.
+  const spec = { kind: 'shelf', x: L.store.x, z: L.store.z, rot: 2 };
+  const verdict = canPlace(g.layout, spec);
+  check(verdict.ok && !!verdict.warn,
+    'a shelf facing out of the shop is allowed, with a warning',
+    JSON.stringify(verdict));
+
+  const placed = g.placeFixture('me', spec);
+  check(placed.ok, 'and it can be built', placed.error ?? '');
+  check(!!placed.warn, 'and the warning comes back with it');
+  eq((g.layout.droppedPlacements ?? []).length, 0,
+    'and the re-flow it triggers drops nothing');
+  check(!!g.layout.shelves.find((s) => s.id === placed.placed),
+    'and it is still standing there afterwards — this is the regression');
+
+  // The same claim across a turn, which is the shape the bug was reported in.
+  const turned = g.rotateFixture('me', placed.placed, 1);
+  check(turned.ok, 'a warned shelf can be rotated', turned.error ?? '');
+  check(!!g.layout.shelves.find((s) => s.id === turned.rotated),
+    'and survives the turn rather than disappearing');
+  eq(g.layout.shelves.length, L.shelves.length + 1,
+    'with the shop one shelf up on where it started, not back where it was');
+
+  // ...and the strict variant still refuses it, because the generator and the
+  // balance bot do have to. Two answers, and this is what keeps them two.
+  check(!canPlaceCleanly(g.layout, spec).ok,
+    'while the strict variant still says no — that is the caller that cannot accept a warning');
+}
+
+// ---------------------------------------------------------------------------
 
 function findFreeFloor(g, ignoreId = null) {
   const L = g.layout;
