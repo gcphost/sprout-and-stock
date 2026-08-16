@@ -1689,13 +1689,29 @@ export class Game {
       return existing;
     }
     const n = this.nextDeliveryId++;
-    const spread = [[0, 0], [0.9, 0], [0, 0.9], [0.9, 0.9], [-0.9, 0.45]][n % 5];
+    // A crate stands in the middle of a tile.
+    //
+    // `at` is either a yard pad — whose point is the *corner* its four tiles
+    // share — or a fixture's anchor, which is a tile centre. Rounding either to
+    // a tile and stepping back in whole tiles from there lands on exactly the
+    // pad's 2x2 and nothing outside it. The ±0.9 spread it replaces was neither:
+    // it sat the first crate on the seam between two tiles and hung the second
+    // a third of a tile off the edge of the pad onto the grass.
+    const bx = Math.round(at.x);
+    const bz = Math.round(at.z);
+    const slots = [[0, 0], [-1, 0], [0, -1], [-1, -1]];
+    // Four slots and no limit on kinds of goods, so a free one is preferred and
+    // the id only decides who shares once the pad is full — otherwise the fifth
+    // crate is drawn inside whichever one the counter happened to land on.
+    const free = slots.find((s) => !this.deliveries
+      .some((d) => d.x === bx + s[0] && d.z === bz + s[1]));
+    const spread = free ?? slots[n % slots.length];
     const del = {
       id: `del-${n}`,
       item_id: itemId,
       qty,
-      x: r2(at.x + spread[0]),
-      z: r2(at.z + spread[1]),
+      x: r2(bx + spread[0]),
+      z: r2(bz + spread[1]),
       day: this.day,
     };
     this.deliveries.push(del);

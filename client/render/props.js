@@ -269,6 +269,23 @@ export function buildCashDrop(amount) {
 }
 
 /**
+ * A crate's footprint, wall height and wall thickness, in tiles.
+ *
+ * It was 0.86 across and 0.42 deep, which is very nearly the whole tile: two
+ * crates on neighbouring tiles touched, one beside a wall read as leaning
+ * through it, and a single item sat at the bottom of an acre of empty box with
+ * the rim hiding most of it. Everything below is derived from these three
+ * numbers rather than typed out again, so the goods cannot quietly stop fitting
+ * the crate the next time it changes size.
+ */
+const CRATE = 0.6;
+const CRATE_H = 0.26;
+const CRATE_WALL = 0.055;
+
+/** Top of the pallet boards — the floor the goods stand on. */
+const CRATE_DECK = 0.05;
+
+/**
  * A delivered pallet waiting at the bay: a crate, a sample of what's inside,
  * and how many are left to shift.
  */
@@ -278,38 +295,51 @@ export function buildPallet(model, qty) {
   // Pallet boards.
   for (let i = 0; i < 3; i++) {
     const board = new THREE.Mesh(GEO.box, material('#8a6a44'));
-    board.scale.set(0.86, 0.07, 0.2);
-    board.position.set(0, 0.04, (i - 1) * 0.3);
+    board.scale.set(CRATE, CRATE_DECK, CRATE * 0.26);
+    board.position.set(0, CRATE_DECK / 2, (i - 1) * CRATE * 0.34);
     board.castShadow = true;
     g.add(board);
   }
 
   // Crate walls, open-topped so the goods read from above.
   const crateMat = material('#a8763f');
+  const rim = (CRATE - CRATE_WALL) / 2;
   const wall = (sx, sz, px, pz) => {
     const m = new THREE.Mesh(GEO.box, crateMat);
-    m.scale.set(sx, 0.42, sz);
-    m.position.set(px, 0.29, pz);
+    m.scale.set(sx, CRATE_H, sz);
+    m.position.set(px, CRATE_DECK + CRATE_H / 2, pz);
     m.castShadow = true;
     g.add(m);
   };
-  wall(0.86, 0.08, 0, -0.39);
-  wall(0.86, 0.08, 0, 0.39);
-  wall(0.08, 0.86, -0.39, 0);
-  wall(0.08, 0.86, 0.39, 0);
+  wall(CRATE, CRATE_WALL, 0, -rim);
+  wall(CRATE, CRATE_WALL, 0, rim);
+  wall(CRATE_WALL, CRATE, -rim, 0);
+  wall(CRATE_WALL, CRATE, rim, 0);
 
   if (model) {
     const rows = Math.min(3, Math.max(1, Math.ceil(qty / 6)));
+    // Sized and spread off the crate's *inside*, not off literals: an item is
+    // at most 0.36 across and the shortest wall stands the goods off centre, so
+    // one that fits the box at this size still fits it at another.
+    const inner = CRATE - CRATE_WALL * 2;
+    const scale = Math.min(0.55, inner / 0.9);
     for (let i = 0; i < rows; i++) {
       const one = buildModel(model, { castShadow: false });
-      one.scale.setScalar(0.6);
-      one.position.set(((i % 2) - 0.5) * 0.24, 0.12 + i * 0.16, ((i % 3) - 1) * 0.16);
+      one.scale.setScalar(scale);
+      one.position.set(
+        ((i % 2) - 0.5) * inner * 0.4,
+        // Standing on the deck rather than floating above it, and stacked in
+        // steps short enough that the second row clears the rim — the point of
+        // an open-topped crate is that you can see what is in it.
+        CRATE_DECK + i * CRATE_H * 0.55,
+        ((i % 3) - 1) * inner * 0.26,
+      );
       g.add(one);
     }
   }
 
   const label = buildTextSprite(`x${qty}`, { fill: '#ffe9b8', scale: 0.7 });
-  label.position.y = 1.0;
+  label.position.y = 0.78;
   g.add(label);
 
   return g;

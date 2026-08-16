@@ -16,6 +16,15 @@ import { requiredFixture } from '../shared/tags.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
 
+/**
+ * Group labels are ours, not the database's — but they are about to be printed
+ * into a `title` attribute, and one of them is built from an authored crop name
+ * away. Escaping here costs nothing and does not have to be re-argued later.
+ */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
+));
+
 /** How each kind of fixture shows up in its own menu. */
 const FIXTURE_ICON = {
   shelf: ICONS.shelf, freezer: ICONS.freezer, checkout: ICONS.checkout,
@@ -30,7 +39,7 @@ const FIXTURE_ICON = {
 export const act = (id, icon, name, sub, { danger = false, off = false, right = '' } = {}) => `
   <div class="row fx-act ${off ? 'off' : ''} ${danger ? 'danger' : ''}" ${off ? '' : `data-act="${id}"`}>
     <span class="bico">${icon}</span>
-    <div class="name">${name}<span class="tags">${sub}</span></div>
+    <div class="name">${name}${sub ? `<span class="tags">${sub}</span>` : ''}</div>
     <div class="price">${right}</div>
   </div>`;
 
@@ -42,6 +51,14 @@ export const act = (id, icon, name, sub, { danger = false, off = false, right = 
  */
 export function showFixture(ui, f) {
   if (!f) return;
+  // Which tab is showing belongs to the thing you are looking at, not to the
+  // menu — so opening a different fixture starts at the front again. By TILE
+  // rather than by id, the same call `refreshFixture` makes and for the same
+  // reason: turning something re-mints its id, and a tab that reset itself
+  // every time you pressed Rotate would be its own small bug.
+  const on = `${f.kind}@${f.x},${f.z}`;
+  if (ui._fxTabOn !== on) { ui._fxTabOn = on; ui._fxTab = 0; }
+
   ui.openPanel = 'fixture';
   // A fixture menu is not a section, so nothing on the rail is open.
   ui.rail.setOpen(null);
@@ -60,16 +77,20 @@ export function showFixture(ui, f) {
   const refund = refundFor(ui, f);
   const blocked = removeBlockedReason(ui, f, live);
 
-  const parts = [fixtureDetail(ui, f, live)];
-
-  // Everything on this menu that renders as a *row* shares one list, because
-  // `wireRows` binds by index: two lists each numbered from zero would hand the
-  // seed picker's clicks to the shape picker.
-  const rows = [];
-  const asRows = (list) => {
-    const html = list.map((r, i) => ui.rowHtml(r, rows.length + i)).join('');
-    rows.push(...list);
-    return html;
+  // Three regions, the same shape a hire's menu settled on and for the same
+  // reason. What this thing IS stays pinned at the top; what you can DO about
+  // it stays pinned at the bottom; and the middle — the only part with no
+  // ceiling on its length — is what scrolls.
+  //
+  // A shelf is the worst case and the reason this changed. Its middle is every
+  // item in the catalog, which is content and grows, so Move, Rotate, Upgrade
+  // and Remove sat below a list that got longer every time anybody authored a
+  // tomato. The verbs are the fixed part of this menu — the same five in the
+  // same order on every fixture in the game — and they were the part you had to
+  // go looking for.
+  const groups = [];
+  const group = (label, icon, rows) => {
+    if (rows?.length) groups.push({ label, icon, rows });
   };
 
   // What to plant belongs to the plot you're stood at, not to a menu of its own
@@ -77,10 +98,9 @@ export function showFixture(ui, f) {
   // the player's, not the plot's — but this is where you are when you want it,
   // and at an empty bed it outranks moving or selling the thing.
   // A ripe bed offers no seeds: picking one there would throw the harvest away.
-  const seeds = f.kind === 'plot' && !live?.ready ? seedRows(ui, f, live) : [];
-  if (seeds.length) {
-    parts.push(`<div class="sep">${live?.crop_id ? 'Sow it with something else' : 'Sow it with'}</div>`);
-    parts.push(asRows(seeds));
+  if (f.kind === 'plot' && !live?.ready) {
+    group(live?.crop_id ? 'Sow something else' : 'Sow it with', ICONS.seeds,
+      seedRows(ui, f, live));
   }
 
   // Anything that holds stock gets the same treatment a bed gets: what goes in
@@ -89,25 +109,60 @@ export function showFixture(ui, f) {
   // keeps that promise — which is the difference between "we sell milk here"
   // and "we are never out of milk".
   if (kind === 'shelf' || kind === 'freezer') {
-    parts.push(`<div class="sep">${live?.assigned ? 'This one is kept for' : 'Keep it for'}</div>`);
-    parts.push(asRows(stockRows(ui, f, live)));
-    parts.push('<div class="sep">When it gets refilled</div>');
-    parts.push(asRows(priorityRows(ui, f, live)));
+    group(live?.assigned ? 'Kept for' : 'Keep it for', ICONS.crate, stockRows(ui, f, live));
+    group('When it gets refilled', ICONS.supplier, priorityRows(ui, f, live));
   }
 
-  parts.push('<div class="sep">Do something with it</div>');
-  parts.push(act('move', ICONS.move, 'Move it',
-    'Picks it up with everything on it. Nothing shifts until you set it down.'));
+  // A shape is free and keeps whatever is on it, so it is a browse rather than a
+  // decision — which is exactly what belongs in the scrolling half. One shape is
+  // not a choice, so a kind nobody has drawn a second design for gets no tab.
+  const styles = styleRows(ui, f);
+  if (styles.length > 1) group('Shape', ICONS.fixtures, styles);
 
-  if (FIXTURES[kind]?.rotates) {
-    // Which side a thing faces means something different for each of them,
-    // and it's the reason to turn it at all — so say the actual reason.
-    const why = {
-      checkout: 'Quarter turn. Sets where you serve and which way the queue runs.',
-      station: 'Quarter turn. Sets which side you load it from.',
-    }[kind] ?? 'Quarter turn. Sets which aisle shoppers browse it from.';
-    parts.push(act('rotate', ICONS.rotate, 'Rotate', why));
+  group('More of these', ICONS.build, moreOfTheseRows(ui, f));
+
+  // ---- the head: what it is ------------------------------------------------
+  const parts = [`<div class="pnl-head">${fixtureDetail(ui, f, live)}</div>`];
+
+  // ---- the middle: the long half, tabbed once there is more than one --------
+  //
+  // Tabs by the same rule sections use (`tabGroups` in ui.js): two or more
+  // groups earns them, one does not. Forcing tabs on a till — which has only
+  // ever had shapes to show — would hide three rows behind a click each.
+  const rows = [];
+  const at = Math.min(ui._fxTab ?? 0, Math.max(0, groups.length - 1));
+  if (groups.length > 1) {
+    parts.push(`<div class="tabs">${groups.map((g, n) => `
+      <button class="tab${n === at ? ' on' : ''}" data-fxtab="${n}" title="${esc(g.label)}"
+        aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`);
   }
+  if (groups.length) {
+    const open = groups[at];
+    // Named above its rows even with the tabs up, because an icon row is a
+    // shape you learn and a heading is a thing you read — and on first open
+    // nobody knows which pictogram is the seed one.
+    parts.push(`<div class="sep">${esc(open.label)}</div>`);
+    // One list, numbered once: `wireRows` binds by index, so two lists each
+    // starting at zero would hand the seed picker's clicks to the shape picker.
+    parts.push(open.rows.map((r, i) => ui.rowHtml(r, i)).join(''));
+    rows.push(...open.rows);
+  }
+
+  // ---- the foot: what you can do about it ----------------------------------
+  //
+  // One line each, and that is the price of being pinned. Five verbs explaining
+  // themselves in two lines apiece is half a panel of standing prose that never
+  // changes and is read exactly once — and it was squeezing the half of the
+  // menu that actually has something to say down to a single visible row.
+  //
+  // So a sub-line has to earn its place by carrying something you cannot get
+  // from the row itself: what a tier gives you, or why Remove is refusing. Move
+  // it, Rotate and Empty it are two-word verbs for exactly what they say, and
+  // their counts and prices are already in the right-hand column.
+  const foot = [];
+
+  foot.push(act('move', ICONS.move, 'Move it', ''));
+  if (FIXTURES[kind]?.rotates) foot.push(act('rotate', ICONS.rotate, 'Rotate', ''));
 
   // Upgrading sits above the destructive half of the list: it is the thing you
   // are most likely to have opened a shelf you already like in order to do.
@@ -119,44 +174,43 @@ export function showFixture(ui, f) {
     // register` was both clipped and barely a sentence. The title is the verb,
     // which is fixed and short; the row below it says what you actually get.
     const blurb = `${next.name} — ${tierBlurb(next)}`;
-    parts.push(act('upgrade', ICONS.tierup, 'Upgrade',
+    foot.push(act('upgrade', ICONS.tierup, 'Upgrade',
       afford ? blurb : `${blurb} You cannot afford it yet.`,
       // A tier that is purely cosmetic still costs nothing, and `$0` in the
       // price column reads as a broken number rather than as good news.
       { off: !afford, right: next.cost > 0 ? `$${next.cost.toFixed(0)}` : 'free' }));
   }
 
-  // Every shape this kind comes in. It sits under Upgrade because the two read
-  // as a pair and are deliberately opposites: a tier costs money and changes
-  // what the thing does, a style is free and changes only how it looks.
-  const styles = styleRows(ui, f);
-  if (styles.length > 1) {
-    parts.push('<div class="sep">Shape</div>');
-    parts.push(asRows(styles));
-  }
-
   const holds = contentsOf(ui, f, live);
   if (holds.n > 0) {
-    parts.push(act('empty', ICONS.empty, 'Empty it', holds.blurb, { right: `${holds.n}` }));
+    foot.push(act('empty', ICONS.empty, 'Empty it', '', { right: `${holds.n}` }));
   } else if ((kind === 'shelf' || kind === 'freezer') && live?.item_id) {
-    // A label is what was last on it; what it is *kept* for is the section
-    // above and survives this. Saying "anything can go on" while the shelf is
-    // set aside for milk would be the menu contradicting itself.
-    parts.push(act('empty', ICONS.label, 'Take the label off',
+    // A label is what was last on it; what it is *kept* for is a tab above and
+    // survives this. This one keeps its sub-line, because "take the label off"
+    // does not say WHICH label — and on a shelf that is also kept for something
+    // else, not saying so is the menu looking like it will undo both.
+    foot.push(act('empty', ICONS.label, 'Take the label off',
       live.assigned
-        ? `Last held ${ui.itemName(live.item_id)}. It stays kept for ${ui.itemName(live.assigned)}.`
-        : `Still labelled ${ui.itemName(live.item_id)}. Clear it and anything can go on.`));
+        ? `${ui.itemName(live.item_id)} — stays kept for ${ui.itemName(live.assigned)}`
+        : `${ui.itemName(live.item_id)} — then anything can go on`));
   }
 
-  parts.push(act('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
-    blocked ?? 'Half of what it cost back.',
+  // The refund is in the right-hand column, so the sub-line is free to be the
+  // one thing it cannot say: why the row is greyed out.
+  foot.push(act('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
+    blocked ?? '',
     { danger: true, off: !!blocked, right: blocked ? '' : `+$${refund.toFixed(2)}` }));
 
-  parts.push(fixtureUpgrades(ui, f));
+  parts.push(`<div class="pnl-foot">${foot.join('')}</div>`);
 
   ui.showPanel(`${FIXTURE_ICON[kind] ?? ICONS.crate} ${ui.fixtureName(f)}`, parts.join(''));
   wireFixtureMenu(ui, f, live);
   if (rows.length) ui.wireRows(rows);
+  ui.el.panelBody.querySelectorAll('[data-fxtab]').forEach((el) => {
+    // Redrawn rather than shown/hidden, because the rows are live: a tab built
+    // once would still be offering to sow a bed that has since been harvested.
+    el.onclick = () => { ui._fxTab = Number(el.dataset.fxtab); showFixture(ui, f); };
+  });
 }
 
 /**
@@ -332,6 +386,11 @@ export function liveFixture(ui, f) {
 export function fixtureSignature(ui, f, live) {
   return JSON.stringify([f.id, f.rot, f.tier, live, ui.state?.cash?.toFixed(0),
     ui.ownedUpgrades?.length, ui.selectedCrop, ui._season,
+    // Which tab is showing. In here because a snapshot redraw rebuilds the
+    // whole panel from this function's verdict, and a signature blind to the
+    // tab would let the next tick repaint the menu on the tab you had just
+    // left — a press that visibly undoes itself a tenth of a second later.
+    ui._fxTab ?? 0,
     // What every *other* shelf is kept for. This menu says which items are
     // already spoken for elsewhere, so it has to redraw when somebody else
     // spoke for one — `live` is only ever this shelf's own row.
@@ -415,19 +474,31 @@ function fixtureDetail(ui, f, live) {
   return '';
 }
 
-/** Upgrades that add more of this kind of thing — bought right from here. */
-function fixtureUpgrades(ui, f) {
+/**
+ * Deals on this kind of fixture — bought right from here.
+ *
+ * Ordinary rows now rather than its own hand-rolled table with a `buy` button
+ * in it. That template was the one thing on this menu that drew itself, so it
+ * was also the one thing that could not be a tab, could not be searched and did
+ * not grey out when you couldn't afford it. A row already does all three.
+ *
+ * They are deals rather than deliveries — see `fixtureDiscount`. Saying so is
+ * the whole reason the row needs a sub-line: "More of these" over a row that
+ * hands you a *rate* is the section heading lying about its contents.
+ */
+function moreOfTheseRows(ui, f) {
   const owned = ui.ownedUpgrades ?? [];
-  const relevant = (ui.catalog.upgrades ?? [])
-    .filter((u) => u.kind === f.kind && !owned.includes(u.id));
-  if (!relevant.length) return '';
-  return '<div class="sep">More of these</div>'
-    + relevant.map((u) => `
-      <div class="row">
-        <div class="name">${u.name}<span class="tags">${u.description}</span></div>
-        <div class="price">$${u.cost.toFixed(0)}</div>
-        <button data-up="${u.id}">buy</button>
-      </div>`).join('');
+  const cash = ui.state?.cash ?? 0;
+  return (ui.catalog.upgrades ?? [])
+    .filter((u) => u.kind === f.kind && !owned.includes(u.id))
+    .map((u) => ({
+      icon: ICONS.upgrades,
+      name: u.name,
+      sub: u.description || 'A better price on every one of these you build from now on.',
+      right: `$${u.cost.toFixed(0)}`,
+      dim: cash < u.cost,
+      run: cash < u.cost ? null : () => ui.net.send('buy-upgrade', { upgradeId: u.id }),
+    }));
 }
 
 function wireFixtureMenu(ui, f, live) {
@@ -467,9 +538,8 @@ function wireFixtureMenu(ui, f, live) {
     };
   });
 
-  ui.el.panelBody.querySelectorAll('[data-up]').forEach((el) => {
-    el.onclick = () => send('buy-upgrade', { upgradeId: el.dataset.up });
-  });
+  // `[data-up]` retired with the hand-rolled deals table: a deal is a row now,
+  // and a row carries its own `run`.
 }
 
 /**
