@@ -145,6 +145,17 @@ const BASE_CAM_OFFSET = new THREE.Vector3(20, 24, 20);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const QUARTER = Math.PI / 2;
 
+/**
+ * How much further a tile of ground runs than the screen it covers, going away
+ * from you. The camera's pitch is fixed by BASE_CAM_OFFSET (~40°), so this is
+ * 1/sin(pitch) — derived rather than typed, so retuning the offset keeps a pan
+ * tracking your finger instead of quietly drifting behind it.
+ */
+const GROUND_STRETCH = BASE_CAM_OFFSET.length() / BASE_CAM_OFFSET.y;
+
+/** How far the view may be shoved off the player it follows, in tiles. */
+const PAN_LIMIT = 14;
+
 
 
 /** Day-cycle endpoints, resolved once so syncState allocates nothing. */
@@ -180,6 +191,13 @@ export class Scene {
     this.camAngle = 0;
     this.camTarget = new THREE.Vector3(22, 0, 17);
     this.camLook = this.camTarget.clone();
+    // Where the view has been dragged to, relative to whoever it follows. Kept
+    // apart from camTarget because that is overwritten from the player's
+    // position every sync — a pan folded into it would be erased 10 times a
+    // second. `camAim` is the sum, and exists only so render() adds without
+    // allocating a vector every frame.
+    this.camPan = new THREE.Vector3();
+    this.camAim = new THREE.Vector3();
     // Two values, like camTarget/camLook: where the wheel says we're going, and
     // where we've eased to. Set before resize(), which bakes the projection.
     this.camZoom = ZOOM_DEFAULT;
@@ -259,6 +277,19 @@ export class Scene {
   }
 
   /**
+   * Zoom by a straight ratio, for a pinch.
+   *
+   * A pinch already *is* a scale — the fingers say 1.3× — so converting that
+   * into wheel notches only to raise ZOOM_STEP to a fractional power throws the
+   * exactness away and stops the ground tracking the fingers holding it.
+   */
+  zoomByFactor(f) {
+    if (!(f > 0)) return this.camZoom;
+    this.camZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, this.camZoom * f));
+    return this.camZoom;
+  }
+
+  /**
    * Turn the camera a quarter of the way round the world, +1 or -1.
    *
    * Only four corners exist, so the 45° isometric pitch is exactly preserved at
@@ -273,6 +304,71 @@ export class Scene {
   /** Quarter turns from home, normalised to 0..3, for mapping input. */
   get quarter() {
     return ((this.camQuarter % 4) + 4) % 4;
+  }
+
+  /**
+   * Shove the view sideways off the person it follows, by a drag in pixels.
+   *
+   * The camera rides on the player (`camTarget`, set every sync), so this is an
+   * offset *added* to that rather than a second camera — the follow keeps
+   * working underneath, and letting go of the pan is one line rather than a
+   * handover.
+   *
+   * Two conversions, and both have to be there or the world slides at the wrong
+   * speed and stops feeling attached to your finger:
+   *
+   * - **pixels to tiles** is the ortho frustum over the canvas height, divided
+   *   by zoom, because zoom is on the camera rather than on FRUSTUM.
+   * - **screen up to ground** stretches by 1/sin(pitch). The camera looks down
+   *   at ~40°, so a tile of ground covers only ~0.65 of a tile of screen going
+   *   away from you — dragging without this tracks correctly across the screen
+   *   and lags going up it, which reads as the ground being slippery.
+   *
+   * Directions come off `camOffset`, which is already rotated by whatever the
+   * view has been turned to, so a pan after a quarter turn follows the finger
+   * rather than the world axes.
+   */
+  panBy(dxPx, dyPx) {
+    const upp = (FRUSTUM / this.camZoom) / (this.renderer.domElement.clientHeight || 1);
+    const hx = this.camOffset.x;
+    const hz = this.camOffset.z;
+    const hl = Math.hypot(hx, hz) || 1;
+    // Screen-right and screen-up, both on the ground plane.
+    const rx = hz / hl;
+    const rz = -hx / hl;
+    const fx = -hx / hl;
+    const fz = -hz / hl;
+    const across = -dxPx * upp;
+    const away = dyPx * upp * GROUND_STRETCH;
+    this.camPan.x += rx * across + fx * away;
+    this.camPan.z += rz * across + fz * away;
+    // Far enough to see over the shop, not so far the person you are playing is
+    // a rumour. Clamped as a radius rather than per-axis so a diagonal pan
+    // doesn't reach 1.4× further than a straight one.
+    const len = Math.hypot(this.camPan.x, this.camPan.z);
+    if (len > PAN_LIMIT) {
+      this.camPan.x *= PAN_LIMIT / len;
+      this.camPan.z *= PAN_LIMIT / len;
+    }
+    return this.camPan;
+  }
+
+  /**
+   * Give the camera back to whoever it follows.
+   *
+   * Called when you go somewhere rather than when you let go of the drag: a
+   * pan that sprang back on release would be useless on a phone, where looking
+   * at the far end of the shop and *then* tapping something there is the whole
+   * point. So the view stays where you put it, and going anywhere reclaims it.
+   * The glide is free — `camLook` already eases toward its aim.
+   */
+  recentre() {
+    this.camPan.set(0, 0, 0);
+  }
+
+  /** Has the view been shoved off the player? Lets the HUD offer a way back. */
+  get panned() {
+    return Math.hypot(this.camPan.x, this.camPan.z) > 0.01;
   }
 
   setCatalog(catalog) {
@@ -695,6 +791,9 @@ export class Scene {
   // -------------------------------------------------------------------------
 
   syncState(state, myId) {
+    // Kept for `pickPerson`: the records hold the meshes, and the answer has to
+    // be the person, not the group they are drawn as.
+    this.playerState = state.players;
     this.syncActors(state.players, this.players, (p) => this.buildActor(p), (p) => actorKey(p));
     this.syncActors(state.customers, this.customers, (c) => buildCharacter(c.color));
     this.syncShelves(state.shelves);
@@ -1255,6 +1354,39 @@ export class Scene {
     if (!keepKey) this.buildGhostKey = null;
   }
 
+  /**
+   * Which person the pointer is on, or null.
+   *
+   * Projected rather than raycast, unlike `pickFixture`. A body is a handful of
+   * small boxes with gaps between them and it is *moving*: a ray that threads
+   * between an arm and a torso misses somebody standing right under the cursor,
+   * and a hit box big enough to stop that is a box bigger than the person. The
+   * question being asked is "who am I pointing at", and a radius around where
+   * they are drawn answers exactly that — including when two are stood on the
+   * same tile, where the nearest to the cursor is the one you meant.
+   *
+   * The radius is in screen pixels, so it stays the same size to aim at however
+   * far the camera is zoomed out, which is the way a click target should behave.
+   */
+  pickPerson(clientX, clientY, radius = 26) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    let best = null;
+    let bestD = radius;
+    for (const p of this.playerState ?? []) {
+      const rec = this.players.get(p.id);
+      if (!rec) continue;
+      // Chest height rather than the feet: it is the middle of what is drawn,
+      // and aiming at the ground under somebody is how you miss them upwards.
+      const at = this.worldToScreen(rec.obj.position.x, rec.obj.position.z, 0.75);
+      if (!at) continue;
+      const d = Math.hypot(at.x - px, at.y - py);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    return best;
+  }
+
   /** Project a world tile to a screen pixel, for pinning DOM to the world. */
   worldToScreen(x, z, y = 0.9) {
     const v = new THREE.Vector3(x, y, z).project(this.camera);
@@ -1673,7 +1805,7 @@ export class Scene {
       this.camAngle += Math.abs(da) < 0.0005 ? da : da * 0.14;
       this.camOffset.copy(BASE_CAM_OFFSET).applyAxisAngle(AXIS_Y, this.camAngle);
     }
-    this.camLook.lerp(this.camTarget, 0.08);
+    this.camLook.lerp(this.camAim.copy(this.camTarget).add(this.camPan), 0.08);
     // Which lamps get a real light follows the camera, so it belongs here rather
     // than in the layout build. Cheap: it returns immediately until the view has
     // actually gone somewhere.

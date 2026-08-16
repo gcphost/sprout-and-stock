@@ -1,8 +1,9 @@
 # Customers — mood, anger and crowding
 
-Status: **steps 1–3 built.** Patience is a budget, shoppers get cross and walk
-out, and you can see it on their faces. Steps 4–6 — capacity and crowding,
-theft, and the HUD meter — are still proposed.
+Status: **steps 1–3 and 7–9 built.** Patience is a budget, shoppers get cross
+and walk out, you can see it on their faces, and they arrive with a list rather
+than a number. Steps 4–6 — capacity and crowding, theft, and the HUD meter —
+are still proposed.
 
 ⚠️ `simulate` **cannot see any of steps 1–3.** Its bot auto-serves the front of
 the queue after 1.5s and keeps the shelves full, so no queue ever builds, no
@@ -225,6 +226,146 @@ player is told why, and the fix is a second till rather than a mystery.
 
 ---
 
+# The list — what they came in for
+
+Steps 1–6 are about how a shopper *feels*. This part is about what they
+**want**, which until now was a single integer.
+
+## What was wrong
+
+```js
+wantCount: this.rng.int(arch.basket_min, arch.basket_max),
+```
+
+A shopper wanted *five things*. Not five particular things — five. `chooseShelf`
+then ranked every shelf in the building by `purchaseChance` and walked to the
+best one, five times over. So a Budget Parent with a five-item basket bought the
+five highest-scoring units in the shop, which in practice meant **the same shelf
+class over and over**: whatever was cheapest and best-tagged won every round.
+
+Three things fall out of that, and all three are wrong:
+
+- **Nobody ever fails to find something,** because there was no *something*.
+  A shop stocked entirely with candy served a Health Nut a full basket of candy
+  at slightly lower probability. The only failure mode was "found nothing at
+  all", which needs the whole shop to be unappealing.
+- **The player cannot be told what they are missing.** `leftEmpty` counts people
+  who left with nothing and cannot say why. There is no number anywhere in this
+  game that answers "what did people want that I did not have?" — which is the
+  single most useful thing a shopkeeping game can tell you.
+- **A shelf is visited once**, so one-unit-per-shelf capped every basket at the
+  shelf count. That was patched with `MAX_UNITS_PER_SHELF = 3` — a shopper takes
+  a small run of one thing. It works, but it is a workaround for the missing
+  list, not a mechanic: the run length is a constant rather than "how many milks
+  did I come for".
+
+## The shape
+
+**A list line is a tag, not an item.** This is the part that could go wrong, and
+it is the same rule as everywhere else: a shopper who wants `tomato` is the
+`if (item.id === 'tomato')` failure, and it breaks the day either of us authors
+a new item. A shopper wants `dairy`, and whatever `dairy` thing is on the shelf
+answers it.
+
+```js
+list: [ { tag: 'dairy',  qty: 2, must: true,  got: 0 },
+        { tag: 'snack',  qty: 1, must: false, got: 0 } ]
+```
+
+The list is rolled at spawn. `basket_min..basket_max` is unchanged and still
+means *units* — it is now spread across lines rather than being a flat target,
+so the aggregate size of a basket, and therefore the existing balance, is
+preserved by construction.
+
+Lines are drawn by weighted random from the archetype's **positive** affinities,
+which are already authored. A repeat draw of the same tag becomes `qty`, not a
+second line — so a high-affinity tag naturally produces "three of those" rather
+than three separate errands, and the Bulk Shopper's 5–10 units land as a handful
+of chunky lines instead of ten independent whims.
+
+### Staples: the half that is worth building
+
+A new archetype column, `staple_tags`, defaulting to `[]`:
+
+> These are what they *came for*. Everything else on the list is opportunistic.
+
+Staple lines are placed first and carry `must: true`. Miss one and three things
+happen: a one-off mood hit, a `stats.unmet` tally against that tag, and — when
+they stop shopping — a log line naming what you did not have.
+
+The payoff is not the shopping. It is that `simulate` and the day log can now
+say **"nine people came in for `frozen` today and you had none"**, which is a
+sentence this game has never been able to produce.
+
+**A missed staple does not empty the basket.** They buy the opportunistic
+lines, take the mood hit, and leave annoyed. Walking out with nothing throws
+away sales that were genuinely made, over-punishes a near miss, and muddies the
+signal — the tally carries the message, not a tantrum. Only a shopper who finds
+*nothing at all* still trips `leftEmpty`, exactly as before.
+
+**Going elsewhere is not a competitor.** [`pull`](../server/sim/economy.js) is
+already "what share of the town chooses your shop". A missed staple takes
+reputation down, `pull` reads reputation, and the going-elsewhere happens over
+the following days without a rival shop existing anywhere in the codebase.
+
+### `MAX_UNITS_PER_SHELF` retires
+
+With a list, "how many do I take from this shelf" is `qty - got` — the errand
+says so. The constant was standing in for exactly that number and can go. This
+is a deletion, and it is the tell that the list is the right shape.
+
+### Endcaps are a position, not a fixture
+
+An impulse buy needs somewhere to impulse-buy *from*, and the tempting answer —
+author an `endcap` fixture kind — is wrong twice over. `BUILD_KINDS` is a closed
+set on purpose (*kinds are code; pieces are content*), and an endcap is neither
+a new behaviour nor a new piece. It is **a shelf you put next to a till**.
+
+```
+endcap = any stocked shelf within IMPULSE_RADIUS of the till they queued at
+```
+
+Derived at queue-join from `shelf.x/z` and `till.x/z`, which the layout already
+has. Nothing is authored, nothing is stored, and the rule is discovered by
+playing rather than read in a tooltip.
+
+This is the first time **where you put something has an economic consequence**.
+Since the shell got stamped and placement became the player's job
+(docs/building.md), layout has been purely cosmetic. Now the aisle nearest the
+till earns.
+
+The roll happens **once, on joining the queue**, gated three ways:
+
+| Gate | Why |
+|---|---|
+| Off-list | An impulse buy is by definition not what you came for. The list is ignored, and the basket may exceed `wantCount`. |
+| Tag-weighted | `IMPULSE_TAGS` in `shared/tags.js` — `candy`, `snack`, `beverage`, `kids`, `cheap`. Same tag-keyed shape as `BEHAVIOUR_TAGS`. |
+| Mood ≥ annoyed | Someone about to storm out does not browse the sweets. Wires straight into the anger bands from step 2. |
+
+⚠️ **It must not scale with time spent queueing**, however tempting that is.
+`simulate`'s bot auto-serves the front of the line after 1.5s, so no queue ever
+builds in a balance run — anything measured against *wait* is invisible to the
+instrument, which is exactly how steps 1–3 came back as noise (see the warning
+at the top of this doc). Firing once on join, scaled by how many people are
+already in the line, is both measurable and the more honest model.
+
+## What must not happen here
+
+- **A list line must never be an item id.** See above. This is the whole game.
+- **An unsatisfiable list must not loop.** `chooseShelf` excludes shelves in
+  `visited`, and every visit appends to it, so a line that nothing can serve
+  runs out of candidate shelves and fails. Remove the `visited` filter and a
+  shopper wanting a tag you do not stock walks between two shelves forever.
+- **Impulse must not be free money.** It is revenue with no matching cost to the
+  player, which is the one thing here that can quietly break the economy. It is
+  the reason this step needs ten seeds and not a screenshot.
+- **A storm-out does not also pay the missed-staple penalty.** `stormOut`
+  already charges −0.03 and the tally was taken at the moment the line failed.
+  Charging both makes an angry customer who also missed a staple worth double,
+  which is a feedback loop nobody authored.
+
+---
+
 ## Steps
 
 1. Mood as a budget — the drain table, and `waited` growing across `TO_TILL`
@@ -234,6 +375,15 @@ player is told why, and the fix is a second till rather than a mystery.
 4. Capacity, crowding annoyance, and the door turn-away replacing `< 40`.
 5. `steal_chance` on the archetype schema, and the theft roll and log.
 6. The mood meter in the HUD — today's average, next to reputation's slow one.
+7. The list: tag lines rolled at spawn, `chooseShelf` serving one line at a
+   time, and `MAX_UNITS_PER_SHELF` deleted in favour of `qty - got`.
+8. `staple_tags` on the archetype schema, the missed-staple mood and reputation
+   hits, the `stats.unmet` tally, and `unmetDemand` in the `simulate` report.
+9. Endcap impulse buys on queue-join, with `IMPULSE_TAGS` and the mood gate.
+
+Steps 7 and 8 are one change in practice — a list with no staples on it cannot
+miss one, so building 7 alone leaves the interesting half untested. 9 is
+genuinely separable and could ship on its own.
 
 ---
 
@@ -248,3 +398,23 @@ first. A single seed will not tell you anything.
 The number to watch is not profit — it is `abandoned` against `leftEmpty`.
 Today `abandoned` is 0 in a live shop failing a third of its customers, which
 is the clearest evidence that the current mood model measures the wrong thing.
+
+### Steps 7–9 specifically
+
+Unlike 1–3, **`simulate` sees all of this**, and it will move. The list changes
+how many RNG draws happen per shopper *and* what they buy, so the two runs
+diverge for reasons beyond the feature — average ten seeds against a copied
+frozen database or the number is worthless.
+
+What to expect, and what would be a bug:
+
+| Number | Expected | A bug if |
+|---|---|---|
+| `deadStock` | **shorter** | It grows. A tag-driven list should reach more of the catalogue than greedy top-ranking ever did. |
+| `bestSellers` | flatter | One item still takes half of all sales — the list is not actually constraining choice. |
+| `profitPerDay` | slightly down, then up with impulse | It jumps a lot. Impulse is uncosted revenue; a big rise means the roll is too generous or firing more than once. |
+| `unmetDemand` | non-empty | It is empty with staples authored — the tally is not wired, or every staple is being met by luck. |
+
+The honest risk is impulse. Measure steps 7–8 together first, land them, and
+only then measure 9 against that new baseline — stacking both into one
+before/after cannot tell you which half moved the money.

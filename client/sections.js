@@ -1,4 +1,5 @@
 import { ICONS, icon } from './icons.js';
+import { pinLast } from './bar.js';
 import { FIXTURES, isProp } from '../shared/build.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
@@ -160,6 +161,7 @@ export const BUILD_TOOLS = [
     id: 'demolish',
     edge: 0,
     demolish: true,
+    last: true,
     group: ['shop', 'farm', 'appliance', 'shell', 'decor'],
     icon: ICONS.remove,
     name: 'Demolish',
@@ -235,23 +237,90 @@ export function buildTools(ui) {
  * list with unique ids and no notion of which tab is showing.
  */
 export function buildGroups(ui) {
-  const tools = buildTools(ui);
+  const tools = buildTools(ui).map((t) => {
+    const cost = ui?.buildCosts?.[t.id];
+    // How many of these are standing in the shop. It was a line of the old
+    // panel's row copy, and it is the half worth keeping — "six owned" is what
+    // decides whether a seventh is the buy.
+    const have = ownedCount(ui, t);
+    return {
+      ...t,
+      note: cost == null ? '' : `$${cost.toFixed(0)}`,
+      badge: have ? String(have) : '',
+      title: `${t.name} — ${t.blurb}`,
+    };
+  });
   return BUILD_GROUPS
-    .map((g) => ({
-      ...g,
-      // The bulldozer is the last entry of every tab it appears on. A stable
-      // sort, so everything else keeps palette order — without this it lands
-      // wherever BUILD_TOOLS happens to sit relative to that tab's pieces, and
-      // on the appliance tab that is slot one, under the 1 key.
-      tools: tools.filter((t) => inGroup(t, g.id))
-        .sort((a, b) => (a.demolish ? 1 : 0) - (b.demolish ? 1 : 0)),
-    }))
-    .filter((g) => g.tools.length);
+    .map((g) => ({ ...g, items: pinLast(tools.filter((t) => inGroup(t, g.id))) }))
+    // A tab holding nothing but the bulldozer opens onto nothing you can build,
+    // which is worse than no tab — and it is what an Appliances tab looks like
+    // in a world where nobody has authored a machine yet. Pinned entries do not
+    // count towards a tab earning its place.
+    .filter((g) => g.items.some((t) => !t.last));
 }
 
 /** Which tab a palette entry is found under, for a selection made elsewhere. */
 export function groupOfTool(t) {
   return BUILD_GROUPS.find((g) => t && inGroup(t, g.id))?.id ?? null;
+}
+
+/**
+ * The roster, as tabs for the same bar the palette uses.
+ *
+ * "All" first and always, because with four hires that is the only tab anybody
+ * wants; the per-kind tabs earn their place at twenty. They are generated from
+ * who actually works here rather than from the `workers` table — a tab for a
+ * kind you have never hired is a tab that opens onto nothing, and the one for
+ * the kind you just took on should appear without anybody listing it here.
+ *
+ * The entry for a person carries what they are doing right now as its note, so
+ * the bar is a standing answer to "who is on the tills" without opening
+ * anything. `warn` is for somebody the sim cannot place — their kind was
+ * deleted out from under them — which is a problem rather than a job.
+ */
+export function staffGroups(ui) {
+  const roster = ui.state?.roster ?? [];
+  const kinds = ui.catalog.workers ?? [];
+  const nameOfKind = (id) => kinds.find((w) => w.id === id)?.name ?? id;
+
+  const person = (e) => {
+    const body = bodyOf(ui, e);
+    return {
+      id: `hire:${e.id}`,
+      hire: e.id,
+      icon: icon(e.kind, ICONS.staff),
+      name: e.name,
+      note: doingNow(ui, e, body),
+      title: `${e.name} — ${doingNow(ui, e, body)}`,
+      warn: !body,
+    };
+  };
+
+  // The way to take somebody on, pinned to the end of every tab. It opens the
+  // hire catalogue as a panel rather than listing kinds along here: hiring is
+  // browsing — wages, jobs, what each one is for — and the bar is for choosing
+  // between things you already have.
+  const hire = {
+    id: 'hire-new',
+    hire: null,
+    last: true,
+    icon: ICONS.upgrades,
+    name: 'Hire',
+    note: `${kinds.length} to pick from`,
+    title: 'Take somebody else on',
+  };
+
+  const seen = [...new Set(roster.map((e) => e.kind))];
+  return [
+    { id: 'all', name: 'Everyone', icon: ICONS.staff, blurb: 'Everybody on shift.', items: [...roster.map(person), hire] },
+    ...seen.map((k) => ({
+      id: `kind:${k}`,
+      name: nameOfKind(k),
+      icon: icon(k, ICONS.staff),
+      blurb: `Everyone taken on as a ${nameOfKind(k).toLowerCase()}.`,
+      items: [...roster.filter((e) => e.kind === k).map(person), hire],
+    })),
+  ];
 }
 
 /** How many of this palette entry are standing in the shop. */
@@ -261,20 +330,93 @@ export function ownedCount(ui, t) {
 }
 
 /**
- * The upgrades still worth listing: the ones build mode cannot sell you.
+ * Kinds that are no longer things you buy, and why each one stopped being one.
+ *
+ * None of them are deleted. A `staff` row is what an old save's people were
+ * *made of* — `rosterFromUpgrades` reads it once to migrate them onto the roster
+ * — so the row has to keep existing even though `buyUpgrade` has refused it
+ * since hiring moved. Deleting them would take those hires with them.
+ */
+const RETIRED = {
+  // Hiring is the roster now: two of somebody, letting one go, promotions.
+  // An upgrade is a permanent boolean and can express none of that.
+  staff: true,
+  // The shop used to grow by buying land and letting the generator re-flow it.
+  // You draw your own walls, so the shape of the building is something you make
+  // rather than something you unlock — and an upgrade that silently rearranged
+  // the place you had just laid out was the last thing doing that.
+  space: true,
+  // An appliance is not something you own — it is the price of that machine,
+  // and you buy machines in build mode, one at a time, on a tile you chose.
+  station: true,
+};
+
+/**
+ * The upgrades still worth listing: the ones nothing else already sells you.
  *
  * A shelf, a freezer, a till and a plot used to be here as packs — buy "Extra
  * Shelving" from a menu and let the generator decide where three shelves went,
  * which is the blinder half of a purchase build mode replaced. Those rows are
  * back on this list and they sell something else now: a standing rate on every
  * one of that kind you ever put down. See `fixtureDiscount` on the server.
- *
- * An appliance is the exception, and the only one. Its row is not something you
- * own — it is the price of that machine, and you buy machines in build mode, one
- * at a time, on a tile you chose. Listing it here would sell you a number.
  */
 export function buyableUpgrades(ui) {
-  return (ui?.catalog?.upgrades ?? []).filter((u) => u.kind !== 'station');
+  return (ui?.catalog?.upgrades ?? []).filter((u) => !RETIRED[u.kind]);
+}
+
+/**
+ * What is left, as tabs for the bar.
+ *
+ * Grouped by who the money is spent on rather than by `kind`, which would be
+ * seven tabs of one row each. A fixture discount, a bigger rucksack and a better
+ * postcode are three genuinely different decisions and one of them is a list.
+ */
+export const UPGRADE_GROUPS = [
+  {
+    id: 'fixtures', name: 'Fixtures', icon: ICONS.shelf,
+    blurb: 'A standing discount on everything of that kind you build from now on.',
+    kinds: ['shelf', 'freezer', 'plot', 'checkout'],
+  },
+  {
+    id: 'you', name: 'You', icon: ICONS.staff,
+    blurb: 'What you can carry and how fast you get there.',
+    kinds: ['capacity', 'speed'],
+  },
+  {
+    id: 'shop', name: 'The shop', icon: ICONS.shop,
+    blurb: 'Who walks past, and what they think of the place.',
+    kinds: null,
+  },
+];
+
+export function upgradeGroups(ui) {
+  const owned = ui?.ownedUpgrades ?? [];
+  const cash = ui?._cash ?? 0;
+  const rows = buyableUpgrades(ui).map((u) => {
+    const have = owned.includes(u.id);
+    const locked = (u.requires ?? []).filter((r) => !owned.includes(r));
+    return {
+      id: u.id,
+      upgrade: u.id,
+      kind: u.kind,
+      icon: ICONS.upgrades,
+      name: u.name,
+      note: have ? 'owned' : `$${u.cost.toFixed(0)}`,
+      badge: have ? '✓' : '',
+      // Dim is not a thing the bar draws, so an entry you cannot act on says so
+      // in the one line it has. A locked row still shows: what it needs first is
+      // the reason to go and buy that, and hiding it hides the ladder.
+      warn: !have && (locked.length > 0 || cash < u.cost),
+      title: `${u.name} — ${u.description}`,
+    };
+  });
+  return UPGRADE_GROUPS
+    .map((g) => ({
+      ...g,
+      items: rows.filter((r) => (g.kinds ? g.kinds.includes(r.kind) : !UPGRADE_GROUPS
+        .some((o) => o.kinds?.includes(r.kind)))),
+    }))
+    .filter((g) => g.items.length);
 }
 
 /** Shelves at or under this fraction of a stack are worth restocking. */
@@ -336,6 +478,28 @@ export const BUILD_MODE = {
   badge: (ui) => (ui.holding ? '●' : null),
 };
 
+/**
+ * The rail's Upgrades press, and the second thing that is not a section.
+ *
+ * Its list is the bottom bar (`upgradeGroups`) and one row of that list is its
+ * own menu (`showUpgrade`), so there is nothing left for a panel of rows to do.
+ * Same shape as `BUILD_MODE`, but it claims the bar rather than a world mode.
+ */
+export const UPGRADE_BAR = {
+  id: 'upgrades',
+  icon: ICONS.upgrades,
+  name: 'Upgrades',
+  key: 'u',
+  bar: 'upgrades',
+  badge: (ui) => {
+    const owned = ui.ownedUpgrades ?? [];
+    const n = buyableUpgrades(ui)
+      .filter((u) => !owned.includes(u.id) && (ui._cash ?? 0) >= u.cost
+        && (u.requires ?? []).every((r) => owned.includes(r))).length;
+    return n ? String(n) : null;
+  },
+};
+
 export const SECTIONS = [
   {
     id: 'stock',
@@ -384,56 +548,16 @@ export const SECTIONS = [
   },
 
   {
-    id: 'upgrades',
-    icon: ICONS.upgrades,
-    name: 'Upgrades',
-    key: 'u',
-    title: 'Upgrades',
-    facet: 'kind',
-    badge: (ui) => {
-      const owned = ui.ownedUpgrades ?? [];
-      const n = buyableUpgrades(ui)
-        .filter((u) => !owned.includes(u.id) && (ui._cash ?? 0) >= u.cost).length;
-      return n ? String(n) : null;
-    },
-    live: (ui) => JSON.stringify([ui.ownedUpgrades?.length, Math.floor(ui._cash ?? 0)]),
-    // What's left once anything you can put down has moved to build mode: the
-    // shop itself. Two groups rather than a tab per kind — there are only a
-    // handful of these, and a tab per kind would be mostly one-row tabs.
-    rows: (ui) => {
-      const owned = ui.ownedUpgrades ?? [];
-      return grouped(
-        buyableUpgrades(ui).map((u) => {
-          const have = owned.includes(u.id);
-          return {
-            name: u.name,
-            sub: u.description,
-            right: `$${u.cost.toFixed(0)}`,
-            facets: u.kind ? [u.kind] : [],
-            kind: u.kind,
-            dim: have,
-            button: have
-              ? null
-              : { label: 'buy', run: () => ui.net.send('buy-upgrade', { upgradeId: u.id }) },
-            tail: have ? 'owned' : null,
-          };
-        }),
-        [
-          { label: 'Staff', icon: ICONS.staff, test: (r) => r.kind === 'staff' },
-          // capacity, speed, space — and any kind invented later, which lands
-          // somewhere sensible rather than vanishing off the end of the list.
-          { label: 'The shop', icon: ICONS.shop },
-        ],
-      );
-    },
-  },
-
-  {
     id: 'staff',
     icon: ICONS.staff,
     name: 'Staff',
     key: 'h',
     title: 'Who works here',
+    // The rail's Staff press claims the bottom bar rather than opening this
+    // panel — the roster is a list of people you pick between, which is what
+    // the bar is for. The panel is still here and still a section; it is what
+    // the bar's Hire entry opens, and what `showSection('staff')` reaches.
+    bar: 'staff',
     facet: 'tag',
     // The roster is the ledger of who works here; the NPC on the floor is only
     // its body. Reading the roster rather than counting bodies means someone
@@ -449,27 +573,15 @@ export const SECTIONS = [
         .map((p) => [p.hire, p.job, p.carry?.qty, p.pastime]),
       Math.floor(ui._cash ?? 0), ui.catalog.version,
     ]),
+    // Only the hiring half. The roster itself moved to the bottom bar — see
+    // `staffGroups` — because a list of people is exactly the thing the bar was
+    // built for, and a person is reached by pressing them the way a fixture is.
+    // What is left here is a shop for hires, which is a browsable catalogue and
+    // therefore a panel, the same as the supplier.
     rows: (ui) => {
-      const roster = ui.state?.roster ?? [];
       const kinds = ui.catalog.workers ?? [];
-      const tagsOf = (kindId) => kinds.find((w) => w.id === kindId)?.tags ?? [];
-
-      const rows = [];
-      if (roster.length) {
-        rows.push({ sep: 'On shift' });
-        // The row is the way into that person's own menu, the same way tapping
-        // a shelf is the way into the shelf's. Two clerks are two rows, and
-        // which one you pressed is the only thing that tells them apart.
-        rows.push(...roster.map((e) => ({
-          icon: icon(e.kind, ICONS.staff),
-          name: e.name,
-          sub: doingNow(ui, e, bodyOf(ui, e)),
-          facets: tagsOf(e.kind),
-          run: () => showWorker(ui, e.id),
-        })));
-      }
-
-      rows.push({ sep: roster.length ? 'Take someone on' : 'Nobody works here yet' });
+      const roster = ui.state?.roster ?? [];
+      const rows = [{ sep: roster.length ? 'Take someone else on' : 'Nobody works here yet' }];
       // Straight off the `workers` table, so a kind authored over MCP can be
       // hired with no client change — and hiring the same kind twice is a
       // second person, not a refusal.
@@ -485,7 +597,7 @@ export const SECTIONS = [
       return rows;
     },
     foot: () => `They obey the same rules you do — they walk, queue and carry.
-      Tap anyone on shift to change what they do, promote them, or let them go.`,
+      Whoever is on shift is along the bottom; tap one to change what they do.`,
   },
 
   {
@@ -560,16 +672,20 @@ export const SECTIONS = [
         run: () => ui.leaveToMenu(),
       },
       { sep: 'Getting about', icon: ICONS.walk },
-      { name: 'Walk', sub: 'or drag the world', right: 'WASD', plain: true },
+      { name: 'Go there', sub: 'the floor, and it routes round the shelves', right: 'click', plain: true },
+      { name: 'Walk yourself', sub: 'takes the wheel back off a route', right: 'WASD', plain: true },
       { name: 'Use a thing', sub: 'stand by it — walk off to stop', right: 'wait', plain: true },
-      { name: 'Open its menu', sub: 'tapping only ever looks', right: 'tap', plain: true },
+      { name: 'Open its menu', sub: 'on a phone, hold it instead', right: 'click', plain: true },
+      { name: 'On a phone', sub: 'tap a thing and you walk over and do it', right: 'tap', plain: true },
       { sep: 'Camera', icon: ICONS.camera },
+      { name: 'Look around', sub: 'stays put until you go somewhere', right: 'drag', plain: true },
       { name: 'Zoom', sub: 'or pinch', right: 'scroll', plain: true },
       { name: 'Turn the view', sub: 'a quarter turn each way', right: ', .', plain: true },
+      { name: 'or swing to turn', sub: 'right button, or twist two fingers', right: 'R-drag', plain: true },
       { sep: 'Menus', icon: ICONS.menus },
       ...SECTION_KEYS(),
       { name: 'Back out', sub: 'menu, then hands, then build mode', right: 'Esc', plain: true },
-      { name: 'Back out on the world', sub: 'the same — drops a half-drawn wall first', right: 'R-click', plain: true },
+      { name: 'Back out on the world', sub: 'a click, not a drag — drops a half-drawn wall first', right: 'R-click', plain: true },
       { sep: 'Building', icon: ICONS.build },
       { name: 'Build mode', sub: 'tap ground to place, tap a fixture to open', right: 'G', plain: true },
       { name: 'Turn a fixture', sub: 'a quarter turn', right: 'R', plain: true },
@@ -592,6 +708,6 @@ export const sectionById = (id) => SECTIONS.find((s) => s.id === id) ?? null;
  * The rail, top to bottom. Build leads it because it is the mode you are in
  * most, and it is not a section — see `BUILD_MODE`.
  */
-export const RAIL_ITEMS = [BUILD_MODE, ...SECTIONS];
+export const RAIL_ITEMS = [BUILD_MODE, UPGRADE_BAR, ...SECTIONS];
 
 export const railItemById = (id) => RAIL_ITEMS.find((s) => s.id === id) ?? null;

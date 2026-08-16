@@ -24,13 +24,21 @@ Three zones, three jobs, no overlap:
 | Zone | Contains | Interactive? |
 |---|---|---|
 | **Top-left column** | cash, day, season, clock, reputation, then active modifiers | no — passive readout |
-| **Right rail** | one icon per menu, each with a live badge — plus Build, which is a mode | yes — this is the menu |
-| **Bottom bar** | the whole build palette, and only while building | yes — one tap or number key each |
+| **Bottom nav** | one icon per menu, each with a live badge — plus Build, which is a mode | yes — this is the menu |
+| **Bottom bar** | the build palette, or the roster — one at a time, never both | yes — one tap or number key each |
 
-The panel opens **leftwards** out of the rail, top-aligned, which is why it
-moved from `inset: auto 14px 14px auto` to `inset: 14px 58px auto auto`. That
-also freed the bottom of the screen for the hotbar, so the two no longer stack
-and `body.building #panel` could go.
+**Everything you press is one column at the bottom centre**, bottom up: the nav,
+the bar, then the panel rising out of whichever button you pressed. The nav ran
+down the top-right corner until the palette moved to the bottom, and that left
+the thing you press most and the way into every menu at diagonally opposite
+corners — a session was a stream of corner-to-corner mouse journeys.
+
+The offsets are arithmetic off two numbers rather than literals kept in step by
+hand: `--nav-h`/`--nav-bot` give `--nav-top`, and `--build-h` is the bar's
+measured height, **explicitly 0 when no bar is up** (`measureBar(true)`) — the
+element is still in the document with a height of its own, and a stale value
+floats the panel over empty screen. `#log`, `#carry` and `#prompt` share one
+`calc()` off the same stack, which retired the `body.building` overrides.
 
 `#mods` moved from top-right to under `#stats` on the left: it is a passive
 readout and belongs with the other passive readouts, and the rail now owns the
@@ -42,7 +50,11 @@ player most needs it.
 
 | File | Holds |
 |---|---|
-| `client/sections.js` | `SECTIONS` and `BUILD_TOOLS`. Every menu, as data. |
+| `client/sections.js` | `SECTIONS`, `BUILD_TOOLS`, `buildGroups`, `staffGroups`. Every menu and both bars, as data. |
+| `client/bar.js` | The bottom bar itself — tiers, scrolling, the sub row. Knows nothing about what is in it. |
+| `client/panel-drag.js` | Dragging `#panel` by its header, and remembering where each menu was left. |
+| `client/upgrade-menu.js` | One upgrade's own menu — what it does off its payload, and the button that buys it. |
+| `client/worker-menu.js` | Everything one hire can do. Opened by pressing them on the bar. |
 | `client/rail.js` | The rail widget: icons, the lit state, badges. |
 | `client/icons.js` | **Generated.** Inline SVG strings. `npm run icons`. |
 | `client/fixture-menu.js` | Everything one fixture can do, including its seed list. |
@@ -85,7 +97,34 @@ Two things that will bite:
   live canvas. Supplier's signature is one value — the cash you have — and that
   is the target.
 
-## The build bar
+## The bottom bar
+
+Three things use it and never two at once: **Build**, the **roster** and
+**Upgrades**. They are one strip of screen, so claiming it takes it off the
+others (`UI.showBar`), and build mode wins ties — it is a state of the *world*,
+and a bar you cannot see is a mode you cannot see you are in. `UI.barTab` keeps
+each one's open tab separately: they share nothing but the strip, and a roster
+tab is not an answer to a build question.
+
+**Build arms; the other two browse.** A build entry stays lit and the next tap
+on the ground places it. A person or an upgrade *opens* — `showWorker`,
+`showUpgrade` — and leaves nothing armed, so `picked` follows whichever menu is
+open rather than a selection the UI is holding (`renderBrowseBar`).
+
+`client/bar.js` is the picker itself: tabs, the sideways scroll, the number
+keys, scrolling the selection into view, the third tier. It draws from data and
+calls back; it knows nothing about fixtures or people. A caller supplies
+
+```js
+group = { id, name, icon, blurb, items: [item] }
+item  = { id, icon, name, note, badge, title, warn, last }
+sub   = { label, options: [{ id, name }], picked, onPick } | null
+```
+
+and gets the behaviour for free. `pinLast` is how Demolish and Hire stay at the
+end of every tab they appear on — a stable sort, because without it a pinned
+entry lands wherever the source list put it, which on some tabs is slot one
+under the `1` key.
 
 **Build is not a section.** It was one — a 214px list in `#panel` — while the
 bottom bar showed the first nine entries of the same list. Two palettes for one
@@ -95,11 +134,22 @@ now and it scrolls, so it *is* the catalogue and the panel copy is gone.
 
 Three tiers, top to bottom, all in `#build-bar`:
 
-| Tier | Element | Is |
-|---|---|---|
-| Category | `#build-groups` | `BUILD_GROUPS` — Shop, Farm, Appliances, Building, Decoration |
-| Entries | `#build-tools` | that tab's palette entries, scrolling sideways. `1`–`9` reach the first nine |
-| Shape | `#build-shapes` | `variantsOf` the selected piece, and only when there are two or more |
+| Tier | Element | Build | Roster |
+|---|---|---|---|
+| Category | `#build-groups` | `BUILD_GROUPS` — Shop, Farm, Appliances, Building, Decoration | Everyone, then one per kind actually hired |
+| Entries | `#build-tools` | palette entries. `1`–`9` reach the first nine | one per hire, note = what they are doing now |
+| Sub | `#build-shapes` | `variantsOf` the piece, when there are two or more | unused |
+
+**A tab that opens onto nothing never renders.** For Build that means dropping
+any group whose only entry is the pinned bulldozer — which is what Appliances
+looks like before anybody authors a machine. The roster's Everyone tab is the
+exception and always shows, because with nobody hired it is still where the
+Hire button lives.
+
+**Picking is not the same verb in both.** A build entry *arms* — it stays lit
+and the next tap on the ground places it. A person *opens* — `showWorker` puts
+their menu in `#panel`, and nothing stays armed, because pressing somebody is
+opening a door rather than picking up a tool.
 
 The split is by **what you are doing**, not by which code path places it — a
 fence is drawn on an edge exactly the way a wall is, and it sits under Farm
@@ -117,6 +167,35 @@ and `#log`/`#carry`/`#prompt` clear the bar with `calc()` off it. It is measured
 rather than written down because the bar grows and shrinks — the shapes tier
 appears, the hint comes and goes — and a hard-coded offset is one that goes
 wrong the day a tier is added.
+
+## Upgrades
+
+The list is the bar (`upgradeGroups`) and one row of it is its own menu
+(`showUpgrade`), so there is no Upgrades *section* any more — `UPGRADE_BAR` is a
+rail item beside `BUILD_MODE`, the second thing on the rail that is not a panel.
+
+**One press is the wrong amount of ceremony for a permanent, unrefundable
+$20,000**, which is why a bar entry opens a menu instead of buying. That menu
+reads what it sells off `payload` rather than off the prose — a row edited over
+MCP to 30% off says 30% without anybody remembering to rewrite its description —
+and names what it needs first as rows you can tap to walk the ladder.
+
+**Two kinds no longer list, and neither is deleted** (`RETIRED` in
+`sections.js`):
+
+- `staff` — hiring is the roster now, which can express two of somebody, letting
+  one go, and promotions; an upgrade is a permanent boolean and expresses none
+  of it. `buyUpgrade` has refused these since the move. The rows must **stay**:
+  `rosterFromUpgrades` reads them once to migrate an old save's people onto the
+  roster, and deleting them would take those hires with them.
+- `space` — the shop used to grow by buying land and letting the generator
+  re-flow it. You draw your own walls, so the building's shape is something you
+  make rather than something you unlock, and this was the last upgrade that
+  silently rearranged a shop you had just laid out.
+
+Both are still live server-side, so `simulate`'s bot can still buy `space`. If
+that matters for balance, the fix is deleting those two rows over MCP, not a
+client change.
 
 ## Deleting things
 
@@ -147,15 +226,18 @@ moment it exists.
 
 | Key | Does |
 |---|---|
-| `B` `U` `H` `T` `/` | toggle Supplier · Upgrades · Staff · Shop · Controls |
+| `B` `U` `T` `/` | toggle Supplier · Upgrades · Shop · Controls |
+| `H` | the roster along the bottom — a bar, not a panel (`bar: 'staff'` on the section) |
 | `G` | build mode on and off — the rail's Build button presses this |
-| `1`–`9` | bottom bar — the open tab while building, seeds otherwise |
-| `Tab` | next build tab (`shift` for back). Prevented hard, or focus lands in the search box |
+| `1`–`9` | the open tab of whichever bar is up, seeds when neither is |
+| `Tab` | next tab of the bar that is up (`shift` for back). Prevented hard, or focus lands in the search box |
 | `R` | turn what you're placing |
 | hold `E` / `Space` | use what you're stood by |
 | hold `Q` | seed wheel |
-| `Esc` | clear the search box → close the menu → put down what you're carrying → leave build mode |
+| `Esc` | clear the search box → close the menu → close the roster bar → put down what you're carrying → leave build mode |
 | right-click | the same ladder, on the world — but cancels a half-drawn wall run first |
+| `,` `.` | turn the view a quarter each way |
+| right-drag | the same turn, held — 90px of sideways travel per quarter |
 
 Right-click runs `ui.escape()` rather than dropping straight out to shopkeeping,
 and the difference is load-bearing exactly once: **with something in your hands,
@@ -165,6 +247,115 @@ click strands the fixture you were carrying. Mid-drag it takes the run instead �
 wall you have changed your mind about is not a mode you have changed your mind
 about. The build bar swallows the browser's context menu without acting on it: a
 right-click on a button is a miss, not a decision to leave.
+
+**The right button splits the way the left one does: a drag turns, a click backs
+out.** `spin` in `main.js` is the mirror of `drag` — press, accumulate sideways
+travel, and every `SPIN_STEP` of it fires `scene.rotateView(∓1)`, exactly what
+`,` and `.` send. It steps in whole quarters rather than orbiting freely because
+`scene.quarter` is an integer several things read back: WASD is remapped through
+it so "up" stays up, and so is the facing of what you place. A camera resting
+between two corners has no answer for either.
+
+Three details are not free:
+
+- **Backing out had to move off `contextmenu`.** That event fires on *press* on
+  macOS and Linux and on *release* on Windows, so on two platforms out of three
+  it lands before the drag it is meant to be distinguished from. It now hangs
+  off pointerup, where "did this press move?" is a question with an answer, and
+  `contextmenu` is left doing only what it is reliable for — swallowing the
+  browser menu.
+- **Cancelling a wall run moved to pointerdown for the same reason.** Right-press
+  during an `edgeDrag` drops it there and starts no spin; leaving it on
+  `contextmenu` meant that on Windows the pointerup fired first and *built* the
+  wall you were cancelling.
+- **A mouse reuses one `pointerId` for every button.** So spin refuses to start
+  while a left drag is live and the left drag refuses to start while a spin is,
+  or the second press hands the first one's handler its own id and steals its
+  moves. A cancelled pointer clears the spin without backing out — a
+  `pointercancel` is not a click.
+
+The world follows your hand: drag right and the shop turns right, which is `,`.
+Easing lives in the renderer (`camAngle` chases `camQuarter * QUARTER`), so a
+fast flick across three steps still arrives as one swing rather than three.
+
+## Going places
+
+**You name a destination; the server routes to it.** A click on the floor sends
+`walk-to`, and `Game.walkTo` runs the same `findPath` customers and staff have
+always used, on the same grid `canStand` reads. The player was the last mover in
+the game steering by raw velocity, and stopped being a special case: routes go
+round shelving and honour edge walls at *plan* time instead of bouncing off them
+a frame at a time.
+
+Clicking a *thing* sends its id rather than a tile, and `walkToFixture` resolves
+the anchor (`browseAt ?? serveAt ?? useAt`). That is not tidiness. A shelf is
+worked from one side, and A*'s own "goal is blocked, aim at a walkable
+neighbour" fallback will happily park you behind it, in reach of nothing — which
+reads as the click having been ignored. Resolved server-side for the reason the
+build ghost shares one validator: an anchor worked out twice can disagree with
+itself.
+
+**This is what replaced the drag-joystick**, which was wrong in two ways no
+amount of radius and deadzone fixes. It steered in *screen* space on a camera
+you can turn, so every quarter turn re-taught your thumb which way was forward;
+and it put your thumb on top of the thing you were watching, which on a phone is
+most of the shop.
+
+It also made one tap do a whole errand. Actions charge on proximity, so arriving
+at a shelf's working spot *is* stocking it — tap, and the rest happens with no
+second input. That only works because the anchor is right.
+
+### One press, three meanings
+
+| | moved | still, brief | still, held |
+|---|---|---|---|
+| **mouse** | pan the camera | click: a thing opens, the floor walks you | — |
+| **finger** | pan the camera | tap: a thing walks you to it, and you do it | open it |
+
+**The last column is the whole reason this table has two rows.** The first cut
+used one rule for both — tap goes, long press opens — and it was a straight
+downgrade on a mouse: a menu that used to open on click now wanted the button
+held still for 420ms. A mouse can hit a shelf precisely, has WASD beside it and
+has the floor right there to click if walking is what you meant, so it keeps
+click-to-open and gets walking on the floor. A finger has none of that, so it
+gets the errand on a tap and looks with the press a phone already spells "tell
+me about this". Neither device is asked to perform the other's gesture.
+
+Steering always outranks a route: `stepPlayers` drops `p.path` on the first
+frame of key input rather than blending the two, because a key that only slowed
+a route down reads as the game ignoring you.
+
+### Looking without going
+
+`camPan` is an offset added to `camTarget`, not a second camera — `camTarget` is
+overwritten from the player's position every sync, so a pan folded into it would
+be erased ten times a second.
+
+It is kept until you **go** somewhere rather than until you let go, and that is
+the load-bearing choice. A pan that sprang back on release is useless on a
+phone, where looking at the far end of the shop and *then* tapping something
+there is the entire point — the shelf you were aiming at would be back off
+screen in the instant between deciding and tapping. So `walkTo` recentres, and
+so does the first frame of WASD.
+
+`panBy` converts pixels to tiles through the ortho frustum over canvas height
+(zoom lives on the camera, not on `FRUSTUM`), then stretches the screen-up axis
+by `GROUND_STRETCH` = 1/sin(pitch). Without the second conversion a drag tracks
+correctly across the screen and lags going up it, which reads as the ground
+being slippery rather than as a projection error.
+
+### `touch-action: none` is not optional
+
+Without it on `#game`, the browser claims every touch gesture as a scroll or a
+page zoom and takes it by firing `pointercancel` a couple of events in. Measured
+before the fix: a two-finger twist arrived as 2 pointerdowns, 2 pointermoves and
+**2 pointercancels**. Panning, pinch-zoom and the twist all did nothing on a
+touchscreen while working perfectly under a mouse — which is the worst shape a
+bug can have, because every desktop test passes.
+
+The twist earns its place for a reason that is easy to miss: turning the view is
+how you see behind a shelf, and it was `,` and `.` only. A phone has no comma,
+so every back aisle was permanently hidden on the device this scheme is for.
 
 **`G` is not a menu key**, and since the palette moved to the bar there is no
 Build menu for it to be confused with. `BUILD_MODE` in `sections.js` is what
@@ -242,6 +433,15 @@ here claims a comparison it cannot make. Sending it is a `snapshot()` change if
 we ever want "vs yesterday".
 
 ## Staff
+
+The roster is the **bottom bar** (`H`), not a panel: Everyone first, then a tab
+per kind actually hired, each entry a person carrying what they are doing right
+now. That makes "who is on the tills" a glance rather than a menu. Pressing one
+opens their own menu in `#panel`, exactly the way pressing a shelf does — two
+clerks are two entries and which one you pressed is the only thing that tells
+them apart. The **Hire** entry is pinned last on every tab and opens the section
+below, because hiring is *browsing* — wages, jobs, what each kind is for — and
+the bar is for choosing between things you already have.
 
 Hires are **upgrades** — `kind: 'staff'`, `payload.role` — and `syncStaff` adds
 or removes an NPC to match what you own. They are entries in the same `players`
@@ -349,6 +549,23 @@ The plot menu's rows are built with `ui.rowHtml`/`ui.wireRows` — the section
 renderer's own row plumbing — so they match every other list without a second
 implementation. `fixtureSignature` carries `selectedCrop` and the season, or the
 list wouldn't follow the plot as it grows.
+
+## Moving a panel
+
+Grab the header and drag; double-click it to give the position back to the
+stylesheet. Stored in localStorage **per `openPanel` id**, not per element:
+there is one `#panel` and half a dozen menus rendering into it, so one shared
+position would be a panel that jumped every time you opened a different menu
+and read as having forgotten.
+
+Two things it has to get right, both invisible until they are wrong:
+
+- **A live drag outranks a repaint.** A fixture or a hire menu re-renders from
+  the snapshot, which calls `showPanel` → `restorePos` — ten times a second,
+  each one putting the panel back under the cursor. `restorePos` returns early
+  while a drag is in flight.
+- **A press that never moved is not a reposition.** Filing one would pin the
+  panel at wherever it happened to be the first time you touched the header.
 
 ## One panel system
 

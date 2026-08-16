@@ -40,7 +40,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * A readable id, because an agent has to type these into `use_world` and
  * `w1f3k2p` tells nobody anything. Collisions get a numeric tail rather than a
- * rejection — two shops called "Berry's" is a thing a family does.
+ * rejection — two shops called "Corner Shop" is a thing a family does.
  */
 function mintId(name) {
   const base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24)
@@ -107,20 +107,88 @@ export function getWorldSummary(id) {
 // ---------------------------------------------------------------------------
 
 /**
+ * What a new shop may be started with, and how silly an ask may get.
+ *
+ * All three are *starting* state, and two of them can only ever be set here.
+ * Cash is spent from the first minute; the counts are read exactly once, by
+ * `starterShop`, before `freezeShell` stamps the building and the shop becomes
+ * its placements. After that the shop is what is standing in it, and asking for
+ * "twelve shelves" has nowhere to land.
+ *
+ * The ceilings are what `verify:layout` actually sweeps — 25 shelves, 32 plots —
+ * rather than a guess at what the generator will take. Past the sweep the
+ * failure is a shop nobody can walk through, which is invisible from the menu
+ * that asked for it.
+ *
+ * Season is deliberately not here. `onNewDay` derives it from the day, so a
+ * shop started in winter is spring again by the next morning: a field that
+ * unpicks itself inside one in-game day is worse than no field at all.
+ */
+const START_LIMITS = {
+  cash: { min: 0, max: 1e6, cents: true },
+  shelves: { min: 1, max: 25 },
+  plots: { min: 1, max: 32 },
+};
+
+/**
+ * One asked-for number, or `undefined` for "you didn't say".
+ *
+ * Blank has to mean the default rather than zero, because every one of these
+ * arrives from a text box somebody left alone. Out of range is clamped rather
+ * than refused — the menu prints the limits, and bouncing a whole new shop over
+ * a typo'd shelf count is a worse trade than quietly giving you 25.
+ */
+function startingNumber(v, { min, max, cents = false }) {
+  if (v === undefined || v === null || String(v).trim() === '') return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  const clamped = Math.min(max, Math.max(min, n));
+  return cents ? Math.round(clamped * 100) / 100 : Math.round(clamped);
+}
+
+/** The save patch for whatever was asked for. Empty when nothing was. */
+function startingState({ cash, shelves, plots }) {
+  const state = {};
+  if (cash !== undefined) state.cash = cash;
+  if (shelves === undefined && plots === undefined) return state;
+
+  // `fixtures` here is the one-shot budget `starterShop` reads to furnish a shop
+  // nobody has opened yet, not the stored ledger step 9 retired: it is merged
+  // over the base shop, so naming only `shelf` still gets you your till, and
+  // the first `persist()` overwrites it with the ledger derived from what
+  // actually got placed. `shelves`/`plots` beside it are the compat mirror
+  // `persist()` writes for older builds — set them here too, or a save reads
+  // one way for one day and the other way forever after.
+  state.fixtures = {};
+  if (shelves !== undefined) { state.fixtures.shelf = shelves; state.shelves = shelves; }
+  if (plots !== undefined) { state.fixtures.plot = plots; state.plots = plots; }
+  return state;
+}
+
+/**
  * Mint a save slot and the save behind it.
  *
  * The blank save is written here rather than left for `Game.create` so the menu
  * can show a brand new world's day and cash before anybody has opened it —
- * otherwise a world you just made reads as empty until you go in.
+ * otherwise a world you just made reads as empty until you go in. That is also
+ * what makes the starting numbers work: they have to be on the save *before*
+ * the first `Game.create` reads it, because that is the read that stamps them
+ * into a building.
  */
-export function createWorld({ name, seed } = {}) {
+export function createWorld({ name, seed, cash, shelves, plots } = {}) {
   const label = String(name ?? '').trim().slice(0, 32) || `Shop ${listWorldRows().length + 1}`;
   const id = mintId(label);
   const useSeed = String(seed ?? '').trim() || randomSeed();
+  const start = startingState({
+    cash: startingNumber(cash, START_LIMITS.cash),
+    shelves: startingNumber(shelves, START_LIMITS.shelves),
+    plots: startingNumber(plots, START_LIMITS.plots),
+  });
 
   const row = insertWorldRow({ id, name: label, seed: useSeed });
-  saveWorld(id, { ...DEFAULT_WORLD, seed: useSeed });
-  console.log(`[worlds] created "${label}" (${id}, seed ${useSeed})`);
+  saveWorld(id, { ...DEFAULT_WORLD, seed: useSeed, ...start });
+  const extras = Object.keys(start).length ? ` started with ${JSON.stringify(start)}` : '';
+  console.log(`[worlds] created "${label}" (${id}, seed ${useSeed})${extras}`);
   return summarise(row);
 }
 

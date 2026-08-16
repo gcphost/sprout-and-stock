@@ -22,7 +22,7 @@ import {
   foldModifiers, modifierMeter, rankShelves, purchaseChance, suggestedPrice,
   wholesalePrice, footfall, pull, clamp, round2,
 } from './economy.js';
-import { spoilRate, requiredFixture, desireFor } from '../../shared/tags.js';
+import { spoilRate, requiredFixture, desireFor, impulsePull } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
 import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf } from '../../shared/build.js';
@@ -32,6 +32,12 @@ import { pieceFor, kindOf, defaultPiece, countKey } from '../../shared/pieces.js
 export const DAY_SECONDS = 360;
 export const OPEN_HOUR = 8;
 export const CLOSE_HOUR = 20;
+/**
+ * How much faster the world turns once the shop is shut. The twelve closed
+ * hours are 180 real seconds at 1×; at 6× they are 30, which is long enough to
+ * put a delivery away and short enough that nobody waits out the sunrise.
+ */
+const NIGHT_SPEED = 6;
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
 
 /** Half a body's width, for stopping short of a thin wall rather than in it. */
@@ -56,7 +62,6 @@ const EDGE_LABEL = {
 const PLAYER_SPEED = 4.2;      // tiles/sec
 const CUSTOMER_SPEED = 2.4;
 const REACH = 1.6;             // how close you must be to interact
-const MAX_UNITS_PER_SHELF = 3; // how many of one thing a shopper will take at once
 const CASH_REACH = 1.8;        // how close you stand to scoop up the till
 const CASH_MIN_LIFE = 3.5;     // seconds a pile stays put so you can see it
 const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
@@ -77,6 +82,48 @@ const ANNOY_IN_SHOP = 0.15;    // being in a shop at all, however good it is
 const ANNOY_LINE = 1.0;        // waiting to pay, walking up the line or standing in it
 const ANNOY_EMPTY_SHELF = 0.12; // one-off: walked over and somebody took the last one
 const ANNOY_CROWD = 0.6;       // per whole multiple of capacity over the top
+/**
+ * One-off, per staple you did not stock. Bigger than a wasted trip to an empty
+ * shelf, because this is the thing they came in for and no other shelf in the
+ * building answers it — but well short of walking them out on its own, since
+ * the sale of everything *else* on the list is still worth making.
+ */
+const ANNOY_MISSED_STAPLE = 0.2;
+/** And what it does to your standing in the town, per staple missed. */
+const REP_MISSED_STAPLE = 0.008;
+
+/** How many distinct tags one shopping trip is spread across. */
+const MAX_LIST_LINES = 3;
+/**
+ * How much a shelf being on the list is worth when choosing where to walk.
+ *
+ * A preference BIASES the ranking; it does not filter it. Filtering is the
+ * shape this was first built in and it cost 44–77% of sales on two of three
+ * seeds: it marched people to whichever shelf carried the tag however badly it
+ * converted, and a wasted trip costs patience *and* strikes a shelf off
+ * `visited` whether or not anything is bought. Shoppers ran out of shop before
+ * they ran out of list, left empty-handed, and took reputation — and therefore
+ * footfall — down with them.
+ */
+const LIST_BONUS = 1.6;
+
+/**
+ * ENDCAPS.
+ *
+ * An endcap is not a fixture — it is a shelf within `IMPULSE_RADIUS` of the
+ * till somebody just queued at. Derived rather than authored, so the rule is
+ * "put the sweets by the checkout" and the player finds it by playing.
+ *
+ * The roll fires ONCE, on joining the queue, and is scaled by how many people
+ * are already in the line rather than by how long this shopper waits. That is
+ * not a simplification: `simulate`'s bot serves the front of the queue after
+ * 1.5s, so a wait-scaled impulse would be invisible to every balance run and
+ * land unmeasured. See docs/customers.md.
+ */
+const IMPULSE_RADIUS = 2.6;    // tiles from the till, so roughly "the end of the aisle"
+const IMPULSE_BASE = 0.35;     // scales purchaseChance — an impulse is a weaker pull than an errand
+const IMPULSE_PER_AHEAD = 0.2; // ...and a longer line gives you longer to look at it
+const IMPULSE_MAX_AHEAD = 3;
 
 /**
  * HOW BIG THE SHOP IS.
@@ -569,10 +616,27 @@ export class Game {
   // -------------------------------------------------------------------------
 
   step(dt) {
-    this.elapsed += dt;
+    // Once the doors are shut the clock runs on. Twelve closed hours is half of
+    // every day, and at 1× that is three real minutes of standing in an empty
+    // shop waiting for the sun — far more time than restocking has ever needed.
+    //
+    // The night is compressed rather than skipped, and the line is drawn at
+    // legs: **time-passage scales, bodies don't.** `elapsed` scales, so crops
+    // grow and appliances finish by exactly as much over a night as they always
+    // did, just sooner — neither has any motion to look wrong.
+    //
+    // Staff were briefly on the scaled clock, on the theory that they are the
+    // night passing as much as the crops are. They are not: they have legs, and
+    // six hires sprinting round a shut shop reads as a physics bug rather than
+    // as a time-lapse. They walk and work at their own pace, so a shorter night
+    // is genuinely less overnight restocking — if that starts leaving shelves
+    // bare at opening, the number to change is NIGHT_SPEED, not the staff.
+    const world = dt * (this.isOpen() ? 1 : NIGHT_SPEED);
+
+    this.elapsed += world;
     const prevDay = this.day;
 
-    this.time += dt / DAY_SECONDS;
+    this.time += world / DAY_SECONDS;
     while (this.time >= 1) {
       this.time -= 1;
       this.day++;
@@ -697,9 +761,18 @@ export class Game {
 
   stepPlayers(dt) {
     for (const p of Object.values(this.players)) {
-      if (!p.input) continue;
-      const { dx, dz } = p.input;
-      if (dx === 0 && dz === 0) continue;
+      const { dx = 0, dz = 0 } = p.input ?? {};
+      const steering = dx !== 0 || dz !== 0;
+
+      // Steering outranks a walk order, always, and cancels it on the first
+      // frame of input rather than fighting it. A key that only slowed the
+      // route down would read as the game ignoring you — and this is the whole
+      // reason the two schemes can share a player: you take the wheel by
+      // touching it, and there is never a moment where both are driving.
+      if (steering) p.path = null;
+      const walking = steering || p.path?.length > 0;
+      if (!walking) continue;
+
       // Walking away is what clears the "don't pick that straight back up"
       // lock — and *away* has to mean out of reach, not one step. It used to
       // clear on any movement at all, which was fine while a finger had to be
@@ -708,6 +781,17 @@ export class Game {
       // pallet you are still stood on and you stow, pick up, stow, pick up,
       // for as long as you stand there.
       if (p.stowLock && !this.nearest(this.deliveries, p, UNLOAD_REACH)) p.stowLock = false;
+
+      // A routed walk is the same mover customers and staff are: A* planned it
+      // against `this.walk`, which is the grid `canStand` reads, so there is no
+      // second opinion about where a person may be. `canWalk` is not consulted
+      // per step because the route already crossed no solid edge — checking
+      // again would only ever disagree by rounding, and disagreeing means
+      // stopping dead in a doorway.
+      if (!steering) {
+        if (followPath(p, PLAYER_SPEED * this.speedMult(), dt)) p.path = null;
+        continue;
+      }
 
       const len = Math.hypot(dx, dz) || 1;
       // A drag-joystick sends a partial vector for a small nudge, so honour the
@@ -971,6 +1055,59 @@ export class Game {
     const p = this.players[id];
     if (!p) return;
     p.input = { dx: clamp(dx, -1, 1), dz: clamp(dz, -1, 1) };
+  }
+
+  /**
+   * Walk to a tile, the way everything else in the shop already walks.
+   *
+   * The player was the only mover in the game steering by raw velocity; this
+   * makes them one more caller of `pathTo`, so a tap routes round the shelving
+   * for free and honours edge walls at plan time rather than bouncing off them
+   * a frame at a time.
+   *
+   * A refused route is a real answer and not an error the HUD should shout
+   * about — you tapped the far side of a wall you have not put a door in yet —
+   * so it clears the path and says so, leaving you where you stand.
+   */
+  walkTo(id, x, z) {
+    const p = this.players[id];
+    if (!p) return err('no such player');
+    const goal = { x: Math.round(x), z: Math.round(z) };
+    if (!this.pathTo(p, goal)) {
+      p.path = null;
+      return err('No way through to there');
+    }
+    // A tap on the tile you are already stood on plans a route of no legs, and
+    // `pathTo` spells that `[]`. Left as an empty array it is a walk in
+    // progress that never progresses — nothing moves, but `p.path` is truthy
+    // and every later "am I walking?" has to know that a route can be a lie.
+    const steps = p.path.length;
+    if (steps === 0) p.path = null;
+    // Whatever the stick last said, stop saying it — otherwise a stale vector
+    // from the frame before the tap cancels the route on the very next step.
+    p.input = { dx: 0, dz: 0 };
+    return ok({ to: goal, steps });
+  }
+
+  /**
+   * Walk to where you'd *work* a fixture, not to the fixture.
+   *
+   * A shelf is browsed from one side, and A*'s own fallback — "goal blocked, so
+   * aim at any walkable neighbour" — would happily park you behind it, in reach
+   * of nothing, which reads as the tap having been ignored. The anchor is the
+   * side the thing is used from, the layout already stores it, and the sim's
+   * own reach checks already read it (`nearest(..., (s) => s.browseAt)`), so
+   * arriving there is arriving armed.
+   *
+   * Resolved here rather than client-side for the reason the build ghost shares
+   * one validator with the server: an anchor worked out twice can disagree with
+   * itself, and this one decides whether a tap does anything at all.
+   */
+  walkToFixture(id, fixtureId) {
+    const f = this.findFixture(fixtureId);
+    if (!f) return err('no such fixture');
+    const spot = f.browseAt ?? f.serveAt ?? f.useAt ?? f;
+    return this.walkTo(id, spot.x, spot.z);
   }
 
   /** Which seed this player plants when they stand on a bare plot. */
@@ -2716,8 +2853,20 @@ export class Game {
         continue;
       }
       cu.path = null;
-      cu.state = 'BROWSE';
       cu.targetShelf = null;
+      // Anyone on their way out stays on their way out. Sending them back to
+      // BROWSE restarts a shopper who has already paid — with an emptied basket
+      // and a finished list, so they walk back in, find they want nothing, and
+      // are counted as having left empty-handed. Every re-flow charged the shop
+      // 0.015 reputation for each of them, and a player who is *building* is
+      // re-flowing constantly: reputation floors, `pull` floors with it, and the
+      // shop stops getting customers for the crime of having served some.
+      if (cu.state === 'LEAVE') {
+        const out = this.rng.pick(this.layout.approaches ?? [this.layout.spawn]);
+        if (this.pathTo(cu, out) && out.off) cu.path.push({ ...out.off });
+        continue;
+      }
+      cu.state = 'BROWSE';
     }
     for (const p of Object.values(this.players)) {
       if (!this.canStand(p.x, p.z)) {
@@ -2817,6 +2966,7 @@ export class Game {
     ]);
 
     const id = `c${this.nextCustomerId++}`;
+    const units = this.rng.int(arch.basket_min, arch.basket_max);
     const cust = {
       id,
       archetype_id: arch.id,
@@ -2828,7 +2978,12 @@ export class Game {
       path: null,
       basket: [],
       budget: this.rng.float(arch.budget_min, arch.budget_max),
-      wantCount: this.rng.int(arch.basket_min, arch.basket_max),
+      wantCount: units,
+      list: this.rollList(arch, units),
+      errandAt: -1,
+      missed: [],
+      settled: false,
+      impulsed: false,
       patience: arch.patience,
       waited: 0,
       mood: 1,
@@ -2841,6 +2996,123 @@ export class Game {
     this.customers[id] = cust;
     this.pathTo(cust, { x: this.layout.door.x, z: this.layout.door.z - 1 }, approach);
     return ok({ id, archetype: arch.id });
+  }
+
+  /**
+   * What this shopper came in for, as a list of TAG lines.
+   *
+   * A line is a tag and never an item id — a shopper who wants `tomato` breaks
+   * the day somebody authors a second red thing, and the whole game is built so
+   * that never has to happen. `dairy` is answered by whatever dairy is on the
+   * shelf today.
+   *
+   * `units` is `basket_min..basket_max`, unchanged in meaning: it is still how
+   * many things they leave with, now spread across lines rather than counted
+   * flat. So basket sizes — and the balance tuned around them — come out where
+   * they were.
+   *
+   * A repeat draw of a tag raises that line's `qty` instead of adding a second
+   * line, which is what turns a strong affinity into "three of those" rather
+   * than three separate errands for the same thing.
+   */
+  rollList(arch, units) {
+    const lines = new Map();
+    const add = (tag, must) => {
+      const line = lines.get(tag) ?? { tag, qty: 0, got: 0, must: false, failed: false };
+      line.qty++;
+      line.must = line.must || must;
+      lines.set(tag, line);
+    };
+
+    let placed = 0;
+    // Staples first: these are the reason they left the house, so they get
+    // their line even on a one-item trip.
+    for (const tag of arch.staple_tags ?? []) {
+      if (placed >= units) break;
+      add(tag, true);
+      placed++;
+    }
+
+    // The rest is opportunistic, drawn from what they already like. Negative
+    // and zero affinities are excluded rather than clamped: a Health Nut with
+    // `junk: -0.6` did not come in for junk, and `purchaseChance` would refuse
+    // the line anyway — it would just fail as unmet demand and blame the shop.
+    const wants = Object.entries(arch.affinities)
+      .filter(([, w]) => w > 0)
+      .map(([tag, w]) => ({ tag, w }));
+    while (placed < units && wants.length) {
+      // A trip is a few categories bought several of, not eight single items.
+      // Past MAX_LIST_LINES a draw becomes another of something already on the
+      // list. That is not flavour: a shelf is visited once and a one-unit line
+      // is one visit, so an eight-line list walks a shopper past every shelf in
+      // the building, burning patience and running them out of unvisited
+      // shelves before the basket is full.
+      const tag = lines.size >= MAX_LIST_LINES
+        ? this.rng.pick([...lines.keys()])
+        : this.rng.weighted(wants, 'w').tag;
+      add(tag, false);
+      placed++;
+    }
+
+    return [...lines.values()];
+  }
+
+  /** The line they are working on: first one still wanted and not written off. */
+  openLine(cust) {
+    return cust.list.find((l) => !l.failed && l.got < l.qty) ?? null;
+  }
+
+  /**
+   * Nothing on the shelves answers this line. Written off rather than retried,
+   * which is also what stops an unsatisfiable list looping — `chooseShelf` only
+   * ever considers unvisited shelves, so a line runs out of candidates and
+   * lands here.
+   *
+   * Only a *staple* they got none of counts against the shop. A missed
+   * nice-to-have is browsing, and a line they got two of three on is the shelf
+   * being thin, which `ANNOY_EMPTY_SHELF` already charges for.
+   */
+  failLine(cust, line) {
+    line.failed = true;
+    if (!line.must || line.got > 0) return;
+    cust.missed.push(line.tag);
+    cust.mood = clamp(cust.mood - ANNOY_MISSED_STAPLE, 0, 1);
+    this.stats.unmet[line.tag] = (this.stats.unmet[line.tag] ?? 0) + 1;
+  }
+
+  /**
+   * They have stopped shopping, for whatever reason. Charge for the staples
+   * that went unmet, then route them to the till or out of the door.
+   *
+   * The three ways to stop shopping all pass through `chooseShelf`, which is
+   * why this can be one place. A storm-out is the exception and deliberately
+   * skips it: `stormOut` already takes 0.03 off reputation, and the tally was
+   * taken when the line failed.
+   */
+  stopShopping(cust, arch) {
+    // Once per shopper, whatever happens to them afterwards. Anything that puts
+    // a finished customer back on the shop floor — a layout re-flow is the one
+    // that bites — must not be able to bill the shop for them twice.
+    const first = !cust.settled;
+    cust.settled = true;
+
+    if (first && cust.missed.length) {
+      this.reputation = clamp(
+        this.reputation - REP_MISSED_STAPLE * cust.missed.length, 0, 1,
+      );
+      const name = arch?.name ?? 'customer';
+      this.pushLog(`A ${name} came in for ${cust.missed.join(' and ')} and you had none.`);
+    }
+
+    if (cust.basket.length) return this.goToTill(cust, arch);
+    if (first) {
+      // Walking out empty-handed is a much stronger signal than a happy sale,
+      // so it moves reputation harder — otherwise a busy shop can post great
+      // numbers while quietly failing a third of its customers.
+      this.reputation = clamp(this.reputation - 0.015, 0, 1);
+      this.stats.leftEmpty++;
+    }
+    return this.leaveShop(cust);
   }
 
   /**
@@ -2946,14 +3218,15 @@ export class Game {
   }
 
   chooseShelf(cust, arch, c, folded) {
-    // Done shopping?
-    if (cust.basket.length >= cust.wantCount) return this.goToTill(cust);
+    // Everything on the list either bought or written off?
+    if (!this.openLine(cust)) return this.stopShopping(cust, arch);
 
     // Fuming: not walking to one more shelf. Someone still empty-handed has
     // nothing to lose by leaving now; someone holding goods would rather pay
     // and get out, and will storm out of the line itself if it comes to that.
     if (cust.mood < MOOD_FUMING) {
-      return cust.basket.length ? this.goToTill(cust) : this.stormOut(cust);
+      if (!cust.basket.length) return this.stormOut(cust);
+      return this.stopShopping(cust, arch);
     }
 
     const ranked = rankShelves({
@@ -2969,20 +3242,49 @@ export class Game {
     });
 
     if (ranked.length === 0) {
-      // Nothing here they want. If they found nothing at all, they leave
-      // annoyed — that's the signal your shelves are wrong.
-      if (cust.basket.length === 0) {
-        // Walking out empty-handed is a much stronger signal than a happy sale,
-        // so it moves reputation harder — otherwise a busy shop can post
-        // great numbers while quietly failing a third of its customers.
-        this.reputation = clamp(this.reputation - 0.015, 0, 1);
-        this.stats.leftEmpty++;
-        return this.leaveShop(cust);
-      }
-      return this.goToTill(cust);
+      // Nothing left in the shop they'd take at all — no point walking the rest
+      // of the list. Every open staple is a miss, and they leave.
+      for (const line of cust.list) if (!line.failed && line.got < line.qty) this.failLine(cust, line);
+      return this.stopShopping(cust, arch);
     }
 
-    const target = ranked[0];
+    // The two kinds of line part company here.
+    //
+    // A STAPLE is absolute: it is what they came in for, so if anything on an
+    // unvisited shelf carries the tag that is where they are going, whatever it
+    // costs them in conversion. Nothing carrying it is the miss worth counting.
+    let target = null;
+    let at = -1;
+    for (let i = 0; i < cust.list.length; i++) {
+      const l = cust.list[i];
+      if (l.failed || l.got >= l.qty || !l.must) continue;
+      const hit = ranked.find(({ item }) => item.tags.includes(l.tag));
+      if (hit) { target = hit; at = i; break; }
+      this.failLine(cust, l);
+    }
+
+    // Everything else is a PREFERENCE, and a preference weights the choice
+    // rather than making it — see LIST_BONUS. They always end up at a shelf
+    // worth walking to; the list decides which of the good ones.
+    if (!target) {
+      const open = cust.list.filter((l) => !l.failed && l.got < l.qty);
+      if (!open.length) return this.stopShopping(cust, arch);
+      const wanted = new Set(open.map((l) => l.tag));
+      let best = -1;
+      for (const cand of ranked) {
+        const score = cand.chance * (cand.item.tags.some((t) => wanted.has(t)) ? LIST_BONUS : 1);
+        if (score > best) { best = score; target = cand; }
+      }
+      if (!target) return this.stopShopping(cust, arch);
+      // Which line does this serve? Its own tag if that is on the list;
+      // otherwise the first open preference, which is a substitution.
+      const openAt = (fn) => cust.list.findIndex((l) => !l.failed && l.got < l.qty && fn(l));
+      at = openAt((l) => target.item.tags.includes(l.tag));
+      if (at < 0) at = openAt((l) => !l.must);
+      if (at < 0) at = cust.list.indexOf(open[0]);
+    }
+
+    cust.errandAt = at;
     cust.targetShelf = target.shelf.id;
     cust.wantHint = target.item.id;
     cust.state = 'WALK';
@@ -3013,26 +3315,31 @@ export class Game {
       season: this.season, reputation: this.reputation,
     });
 
-    // Shoppers take a small run of the same thing rather than exactly one.
-    // A shelf is only ever visited once, so one-unit-per-shelf capped every
-    // basket at the shelf count and left people leaving with far less than
-    // they came for. Each extra unit has to pass its own roll and stay inside
-    // the budget, so a weak match still only yields one.
-    const room = () => cust.wantCount - cust.basket.length;
+    // How many they take is how many that line still wants. This used to be a
+    // flat MAX_UNITS_PER_SHELF, which existed only because a shelf is visited
+    // once and a one-per-shelf basket was capped at the shelf count — the list
+    // says "two milks" outright, so the constant retired with it.
+    //
+    // Each extra unit still passes its own roll and stays inside the budget, so
+    // a weak match yields one and a strong one clears the errand.
+    // By index, not by tag: a substituted line is being served by something
+    // that does not carry its tag, which is the whole point of a substitution.
+    const line = cust.list[cust.errandAt] ?? null;
     const spent = () => cust.basket.reduce((s, b) => s + b.price, 0);
-    const maxRun = Math.min(MAX_UNITS_PER_SHELF, room(), shelf.qty);
+    const maxRun = Math.min(line ? line.qty - line.got : 1, shelf.qty);
 
     for (let n = 0; n < maxRun; n++) {
       if (spent() + shelf.price > cust.budget) break;
       if (this.rng.next() >= chance) break;
       shelf.qty--;
       cust.basket.push({ item_id: item.id, price: shelf.price });
+      if (line) line.got++;
       // NOTE: item_id is deliberately left set when qty hits 0, so the shelf
       // keeps its label and players/bots know what to restock it with.
     }
   }
 
-  goToTill(cust) {
+  goToTill(cust, arch = null) {
     if (cust.basket.length === 0) return this.leaveShop(cust);
 
     // Join the shortest queue.
@@ -3041,6 +3348,7 @@ export class Game {
     for (const t of tills) t.queue = t.queue ?? [];
     const till = tills.reduce((a, b) => (a.queue.length <= b.queue.length ? a : b));
 
+    const ahead = till.queue.length;
     till.queue.push(cust.id);
     cust.till = till.id;
     cust.state = 'TO_TILL';
@@ -3051,7 +3359,55 @@ export class Game {
       x: till.serveAt.x + till.queueDir.x * slot,
       z: till.serveAt.z + till.queueDir.z * slot,
     };
-    if (!this.pathTo(cust, goal)) this.leaveShop(cust);
+    if (!this.pathTo(cust, goal)) return this.leaveShop(cust);
+
+    this.impulseBuy(cust, arch, till, ahead);
+  }
+
+  /**
+   * The endcap. One look at whatever is stacked by the till they just joined.
+   *
+   * There is no endcap fixture and there should not be one: `BUILD_KINDS` is
+   * closed because where a thing may go is behaviour, and an endcap is neither
+   * a new behaviour nor a new piece — it is a shelf you chose to put next to a
+   * checkout. Deriving it from the distance makes *placement* worth money for
+   * the first time, and makes the rule something a player finds rather than
+   * reads.
+   *
+   * Off-list on purpose, so this can push a basket past `wantCount` — that is
+   * what an impulse buy is. `visited` is ignored too: walking past a shelf and
+   * declining it is not a decision that survives contact with the sweets.
+   */
+  impulseBuy(cust, arch, till, ahead) {
+    if (cust.impulsed) return;
+    cust.impulsed = true;
+    // Somebody visibly cross is not browsing the sweets on the way out.
+    if (!arch || cust.mood < MOOD_ANNOYED) return;
+
+    const c = content();
+    const folded = this.folded();
+    const spent = cust.basket.reduce((s, b) => s + b.price, 0);
+    // A longer line is longer spent looking at it.
+    const dwell = 1 + IMPULSE_PER_AHEAD * Math.min(ahead, IMPULSE_MAX_AHEAD);
+
+    let best = null;
+    for (const shelf of this.layout.shelves) {
+      if (!shelf.item_id || shelf.qty <= 0) continue;
+      if (Math.hypot(shelf.x - till.x, shelf.z - till.z) > IMPULSE_RADIUS) continue;
+      const item = c.byId.items[shelf.item_id];
+      if (!item) continue;
+      if (spent + shelf.price > cust.budget) continue;
+      const chance = purchaseChance({
+        item, archetype: arch, price: shelf.price, folded,
+        season: this.season, reputation: this.reputation,
+      }) * IMPULSE_BASE * impulsePull(item) * dwell;
+      if (chance > 0 && (!best || chance > best.chance)) best = { shelf, item, chance };
+    }
+
+    if (!best || this.rng.next() >= best.chance) return;
+    best.shelf.qty--;
+    cust.basket.push({ item_id: best.item.id, price: best.shelf.price });
+    this.stats.impulse++;
   }
 
   stepQueue(cust, dt) {
@@ -3280,6 +3636,9 @@ function freshStats() {
   return {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
     spoiled: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
+    // Staples people came in for and you did not stock, by tag. The one number
+    // in here that says what to do about itself.
+    unmet: {}, impulse: 0,
   };
 }
 

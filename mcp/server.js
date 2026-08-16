@@ -98,6 +98,12 @@ server.registerTool('create_world', {
   inputSchema: {
     name: z.string().optional().describe('What to call it, e.g. "Balance testing". Defaults to "Shop N".'),
     seed: z.string().optional().describe('Decides the shape of the building and fields. Omit for a random one.'),
+    cash: z.number().optional().describe('Starting money. Defaults to 250. Clamped to 0–1,000,000.'),
+    shelves: z.number().optional()
+      .describe('Shelf units the shop opens with. Defaults to 6, clamped to 1–25. Set only at creation: '
+        + 'the building is stamped the first time the world opens, and after that the shop is what is standing in it.'),
+    plots: z.number().optional()
+      .describe('Farm plots the shop opens with. Defaults to 4, clamped to 1–32. Creation-only, same as shelves.'),
   },
 }, async (args) => text(await call('POST', '/worlds', args)));
 
@@ -385,12 +391,17 @@ server.registerTool('create_crop', {
 server.registerTool('create_archetype', {
   title: 'Create or update a customer type',
   description:
-    'Add a kind of shopper. `affinities` maps tag -> how much they like it (-1 to 1), and that alone determines what they buy — no per-item logic. '
+    'Add a kind of shopper. `affinities` maps tag -> how much they like it (-1 to 1), and that determines what they buy — no per-item logic. '
+    + 'They arrive with a shopping list of TAGS rolled from those affinities; `staple_tags` are the ones they actually came for and will hold against you. '
     + 'Adding an archetype with a tag affinity nothing currently carries is a good way to create demand for items that do not exist yet.',
   inputSchema: {
     id: z.string().describe('lowercase-kebab-case unique id, e.g. "night-shift-worker".'),
     name: z.string(),
     affinities: z.record(z.string(), z.number().min(-2).max(2)).describe('tag -> weight, roughly -1 to 1. e.g. {"junk":0.9,"healthy":-0.6}'),
+    staple_tags: z.array(z.string()).max(8).default([]).describe(
+      'Tags this shopper actually came in for, e.g. ["dairy"]. Miss one and they leave annoyed and it is counted under `unmetDemand` in simulate. '
+      + 'Everything else on their list is drawn from `affinities` and is opportunistic. Leave empty for a browser.',
+    ),
     price_sensitivity: z.number().min(0).max(1).default(0.5).describe('0 = ignores price tags, 1 = extremely price driven.'),
     patience: z.number().min(5).max(600).default(60).describe('Seconds they will queue before abandoning their basket.'),
     budget_min: z.number().min(0).default(10),

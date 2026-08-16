@@ -392,6 +392,31 @@ what the next step was meant to be.
   the sim looks fine — `foldModifiers` collapses same-event rows to their
   strongest pull, so the *balance* never moved. All you see is a HUD wearing
   twenty-six chips, which reads as a mad world rather than as a bug.
+- **`world()` handed out DEFAULT_WORLD's own arrays.** The loader spread
+  `{ ...DEFAULT_WORLD, ...saved }`, which is shallow — so a world with *no*
+  save (an ephemeral balance run, a verify sweep, a slot nobody has opened)
+  got the module-level `ownedUpgrades` array itself, and `buyUpgrade` pushes
+  onto it. One `simulate` call left the default owning twelve upgrades for the
+  rest of the process: the next run started rich, the next richer, and ten
+  seeds "averaged" a shop that grew between every seed. Nothing in the output
+  says so except `startedWith`, which is the only reason it was ever caught —
+  check it, it is there for this. `structuredClone` now, and the same trap is
+  waiting for any mutable field added to `DEFAULT_WORLD`.
+- **Copying `data/game.db` with `cp` silently copies a stale shop.** SQLite is
+  in WAL mode, so recent writes live in `game.db-wal` until a checkpoint. `cp`
+  of the `.db` alone loses them, and the worlds you were about to measure may
+  simply not be in the copy — at which point `world()` falls through to the
+  starter shop and you spend an hour comparing two default worlds while
+  believing you are measuring somebody's real one. `VACUUM INTO` a consistent
+  copy instead.
+- **A layout re-flow used to restart shoppers who had already paid.** Every
+  customer was reset to `BROWSE`, including ones in `LEAVE` walking out with an
+  emptied basket — so they turned round, found they wanted nothing, and were
+  booked as having left empty-handed at −0.015 reputation each. A player who is
+  *building* re-flows constantly, so reputation floored, `pull` floored with it,
+  and the shop stopped getting customers as a direct consequence of having
+  served some. `LEAVE` now survives a re-flow. Anything that resets customers
+  wholesale needs to ask which of them were already finished.
 - **One seed is not a measurement.** `clear_modifiers` is necessary and not
   sufficient. The bot picks crops by weighted random draw, so a change that
   calls that draw a different number of times shifts the whole RNG stream and

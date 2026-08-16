@@ -9,11 +9,15 @@
 import { FIXTURES } from '../shared/build.js';
 import { variantsOf } from '../shared/model.js';
 import {
-  buildTools, buildGroups, groupOfTool, ownedCount, sectionById,
+  buildTools, buildGroups, groupOfTool, sectionById, staffGroups, upgradeGroups,
 } from './sections.js';
+import { renderBar, groupAt, nextGroup, KEYED } from './bar.js';
+import { showWorker } from './worker-menu.js';
+import { showUpgrade } from './upgrade-menu.js';
 import { Rail } from './rail.js';
 import { ICONS } from './icons.js';
 import { showFixture } from './fixture-menu.js';
+import { wireDrag, restorePos } from './panel-drag.js';
 
 /**
  * Tag and label text reaches these panels from the database, which anyone can
@@ -68,9 +72,11 @@ export class UI {
     this.buildVariant = '';
     this.buildRot = 0;
     this.buildCosts = {};
-    // Which tab of the build bar is open. Survives leaving and re-entering build
-    // mode — the tool you had selected does, so the tab it lives on should too.
-    this.buildGroup = null;
+    // Which tab each bar was last left on, and which of the three has it. Kept
+    // per bar rather than one shared value: they have nothing in common but the
+    // strip of screen, and a roster tab is not an answer to a build question.
+    this.barTab = { build: null, staff: null, upgrades: null };
+    this.bar = null;
     this.el = {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
@@ -108,6 +114,9 @@ export class UI {
     const close = document.getElementById('panel-close');
     close.innerHTML = ICONS.close;
     close.onclick = () => this.closePanel();
+    // Grab it by its header. Filed under whichever menu is open when you let
+    // go, so each one remembers its own spot — see client/panel-drag.js.
+    wireDrag(this.el.panel, this.el.panel.querySelector('header'), () => this.openPanel ?? null);
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.escape();
     });
@@ -129,6 +138,11 @@ export class UI {
   toggleBuild(on = !this.buildOn, { quiet = false } = {}) {
     this.buildOn = on;
     this.buildRot = 0;
+    // Build mode owns the bar while it is on, and hands it back to nobody when
+    // it goes off — the roster does not come back just because you stopped
+    // building, since you never asked for it.
+    this.bar = on ? 'build' : (this.bar === 'build' ? null : this.bar);
+    this.rail.setBar(this.bar);
     document.body.classList.toggle('building', on);
     if (!on && this.openPanel === 'fixture') this.closePanel();
     // Only a fixture kind means anything to the server (see `selectBuildTool`).
@@ -259,8 +273,8 @@ export class UI {
     // and a lit button on a hidden tab is an armed tool nothing on screen names.
     // An entry that lives on two tabs stays on whichever one you found it on.
     const here = this.openBuildGroup();
-    if (!here?.tools.some((x) => x.id === t.id)) {
-      this.buildGroup = groupOfTool(t) ?? this.buildGroup;
+    if (!here?.items?.some((x) => x.id === t.id)) {
+      this.barTab.build = groupOfTool(t) ?? this.barTab.build;
     }
     // Shapes belong to a piece, so switching piece drops back to Standard rather
     // than asking for a "corner till" nobody drew.
@@ -398,87 +412,104 @@ export class UI {
   }
 
   /**
-   * The bottom bar: the whole build palette, in two tiers.
+   * The bottom bar, whichever of the two things is using it.
    *
-   * Only while you're building — the shop floor is the game, and a toolbar that
-   * never leaves makes it look like a level editor.
-   *
-   * Tabs on top, the open tab's entries below in a strip that scrolls sideways.
-   * That is what lets the bar *be* the catalogue rather than a preview of one:
-   * a flat row could only ever show its first nine, so everything past that
-   * needed a second palette in a panel, and the two disagreed about which was
-   * the real one. 1–9 still pick, and now they mean the nine in front of you —
-   * the number on a button is the key that presses it, so entry ten simply
-   * doesn't carry a number rather than being unreachable.
+   * Never both: they are one strip of screen, so turning one on takes it off
+   * the other (`showBar`). Everything about *how* a tiered picker behaves —
+   * tabs, the sideways scroll, the number keys, scrolling the selection into
+   * view, measuring its own height — lives in `bar.js` and is written once.
+   * This decides only what is in it.
    */
   renderHotbar() {
     if (!this.el.buildTools) return;
-    this.el.build.classList.toggle('on', this.buildOn);
-    if (!this.buildOn) return;
+    this.el.build.classList.toggle('on', !!this.bar);
+    // Nothing up: the bar is still in the document and still has a height, so
+    // say zero explicitly. Everything above it in the stack is `calc()` off
+    // this, and a stale value floats the panel over empty screen.
+    if (!this.bar) { this.measureBar(true); return; }
+    if (this.bar === 'staff') return this.renderBrowseBar(staffGroups(this), (it) => (
+      it.hire ? showWorker(this, it.hire) : this.showSection('staff')
+    ), this.openPanel === 'worker' ? `hire:${this.workerRef}` : null);
+    if (this.bar === 'upgrades') return this.renderBrowseBar(upgradeGroups(this), (it) => (
+      showUpgrade(this, it.upgrade)
+    ), this.openPanel === 'upgrade' ? this.upgradeRef : null);
+    return this.renderBuildBar();
+  }
 
+  renderBuildBar() {
     const groups = this.buildGroupList();
-    const open = this.openBuildGroup(groups);
-
-    this.el.buildGroups.innerHTML = groups.map((g) => `
-      <button class="cat${g.id === this.buildGroup ? ' on' : ''}" data-cat="${esc(g.id)}"
-        title="${esc(g.blurb)}">
-        <span class="ico">${g.icon}</span><span class="nm">${esc(g.name)}</span>
-      </button>`).join('');
-
-    const picked = this.toolId();
-    this.el.buildTools.innerHTML = (open?.tools ?? []).map((t, i) => {
-      const cost = this.buildCosts[t.id];
-      // How many of these are standing in the shop. It was a line of the panel's
-      // row copy; the panel is gone and the number is the half of that row worth
-      // keeping — "six owned" is what decides whether a seventh is the buy.
-      const have = ownedCount(this, t);
-      return `<button class="tool${t.id === picked ? ' on' : ''}" data-slot="${i}"
-          title="${esc(t.name)} — ${esc(t.blurb)}">
-          ${i < 9 ? `<span class="key">${i + 1}</span>` : ''}
-          ${have ? `<span class="have">${have}</span>` : ''}
-          <span class="ico">${t.icon}</span>
-          <span class="nm">${esc(t.name)}</span>${cost == null ? '' : `<span class="cost">$${cost.toFixed(0)}</span>`}
-        </button>`;
-    }).join('');
-
-    this.renderBuildShapes();
-
-    this.el.buildGroups.querySelectorAll('[data-cat]').forEach((b) => {
-      b.onclick = () => this.selectBuildGroup(b.dataset.cat);
+    const open = renderBar(this.barEl(), {
+      groups,
+      at: this.barTab.build,
+      picked: this.toolId(),
+      // Shapes are not palette entries of their own — a corner shelf is a shelf,
+      // at a shelf's price, and the number keys should keep meaning one fixture.
+      sub: {
+        label: 'Shape',
+        options: variantsOf(this.catalog.fixtures?.find((x) => x.id === this.buildPiece)),
+        picked: this.buildVariant ?? '',
+        onPick: (id) => { this.commitBuildMode(); this.selectBuildVariant(id); },
+      },
+      onTab: (id) => this.selectBuildGroup(id),
+      onPick: (t) => { this.commitBuildMode(); this.selectBuildTool(t.id); },
     });
-    this.el.buildTools.querySelectorAll('[data-slot]').forEach((b) => {
-      b.onclick = () => this.selectBuildToolByIndex(Number(b.dataset.slot));
-    });
-    // A tab can hold more entries than fit, and the selected one is exactly the
-    // one you must be able to see — after a tab change, after the server disarms
-    // you, and after somebody authors a piece that shuffles the strip along.
-    this.el.buildTools.querySelector('.tool.on')
-      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-
+    this.barTab.build = open?.id ?? null;
     // Measures the bar itself, so it goes last.
     this.renderBuildHint();
+    return undefined;
   }
 
   /**
-   * The third tier, and only when there is a choice: which shape of the selected
-   * piece the next tap builds.
+   * The same bar, browsing rather than arming.
    *
-   * Shapes are not palette entries of their own — a corner shelf is a shelf, at
-   * a shelf's price, and the number keys should keep meaning one fixture each.
+   * A person and an upgrade are both picked the way a fixture is — press the one
+   * you mean and its own menu opens — and neither leaves anything armed
+   * afterwards. That is the whole difference from the build bar: pressing one of
+   * these is opening a door, not picking up a tool, so `picked` follows whatever
+   * menu is open rather than a selection this object is holding.
+   *
+   * An upgrade in particular has to go through its own menu: a bar entry is one
+   * press, and one press is the wrong amount of ceremony for a permanent,
+   * unrefundable twenty thousand dollars.
    */
-  renderBuildShapes() {
-    if (!this.el.buildShapes) return;
-    const shapes = variantsOf(this.catalog.fixtures?.find((x) => x.id === this.buildPiece));
-    this.el.buildShapes.hidden = shapes.length < 2;
-    if (shapes.length < 2) { this.el.buildShapes.innerHTML = ''; return; }
-
-    const at = this.buildVariant ?? '';
-    this.el.buildShapes.innerHTML = '<span class="lbl">Shape</span>'
-      + shapes.map((v) => `<button class="shape${v.id === at ? ' on' : ''}"
-          data-shape="${esc(v.id)}">${esc(v.name)}</button>`).join('');
-    this.el.buildShapes.querySelectorAll('[data-shape]').forEach((b) => {
-      b.onclick = () => { this.commitBuildMode(); this.selectBuildVariant(b.dataset.shape); };
+  renderBrowseBar(groups, onPick, picked) {
+    const open = renderBar(this.barEl(), {
+      groups,
+      at: this.barTab[this.bar],
+      picked,
+      sub: null,
+      onTab: (id) => { this.barTab[this.bar] = id; this.renderHotbar(); },
+      onPick,
     });
+    this.barTab[this.bar] = open?.id ?? null;
+    this.renderBuildHint();
+    return undefined;
+  }
+
+  /** The three elements `bar.js` draws into. */
+  barEl() {
+    return { groups: this.el.buildGroups, items: this.el.buildTools, sub: this.el.buildShapes };
+  }
+
+  /**
+   * Give the bottom bar to one of its two users, or to nobody.
+   *
+   * Build mode is a state of the *world* — a ghost on the ground, taps that
+   * place instead of walk — so it owns the bar rather than the other way round:
+   * showing the roster leaves build mode, because a bar you cannot see is a mode
+   * you cannot see you are in, and that is the whole complaint the rail's lit
+   * Build button answers.
+   */
+  showBar(which) {
+    if (this.bar === which) return;
+    if (which !== 'build' && this.buildOn) { this.toggleBuild(false, { quiet: true }); }
+    this.bar = which;
+    this.rail.setBar(which);
+    this.renderHotbar();
+  }
+
+  toggleBar(which) {
+    this.showBar(this.bar === which ? null : which);
   }
 
   /** The tabs, in palette order, dropping any nobody has authored anything for. */
@@ -486,31 +517,29 @@ export class UI {
     return buildGroups(this);
   }
 
-  /**
-   * The open tab, resolved and written back — a remembered tab can stop
-   * existing, if the only appliance in the game was deleted while you were on
-   * it. Falling through to the first one keeps the bar showing something.
-   */
+  /** The open tab of whichever bar is up, resolved against what exists. */
   openBuildGroup(groups = this.buildGroupList()) {
-    const open = groups.find((g) => g.id === this.buildGroup) ?? groups[0] ?? null;
-    this.buildGroup = open?.id ?? null;
+    const open = groupAt(groups, this.barTab.build);
+    this.barTab.build = open?.id ?? null;
     return open;
   }
 
   selectBuildGroup(id) {
-    if (id === this.buildGroup) return;
-    this.buildGroup = id;
+    if (id === this.barTab.build) return;
+    this.barTab.build = id;
     // Opening a tab is browsing, not choosing — the armed tool is whatever you
     // last picked until you pick another, so the ghost doesn't change under you.
     this.renderHotbar();
   }
 
-  /** Round the tabs, for the key that cycles them. */
+  /** Round the tabs, for the key that cycles them. Whichever bar is up. */
   cycleBuildGroup(dir = 1) {
-    const groups = this.buildGroupList();
-    if (groups.length < 2) return;
-    const at = Math.max(0, groups.findIndex((g) => g.id === this.buildGroup));
-    this.selectBuildGroup(groups[(at + dir + groups.length) % groups.length].id);
+    if (this.bar === 'staff') {
+      this.staffGroup = nextGroup(staffGroups(this), this.staffGroup, dir);
+      this.renderHotbar();
+      return;
+    }
+    this.selectBuildGroup(nextGroup(this.buildGroupList(), this.barTab.build, dir));
   }
 
   /**
@@ -529,10 +558,19 @@ export class UI {
     this.el.buildHint.textContent = say?.text ?? '';
     this.el.buildHint.hidden = !say;
     this.el.buildHint.classList.toggle('warn', !!say?.warn);
+    this.el.buildHint.classList.toggle('bad', !!say?.bad);
     this.measureBar();
   }
 
   buildHintText() {
+    // The roster bar arms nothing, so it has no ghost and no warning to give.
+    // What it can say is the thing the strip has no room for: that there is
+    // nobody to show, which otherwise reads as a bar that failed to load.
+    if (this.bar === 'staff') {
+      return (this.state?.roster ?? []).length
+        ? null
+        : { text: 'Nobody works here yet — press Hire to take somebody on' };
+    }
     if (this.holding) {
       return { text: `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R turns it · Esc puts it back` };
     }
@@ -543,11 +581,13 @@ export class UI {
       return { text: `Tear out the ${this.fixtureName(this.aimed).toLowerCase()} — tap it`, warn: true };
     }
     if (this.aimed) return { text: `${this.fixtureName(this.aimed)} — tap to open it` };
+    const v = this.buildVerdict;
+    // A red ghost is a refusal, and the reason is the only thing that turns it
+    // from "nothing happened" into "not there".
+    if (v && !v.ok) return { text: v.reason, bad: true };
     // An amber ghost means it will land and cost you something. Saying what,
     // before the tap rather than after it, is the whole point of the colour.
-    if (this.buildWarn) {
-      return { text: `${this.buildWarn} — tap anyway if you meant it · R rotates`, warn: true };
-    }
+    if (v?.warn) return { text: `${v.warn} — tap anyway if you meant it · R rotates`, warn: true };
     return null;
   }
 
@@ -558,20 +598,28 @@ export class UI {
    * shrinks — a shapes row appears, the hint comes and goes — and a number
    * guessed at here is one that goes wrong the day a tier is added.
    */
-  measureBar() {
-    document.documentElement.style
-      .setProperty('--build-h', `${this.el.build?.offsetHeight ?? 0}px`);
+  measureBar(empty = false) {
+    const h = empty ? 0 : (this.el.build?.offsetHeight ?? 0);
+    document.documentElement.style.setProperty('--build-h', `${h}px`);
   }
 
   /**
-   * What the tile under the pointer would cost you, or null if it's clean.
-   * Set from the ghost's own verdict, so the words and the colour can never
-   * disagree about what is about to happen.
+   * What the tile under the pointer would do to you, in the ghost's own words.
+   *
+   * Both halves of `canPlace`, not just one. It used to take the warning only,
+   * so a *refusal* had no words anywhere near the pointer — the red ghost was
+   * the whole message, and the reason went to a toast at the top of the screen.
+   * That was survivable while the palette lived up there too. It stopped being
+   * survivable the day the bar moved to the bottom: you click at the bottom, the
+   * answer appears six hundred pixels away for two and a half seconds, and what
+   * you experience is a game that ignores you.
    */
-  setBuildWarn(warn) {
-    if ((warn ?? null) === (this.buildWarn ?? null)) return;
-    this.buildWarn = warn ?? null;
-    if (this.buildOn) this.renderBuildHint();
+  setBuildVerdict(v) {
+    const key = v && !v.ok ? `no:${v.reason}` : (v?.warn ? `warn:${v.warn}` : null);
+    if (key === (this._verdictKey ?? null)) return;
+    this._verdictKey = key;
+    this.buildVerdict = key ? v : null;
+    if (this.bar) this.renderBuildHint();
   }
 
   // `buildVariantName` retired here. It named the chosen shape in the standing
@@ -606,12 +654,24 @@ export class UI {
    * half of this and stays inside the nine it can name.
    */
   hotbarTools() {
-    return this.openBuildGroup()?.tools ?? [];
+    if (this.bar === 'staff') return groupAt(staffGroups(this), this.staffGroup)?.items ?? [];
+    return this.openBuildGroup()?.items ?? [];
   }
 
+  /**
+   * What a number key presses: the nth entry of whichever bar is up, and the
+   * same thing tapping it would do. Capped at what the bar draws a number on,
+   * so a key can never reach a button that isn't wearing it.
+   */
   selectBuildToolByIndex(i) {
-    const t = this.hotbarTools()[i];
-    if (t) { this.commitBuildMode(); this.selectBuildTool(t.id); }
+    const t = i < KEYED ? this.hotbarTools()[i] : null;
+    if (!t) return;
+    if (this.bar === 'staff') {
+      if (t.hire) showWorker(this, t.hire); else this.showSection('staff');
+      return;
+    }
+    this.commitBuildMode();
+    this.selectBuildTool(t.id);
   }
 
   selectCropByIndex(i) {
@@ -912,9 +972,21 @@ export class UI {
     // bar for it — hands are empty on either side of a build. Compared as a
     // string first, because this runs at 10Hz over a live canvas.
     const counts = JSON.stringify(this.fixtureCounts ?? {});
-    if (this.buildOn && counts !== this._countKey) {
+    if (this.bar === 'build' && counts !== this._countKey) {
       this._countKey = counts;
       this.renderHotbar();
+    }
+
+    // The roster bar says what each person is doing right now, which is the
+    // whole reason to have it up — so it follows the snapshot on the same terms:
+    // a signature of exactly what it draws, compared as a string, redrawn only
+    // when that moves rather than ten times a second over a live canvas.
+    if (this.bar === 'staff') {
+      const who = JSON.stringify([
+        (state.roster ?? []).map((e) => [e.id, e.name, e.kind]),
+        (state.players ?? []).filter((p) => p.staff).map((p) => [p.hire, p.job, p.carry?.qty, p.pastime]),
+      ]);
+      if (who !== this._staffKey) { this._staffKey = who; this.renderHotbar(); }
     }
 
     // A menu that belongs to one thing — a fixture, a hire — is a live window
@@ -1086,6 +1158,10 @@ export class UI {
   escape() {
     if (this.openPanel && this.query) { this.clearFilter(); this.paintSection(); return; }
     if (this.openPanel) { this.closePanel(); return; }
+    // The roster bar is a rung of its own. It arms nothing and owns no world
+    // state, so it comes off before anything that does — and it is the only
+    // thing on screen at this point, which is what makes it the next thing out.
+    if (this.bar === 'staff') { this.showBar(null); return; }
     if (!this.buildOn) return;
     if (this.holding) { this.net.send('build-cancel', {}); return; }
     this.toggleBuild(false);
@@ -1132,6 +1208,8 @@ export class UI {
     this.el.panelTitle.innerHTML = title;
     this.el.panelBody.innerHTML = html;
     this.el.panel.classList.add('show');
+    // After `show`, or the element has no size to clamp a position against.
+    restorePos(this.el.panel, this.openPanel);
     // Only a section has anything to filter. `paintSection` turns it back on
     // straight after; a fixture menu never does, so it can't inherit the
     // supplier's search box.

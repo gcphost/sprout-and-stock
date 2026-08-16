@@ -30,15 +30,30 @@ export class Rail {
 
     this.el.querySelectorAll('[data-rail]').forEach((b) => {
       const item = railItemById(b.dataset.rail);
-      b.onclick = () => (item?.mode ? this.ui.toggleBuild() : this.ui.toggleSection(b.dataset.rail));
+      // Three kinds of press, and the button looks the same for all three:
+      // a mode (Build) toggles the world, a bar (Staff) claims the bottom
+      // strip, and everything else opens a panel.
+      b.onclick = () => {
+        if (item?.mode) this.ui.toggleBuild();
+        else if (item?.bar) this.ui.toggleBar(item.bar);
+        else this.ui.toggleSection(b.dataset.rail);
+      };
     });
+  }
+
+  /** Light the icon whose bar is up. `null` when the bottom strip is empty. */
+  setBar(which) {
+    for (const s of RAIL_ITEMS) {
+      if (!s.bar) continue;
+      this.el.querySelector(`[data-rail="${s.id}"]`)?.classList.toggle('on', s.bar === which);
+    }
   }
 
   /** Light the icon whose menu is open. `null` when nothing is. */
   setOpen(id) {
     for (const s of RAIL_ITEMS) {
-      // A mode button is lit by the mode, not by a panel — `update` owns it.
-      if (s.mode) continue;
+      // A mode or a bar is lit by what it owns, not by a panel — see above.
+      if (s.mode || s.bar) continue;
       this.el.querySelector(`[data-rail="${s.id}"]`)?.classList.toggle('on', s.id === id);
     }
   }

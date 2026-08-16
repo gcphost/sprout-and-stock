@@ -7,7 +7,7 @@
  *
  * `--all` keeps the slot's seed, where it used to reset that too. A seed is the
  * shape of the shop, and now that a save has a name on it in the menu, coming
- * back to a differently-shaped building called "Berry's" is not a reset — it is
+ * back to a differently-shaped building called "Corner Shop" is not a reset — it is
  * a different shop. Delete the world from the menu if that is what you wanted.
  *   npm run reset:economy -- --world=<id>  which save slot. Defaults to the one
  *                                          played most recently; `--list` shows them.

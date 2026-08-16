@@ -42,6 +42,16 @@ async function api(method, path, body) {
 
 const REMEMBERED = 'sns-world';
 
+/**
+ * How long "click again to delete" stays armed.
+ *
+ * Same latch the worker menu uses for letting someone go, and for the same
+ * reason: the row is one button from Play, and nothing comes back. A modal
+ * would ask harder, but it asks *somewhere else* — you read a dialog about a
+ * name instead of looking at the card you meant to keep.
+ */
+const DELETE_ARM_MS = 4000;
+
 export class Menu {
   /**
    * `error` is for what went wrong *before* the menu opened — a link to a shop
@@ -60,6 +70,11 @@ export class Menu {
     this.notice = notice;
     this.error = null;
     this.creating = false;
+    // `{ id, at }` for the one shop whose Delete is armed. By id, not by index:
+    // a refresh re-sorts the list, and an armed row number would end up over
+    // somebody else's shop.
+    this.arm = null;
+    this.armTimer = null;
   }
 
   /**
@@ -96,8 +111,24 @@ export class Menu {
 
   // ---- actions ------------------------------------------------------------
 
+  /** Is this shop's Delete armed, and has that not timed out? */
+  armed(world) {
+    if (!this.arm || this.arm.id !== world.id) return false;
+    if (Date.now() - this.arm.at > DELETE_ARM_MS) { this.disarm(); return false; }
+    return true;
+  }
+
+  disarm(redraw = false) {
+    clearTimeout(this.armTimer);
+    this.armTimer = null;
+    this.arm = null;
+    if (redraw) this.render();
+  }
+
   async act(fn) {
     if (this.busy) return;
+    // Arming a delete and then pressing something else is not a confirmation.
+    this.disarm();
     this.busy = true;
     this.render();
     try {
@@ -111,6 +142,8 @@ export class Menu {
   }
 
   play(world) {
+    // Or the latch fires four seconds into the game and redraws a hidden menu.
+    this.disarm();
     const name = this.name;
     if (name) localStorage.setItem('sns-name', name);
     localStorage.setItem(REMEMBERED, world.id);
@@ -126,29 +159,50 @@ export class Menu {
    * sorted by last played, so a brand new world is not where you are looking.
    */
   async create() {
-    const name = this.root.querySelector('#menu-new-name')?.value.trim() ?? '';
-    const seed = this.root.querySelector('#menu-new-seed')?.value.trim() ?? '';
+    // Read the form BEFORE `act`, never inside it. `act` renders to show
+    // "Working…", and `render` rebuilds the whole box from innerHTML — so every
+    // input is a brand new empty element by the time the callback runs, and
+    // every field arrives at the server as "". That is invisible from the code
+    // and silent in the game: you type 9999, the server is told nothing, and you
+    // start on the default with no error anywhere to say why.
+    const field = (id) => this.root.querySelector(id)?.value.trim() ?? '';
+    // Sent as typed, blanks and all: the server reads an empty box as "you
+    // didn't say" and uses the default, which is the same thing the greyed-out
+    // number in the box is promising. Parsing here would mean two opinions
+    // about what "" means, and the placeholders would only be right by luck.
+    const asked = {
+      name: field('#menu-new-name'),
+      seed: field('#menu-new-seed'),
+      cash: field('#menu-new-cash'),
+      shelves: field('#menu-new-shelves'),
+      plots: field('#menu-new-plots'),
+    };
     await this.act(async () => {
-      const { world } = await api('POST', '/worlds', { name, seed });
+      const { world } = await api('POST', '/worlds', asked);
       this.play(world);
     });
   }
 
   /**
-   * Deleting asks first, and asks with the name in the question.
+   * Deleting asks first, and asks on the card rather than in a dialog.
    *
    * The sweeper can take an unpinned world that has sat for a fortnight, which
    * makes this the one place a shop disappears *immediately* — and the row it
-   * sits on is two rows from Play.
+   * sits on is two rows from Play. So the first click only arms it: the button
+   * says what a second one does, the card says what goes with it, and the shop
+   * you are about to lose is still in front of you with its day and its cash
+   * on it. A `confirm()` had to reprint all of that, badly, and by name.
    */
   async remove(world) {
-    const sure = confirm(
-      `Delete "${world.name}"?\n\n`
-      + `Day ${world.day}, ${money(world.cash)}, ${world.upgrades} upgrade(s), ${world.staff} staff.\n\n`
-      + 'This cannot be undone. Items, crops and everything else you have made are shared '
-      + 'between shops and are not deleted.',
-    );
-    if (!sure) return;
+    if (!this.armed(world)) {
+      clearTimeout(this.armTimer);
+      this.arm = { id: world.id, at: Date.now() };
+      // Nothing here ticks, so the latch has to expire itself or the card sits
+      // saying "click again" long after clicking again has stopped deleting.
+      this.armTimer = setTimeout(() => this.disarm(true), DELETE_ARM_MS);
+      this.render();
+      return;
+    }
     await this.act(() => api('DELETE', `/worlds/${encodeURIComponent(world.id)}`));
   }
 
@@ -160,8 +214,9 @@ export class Menu {
 
   card(w, i) {
     const last = localStorage.getItem(REMEMBERED) === w.id;
+    const arm = this.armed(w);
     return `
-      <div class="wcard${last ? ' last' : ''}">
+      <div class="wcard${last ? ' last' : ''}${arm ? ' arm' : ''}">
         <div class="wtop">
           <div class="wname">${esc(w.name)}</div>
           ${w.live ? `<span class="wlive">${w.players
@@ -176,12 +231,15 @@ export class Menu {
           ${w.staff} staff · played ${ago(w.played_at)}
           ${w.pinned ? ' · kept' : ''}
         </div>
+        ${arm ? `<div class="wwarn">This shop goes for good. Items, crops and everything
+          else you have made are shared between shops and stay.</div>` : ''}
         <div class="wacts">
           <button class="wplay" data-play="${i}">${w.live ? 'Join' : 'Play'}</button>
           <button class="wghost" data-pin="${i}" title="${w.pinned
             ? 'Kept — never cleaned up automatically'
             : 'Keep this shop, whatever happens'}">${w.pinned ? 'Kept' : 'Keep'}</button>
-          <button class="wghost wdel" data-del="${i}">Delete</button>
+          <button class="wghost wdel${arm ? ' armed' : ''}" data-del="${i}">${arm
+            ? 'Click again' : 'Delete'}</button>
         </div>
       </div>`;
   }
@@ -211,15 +269,33 @@ export class Menu {
           ? `<div class="menu-new">
               <label class="menu-field">
                 <span>Called</span>
-                <input id="menu-new-name" maxlength="32" placeholder="Berry's" />
+                <input id="menu-new-name" maxlength="32" placeholder="Corner Shop" />
               </label>
               <label class="menu-field">
                 <span>Seed</span>
                 <input id="menu-new-seed" maxlength="24" placeholder="leave blank for a surprise" />
               </label>
+              <div class="menu-row">
+                <label class="menu-field">
+                  <span>Cash</span>
+                  <input id="menu-new-cash" type="number" min="0" max="1000000" placeholder="250" />
+                </label>
+                <label class="menu-field">
+                  <span>Shelves</span>
+                  <input id="menu-new-shelves" type="number" min="1" max="25" placeholder="6" />
+                </label>
+                <label class="menu-field">
+                  <span>Plots</span>
+                  <input id="menu-new-plots" type="number" min="1" max="32" placeholder="4" />
+                </label>
+              </div>
               <p class="menu-note">The seed decides the shape of the building and the fields.
-                Everything you and your agents have made — items, crops, customers, fixtures —
-                is shared with every shop.</p>
+                The three numbers are what you open with — leave any of them blank for what
+                it already says. Cash up to $1,000,000, shelves 1–25, plots 1–32; anything
+                wilder than that gets trimmed rather than refused. Shelves and plots can only
+                be chosen now: the building is stamped the first time you walk in, and after
+                that you build it yourself. Everything you and your agents have made — items,
+                crops, customers, fixtures — is shared with every shop.</p>
               <div class="wacts">
                 <button class="wplay" id="menu-create">Start it</button>
                 <button class="wghost" id="menu-cancel">Cancel</button>
@@ -240,9 +316,10 @@ export class Menu {
     q('#menu-cancel')?.addEventListener('click', () => { this.creating = false; this.render(); });
     q('#menu-create')?.addEventListener('click', () => this.create());
 
-    // Enter anywhere in the new-shop form starts it. A two-field form with a
-    // button you have to aim at is a form people abandon.
-    this.root.querySelectorAll('#menu-new-name, #menu-new-seed').forEach((el) => {
+    // Enter anywhere in the new-shop form starts it. A form with a button you
+    // have to aim at is a form people abandon — more so now it is five fields
+    // deep and four of them are ones you were always going to skip.
+    this.root.querySelectorAll('.menu-new input').forEach((el) => {
       el.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.create(); });
     });
 

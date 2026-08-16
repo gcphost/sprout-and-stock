@@ -267,6 +267,9 @@ const ADDED_COLUMNS = [
   // Every modifier written before there was more than one world belonged to the
   // world that is now `default`, which is exactly what the DEFAULT says.
   ['modifiers', 'world_id', "TEXT NOT NULL DEFAULT 'default'"],
+  // An archetype written before shopping lists came for nothing in particular,
+  // and an empty staple list is exactly that shopper.
+  ['archetypes', 'staple_tags', "TEXT NOT NULL DEFAULT '[]'"],
 ];
 
 function addLateColumns(handle) {
@@ -334,7 +337,7 @@ export function contentVersion() {
 const JSON_FIELDS = {
   items: ['tags', 'model'],
   crops: ['seasons', 'model'],
-  archetypes: ['affinities'],
+  archetypes: ['affinities', 'staple_tags'],
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],

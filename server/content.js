@@ -201,7 +201,14 @@ export function world(worldId) {
   // balance run, a verify sweep — names a world that was never meant to exist,
   // and a read that creates it leaves a save behind with no slot in the menu
   // pointing at it. `createWorld` does the creating, in one place, on purpose.
-  return { ...DEFAULT_WORLD, ...(getWorld(worldStateKey(worldId)) ?? {}) };
+  // Cloned, not spread. A spread is shallow, so a world with no save — an
+  // ephemeral balance run, a verify sweep, a slot nobody has opened — took
+  // DEFAULT_WORLD's *own* `ownedUpgrades` array, and `buyUpgrade` pushes onto
+  // it. One `simulate` call left the module-level default owning twelve
+  // upgrades for the rest of the process, so the next run started rich, and the
+  // next richer. Two runs of one seed were not the same experiment and nothing
+  // in the output said so except `startedWith`, which is how it was caught.
+  return structuredClone({ ...DEFAULT_WORLD, ...(getWorld(worldStateKey(worldId)) ?? {}) });
 }
 
 export function saveWorld(worldId, patch) {

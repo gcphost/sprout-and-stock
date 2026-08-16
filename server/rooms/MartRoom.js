@@ -141,6 +141,18 @@ export class MartRoom extends Room {
       this.game.setInput(client.sessionId, Number(m?.dx) || 0, Number(m?.dz) || 0);
     });
 
+    // Tap a tile, walk there. Sent as a destination and not a route: the client
+    // has no walk grid and no business having one, and a route is also the one
+    // thing here that could outgrow the 4KB inbound cap.
+    this.onMessage('walk-to', (client, m) => {
+      // A tile or a thing. Naming the thing is not a convenience — it is what
+      // gets you to the side of the shelf you can actually work from.
+      const res = m?.fixture
+        ? this.game.walkToFixture(client.sessionId, String(m.fixture))
+        : this.game.walkTo(client.sessionId, Number(m?.x), Number(m?.z));
+      if (!res.ok) client.send('action-result', res);
+    });
+
     this.onMessage('interact', (client, m) => {
       const res = this.game.interact(client.sessionId, m ?? {});
       client.send('action-result', res);

@@ -8,12 +8,25 @@
     :root {
       --ink: #3a3128;
       --panel: rgba(255, 252, 245, 0.94);
+      /* The same colour at full alpha. Anything that pins itself over scrolling
+         content needs this rather than --panel: 94% over 94% is still see-
+         through, and rows sliding under a "solid" header read as a fault. */
+      --panel-solid: #fffcf5;
       --line: rgba(58, 49, 40, 0.14);
       --accent: #e2564a;
       --good: #5aa356;
       /* The step between "fine" and "you have a problem" — a gauge that only
          had the two would jump straight from green to alarm with no warning. */
       --warn: #e0a63c;
+      /* ---- the bottom stack -------------------------------------------------
+         Everything you press lives in one column at the bottom centre now, so
+         its offsets are arithmetic off two numbers rather than a scattering of
+         literals that have to be kept in step by hand. Bottom up: the nav, then
+         the bar (`--build-h`, measured, 0 when no bar is up), then the panel. */
+      --nav-h: 40px;
+      --nav-bot: 14px;
+      --nav-top: calc(var(--nav-bot) + var(--nav-h) + 8px);
+      --build-h: 0px;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -24,7 +37,24 @@
       -webkit-font-smoothing: antialiased;
       user-select: none;
     }
-    #game { display: block; width: 100vw; height: 100vh; }
+    /*
+     * `touch-action: none` is not a nicety — without it the browser claims
+     * every touch gesture on the canvas as a scroll or a page zoom, and takes
+     * it by firing `pointercancel` a couple of events into the drag. Measured:
+     * a two-finger twist arrived as 2 pointerdowns, 2 pointermoves and 2
+     * pointercancels, so panning, pinch-zoom and the twist all did nothing at
+     * all on a touchscreen while working perfectly under a mouse.
+     *
+     * `-webkit-touch-callout` is the same problem wearing iOS clothes: the
+     * long press that opens a fixture's menu is also the press Safari uses to
+     * offer its own callout over the element.
+     */
+    #game {
+      display: block; width: 100vw; height: 100vh;
+      touch-action: none;
+      overscroll-behavior: none;
+      -webkit-touch-callout: none;
+    }
 
     #boot {
       position: fixed; inset: 0; display: grid; place-items: center;
@@ -58,6 +88,19 @@
       font-size: 14px; font-weight: 700; color: var(--ink);
     }
 
+    /* Three small numbers side by side, because stacked they read as three
+       decisions to make rather than one row to skip. `min-width: 0` on the
+       field or a number input's intrinsic width shoves the row wider than the
+       card. The spinners go: they are unhittable at this size and the field is
+       already clamped at both ends by the server. */
+    .menu-row { display: flex; gap: 8px; }
+    .menu-row .menu-field { flex: 1; min-width: 0; gap: 6px; padding: 7px 10px; }
+    .menu-row .menu-field span { flex: none; }
+    .menu-row input { width: 100%; }
+    .menu-row input::-webkit-outer-spin-button,
+    .menu-row input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .menu-row input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
     .menu-list { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 10px; }
     .menu-empty, .menu-note {
       font-size: 12px; opacity: .55; text-align: center; padding: 14px 4px; line-height: 1.45;
@@ -89,6 +132,15 @@
     .wstats span { opacity: .6; font-weight: 600; text-transform: capitalize; }
     .wsub { font-size: 10.5px; opacity: .5; margin-top: 1px; font-weight: 600; }
 
+    /* Armed to delete. The card itself changes, not just the button, because a
+       list of five cards is scanned by shape — a single word swapped inside one
+       of three buttons is exactly the thing a mis-click already wasn't reading. */
+    .wcard.arm { box-shadow: 0 4px 16px rgba(58,49,40,.13), inset 0 0 0 2px var(--accent); }
+    .wwarn {
+      margin-top: 7px; font-size: 11px; line-height: 1.4; font-weight: 700;
+      color: var(--accent);
+    }
+
     .wacts { display: flex; gap: 6px; margin-top: 9px; }
     .wacts button {
       border: 0; font: inherit; cursor: pointer; border-radius: 9px;
@@ -98,6 +150,7 @@
     .wghost { background: rgba(58,49,40,.08); color: var(--ink); }
     .wghost:hover { background: rgba(58,49,40,.16); }
     .wdel:hover { background: var(--accent); color: #fff; }
+    .wdel.armed { background: var(--accent); color: #fff; }
 
     .menu-add {
       width: 100%; border: 0; font: inherit; cursor: pointer; border-radius: 12px;
@@ -225,17 +278,27 @@
     .todo.hot { background: #ffd66b; box-shadow: 0 2px 9px rgba(200,150,20,.32); }
     .todo.hot svg { opacity: .9; }
 
-    /* The rail: one icon per menu, down the top-right corner. The only thing
-       on screen that says the game has menus at all — before it, three
-       unrelated letter keys were the entire discovery story. */
-    #rail { top: 14px; right: 14px; display: flex; flex-direction: column; gap: 6px; }
+    /* The nav: one icon per menu, along the bottom centre. The only thing on
+       screen that says the game has menus at all — before it, three unrelated
+       letter keys were the entire discovery story.
+
+       It ran down the top-right corner until the build palette moved to the
+       bottom. With the thing you press most at the bottom centre and the way
+       into every menu diagonally opposite it, every session was a stream of
+       corner-to-corner mouse journeys. Now the nav, the bar above it and the
+       panel above that are one column under the pointer. */
+    #rail {
+      bottom: var(--nav-bot); left: 50%; transform: translateX(-50%);
+      display: flex; gap: 6px; max-width: calc(100vw - 16px); flex-wrap: wrap;
+      justify-content: center;
+    }
     .rail-btn {
       position: relative; width: 40px; height: 40px; border: 0; cursor: pointer;
       background: var(--panel); border-radius: 12px; color: var(--ink);
       box-shadow: 0 4px 14px rgba(58,49,40,.15); display: grid; place-items: center;
       font: inherit; transition: background .12s, transform .12s;
     }
-    .rail-btn:hover { transform: translateX(-2px); }
+    .rail-btn:hover { transform: translateY(-2px); }
     /* Lit means "this menu is open" — except on Build, which is a mode rather
        than a menu, where it means the world is in it. */
     .rail-btn.on { background: #ffd66b; }
@@ -252,14 +315,14 @@
     /* The drag joystick draws nothing — see client/main.js. */
 
     /* bottom-left: event log */
-    #log { bottom: 72px; left: 12px; max-width: 300px; display: flex; flex-direction: column; gap: 3px; }
+    #log { left: 12px; max-width: 300px; display: flex; flex-direction: column; gap: 3px; }
     #log div {
       background: var(--panel); border-radius: 9px; padding: 3px 9px;
       font-size: 11.5px; line-height: 1.35; box-shadow: 0 2px 7px rgba(58,49,40,.09);
       transition: opacity .3s, transform .3s;
     }
     #log div.out { opacity: 0; transform: translateX(-8px); }
-    #carry { bottom: 72px; right: 12px; font-weight: 700; background: var(--panel);
+    #carry { right: 12px; font-weight: 700; background: var(--panel);
              border-radius: 9px; padding: 3px 9px; font-size: 11.5px;
              box-shadow: 0 2px 7px rgba(58,49,40,.09); }
     #carry:empty { display: none; }
@@ -268,7 +331,7 @@
        near where your hand already is, and vanishes the moment nothing is in
        range. */
     #prompt {
-      bottom: 62px; left: 50%; transform: translate(-50%, 8px); opacity: 0;
+      left: 50%; transform: translate(-50%, 8px); opacity: 0;
       background: rgba(58,49,40,.86); color: #fff; padding: 7px 16px;
       border-radius: 99px; font-size: 14px; font-weight: 600;
       pointer-events: none; transition: opacity .14s, transform .14s;
@@ -277,7 +340,6 @@
     #prompt.show { opacity: 1; transform: translate(-50%, 0); }
     #prompt.going { background: #ffd66b; color: var(--ink); }
     #prompt b { font-weight: 800; }
-    body.building #prompt { bottom: calc(var(--build-h, 116px) + 34px); }
 
     /* toast */
     /* Just below #hq's single strip. */
@@ -289,19 +351,34 @@
     #toast.show { opacity: 1; transform: translate(-50%, 0); }
     #toast.bad { background: var(--accent); }
 
-    /* The panel is what the rail expands into: it opens leftwards from the
-       icon you pressed, top-aligned with it, and leaves the bottom of the
-       screen to the hotbar. */
+    /* The panel is what the nav expands into: it rises out of the button you
+       pressed, above whatever bar is up, and is the top of the same column. */
     #panel {
-      inset: 14px 58px auto auto; width: 214px; max-height: 62vh;
+      bottom: calc(var(--nav-top) + var(--build-h) + 8px);
+      left: 50%; transform: translateX(-50%);
+      /* Wider than it was, and it can afford to be: 214px was the width of a
+         strip pinned against the right rail, and at that width a worker's
+         read-out wrapped every line — "looking for something to do" over two,
+         "New behind the counter" over two — so the head ate the room the job
+         list needed. Wider costs horizontal space nothing else is using and
+         buys back four rows of vertical.
+
+         The height is the real space above the stack rather than a flat vh, so
+         a taller bar shortens the panel instead of pushing it off the top. */
+      width: min(340px, calc(100vw - 24px));
+      max-height: min(72vh, calc(100vh - var(--nav-top) - var(--build-h) - 20px));
       background: var(--panel);
       border-radius: 18px; box-shadow: 0 10px 34px rgba(58,49,40,.22);
       display: none; flex-direction: column; overflow: hidden;
     }
     #panel.show { display: flex; }
+    /* The header is also the grab handle: drag to move the panel, double-click
+       to give it back to the stylesheet. `touch-action` because without it a
+       drag on a touchscreen is a scroll gesture before it is ever a drag. */
     #panel header {
       display: flex; justify-content: space-between; align-items: center;
       padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 800;
+      cursor: move; touch-action: none;
     }
     #panel-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
     #panel-close {
@@ -309,7 +386,11 @@
       color: var(--ink); opacity: .5; padding: 0;
     }
     #panel-close:hover { opacity: 1; }
-    #panel-body { overflow-y: auto; padding: 3px; }
+    /* The scroller. Its padding is named because the sticky head and foot below
+       have to cancel it exactly — a sticky `top: 0` pins to the padding edge, so
+       without that the rows scroll through a sliver of gap above the pinned
+       block and it reads as a rendering fault. */
+    #panel-body { --panel-pad: 3px; overflow-y: auto; padding: var(--panel-pad); }
 
     /* Search and tag chips. A comprehensive catalogue you cannot search is
        what mods get written to fix, and ours grows live while you play. */
@@ -334,7 +415,7 @@
     .tabs {
       position: sticky; top: 0; z-index: 2; display: flex; gap: 3px;
       padding: 2px 0 6px; margin-bottom: 4px;
-      background: var(--panel); border-bottom: 1px solid var(--line);
+      background: var(--panel-solid); border-bottom: 1px solid var(--line);
     }
     .tab {
       flex: 1; display: grid; place-items: center; padding: 5px 0;
@@ -402,10 +483,32 @@
     }
     .foot { font-size: 10px; opacity: .55; padding: 6px 7px; line-height: 1.35; }
 
+    /* ---- a menu with more rows than fit ----------------------------------
+       What the thing IS stays at the top, what you can DO stays at the bottom,
+       and the list between them scrolls. Sticky rather than a three-pane flex
+       rebuild of #panel-body, because `.tabs` already pins itself this way and
+       #panel-body is already the scroller — one mechanism, not two.
+
+       The background has to be opaque or the rows scroll visibly *through* the
+       pinned parts; --panel is the same colour the panel is already painted. */
+    .pnl-head, .pnl-foot { position: sticky; z-index: 2; background: var(--panel-solid); }
+    .pnl-head {
+      top: calc(-1 * var(--panel-pad)); padding-top: var(--panel-pad);
+      border-bottom: 1px solid var(--line);
+    }
+    .pnl-foot {
+      bottom: calc(-1 * var(--panel-pad)); padding-bottom: var(--panel-pad);
+      border-top: 1px solid var(--line);
+    }
+    /* Its own border is the divider; the heading's would double it. */
+    .pnl-foot .sep { border-top: 0; margin-top: 0; }
+
     /* One fixture's own menu. The read-out at the top says what this thing is
        doing right now; the rows below are what you can do about it. */
-    .fx-detail { padding: 5px 8px 6px; }
-    .fx-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 11.5px; }
+    .fx-detail { padding: 4px 8px 5px; }
+    /* Tight on purpose: this block is pinned, so every pixel it takes is one
+       the scrolling list below it does not get. */
+    .fx-line { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0; font-size: 11.5px; }
     .fx-line span { opacity: .55; font-weight: 600; }
     .fx-line b { font-weight: 800; text-align: right; }
     /* One recipe and what it wants. Ingredients are counted against the hopper,
@@ -466,7 +569,7 @@
        sideways. A flat row could only show its first nine, which is why there
        used to be a second copy of this palette in a panel. */
     #build {
-      bottom: 14px; left: 50%; transform: translate(-50%, 26px); opacity: 0;
+      bottom: var(--nav-top); left: 50%; transform: translate(-50%, 26px); opacity: 0;
       display: flex; flex-direction: column; align-items: center; gap: 6px;
       pointer-events: none; transition: .18s;
     }
@@ -503,10 +606,15 @@
     #build-tools::-webkit-scrollbar-thumb {
       background: rgba(58,49,40,.22); border-radius: 99px;
     }
+    /* An entry. Sized by a floor and a ceiling rather than its contents: a
+       person's note is "carrying 4x tomato" where a fixture's is "$45", and a
+       strip whose buttons are each as wide as their longest line is one you
+       cannot scan. Both lines ellipsise instead. */
     .tool {
       position: relative; border: 0; background: transparent; cursor: pointer; flex: none;
       font: inherit; color: var(--ink); border-radius: 12px; padding: 7px 12px 6px;
-      display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 62px;
+      display: flex; flex-direction: column; align-items: center; gap: 1px;
+      min-width: 62px; max-width: 132px; overflow: hidden;
     }
     .tool:hover { background: rgba(58,49,40,.06); }
     .tool.on { background: #ffd66b; }
@@ -520,8 +628,12 @@
       font-variant-numeric: tabular-nums;
     }
     .tool .ico { font-size: 19px; line-height: 1; }
+    .tool .nm, .tool .cost { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tool .nm { font-size: 11px; font-weight: 700; }
     .tool .cost { font-size: 10px; font-weight: 700; opacity: .6; font-variant-numeric: tabular-nums; }
+    /* Somebody the sim cannot place — their kind was deleted out from under
+       them. That is a problem rather than a job, and it should not read as one. */
+    .tool.warn .cost { color: var(--accent); opacity: .9; }
 
     /* Tier three, and only when the selected piece comes in more than one: a
        shape is not a fourth thing to buy, so it never takes a number key. */
@@ -551,17 +663,19 @@
       padding: 4px 12px; font-size: 12px; font-weight: 600;
     }
     #build-hint[hidden] { display: none; }
-    /* The one that costs money if you go through with it. */
-    #build-hint.warn { background: var(--accent); }
-    /* Nudge the corner HUD out of the bar's way. Its height depends on how many
-       tiers are showing, so `renderHotbar` measures it rather than the number
-       being guessed at here and drifting the day a third tier appears. */
-    body.building #log, body.building #carry { bottom: calc(var(--build-h, 116px) + 22px); }
+    /* Amber is a consequence you may still choose; red is a no. Same two
+       colours the ghost on the ground is using, so the words and the box can
+       never disagree about what is about to happen. */
+    #build-hint.warn { background: var(--warn); color: var(--ink); }
+    #build-hint.bad { background: var(--accent); color: #fff; }
+    /* The corner HUD clears the same stack, by the same arithmetic. `--build-h`
+       is 0 when no bar is up, so there is one rule rather than one per mode —
+       `body.building #log` and friends were three literals that had to be kept
+       in step with a bar whose height nobody could predict. */
+    #log, #carry, #prompt { bottom: calc(var(--nav-top) + var(--build-h) + 8px); }
 
     @media (max-width: 720px) {
       #log { display: none; }
-      /* Full width bar the rail, which the panel opens out of. */
-      #panel { width: calc(100vw - 72px); }
       .tool { min-width: 52px; padding: 6px 8px 5px; }
       /* No room for five labelled tabs — the icon is the tab at this width. */
       .cat { padding: 5px 6px; }

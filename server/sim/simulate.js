@@ -75,11 +75,18 @@ export function simulate({
   const totals = {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
     spoiled: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
+    unmet: {}, impulse: 0,
   };
 
-  const totalSteps = Math.ceil((days * DAY_SECONDS) / dt);
+  // Run until the calendar says so, not until a step count says so. A day used
+  // to be exactly DAY_SECONDS of stepping, so `days * DAY_SECONDS / dt` was the
+  // same statement — it stopped being true the moment the closed hours started
+  // running at 6×, and a run asked for 60 days would quietly have done 103.
+  // `endDay` is the guard against a clock that never advances.
+  const endDay = game.day + days;
+  const maxSteps = Math.ceil((days * DAY_SECONDS * 2) / dt);
 
-  for (let i = 0; i < totalSteps; i++) {
+  for (let i = 0; game.day < endDay && i < maxSteps; i++) {
     game.step(dt);
     // The bot acts a few times a second, not every step — it's a shopkeeper,
     // not a machine gun.
@@ -117,6 +124,13 @@ export function simulate({
     .slice(0, 8)
     .map(([id, qty]) => ({ id, qty }));
 
+  // What people came in for and you never had. Unlike `deadStock` — which says
+  // "this item is wrong" — this says "this demand exists and nothing on your
+  // shelves answers it", which is a shopping list rather than a bug report.
+  const unmetDemand = Object.entries(totals.unmet)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag, count]) => ({ tag, count }));
+
   const finalCash = round2(game.cash);
   const profit = round2(finalCash - startCash);
 
@@ -141,13 +155,15 @@ export function simulate({
       abandoned: totals.abandoned,
       spoiled: totals.spoiled,
       leftEmpty: totals.leftEmpty,
+      impulse: totals.impulse,
     },
     bestSellers,
     deadStock,
+    unmetDemand,
     daily: daily.slice(-30),
     startedWith,
     verdict: [
-      ...verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold }),
+      ...verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold, unmetDemand }),
       ...(startedWith.staff.length
         ? [`Started with ${startedWith.staff.join(', ')} already on the books — a run that inherited different staff is not comparable to this one.`]
         : []),
@@ -168,7 +184,7 @@ const FLOAT = 250;
  * A plain-language read on the run, so an agent doesn't have to interpret
  * raw numbers to know whether something's wrong.
  */
-function verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold = [] }) {
+function verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold = [], unmetDemand = [] }) {
   const notes = [];
   if (bankruptOn) notes.push(`BANKRUPT on day ${bankruptOn} — the shop cannot sustain itself.`);
   else if (profit <= 0) notes.push(`Lost $${Math.abs(profit).toFixed(2)} over ${days} days — costs exceed revenue.`);
@@ -185,6 +201,10 @@ function verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold 
   }
   if (deadStock.length) {
     notes.push(`Never sold: ${deadStock.join(', ')} — check their tags match some archetype's affinities.`);
+  }
+  if (unmetDemand.length) {
+    const top = unmetDemand.slice(0, 4).map((u) => `${u.tag} (${u.count})`).join(', ');
+    notes.push(`Came in for it and you had none: ${top}. Stock something tagged that way — this is demand you already have.`);
   }
   if (uncraftedUnsold.length) {
     notes.push(`Not modelled: ${uncraftedUnsold.join(', ')} are crafted goods — this bot doesn't work the appliances, so hire a Chef and watch the live shop to judge them.`);
@@ -552,11 +572,14 @@ function teleport(bot, target) {
 }
 
 function accumulate(totals, s) {
-  for (const k of ['revenue', 'spent', 'sold', 'abandoned', 'spoiled', 'harvested', 'tilled', 'leftEmpty']) {
+  for (const k of ['revenue', 'spent', 'sold', 'abandoned', 'spoiled', 'harvested', 'tilled', 'leftEmpty', 'impulse']) {
     totals[k] += s[k] ?? 0;
   }
   for (const [id, n] of Object.entries(s.byItem ?? {})) {
     totals.byItem[id] = (totals.byItem[id] ?? 0) + n;
+  }
+  for (const [tag, n] of Object.entries(s.unmet ?? {})) {
+    totals.unmet[tag] = (totals.unmet[tag] ?? 0) + n;
   }
 }
 

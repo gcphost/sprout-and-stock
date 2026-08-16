@@ -57,6 +57,48 @@ export const BEHAVIOUR_TAGS = {
 };
 
 /**
+ * What tempts somebody who is already standing in the queue.
+ *
+ * Same tag-keyed shape as BEHAVIOUR_TAGS, and for the same reason: an impulse
+ * buy is a property of the *goods*, not of a fixture or an item id, so a sweet
+ * invented next week is endcap material the moment it is tagged `candy`.
+ *
+ * Deliberately not a new tag group. These are ordinary tags read a second way
+ * — inventing an `impulse` tag would mean every existing item is wrong until
+ * somebody goes back and re-tags it.
+ */
+export const IMPULSE_TAGS = {
+  candy: 1.8,
+  snack: 1.6,
+  kids: 1.5,
+  cheap: 1.4,
+  beverage: 1.3,
+  luxury: 0.4,   // nobody grabs a truffle on the way past
+  bulky: 0.3,    // nor a sack of anything
+};
+
+/**
+ * How much more (or less) likely this item is to be grabbed on the way out.
+ * Strongest pull wins rather than multiplying: a cheap snack is one impulse
+ * buy, not 1.6 × 1.4 of one.
+ *
+ * @returns {number} multiplier, 1 if nothing about the item is tempting.
+ */
+export function impulsePull(item) {
+  let pull = 1;
+  let touched = false;
+  for (const tag of item.tags) {
+    const w = IMPULSE_TAGS[tag];
+    if (w === undefined) continue;
+    // Furthest from neutral in either direction — a bulky luxury is dragged
+    // down by whichever tag says "not on the way past" loudest.
+    if (!touched || Math.abs(Math.log(w)) > Math.abs(Math.log(pull))) pull = w;
+    touched = true;
+  }
+  return pull;
+}
+
+/**
  * Score how much a customer archetype wants an item, ignoring price.
  *
  * `affinities` is a plain map of tag -> weight in roughly -1..1.

@@ -108,8 +108,20 @@ export function createApi() {
     res.json({ ok: true, focused: focusedWorldId(), worlds: listWorlds() });
   }));
 
+  // `cash`, `shelves` and `plots` are starting state, and the last two can only
+  // be set here — see `createWorld`. Blank or absent means the default; out of
+  // range is clamped, not refused.
   api.post('/worlds', wrap((req, res) => {
-    res.json({ ok: true, world: createWorld({ name: req.body?.name, seed: req.body?.seed }) });
+    res.json({
+      ok: true,
+      world: createWorld({
+        name: req.body?.name,
+        seed: req.body?.seed,
+        cash: req.body?.cash,
+        shelves: req.body?.shelves,
+        plots: req.body?.plots,
+      }),
+    });
   }));
 
   api.delete('/worlds/:id', wrapAsync(async (req, res) => {

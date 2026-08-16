@@ -156,6 +156,13 @@ export const ArchetypeSchema = z.object({
   name: z.string().min(1).max(48),
   /** tag -> how much this shopper likes it, roughly -1..1. */
   affinities: z.record(z.string(), z.number().min(-2).max(2)),
+  /**
+   * Tags this shopper actually came in for. Everything else on their list is
+   * opportunistic; miss one of these and they leave annoyed and it is counted
+   * against you. Empty means "just browsing", which is what everyone did
+   * before this column existed.
+   */
+  staple_tags: z.array(z.string()).max(8).default([]),
   /** 0 = doesn't look at price tags. 1 = extremely price-driven. */
   price_sensitivity: z.number().min(0).max(1).default(0.5),
   /** Seconds they'll wait in a queue before abandoning their basket. */

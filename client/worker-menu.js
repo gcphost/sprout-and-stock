@@ -123,12 +123,21 @@ export function showWorker(ui, workerId) {
   const weights = new Map((entry.jobs ?? []).map((j) => [j.job, j.weight]));
   const vocabulary = jobVocabulary(ui, entry);
 
-  const parts = [detail(ui, entry, kind, body)];
+  // Three regions, not one list. Who this is stays at the top and what you can
+  // do about it stays at the bottom, because the middle is the only part with
+  // no ceiling on its length — the job vocabulary is server-side and grows —
+  // and it was pushing Promote and Let-them-go off the end of a scroll that
+  // started with five lines of read-out you had already read.
+  const parts = [`<div class="pnl-head">${detail(ui, entry, kind, body)}</div>`];
 
   parts.push('<div class="sep">What they do</div>');
   parts.push(vocabulary.map((j) => jobRow(j, weights.get(j) ?? 0)).join(''));
+  // With the rows it explains, rather than in the pinned foot: it is read once,
+  // and two lines of standing prose is a third of what the foot has room for.
+  parts.push('<div class="foot">A weight is how much of their day a job gets. '
+    + 'Nothing means never — and everyone needs at least one.</div>');
 
-  parts.push('<div class="sep">Do something about it</div>');
+  const foot = [];
 
   const next = nextTier(kind, entry.tier);
   if (next) {
@@ -138,20 +147,19 @@ export function showWorker(ui, workerId) {
     // fixture menu makes, for the same reason. The title is the verb, which is
     // short and fixed; the line under it says what you are actually buying.
     const blurb = `${esc(next.name)} — ${tierBlurb(next)}`;
-    parts.push(act('promote', ICONS.tierup, 'Promote',
+    foot.push(act('promote', ICONS.tierup, 'Promote',
       afford ? blurb : `${blurb} You cannot afford it yet.`,
       // A purely cosmetic rung is free, and `$0` reads as a broken number.
       { off: !afford, right: next.cost > 0 ? `$${next.cost.toFixed(0)}` : 'free' }));
   }
 
   const armed = armedToFire(ui, entry.id);
-  parts.push(act('fire', ICONS.remove,
+  foot.push(act('fire', ICONS.remove,
     armed ? 'Tap again to let them go' : 'Let them go',
     armed ? 'They walk out now, and nothing comes back.' : 'No refund — you cannot sell a person back.',
     { danger: true }));
 
-  parts.push('<div class="foot">A weight is how much of their day a job gets. '
-    + 'Nothing means never — and everyone needs at least one.</div>');
+  parts.push(`<div class="pnl-foot">${foot.join('')}</div>`);
 
   ui.showPanel(`${icon(entry.kind, ICONS.staff)} ${esc(entry.name)}`, parts.join(''));
   wireWorkerMenu(ui, entry, weights, vocabulary);

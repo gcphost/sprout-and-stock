@@ -6,8 +6,9 @@ import { canPlaceEdges, edgeRun } from '../shared/build.js';
 import { Scene } from './render/scene.js';
 import { Net } from './net.js';
 import { UI } from './ui.js';
-import { SECTIONS } from './sections.js';
+import { RAIL_ITEMS } from './sections.js';
 import { showFixture, refreshFixture } from './fixture-menu.js';
+import { showWorker } from './worker-menu.js';
 import { Menu, preselectedWorld } from './menu.js';
 
 const canvas = document.getElementById('game');
@@ -74,14 +75,20 @@ addEventListener('keydown', (e) => {
   // Every menu key is read off the same array the rail draws itself from, so a
   // new section is bound and labelled the moment it exists. Pressing the key of
   // the menu already open shuts it — the key that opened it has to close it.
-  const sec = SECTIONS.find((s) => s.key === k);
-  if (sec) {
+  // Read off the same array the rail draws itself from, so a new menu is bound
+  // and labelled the moment it exists — including the ones that are a bar rather
+  // than a panel, which is why this walks RAIL_ITEMS and not just SECTIONS.
+  const item = RAIL_ITEMS.find((s) => s.key === k);
+  if (item) {
     e.preventDefault();
-    ui.toggleSection(sec.id);
+    if (item.mode) ui.toggleBuild();
+    else if (item.bar) ui.toggleBar(item.bar);
+    else ui.toggleSection(item.id);
   }
 
-  // Build *mode* is a state of the world, not a menu, so it keeps its own key.
-  if (k === 'g') ui.toggleBuild();
+  // `G` used to be handled separately here, because Build was not on the array
+  // this reads. It is (`BUILD_MODE`), and leaving both in toggled build mode
+  // twice per press — on, then straight back off.
 
   // Spin the camera a quarter turn.
   if (k === ',') scene.rotateView(-1);
@@ -91,12 +98,12 @@ addEventListener('keydown', (e) => {
   // the open tab of the bar, which is what keeps a number meaning the button
   // wearing it however much anybody adds to the catalogue.
   if (k >= '1' && k <= '9') {
-    if (ui.buildOn) ui.selectBuildToolByIndex(Number(k) - 1);
+    if (ui.bar) ui.selectBuildToolByIndex(Number(k) - 1);
     else ui.selectCropByIndex(Number(k) - 1);
   }
   // And Tab moves between tabs. Prevented hard: the default would walk focus
   // onto the search box, where the very next keypress types instead of playing.
-  if (k === 'tab' && ui.buildOn) {
+  if (k === 'tab' && ui.bar) {
     e.preventDefault();
     ui.cycleBuildGroup(e.shiftKey ? -1 : 1);
   }
@@ -150,17 +157,17 @@ function refreshGhost(force = false) {
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
     scene.setAimTarget(razing, 'raze');
     ui.setAim(razing);
-    ui.setBuildWarn(null);
+    ui.setBuildVerdict(null);
     return;
   }
 
   const edgeKind = pointer.onCanvas ? ui.edgeKindForTool() : null;
   if (edgeKind !== null) {
     const seg = scene.pickEdge(pointer.x, pointer.y);
-    if (!seg) { scene.setEdgeGhost(null, null); ui.setBuildWarn(null); return; }
+    if (!seg) { scene.setEdgeGhost(null, null); ui.setBuildVerdict(null); return; }
     const verdict = canPlaceEdges(scene.storeLayout, [seg], edgeKind);
     scene.setEdgeGhost([seg], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
-    ui.setBuildWarn(verdict.ok ? (verdict.warn ?? null) : null);
+    ui.setBuildVerdict(verdict);
     scene.setAimTarget(null);
     ui.setAim(null);
     return;
@@ -170,7 +177,7 @@ function refreshGhost(force = false) {
   const kind = pointer.onCanvas ? ui.ghostKindForTool() : null;
   if (!kind) {
     if (ghostKey !== null || force) { ghostKey = null; scene.setBuildGhost(null); }
-    ui.setBuildWarn(null);
+    ui.setBuildVerdict(null);
     // No ghost outside build mode, but still ring whatever is under the
     // pointer: a tap opens that thing's menu now, and a target you can click
     // with nothing marking it is a secret rather than a feature.
@@ -182,7 +189,7 @@ function refreshGhost(force = false) {
   const tile = scene.pickTile(pointer.x, pointer.y);
   if (!tile) {
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
-    ui.setBuildWarn(null);
+    ui.setBuildVerdict(null);
     scene.setAimTarget(null);
     ui.setAim(null);
     return;
@@ -197,7 +204,7 @@ function refreshGhost(force = false) {
   ui.setAim(over);
   if (over) {
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
-    ui.setBuildWarn(null);
+    ui.setBuildVerdict(null);
     return;
   }
   // Validity involves a flood fill, so only ask when something actually moved —
@@ -209,7 +216,7 @@ function refreshGhost(force = false) {
   const verdict = scene.setBuildGhost({
     kind, x: tile.x, z: tile.z, rot: ui.buildRot, moveId: ui.holding?.id ?? null,
   });
-  ui.setBuildWarn(verdict?.ok ? (verdict.warn ?? null) : null);
+  ui.setBuildVerdict(verdict);
 }
 
 addEventListener('blur', () => keys.clear());
@@ -229,21 +236,135 @@ canvas.addEventListener('wheel', (e) => {
   scene.zoomBy(Math.max(-3, Math.min(3, steps)));
 }, { passive: false });
 
-// ---- drag joystick --------------------------------------------------------
-// Press anywhere on the world and drag: you steer analog from wherever you
-// pressed. Keys still work; whichever moved last wins.
+// ---------------------------------------------------------------------------
+// Tap to go, drag to look
 //
-// The stick draws nothing. It sits under your finger, which is exactly where
-// you are trying to look, and a 144px disc parked over the tile you are walking
-// towards costs more than the feedback is worth — the character moving *is* the
-// feedback. Origin, radius and deadzone are all still here; only the art is gone.
-const STICK_RADIUS = 72;      // px of drag for full speed
-const STICK_DEADZONE = 8;
+// This used to be a drag-joystick: press anywhere, drag, steer analog. It was
+// replaced rather than tuned, because two things were wrong with it that no
+// amount of radius and deadzone fixes.
+//
+// It steered in *screen* space on a camera you can turn, so every quarter turn
+// re-taught your thumb which way was forward — and the fix for that (rotating
+// the vector by `scene.quarter`, still below for the keys) makes the controls
+// correct without making them feel any less strange. And it put your thumb on
+// top of the one thing you were trying to watch, which on a phone is most of
+// the shop.
+//
+// So the player walks the way everybody else in the shop already walks: you
+// name a destination and the server routes there (`walkTo`, A* on the same
+// grid the customers use). That is not just a different input — it is what
+// makes one tap do a whole errand, because actions charge on proximity. Tap a
+// shelf, and you walk to the side you can work from and stock it, with no
+// second input at all.
+//
+// Which leaves the drag free for the camera, and that is the other half of
+// being playable on a phone: you can look somewhere before you go there.
+// ---------------------------------------------------------------------------
 
-/** Under this much travel, a press was a tap — which in build mode means place. */
+/** Under this much travel, a press was a tap — a look, not a drag. */
 const TAP_SLOP = 7;
 
-const stick = { active: false, id: null, ox: 0, oy: 0, dx: 0, dy: 0, travel: 0 };
+/** ...and after this long without moving, it is a long press: open the menu. */
+const LONG_PRESS_MS = 420;
+
+const drag = {
+  id: null,
+  ox: 0, oy: 0,     // where it started, for the tap/drag verdict
+  lx: 0, ly: 0,     // where it was last frame, for the pan delta
+  travel: 0,
+  timer: null,
+  done: false,      // a long press already fired; the release means nothing
+};
+
+function clearLongPress() {
+  if (drag.timer) clearTimeout(drag.timer);
+  drag.timer = null;
+}
+
+function endDrag() {
+  clearLongPress();
+  drag.id = null;
+}
+
+/**
+ * Two fingers: pinch to zoom, twist to turn.
+ *
+ * The twist is not a nicety. Turning the view is how you see behind a shelf,
+ * and until now it was `,` and `.` — which a phone does not have — so every
+ * back aisle was permanently hidden on the device this whole scheme is for.
+ *
+ * It steps in quarters like every other way of turning, so `scene.quarter`
+ * stays the integer that WASD and fixture facing are read through.
+ */
+const touches = new Map();
+let pinch = null;
+
+/** Radians of twist per quarter turn. Deliberately more than a wrist wobble. */
+const TWIST_STEP = 0.6;
+
+function twoTouches() {
+  const [a, b] = [...touches.values()];
+  return a && b ? [a, b] : null;
+}
+
+function beginPinch() {
+  const t = twoTouches();
+  if (!t) return;
+  const [a, b] = t;
+  pinch = {
+    dist: Math.hypot(b.x - a.x, b.y - a.y),
+    angle: Math.atan2(b.y - a.y, b.x - a.x),
+  };
+}
+
+function stepPinch() {
+  const t = twoTouches();
+  if (!t) return;
+  const [a, b] = t;
+  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+  const angle = Math.atan2(b.y - a.y, b.x - a.x);
+
+  // Spreading scales the zoom by the same ratio the fingers moved, so the
+  // ground keeps pace with them instead of being fed notches meant for a wheel.
+  if (pinch.dist > 8 && dist > 8) scene.zoomByFactor(dist / pinch.dist);
+
+  // Wrapped into (-π, π] before it is believed: without this, a twist across
+  // the -π/π seam reads as a full turn the other way and the shop spins.
+  let d = angle - pinch.angle;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  if (Math.abs(d) >= TWIST_STEP) {
+    // Same sign as the right-drag: the world follows your hands.
+    scene.rotateView(-Math.sign(d));
+    pinch.angle = angle;
+  }
+  pinch.dist = dist;
+}
+
+function dropTouch(id) {
+  touches.delete(id);
+  // One finger left is not half a pinch — it is a finger resting on the glass.
+  // Ending the gesture here rather than promoting it to a drag is what stops
+  // lifting one finger from a zoom flinging the camera across the shop.
+  if (pinch && touches.size < 2) pinch = null;
+}
+
+// ---------------------------------------------------------------------------
+// Turning the view by dragging
+//
+// The right button does what the left one does: a drag turns, a click backs
+// out. It fires `rotateView` in whole quarters rather than orbiting freely,
+// because `scene.quarter` is an integer everything else reads — WASD is
+// remapped through it, and so is which way a fixture faces. A camera resting
+// between two corners would leave "up" pointing at nothing in particular.
+//
+// The world follows your hand: drag right and the shop turns right, which is
+// `,`. Easing is already in the renderer, so a fast flick across three steps
+// still arrives as one smooth swing.
+// ---------------------------------------------------------------------------
+const SPIN_STEP = 90;         // px of drag per quarter turn
+
+let spin = null;
 
 // ---------------------------------------------------------------------------
 // Drawing a wall
@@ -272,24 +393,52 @@ function showEdgeDrag(cx, cy) {
   const verdict = canPlaceEdges(scene.storeLayout, segs, edgeDrag.kind);
   const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
   scene.setEdgeGhost(segs, state);
-  ui.setBuildWarn(verdict.ok ? (verdict.warn ?? null) : null);
+  ui.setBuildVerdict(verdict);
   return { segs, verdict };
 }
 
 // ---------------------------------------------------------------------------
-// The drag joystick
+// One press, three meanings, told apart by distance and time
 //
-// One button does two things, separated by how far it moves: a drag steers,
-// and a tap places (in build mode) or opens what you tapped. It used to do a
-// third — holding still charged whatever standing there had armed — and that
-// went away when actions started charging on proximity alone. Standing still
-// is the input now, so there is nothing left to send.
+//   moved       -> a pan. The camera comes off the player and stays there.
+//   still, brief-> a tap. Walk there, or place there in build mode.
+//   still, held -> a long press. Open what you are pointing at.
+//
+// The long press is free: actions charge on proximity, so nothing on the world
+// wanted a held finger any more. It is also the gesture a phone already uses
+// for "tell me about this", which is exactly what the fixture menu is.
 // ---------------------------------------------------------------------------
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (e.button !== 0) return;
+  if (e.button === 2) {
+    // Mid-run, the right button takes back the run rather than turning the
+    // camera. You are four tiles into a wall you have changed your mind about,
+    // and `endPress` with no event drops it without sending. This used to live
+    // on `contextmenu`, which is too late on Windows — that event fires on
+    // *release* there, by which point the pointerup below has already built it.
+    if (edgeDrag) { endPress(); return; }
+    // A mouse reuses one pointerId for every button, so a right press during a
+    // left drag would hand the spin that drag's own id and steal its moves.
+    if (drag.id !== null) return;
+    spin = { id: e.pointerId, ax: e.clientX, turned: false };
+    canvas.setPointerCapture(e.pointerId);
+    return;
+  }
+  if (e.button !== 0 || spin) return;
 
-  // A wall tool takes the drag before the joystick sees it — unless the
+  // A second finger is a pinch, never a walk. Hand the gesture over whole:
+  // whatever the first finger had started is abandoned rather than finished,
+  // or spreading two fingers to zoom also sends you walking to wherever the
+  // first one happened to land.
+  if (touches.size >= 1 && e.pointerType === 'touch') {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    endDrag();
+    beginPinch();
+    return;
+  }
+  if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  // A wall tool takes the drag before the camera sees it — unless the
   // bulldozer is up and there is something standing where you pressed, which is
   // a tap on that thing rather than the start of a run along the wall behind it.
   const ek = ui.demolishArmed() && scene.pickFixture(e.clientX, e.clientY)
@@ -304,41 +453,73 @@ canvas.addEventListener('pointerdown', (e) => {
     }
   }
 
-  stick.active = true;
-  stick.id = e.pointerId;
-  stick.ox = e.clientX;
-  stick.oy = e.clientY;
-  stick.dx = 0;
-  stick.dy = 0;
-  stick.travel = 0;
+  drag.id = e.pointerId;
+  drag.touch = e.pointerType === 'touch';
+  drag.ox = drag.lx = e.clientX;
+  drag.oy = drag.ly = e.clientY;
+  drag.travel = 0;
+  drag.done = false;
+  // Only a finger waits. A mouse has a second button, a keyboard beside it and
+  // a pointer you can put on a three-pixel target — none of which a phone has,
+  // and all of which are the reason a mouse should never be asked to hold still
+  // for half a second to do the most ordinary thing in the game.
+  clearLongPress();
+  if (drag.touch) {
+    // Armed on a timer rather than measured on release, so the menu opens under
+    // a finger that is still down — which is what makes it feel like a press
+    // and not like a slow tap.
+    drag.timer = setTimeout(() => {
+      drag.timer = null;
+      if (drag.id === null || drag.travel >= TAP_SLOP) return;
+      drag.done = true;
+      openAtPointer(drag.ox, drag.oy);
+    }, LONG_PRESS_MS);
+  }
   canvas.setPointerCapture(e.pointerId);
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  if (spin && e.pointerId === spin.id) {
+    // The anchor walks along with the turns rather than the whole distance
+    // being re-read, so a drag out and back turns the same number of times
+    // each way, and one flick past three steps fires three of them.
+    for (let dx = e.clientX - spin.ax; Math.abs(dx) >= SPIN_STEP; dx = e.clientX - spin.ax) {
+      const dir = Math.sign(dx);
+      scene.rotateView(-dir);
+      spin.ax += dir * SPIN_STEP;
+      spin.turned = true;
+    }
+    return;
+  }
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch) { stepPinch(); return; }
   if (edgeDrag && e.pointerId === edgeDrag.id) {
     showEdgeDrag(e.clientX, e.clientY);
     return;
   }
-  if (!stick.active || e.pointerId !== stick.id) return;
-  const dx = e.clientX - stick.ox;
-  const dy = e.clientY - stick.oy;
-  const len = Math.hypot(dx, dy);
-  stick.travel = Math.max(stick.travel, len);
-  const clamped = Math.min(len, STICK_RADIUS);
-  const nx = len ? (dx / len) * clamped : 0;
-  const ny = len ? (dy / len) * clamped : 0;
-  stick.dx = len < STICK_DEADZONE ? 0 : nx / STICK_RADIUS;
-  stick.dy = len < STICK_DEADZONE ? 0 : ny / STICK_RADIUS;
+  if (drag.id !== e.pointerId) return;
+  drag.travel = Math.max(drag.travel, Math.hypot(e.clientX - drag.ox, e.clientY - drag.oy));
+  // Past the slop it is a pan and never becomes a tap again, so the long press
+  // is disarmed for good rather than re-tested each move.
+  if (drag.travel >= TAP_SLOP) {
+    clearLongPress();
+    // Fed the *frame* delta, not the distance from the origin — panning by the
+    // total would move the camera by the whole drag again on every event, which
+    // accelerates away from your finger the longer you hold it.
+    scene.panBy(e.clientX - drag.lx, e.clientY - drag.ly);
+  }
+  drag.lx = e.clientX;
+  drag.ly = e.clientY;
 });
 
-function endStick(e) {
+function endPress(e) {
   if (edgeDrag && (!e || e.pointerId === edgeDrag.id)) {
     const drawn = e ? showEdgeDrag(e.clientX, e.clientY) : null;
     const start = edgeDrag.start;
     const kind = edgeDrag.kind;
     edgeDrag = null;
     scene.setEdgeGhost(null, null);
-    ui.setBuildWarn(null);
+    ui.setBuildVerdict(null);
     if (drawn) {
       if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
       if (drawn.verdict.warn) ui.toast(drawn.verdict.warn);
@@ -352,37 +533,61 @@ function endStick(e) {
     }
     return;
   }
-  if (!stick.active || (e && e.pointerId !== stick.id)) return;
-  // A press that never really moved is a tap, not a steer. That's what lets
-  // build mode keep the drag-joystick: you still walk by dragging, and you
-  // place by tapping, with no separate "pointer mode" to toggle.
-  const tapped = e && stick.travel < TAP_SLOP;
-  stick.active = false;
-  stick.dx = 0;
-  stick.dy = 0;
-  if (tapped) tapAtPointer(e.clientX, e.clientY);
+  if (drag.id === null || (e && e.pointerId !== drag.id)) return;
+  // A press that never really moved is a tap, not a pan — and a long press has
+  // already spent the gesture, so its release means nothing.
+  const tapped = e && !drag.done && drag.travel < TAP_SLOP;
+  const byTouch = drag.touch;
+  endDrag();
+  if (tapped) tapAtPointer(e.clientX, e.clientY, byTouch);
 }
-canvas.addEventListener('pointerup', endStick);
-canvas.addEventListener('pointercancel', endStick);
-addEventListener('blur', () => endStick());
-
 /**
- * The right button backs out, the way it does in every builder.
+ * The right button backs out, the way it does in every builder — unless the
+ * press turned the camera, in which case it was a drag and backing out of the
+ * mode you are looking around inside is the last thing you meant.
  *
- * It runs the same ladder Escape does rather than dropping straight to
+ * Backing out runs the same ladder Escape does rather than dropping straight to
  * shopkeeping, and that matters in one place: with a fixture in your hands,
  * "out" has to mean putting it back before it means leaving the mode, or a
  * click would strand the thing you were carrying. So carrying → put it back,
  * then → leave build mode. Same rungs, same order, one implementation.
+ *
+ * It hangs off pointerup and not `contextmenu` because that event fires on
+ * *press* on macOS and Linux — a spin would exit build mode before it turned a
+ * degree — and on *release* on Windows. Neither is a place to ask "did this
+ * press move?", so `contextmenu` is left doing the one thing it is reliable
+ * for: swallowing the browser menu.
  */
-canvas.addEventListener('contextmenu', (e) => {
-  e.preventDefault();
-  // Mid-run, it takes back the run rather than the mode. You are four tiles
-  // into a wall you have changed your mind about; the mode is not the thing you
-  // are trying to undo, and `endStick` with no event drops it without sending.
-  if (edgeDrag) { endStick(); return; }
-  ui.escape();
+function endSpin(e) {
+  if (!spin || (e && e.pointerId !== spin.id)) return null;
+  const turned = spin.turned;
+  spin = null;
+  return { turned };
+}
+canvas.addEventListener('pointerup', (e) => {
+  const wasPinching = !!pinch;
+  dropTouch(e.pointerId);
+  const spun = endSpin(e);
+  if (spun) { if (!spun.turned) ui.escape(); return; }
+  // A finger coming off a pinch is not a tap, however still it was. Both
+  // fingers land within the slop of where they started when you only zoomed.
+  if (wasPinching) { endDrag(); return; }
+  endPress(e);
 });
+// A cancelled pointer is not a click, so it drops the spin without backing out.
+canvas.addEventListener('pointercancel', (e) => {
+  dropTouch(e.pointerId);
+  if (!endSpin(e)) { endDrag(); endPress(e); }
+});
+addEventListener('blur', () => {
+  touches.clear();
+  pinch = null;
+  endSpin();
+  endPress();
+  endDrag();
+});
+
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // The bar is a game toolbar, not a document — a browser menu over it is never
 // what anybody meant by right-clicking there. No `escape()` though: pressing it
@@ -390,32 +595,120 @@ canvas.addEventListener('contextmenu', (e) => {
 document.getElementById('build')?.addEventListener('contextmenu', (e) => e.preventDefault());
 
 /**
- * What a tap in build mode means, decided by what is on the tile you tapped.
+ * Order a walk, and give the camera back to the person taking it.
  *
- * Bare ground builds. An existing fixture opens its own menu — move, turn,
- * empty, sell, and whatever else only that kind of thing can do. And while
- * you're carrying something, every tile is a destination for it, so nothing
- * opens until your hands are empty again.
+ * Recentring here rather than on letting go of the pan is the rule that makes
+ * looking around usable on a phone: the view stays where you dragged it for as
+ * long as you are only looking, and going somewhere is what reclaims it. A pan
+ * that sprang back on release would put the shelf you were aiming at back off
+ * screen in the instant between deciding and tapping.
  */
-function tapAtPointer(cx, cy) {
-  // A tap on something you own opens it, in or out of build mode. The two
-  // gestures were already distinct — a hold uses a thing, a tap looks at it —
-  // and there was no reason the looking half needed permission from a mode.
-  // Not while your hands are full: then every tile is a home for what you carry.
-  if (!ui.holding) {
+function walkTo(spec) {
+  net.send('walk-to', spec);
+  scene.recentre();
+}
+
+/**
+ * Look at what you are pointing at. The long press, and nothing else.
+ *
+ * This was what a *tap* did, back when tapping only ever looked. Tapping now
+ * goes, which is the one gesture a phone has and the one a shop needs most, so
+ * looking moved to the press that a phone already spells "tell me about this".
+ * Nothing about which menu opens changed in the move.
+ */
+function openAtPointer(cx, cy) {
+  // Not while your hands are full: then every tile is a home for what you carry
+  // and there is nothing to look at.
+  if (ui.holding) return false;
+  // A person outranks the fixture behind them. They are smaller and they
+  // move, so pointing at one is deliberate in a way that pointing at a shelf
+  // is not — and their menu is the only way to reach what they do all day.
+  // Not while the bulldozer is up: then you are aiming at things, and a clerk
+  // wandering in front of a shelf must not stop you tearing the shelf out.
+  const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
+  if (who?.hire) { showWorker(ui, who.hire); return true; }
+
+  const over = scene.pickFixture(cx, cy);
+  if (over && !ui.demolishArmed()) { showFixture(ui, over); return true; }
+  return false;
+}
+
+/**
+ * What a tap means, decided by what you tapped, what you're holding, and —
+ * for one case only — whether it was a finger.
+ *
+ * Bare ground is a destination either way: it walks you there. The split is
+ * what a tap on a *thing* means, and it is a split because the two devices
+ * genuinely disagree about what is cheap:
+ *
+ * - **Mouse**: clicking a thing opens it, exactly as it always has. A mouse
+ *   can hit a shelf precisely, has WASD next to it, and has the floor right
+ *   there to click if walking is what you wanted. Making it hold still for
+ *   420ms to open a menu it used to open instantly is a straight downgrade,
+ *   which is what the first cut of this did.
+ * - **Finger**: tapping a thing walks you to the side you work it from, which
+ *   because actions charge on proximity is the entire errand in one gesture.
+ *   Opening moves to the long press — the gesture a phone already spells
+ *   "tell me about this", and one a mouse has no equivalent of.
+ *
+ * So neither device is asked to do the other's gesture, and both spellings of
+ * "go there" and "look at that" are the ones native to the hardware.
+ *
+ * In build mode a tap places, and still opens a fixture's own menu on either
+ * device — move, turn, empty, sell. Build mode is the one place where pointing
+ * at something is already a verb, so walking there would take the tap away
+ * from the job you turned the mode on to do.
+ */
+function tapAtPointer(cx, cy, byTouch = false) {
+  const kind = ui.ghostKindForTool();
+
+  if (!kind && !ui.holding) {
+    // The bulldozer keeps the tap as its verb. One tap per thing, on the one
+    // thing that is ringed — the tool stays armed after, the way a bulldozer
+    // does, because clearing a row otherwise means picking the tool up again
+    // between every single press.
+    if (ui.demolishArmed()) {
+      const over = scene.pickFixture(cx, cy);
+      if (over) { ui.razeFixture(over); return; }
+    }
+
+    // An open panel eats the first press. Pressing the world with a menu up has
+    // always meant "put that away", and taking a walk order out of the same
+    // press would send you across the shop every time you dismissed something.
+    if (ui.openPanel) { ui.closePanel(); return; }
+
+    // Aim at the thing, not the floor under it — `pickFixture` is the one that
+    // answers "what am I pointing at" for a box drawn most of a tile up-screen
+    // of the ground it stands on.
+    const who = byTouch ? null : scene.pickPerson(cx, cy);
+    if (who?.hire) { showWorker(ui, who.hire); return; }
+
     const over = scene.pickFixture(cx, cy);
-    // ...except with the bulldozer up, where a tap is the verb itself. One tap
-    // per thing, on the one thing that is ringed — the tool stays armed after,
-    // the way a bulldozer does, because clearing a row otherwise means picking
-    // the tool up again between every single press.
+    if (over) {
+      // A finger goes; a mouse looks. See the split above.
+      // The walk names the fixture rather than a tile, because where you stand
+      // to work a shelf is the layout's business and worked out twice it can
+      // disagree with itself.
+      if (byTouch) walkTo({ fixture: over.id });
+      else showFixture(ui, over);
+      return;
+    }
+
+    const tile = scene.pickTile(cx, cy);
+    if (tile) walkTo({ x: tile.x, z: tile.z });
+    return;
+  }
+
+  if (!ui.holding) {
+    const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
+    if (who?.hire) { showWorker(ui, who.hire); return; }
+
+    const over = scene.pickFixture(cx, cy);
     if (over && ui.demolishArmed()) { ui.razeFixture(over); return; }
     if (over) { showFixture(ui, over); return; }
   }
 
-  // Building on bare ground is the only part that needs the mode. Without it, a
-  // tap on empty ground is a tap away from whatever is open — the dismissal any
-  // menu floating over a world is expected to have.
-  const kind = ui.ghostKindForTool();
+  // Building on bare ground is the only part that needs the mode.
   if (!kind) { ui.closePanel(); return; }
 
   const tile = scene.pickTile(cx, cy);
@@ -465,14 +758,12 @@ function pollInput() {
   let dx = Math.sign(x);
   let dz = Math.sign(z);
 
-  // The stick maps screen space onto the same rotated axes the keys use, and
-  // keeps its magnitude so a small drag is a slow walk.
-  if (stick.active && (stick.dx || stick.dy)) {
-    dx = stick.dx + stick.dy;
-    dz = stick.dy - stick.dx;
-  }
+  // Taking the wheel takes the camera back too. The server drops the route on
+  // the first frame of steering, so leaving the view parked where a pan left it
+  // would walk you off the side of your own screen.
+  if ((dx || dz) && scene.panned) scene.recentre();
 
-  // Both routes above name a direction in *screen* space, which is only the
+  // The keys name a direction in *screen* space, which is only the
   // world's 45° diagonal while the camera sits in its home corner. Turn the
   // result by however many quarter turns the camera has taken and "up" keeps
   // meaning away-from-you — otherwise every rotation makes the controls lie.
