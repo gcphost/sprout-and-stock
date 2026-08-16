@@ -200,7 +200,7 @@ export const UpgradeSchema = z.object({
   name: z.string().min(1).max(48),
   description: z.string().max(280).default(''),
   cost: z.number().min(0),
-  kind: z.enum(['shelf', 'freezer', 'plot', 'checkout', 'capacity', 'speed', 'decor', 'staff', 'station', 'space']),
+  kind: z.enum(['shelf', 'freezer', 'plot', 'checkout', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment']),
   /** Free-form knobs, interpreted by the sim for that `kind`. */
   payload: z.record(z.string(), z.any()).default({}),
   /** Must own these upgrades first. */

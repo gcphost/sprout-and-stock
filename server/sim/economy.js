@@ -165,25 +165,55 @@ export function rankShelves({ shelves, items, archetype, folded, season, reputat
 }
 
 /**
- * How many customers should be milling about right now.
- * Driven by reputation, the day-of-week rhythm, and any demand modifiers —
- * so a viral event genuinely makes the shop busier, not just pickier.
+ * The two humps of a shopping day — a morning rush and a bigger after-work one
+ * — plus the flat trickle in between. Peaks a little over 2; averages ~0.64
+ * across the whole day.
  */
-export function footfall({ day, hourFraction, reputation, folded, baseRate = 14 }) {
-  // Two humps: a morning rush and a bigger after-work rush.
+export function dayShape(hourFraction) {
   const t = hourFraction;
   const morning = Math.exp(-((t - 0.32) ** 2) / 0.012);
   const evening = Math.exp(-((t - 0.68) ** 2) / 0.018) * 1.35;
-  const shape = 0.25 + morning + evening;
+  return 0.25 + morning + evening;
+}
 
-  // Weekends are busier.
-  const weekend = day % 7 === 6 || day % 7 === 0 ? 1.5 : 1;
-
-  // Average demand pressure across all tags currently modified.
+/**
+ * What share of the people in range choose your shop today, 0..1.
+ *
+ * Split out from footfall because it is the half that your *shopkeeping*
+ * moves, and it is bounded: you cannot pull more than everybody. Reputation
+ * used to be an unbounded multiplier on an invented constant, which is a very
+ * different thing — it meant a good shop conjured people out of nowhere and
+ * had no ceiling to work towards.
+ *
+ * A world event still makes the town keener, but only up to the same 1.0.
+ */
+export function pull({ reputation, folded }) {
   const mods = Object.values(folded.demand);
   const pressure = mods.length ? mods.reduce((a, b) => a + b, 0) / mods.length : 1;
+  // Nobody has heard of a brand new shop, and nobody hates one either — the
+  // floor is what walks past and comes in anyway.
+  return clamp(reputation * clamp(pressure, 0.4, 3), 0.08, 1);
+}
 
-  return baseRate * shape * weekend * (0.5 + reputation) * clamp(pressure, 0.4, 3);
+/**
+ * How many customers should be milling about right now, per minute.
+ *
+ *     catchment × pull × shape
+ *
+ * `catchment` is how many people are within reach of the shop — the town, not
+ * the shop. It is the one term shopkeeping cannot move, which is exactly why
+ * it is here: without it reputation was a closed loop with nothing outside it,
+ * it pinned at 1.0 within a few days of any competent run, and from then on
+ * the shop had a fixed ceiling it could neither raise nor fall from. Stock
+ * bought you customers, a bigger shop always paid for itself, and there was no
+ * such thing as building something the town could not support.
+ *
+ * Now the ceiling is the town's, and moving it is what an upgrade is for.
+ */
+export function footfall({ day, hourFraction, reputation, folded, catchment = 16 }) {
+  // Weekends are busier — more of the town is out and about, not a keener town.
+  const weekend = day % 7 === 6 || day % 7 === 0 ? 1.5 : 1;
+  return catchment * weekend * dayShape(hourFraction) * pull({ reputation, folded });
 }
 
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));

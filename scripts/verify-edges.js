@@ -32,7 +32,7 @@
 import { generateLayout } from '../server/layout.js';
 import { insideStore, canPlace, canPlaceEdges, edgeRun } from '../shared/build.js';
 import {
-  deriveEdges, computeIndoor, canStep, E, eviOf, ehiOf,
+  deriveEdges, computeIndoor, canStep, reachable, withEdge, E, eviOf, ehiOf,
 } from '../shared/edges.js';
 import { T, WALKABLE } from '../shared/tiles.js';
 
@@ -274,6 +274,19 @@ for (const seed of ['a', 'b', 'c', 'd']) {
   const whole = canPlaceEdges(L, segs, E.WALL);
   check(whole.ok, 'a partition should be allowed — blocking your own shop is a move');
   check(!!whole.warn, 'a partition across the shop should warn about what it cuts off');
+
+  // ...and it has to warn *while the far side is still walkable*. The yard's
+  // service door means the outside joins both ends of any interior wall, so a
+  // flood that only asks "can anybody get there" says yes and the warning goes
+  // silent on the one wall most worth warning about. The rule is the shop
+  // floor joining up to the door, not the world being connected.
+  {
+    let probe = L;
+    for (const seg of segs) probe = withEdge(probe, seg, E.WALL);
+    const far = { x: L.store.x + 1, z: L.store.z + 1 };
+    check(reachable(probe, L.spawn.x, L.spawn.z).has(`${far.x},${far.z}`),
+      'the far side of the partition should still be walkable — round the back');
+  }
 
   const single = canPlaceEdges(L, [segs[0]], E.WALL);
   check(!single.warn,

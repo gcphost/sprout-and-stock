@@ -22,6 +22,43 @@
     "requires": []
   },
   {
+    "id": "catchment-high-street",
+    "name": "High Street Frontage",
+    "description": "Move onto the high street. Twice the people walk past, and they were going shopping anyway.",
+    "cost": 1500,
+    "kind": "catchment",
+    "payload": {
+      "reach": 18
+    },
+    "requires": []
+  },
+  {
+    "id": "catchment-market-square",
+    "name": "Market Square",
+    "description": "A corner on the square. Everyone in town crosses it at least once a week.",
+    "cost": 6000,
+    "kind": "catchment",
+    "payload": {
+      "reach": 26
+    },
+    "requires": [
+      "catchment-high-street"
+    ]
+  },
+  {
+    "id": "catchment-retail-park",
+    "name": "Retail Park Unit",
+    "description": "Out of town, off the ring road, with a car park. Nobody walks past — they drive to you.",
+    "cost": 20000,
+    "kind": "catchment",
+    "payload": {
+      "reach": 40
+    },
+    "requires": [
+      "catchment-market-square"
+    ]
+  },
+  {
     "id": "checkout-2",
     "name": "Till Supplier",
     "description": "A deal on registers. Every till you install costs 25% less.",

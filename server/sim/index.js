@@ -20,7 +20,7 @@ import { E, SOLID, edgeBetween } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
   foldModifiers, modifierMeter, rankShelves, purchaseChance, suggestedPrice,
-  wholesalePrice, footfall, clamp, round2,
+  wholesalePrice, footfall, pull, clamp, round2,
 } from './economy.js';
 import { spoilRate, requiredFixture, desireFor } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
@@ -141,6 +141,18 @@ const MAX_FIXTURE_DISCOUNT = 0.6;
 
 /** What a brand new shop is furnished with, before anybody has built anything. */
 const BASE_FIXTURES = { shelf: 6, freezer: 0, checkout: 1, plot: 4 };
+
+/**
+ * How many people are within reach of a shop nobody has moved yet — a back
+ * lane. In customers per minute at full pull and an average hour, so it reads
+ * on the same scale as `footfall` returns.
+ *
+ * This is the number a `catchment` upgrade raises, and it is deliberately the
+ * only way to raise it: the town is not something you can restock your way
+ * into. Six shelves is already slightly too much shop for it, which is the
+ * intended first lesson.
+ */
+const BASE_CATCHMENT = 16;
 
 /**
  * What the generator is asked to furnish, for a shop that is already stamped.
@@ -434,6 +446,11 @@ export class Game {
       mood: round2(this.shopMood()),
       occupancy: round2(this.occupancy),
       turnAwayAt: TURN_AWAY_AT,
+      // The town, and what share of it you're getting. Sent as the two terms
+      // rather than the product because they mean opposite things to a player:
+      // catchment is what you buy, pull is what you earn.
+      catchment: this.catchment(),
+      pull: round2(pull({ reputation: this.reputation, folded: this.folded() })),
       isOpen: this.isOpen(),
       layoutVersion: this.layoutVersion,
       stats: this.stats,
@@ -799,9 +816,9 @@ export class Game {
     if (canTake) {
       return { kind: 'unload', target: pallet.id, label: 'Unload', at: pallet, run: () => this.unload(p.id, pallet.id) };
     }
-    if (p.carry && near(p, this.layout.bay, BAY_REACH)) {
+    if (p.carry && near(p, this.dropPad(), BAY_REACH)) {
       return {
-        kind: 'stow', target: 'bay', label: 'Put back', time: ACTION_TIMES.stow, at: this.layout.bay,
+        kind: 'stow', target: 'drop', label: 'Put back', time: ACTION_TIMES.stow, at: this.dropPad(),
         run: () => this.stow(p.id),
       };
     }
@@ -904,6 +921,18 @@ export class Game {
 
   speedMult() {
     return this.ownedUpgrades.includes('boots-1') ? 1.3 : 1;
+  }
+
+  /**
+   * How many people are in range of the shop. The back lane, plus whatever
+   * better address you have bought your way to.
+   *
+   * Summed rather than replaced so the ladder is authored as steps ("+18, the
+   * high street") instead of absolutes — an absolute would mean buying rungs
+   * out of order could make the town smaller.
+   */
+  catchment() {
+    return BASE_CATCHMENT + countUpgrade(this, 'catchment', 'reach');
   }
 
   carryCapacity() {
@@ -1096,7 +1125,7 @@ export class Game {
 
     const body = this.players[`staff-${gone.id}`];
     if (body?.carry) {
-      this.dropGoods(body.carry.item_id, body.carry.qty, this.layout.bay);
+      this.dropGoods(body.carry.item_id, body.carry.qty, this.dropPad());
       body.carry = null;
     }
     delete this.players[`staff-${gone.id}`];
@@ -1363,7 +1392,7 @@ export class Game {
   }
 
   /**
-   * Clear your hands at the loading bay.
+   * Clear your hands at the drop-off pad.
    *
    * Stocking a shelf used to be the only way to let go of anything, so one
    * armful of the wrong crop could strand you — every shelf claimed, nowhere
@@ -1372,25 +1401,40 @@ export class Game {
    * The goods go back into a crate rather than into a bin. Binning at a cost
    * punishes the exact moment a new player is experimenting, and they'd learn
    * to stand there holding it forever instead; leaving it loose on the floor
-   * needs a tidy-up system nobody asked for. A crate at the bay costs nothing,
+   * needs a tidy-up system nobody asked for. A crate in the yard costs nothing,
    * is completely reversible, renders as an object you can walk back to, and
    * the stocker will quietly shelve it for you — because pallets are already
    * the first job on their list.
+   *
+   * Its own pad, not the delivery bay. Both hold the same pallets, and that is
+   * exactly why they have to be apart: on one pad there is no way to look at
+   * the yard and tell an order that arrived from an armful you parked.
    */
   stow(playerId) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
     if (!p.carry || p.carry.qty <= 0) return err('nothing in hand');
-    if (!near(p, this.layout.bay, BAY_REACH)) return err('take it out to the loading bay');
+    if (!near(p, this.dropPad(), BAY_REACH)) return err('take it round to the drop-off');
 
     const { item_id: itemId, qty } = p.carry;
-    this.dropGoods(itemId, qty, this.layout.bay);
+    this.dropGoods(itemId, qty, this.dropPad());
     p.carry = null;
     // Don't hand it straight back — see the note in actionFor.
     p.stowLock = true;
     const name = content().byId.items[itemId]?.name ?? itemId;
-    this.pushLog(`${qty}x ${name} put back in a crate at the bay.`);
+    this.pushLog(`${qty}x ${name} put back in a crate at the drop-off.`);
     return ok({ stowed: qty, item_id: itemId });
+  }
+
+  /**
+   * Where clearing your hands puts a crate.
+   *
+   * Falls back to the delivery bay, because a world saved before the yard
+   * existed has a layout with no `drop` in it and "you cannot put that down
+   * anywhere" is a worse answer than the old one.
+   */
+  dropPad() {
+    return this.layout.drop ?? this.layout.bay;
   }
 
   // -------------------------------------------------------------------------
@@ -2084,7 +2128,9 @@ export class Game {
     costs.door = EDGE_COST[E.DOOR];
     costs.fence = EDGE_COST[E.FENCE];
     costs.gate = EDGE_COST[E.GATE];
-    costs.knock = 0;
+    // Demolishing is deliberately absent rather than priced at 0. It pays you
+    // `FIXTURE_REFUND` back, so "$0" on the button would be the one number here
+    // that isn't what happens — and a button with no price prints nothing.
     return costs;
   }
 
@@ -2728,7 +2774,7 @@ export class Game {
     if (!this.isOpen() || c.archetypes.length === 0) return;
     const rate = footfall({
       day: this.day, hourFraction: this.time,
-      reputation: this.reputation, folded,
+      reputation: this.reputation, folded, catchment: this.catchment(),
     });
     this.spawnAccumulator += (rate / 60) * dt;
     while (this.spawnAccumulator >= 1) {
@@ -3183,7 +3229,7 @@ export class Game {
     if (pallet && (!p.carry || p.carry.item_id === pallet.item_id)) {
       return this.unload(playerId, pallet.id);
     }
-    if (p.carry && near(p, this.layout.bay, BAY_REACH)) return this.stow(playerId);
+    if (p.carry && near(p, this.dropPad(), BAY_REACH)) return this.stow(playerId);
 
     // 3. An appliance: take the finished product, or tip in what you're holding.
     const station = this.nearest(this.layout.stations ?? [], p, REACH, (o) => o.useAt);

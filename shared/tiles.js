@@ -35,9 +35,12 @@ export const T = {
   PATH: 8,
   FENCE: 9,
   // 10 was STATION.
-  /** The loading pad outside the door: where pallets land and where you can
-   *  put down anything you're carrying. */
+  /** The delivery pad in the yard: where a wholesale order lands as a pallet. */
   BAY: 11,
+  /** The other pad in the yard: where you clear your hands. Its own ground
+   *  rather than more bay, because the whole point of the split is being able
+   *  to tell "this arrived" from "I put this here" at a glance. */
+  DROP: 12,
 };
 
 /**
@@ -45,7 +48,7 @@ export const T = {
  * taken into account. Ask `isWalkableTile` in `shared/build.js` for the whole
  * question; this one only knows about the floor.
  */
-export const WALKABLE = new Set([T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY]);
+export const WALKABLE = new Set([T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY, T.DROP]);
 
 /** Ground you can stand a shop fixture on — bare indoor floor and nothing else. */
 export const BUILDABLE_INDOOR = new Set([T.FLOOR]);

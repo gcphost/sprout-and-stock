@@ -166,6 +166,17 @@ for (const opts of cases()) {
     'delivery bay unreachable', where);
   check(!L.bay || at(Math.round(L.bay.x), Math.round(L.bay.z)) === T.BAY,
     'delivery bay is not a bay tile', `${where}: ${L.bay?.x},${L.bay?.z}`);
+  // The other half of the yard. Same two claims, and one more: the pads must
+  // not be the same place. They hold the same pallets, so a generator that let
+  // them overlap would read as "the split didn't work" in exactly the way
+  // nobody would think to check.
+  check(!L.drop || reach.has(`${Math.round(L.drop.x)},${Math.round(L.drop.z)}`),
+    'drop-off unreachable', where);
+  check(!L.drop || at(Math.round(L.drop.x), Math.round(L.drop.z)) === T.DROP,
+    'drop-off is not a drop tile', `${where}: ${L.drop?.x},${L.drop?.z}`);
+  check(!L.drop || Math.hypot(L.drop.x - L.bay.x, L.drop.z - L.bay.z) >= 3,
+    'the two yard pads are on top of each other',
+    `${where}: bay ${L.bay?.x},${L.bay?.z} drop ${L.drop?.x},${L.drop?.z}`);
 
   // ---- 6. soil starts untilled -------------------------------------------
   for (const p of L.plots) {
@@ -271,23 +282,30 @@ for (let s = 0; s < Math.min(SEEDS, 8); s++) {
       'expanding changed the till count', `${seed}: got ${L.checkouts.length}`);
   }
 
-  // The door slides along the south wall, and the loading bay follows it —
-  // a bay left behind at the old door is a walk across the front of the shop.
+  // The door slides along the south wall. The yard behind is anchored to the
+  // *building* rather than to the door, on purpose — the pads sit at the two
+  // ends of the back wall, so the service door lands between them however far
+  // it has been dragged. What must hold is that both pads stay behind the
+  // shop, stay apart, and stay walkable from the street.
   for (const shift of [-4, -2, 0, 2, 4]) {
     const L = generateLayout({ ...base, doorShift: shift });
     const grid = buildWalkGrid(L);
     check(L.door.x >= L.store.x && L.door.x + 1 < L.store.x + L.store.w,
       'moved door left the wall', `${seed}: shift ${shift} -> door ${L.door.x}`);
-    check(Math.abs(L.bay.x - L.door.x) < 6,
-      'bay did not follow the door', `${seed}: shift ${shift}, door ${L.door.x}, bay ${L.bay.x}`);
+    check(L.bay.z < L.store.z && L.drop.z < L.store.z,
+      'a yard pad is not behind the building', `${seed}: shift ${shift}`);
+    check(Math.hypot(L.drop.x - L.bay.x, L.drop.z - L.bay.z) >= 3,
+      'the yard pads collided after moving the door', `${seed}: shift ${shift}`);
     check(L.shelves.length === base.shelves + base.freezers,
       'moving the door changed the shelf count', `${seed}: shift ${shift}`);
     check(L.checkouts.length === base.checkouts,
       'moving the door changed the till count', `${seed}: shift ${shift}`);
-    // And you can still get from the street to the bay and back inside.
+    // And you can still get from the street round to both pads and back inside.
     const reach = flood(L, grid, L.spawn.x, L.spawn.z);
     check(reach.has(`${Math.round(L.bay.x)},${Math.round(L.bay.z)}`),
       'bay unreachable after moving the door', `${seed}: shift ${shift}`);
+    check(reach.has(`${Math.round(L.drop.x)},${Math.round(L.drop.z)}`),
+      'drop-off unreachable after moving the door', `${seed}: shift ${shift}`);
     check(reach.has(`${L.door.x},${L.door.z}`),
       'door unreachable after moving it', `${seed}: shift ${shift}`);
   }

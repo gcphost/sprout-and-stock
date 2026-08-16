@@ -439,13 +439,17 @@ function goTo(game, s, goal, reach = 1.2) {
 }
 
 /**
- * Nowhere legal to put what they're holding: walk it out to the bay and crate
- * it. Staff used to just have the goods deleted out of their hands, which meant
- * an over-full shop quietly binned every harvest. Now the stock survives, sits
- * somewhere visible, and can be dealt with by a human.
+ * Nowhere legal to put what they're holding: walk it round to the drop-off and
+ * crate it. Staff used to just have the goods deleted out of their hands, which
+ * meant an over-full shop quietly binned every harvest. Now the stock survives,
+ * sits somewhere visible, and can be dealt with by a human.
+ *
+ * The drop-off rather than the delivery bay, for the same reason a person uses
+ * it: a crate a worker parked because the shop is full is not an order that
+ * arrived, and piling both on one pad makes the yard unreadable.
  */
 function putDown(game, s) {
-  if (!goTo(game, s, game.layout.bay, 1.6)) return;
+  if (!goTo(game, s, game.dropPad(), 1.6)) return;
   const res = game.stow(s.id);
   if (!res.ok) { s.carry = null; s.cooldown = 2; return; }
   s.cooldown = paceOf(s);
@@ -541,7 +545,7 @@ function shelve(game, s) {
   return true;
 }
 
-/** Crate up something with nowhere to go, out at the bay. */
+/** Crate up something with nowhere to go, out at the drop-off. */
 function tidy(game, s) {
   if (!s.carry) return false;
   putDown(game, s);

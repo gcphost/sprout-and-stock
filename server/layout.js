@@ -259,6 +259,18 @@ function compose(req, storeW, storeH, allowDrops = true) {
   setH(doorX, doorLine, E.DOOR);
   setH(doorX + 1, doorLine, E.DOOR);
 
+  // ...and the same again in the back wall, opening onto the yard. Without it
+  // every armful of stock walks the length of the building and round the
+  // outside, twice, which is most of a working day spent on the grass. Cut
+  // straight opposite the front door because the two rows behind the tills are
+  // the ones the shelf loop already leaves clear (`shelfTop`), so the service
+  // route is a corridor rather than a squeeze past an aisle end.
+  //
+  // Shoppers don't find it: they path to `L.door`, which is the front. This is
+  // an opening in the walk grid, not a second entrance.
+  setH(doorX, store.z, E.DOOR);
+  setH(doorX + 1, store.z, E.DOOR);
+
   // ---- what the player has drawn by hand ----------------------------------
   // Applied over the generated shell, so knocking a wall through or adding a
   // back room survives every later re-flow.
@@ -285,22 +297,38 @@ function compose(req, storeW, storeH, allowDrops = true) {
     set(doorX + 1, z, T.PATH);
   }
 
-  // ---- the loading bay ----------------------------------------------------
-  // A wooden pad beside the path: where pallets land, and where you can put
-  // down anything you're carrying. Derived from the door so it can never drift
-  // out of sync when the building re-flows.
-  const bayPad = [
-    { x: doorX + 3, z: doorZ + 1 },
-    { x: doorX - 4, z: doorZ + 1 },
-    { x: doorX + 3, z: doorZ + 2 },
-  ].find((c) => c.x >= 1 && c.x + 1 < worldW - 1 && c.z + 1 < worldH - 1)
-    ?? { x: doorX, z: doorZ + 1 };
-  for (let dz = 0; dz < 2; dz++) {
-    for (let dx = 0; dx < 2; dx++) {
-      if (at(bayPad.x + dx, bayPad.z + dz) === T.GRASS) set(bayPad.x + dx, bayPad.z + dz, T.BAY);
+  // ---- the yard ------------------------------------------------------------
+  // Two pads behind the building, either side of the service door.
+  //
+  // They used to be one pad, out front beside the path. Two problems with that,
+  // and the second is the one that matters. It sat in the shoppers' eyeline —
+  // the bay is the one part of a shop that is never tidy, and `spot: 'bay'` in
+  // the pastime table has read "round the back, out of sight of the customers"
+  // since before there was a back. And a delivery landing on the same tiles you
+  // clear your hands onto is indistinguishable from what you put there: same
+  // pallet, same pile, and no way to look at the yard and know which crates are
+  // "shelve these" and which are "I'm holding these for a minute".
+  //
+  // Both rows of yard there are, z = store.z - 2 and store.z - 1. The building
+  // is *not* pushed south to make more, and that is deliberate: every fixture
+  // in a live save is a placement at an absolute tile, so moving the floor out
+  // from under them would drop the shop's entire contents on the next re-flow.
+  //
+  // Anchored to the building rather than to the door, one pad at each end of
+  // the back wall, so the door sits between them however far it has been
+  // dragged and neither can ever land on top of the other.
+  const yardZ = Math.max(0, store.z - 2);
+  const pad = (px, kind) => {
+    const x = clampInt(px, 1, worldW - 3);
+    for (let dz = 0; dz < 2; dz++) {
+      for (let dx = 0; dx < 2; dx++) {
+        if (at(x + dx, yardZ + dz) === T.GRASS) set(x + dx, yardZ + dz, kind);
+      }
     }
-  }
-  const bay = { x: bayPad.x + 0.5, z: bayPad.z + 0.5 };
+    return { x: x + 0.5, z: yardZ + 0.5 };
+  };
+  const bay = pad(store.x + 1, T.BAY);
+  const drop = pad(store.x + store.w - 3, T.DROP);
 
   // ---- where shoppers walk on from ----------------------------------------
   // The edge of the map, not a point in the middle of the field. A customer
@@ -355,7 +383,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const plotsOut = [];
   const propsOut = [];
   const layoutSoFar = () => ({
-    w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ }, bay,
+    w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ },
+    bay, drop,
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
     props: propsOut,
@@ -608,8 +637,10 @@ function compose(req, storeW, storeH, allowDrops = true) {
       store,
       door: { x: doorX, z: doorZ },
       doorShift: req.doorShift,
-      /** Where pallets land and where you can put things down. */
+      /** Where a wholesale order lands as a pallet. */
       bay,
+      /** Where clearing your hands puts a crate. The other half of the yard. */
+      drop,
       /** Where players clock on, and the anchor for "is outside still reachable". */
       spawn: layout.spawn,
       /** Map-edge tiles shoppers walk on from and back off to. */

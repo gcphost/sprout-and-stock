@@ -282,10 +282,16 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   g.players.me.carry = { item_id: anyItem.id, qty: 4 };
 
   const away = g.stow('me');
-  check(!away.ok, 'you cannot put things down away from the bay');
+  check(!away.ok, 'you cannot put things down away from the yard');
 
+  // The delivery bay is not the drop-off. Two pads is the whole point: an order
+  // that arrived and an armful you parked are the same pallet, so the only way
+  // to tell them apart is which pad they are standing on.
   stand(g, g.layout.bay);
-  check(g.stow('me').ok, 'stowing at the bay works');
+  check(!g.stow('me').ok, 'and you cannot put them down on the delivery pad');
+
+  stand(g, g.dropPad());
+  check(g.stow('me').ok, 'stowing at the drop-off works');
   check(!g.players.me.carry, 'stowing empties your hands');
   eq(totalOnFloor(g, anyItem.id), 4, 'every unit survives as a crate');
 
@@ -304,15 +310,15 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
   g.deliveries = [];
   g.players.me.stowLock = false;
-  eq(g.actionFor(g.players.me)?.kind, 'stow', 'standing at the bay with full hands offers stow');
+  eq(g.actionFor(g.players.me)?.kind, 'stow', 'standing at the drop-off with full hands offers stow');
 
   // Putting something down next to a crate of the same thing must not pick it
   // straight back up — both actions re-arm instantly, so that loops forever.
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
-  g.dropGoods(anyItem.id, 5, g.layout.bay);
+  g.dropGoods(anyItem.id, 5, g.dropPad());
   check(g.stow('me').ok, 'stowing beside a matching crate works');
   // Specifically *unload*, not "nothing at all". This boots from the live save,
-  // so whatever the shop currently has near its bay can legitimately arm
+  // so whatever the shop currently has near its yard can legitimately arm
   // something else, and asserting silence made this fail whenever the other
   // half of the co-op happened to build near the loading pad.
   check(g.actionFor(g.players.me)?.kind !== 'unload',
@@ -329,7 +335,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   stand(g, { x: 1, z: 1 });
   g.stepPlayers(0.1);
   check(!g.players.me.stowLock, 'walking out of reach of the goods clears the lock');
-  stand(g, g.layout.bay);
+  stand(g, g.dropPad());
   eq(g.actionFor(g.players.me)?.kind, 'unload', 'so coming back picks them up again');
 }
 
@@ -701,17 +707,17 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 }
 
 // ---------------------------------------------------------------------------
-// 7b. Put an armful down at the bay and it stays down. Both halves of the bay
-//     re-arm the instant they finish, so with nothing to hold this is a stow
-//     and a pickup on a loop until the goods are worn out.
+// 7b. Put an armful down in the yard and it stays down. Stowing and picking
+//     back up re-arm the instant they finish, so with no button to let go of
+//     this is a stow and a pickup on a loop until the goods are worn out.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
   const me = g.players.me;
   me.carry = { item_id: anyItem.id, qty: 4 };
-  stand(g, g.layout.bay);
+  stand(g, g.dropPad());
 
-  eq(g.actionFor(me)?.kind, 'stow', 'standing at the bay with full hands stows');
+  eq(g.actionFor(me)?.kind, 'stow', 'standing at the drop-off with full hands stows');
   for (let i = 0; i < 200; i++) {
     g.stepActions(0.1);
     // A shuffle on the spot, going nowhere — which is what used to clear it.

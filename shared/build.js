@@ -267,17 +267,44 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
 
     if (!at(L.door)) return { ok: true, warn: 'that seals the shop — nobody can get in' };
 
-    const stranded = fixturesOf(L)
-      .map((f) => ({ f, spot: f.browseAt ?? f.serveAt ?? f.useAt }))
-      .filter(({ spot }) => spot && !at(spot));
-    if (stranded.length) {
-      const what = FIXTURES[stranded[0].f.kind]?.label.toLowerCase() ?? 'fixture';
-      return {
-        ok: true,
-        warn: stranded.length === 1
-          ? `that walls off a ${what} — nobody will reach it`
-          : `that walls off ${stranded.length} fixtures — nobody will reach them`,
-      };
+    // A fixture asks a narrower question than "can anybody walk here", and it
+    // has to since the yard behind the shop got its own door: the outside now
+    // joins the two ends of any interior wall you can draw, so by the flood
+    // above a partition straight across the aisles strands nothing at all. It
+    // would go quiet on precisely the wall most worth warning about.
+    //
+    // What a shelf actually needs is to be reachable *on the shop floor* from
+    // the front door — the trip a shopper makes. Out of the door, round the
+    // building and in the back is a route, not a shop.
+    //
+    // Judged only on what is indoors after the change, so a shelf already out
+    // on the patio isn't re-reported on every wall you ever draw; and skipped
+    // entirely if the doorway itself ends up outdoors, which means the shell is
+    // open rather than partitioned and is `whatThisUnroofs`'s story to tell.
+    const after = computeIndoor(probe);
+    const indoors = (x, z) => (x < 0 || z < 0 || x >= L.w || z >= L.h
+      ? false
+      : after[z * L.w + x] === 1);
+
+    if (indoors(Math.round(L.door.x), Math.round(L.door.z))) {
+      const onFloor = reachable(probe, L.door.x, L.door.z,
+        (P, x, z) => indoors(x, z) && isWalkableTile(P, x, z));
+      const joined = (p) => onFloor.has(`${Math.round(p.x)},${Math.round(p.z)}`);
+
+      const stranded = fixturesOf(L)
+        .map((f) => ({ f, spot: f.browseAt ?? f.serveAt ?? f.useAt }))
+        .filter(({ f, spot }) => spot
+          && indoors(Math.round(f.x), Math.round(f.z))
+          && !joined(spot));
+      if (stranded.length) {
+        const what = FIXTURES[stranded[0].f.kind]?.label.toLowerCase() ?? 'fixture';
+        return {
+          ok: true,
+          warn: stranded.length === 1
+            ? `that cuts a ${what} off from the door`
+            : `that cuts ${stranded.length} fixtures off from the door`,
+        };
+      }
     }
   }
 
@@ -577,5 +604,6 @@ function whatThisBlocks(L, spec, def, ignoreId) {
 
   if (!reaches(L.spawn)) return 'that would block the way through';
   if (L.bay && !reaches(L.bay)) return 'that would cut the delivery bay off';
+  if (L.drop && !reaches(L.drop)) return 'that would cut the drop-off off';
   return null;
 }

@@ -427,6 +427,9 @@ server.registerTool('create_upgrade', {
     'Add something the player can buy to expand. `kind` drives what it does: plot/shelf/freezer/checkout grant fixtures and re-flow the building, '
     + 'space buys floor area (payload {"width":n,"depth":n}) so the shop itself gets bigger, station adds an appliance (payload {"station":"blender"}), '
     + 'capacity/speed change the player, staff hires an NPC worker (payload {"role":"clerk"|"stocker"|"farmhand"|"chef"}), decor is cosmetic.\n\n'
+    + 'catchment moves the shop somewhere more people walk past (payload {"reach":n}, added to a base of 16). It is the only thing that raises how '
+    + 'many customers exist at all — everything else competes for a share of them — so it is the closest thing the game has to a level. '
+    + 'Re-run `simulate` after adding a rung: it changes the ceiling on every day that follows.\n\n'
     + 'Note that shelf/freezer/plot/checkout upgrades also set the per-unit price in build mode, where the player buys and places one fixture at a time: '
     + 'a cheaper bundle makes single fixtures cheaper to build and cheaper to sell back.',
   inputSchema: {
@@ -434,8 +437,8 @@ server.registerTool('create_upgrade', {
     name: z.string(),
     description: z.string().default(''),
     cost: z.number().min(0),
-    kind: z.enum(['shelf', 'freezer', 'plot', 'checkout', 'capacity', 'speed', 'decor', 'staff', 'station', 'space']),
-    payload: z.record(z.string(), z.any()).default({}).describe('Knobs for that kind, e.g. {"plots":4}, {"speedMult":1.3}, {"station":"blender"} or {"width":4,"depth":2}.'),
+    kind: z.enum(['shelf', 'freezer', 'plot', 'checkout', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment']),
+    payload: z.record(z.string(), z.any()).default({}).describe('Knobs for that kind, e.g. {"plots":4}, {"speedMult":1.3}, {"station":"blender"}, {"width":4,"depth":2} or {"reach":18}.'),
     requires: z.array(z.string()).default([]).describe('Upgrade ids that must be owned first.'),
   },
 }, async (args) => text(await call('POST', '/content/upgrade', args)));
