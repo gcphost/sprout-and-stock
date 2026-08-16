@@ -23,3 +23,6 @@ data/game.db-shm
 # PNG straight back to whoever asked, so one landing in the repo root is scratch
 # by definition — worth keeping locally, never worth committing.
 /*.png
+
+# Benchmark scratch. Throwaway runs, not part of the sweeps.
+scripts/.tmp/
