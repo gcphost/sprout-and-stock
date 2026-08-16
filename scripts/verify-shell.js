@@ -207,7 +207,9 @@ function fresh() {
   // Stock on a shelf. A refund can make "your fixtures are gone" look survivable
   // on the balance sheet; the goods on them have no such consolation.
   const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
-  Object.assign(shelf, { item_id: 'zz-verify-goods', qty: 9, price: 3 });
+  // A board, the way the sim writes one — this sweep's claim is that nothing
+  // moved, so it has to arrange stock in the shape the shop actually stores it.
+  shelf.stacks = [{ item_id: 'zz-verify-goods', qty: 9, price: 3, stockedDay: 0 }];
 
   // One segment of the north wall — the far side of the building from the door,
   // so nothing about this is about sealing anybody in or out.
@@ -238,7 +240,8 @@ function fresh() {
     `cash moved ${moved}`);
 
   const kept = g.layout.shelves.find((s) => s.id === shelf.id);
-  check(!!kept && kept.qty === 9, 'and the stock on the shelf is still on the shelf');
+  check(!!kept && (kept.stacks ?? []).reduce((n, k) => n + k.qty, 0) === 9,
+    'and the stock on the shelf is still on the shelf');
 
   // The delayed half. This is the re-flow that used to empty the building.
   g.regenerateLayout();

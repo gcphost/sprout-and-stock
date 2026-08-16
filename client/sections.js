@@ -694,10 +694,16 @@ export const SECTIONS = [
     // A shelf sat empty is money not being made, and it is the one thing you
     // cannot see from across the shop.
     badge: (ui) => {
+      // A unit is "low" if any board on it is, and a bare one always is. Per
+      // board rather than per unit, or a shelf with a full top row would hide
+      // two empty ones underneath it.
       const low = (ui.state?.shelves ?? []).filter((s) => {
-        if (!s.item_id) return true;
-        const stack = ui.itemById(s.item_id)?.stack ?? 0;
-        return stack ? s.qty <= stack * LOW_STOCK : s.qty === 0;
+        const stacks = s.stacks ?? [];
+        if (!stacks.length) return true;
+        return stacks.some((k) => {
+          const stack = ui.itemById(k.item_id)?.stack ?? 0;
+          return stack ? k.qty <= stack * LOW_STOCK : k.qty === 0;
+        });
       }).length;
       return low ? String(low) : null;
     },
@@ -800,7 +806,7 @@ export const SECTIONS = [
       return profit >= 0 ? '▲' : '▼';
     },
     live: (ui) => JSON.stringify([ui.state?.stats, ui.state?.fixtures, ui.state?.modifiers?.length,
-      (ui.state?.shelves ?? []).filter((s) => !s.qty).length]),
+      (ui.state?.shelves ?? []).filter((s) => !(s.stacks ?? []).some((k) => k.qty > 0)).length]),
     rows: (ui) => {
       const s = ui.state;
       if (!s) return [];
@@ -823,7 +829,7 @@ export const SECTIONS = [
         stat('Spoiled', String(st.spoiled ?? 0), 'sat out past its shelf life'),
 
         { sep: 'The shop', icon: ICONS.shop },
-        stat('Shelves', `${shelves.filter((x) => x.qty > 0).length} / ${shelves.length}`, 'holding something'),
+        stat('Shelves', `${shelves.filter((x) => (x.stacks ?? []).some((k) => k.qty > 0)).length} / ${shelves.length}`, 'holding something'),
         stat('Plots', `${plots.filter((p) => p.ready).length} ready`,
           `${plots.filter((p) => p.crop_id).length} planted of ${plots.length}`),
         stat('Queueing', String((s.queues ?? []).reduce((a, q) => a + q.queue, 0)),

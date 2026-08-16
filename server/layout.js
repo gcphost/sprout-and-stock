@@ -860,13 +860,28 @@ function makeShelf(id, kind, x, z, rot) {
     kind: kind === 'freezer' ? 'freezer' : 'shelf',
     // Customers browse from the tile this one faces.
     browseAt: anchorTile(x, z, rot),
-    item_id: null,
-    qty: 0,
-    price: 0,
-    stockedDay: 0,
-    // What the player *decided* goes here, as opposed to `item_id`, which is
-    // whatever happens to be on it. Null means anything may. See `assignShelf`.
-    assigned: null,
+    /**
+     * What is physically on it, one entry per KIND of thing — a board's worth.
+     * `[{ item_id, qty, price, stockedDay }]`, and how many entries there may be
+     * is `boardsOf`, read off the art (`shared/pieces.js`).
+     *
+     * A list rather than the four loose fields it replaced, because "there is
+     * milk on this" stopped being a single answer the moment a unit could hold
+     * milk and cheese. Each entry carries its OWN price and its own stocking
+     * day: two things on one shelf are two things to price and two clocks to
+     * rot on, and folding either onto the fixture would mean the cheese going
+     * off because somebody restocked the milk.
+     *
+     * Empty is a bare unit. One entry is exactly what every shelf in the game
+     * was before this, which is what makes the change invisible in a shop
+     * nobody has ticked a second box on.
+     */
+    stacks: [],
+    // What the player *decided* goes here, as opposed to `stacks`, which is
+    // whatever happens to be on it. Empty means anything may. A LIST for the
+    // same reason `stacks` is, and it is the list that decides how the unit is
+    // shared out — see `shelfCapacity`. See `assignShelf`.
+    assigned: [],
     /** Staff-only storage. Generated shelving is always shop floor. */
     boh: false,
     // Which shelf the next van fills. -1, 0 or 1 — see `restockQueue`.
@@ -905,6 +920,16 @@ function makeStation(id, station, x, z, rot) {
     // Which shape it is. Empty means the kind's own model — Standard.
     variant: '',
     id,
+    // Its own kind, and the one field a shelf carried that this didn't.
+    //
+    // `pieceFor` matches on `piece` AND `kind`, so a record with no kind never
+    // resolved to a catalog row at ALL — it fell through to `defaultPiece` of
+    // `undefined`, which is nothing, so `fixtureStats` handed back 1/1/1 for
+    // every appliance in the game. Which means the shipped Commercial tier has
+    // been selling `speed_mult: 2` for $340 and delivering nothing since the
+    // day it was authored, and no screenshot and no log line would ever say so:
+    // the machine still works, it is simply never any faster.
+    kind: 'station',
     station,
     x,
     z,

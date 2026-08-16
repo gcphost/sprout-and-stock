@@ -148,7 +148,7 @@ export function showFixture(ui, f) {
   // keeps that promise — which is the difference between "we sell milk here"
   // and "we are never out of milk".
   if (kind === 'shelf' || kind === 'freezer') {
-    group(live?.assigned ? 'Kept for' : 'Keep it for', ICONS.crate, stockRows(ui, f, live));
+    group(live?.assigned?.length ? 'Kept for' : 'Keep it for', ICONS.crate, stockRows(ui, f, live));
     group('When it gets refilled', ICONS.supplier, priorityRows(ui, f, live));
   }
 
@@ -253,15 +253,16 @@ export function showFixture(ui, f) {
   const holds = contentsOf(ui, f, live);
   if (holds.n > 0) {
     foot.push(actIcon('empty', ICONS.empty, 'Empty it', holds.blurb, 'Empty', { right: `${holds.n}` }));
-  } else if ((kind === 'shelf' || kind === 'freezer') && live?.item_id) {
-    // A label is what was last on it; what it is *kept* for is a tab above and
-    // survives this. This one keeps its sub-line, because "take the label off"
-    // does not say WHICH label — and on a shelf that is also kept for something
-    // else, not saying so is the menu looking like it will undo both.
-    foot.push(actIcon('empty', ICONS.label, 'Take the label off',
-      live.assigned
-        ? `Last held ${ui.itemName(live.item_id)}. It stays kept for ${ui.itemName(live.assigned)}.`
-        : `Still labelled ${ui.itemName(live.item_id)}. Clear it and anything can go on.`,
+  } else if ((kind === 'shelf' || kind === 'freezer') && live?.stacks?.length) {
+    // The labels are what was last on each board; what it is *kept* for is a tab
+    // above and survives this. This one keeps its sub-line, because "take the
+    // labels off" does not say WHICH — and on a shelf that is also kept for
+    // something, not saying so is the menu looking like it will undo both.
+    const labels = live.stacks.map((k) => ui.itemName(k.item_id)).join(', ');
+    foot.push(actIcon('empty', ICONS.label, 'Take the labels off',
+      live.assigned?.length
+        ? `Last held ${labels}. It stays kept for ${live.assigned.map((id) => ui.itemName(id)).join(', ')}.`
+        : `Still labelled ${labels}. Clear them and anything can go on.`,
       // Not "Label" — that reads as a verb for putting one ON, which is the
       // opposite of what this does and is a tab away.
       'Unlabel'));
@@ -317,40 +318,77 @@ function styleRows(ui, f) {
  */
 function stockRows(ui, f, live) {
   const freezer = f.kind === 'freezer';
-  const kept = live?.assigned ?? null;
+  // A LIST now, and every row is a checkbox rather than a picker. The same rows
+  // in the same order — what changed is that pressing one toggles it instead of
+  // replacing whatever was there.
+  const kept = live?.assigned ?? [];
+  // How many kinds this unit has boards for, and how many are spoken for. Both
+  // come off the snapshot: `boards` is read from the model at this fixture's
+  // tier, which the client has no ladder to work out for itself.
+  const boards = live?.boards ?? 1;
+  const onIt = new Set((live?.stacks ?? []).map((k) => k.item_id));
+  const committed = new Set([...kept, ...onIt]);
+  const full = committed.size >= boards;
   // Where else this is already spoken for — so nobody reserves the same thing
   // on three shelves and wonders why two of them stay empty.
   const elsewhere = new Set((ui.state?.shelves ?? [])
-    .filter((s) => s.id !== f.id && s.assigned)
-    .map((s) => s.assigned));
-  // What this particular unit would hold of it, tier included: "12x" on a shelf
-  // you have upgraded twice is the number that shelf actually takes.
+    .filter((s) => s.id !== f.id)
+    .flatMap((s) => s.assigned ?? []));
+  // What this particular unit would hold of it — tier included, and DIVIDED by
+  // how many ways it is being shared, because that is the number the shop
+  // actually fills to. Showing the undivided one would promise 12 on a shelf
+  // the stocker stops at 4.
   const capMult = tiersOf(ui, f)[tierOf(ui, f) - 1]?.capacity_mult ?? 1;
+  const share = Math.max(1, committed.size || 1);
 
   const rows = (ui.catalog.items ?? [])
     .filter((it) => (requiredFixture(it) === 'freezer') === freezer)
-    .map((it) => ({
-      icon: ICONS.crate,
-      name: it.name,
-      sub: kept === it.id
-        ? 'kept for this — staff refill it with nothing else'
-        : (elsewhere.has(it.id)
-          ? 'another shelf is already kept for this'
-          : (it.tags ?? []).join(', ')),
-      right: `${Math.max(1, Math.floor((it.stack ?? 1) * capMult))}×`,
-      picked: kept === it.id,
-      dim: kept !== it.id && elsewhere.has(it.id),
-      run: kept === it.id ? null
-        : () => ui.net.send('assign', { shelfId: f.id, itemId: it.id }),
-    }));
+    .map((it) => {
+      const on = kept.includes(it.id);
+      const here = (live?.stacks ?? []).find((k) => k.item_id === it.id) ?? null;
+      // Ticking this would need a board, and there is not one. Said as a reason
+      // rather than a silently dead row — "every board is taken" is a fact about
+      // the shelf you can act on, and the row that is greyed out for a different
+      // reason (somewhere else has it) already says so.
+      const noRoom = !on && !here && full;
+      return {
+        icon: ICONS.crate,
+        name: it.name,
+        sub: on
+          ? (here ? `kept for this — ${here.qty} on it now` : 'kept for this — a van is due')
+          : (here
+            ? 'on it, but not kept — it will sell down and not be refilled'
+            : (noRoom
+              ? `no board free — this ${f.kind} holds ${boards}`
+              : (elsewhere.has(it.id)
+                ? 'another shelf is already kept for this'
+                : (it.tags ?? []).join(', ')))),
+        // What a board of it holds once this one is ticked, which is the number
+        // that changes as you tick more. Worked out against what the share WOULD
+        // be, so the figure you read is the figure you are choosing.
+        right: `${Math.max(1, Math.floor(((it.stack ?? 1) * capMult)
+          / Math.max(1, on ? share : share + (here ? 0 : 1))))}×`,
+        picked: on,
+        dim: noRoom || (!on && !here && elsewhere.has(it.id)),
+        // Every row is live, including the ticked ones — pressing a ticked row
+        // unticks it, which is what a checkbox is. The one dead row is the one
+        // there is no board for.
+        run: noRoom ? null
+          : () => ui.net.send('assign', { shelfId: f.id, itemId: it.id, on: !on }),
+      };
+    });
 
-  // Handing it back, at the top — and only once there is something to hand
-  // back, because "anything at all" is what a shelf already is by default.
-  if (kept) {
+  // Handing the whole unit back, at the top — and only once there is something
+  // to hand back, because "anything at all" is what a shelf already is by
+  // default. It clears every box rather than one, which is why it stays a row of
+  // its own rather than becoming a checkbox like the rest.
+  if (kept.length) {
     rows.unshift({
       icon: ICONS.label,
       name: 'Anything at all',
-      sub: 'Stop keeping it for one thing. Staff fill it with whatever sells.',
+      sub: kept.length > 1
+        ? `Stop keeping it for those ${kept.length}. Staff fill it with whatever sells.`
+        : 'Stop keeping it for one thing. Staff fill it with whatever sells.',
       run: () => ui.net.send('assign', { shelfId: f.id, itemId: null }),
     });
   }
@@ -510,7 +548,7 @@ export function fixtureSignature(ui, f, live) {
     // What every *other* shelf is kept for. This menu says which items are
     // already spoken for elsewhere, so it has to redraw when somebody else
     // spoke for one — `live` is only ever this shelf's own row.
-    (ui.state?.shelves ?? []).map((s) => s.assigned ?? '').join(',')]);
+    (ui.state?.shelves ?? []).map((s) => (s.assigned ?? []).join('+')).join(',')]);
 }
 
 /** The read-out at the top: what this particular thing is doing right now. */
@@ -518,24 +556,50 @@ function fixtureDetail(ui, f, live) {
   const line = (label, value) => `<div class="fx-line"><span>${label}</span><b>${value}</b></div>`;
 
   if (f.kind === 'shelf' || f.kind === 'freezer') {
-    const item = live?.item_id ? ui.itemById(live.item_id) : null;
-    // The stack times what this unit's tier multiplies it by, which is what the
-    // server actually enforces. Reading `stack` alone said 12/12 on a shelf
-    // that would happily take six more — so the capacity you had paid for read
-    // as full, and the rows below would have disagreed with the line above.
+    const stacks = live?.stacks ?? [];
+    const kept = live?.assigned ?? [];
+    const boards = live?.boards ?? 1;
+    // The stack times what this unit's tier multiplies it by, divided by how
+    // many ways it is shared — which is what the server actually enforces.
+    // Reading `stack` alone said 12/12 on a shelf that would happily take six
+    // more, so the capacity you had paid for read as full and the rows below
+    // disagreed with the line above. The share is the same trap one level on.
     const capMult = tiersOf(ui, f)[tierOf(ui, f) - 1]?.capacity_mult ?? 1;
-    const cap = item ? Math.max(1, Math.floor(item.stack * capMult)) : null;
+    const share = Math.max(1, new Set([...kept, ...stacks.map((k) => k.item_id)]).size || 1);
+    const capOf = (item) => Math.max(1, Math.floor((item.stack * capMult) / share));
+
+    // One row per board, each with its own number and its own price control.
+    // The price had to come down here from the single line it used to be: a
+    // unit holding three things has three prices, and one control at the top of
+    // the panel could only ever have repriced one of them — silently, and not
+    // necessarily the one you were looking at.
+    const boardRows = stacks.map((k) => {
+      const item = ui.itemById(k.item_id);
+      const cap = item ? capOf(item) : null;
+      return `<div class="fx-board">
+        <div class="fx-line">
+          <span>${esc(item?.name ?? k.item_id)}</span>
+          <b>${k.qty}${cap ? ` / ${cap}` : ''}</b>
+        </div>
+        <div class="fx-price">
+          <span>Price</span>
+          <button data-price="-1" data-item="${esc(k.item_id)}">−</button>
+          <b>$${(k.price ?? 0).toFixed(2)}</b>
+          <button data-price="1" data-item="${esc(k.item_id)}">+</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    // What it is kept for but has not arrived yet. Worth saying outright: a
+    // ticked box with no goods behind it looks like nothing happened, and this
+    // is the line that says the van is the thing you are waiting for.
+    const waiting = kept.filter((id) => !stacks.some((k) => k.item_id === id));
+
     return `<div class="fx-detail">
-      ${line('Holding', item ? item.name : '<i>nothing</i>')}
-      ${line('Stock', cap ? `${live.qty} / ${cap}` : `${live?.qty ?? 0}`)}
-      ${live?.assigned ? line('Kept for', ui.itemName(live.assigned)) : ''}
+      ${line('Boards', `${stacks.length} of ${boards} in use`)}
+      ${boardRows || line('Holding', '<i>nothing</i>')}
+      ${waiting.length ? line('Waiting for', waiting.map((id) => esc(ui.itemName(id))).join(', ')) : ''}
       ${live?.priority ? line('Refilled', live.priority > 0 ? 'first' : 'last') : ''}
-      ${item ? `<div class="fx-price">
-        <span>Price</span>
-        <button data-price="-1">−</button>
-        <b>$${(live.price ?? 0).toFixed(2)}</b>
-        <button data-price="1">+</button>
-      </div>` : ''}
     </div>`;
   }
 
@@ -568,6 +632,18 @@ function fixtureDetail(ui, f, live) {
     // written down nowhere in the game at all.
     const recipes = (ui.catalog.recipes ?? []).filter((r) => r.station === f.station);
     const held = (id) => live?.contents?.[id] ?? 0;
+
+    // How much of an ingredient this machine takes, computed here off the same
+    // recipes and the same `batches` the server used — the largest call any
+    // recipe on it makes, times the batches its tier holds. The bar has to say
+    // the ceiling: a hopper you can keep filling is only worth filling if the
+    // game tells you how far, and "1 / 1" beside a full armful reads as a
+    // machine that is refusing you rather than one that is loaded.
+    const batches = live?.batches ?? 1;
+    const cap = (id) => recipes
+      .flatMap((r) => r.inputs.filter((i) => i.item_id === id))
+      .reduce((n, i) => Math.max(n, i.qty), 0) * batches;
+
     const body = recipes.map((r) => `
       <div class="fx-recipe">
         <div class="fx-recipe-h">
@@ -577,13 +653,20 @@ function fixtureDetail(ui, f, live) {
         ${r.inputs.map((i) => `
           <div class="fx-ing${held(i.item_id) >= i.qty ? ' ok' : ''}">
             <span>${ui.itemName(i.item_id)}</span>
-            <b>${held(i.item_id)} / ${i.qty}</b>
+            <b>${held(i.item_id)} / ${cap(i.item_id)}</b>
           </div>`).join('')}
       </div>`).join('');
+
+    // What is waiting to be picked up, which used only ever to be one batch and
+    // so was never worth its own line. It is the reason to walk over now.
+    const ready = live?.output
+      ? `${live.output.qty}× ${ui.itemName(live.output.item_id)}`
+      : '<i>nothing</i>';
 
     return `<div class="fx-detail">
       ${line('In the hopper', inside || '<i>empty</i>')}
       ${line('Making', live?.making ? ui.itemName(live.output?.item_id ?? live.making) : '<i>idle</i>')}
+      ${line('Ready to collect', ready)}
       ${body || line('Can make', '<i>no recipes yet</i>')}
     </div>`;
   }
@@ -648,9 +731,14 @@ function wireFixtureMenu(ui, f, live) {
 
   ui.el.panelBody.querySelectorAll('[data-price]').forEach((el) => {
     el.onclick = () => {
+      // Which board. A unit can hold three things at three prices, so the button
+      // has to name the one it is under — a `set-price` with no item would have
+      // to guess, and any rule for guessing reprices the wrong cheese.
+      const itemId = el.dataset.item ?? null;
+      const stack = (live?.stacks ?? []).find((k) => k.item_id === itemId);
       const step = Number(el.dataset.price) * 0.25;
-      const next = Math.max(0, Math.round(((live?.price ?? 0) + step) * 100) / 100);
-      send('set-price', { shelfId: f.id, price: next });
+      const next = Math.max(0, Math.round(((stack?.price ?? 0) + step) * 100) / 100);
+      send('set-price', { shelfId: f.id, price: next, itemId });
     };
   });
 
@@ -695,8 +783,16 @@ const mult = (n) => `${Number(n) % 1 === 0 ? n : Number(n).toFixed(1)}×`;
 /** What "empty it" would tip out, and how to describe it. */
 function contentsOf(ui, f, live) {
   if (f.kind === 'shelf' || f.kind === 'freezer') {
-    const n = live?.qty ?? 0;
-    return { n, blurb: n ? `${n}× ${ui.itemName(live.item_id)} into a crate beside it.` : '' };
+    // Across every board, and named board by board — "empty it" tips the whole
+    // unit out, one crate per kind, so the count has to be the whole unit too.
+    const stacks = (live?.stacks ?? []).filter((k) => k.qty > 0);
+    const n = stacks.reduce((a, k) => a + k.qty, 0);
+    return {
+      n,
+      blurb: n
+        ? `${stacks.map((k) => `${k.qty}× ${ui.itemName(k.item_id)}`).join(', ')} into crates beside it.`
+        : '',
+    };
   }
   if (f.kind === 'station') {
     const n = Object.values(live?.contents ?? {}).reduce((a, b) => a + b, 0) + (live?.output?.qty ?? 0);

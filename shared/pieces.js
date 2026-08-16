@@ -20,6 +20,8 @@
  * is standing in them.
  */
 
+import { surfacesAt, tierProgress } from './model.js';
+
 /** Every piece of one kind, in catalog order. */
 export function piecesOf(rows, kind) {
   return (rows ?? []).filter((p) => kindOf(p) === kind);
@@ -87,6 +89,37 @@ export function pieceFor(rows, f) {
  */
 export function countKey(kind, { station = null, piece = null } = {}) {
   return kind === 'station' ? `station:${station}` : (piece || kind);
+}
+
+/**
+ * How many DIFFERENT things one unit can hold at once — its boards.
+ *
+ * Read off the art rather than authored, the same argument `surfacesAt` itself
+ * makes and the same one `seamStep` makes about which side a panel closes: a
+ * three-board shelving unit is *drawn* as three places goods can sit, and a
+ * second field saying "…and it holds three kinds" is a number that can quietly
+ * disagree with the picture. Nobody has to author anything for this, and
+ * `docs/fixtures.md` has been printing the count per piece since the day it was
+ * generated — it simply meant nothing before.
+ *
+ * Read at THIS fixture's tier, not at the top of the ladder, because a staged
+ * model can grow a board as it climbs: the shipped `freezer` draws 2, 2, 3 and
+ * `produce-table` 2, 3, 3. So an upgrade can now buy you another kind, which is
+ * a tier changing a number the sim reads — exactly what a tier is for, and the
+ * reason a tier that changes none is called out as a button that takes money
+ * and does nothing.
+ *
+ * Anything with no boards answers 1 rather than 0. A chest freezer and a
+ * counter pile goods on the roof, which is one heap and therefore one kind —
+ * zero would mean a unit that can hold nothing, which is not a fixture, it is
+ * a decoration.
+ */
+export function boardsOf(rows, f) {
+  const piece = pieceFor(rows, f);
+  if (!piece?.model) return 1;
+  const ladder = piece.tiers?.length ?? 1;
+  const tier = Math.min(Math.max(1, Math.trunc(f?.tier ?? 1)), ladder);
+  return Math.max(1, surfacesAt(piece.model, tierProgress(tier, ladder)).length);
 }
 
 /**

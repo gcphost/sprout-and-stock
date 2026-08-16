@@ -2032,25 +2032,44 @@ export class Scene {
       rec.group.rotation.y = -(def.rot ?? 0) * (Math.PI / 2);
       rec.group.position.set(def.x, rows.length ? 0 : this.fixtureHeight(fx), def.z);
 
+      // A unit holds one kind per BOARD now, so this draws a list rather than a
+      // single item — board n gets stack n, top down, which is the order
+      // `buildShelfGoods` already fills in and the reason no positions had to be
+      // invented for this. A unit with no boards piles everything on its roof,
+      // which is what a chest freezer and a counter want, so there the stacks
+      // are drawn one behind the other rather than side by side.
+      const stacks = (s.stacks ?? []).filter((k) => k.qty > 0);
       // On a unit with rows every single unit is a prop, so the redraw has to
       // follow every single unit — `Math.ceil(qty / 4)` was fine when stock was
       // a three-step pile and would now hold four sales' worth of goods on a
       // shelf that no longer has them. Clamped one past what can be shown, so a
       // busy shelf holding forty stops rebuilding once it just reads as full.
-      const shown = rows.length
-        ? Math.min(s.qty, shelfSlots(rows) + 1)
-        : Math.ceil(s.qty / 4);
-      const key = `${s.item_id}:${shown}:${rows.length}`;
+      const perBoard = rows.length ? Math.max(1, Math.floor(shelfSlots(rows) / rows.length)) : 0;
+      const key = stacks.map((k) => `${k.item_id}:${rows.length
+        ? Math.min(k.qty, perBoard + 1)
+        : Math.ceil(k.qty / 4)}`).join('|') + `:${rows.length}`;
       if (rec.key === key) continue;
       rec.key = key;
       rec.group.clear();
+      if (!stacks.length) continue;
 
-      if (!s.item_id || s.qty <= 0) continue;
-      const item = this.catalog.items[s.item_id];
-      if (!item) continue;
-      rec.group.add(rows.length
-        ? buildShelfGoods(item.model, s.qty, rows)
-        : buildStack(item.model, s.qty, item.stack));
+      stacks.forEach((k, n) => {
+        const item = this.catalog.items[k.item_id];
+        if (!item) return;
+        if (!rows.length) {
+          // No boards: everything heaps on the roof. Nudged apart so two kinds
+          // read as two heaps rather than one interpenetrating mess.
+          const heap = buildStack(item.model, k.qty, item.stack);
+          heap.position.x += (n - (stacks.length - 1) / 2) * 0.34;
+          rec.group.add(heap);
+          return;
+        }
+        // One board each, from the top down. `buildShelfGoods` fills the boards
+        // it is handed top-first, so handing it exactly one board puts this
+        // kind on that board and nowhere else.
+        const board = rows[rows.length - 1 - (n % rows.length)];
+        rec.group.add(buildShelfGoods(item.model, k.qty, [board]));
+      });
     }
   }
 

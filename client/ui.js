@@ -1000,8 +1000,12 @@ export class UI {
     // three shelves of isn't news, it's just the day going well.
     const stocked = new Set();
     for (const s of shelves) {
-      if (!s.qty) continue;
-      for (const tag of this.itemById(s.item_id)?.tags ?? []) stocked.add(tag);
+      // Every board — a unit can carry three kinds now, and reading one of them
+      // would have the shop nag you to get a tag in that is already on a shelf.
+      for (const k of s.stacks ?? []) {
+        if (!k.qty) continue;
+        for (const tag of this.itemById(k.item_id)?.tags ?? []) stocked.add(tag);
+      }
     }
     // Net demand, so a tag two events are fighting over only makes the list if
     // the fight is actually being won — the meter above draws the same number.
@@ -1028,7 +1032,7 @@ export class UI {
     const ready = plots.filter((p) => p.ready).length;
     if (ready) out.push({ icon: 'plot', text: `<b>${ready}</b> ready to harvest` });
 
-    const bare = shelves.filter((s) => !s.qty).length;
+    const bare = shelves.filter((s) => !(s.stacks ?? []).some((k) => k.qty > 0)).length;
     if (bare) out.push({ icon: 'shelf', text: `<b>${bare}</b> ${bare > 1 ? 'shelves' : 'shelf'} empty` });
 
     const floor = (state.deliveries ?? []).length;

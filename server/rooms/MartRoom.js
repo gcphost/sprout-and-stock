@@ -195,17 +195,27 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.buyStock(client.sessionId, m?.itemId, Number(m?.qty) || 1));
     });
 
+    // `itemId` is WHICH board. A unit holds one price per board, so a price
+    // change that did not name one would have to guess, and any rule for
+    // guessing reprices something the player was not looking at.
     this.onMessage('set-price', (client, m) => {
-      client.send('action-result', this.game.setPrice(m?.shelfId, Number(m?.price)));
+      client.send('action-result',
+        this.game.setPrice(m?.shelfId, Number(m?.price), m?.itemId ?? null));
     });
 
     // What a shelf is for, and where it sits in the restock queue. Both are
     // sent from the fixture menu but neither is a `build-` verb: deciding what
     // goes on a shelf is a choice about stock, like sowing a bed, so — like
     // `sow` above — it needs no build mode and carries no gate.
+    // `on` says which way the checkbox went. Passed through rather than left to
+    // the server to infer: the row you pressed knows whether it was ticked, and
+    // a toggle that re-reads the state it is toggling races the snapshot — press
+    // twice quickly and the second press reads the first one's old answer.
+    // Undefined still means "flip it", so a client that has not reloaded works.
     this.onMessage('assign', (client, m) => {
-      client.send('action-result',
-        this.game.assignShelf(client.sessionId, m?.shelfId, m?.itemId ?? null));
+      client.send('action-result', this.game.assignShelf(
+        client.sessionId, m?.shelfId, m?.itemId ?? null, m?.on ?? null,
+      ));
     });
 
     this.onMessage('restock-order', (client, m) => {

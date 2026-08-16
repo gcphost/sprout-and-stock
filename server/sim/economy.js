@@ -152,13 +152,21 @@ export function purchaseChance({ item, archetype, price, folded, season, reputat
 export function rankShelves({ shelves, items, archetype, folded, season, reputation }) {
   const scored = [];
   for (const shelf of shelves) {
-    if (!shelf.item_id || shelf.qty <= 0) continue;
-    const item = items[shelf.item_id];
-    if (!item) continue;
-    const chance = purchaseChance({
-      item, archetype, price: shelf.price, folded, season, reputation,
-    });
-    if (chance > 0.05) scored.push({ shelf, item, chance });
+    // One entry per BOARD, not per unit. A shelf holding milk and cheese is two
+    // offers standing in one place, and collapsing it to one would make which of
+    // them a shopper sees depend on which board happened to be written first.
+    // `stack` rides along because everything downstream — the price they pay,
+    // the qty they take, the board they take it off — is the stack's, not the
+    // fixture's.
+    for (const stack of shelf.stacks ?? []) {
+      if (!stack.item_id || stack.qty <= 0) continue;
+      const item = items[stack.item_id];
+      if (!item) continue;
+      const chance = purchaseChance({
+        item, archetype, price: stack.price, folded, season, reputation,
+      });
+      if (chance > 0.05) scored.push({ shelf, stack, item, chance });
+    }
   }
   scored.sort((a, b) => b.chance - a.chance);
   return scored;

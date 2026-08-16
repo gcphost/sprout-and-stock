@@ -308,34 +308,70 @@ function runBot(game, bot, priceMult) {
     if (bot.carry) dumpCarryToShelf(game, bot, priceMult, reserved);
   }
 
-  // 3. Refill empty shelves by buying wholesale — but never the reserved ones.
+  // 3. Refill thin BOARDS by buying wholesale — but never the reserved shelves.
+  //
+  //    A unit holds one kind per board now, so a shopkeeper fills boards rather
+  //    than shelves: a shelf with a full top row and two bare ones underneath is
+  //    two thirds empty, and a bot that judged the unit would walk past it. It
+  //    also has to open the boards it is not using, or the shop would run on one
+  //    kind per shelf for ever and this whole change would measure as nothing.
   for (const shelf of game.layout.shelves) {
-    if (shelf.qty > 2 || reserved.has(shelf.id)) continue;
+    if (reserved.has(shelf.id)) continue;
+    const boards = game.shelfBoards(shelf);
+    for (let b = 0; b < boards; b++) {
+      const stacks = game.shelfStacks(shelf);
+      // The thinnest board it already has, or a new one if there is room.
+      const thin = stacks.slice().sort((x, y) => x.qty - y.qty)[0] ?? null;
+      // Only add a KIND once everything already on the unit is stocked. The
+      // bot's own rule about shelving, applied one level down — "a shopkeeper
+      // extends the shop when the shop ran out" — and it has to be here or the
+      // instrument breaks: told to fill every board on day one, the bot spends
+      // three times as much on wholesale as it can carry against a $250 float
+      // and bankrupts itself by day 26. Measured. The shelves are not what went
+      // broke; holding variety constant, the new code lands within noise of the
+      // old (-245/-217/-256 against -224/-234/-242 over the same three seeds).
+      const opening = stacks.length < boards
+        && stacks.every((k) => k.qty > 2)
+        && game.cash > 400;
+      const wanted = (!opening && thin) ? c.byId.items[thin.item_id]
+        : pickItemForShelf(game, shelf, folded);
+      if (!wanted) break;
+      const have = game.shelfStack(shelf, wanted.id)?.qty ?? 0;
+      if (have > 2 && !opening) break;
 
-    const wanted = shelf.item_id
-      ? c.byId.items[shelf.item_id]
-      : pickItemForShelf(game, shelf, folded);
-    if (!wanted) continue;
+      const unit = wholesalePrice(wanted, folded, game.season);
+      const affordable = Math.floor((game.cash * 0.3) / Math.max(unit, 0.01));
+      // Against the BOARD's room, which is a share of the unit — ordering a
+      // whole stack for one board of three sends two thirds of it straight back
+      // out to a crate on the floor.
+      const qty = Math.min(game.carryCapacity(),
+        game.shelfCapacity(shelf, wanted) - have, affordable);
+      if (qty <= 0) break;
 
-    const unit = wholesalePrice(wanted, folded, game.season);
-    const affordable = Math.floor((game.cash * 0.3) / Math.max(unit, 0.01));
-    const qty = Math.min(game.carryCapacity(), wanted.stack - shelf.qty, affordable);
-    if (qty <= 0) continue;
+      if (bot.carry && bot.carry.item_id !== wanted.id) dumpCarryToShelf(game, bot, priceMult, reserved);
+      const bought = game.buyStock('bot', wanted.id, qty);
+      if (!bought.ok) break;
 
-    if (bot.carry && bot.carry.item_id !== wanted.id) dumpCarryToShelf(game, bot, priceMult, reserved);
-    const bought = game.buyStock('bot', wanted.id, qty);
-    if (!bought.ok) continue;
-
-    teleport(bot, shelf.browseAt);
-    const res = game.stockShelf('bot', shelf.id);
-    if (res.ok) game.setPrice(shelf.id, suggestedPrice(wanted, folded, game.season) * priceMult);
+      teleport(bot, shelf.browseAt);
+      const res = game.stockShelf('bot', shelf.id);
+      if (!res.ok) break;
+      game.setPrice(shelf.id, suggestedPrice(wanted, folded, game.season) * priceMult, wanted.id);
+      // ONE order per unit per turn, exactly as before boards existed. Filling
+      // every board in one pass makes the bot spend three times as fast as the
+      // shopkeeper it is supposed to model, which is a bot bankrupting itself
+      // rather than a shop that cannot pay — and the run reports the second.
+      break;
+    }
   }
 
-  // 4. Keep prices tracking the current market (events move fair value).
+  // 4. Keep prices tracking the current market (events move fair value). Every
+  //    board, each priced as itself — one price per unit would have the cheese
+  //    sold at the milk's price.
   for (const shelf of game.layout.shelves) {
-    if (!shelf.item_id) continue;
-    const item = c.byId.items[shelf.item_id];
-    if (item) game.setPrice(shelf.id, suggestedPrice(item, folded, game.season) * priceMult);
+    for (const stack of game.shelfStacks(shelf)) {
+      const item = c.byId.items[stack.item_id];
+      if (item) game.setPrice(shelf.id, suggestedPrice(item, folded, game.season) * priceMult, item.id);
+    }
   }
 
   // 5. Spend surplus on ONE thing, cheapest first — a hire, an upgrade, or a
@@ -419,7 +455,11 @@ function buildOptions(game, bot) {
   // doing. A shopkeeper extends the shop when the shop ran out, so:
   const last = game._lastDayStats ?? {};
   const sold = last.sold ?? 0;
-  const empties = game.layout.shelves.filter((s) => s.qty === 0).length;
+  // A unit with a spare board is not full, so "we have run out of shelving" has
+  // to be asked of boards — otherwise the bot buys aisles it has not filled.
+  const empties = game.layout.shelves
+    .filter((s) => game.shelfStacks(s).length < game.shelfBoards(s)
+      || game.shelfStacks(s).some((k) => k.qty === 0)).length;
 
   // Shoppers who wanted something and found nothing. More shelving is only an
   // answer to that once the shelving you have is full — otherwise the problem
@@ -530,7 +570,8 @@ function pickItemForShelf(game, shelf, folded) {
   }).sort((a, b) => b.score - a.score);
 
   // Don't put the same thing on every shelf.
-  const already = new Set(game.layout.shelves.map((s) => s.item_id).filter(Boolean));
+  const already = new Set(game.layout.shelves
+    .flatMap((s) => game.shelfStacks(s).map((k) => k.item_id)).filter(Boolean));
   return (scored.find((s) => !already.has(s.it.id)) ?? scored[0]).it;
 }
 
@@ -549,15 +590,22 @@ function dumpCarryToShelf(game, bot, priceMult, reserved = new Set()) {
 
   // Prefer a shelf already holding this item, then any empty one. Free produce
   // from the farm should always beat leaving a shelf bare.
-  const target = usable.find((s) => s.item_id === item.id && s.qty < item.stack)
-    ?? usable.find((s) => reserved.has(s.id) && s.qty === 0)
-    ?? usable.find((s) => s.qty === 0);
+  // A board already holding it with room, then a reserved unit with a spare
+  // board, then any unit with a spare board. Free produce from the farm should
+  // always beat leaving a board bare.
+  const room = (s) => (game.shelfStack(s, item.id)?.qty ?? 0) < game.shelfCapacity(s, item);
+  const spare = (s) => game.shelfStacks(s).length < game.shelfBoards(s);
+  const target = usable.find((s) => game.shelfStack(s, item.id) && room(s))
+    ?? usable.find((s) => reserved.has(s.id) && spare(s))
+    ?? usable.find((s) => spare(s));
 
   if (!target) { bot.carry = null; return; }
 
   teleport(bot, target.browseAt);
   const res = game.stockShelf('bot', target.id);
-  if (res.ok) game.setPrice(target.id, suggestedPrice(item, game.folded(), game.season) * priceMult);
+  if (res.ok) {
+    game.setPrice(target.id, suggestedPrice(item, game.folded(), game.season) * priceMult, item.id);
+  }
   else bot.carry = null;
 }
 

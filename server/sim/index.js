@@ -31,7 +31,7 @@ import {
   canPaintGround, groundStroke, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt,
 } from '../../shared/build.js';
-import { pieceFor, kindOf, defaultPiece, countKey } from '../../shared/pieces.js';
+import { pieceFor, kindOf, defaultPiece, countKey, boardsOf } from '../../shared/pieces.js';
 
 /** Real seconds in one in-game day. */
 export const DAY_SECONDS = 360;
@@ -104,7 +104,41 @@ const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
  */
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const ACTION_TIME = 1.0;       // seconds of standing still before an action fires
-const RESTOCK_THIN = 2;        // at or below this many, a shelf is worth a van — see restockQueue
+/**
+ * When a board is worth sending a van for, as a SHARE of what that board holds.
+ *
+ * It was a flat 2, and it had to stop being one. A unit's capacity is split
+ * between the kinds you keep it for, so a shelf kept for three things holds as
+ * few as 2 of one of them — and "at or below 2" then describes a board that is
+ * completely full. The shop ordered for a shelf it had just filled, for ever,
+ * and spent itself broke doing it: a solo shop went from surviving 60 days to
+ * bankrupt on day 26, measured, which is the whole reason `simulate` exists.
+ *
+ * A quarter, because a quarter of the shipped stack of 8 is exactly the 2 this
+ * replaces — so a shop where nobody has ticked a second box orders on precisely
+ * the schedule it always did, and the constant did not quietly become a tuning
+ * change riding along with a feature.
+ */
+const RESTOCK_FRACTION = 0.25;
+/** …and never zero, or a board that holds 2 would have to hit empty first. */
+const RESTOCK_MIN = 1;
+/**
+ * How many batches of a recipe an appliance holds — of ingredients going in and
+ * of finished goods coming out alike.
+ *
+ * An appliance used to hold exactly one batch of each and stop dead: load a
+ * coffee machine with one milk and one coffee, and it made one Flat White and
+ * then waited for somebody to come and take it. Which meant one chef could
+ * never keep even one machine busy, let alone three — every batch cost two
+ * fetching trips, a wait and a collection, and the machine was idle for all of
+ * them. A hopper is the fix: fill it up and walk away, and it runs itself down
+ * while you are somewhere else. That is what a kitchen is *for*.
+ *
+ * It is also what a station's `capacity_mult` finally reads — the tier ladder
+ * carried one since it was authored and nothing had ever looked at it, which is
+ * the "a tier that changes no number" trap in CLAUDE.md, sitting in the game.
+ */
+const STATION_BATCHES = 4;
 
 /**
  * MOOD.
@@ -538,10 +572,17 @@ export class Game {
       // otherwise quietly drop, and it would present as the stocker refilling
       // your freezer aisle with whatever it fancied.
       stock: this.layout.shelves
-        .filter((s) => s.item_id || s.assigned || s.priority)
+        .filter((s) => this.shelfStacks(s).length || s.assigned?.length || s.priority)
         .map((s) => ({
-          id: s.id, item_id: s.item_id, qty: s.qty, price: s.price, stockedDay: s.stockedDay ?? 0,
-          assigned: s.assigned ?? null, priority: s.priority ?? 0,
+          id: s.id,
+          // Every board, each with its own price and its own clock. Saved as a
+          // list rather than as the four loose fields it replaced, and read back
+          // by `restoreContents`, which still accepts the old shape — a save
+          // written before this is a shop somebody is mid-game in.
+          stacks: this.shelfStacks(s).map((k) => ({
+            item_id: k.item_id, qty: k.qty, price: k.price, stockedDay: k.stockedDay ?? 0,
+          })),
+          assigned: s.assigned ?? [], priority: s.priority ?? 0,
         })),
       crops: this.layout.plots
         .filter((p) => p.crop_id || p.soil !== 'untilled')
@@ -569,11 +610,21 @@ export class Game {
     for (const row of stock ?? []) {
       const shelf = this.layout.shelves.find((s) => s.id === row.id);
       if (!shelf) continue;
-      shelf.item_id = row.item_id;
-      shelf.qty = row.qty;
-      shelf.price = row.price;
-      shelf.stockedDay = row.stockedDay ?? 0;
-      shelf.assigned = row.assigned ?? null;
+      // A row written before a unit could hold two things carries the four loose
+      // fields and a single `assigned`. Read as one board's worth and one
+      // reservation rather than migrated, the same bargain `kindOf` and
+      // `shell.z` strike: an old save, an old export and a fresh seed all agree
+      // with nothing to run. Somebody is mid-game in one of these.
+      shelf.stacks = Array.isArray(row.stacks)
+        ? row.stacks.map((k) => ({
+          item_id: k.item_id, qty: k.qty, price: k.price, stockedDay: k.stockedDay ?? 0,
+        }))
+        : (row.item_id
+          ? [{
+            item_id: row.item_id, qty: row.qty, price: row.price, stockedDay: row.stockedDay ?? 0,
+          }]
+          : []);
+      shelf.assigned = toList(row.assigned);
       shelf.priority = row.priority ?? 0;
     }
     for (const row of crops ?? []) {
@@ -723,12 +774,22 @@ export class Game {
         mood: r2(c.mood), anger: r2(angerOf(c)), want: c.wantHint ?? null,
       })),
       shelves: this.layout.shelves.map((s) => ({
-        id: s.id, item_id: s.item_id, qty: s.qty, price: r2(s.price), kind: s.kind,
+        id: s.id, kind: s.kind,
+        // Every board, in board order, each with its own price — which is why
+        // the price control in the menu had to move down onto the row it prices.
+        stacks: this.shelfStacks(s).map((k) => ({
+          item_id: k.item_id, qty: k.qty, price: r2(k.price),
+        })),
+        // How many kinds it may hold, so the menu can grey the boxes once you
+        // have ticked as many as it has boards. Sent rather than worked out
+        // client-side: it comes off the model at this fixture's tier, and the
+        // client would need the whole ladder to ask.
+        boards: this.shelfBoards(s),
         // What it is *for* and where it sits in the restock queue. Both ride the
         // snapshot rather than the layout, because they change while the shop
         // stands still — a menu reading them off the layout would show the shelf
         // you set aside ten seconds ago as still taking anything.
-        assigned: s.assigned ?? null, priority: s.priority ?? 0,
+        assigned: s.assigned ?? [], priority: s.priority ?? 0,
         // Whether shoppers can see it, so the menu can say which it is. Two
         // units of the same design differ only by this, and nothing about the
         // model shows it — without it on the wire the button has no state.
@@ -751,6 +812,12 @@ export class Game {
       stations: (this.layout.stations ?? []).map((s) => ({
         id: s.id, x: s.x, z: s.z, station: s.station,
         contents: s.contents, making: s.making, output: s.output,
+        // How many batches it holds, so the menu can draw "2 / 8" against a
+        // hopper rather than "2". A number, not the caps themselves: the client
+        // already has every recipe, so it can do the same multiplication the
+        // server does, and it is one field instead of one per ingredient. Only
+        // the tier's `capacity_mult` was ever missing over there.
+        batches: this.stationBatches(s),
         progress: s.making
           ? r2(Math.min(1, 1 - (s.busyUntil - this.elapsed) / Math.max(0.001, s.busyUntil - (s.startedAt ?? s.busyUntil - 1))))
           : 0,
@@ -927,26 +994,34 @@ export class Game {
   spoilStock() {
     const items = content().byId.items;
     for (const shelf of this.layout.shelves) {
-      if (!shelf.item_id || shelf.qty <= 0) continue;
-      const item = items[shelf.item_id];
-      if (!item) continue;
-      const rate = spoilRate(item);
-      if (rate <= 0) continue;
-      // Freezers dramatically slow decay, and a better one slows it further —
-      // `keeps_mult` is the tier's contribution on top of that.
-      const effLife = item.shelf_life_days
-        * (shelf.kind === 'freezer' ? 4 : 1)
-        * this.fixtureStats(shelf).keeps_mult;
-      const age = this.day - shelf.stockedDay;
-      if (age > effLife) {
-        const lost = shelf.qty;
-        shelf.qty = 0;
-        // The label goes; the reservation stays. Binning a shelf of milk is not
-        // a decision to stop selling milk there — leaving `assigned` alone is
-        // what sends the stocker back with more of it.
-        shelf.item_id = null;
-        this.stats.spoiled += lost;
-        this.pushLog(`${lost}x ${item.name} spoiled and was binned.`);
+      // Board by board, and each against its OWN clock. One clock per fixture
+      // would mean the cheese you put out on Monday going off on Thursday
+      // because somebody topped up the milk beside it on Wednesday — which is
+      // the whole argument for `stockedDay` living on the stack.
+      for (const stack of [...this.shelfStacks(shelf)]) {
+        if (!stack.item_id || stack.qty <= 0) continue;
+        const item = items[stack.item_id];
+        if (!item) continue;
+        const rate = spoilRate(item);
+        if (rate <= 0) continue;
+        // Freezers dramatically slow decay, and a better one slows it further —
+        // `keeps_mult` is the tier's contribution on top of that.
+        const effLife = item.shelf_life_days
+          * (shelf.kind === 'freezer' ? 4 : 1)
+          * this.fixtureStats(shelf).keeps_mult;
+        const age = this.day - stack.stockedDay;
+        if (age > effLife) {
+          const lost = stack.qty;
+          // The board goes; the reservation stays. Binning a shelf of milk is
+          // not a decision to stop selling milk there — leaving `assigned` alone
+          // is what sends the stocker back with more of it. Removing the stack
+          // rather than zeroing it is what frees the board for something else,
+          // and it is why `shelfShares` reads the reservation first: a shop kept
+          // for three things must not re-share itself every time one rots.
+          this.clearStack(shelf, stack.item_id);
+          this.stats.spoiled += lost;
+          this.pushLog(`${lost}x ${item.name} spoiled and was binned.`);
+        }
       }
     }
   }
@@ -1164,10 +1239,16 @@ export class Game {
     if (!item) return false;
     if (requiredFixture(item) === 'freezer' && shelf.kind !== 'freezer') return false;
     // A reservation binds even when the shelf is bare — that is the whole
-    // difference between it and the label below.
-    if (shelf.assigned && shelf.assigned !== itemId) return false;
-    if (shelf.item_id && shelf.qty > 0 && shelf.item_id !== itemId) return false;
-    return shelf.qty < this.shelfCapacity(shelf, item);
+    // difference between it and a board that merely happens to hold something.
+    // A LIST of reservations binds the same way: ticking three boxes says these
+    // three and nothing else, not "these three as well as whatever turns up".
+    const kept = toList(shelf.assigned);
+    if (kept.length && !kept.includes(itemId)) return false;
+    // Room for another KIND is now a separate question from room for another
+    // unit, and it has to be asked first: a shelf with every board taken is
+    // full for a fourth thing while still having space on all three.
+    if (!this.shelfHasRoomFor(shelf, itemId)) return false;
+    return (this.shelfStack(shelf, itemId)?.qty ?? 0) < this.shelfCapacity(shelf, item);
   }
 
   /**
@@ -1207,18 +1288,166 @@ export class Game {
    * a shelf with four on it is somehow emptier than a shelf with one.
    */
   restockQueue() {
+    // Thin per BOARD rather than per unit, and that is the difference between a
+    // queue that works and one that starves. A shelf kept for three things with
+    // two of them full is not a shelf that needs nothing — it is a shelf with an
+    // empty board on it — and measuring the whole fixture would mean the third
+    // thing never arriving until the other two had sold through.
+    // How far below its own line a board is, as a ratio: 0 is empty, 1 is at the
+    // line, above 1 needs nothing. A ratio rather than a count because the line
+    // is per board now — see RESTOCK_FRACTION.
+    const items = content().byId.items;
+    const lineFor = (s, itemId) => {
+      const item = items[itemId];
+      if (!item) return RESTOCK_MIN;
+      return Math.max(RESTOCK_MIN, Math.floor(this.shelfCapacity(s, item) * RESTOCK_FRACTION));
+    };
+    const thinnest = (s) => {
+      const stacks = this.shelfStacks(s);
+      if (!stacks.length) return 0;
+      return Math.min(...stacks.map((k) => (k.qty ?? 0) / lineFor(s, k.item_id)));
+    };
+    // A board you asked for and have not got. This is a *want*, not a
+    // measurement, and it is why it sorts on its own rather than as a thin
+    // shelf: a shelf kept for bread with no bread on it and a bare shelf nobody
+    // ever mentioned are both "empty", so emptiness alone made them tie — and a
+    // tie is settled by whatever order the shelves happen to sit in the layout.
+    //
+    // Which is exactly the complaint: you tick two boxes, and the shop spends
+    // the next six in-game hours buying things for five shelves you said nothing
+    // about before it gets to the one you actually asked for. Measured at 3,880
+    // ticks and eight vans on the shipped six-shelf shop.
+    //
+    // `shelfFor` has always known this rule — "a shelf set aside for it first…
+    // being asked for beats both" — and it decides where a case that is already
+    // in the building goes. Nothing was applying it to the decision one step
+    // earlier, which is what the shop chooses to BUY.
+    const asked = (s) => toList(s.assigned).filter((id) => !this.shelfStack(s, id)).length;
     return this.layout.shelves
-      .filter((s) => s.qty <= RESTOCK_THIN)
-      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.qty - b.qty);
+      .map((s) => ({ s, thin: thinnest(s), want: asked(s) }))
+      // A shelf with an unfilled reservation is worth a van however full its
+      // other boards are — otherwise ticking a third thing onto a well-stocked
+      // unit would never be acted on at all.
+      .filter(({ thin, want }) => want > 0 || thin <= 1)
+      .sort((a, b) => (b.s.priority ?? 0) - (a.s.priority ?? 0)
+        // Below the player's own "fill this first", because that one is a direct
+        // instruction about order and this is an inference from one.
+        || (b.want > 0) - (a.want > 0)
+        || a.thin - b.thin)
+      .map(({ s }) => s);
+  }
+
+  // ---- what is on a unit ---------------------------------------------------
+  //
+  // A unit holds one entry per KIND of thing, capped by how many boards its art
+  // draws. These five read that list, and everything else in the sim goes
+  // through them rather than touching `stacks` directly — there is one spelling
+  // of "how much is on this", and a second one is how a shelf starts disagreeing
+  // with the menu that describes it.
+
+  /** Every kind of thing on a unit, its own stack, in board order. */
+  shelfStacks(shelf) {
+    return shelf?.stacks ?? [];
+  }
+
+  /** The stack of one particular item on a unit, or null if it isn't on it. */
+  shelfStack(shelf, itemId) {
+    return this.shelfStacks(shelf).find((s) => s.item_id === itemId) ?? null;
+  }
+
+  /** How much of everything is on it, across every board. */
+  shelfQty(shelf) {
+    return this.shelfStacks(shelf).reduce((n, s) => n + (s.qty ?? 0), 0);
+  }
+
+  /** How many different things it may hold — its boards, read off its art. */
+  shelfBoards(shelf) {
+    return boardsOf(content().fixtures ?? [], shelf);
+  }
+
+  /** Is there a free board, or is this kind already on one? */
+  shelfHasRoomFor(shelf, itemId) {
+    return !!this.shelfStack(shelf, itemId)
+      || this.shelfStacks(shelf).length < this.shelfBoards(shelf);
   }
 
   /**
-   * How many units of an item this particular shelf holds. The item says how
-   * big a stack of it is; the shelf's tier says how much shelving there is to
-   * stack it on.
+   * Take a kind off a unit entirely, freeing its board.
+   *
+   * Removed rather than left at zero, which is the difference between a board
+   * that is empty and a board that is spare: a stack sitting at qty 0 would go
+   * on holding a board against the next thing that wanted one, and a shelf that
+   * had held three things once could never hold anything again.
+   */
+  clearStack(shelf, itemId) {
+    shelf.stacks = this.shelfStacks(shelf).filter((s) => s.item_id !== itemId);
+  }
+
+  /**
+   * The board this item is on, opening one if it isn't on the unit yet.
+   *
+   * Null when every board is taken by something else — the caller's refusal to
+   * write, not a silent no-op, because "the shelf is full" and "the shelf has no
+   * room for a fourth KIND" are different sentences and the player needs the
+   * second one.
+   */
+  openStack(shelf, item) {
+    const have = this.shelfStack(shelf, item.id);
+    if (have) return have;
+    if (this.shelfStacks(shelf).length >= this.shelfBoards(shelf)) return null;
+    const stack = {
+      item_id: item.id,
+      qty: 0,
+      price: suggestedPrice(item, this.folded(), this.season),
+      stockedDay: this.day,
+    };
+    shelf.stacks = [...this.shelfStacks(shelf), stack];
+    return stack;
+  }
+
+  /**
+   * How many ways the unit is being shared, which is what divides its capacity.
+   *
+   * Everything the unit is committed to: what you TICKED, plus whatever is
+   * standing on it that you didn't. The union rather than either one alone, and
+   * both halves are load-bearing.
+   *
+   * The reservations have to count even when the goods have not arrived, or a
+   * shelf kept for three things would hold a full stack of the first, and the
+   * stocker would fill it to a line that halves the moment the second turns up.
+   *
+   * The stock has to count even when nothing reserved it, or a unit with milk
+   * on it that you then tick for cheese alone would give the cheese a whole
+   * unit's worth while the milk sat on the next board — and the total a shelf
+   * carries, which is the one number this change promised not to move, would
+   * quietly go up every time somebody ticked a box.
+   *
+   * Never zero. A bare unit reserved for nothing is one share, which is exactly
+   * what every shelf in the game was before it could hold two things.
+   */
+  shelfShares(shelf) {
+    const kinds = new Set([
+      ...toList(shelf?.assigned),
+      ...this.shelfStacks(shelf).map((k) => k.item_id).filter(Boolean),
+    ]);
+    return Math.max(1, kinds.size);
+  }
+
+  /**
+   * How many units of an item one board's worth of this shelf holds.
+   *
+   * The item says how big a stack of it is; the shelf's tier says how much
+   * shelving there is to stack it on; and the shares say how much of that
+   * shelving THIS kind gets. Dividing rather than multiplying is deliberate and
+   * it is the one balance decision in the whole change: a unit holds exactly
+   * what it always held, and what ticking a second box buys you is variety
+   * rather than volume. The other way round — a full stack per board — triples
+   * what a shelving unit carries, and that wants measuring against ten seeds
+   * before anybody believes it.
    */
   shelfCapacity(shelf, item) {
-    return Math.max(1, Math.floor(item.stack * this.fixtureStats(shelf).capacity_mult));
+    const total = item.stack * this.fixtureStats(shelf).capacity_mult;
+    return Math.max(1, Math.floor(total / this.shelfShares(shelf)));
   }
 
   stationWants(station, itemId) {
@@ -1941,6 +2170,67 @@ export class Game {
     return content().recipes.filter((r) => r.station === stationKind);
   }
 
+  // ---- how much an appliance holds ----------------------------------------
+  //
+  // Four numbers, and every one of them is `STATION_BATCHES` times something a
+  // recipe already says. Nothing here is authored: an appliance invented this
+  // afternoon gets a hopper sized to its own recipes for free, which is the
+  // same bargain a tag makes for an item.
+
+  /** How many batches of anything this machine holds, in or out. */
+  stationBatches(station) {
+    return Math.max(1, Math.round(STATION_BATCHES * this.fixtureStats(station).capacity_mult));
+  }
+
+  /**
+   * How much of one ingredient the hopper takes.
+   *
+   * Sized off the LARGEST call any recipe on this machine makes for it, not off
+   * the recipe being made — a blender that wants 3 tomatoes for salsa and 1 for
+   * something else has one tomato bin, and which of the two it happens to be
+   * making cannot change how big the bin is.
+   */
+  stationHopperCap(station, itemId) {
+    const per = this.recipesFor(station.station)
+      .flatMap((r) => r.inputs.filter((i) => i.item_id === itemId))
+      .reduce((n, i) => Math.max(n, i.qty), 0);
+    return per * this.stationBatches(station);
+  }
+
+  /** Room left in the hopper for one ingredient. */
+  stationHopperRoom(station, itemId) {
+    return this.stationHopperCap(station, itemId) - (station.contents[itemId] ?? 0);
+  }
+
+  /**
+   * Room left for finished goods, for one recipe.
+   *
+   * Zero when something else is already sitting in the tray, which is what
+   * keeps "one product at a time" true without ever destroying a batch. The
+   * rule used to be enforced *after* the timer ran out — make it, then throw it
+   * away if the tray held something else — so a machine with two recipes could
+   * silently eat its own ingredients. Asking before starting is the same rule
+   * and costs nothing.
+   */
+  stationOutputRoom(station, recipe) {
+    if (station.output && station.output.item_id !== recipe.output_id) return 0;
+    return recipe.output_qty * this.stationBatches(station) - (station.output?.qty ?? 0);
+  }
+
+  /**
+   * The next batch this appliance can start, or null.
+   *
+   * Ingredients in the hopper AND somewhere to put the result. The second half
+   * is the whole difference between a machine that runs itself down and one
+   * that makes a single portion and waits for a human.
+   */
+  nextBatch(station) {
+    return this.recipesFor(station.station).find((r) => (
+      r.inputs.every((i) => (station.contents[i.item_id] ?? 0) >= i.qty)
+      && this.stationOutputRoom(station, r) >= r.output_qty
+    )) ?? null;
+  }
+
   /**
    * Put what you're holding into an appliance. Ingredients go in one armful at
    * a time, which is why a station has a hopper rather than taking a whole
@@ -1963,9 +2253,20 @@ export class Game {
       return err(`the ${st.station} has no use for ${p.carry.item_id}`);
     }
 
-    const moved = p.carry.qty;
-    st.contents[p.carry.item_id] = (st.contents[p.carry.item_id] ?? 0) + moved;
-    p.carry = null;
+    // As much as fits, and the rest stays in your hands. A partial load rather
+    // than a refusal, because the alternative is a machine that takes an armful
+    // of four when it has room for three and one that takes none of it — and
+    // the second is the version you have to do arithmetic to use.
+    const itemId = p.carry.item_id;
+    const room = this.stationHopperRoom(st, itemId);
+    if (room <= 0) {
+      const name = content().byId.items[itemId]?.name ?? itemId;
+      return err(`the ${st.station} is full of ${name}`);
+    }
+    const moved = Math.min(p.carry.qty, room);
+    st.contents[itemId] = (st.contents[itemId] ?? 0) + moved;
+    p.carry.qty -= moved;
+    if (p.carry.qty <= 0) p.carry = null;
     return ok({ loaded: moved, station: st.id, contents: { ...st.contents } });
   }
 
@@ -1992,42 +2293,58 @@ export class Game {
   /**
    * Run every appliance. They work on their own once loaded — an appliance you
    * have to stand and watch is just a slower shelf.
+   *
+   * And they keep going: a finished batch starts the next one in the same tick
+   * rather than parking until somebody collects. The old loop finished a batch
+   * and `continue`d, then refused to start anything while `st.output` was set,
+   * so a machine ran for `minutes` and then idled for however long it took a
+   * chef to walk over — which with one chef and three appliances is most of the
+   * day. Nothing about that is visible in a screenshot or in the log; what you
+   * see is a kitchen that produces about one thing.
    */
   stepStations(dt) {
     const stations = this.layout.stations ?? [];
     if (!stations.length) return;
 
     for (const st of stations) {
+      let finished = null;
+
       if (st.making) {
         if (this.elapsed < st.busyUntil) continue;
         const recipe = content().byId.recipes[st.making];
         st.making = null;
-        if (!recipe) continue;
-        const out = st.output ?? { item_id: recipe.output_id, qty: 0 };
-        // Only ever hold one product at a time, so a finished batch has to be
-        // cleared before the next one starts.
-        if (out.item_id !== recipe.output_id) continue;
-        out.qty += recipe.output_qty;
-        st.output = out;
-        this.pushLog(`${recipe.name} is ready at the ${st.station}.`);
+        if (recipe) {
+          const out = st.output ?? { item_id: recipe.output_id, qty: 0 };
+          // Can't disagree any more — `nextBatch` only ever starts a recipe
+          // whose output the tray will accept. Kept as a guard rather than an
+          // assumption because content reloads underneath a running batch.
+          if (out.item_id === recipe.output_id) {
+            out.qty += recipe.output_qty;
+            st.output = out;
+            finished = recipe;
+          }
+        }
+      }
+
+      const next = this.nextBatch(st);
+      if (!next) {
+        // One line per RUN, not per batch. Four batches back to back is four
+        // "is ready" lines in an eight-line log, which buries everything else
+        // that happened this morning — and the useful message is the one that
+        // says how much is waiting, since that is what you are walking over for.
+        if (finished) this.pushLog(`${st.output.qty}x ${finished.name} ready at the ${st.station}.`);
         continue;
       }
 
-      if (st.output) continue;   // clear the last batch first
-
-      const recipe = this.recipesFor(st.station).find((r) =>
-        r.inputs.every((i) => (st.contents[i.item_id] ?? 0) >= i.qty));
-      if (!recipe) continue;
-
-      for (const i of recipe.inputs) {
+      for (const i of next.inputs) {
         st.contents[i.item_id] -= i.qty;
         if (st.contents[i.item_id] <= 0) delete st.contents[i.item_id];
       }
-      st.making = recipe.id;
+      st.making = next.id;
       st.startedAt = this.elapsed;
       // `minutes` is in-game minutes; a day is DAY_SECONDS real seconds.
       const speed = this.fixtureStats(st).speed_mult;
-      st.busyUntil = this.elapsed + (recipe.minutes / speed / (24 * 60)) * DAY_SECONDS;
+      st.busyUntil = this.elapsed + (next.minutes / speed / (24 * 60)) * DAY_SECONDS;
     }
   }
 
@@ -2071,74 +2388,111 @@ export class Game {
     }
     // A reservation refuses your hands too, and says how to take it back —
     // otherwise the shelf you set aside this morning reads as broken tonight.
-    if (shelf.assigned && shelf.assigned !== p.carry.item_id) {
-      const want = content().byId.items[shelf.assigned]?.name ?? shelf.assigned;
-      return err(`that shelf is set aside for ${want} — change it in the shelf's menu`);
+    const kept = toList(shelf.assigned);
+    if (kept.length && !kept.includes(p.carry.item_id)) {
+      const names = kept.map((id) => content().byId.items[id]?.name ?? id);
+      return err(`that shelf is set aside for ${names.join(' and ')} — change it in the shelf's menu`);
     }
-    // An empty shelf can be relabelled to anything — only a shelf with stock
-    // still on it is "claimed". Without this, farm produce has nowhere to go
-    // once every shelf has been labelled by a previous delivery.
-    if (shelf.item_id && shelf.qty > 0 && shelf.item_id !== p.carry.item_id) {
-      return err(`shelf already holds ${shelf.item_id}`);
+    // Every board taken by something else is the "shelf already holds…" refusal
+    // this replaces, and it is a better one: the old rule fired the moment ONE
+    // other thing was on it, which is exactly what stopped a unit being shared.
+    // Farm produce still has somewhere to go while a board is spare, which is
+    // what that rule was really protecting.
+    const stack = this.openStack(shelf, item);
+    if (!stack) {
+      const held = this.shelfStacks(shelf)
+        .map((k) => content().byId.items[k.item_id]?.name ?? k.item_id);
+      return err(`every board is taken — ${held.join(', ')}`);
     }
-    if (shelf.qty === 0) shelf.item_id = null;
 
-    const room = this.shelfCapacity(shelf, item) - shelf.qty;
+    const room = this.shelfCapacity(shelf, item) - stack.qty;
     if (room <= 0) return err('shelf is full');
 
     const moved = Math.min(room, p.carry.qty);
-    const wasEmpty = shelf.qty === 0;
-    shelf.item_id = p.carry.item_id;
-    shelf.qty += moved;
+    const wasEmpty = stack.qty === 0;
+    stack.qty += moved;
+    // The clock and the price belong to the board, and both are set when it
+    // starts rather than every time it is topped up: restocking the milk must
+    // not reset how long the milk has already been out, let alone the cheese's.
     if (wasEmpty) {
-      shelf.stockedDay = this.day;
-      shelf.price = suggestedPrice(item, this.folded(), this.season);
+      stack.stockedDay = this.day;
+      stack.price = suggestedPrice(item, this.folded(), this.season);
     }
 
     p.carry.qty -= moved;
     if (p.carry.qty <= 0) p.carry = null;
-    return ok({ stocked: moved, price: shelf.price });
+    return ok({ stocked: moved, price: stack.price });
   }
 
-  setPrice(shelfId, price) {
+  /**
+   * Reprice one board.
+   *
+   * `itemId` is which board, and it is required in spirit rather than in the
+   * signature: a unit holding one thing has one board and omitting it still
+   * means what it always meant, which is what keeps an older client working.
+   * Naming no board on a unit holding three would otherwise have to pick one,
+   * and any rule for picking is a rule that reprices the wrong cheese.
+   */
+  setPrice(shelfId, price, itemId = null) {
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!shelf) return err('no such shelf');
-    shelf.price = Math.max(0, round2(price));
-    return ok({ price: shelf.price });
+    const stacks = this.shelfStacks(shelf);
+    const stack = itemId ? this.shelfStack(shelf, itemId) : (stacks.length === 1 ? stacks[0] : null);
+    if (!stack) return err('say which of those to reprice');
+    stack.price = Math.max(0, round2(price));
+    return ok({ price: stack.price, item_id: stack.item_id });
   }
 
   /**
    * Say what a shelf is *for*, whether or not anything is on it yet.
    *
-   * `item_id` is what is physically on the shelf, and it is set by whoever last
-   * put something there — a delivery, a harvest, a stocker with their hands
-   * full. That is exactly why an empty one can be relabelled (see `stockShelf`):
-   * a leftover label is a record of what happened, not a decision, and treating
-   * it as one strands farm produce the day every shelf has been claimed once.
+   * `stacks` is what is physically on the unit, and each board is set by whoever
+   * last put something there — a delivery, a harvest, a stocker with their hands
+   * full. That is exactly why a bare board takes anything (see `stockShelf`): a
+   * leftover board is a record of what happened, not a decision, and treating it
+   * as one strands farm produce the day every shelf has been claimed once.
    *
    * `assigned` is the other half — a decision somebody made. So it binds, it
    * survives the shelf selling out and spoiling, and it is what the stocker
-   * refills with instead of picking for themselves. Two fields rather than one
-   * flag on `item_id`, because "there is milk on this" and "milk goes here" stop
+   * refills with instead of picking for themselves. Two lists rather than one
+   * flag on the stack, because "there is milk on this" and "milk goes here" stop
    * agreeing the moment the last carton sells.
+   *
+   * A TOGGLE, one item per press, because that is what a row of checkboxes is.
+   * `on` says which way when the caller knows; omitting it flips, so a client
+   * that sends nothing but the item still behaves. A null item clears the lot —
+   * "anything at all", which cannot fail.
    *
    * Not gated on build mode: this is a choice about stock, like sowing a bed,
    * not construction.
    */
-  assignShelf(playerId, shelfId, itemId) {
+  assignShelf(playerId, shelfId, itemId, on = null) {
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!shelf) return err('no such shelf');
+    const kept = toList(shelf.assigned);
 
     // Handing it back is always allowed — "anything at all" cannot fail.
     if (!itemId) {
-      if (!shelf.assigned) return err('that shelf already takes anything');
-      shelf.assigned = null;
+      if (!kept.length) return err('that shelf already takes anything');
+      shelf.assigned = [];
       this.pushLog(`${shelf.id} takes anything again.`);
-      return ok({ assigned: null, shelf: shelf.id });
+      return ok({ assigned: [], shelf: shelf.id });
     }
 
     const item = content().byId.items[itemId];
     if (!item) return err('no such item');
+
+    // Untick. Always allowed, and deliberately does NOT touch the stock: you
+    // said stop reserving a board for this, not throw away what is on it. The
+    // goods stay and sell down, and the board frees itself when they are gone.
+    const want = on === null ? !kept.includes(itemId) : on === true;
+    if (!want) {
+      if (!kept.includes(itemId)) return err(`${shelf.id} was not kept for ${item.name}`);
+      shelf.assigned = kept.filter((id) => id !== itemId);
+      this.pushLog(`${shelf.id} is no longer kept for ${item.name}.`);
+      return ok({ assigned: shelf.assigned, shelf: shelf.id });
+    }
+    if (kept.includes(itemId)) return ok({ assigned: kept, shelf: shelf.id });
 
     // The rule here is the one the *staff* work to, not the looser one your own
     // hands get. By hand you may stand a loaf in a freezer if you like; a
@@ -2148,16 +2502,26 @@ export class Game {
     if (frozen && shelf.kind !== 'freezer') return err(`${item.name} needs a freezer`);
     if (!frozen && shelf.kind === 'freezer') return err(`${item.name} doesn't need freezing`);
 
-    // Stock already on it that isn't this is the one refusal. Relabelling under
-    // a full shelf would leave goods sitting somewhere nothing will top up.
-    if (shelf.qty > 0 && shelf.item_id && shelf.item_id !== itemId) {
-      const held = content().byId.items[shelf.item_id]?.name ?? shelf.item_id;
-      return err(`empty the ${held} off it first`);
+    // You cannot ask for more kinds than it has boards to put them on. This is
+    // the ceiling the whole feature hangs off, and it is the art's number rather
+    // than one invented here — see `boardsOf`.
+    const boards = this.shelfBoards(shelf);
+    if (kept.length >= boards) {
+      return err(`that ${shelf.kind} only has ${boards} board${boards === 1 ? '' : 's'}`);
+    }
+    // …and a board already carrying somebody else's goods is not a free one.
+    // Same refusal the single-reservation version gave, asked of the boards
+    // rather than of the unit: a reservation nothing can honour until you empty
+    // the thing is a shelf that quietly sits there never being filled.
+    if (!this.shelfHasRoomFor(shelf, itemId)) {
+      const held = this.shelfStacks(shelf)
+        .map((k) => content().byId.items[k.item_id]?.name ?? k.item_id);
+      return err(`every board is full — empty the ${held.join(' or ')} off it first`);
     }
 
-    shelf.assigned = itemId;
+    shelf.assigned = [...kept, itemId];
     this.pushLog(`${shelf.id} is set aside for ${item.name}.`);
-    return ok({ assigned: itemId, shelf: shelf.id });
+    return ok({ assigned: shelf.assigned, shelf: shelf.id });
   }
 
   /**
@@ -2198,10 +2562,28 @@ export class Game {
       if (!pick) continue;
 
       used.add(pick.id);
-      shelf.item_id = pick.id;
-      shelf.qty = Math.max(1, Math.floor(pick.stack * 0.7));
-      shelf.price = suggestedPrice(pick, this.folded(), this.season);
-      shelf.stockedDay = this.day;
+      // Every board, not just the first — `stock_shop` exists so an agent can
+      // look at a full shop, and filling one board of three would show the new
+      // thing off half empty.
+      //
+      // Chosen in full before any of it is written, because capacity is a
+      // SHARE: `shelfCapacity` divides by how many ways the unit is split, so
+      // filling board one to its brim and then opening board two leaves the
+      // first one over its own limit and the stocker refusing to touch it.
+      const want = [pick];
+      for (let b = 1; b < this.shelfBoards(shelf); b++) {
+        const it = c.items.find((x) => (requiredFixture(x) === 'freezer') === wantsFreezer
+          && !used.has(x.id));
+        if (!it) break;
+        used.add(it.id);
+        want.push(it);
+      }
+      shelf.stacks = [];
+      for (const it of want) this.openStack(shelf, it);
+      for (const stack of this.shelfStacks(shelf)) {
+        const it = c.byId.items[stack.item_id];
+        stack.qty = Math.max(1, Math.floor(this.shelfCapacity(shelf, it) * 0.7));
+      }
       stocked++;
     }
 
@@ -2470,7 +2852,10 @@ export class Game {
     }
     if (f.kind === 'plot') return f.crop_id ? 1 : 0;
     if (f.kind === 'checkout') return 0;
-    return f.qty ?? 0;
+    // Across every board — "empty it first" has to mean the whole unit, or a
+    // shelf with a full middle board would pass the check that guards removing
+    // it and take the goods with it when it went.
+    return this.shelfQty(f);
   }
 
   /**
@@ -2508,18 +2893,27 @@ export class Game {
     const p = this.players[playerId];
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
-    if (!shelf.item_id && shelf.qty <= 0) return err('that shelf is already bare');
+    const stacks = this.shelfStacks(shelf);
+    if (!stacks.length) return err('that shelf is already bare');
 
-    const moved = shelf.qty;
-    if (moved > 0) this.dropGoods(shelf.item_id, moved, shelf.browseAt);
-    const name = content().byId.items[shelf.item_id]?.name ?? shelf.item_id;
-    shelf.item_id = null;
-    shelf.qty = 0;
-    shelf.price = 0;
-    shelf.stockedDay = this.day;
+    // Every board, into its own crate — a pallet holds one kind, so a shelf of
+    // three things tips out as three of them. That is the pallet rule paying
+    // for itself rather than a new container: three crates render, get picked
+    // up and get tidied away by machinery that already existed.
+    let moved = 0;
+    const names = [];
+    for (const stack of [...stacks]) {
+      const name = content().byId.items[stack.item_id]?.name ?? stack.item_id;
+      if (stack.qty > 0) {
+        this.dropGoods(stack.item_id, stack.qty, shelf.browseAt);
+        moved += stack.qty;
+        names.push(`${stack.qty}x ${name}`);
+      }
+    }
+    shelf.stacks = [];
     this.pushLog(moved > 0
-      ? `Stripped ${moved}x ${name} off ${shelf.id} — it's in a crate beside it.`
-      : `Cleared the label off ${shelf.id}.`);
+      ? `Stripped ${names.join(', ')} off ${shelf.id} — it's in crates beside it.`
+      : `Cleared the labels off ${shelf.id}.`);
     return ok({ emptied: moved, shelf: shelf.id });
   }
 
@@ -3505,23 +3899,54 @@ export class Game {
       (from, to) => from.station === to.station);
 
     carryOver(layout.shelves, oldShelves, alias,
-      ['item_id', 'qty', 'price', 'stockedDay', 'assigned', 'priority'],
+      ['stacks', 'assigned', 'priority'],
       (from, to) => {
-        // Don't move freezer-only goods onto a normal shelf.
-        const item = from.item_id ? c.byId.items[from.item_id] : null;
-        return !(item && requiredFixture(item) === 'freezer' && to.kind !== 'freezer');
+        // Don't move freezer-only goods onto a normal shelf. Every board has to
+        // pass, not just the first: carrying a unit whose middle board is ice
+        // cream onto ordinary shelving would leave it there melting.
+        const frozen = (from.stacks ?? []).some((k) => {
+          const item = k.item_id ? c.byId.items[k.item_id] : null;
+          return item && requiredFixture(item) === 'freezer';
+        });
+        return !(frozen && to.kind !== 'freezer');
       });
 
-    // A reservation that landed on the wrong kind of unit is dropped, not
+    // Boards and reservations the destination cannot honour are dropped, not
     // carried. It has to be a sweep afterwards rather than another clause in
     // the predicate above: failing that test skips *every* key, so refusing the
     // row over a bad reservation would destroy the goods on it to save the
     // label. Clearing it costs the player a choice they can remake; the other
     // way round costs them a shelf full of stock.
+    //
+    // Boards are new here, and they are the reason this sweep grew a second
+    // half: a three-board unit re-flowing onto a design that draws two has to
+    // shed one, or it keeps stock on shelving that does not exist and the menu
+    // offers a checkbox nothing can honour. The last board goes rather than a
+    // chosen one — with no positions to speak of, the honest rule is that the
+    // boards you filled first are the boards you keep.
     for (const s of layout.shelves) {
-      const want = s.assigned ? c.byId.items[s.assigned] : null;
-      if (want && (requiredFixture(want) === 'freezer') !== (s.kind === 'freezer')) {
-        s.assigned = null;
+      const kept = toList(s.assigned);
+      s.assigned = kept.filter((id) => {
+        const want = c.byId.items[id];
+        return want && (requiredFixture(want) === 'freezer') === (s.kind === 'freezer');
+      });
+      const boards = this.shelfBoards(s);
+      s.stacks = this.shelfStacks(s).filter((k) => {
+        const item = k.item_id ? c.byId.items[k.item_id] : null;
+        // An item nobody can look up rides along rather than being binned. The
+        // same forgiveness `pieceFor` shows a deleted design, and it matters
+        // more here: content is edited live, so somebody tidying an item out of
+        // the catalog would otherwise destroy every case of it on every shelf in
+        // the shop, on the next re-flow, with a refund for nothing.
+        if (!item) return true;
+        return (requiredFixture(item) === 'freezer') === (s.kind === 'freezer');
+      });
+      if (s.assigned.length > boards) s.assigned = s.assigned.slice(0, boards);
+      if (s.stacks.length > boards) {
+        for (const k of s.stacks.slice(boards)) {
+          if (k.qty > 0) this.dropGoods(k.item_id, k.qty, s.browseAt);
+        }
+        s.stacks = s.stacks.slice(0, boards);
       }
     }
 
@@ -3586,7 +4011,11 @@ export class Game {
   measureOccupancy() {
     const inside = Object.values(this.customers)
       .reduce((n, cu) => n + (cu.state === 'ENTER' ? 0 : 1), 0);
-    const stocked = this.layout.shelves.reduce((n, s) => n + (s.qty > 0 ? 1 : 0), 0);
+    // Units with something on them, NOT boards. How much room a shop has is
+    // about how many places there are to stand and browse, and a shelf holding
+    // three things is still one shelf with one aisle in front of it — counting
+    // boards would have ticking a checkbox make the building bigger.
+    const stocked = this.layout.shelves.reduce((n, s) => n + (this.shelfQty(s) > 0 ? 1 : 0), 0);
     const capacity = this.layout.checkouts.length * CAPACITY_PER_TILL
       + stocked * CAPACITY_PER_SHELF;
     // A shop with no till and nothing on the shelves is not a shop with
@@ -3934,9 +4363,9 @@ export class Game {
       folded,
       season: this.season,
       reputation: this.reputation,
-    }).filter(({ shelf, item }) => {
+    }).filter(({ stack }) => {
       const inBasket = cust.basket.reduce((s, b) => s + b.price, 0);
-      return shelf.price + inBasket <= cust.budget;
+      return stack.price + inBasket <= cust.budget;
     });
 
     if (ranked.length === 0) {
@@ -3984,6 +4413,11 @@ export class Game {
 
     cust.errandAt = at;
     cust.targetShelf = target.shelf.id;
+    // WHICH board they walked over for. A unit can offer three things now, and
+    // "the shelf they chose" stopped being enough to say what they came for —
+    // without this they arrive and take whatever is on the first board, which is
+    // a shopper who wanted cheese going home with milk.
+    cust.targetItem = target.item.id;
     cust.wantHint = target.item.id;
     cust.state = 'WALK';
     if (!this.pathTo(cust, target.shelf.browseAt)) {
@@ -3998,18 +4432,27 @@ export class Game {
     cust.state = 'BROWSE';
     cust.wantHint = null;
 
-    if (!shelf || !shelf.item_id || shelf.qty <= 0) {
-      // `rankShelves` only ever aims them at a stocked shelf, so getting here
+    // The board they came for, not whichever one is first. `targetItem` is
+    // missing on a shopper who was already mid-walk when this landed, and on
+    // one aimed by an older path — falling back to the only stack keeps them
+    // moving rather than freezing them in front of a shelf.
+    const stacks = this.shelfStacks(shelf);
+    const stack = (cust.targetItem ? this.shelfStack(shelf, cust.targetItem) : null)
+      ?? (stacks.length === 1 ? stacks[0] : null);
+    cust.targetItem = null;
+
+    if (!shelf || !stack || stack.qty <= 0) {
+      // `rankShelves` only ever aims them at a stocked board, so getting here
       // means somebody took the last one while this shopper was walking over.
       // A wasted trip is the shop being thin, not the shopper being unlucky.
       cust.mood = clamp(cust.mood - ANNOY_EMPTY_SHELF, 0, 1);
       return;
     }
-    const item = c.byId.items[shelf.item_id];
+    const item = c.byId.items[stack.item_id];
     if (!item) return;
 
     const chance = purchaseChance({
-      item, archetype: arch, price: shelf.price, folded,
+      item, archetype: arch, price: stack.price, folded,
       season: this.season, reputation: this.reputation,
     });
 
@@ -4024,16 +4467,18 @@ export class Game {
     // that does not carry its tag, which is the whole point of a substitution.
     const line = cust.list[cust.errandAt] ?? null;
     const spent = () => cust.basket.reduce((s, b) => s + b.price, 0);
-    const maxRun = Math.min(line ? line.qty - line.got : 1, MAX_UNITS_PER_SHELF, shelf.qty);
+    const maxRun = Math.min(line ? line.qty - line.got : 1, MAX_UNITS_PER_SHELF, stack.qty);
 
     for (let n = 0; n < maxRun; n++) {
-      if (spent() + shelf.price > cust.budget) break;
+      if (spent() + stack.price > cust.budget) break;
       if (this.rng.next() >= chance) break;
-      shelf.qty--;
-      cust.basket.push({ item_id: item.id, price: shelf.price });
+      stack.qty--;
+      cust.basket.push({ item_id: item.id, price: stack.price });
       if (line) line.got++;
-      // NOTE: item_id is deliberately left set when qty hits 0, so the shelf
-      // keeps its label and players/bots know what to restock it with.
+      // NOTE: the stack is deliberately LEFT on the shelf at qty 0 rather than
+      // cleared, so the board keeps its label and its price and the stocker
+      // knows what belongs there. Only spoiling and a strip take a board away —
+      // selling out is the shelf doing its job, not the shelf changing.
     }
   }
 
@@ -4090,21 +4535,26 @@ export class Game {
 
     let best = null;
     for (const shelf of this.layout.shelves) {
-      if (!shelf.item_id || shelf.qty <= 0) continue;
       if (Math.hypot(shelf.x - till.x, shelf.z - till.z) > IMPULSE_RADIUS) continue;
-      const item = c.byId.items[shelf.item_id];
-      if (!item) continue;
-      if (spent + shelf.price > cust.budget) continue;
-      const chance = purchaseChance({
-        item, archetype: arch, price: shelf.price, folded,
-        season: this.season, reputation: this.reputation,
-      }) * IMPULSE_BASE * impulsePull(item) * dwell;
-      if (chance > 0 && (!best || chance > best.chance)) best = { shelf, item, chance };
+      // Every board by the till competes on its own. A sweet on the top shelf
+      // and a magazine on the middle are two temptations, and judging the unit
+      // by one of them is most of the point of a display by the checkout gone.
+      for (const stack of this.shelfStacks(shelf)) {
+        if (!stack.item_id || stack.qty <= 0) continue;
+        const item = c.byId.items[stack.item_id];
+        if (!item) continue;
+        if (spent + stack.price > cust.budget) continue;
+        const chance = purchaseChance({
+          item, archetype: arch, price: stack.price, folded,
+          season: this.season, reputation: this.reputation,
+        }) * IMPULSE_BASE * impulsePull(item) * dwell;
+        if (chance > 0 && (!best || chance > best.chance)) best = { stack, item, chance };
+      }
     }
 
     if (!best || this.rng.next() >= best.chance) return;
-    best.shelf.qty--;
-    cust.basket.push({ item_id: best.item.id, price: best.shelf.price });
+    best.stack.qty--;
+    cust.basket.push({ item_id: best.item.id, price: best.stack.price });
     this.stats.impulse++;
   }
 
@@ -4558,5 +5008,15 @@ function countUpgrade(w, kind, key) {
 
 const near = (a, b, radius = REACH) => Math.hypot(a.x - b.x, a.z - b.z) <= radius;
 const r2 = (v) => Math.round(v * 100) / 100;
+/**
+ * One id, several, or none — always as a list.
+ *
+ * `assigned` was a single id or null and is a list now, and all three shapes
+ * arrive at once: out of a save written before the change, off a record a
+ * re-flow is carrying across, and in an `assign` message from a client that has
+ * not reloaded yet. One reader for all of them beats three call sites each
+ * remembering to check.
+ */
+const toList = (v) => (Array.isArray(v) ? v.filter(Boolean) : (v ? [v] : []));
 const ok = (data = {}) => ({ ok: true, ...data });
 const err = (message) => ({ ok: false, error: message });

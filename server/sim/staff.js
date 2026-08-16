@@ -462,19 +462,24 @@ function authoredSpot(game, p) {
 function buySnack(game, s, p) {
   if (!p.buys?.length) return;
   const items = content().byId.items;
-  const shelf = game.layout.shelves.find((sh) => {
-    if (!sh.item_id || sh.qty <= 0) return false;
-    return (items[sh.item_id]?.tags ?? []).some((t) => p.buys.includes(t));
-  });
-  if (!shelf) return;
+  // A board, not a unit — somebody on their break browses the same way a
+  // shopper does, and a shelf where only the middle board is something they
+  // fancy is still a shelf they will buy off.
+  let stack = null;
+  for (const sh of game.layout.shelves) {
+    stack = game.shelfStacks(sh).find((k) => k.qty > 0
+      && (items[k.item_id]?.tags ?? []).some((t) => p.buys.includes(t))) ?? null;
+    if (stack) break;
+  }
+  if (!stack) return;
 
-  const paid = round2(shelf.price ?? 0);
-  shelf.qty -= 1;
+  const paid = round2(stack.price ?? 0);
+  stack.qty -= 1;
   game.cash = round2(game.cash + paid);
   game.stats.revenue += paid;
   game.stats.sold += 1;
-  game.stats.byItem[shelf.item_id] = (game.stats.byItem[shelf.item_id] ?? 0) + 1;
-  game.pushLog(`${s.name} bought a ${items[shelf.item_id]?.name ?? shelf.item_id} on their break.`);
+  game.stats.byItem[stack.item_id] = (game.stats.byItem[stack.item_id] ?? 0) + 1;
+  game.pushLog(`${s.name} bought a ${items[stack.item_id]?.name ?? stack.item_id} on their break.`);
 }
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -604,14 +609,33 @@ function restock(game, s) {
     // picking for yourself. An assignment is the whole point of assigning — a
     // shelf reserved for milk is never restocked with anything else, even when
     // something else would sell better.
-    const item = c.byId.items[target.assigned ?? target.item_id]
-      ?? (target.assigned ? null : pickItem(game, target, c));
+    // Which BOARD of this unit needs a van, and it is asked in the same order
+    // the old single answer was: what it is kept for beats what happens to be on
+    // it, which beats picking for yourself. With a list, "kept for" is several
+    // answers and the emptiest of them wins — otherwise a shelf kept for three
+    // things would order the first one over and over and the other two boards
+    // would stay bare for ever.
+    const kept = Array.isArray(target.assigned)
+      ? target.assigned : (target.assigned ? [target.assigned] : []);
+    const need = (id) => {
+      const it = c.byId.items[id];
+      return it ? game.shelfCapacity(target, it) - (game.shelfStack(target, id)?.qty ?? 0) : 0;
+    };
+    const item = kept.length
+      ? c.byId.items[[...kept].sort((a, b) => need(b) - need(a))[0]]
+      : (c.byId.items[game.shelfStacks(target)
+        .slice().sort((a, b) => a.qty - b.qty)[0]?.item_id]
+        ?? pickItem(game, target, c));
     if (!item) continue;
 
     const unit = wholesalePrice(item, game.folded(), game.season);
     // Orders arrive as a pallet, so they aren't capped by what one pair of hands
-    // can hold — the worker just makes more trips.
-    const qty = Math.min(item.stack - target.qty, Math.floor(budget / Math.max(unit, 0.01)));
+    // can hold — the worker just makes more trips. Against the BOARD's room,
+    // which is a share of the unit, or a van turns up with three times what the
+    // shelf can take and the rest goes straight back out to a crate.
+    const room = need(item.id) || (game.shelfCapacity(target, item)
+      - (game.shelfStack(target, item.id)?.qty ?? 0));
+    const qty = Math.min(room, Math.floor(budget / Math.max(unit, 0.01)));
     if (qty <= 0) continue;
 
     if (!game.buyStock(s.id, item.id, qty).ok) continue;
@@ -705,9 +729,13 @@ function craft(game, s) {
   if (!stations.length) return false;
 
   // Holding an ingredient something wants? Tip it in. Holding anything else is
-  // `shelve`'s problem, not this one's.
+  // `shelve`'s problem, not this one's — and so is an armful nothing has ROOM
+  // for, which is the same sentence now that a hopper can fill up. Asking only
+  // "does anything want this" walked a chef to a full machine, loaded nothing,
+  // and sent them back to do it again, forever.
   if (s.carry) {
-    const needing = stations.find((st) => wants(game, st).has(s.carry.item_id));
+    const needing = stations.find((st) => wants(game, st).has(s.carry.item_id)
+      && game.stationHopperRoom(st, s.carry.item_id) > 0);
     if (!needing) return false;
     if (!goTo(game, s, needing.useAt)) return true;
     const res = game.loadStation(s.id, needing.id);
@@ -715,8 +743,10 @@ function craft(game, s) {
     return true;
   }
 
-  // Something finished? Get it out.
-  const done = stations.find((st) => st.output);
+  // Something finished? Get it out. Fullest first — that is the machine most
+  // likely to be standing there with a full tray unable to start anything.
+  const done = stations.filter((st) => st.output)
+    .sort((a, b) => b.output.qty - a.output.qty)[0];
   if (done) {
     if (!goTo(game, s, done.useAt)) return true;
     game.collectStation(s.id, done.id);
@@ -724,32 +754,45 @@ function craft(game, s) {
     return true;
   }
 
-  // Otherwise fetch what an idle appliance is short of. Least-loaded first, so
-  // one machine doesn't hog the worker.
-  const idleStations = stations
-    .filter((st) => !st.making && !st.output)
+  // Otherwise fetch what an appliance is short of. Least-loaded first, so one
+  // machine doesn't hog the worker.
+  //
+  // Not "idle" any more: a machine that is MAKING something is exactly the one
+  // worth topping up, because the walk and the batch then overlap instead of
+  // taking turns. Only a machine with nowhere to put the result is skipped.
+  const hungry = stations
+    .filter((st) => game.recipesFor(st.station)
+      .some((r) => game.stationOutputRoom(st, r) >= r.output_qty))
     .sort((a, b) => total(a.contents) - total(b.contents));
 
-  for (const st of idleStations) {
+  for (const st of hungry) {
     const recipe = feasibleRecipe(game, st);
     if (!recipe) continue;
     for (const input of recipe.inputs) {
-      const short = input.qty - (st.contents[input.item_id] ?? 0);
-      if (short <= 0) continue;
       // Back of house first, shop floor second. Stripping a shelf customers
       // are still buying from is the behaviour the kitchen exists to stop —
       // and it stays as the FALLBACK rather than being forbidden, because a
       // shop with no kitchen yet must still be able to make things.
-      const stocked = game.layout.shelves.filter(
-        (sh) => sh.item_id === input.item_id && sh.qty > 0,
-      );
-      const shelf = stocked.find((sh) => sh.boh) ?? stocked[0];
-      if (!shelf) continue;
+      const stocked = game.layout.shelves
+        .map((sh) => ({ sh, stack: game.shelfStack(sh, input.item_id) }))
+        .filter(({ stack }) => (stack?.qty ?? 0) > 0);
+      const from = stocked.find(({ sh }) => sh.boh) ?? stocked[0];
+      if (!from) continue;
+      const { sh: shelf, stack } = from;
+      // Fill the hopper out of the stockroom; only borrow one batch off the
+      // shop floor. Which shelf it came off decides how much, so where you put
+      // your stockroom is what makes the kitchen run — and a shop with no back
+      // of house still works, one batch at a time, exactly as it did before.
+      const target = shelf.boh
+        ? game.stationHopperCap(st, input.item_id)
+        : input.qty;
+      const short = target - (st.contents[input.item_id] ?? 0);
+      if (short <= 0) continue;
       if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
-      // Take only the shortfall — hoarding an ingredient strips a shelf
-      // customers are still buying from.
-      const take = Math.min(short, shelf.qty, carryOf(s));
-      shelf.qty -= take;
+      // Off that BOARD, so fetching the cheese never quietly eats the milk
+      // standing beside it.
+      const take = Math.min(short, stack.qty, carryOf(s));
+      stack.qty -= take;
       s.carry = { item_id: input.item_id, qty: take };
       s.cooldown = paceOf(s);
       return true;
@@ -779,26 +822,32 @@ export function shelfFor(game, itemId, c) {
   const item = c.byId.items[itemId];
   if (!item) return null;
   const needsFreezer = item.tags.includes('needs-freezer') || item.tags.includes('frozen');
+  const kept = (sh) => (Array.isArray(sh.assigned) ? sh.assigned : (sh.assigned ? [sh.assigned] : []));
   const usable = game.layout.shelves.filter((sh) => {
     if (needsFreezer && sh.kind !== 'freezer') return false;
     if (!needsFreezer && sh.kind === 'freezer') return false;
     // Set aside for something else is a no even when it's bare — otherwise a
     // stocker with an armful fills the shelf you reserved and the reservation
-    // only means anything until the next delivery lands.
-    if (sh.assigned && sh.assigned !== itemId) return false;
-    if (sh.qty > 0 && sh.item_id !== itemId) return false;
+    // only means anything until the next delivery lands. A LIST of reservations
+    // binds exactly the same way: the things you ticked, and nothing else.
+    const want = kept(sh);
+    if (want.length && !want.includes(itemId)) return false;
+    // A board of its own, or a board already holding this. Two questions now,
+    // because a unit can be out of BOARDS while every board on it has room.
+    if (!game.shelfHasRoomFor(sh, itemId)) return false;
     // Ask the shelf how much it holds rather than assuming a stack fits it.
     // `item.stack` is what fits a *standard* unit; an upgraded one holds
-    // stack x capacity_mult. Testing against the stack meant staff filled a
-    // tier-2 shelf to 8 of 12, walked the rest out to the bay and crated it —
-    // so the capacity you paid for was only ever reachable by hand.
-    return sh.qty < game.shelfCapacity(sh, item);
+    // stack x capacity_mult, and a shared one holds its share of that. Testing
+    // against the stack meant staff filled a tier-2 shelf to 8 of 12, walked the
+    // rest out to the bay and crated it — so the capacity you paid for was only
+    // ever reachable by hand.
+    return (game.shelfStack(sh, itemId)?.qty ?? 0) < game.shelfCapacity(sh, item);
   });
   // A shelf set aside for it first, then one already holding it, then whatever
-  // the player marked to fill first. Topping up beats claiming a bare shelf,
+  // the player marked to fill first. Topping up beats claiming a bare board,
   // and being asked for beats both.
-  return usable.sort((a, b) => (b.assigned === itemId) - (a.assigned === itemId)
-    || (b.item_id === itemId) - (a.item_id === itemId)
+  return usable.sort((a, b) => (kept(b).includes(itemId) - kept(a).includes(itemId))
+    || (!!game.shelfStack(b, itemId) - !!game.shelfStack(a, itemId))
     || (b.priority ?? 0) - (a.priority ?? 0))[0] ?? null;
 }
 
@@ -809,7 +858,10 @@ function pickItem(game, shelf, c) {
   // Choosing for a free shelf is a choice about the *range*, and something
   // another shelf is being kept for is already in it.
   const already = new Set(game.layout.shelves
-    .flatMap((sh) => [sh.item_id, sh.assigned]).filter(Boolean));
+    .flatMap((sh) => [
+      ...game.shelfStacks(sh).map((k) => k.item_id),
+      ...(Array.isArray(sh.assigned) ? sh.assigned : [sh.assigned]),
+    ]).filter(Boolean));
 
   const crafted = new Set(c.recipes.map((r) => r.output_id));
 
@@ -848,9 +900,15 @@ function wants(game, st) {
  * never falls back to the one it could have made from what's on the shelves.
  */
 function feasibleRecipe(game, st) {
+  // Every board in the shop, not one per unit. This is the line that decided
+  // how many different ingredients a kitchen could have: a shelf answered with
+  // one item, so "how many things can my chef cook with" was "how many shelves
+  // do I own". Three boards on two shelves is six.
   const stock = new Map();
   for (const sh of game.layout.shelves) {
-    if (sh.item_id && sh.qty > 0) stock.set(sh.item_id, (stock.get(sh.item_id) ?? 0) + sh.qty);
+    for (const k of game.shelfStacks(sh)) {
+      if (k.item_id && k.qty > 0) stock.set(k.item_id, (stock.get(k.item_id) ?? 0) + k.qty);
+    }
   }
 
   const options = game.recipesFor(st.station)

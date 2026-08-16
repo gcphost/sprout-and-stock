@@ -83,6 +83,32 @@ const totalOnFloor = (g, itemId) => g.deliveries
   .filter((d) => !itemId || d.item_id === itemId)
   .reduce((s, d) => s + d.qty, 0);
 
+// ---- arranging and reading a unit's boards --------------------------------
+//
+// A unit holds one entry per KIND of thing, so every one of these used to be a
+// bare field assignment and is now a board. Written as four helpers rather than
+// inline, because a sweep that arranges its own state through the same shape
+// the sim writes is a sweep that keeps testing the sim rather than the shape:
+// when boards changed, exactly these four had to move and none of the
+// assertions did.
+
+/** Arrange: stand `qty` of an item on a board of this unit. */
+const put = (shelf, item, qty, { price = 3, day = 0 } = {}) => {
+  shelf.stacks = [
+    ...(shelf.stacks ?? []).filter((k) => k.item_id !== item.id),
+    { item_id: item.id, qty, price, stockedDay: day },
+  ];
+  return shelf;
+};
+/** What is on the first board, or null for a bare unit. */
+const held = (shelf) => (shelf?.stacks ?? [])[0]?.item_id ?? null;
+/** How much is on it — of one item, or of everything. */
+const qtyOn = (shelf, itemId = null) => (shelf?.stacks ?? [])
+  .filter((k) => !itemId || k.item_id === itemId)
+  .reduce((n, k) => n + (k.qty ?? 0), 0);
+/** What it is kept for, as one id — the sweep's shorthand for a one-item list. */
+const keptFor = (shelf) => (shelf?.assigned ?? [])[0] ?? null;
+
 const c = content();
 const anyItem = c.items.find((i) => !c.recipes.some((r) => r.output_id === i.id));
 /** Two things that live on a plain shelf, and one that has to be frozen. */
@@ -352,14 +378,12 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 {
   const g = fresh();
   const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
-  shelf.item_id = anyItem.id;
-  shelf.qty = 9;
-  shelf.price = 3;
+  put(shelf, anyItem, 9, { price: 3 });
   stand(g, shelf.browseAt);
 
   check(g.stripShelf('me', shelf.id).ok, 'stripping a shelf works');
-  eq(shelf.qty, 0, 'the shelf ends up empty');
-  eq(shelf.item_id, null, 'and unlabelled, so anything can go on it next');
+  eq(qtyOn(shelf), 0, 'the shelf ends up empty');
+  eq(held(shelf), null, 'and unlabelled, so anything can go on it next');
   eq(totalOnFloor(g, anyItem.id), 9, 'all nine units are on the floor beside it');
 
   // An unlabelled shelf must accept anything again — that's the whole point.
@@ -415,8 +439,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(mine && mine.x === spot.x && mine.z === spot.z, 'it landed on the tile asked for');
 
   // Stock it, then move it — the stock has to come along.
-  mine.item_id = anyItem.id;
-  mine.qty = 7;
+  put(mine, anyItem, 7);
   stand(g, mine);
   check(g.liftFixture('me', mine.id).ok, 'lifting a fixture works');
   eq(g.layout.shelves.length, before + 1, 'lifting does not remove it from the world');
@@ -429,8 +452,8 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   eq(g.layout.shelves.length, before + 1, 'and does not change the shelf count');
   const after = g.layout.shelves.find((s) => s.id === moved.moved);
   check(!!after, 'the moved shelf exists');
-  eq(after?.qty, 7, 'its stock came with it');
-  eq(after?.item_id, anyItem.id, 'including what it was labelled as');
+  eq(qtyOn(after), 7, 'its stock came with it');
+  eq(held(after), anyItem.id, 'including what it was labelled as');
   check(after && after.x === dest.x && after.z === dest.z, 'it landed where it was put');
 
   // Selling it back: has to be emptied first, and refunds half.
@@ -501,8 +524,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 {
   const g = fresh();
   const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
-  shelf.item_id = anyItem.id;
-  shelf.qty = 5;
+  put(shelf, anyItem, 5);
   stand(g, shelf.browseAt);
 
   g.players.me.carry = { item_id: anyItem.id, qty: 2 };
@@ -514,14 +536,14 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(!g.emptyFixture('me', shelf.id).ok, 'you cannot empty one outside build mode');
   check(!g.removeFixture('me', shelf.id).ok, 'you cannot remove one outside build mode');
   check(!g.rotateFixture('me', shelf.id).ok, 'you cannot turn one outside build mode');
-  eq(shelf.qty, 5, 'and the shelf is untouched by any of it');
+  eq(qtyOn(shelf), 5, 'and the shelf is untouched by any of it');
 
   // Inside build mode, standing next to something arms nothing. Proximity used
   // to pick a target here, and in a dense aisle it picked the wrong one.
   g.setBuildMode('me', true);
   eq(g.actionFor(g.players.me), null, 'build mode arms no proximity action at all');
   for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  eq(shelf.qty, 5, 'and standing next to a shelf does nothing to it');
+  eq(qtyOn(shelf), 5, 'and standing next to a shelf does nothing to it');
   eq(g.players.me.holding ?? null, null, 'nor picks anything up');
 
   g.setBuildMode('me', false);
@@ -558,12 +580,11 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   eq(g.fixtureAt(b.x, b.z)?.id, b.id, 'the far shelf is what is on the far tile');
   eq(g.fixtureAt(a.x, a.z)?.id, a.id, 'and the near shelf is what is on the near tile');
 
-  b.item_id = anyItem.id;
-  b.qty = 3;
+  put(b, anyItem, 3);
   const lifted = g.liftFixture('me', b.id);
   check(lifted.ok, 'lifting the far one by id works', lifted.error);
   eq(g.players.me.holding?.id, b.id, 'and you are holding the far one, not the near one');
-  eq(a.qty, 0, 'the near shelf was never touched');
+  eq(qtyOn(a), 0, 'the near shelf was never touched');
 
   // Distance is not a gate any more. You aimed at it; placing never required
   // you to walk over there either.
@@ -574,7 +595,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   const away = g.dropFixture('me', dest);
   check(away.ok, 'you can set it down from across the shop', away.error);
   const moved = g.layout.shelves.find((s) => s.id === away.moved);
-  eq(moved?.qty, 3, 'and its stock came with it');
+  eq(qtyOn(moved), 3, 'and its stock came with it');
   eq(g.fixtureAt(a.x, a.z)?.id, a.id, 'the shelf you did not pick is still where it was');
 }
 
@@ -585,13 +606,12 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   const g = fresh();
   g.setBuildMode('me', true);
   const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
-  shelf.item_id = anyItem.id;
-  shelf.qty = 6;
+  put(shelf, anyItem, 6);
   const { x, z } = shelf;
   const rot0 = shelf.rot;
   const oldId = shelf.id;
   const browse0 = { ...shelf.browseAt };
-  const stockBefore = g.layout.shelves.reduce((s, o) => s + (o.qty ?? 0), 0);
+  const stockBefore = g.layout.shelves.reduce((s, o) => s + qtyOn(o), 0);
 
   const turned = g.rotateFixture('me', shelf.id, 1);
   check(turned.ok, 'turning a shelf works', turned.error);
@@ -599,14 +619,14 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   const now = g.fixtureAt(x, z);
   check(!!now, 'it is still on the same tile');
   check(now.rot !== rot0, 'and it is facing somewhere else');
-  eq(now.qty, 6, 'its stock stayed on it');
-  eq(now.item_id, anyItem.id, 'and so did its label');
+  eq(qtyOn(now), 6, 'its stock stayed on it');
+  eq(held(now), anyItem.id, 'and so did its label');
   check(now.browseAt.x !== browse0.x || now.browseAt.z !== browse0.z,
     'shoppers now browse it from a different side');
   // `layout.shelves` holds freezers too, so count against both ledgers.
   eq(g.layout.shelves.length, g.fixtureCounts().shelf + (g.fixtureCounts().freezer ?? 0),
     'turning did not create or destroy a shelf');
-  eq(g.layout.shelves.reduce((s, o) => s + (o.qty ?? 0), 0), stockBefore,
+  eq(g.layout.shelves.reduce((s, o) => s + qtyOn(o), 0), stockBefore,
     'and no stock migrated to another shelf on the way');
 
   // The id it had is now free, and the generator hands out `shelf-pN` by
@@ -873,8 +893,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   } else {
     const item = content().byId.items[anyItem.id];
     const capBefore = g.shelfCapacity(shelf, item);
-    shelf.item_id = anyItem.id;
-    shelf.qty = 4;
+    put(shelf, anyItem, 4);
     const { x, z } = shelf;
     const next = g.nextTier(shelf);
     check(!!next, 'there is a rung above');
@@ -894,7 +913,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     const now = g.fixtureAt(x, z);
     check(!!now, 'it is still on the same tile');
     eq(g.fixtureTier(now), 2, 'one rung up');
-    eq(now.qty, 4, 'with its stock still on it');
+    eq(qtyOn(now), 4, 'with its stock still on it');
     check(g.shelfCapacity(now, item) >= capBefore, 'and it holds at least as much as before');
 
     // Moving and turning must never quietly demote it.
@@ -948,9 +967,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
         id: shelf.id, kind, x: shelf.x, z: shelf.z, rot: shelf.rot, tier,
       });
       shelf.tier = tier;
-      shelf.item_id = perishable.id;
-      shelf.qty = 5;
-      shelf.stockedDay = game.day;
+      put(shelf, perishable, 5, { day: game.day });
       return shelf;
     };
 
@@ -965,7 +982,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     better.day += days;
     better.spoilStock();
 
-    check(betterShelf.qty >= cheapShelf.qty,
+    check(qtyOn(betterShelf) >= qtyOn(cheapShelf),
       'a top-tier shelf never spoils sooner than a bottom-tier one');
     eq(better.fixtureStats(betterShelf).keeps_mult, ladder[ladder.length - 1].keeps_mult ?? 1,
       'and its stats come from the tier it is on');
@@ -1011,16 +1028,14 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     let here = g.fixtureAt(spot.x, spot.z);
     // Through the layout, not through `fixtureAt` — that one hands back a copy
     // with the live record on `.ref`, so stocking the copy stocks nothing.
-    Object.assign(g.layout.shelves.find((s) => s.id === here.id), {
-      item_id: anyItem.id, qty: 6,
-    });
+    put(g.layout.shelves.find((s) => s.id === here.id), anyItem, 6);
     const cash2 = g.cash;
     const styled = g.styleFixture('me', here.id, '');
     check(styled.ok, 'a placed fixture can be restyled', styled.error);
     eq(round2(g.cash), round2(cash2), 'and it is free');
     here = g.fixtureAt(spot.x, spot.z);
     eq(g.fixtureVariant(here), '', 'it changed shape');
-    eq(here.qty, 6, 'and kept its stock');
+    eq(qtyOn(here), 6, 'and kept its stock');
 
     check(!g.styleFixture('me', here.id, 'no-such-shape').ok, 'you cannot restyle into a shape that does not exist');
 
@@ -1073,9 +1088,9 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   const floor0 = totalOnFloor(g);
 
   check(g.assignShelf('me', shelf.id, plainItem.id).ok, 'a shelf can be kept for an item');
-  eq(shelf.assigned, plainItem.id, 'and it remembers which');
-  eq(shelf.qty, 0, 'keeping it for something puts nothing on it');
-  eq(shelf.item_id, null, 'and labels it with nothing');
+  eq(keptFor(shelf), plainItem.id, 'and it remembers which');
+  eq(qtyOn(shelf), 0, 'keeping it for something puts nothing on it');
+  eq(held(shelf), null, 'and labels it with nothing');
   eq(totalOnFloor(g), floor0, 'no goods are conjured');
   eq(g.cash, cash0, 'and it is free');
 
@@ -1097,33 +1112,79 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   g.players.me.carry = { item_id: plainItem.id, qty: 3 };
   check(g.stockShelf('me', shelf.id).ok, 'what it is kept for goes straight on');
-  eq(shelf.qty, 3, 'and lands on it');
+  eq(qtyOn(shelf), 3, 'and lands on it');
 
   // Selling out. `item_id` was already documented as surviving this; the
   // reservation has to survive everything after it as well.
-  shelf.qty = 0;
+  shelf.stacks[0].qty = 0;
   check(g.shelfAccepts(shelf, plainItem.id), 'a sold-out shelf still wants the same thing');
   check(!g.shelfAccepts(shelf, otherItem.id), 'and still refuses everything else');
 
   // Emptying it by hand is the first half of restocking it, so it keeps the
   // reservation and loses only the label.
-  shelf.item_id = plainItem.id;
-  shelf.qty = 4;
+  put(shelf, plainItem, 4);
   check(g.stripShelf('me', shelf.id).ok, 'a kept shelf can still be emptied');
-  eq(shelf.item_id, null, 'which takes the label off');
-  eq(shelf.assigned, plainItem.id, 'but never forgets what the shelf is for');
+  eq(held(shelf), null, 'which takes the label off');
+  eq(keptFor(shelf), plainItem.id, 'but never forgets what the shelf is for');
 
   // Handing it back is its own choice, in its own row.
   check(g.assignShelf('me', shelf.id, null).ok, 'it can be handed back to "anything"');
-  eq(shelf.assigned, null, 'and then it is kept for nothing');
+  eq(keptFor(shelf), null, 'and then it is kept for nothing');
   check(g.shelfAccepts(shelf, otherItem.id), 'so it takes anything again');
   check(!g.assignShelf('me', shelf.id, null).ok, 'handing back what nobody kept is refused');
 
-  // Relabelling under stock would leave goods somewhere nothing tops up.
-  shelf.item_id = plainItem.id;
-  shelf.qty = 4;
-  check(!g.assignShelf('me', shelf.id, otherItem.id).ok,
-    'you cannot keep it for something else while stock sits on it');
+  // A SECOND reservation, which is the whole point of boards. Stock on one
+  // board is no longer a reason to refuse another thing — the old rule read
+  // "anything is on it", and a shelf that holds three things has to read "every
+  // board is taken" instead, or a unit could never be shared at all.
+  put(shelf, plainItem, 4);
+  const boards = g.shelfBoards(shelf);
+  check(boards > 1, 'the shipped shelving has more than one board to share');
+  check(g.assignShelf('me', shelf.id, otherItem.id).ok,
+    'a spare board can be kept for something else while stock sits on the first');
+  eq(qtyOn(shelf, plainItem.id), 4, 'and doing so leaves the first board alone');
+  check(g.shelfAccepts(shelf, otherItem.id), 'the shop will now stock the second thing here');
+  // The goods you did NOT tick stay where they are and go on selling; what
+  // ticking decides is what gets refilled. That is the same thing a leftover
+  // label always meant, said about a board.
+  check(!g.shelfAccepts(shelf, plainItem.id),
+    'while the board nobody ticked is left to sell down rather than topped up');
+
+  // Capacity is a SHARE, so committing a unit to a second thing halves what
+  // each gets rather than doubling what the unit carries. This is the balance
+  // claim of the whole change and it is invisible from any screenshot: both
+  // shelves look identical, and only the number the stocker fills to has moved.
+  //
+  // Two shares here, and it takes BOTH halves of the rule to get there: the
+  // cheese is ticked and the milk merely standing on it. Counting either alone
+  // would say one, and one is a unit that quietly holds twice what it should.
+  const g3 = fresh();
+  const solo = g3.layout.shelves.find((s) => s.kind !== 'freezer');
+  eq(g.shelfShares(shelf), 2, 'a ticked thing and an untouched one are two shares');
+  eq(g.shelfCapacity(shelf, plainItem),
+    Math.max(1, Math.floor(g3.shelfCapacity(solo, plainItem) / 2)),
+    'so each gets half of what a unit holding one thing got');
+
+  // Relabelling with every board taken still refuses, which is the rule the
+  // one-item version was really protecting: a reservation nothing can honour
+  // until you empty the thing is a shelf that sits there never being filled.
+  const third = warm[2] ?? null;
+  if (third && boards >= 2) {
+    const full = g.layout.shelves.find((s) => s.kind !== 'freezer' && s.id !== shelf.id
+      && s.id !== spare.id);
+    if (full) {
+      for (let b = 0; b < boards; b++) {
+        const it = warm[b % warm.length];
+        put(full, it, 1);
+      }
+      eq(full.stacks.length, Math.min(boards, warm.length), 'every board on it is taken');
+      const spill = warm.find((it) => !full.stacks.some((k) => k.item_id === it.id));
+      if (spill) {
+        check(!g.assignShelf('me', full.id, spill.id).ok,
+          'you cannot keep a unit for something when every board is full');
+      }
+    }
+  }
   check(g.assignShelf('me', shelf.id, plainItem.id).ok,
     'but you can name what is already on it');
 
@@ -1170,12 +1231,12 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 {
   const g = fresh();
   const shelves = g.layout.shelves;
-  for (const s of shelves) s.qty = 1;
+  for (const s of shelves) put(s, plainItem, 1);
 
   const first = shelves[shelves.length - 1];
   const last = shelves[0];
-  first.qty = 2;
-  last.qty = 0;
+  put(first, plainItem, 2);
+  put(last, plainItem, 0);
   check(g.setRestockPriority(first.id, 1).ok, 'a shelf can be marked to fill first');
   check(g.setRestockPriority(last.id, -1).ok, 'and another to fill last');
 
@@ -1195,9 +1256,41 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   // A shelf with plenty on it is not in the queue at all, marked or not.
   g.setRestockPriority(first.id, 1);
-  first.qty = 99;
+  put(first, plainItem, 99);
   check(!g.restockQueue().some((s) => s.id === first.id),
     'a full shelf is not queued however eagerly it is marked');
+
+  // A board you ASKED for beats a bare shelf nobody mentioned.
+  //
+  // Both read as "empty", so sorting on emptiness alone made them tie — and a
+  // tie goes to whatever order the shelves happen to sit in the layout. Measured
+  // on the shipped six-shelf shop: a shelf kept for two things sat sixth in the
+  // queue and waited 3,880 ticks and eight other vans before the shop bought it
+  // anything. What you see in the game is ticking a box and nothing happening,
+  // which reads as the box being broken rather than as a queue position.
+  //
+  // `shelfFor` has always known this rule — it decides where a case ALREADY in
+  // the building goes. This is the same rule one step earlier, about what the
+  // shop chooses to buy, and nothing was applying it there.
+  {
+    const g2 = fresh();
+    const bare = g2.layout.shelves.filter((s) => s.kind !== 'freezer');
+    const asked = bare[bare.length - 1];
+    check(g2.assignShelf('me', asked.id, plainItem.id, true).ok, 'the last shelf is kept for something');
+    const queue = g2.restockQueue();
+    eq(queue[0]?.id, asked.id,
+      'a shelf kept for something it has not got is bought for first');
+    check(queue.length > 1, 'and the bare ones nobody asked for are still in the queue behind it');
+
+    // …and it holds even when the unit is otherwise well stocked, or ticking a
+    // third thing onto a full shelf would never be acted on at all.
+    const busy = bare[0];
+    put(busy, plainItem, 99);
+    check(!g2.restockQueue().some((s) => s.id === busy.id), 'a full shelf is not in the queue');
+    check(g2.assignShelf('me', busy.id, otherItem.id, true).ok, 'until you ask it for something else');
+    check(g2.restockQueue().some((s) => s.id === busy.id),
+      'and then it is, however full its other boards are');
+  }
 
   // The client draws this menu off the snapshot, so both fields have to be in
   // it — reading them off the layout would show a shelf you set aside ten
@@ -1205,7 +1298,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   const snap = g.snapshot().shelves.find((s) => s.id === last.id);
   eq(snap.priority, -1, 'the snapshot carries where a shelf sits in the queue');
   g.assignShelf('me', last.id, plainItem.id);
-  eq(g.snapshot().shelves.find((s) => s.id === last.id).assigned, plainItem.id,
+  eq(keptFor(g.snapshot().shelves.find((s) => s.id === last.id)), plainItem.id,
     'and what it is kept for');
 }
 
@@ -1221,13 +1314,13 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   g.regenerateLayout();
   const after = g.layout.shelves.find((s) => s.x === x && s.z === z);
-  eq(after?.assigned, plainItem.id, 'a re-flow carries what a shelf is kept for');
+  eq(keptFor(after), plainItem.id, 'a re-flow carries what a shelf is kept for');
   eq(after?.priority, 1, 'and where it sits in the queue');
 
   const restored = Game.restore(g.serialize());
   restored.regenerateLayout();
   const back = restored.layout.shelves.find((s) => s.x === x && s.z === z);
-  eq(back?.assigned, plainItem.id, 'and so does a save/restore round trip');
+  eq(keptFor(back), plainItem.id, 'and so does a save/restore round trip');
   eq(back?.priority, 1, 'with the queue position intact');
 
   // The cold path is a different one: a server restart rebuilds the shelves
@@ -1239,7 +1332,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     id: target.id, item_id: null, qty: 0, price: 0, stockedDay: 0,
     assigned: plainItem.id, priority: -1,
   }], []);
-  eq(target.assigned, plainItem.id, 'a cold restart puts the reservation back');
+  eq(keptFor(target), plainItem.id, 'a cold restart puts the reservation back');
   eq(target.priority, -1, 'and the queue position with it');
 
   // A re-flow can land a shelf's contents on a different unit. A reservation
@@ -1250,13 +1343,12 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     const g2 = fresh();
     const warm = g2.layout.shelves.find((s) => s.kind !== 'freezer');
     const at = { x: warm.x, z: warm.z };
-    warm.assigned = frozenItem.id;
-    warm.item_id = plainItem.id;
-    warm.qty = 3;
+    warm.assigned = [frozenItem.id];
+    put(warm, plainItem, 3);
     g2.regenerateLayout();
     const now = g2.layout.shelves.find((s) => s.x === at.x && s.z === at.z);
-    eq(now?.assigned, null, 'a reservation on the wrong kind of unit is dropped');
-    eq(now?.qty, 3, 'and dropping it never takes the goods with it');
+    eq(keptFor(now), null, 'a reservation on the wrong kind of unit is dropped');
+    eq(qtyOn(now), 3, 'and dropping it never takes the goods with it');
   }
 }
 
