@@ -1,7 +1,6 @@
 import { ICONS, icon } from './icons.js';
 import { FIXTURES, isProp } from '../shared/build.js';
 import { kindOf, countKey } from '../shared/pieces.js';
-import { variantsOf } from '../shared/model.js';
 import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
 
 /**
@@ -16,40 +15,78 @@ import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
  */
 
 /**
+ * The top tier of the build bar: what sort of thing you are putting down.
+ *
+ * A flat palette was fine at nine entries and stops being fine the moment the
+ * catalog is a database anyone can write to — the bar was already spilling past
+ * the number keys with five pieces authored, and a tenth button with no key on
+ * it reads as broken. So the bar asks the coarse question first and the fine one
+ * second, the way a city builder's toolbar does.
+ *
+ * The split is by *what you are doing*, not by which code path places it: a
+ * fence is drawn on an edge exactly the way a wall is, and it sits under Farm
+ * because fencing a field is farming and walling a room is building. That is
+ * also why one tool may name more than one group — knocking a hole through is
+ * how you take a fence out as well as a wall, and making you change tab to undo
+ * the thing you just drew is the kind of tidiness nobody asked for.
+ *
+ * Groups with nothing in them never render, the same way an empty tab bucket
+ * doesn't (`grouped`). A world where nobody has authored an appliance has four
+ * tabs, not five with one that opens onto nothing.
+ */
+export const BUILD_GROUPS = [
+  { id: 'shop', name: 'Shop', icon: ICONS.shelf, blurb: 'Where goods sit and money changes hands.' },
+  { id: 'farm', name: 'Farm', icon: ICONS.plot, blurb: 'Beds to grow in, and what fences them off.' },
+  { id: 'appliance', name: 'Appliances', icon: ICONS.station, blurb: 'Machines that turn stock into something worth more.' },
+  { id: 'shell', name: 'Building', icon: ICONS.build, blurb: 'The building itself — what makes a room a room.' },
+  { id: 'decor', name: 'Decoration', icon: ICONS.fixtures, blurb: 'Looks. Weighs nothing and stops nobody.' },
+];
+
+/** Whether a palette entry belongs to a group. A tool may name several. */
+const inGroup = (t, id) => (Array.isArray(t.group) ? t.group.includes(id) : t.group === id);
+
+/**
  * What each buildable KIND is, for a palette entry that names one.
  *
- * The icon and the blurb are per kind rather than per piece, because they
- * describe the rules — where it goes, what it is for — and every design of a
- * shelf is a shelf. What a piece brings is its own name, its own art and its
+ * The icon, the group and the blurb are per kind rather than per piece, because
+ * they describe the rules — where it goes, what it is for — and every design of
+ * a shelf is a shelf. What a piece brings is its own name, its own art and its
  * own price; if a planter and a barrel need different words, they are different
  * kinds or they are the same thing with two looks.
  *
- * Kinds in palette order. A kind missing from here still builds — it just gets
- * the generic icon, which is the honest answer for one nobody has described.
+ * Kinds in palette order, within their group. A kind missing from here still
+ * builds — it just gets the generic icon, which is the honest answer for one
+ * nobody has described.
  */
 export const KIND_TOOLS = {
   shelf: {
     icon: ICONS.shelf,
+    group: 'shop',
     blurb: 'Anything that needs no freezing. Browsed from the side it faces.',
   },
   freezer: {
     icon: ICONS.freezer,
+    group: 'shop',
     blurb: 'The only home for frozen goods. Four times the shelf life.',
   },
   checkout: {
     icon: ICONS.checkout,
+    group: 'shop',
     blurb: 'Takes money. Needs a clear run alongside for the queue.',
   },
   plot: {
     icon: ICONS.plot,
+    group: 'farm',
     blurb: 'Earth, outside. Turn it over before it takes a seed.',
   },
   'prop-floor': {
     icon: ICONS.fixtures,
+    group: 'decor',
     blurb: 'Stands on the floor and stops nobody. Indoors or out.',
   },
   'prop-ceiling': {
     icon: ICONS.ambient,
+    group: 'decor',
     blurb: 'Hangs from the ceiling, so it needs a room to hang in.',
   },
 };
@@ -61,6 +98,7 @@ export const BUILD_TOOLS = [
   {
     id: 'wall',
     edge: 1,
+    group: 'shell',
     icon: ICONS.build,
     name: 'Wall',
     blurb: 'Encloses. Anything the walls close in counts as indoors.',
@@ -68,6 +106,7 @@ export const BUILD_TOOLS = [
   {
     id: 'window',
     edge: 2,
+    group: 'shell',
     icon: ICONS.ambient,
     name: 'Window',
     blurb: 'A wall you can see through. Still encloses.',
@@ -75,6 +114,7 @@ export const BUILD_TOOLS = [
   {
     id: 'door',
     edge: 3,
+    group: 'shell',
     icon: ICONS.shop,
     name: 'Doorway',
     blurb: 'A way through. Still counts as part of the enclosure.',
@@ -88,6 +128,7 @@ export const BUILD_TOOLS = [
   {
     id: 'fence',
     edge: 5,
+    group: 'farm',
     icon: ICONS.plot,
     name: 'Fence',
     blurb: 'Marks out the farm. Blocks the way, but never makes a room.',
@@ -95,16 +136,34 @@ export const BUILD_TOOLS = [
   {
     id: 'gate',
     edge: 4,
+    group: 'farm',
     icon: ICONS.build,
     name: 'Gate',
     blurb: 'A way through a fence.',
   },
+  // The bulldozer, and it is on every tab because "get rid of that" is not a
+  // question about what sort of thing it is.
+  //
+  // It was `knock`, which took walls and fences out and nothing else, while
+  // every fixture was removed from its own menu instead — two gestures for one
+  // idea, and the reason nobody could find either. Aiming at a thing tears that
+  // thing out; dragging along a line knocks the wall through. `edge: 0` is that
+  // second half, so a drag still reaches the same `build-edge` message.
+  //
+  // A Clear tool did exist once and was retired for eating seven shelves in a
+  // row. That version fired on *proximity* and re-armed the moment it finished,
+  // so standing still emptied the shop while you read the log. This one names
+  // its target the way every build verb does now: it removes what is ringed
+  // under the pointer, one tap each, and the server refuses anything with
+  // contents or your last till.
   {
-    id: 'knock',
+    id: 'demolish',
     edge: 0,
+    demolish: true,
+    group: ['shop', 'farm', 'appliance', 'shell', 'decor'],
     icon: ICONS.remove,
-    name: 'Knock through',
-    blurb: 'Take a wall or a fence out. Refunds half of whatever was there.',
+    name: 'Demolish',
+    blurb: 'Tap a thing to tear it out, or drag along a wall to knock it through. Half back either way.',
   },
 ];
 
@@ -144,6 +203,9 @@ export function buildTools(ui) {
         kind,
         piece: p.id,
         icon: KIND_TOOLS[kind]?.icon ?? ICONS.fixtures,
+        // A kind nobody grouped lands in the shop rather than nowhere: an entry
+        // in no group is one no tab shows, which is the same as not existing.
+        group: KIND_TOOLS[kind]?.group ?? 'shop',
         name: p.name,
         blurb: KIND_TOOLS[kind]?.blurb ?? '',
       });
@@ -156,12 +218,40 @@ export function buildTools(ui) {
       id: `station:${u.payload.station}`,
       kind: 'station',
       station: u.payload.station,
+      group: 'appliance',
       icon: ICONS.station,
       name: u.name,
       blurb: u.description || 'An appliance. Turns what goes in into something worth more.',
     }));
 
   return [...pieces, ...BUILD_TOOLS, ...stations];
+}
+
+/**
+ * The palette as the bar draws it: groups, each carrying its own entries.
+ *
+ * Derived from the flat list rather than replacing it, because everything that
+ * resolves a tool by id — the ghost, the hint, the server's disarm — wants one
+ * list with unique ids and no notion of which tab is showing.
+ */
+export function buildGroups(ui) {
+  const tools = buildTools(ui);
+  return BUILD_GROUPS
+    .map((g) => ({
+      ...g,
+      // The bulldozer is the last entry of every tab it appears on. A stable
+      // sort, so everything else keeps palette order — without this it lands
+      // wherever BUILD_TOOLS happens to sit relative to that tab's pieces, and
+      // on the appliance tab that is slot one, under the 1 key.
+      tools: tools.filter((t) => inGroup(t, g.id))
+        .sort((a, b) => (a.demolish ? 1 : 0) - (b.demolish ? 1 : 0)),
+    }))
+    .filter((g) => g.tools.length);
+}
+
+/** Which tab a palette entry is found under, for a selection made elsewhere. */
+export function groupOfTool(t) {
+  return BUILD_GROUPS.find((g) => t && inGroup(t, g.id))?.id ?? null;
 }
 
 /** How many of this palette entry are standing in the shop. */
@@ -224,71 +314,29 @@ function grouped(rows, buckets) {
   ));
 }
 
+/**
+ * The rail's first button, and the one thing on it that is not a menu.
+ *
+ * Build used to be a section: a 214px list of everything you could put down,
+ * opening top-right, while the bottom bar showed the first nine of the same
+ * list. Two palettes for one palette, and the bar could only ever be a preview
+ * of the real one. The bar is the palette now — it has tabs and it scrolls — so
+ * the panel had nothing left to add, and this is what is left of that entry:
+ * the affordance that says build mode exists at all.
+ *
+ * It carries `mode` so the rail knows a press toggles the world rather than
+ * opening a panel, and so `setOpen` never lights it as though a menu were open.
+ */
+export const BUILD_MODE = {
+  id: 'build',
+  icon: ICONS.build,
+  name: 'Build',
+  key: 'g',
+  mode: true,
+  badge: (ui) => (ui.holding ? '●' : null),
+};
+
 export const SECTIONS = [
-  {
-    id: 'build',
-    icon: ICONS.build,
-    name: 'Build',
-    key: 'm',
-    title: 'Build',
-    // Opening the catalogue is saying you want to build, so put the world in
-    // build mode rather than making that a second thing to remember — and take
-    // it back off again if the menu is shut without picking anything. A menu
-    // that leaves the world in a mode you can't see you're in is how you end up
-    // placing a shelf when you meant to walk.
-    //
-    // `_modeFromMenu` is what keeps that honest: if you were already building
-    // when you opened this (you pressed G), closing it leaves you building.
-    onOpen: (ui) => {
-      ui._modeFromMenu = !ui.buildOn;
-      if (!ui.buildOn) ui.toggleBuild(true);
-    },
-    badge: (ui) => (ui.holding ? '●' : null),
-    live: (ui) => JSON.stringify([
-      ui.fixtureCounts, ui.toolId(), ui.buildVariant, ui.buildCosts,
-      // The catalog itself, not just how many shapes are on it: a piece authored
-      // over MCP is a new row on this palette, so the list has to redraw when
-      // one appears rather than only when an existing one grows a variant.
-      (ui.catalog.fixtures ?? []).map((f) => `${f.id}:${f.variants?.length ?? 0}`),
-      (ui.catalog.upgrades ?? []).filter((u) => u.kind === 'station').length,
-    ]),
-    rows: (ui) => {
-      const picked = ui.toolId();
-      const tools = buildTools(ui).map((t) => {
-        const cost = ui.buildCosts[t.id];
-        const have = ownedCount(ui, t);
-        return {
-          icon: t.icon,
-          name: t.name,
-          sub: have == null ? t.blurb : `${have} owned · ${t.blurb}`,
-          right: cost == null ? '' : `$${cost.toFixed(0)}`,
-          picked: t.id === picked,
-          // Picking one is committing to build, so the mode is yours to keep.
-          run: () => { ui.commitBuildMode(); ui.selectBuildTool(t.id); ui.closePanel(); },
-        };
-      });
-
-      // The shapes of whatever is selected. They stay on this menu rather than
-      // becoming their own palette entries, because a corner shelf is not a
-      // fifth thing to buy — it is a shelf, at a shelf's price, and the number
-      // keys should keep meaning one fixture each.
-      const shapes = variantsOf(ui.catalog.fixtures?.find((x) => x.id === ui.buildPiece));
-      if (shapes.length < 2) return tools;
-      return [
-        ...tools,
-        { sep: 'Shape to build' },
-        ...shapes.map((v) => ({
-          icon: ICONS.fixtures,
-          name: v.name,
-          sub: 'same price, same capacity — just the shape',
-          picked: v.id === (ui.buildVariant ?? ''),
-          run: () => { ui.commitBuildMode(); ui.selectBuildVariant(v.id); ui.closePanel(); },
-        })),
-      ];
-    },
-    foot: () => 'Tap bare ground to place · <b>R</b> rotates · tap anything you own for its own menu.',
-  },
-
   {
     id: 'stock',
     icon: ICONS.supplier,
@@ -521,10 +569,12 @@ export const SECTIONS = [
       { sep: 'Menus', icon: ICONS.menus },
       ...SECTION_KEYS(),
       { name: 'Back out', sub: 'menu, then hands, then build mode', right: 'Esc', plain: true },
+      { name: 'Back out on the world', sub: 'the same — drops a half-drawn wall first', right: 'R-click', plain: true },
       { sep: 'Building', icon: ICONS.build },
       { name: 'Build mode', sub: 'tap ground to place, tap a fixture to open', right: 'G', plain: true },
       { name: 'Turn a fixture', sub: 'a quarter turn', right: 'R', plain: true },
-      { name: 'Bottom bar', sub: 'fixtures while building, seeds otherwise', right: '1–9', plain: true },
+      { name: 'Bottom bar', sub: 'the open tab while building, seeds otherwise', right: '1–9', plain: true },
+      { name: 'Next tab', sub: 'shop, farm, appliances, building, decoration', right: 'Tab', plain: true },
     ],
   },
 ];
@@ -537,3 +587,11 @@ function SECTION_KEYS() {
 }
 
 export const sectionById = (id) => SECTIONS.find((s) => s.id === id) ?? null;
+
+/**
+ * The rail, top to bottom. Build leads it because it is the mode you are in
+ * most, and it is not a section — see `BUILD_MODE`.
+ */
+export const RAIL_ITEMS = [BUILD_MODE, ...SECTIONS];
+
+export const railItemById = (id) => RAIL_ITEMS.find((s) => s.id === id) ?? null;

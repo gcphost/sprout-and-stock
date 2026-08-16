@@ -1101,8 +1101,11 @@ export class Scene {
    * driven by the server's armed action and gets torn down every snapshot,
    * which would take this with it ten times a second.
    */
-  setAimTarget(f) {
-    const key = f ? f.id : null;
+  setAimTarget(f, mode = 'aim') {
+    // The mode is part of the key: pointing at the same shelf with the bulldozer
+    // up is a different marker, and comparing ids alone would leave an amber
+    // ring on the thing the next tap deletes.
+    const key = f ? `${f.id}:${mode}` : null;
     if (this.aimKey === key) return;
     this.aimKey = key;
     if (this.aimMarker) {
@@ -1111,7 +1114,7 @@ export class Scene {
       this.aimMarker = null;
     }
     if (!f) return;
-    this.aimMarker = buildTargetMarker();
+    this.aimMarker = buildTargetMarker(mode);
     this.aimMarker.position.set(f.x, 0, f.z);
     this.actorRoot.add(this.aimMarker);
   }

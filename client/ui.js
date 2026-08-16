@@ -7,7 +7,10 @@
  */
 
 import { FIXTURES } from '../shared/build.js';
-import { buildTools, SECTIONS, sectionById } from './sections.js';
+import { variantsOf } from '../shared/model.js';
+import {
+  buildTools, buildGroups, groupOfTool, ownedCount, sectionById,
+} from './sections.js';
 import { Rail } from './rail.js';
 import { ICONS } from './icons.js';
 import { showFixture } from './fixture-menu.js';
@@ -65,6 +68,9 @@ export class UI {
     this.buildVariant = '';
     this.buildRot = 0;
     this.buildCosts = {};
+    // Which tab of the build bar is open. Survives leaving and re-entering build
+    // mode — the tool you had selected does, so the tab it lives on should too.
+    this.buildGroup = null;
     this.el = {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
@@ -82,7 +88,9 @@ export class UI {
       panelBody: document.getElementById('panel-body'),
       carry: document.getElementById('carry'),
       build: document.getElementById('build'),
+      buildGroups: document.getElementById('build-groups'),
       buildTools: document.getElementById('build-tools'),
+      buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
       prompt: document.getElementById('prompt'),
       rail: document.getElementById('rail'),
@@ -123,7 +131,12 @@ export class UI {
     this.buildRot = 0;
     document.body.classList.toggle('building', on);
     if (!on && this.openPanel === 'fixture') this.closePanel();
-    this.net.send('build-mode', { on, tool: this.buildTool });
+    // Only a fixture kind means anything to the server (see `selectBuildTool`).
+    // Leaving it out keeps whatever it already had, which is the right answer
+    // for a mode toggle made with a wall in your hand.
+    this.net.send('build-mode', {
+      on, tool: this.armedEdgeTool() ? undefined : this.buildTool,
+    });
     this.renderHotbar();
     // `quiet` is for a mode a button switched on around one action of its own:
     // the fixture visibly turning is the feedback, and announcing a mode change
@@ -241,12 +254,29 @@ export class UI {
     this.buildPiece = t.piece ?? '';
     this.buildStation = t.station ?? '';
     this.buildRot = 0;
+    // Follow the entry to its tab when it isn't on the one you're looking at.
+    // Selections arrive from off-bar too — the server disarms Clear by kind —
+    // and a lit button on a hidden tab is an armed tool nothing on screen names.
+    // An entry that lives on two tabs stays on whichever one you found it on.
+    const here = this.openBuildGroup();
+    if (!here?.tools.some((x) => x.id === t.id)) {
+      this.buildGroup = groupOfTool(t) ?? this.buildGroup;
+    }
     // Shapes belong to a piece, so switching piece drops back to Standard rather
     // than asking for a "corner till" nobody drew.
     this.buildVariant = '';
-    this._sentTool = this.buildTool;
     this._toolId = t.id;
-    this.net.send('build-tool', { tool: this.buildTool });
+    // An edge tool is not a fixture and the server keeps no state for one:
+    // `setBuildTool` refuses anything outside FIXTURES, so telling it "fence"
+    // only ever produced "no such build tool" on screen. Drawing one names its
+    // own kind in `build-edge`, so there is nothing to tell it. Wall, window and
+    // doorway have always done this — the Farm tab just put two more of them
+    // one press away, which is how a silent refusal became a visible one.
+    this._sentTool = null;
+    if (t.edge === undefined) {
+      this._sentTool = this.buildTool;
+      this.net.send('build-tool', { tool: this.buildTool });
+    }
     this.renderHotbar();
   }
 
@@ -260,6 +290,7 @@ export class UI {
    */
   selectBuildVariant(id) {
     this.buildVariant = id ?? '';
+    this.renderBuildShapes();
     this.renderBuildHint();
   }
 
@@ -284,6 +315,10 @@ export class UI {
    */
   syncBuildTool(serverTool) {
     if (!this.buildOn || !serverTool) return;
+    // Except while an edge tool is armed. The server was never told about that
+    // one and is still holding the last fixture you picked, so adopting its
+    // answer would take the wall back out of your hand a tick after you chose it.
+    if (this.armedEdgeTool()) return;
     if (this._sentTool && serverTool !== this._sentTool) return;
     this._sentTool = null;
     if (serverTool === this.buildTool) return;
@@ -298,6 +333,47 @@ export class UI {
     this._toolId = t?.id ?? null;
     this.buildRot = 0;
     this.renderHotbar();
+  }
+
+  /**
+   * Whether what's armed draws on an edge rather than placing a fixture.
+   *
+   * Read off the palette entry rather than through `edgeKindForTool`, which
+   * answers null while you're carrying something — that question is about what
+   * ghost to draw, and this one is about what the server has been told.
+   */
+  armedEdgeTool() {
+    return this.armedTool()?.edge !== undefined;
+  }
+
+  /** The palette entry currently armed, or null outside build mode. */
+  armedTool() {
+    if (!this.buildOn) return null;
+    return buildTools(this).find((x) => x.id === this.toolId()) ?? null;
+  }
+
+  /**
+   * Whether the bulldozer is up.
+   *
+   * What it changes is what a *tap on a thing* means: normally looking, here
+   * tearing out. Everything that would otherwise open a menu has to ask.
+   */
+  demolishArmed() {
+    return !!this.armedTool()?.demolish && !this.holding;
+  }
+
+  /**
+   * Tear out what you aimed at.
+   *
+   * The same message the fixture's own menu sends, because it is the same verb —
+   * the server refuses a fixture with contents in it or your last till either
+   * way, and refunds the same half. What the bulldozer changes is only how you
+   * name the target: by pointing at it rather than by opening its menu first.
+   */
+  razeFixture(f) {
+    if (!f) return;
+    this.commitBuildMode();
+    this.net.send('build-remove', { id: f.id });
   }
 
   /** The fixture the ghost should be showing, or null when there isn't one. */
@@ -322,63 +398,169 @@ export class UI {
   }
 
   /**
-   * The bottom bar: the sub-icons for whatever is active.
+   * The bottom bar: the whole build palette, in two tiers.
    *
    * Only while you're building — the shop floor is the game, and a toolbar that
-   * never leaves makes it look like a level editor. It's also what makes 1–9
-   * legible: the number on a button is the key that presses it.
+   * never leaves makes it look like a level editor.
+   *
+   * Tabs on top, the open tab's entries below in a strip that scrolls sideways.
+   * That is what lets the bar *be* the catalogue rather than a preview of one:
+   * a flat row could only ever show its first nine, so everything past that
+   * needed a second palette in a panel, and the two disagreed about which was
+   * the real one. 1–9 still pick, and now they mean the nine in front of you —
+   * the number on a button is the key that presses it, so entry ten simply
+   * doesn't carry a number rather than being unreachable.
    */
   renderHotbar() {
     if (!this.el.buildTools) return;
     this.el.build.classList.toggle('on', this.buildOn);
     if (!this.buildOn) return;
 
-    const picked = this.toolId();
-    this.el.buildTools.innerHTML = this.hotbarTools().map((t, i) => {
-      const cost = this.buildCosts[t.id];
-      return `<button class="tool ${t.id === picked ? 'on' : ''}" data-slot="${i}">
-          <span class="key">${i + 1}</span>
-          <span class="ico">${t.icon}</span>
-          <span class="nm">${t.name}</span>${cost == null ? '' : `<span class="cost">$${cost.toFixed(0)}</span>`}
-        </button>`;
-    }).join('')
-      + `<button class="tool more" data-build-menu="1">
-          <span class="key">M</span><span class="ico">☰</span><span class="nm">Menu</span>
-        </button>`;
+    const groups = this.buildGroupList();
+    const open = this.openBuildGroup(groups);
 
-    this.el.buildTools.querySelector('[data-build-menu]').onclick = () => this.showSection('build');
+    this.el.buildGroups.innerHTML = groups.map((g) => `
+      <button class="cat${g.id === this.buildGroup ? ' on' : ''}" data-cat="${esc(g.id)}"
+        title="${esc(g.blurb)}">
+        <span class="ico">${g.icon}</span><span class="nm">${esc(g.name)}</span>
+      </button>`).join('');
+
+    const picked = this.toolId();
+    this.el.buildTools.innerHTML = (open?.tools ?? []).map((t, i) => {
+      const cost = this.buildCosts[t.id];
+      // How many of these are standing in the shop. It was a line of the panel's
+      // row copy; the panel is gone and the number is the half of that row worth
+      // keeping — "six owned" is what decides whether a seventh is the buy.
+      const have = ownedCount(this, t);
+      return `<button class="tool${t.id === picked ? ' on' : ''}" data-slot="${i}"
+          title="${esc(t.name)} — ${esc(t.blurb)}">
+          ${i < 9 ? `<span class="key">${i + 1}</span>` : ''}
+          ${have ? `<span class="have">${have}</span>` : ''}
+          <span class="ico">${t.icon}</span>
+          <span class="nm">${esc(t.name)}</span>${cost == null ? '' : `<span class="cost">$${cost.toFixed(0)}</span>`}
+        </button>`;
+    }).join('');
+
+    this.renderBuildShapes();
+
+    this.el.buildGroups.querySelectorAll('[data-cat]').forEach((b) => {
+      b.onclick = () => this.selectBuildGroup(b.dataset.cat);
+    });
     this.el.buildTools.querySelectorAll('[data-slot]').forEach((b) => {
       b.onclick = () => this.selectBuildToolByIndex(Number(b.dataset.slot));
     });
+    // A tab can hold more entries than fit, and the selected one is exactly the
+    // one you must be able to see — after a tab change, after the server disarms
+    // you, and after somebody authors a piece that shuffles the strip along.
+    this.el.buildTools.querySelector('.tool.on')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+    // Measures the bar itself, so it goes last.
     this.renderBuildHint();
   }
 
   /**
-   * The line under the bar. It has one thing to say at a time: what you're
-   * carrying, what you're pointing at, or what a tap would do.
+   * The third tier, and only when there is a choice: which shape of the selected
+   * piece the next tap builds.
+   *
+   * Shapes are not palette entries of their own — a corner shelf is a shelf, at
+   * a shelf's price, and the number keys should keep meaning one fixture each.
+   */
+  renderBuildShapes() {
+    if (!this.el.buildShapes) return;
+    const shapes = variantsOf(this.catalog.fixtures?.find((x) => x.id === this.buildPiece));
+    this.el.buildShapes.hidden = shapes.length < 2;
+    if (shapes.length < 2) { this.el.buildShapes.innerHTML = ''; return; }
+
+    const at = this.buildVariant ?? '';
+    this.el.buildShapes.innerHTML = '<span class="lbl">Shape</span>'
+      + shapes.map((v) => `<button class="shape${v.id === at ? ' on' : ''}"
+          data-shape="${esc(v.id)}">${esc(v.name)}</button>`).join('');
+    this.el.buildShapes.querySelectorAll('[data-shape]').forEach((b) => {
+      b.onclick = () => { this.commitBuildMode(); this.selectBuildVariant(b.dataset.shape); };
+    });
+  }
+
+  /** The tabs, in palette order, dropping any nobody has authored anything for. */
+  buildGroupList() {
+    return buildGroups(this);
+  }
+
+  /**
+   * The open tab, resolved and written back — a remembered tab can stop
+   * existing, if the only appliance in the game was deleted while you were on
+   * it. Falling through to the first one keeps the bar showing something.
+   */
+  openBuildGroup(groups = this.buildGroupList()) {
+    const open = groups.find((g) => g.id === this.buildGroup) ?? groups[0] ?? null;
+    this.buildGroup = open?.id ?? null;
+    return open;
+  }
+
+  selectBuildGroup(id) {
+    if (id === this.buildGroup) return;
+    this.buildGroup = id;
+    // Opening a tab is browsing, not choosing — the armed tool is whatever you
+    // last picked until you pick another, so the ghost doesn't change under you.
+    this.renderHotbar();
+  }
+
+  /** Round the tabs, for the key that cycles them. */
+  cycleBuildGroup(dir = 1) {
+    const groups = this.buildGroupList();
+    if (groups.length < 2) return;
+    const at = Math.max(0, groups.findIndex((g) => g.id === this.buildGroup));
+    this.selectBuildGroup(groups[(at + dir + groups.length) % groups.length].id);
+  }
+
+  /**
+   * The line above the bar, and only when it has news.
+   *
+   * It used to carry a standing "tap bare ground to build a shelf" whenever
+   * nothing else was happening, which is most of the time — a permanent line
+   * restating the button already lit up beside it, sitting on the bottom edge of
+   * the screen and holding the rest of the HUD up. What is left is the three
+   * things the bar cannot show you: what is in your hands, what you are pointing
+   * at, and what a tap is about to cost you.
    */
   renderBuildHint() {
     if (!this.el.buildHint) return;
+    const say = this.buildHintText();
+    this.el.buildHint.textContent = say?.text ?? '';
+    this.el.buildHint.hidden = !say;
+    this.el.buildHint.classList.toggle('warn', !!say?.warn);
+    this.measureBar();
+  }
+
+  buildHintText() {
     if (this.holding) {
-      this.el.buildHint.textContent = `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R turns it · Esc puts it back`;
-      return;
+      return { text: `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R turns it · Esc puts it back` };
     }
-    if (this.aimed) {
-      this.el.buildHint.textContent = `${this.fixtureName(this.aimed)} — tap to open it`;
-      return;
+    // Aiming a bulldozer at something is not looking at it, and the line that
+    // says "tap to open it" over a thing a tap would delete is the one piece of
+    // copy here that could actually cost somebody a shop.
+    if (this.aimed && this.demolishArmed()) {
+      return { text: `Tear out the ${this.fixtureName(this.aimed).toLowerCase()} — tap it`, warn: true };
     }
+    if (this.aimed) return { text: `${this.fixtureName(this.aimed)} — tap to open it` };
     // An amber ghost means it will land and cost you something. Saying what,
     // before the tap rather than after it, is the whole point of the colour.
     if (this.buildWarn) {
-      this.el.buildHint.textContent = `${this.buildWarn} — tap anyway if you meant it · R rotates`;
-      return;
+      return { text: `${this.buildWarn} — tap anyway if you meant it · R rotates`, warn: true };
     }
-    const tool = buildTools(this).find((t) => t.id === this.toolId());
-    // Naming the shape matters more than naming the kind: picking one is the
-    // only build setting with no icon lit up on the bar to remind you of it.
-    const shape = this.buildVariantName();
-    const what = shape ? `${shape.toLowerCase()} ${(tool?.name ?? 'fixture').toLowerCase()}` : (tool?.name ?? 'fixture').toLowerCase();
-    this.el.buildHint.textContent = `tap bare ground to build a ${what} · R rotates · tap anything you own to open its menu`;
+    return null;
+  }
+
+  /**
+   * How tall the bar is, for the corner HUD to sit above.
+   *
+   * Measured rather than written into the stylesheet because the bar grows and
+   * shrinks — a shapes row appears, the hint comes and goes — and a number
+   * guessed at here is one that goes wrong the day a tier is added.
+   */
+  measureBar() {
+    document.documentElement.style
+      .setProperty('--build-h', `${this.el.build?.offsetHeight ?? 0}px`);
   }
 
   /**
@@ -392,12 +574,9 @@ export class UI {
     if (this.buildOn) this.renderBuildHint();
   }
 
-  /** The chosen shape's name, or '' when it's just the standard one. */
-  buildVariantName() {
-    if (!this.buildVariant) return '';
-    const piece = this.catalog.fixtures?.find((f) => f.id === this.buildPiece);
-    return (piece?.variants ?? []).find((v) => v.id === this.buildVariant)?.name ?? '';
-  }
+  // `buildVariantName` retired here. It named the chosen shape in the standing
+  // hint, which was the only place on screen that said which one was armed —
+  // the shapes row on the bar lights it now, in the place you picked it.
 
   /**
    * The fixture under the pointer, from the renderer. Only the hint changes —
@@ -419,21 +598,20 @@ export class UI {
   }
 
   /**
-   * The entries the number keys reach.
+   * The entries on the bar right now — one tab's worth.
    *
-   * Capped, because the palette is a catalog now and a catalog has no length.
-   * Nine because that is how many number keys there are — the number on a button
-   * IS the key that presses it, and a tenth button with no key on it is a button
-   * that looks broken. Everything past nine lives in the menu, which is what the
-   * menu is for.
+   * Not capped at nine any more. The tab is the cap: nine is how many number
+   * keys there are, and the tenth entry of a tab is still one tap away rather
+   * than behind a second palette. `selectBuildToolByIndex` is the number keys'
+   * half of this and stays inside the nine it can name.
    */
   hotbarTools() {
-    return buildTools(this).slice(0, 9);
+    return this.openBuildGroup()?.tools ?? [];
   }
 
   selectBuildToolByIndex(i) {
     const t = this.hotbarTools()[i];
-    if (t) this.selectBuildTool(t.id);
+    if (t) { this.commitBuildMode(); this.selectBuildTool(t.id); }
   }
 
   selectCropByIndex(i) {
@@ -727,9 +905,17 @@ export class UI {
       : '';
     this.updatePrompt(me?.action ?? null);
     this.ownedUpgrades = state.ownedUpgrades ?? this.ownedUpgrades;
-    // The build menu shows how many of each you own. Keeping it here rather
-    // than only in the section means the rail's badges can read it too.
+    // The build bar shows how many of each you own. Keeping it here rather
+    // than only in the bar means the rail's badges can read it too.
     this.fixtureCounts = state.fixtures ?? this.fixtureCounts;
+    // Placing one is exactly when that count moves, and nothing else redraws the
+    // bar for it — hands are empty on either side of a build. Compared as a
+    // string first, because this runs at 10Hz over a live canvas.
+    const counts = JSON.stringify(this.fixtureCounts ?? {});
+    if (this.buildOn && counts !== this._countKey) {
+      this._countKey = counts;
+      this.renderHotbar();
+    }
 
     // A menu that belongs to one thing — a fixture, a hire — is a live window
     // onto it. Whatever opened it left a tick behind that redraws it when what

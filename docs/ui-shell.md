@@ -24,8 +24,8 @@ Three zones, three jobs, no overlap:
 | Zone | Contains | Interactive? |
 |---|---|---|
 | **Top-left column** | cash, day, season, clock, reputation, then active modifiers | no — passive readout |
-| **Right rail** | one icon per menu, each with a live badge | yes — this is the menu |
-| **Bottom hotbar** | the build palette, and only while building | yes — one tap or number key each |
+| **Right rail** | one icon per menu, each with a live badge — plus Build, which is a mode | yes — this is the menu |
+| **Bottom bar** | the whole build palette, and only while building | yes — one tap or number key each |
 
 The panel opens **leftwards** out of the rail, top-aligned, which is why it
 moved from `inset: auto 14px 14px auto` to `inset: 14px 58px auto auto`. That
@@ -85,6 +85,61 @@ Two things that will bite:
   live canvas. Supplier's signature is one value — the cash you have — and that
   is the target.
 
+## The build bar
+
+**Build is not a section.** It was one — a 214px list in `#panel` — while the
+bottom bar showed the first nine entries of the same list. Two palettes for one
+palette, and the bar could only ever be a preview: nine is how many number keys
+there are, so a tenth fixture had nowhere to go but the panel. The bar has tiers
+now and it scrolls, so it *is* the catalogue and the panel copy is gone.
+
+Three tiers, top to bottom, all in `#build-bar`:
+
+| Tier | Element | Is |
+|---|---|---|
+| Category | `#build-groups` | `BUILD_GROUPS` — Shop, Farm, Appliances, Building, Decoration |
+| Entries | `#build-tools` | that tab's palette entries, scrolling sideways. `1`–`9` reach the first nine |
+| Shape | `#build-shapes` | `variantsOf` the selected piece, and only when there are two or more |
+
+The split is by **what you are doing**, not by which code path places it — a
+fence is drawn on an edge exactly the way a wall is, and it sits under Farm
+because fencing a field is farming. A tool may name several groups (`group` is a
+string or an array), and a group nobody has authored anything for never renders.
+
+**The hint (`#build-hint`) sits above the bar and only when it has news** — what
+is in your hands, what you are pointing at, or an amber warning. It used to
+carry a standing "tap bare ground to build a shelf", which restated the button
+already lit beside it, sat on the bottom edge of the screen, and held the rest
+of the corner HUD up for a line nobody read twice.
+
+`--build-h` is the bar's measured height, set in `renderHotbar` → `measureBar`,
+and `#log`/`#carry`/`#prompt` clear the bar with `calc()` off it. It is measured
+rather than written down because the bar grows and shrinks — the shapes tier
+appears, the hint comes and goes — and a hard-coded offset is one that goes
+wrong the day a tier is added.
+
+## Deleting things
+
+One tool, on every tab, last in each: **Demolish**. Aim it at a fixture and a
+tap tears that fixture out; drag it along a line and it knocks the wall or fence
+through. Both halves already existed and neither was findable — walls had a
+`knock` tool, everything else was Remove inside the fixture's own menu, and
+nothing said so.
+
+It stays armed after each removal, which is what a bulldozer does; clearing a
+row otherwise means re-picking the tool between every press. Three things keep
+that honest, and the history says all three are needed:
+
+- **The ring goes red** (`setAimTarget(f, 'raze')`), and the hint says *Tear out
+  the shelving* instead of *tap to open it*. A tap with the bulldozer up is a
+  verb, not a look, and the copy has to say which.
+- **The server refuses anything with contents in it**, or your last till. So a
+  mis-tap can only reach an empty fixture, and it refunds `FIXTURE_REFUND`.
+- **It names its target.** The Clear tool that ate seven shelves in a row fired
+  on *proximity* and re-armed the instant it finished — standing still emptied
+  the shop while you read the log. This one removes the one thing ringed under
+  the pointer, one tap each.
+
 ## Keys
 
 Bound from `SECTIONS` in `main.js`, so a new section is bound and labelled the
@@ -92,37 +147,43 @@ moment it exists.
 
 | Key | Does |
 |---|---|
-| `M` `B` `U` `H` `T` `/` | toggle Build · Supplier · Upgrades · Staff · Shop · Controls |
-| `G` | build mode on and off |
-| `1`–`9` | hotbar slot — fixtures while building, seeds otherwise |
+| `B` `U` `H` `T` `/` | toggle Supplier · Upgrades · Staff · Shop · Controls |
+| `G` | build mode on and off — the rail's Build button presses this |
+| `1`–`9` | bottom bar — the open tab while building, seeds otherwise |
+| `Tab` | next build tab (`shift` for back). Prevented hard, or focus lands in the search box |
 | `R` | turn what you're placing |
 | hold `E` / `Space` | use what you're stood by |
 | hold `Q` | seed wheel |
 | `Esc` | clear the search box → close the menu → put down what you're carrying → leave build mode |
+| right-click | the same ladder, on the world — but cancels a half-drawn wall run first |
 
-**`G` is not a menu key.** Build *mode* is a state of the world — a ghost on the
-ground, taps that place instead of walk — and the Build *menu* is a list of
-things to buy.
+Right-click runs `ui.escape()` rather than dropping straight out to shopkeeping,
+and the difference is load-bearing exactly once: **with something in your hands,
+"out" has to mean putting it back before it means leaving the mode**, or one
+click strands the fixture you were carrying. Mid-drag it takes the run instead —
+`endStick()` with no event drops the segments without sending them — because a
+wall you have changed your mind about is not a mode you have changed your mind
+about. The build bar swallows the browser's context menu without acting on it: a
+right-click on a button is a miss, not a decision to leave.
 
-Opening the menu turns the mode on, and **shutting it without picking anything
-turns the mode back off**. A menu that leaves the world in a mode you can't see
-you're in is how you end up placing a shelf when you meant to walk. Three rules
-make that work, and all three are needed:
+**`G` is not a menu key**, and since the palette moved to the bar there is no
+Build menu for it to be confused with. `BUILD_MODE` in `sections.js` is what
+puts it on the rail: same shape as a section, plus `mode: true`, which is how
+`Rail` knows a press toggles the world rather than opening a panel and how
+`setOpen` knows never to light it as though a menu were open. Its `on` state is
+driven by `ui.buildOn` in `Rail.update`.
 
-- **Pick a row, or lift something → the mode stays.** You opened it to choose a
-  shelf and then place six of them, and lifting leaves the thing in your hands.
-  Both clear `_modeFromMenu` first: acting is committing.
-- **Any panel closing with nothing left open → the mode goes**, but only if a
-  menu is what switched it on.
-- **`G` outranks the menus.** If you were already building when you opened one,
-  shutting it leaves you building — the mode was never the menu's to take away.
+`_modeFromMenu` outlived the Build section and is still load-bearing, because
+**a fixture's own menu still borrows build mode**: the server takes the mode as
+consent for every verb that names a fixture by id, so pressing Move or Remove in
+a menu you opened without it switches it on for you (`withBuildMode`) and gives
+it back when the menu closes (`releaseMenuMode`).
 
-`releaseMenuMode()` is called from `closePanel` and from `showSection` when
-switching, and it is deliberately **not** scoped to the Build menu's own close.
-Opening Build and then tapping a shelf swaps that menu for the *fixture's*, so
-by the time you remove the shelf the Build menu is long gone — and it was that
-gap that left you stood in an armed build mode with nothing on screen saying so,
-where the next tap built a shelf you never asked for.
+- **Act, and the mode is yours.** Picking a tool off the bar, lifting something,
+  placing something — all call `commitBuildMode` first.
+- **Any panel closing with nothing left open → a borrowed mode goes.**
+- **`G` outranks it.** A mode you turned on yourself is never one a menu closing
+  can take away.
 
 Two supporting details, both load-bearing:
 
@@ -132,8 +193,13 @@ Two supporting details, both load-bearing:
 - `closePanel` releases the mode *after* clearing `openPanel`, because
   `toggleBuild(false)` closes an open fixture menu and would otherwise re-enter.
 
-The rail's Build icon carries a `mode` outline whenever build mode is on and its
-menu is shut, so the state is never invisible.
+**An edge tool is never sent to the server.** `setBuildTool` refuses anything
+outside `FIXTURES`, so telling it "fence" only ever produced *no such build
+tool* on screen — and drawing one names its own kind in `build-edge` anyway, so
+there was nothing to tell it. `selectBuildTool` skips the message and
+`syncBuildTool` ignores the server's answer while one is armed (`armedEdgeTool`),
+or the next snapshot would put the shelf back in your hand a tick after you
+chose the wall.
 
 **Every `keydown` returns early on `INPUT`.** Without it, searching the supplier
 for "carrot" walks you into a wall and buys a shelf.
@@ -325,10 +391,14 @@ supplier's search box.
 
 ## Still to do
 
-- **`client/ui.js` is 844 lines**, over the 600 cap. The fixture menu
-  (`showFixture`, `fixtureDetail`, `fixtureUpgrades`, `wireFixtureMenu`,
-  `contentsOf`, `removeBlockedReason`, `refundFor`) is ~250 self-contained lines
-  and is the obvious extraction into `client/fixture-menu.js`.
-- The `☰` on the hotbar's Menu button is still a character, not an icon.
-- Nothing verifies the rail at narrow widths beyond a look — `#panel` is
-  `calc(100vw - 88px)` under 720px specifically to clear it.
+- **`client/ui.js` is 1140 lines**, well over the 600 cap. The fixture menu
+  already left for `client/fixture-menu.js`; the build bar (`renderHotbar`,
+  `renderBuildShapes`, `buildGroupList`, `openBuildGroup`, `selectBuildGroup`,
+  `cycleBuildGroup`, `hotbarTools`, `renderBuildHint`, `measureBar`) is the next
+  ~200 self-contained lines and wants `client/build-bar.js`.
+- Nothing verifies the rail or the bar at narrow widths beyond a look — `#panel`
+  is `calc(100vw - 72px)` under 720px to clear the rail, and `.cat .nm` is
+  hidden there so five tabs still fit.
+- **None of the bar has been seen by an agent.** `screenshot` is
+  `renderer.domElement.toDataURL()` — the WebGL canvas only — so every DOM
+  change in this file is verified by a human looking at it or not at all.

@@ -87,10 +87,18 @@ addEventListener('keydown', (e) => {
   if (k === ',') scene.rotateView(-1);
   if (k === '.') scene.rotateView(1);
 
-  // In build mode the number row picks a fixture instead of a seed.
+  // In build mode the number row picks a fixture instead of a seed. It reaches
+  // the open tab of the bar, which is what keeps a number meaning the button
+  // wearing it however much anybody adds to the catalogue.
   if (k >= '1' && k <= '9') {
     if (ui.buildOn) ui.selectBuildToolByIndex(Number(k) - 1);
     else ui.selectCropByIndex(Number(k) - 1);
+  }
+  // And Tab moves between tabs. Prevented hard: the default would walk focus
+  // onto the search box, where the very next keypress types instead of playing.
+  if (k === 'tab' && ui.buildOn) {
+    e.preventDefault();
+    ui.cycleBuildGroup(e.shiftKey ? -1 : 1);
   }
   if (ui.buildOn && k === 'r') {
     ui.rotateBuild();
@@ -131,6 +139,21 @@ function refreshGhost(force = false) {
   // is live the drag owns the ghost — it knows the whole run, this only ever
   // knows the one segment you are hovering.
   if (edgeDrag) return;
+
+  // The bulldozer aims at a thing first and a line second. A shelf standing
+  // against a wall covers the line behind it on screen, and "the wall" is never
+  // what you meant while a whole fixture is under the pointer.
+  const razing = pointer.onCanvas && ui.demolishArmed()
+    ? scene.pickFixture(pointer.x, pointer.y) : null;
+  if (razing) {
+    scene.setEdgeGhost(null, null);
+    if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
+    scene.setAimTarget(razing, 'raze');
+    ui.setAim(razing);
+    ui.setBuildWarn(null);
+    return;
+  }
+
   const edgeKind = pointer.onCanvas ? ui.edgeKindForTool() : null;
   if (edgeKind !== null) {
     const seg = scene.pickEdge(pointer.x, pointer.y);
@@ -266,8 +289,11 @@ function showEdgeDrag(cx, cy) {
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
 
-  // A wall tool takes the drag before the joystick sees it.
-  const ek = ui.edgeKindForTool();
+  // A wall tool takes the drag before the joystick sees it — unless the
+  // bulldozer is up and there is something standing where you pressed, which is
+  // a tap on that thing rather than the start of a run along the wall behind it.
+  const ek = ui.demolishArmed() && scene.pickFixture(e.clientX, e.clientY)
+    ? null : ui.edgeKindForTool();
   if (ek !== null) {
     const start = scene.pickEdge(e.clientX, e.clientY);
     if (start) {
@@ -341,6 +367,29 @@ canvas.addEventListener('pointercancel', endStick);
 addEventListener('blur', () => endStick());
 
 /**
+ * The right button backs out, the way it does in every builder.
+ *
+ * It runs the same ladder Escape does rather than dropping straight to
+ * shopkeeping, and that matters in one place: with a fixture in your hands,
+ * "out" has to mean putting it back before it means leaving the mode, or a
+ * click would strand the thing you were carrying. So carrying → put it back,
+ * then → leave build mode. Same rungs, same order, one implementation.
+ */
+canvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  // Mid-run, it takes back the run rather than the mode. You are four tiles
+  // into a wall you have changed your mind about; the mode is not the thing you
+  // are trying to undo, and `endStick` with no event drops it without sending.
+  if (edgeDrag) { endStick(); return; }
+  ui.escape();
+});
+
+// The bar is a game toolbar, not a document — a browser menu over it is never
+// what anybody meant by right-clicking there. No `escape()` though: pressing it
+// on a button is a miss, not a decision to leave.
+document.getElementById('build')?.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/**
  * What a tap in build mode means, decided by what is on the tile you tapped.
  *
  * Bare ground builds. An existing fixture opens its own menu — move, turn,
@@ -355,6 +404,11 @@ function tapAtPointer(cx, cy) {
   // Not while your hands are full: then every tile is a home for what you carry.
   if (!ui.holding) {
     const over = scene.pickFixture(cx, cy);
+    // ...except with the bulldozer up, where a tap is the verb itself. One tap
+    // per thing, on the one thing that is ringed — the tool stays armed after,
+    // the way a bulldozer does, because clearing a row otherwise means picking
+    // the tool up again between every single press.
+    if (over && ui.demolishArmed()) { ui.razeFixture(over); return; }
     if (over) { showFixture(ui, over); return; }
   }
 

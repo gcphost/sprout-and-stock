@@ -20,8 +20,13 @@ export const PALETTE = {
   /** A plot nobody has turned over yet: scrubby, pale, still half turf. */
   soilRough: '#a89268',
   soilWeed: '#93b96a',
-  bay: '#c2a173',
+  /** The delivery pad: cool grey hardstanding, where the lorry drops an order. */
+  bay: '#9aa79b',
   bayPlank: '#a8865c',
+  /** The drop-off pad: warm timber decking, where you park an armful. The two
+   *  sit in the same yard holding the same crates, so telling them apart at a
+   *  glance is the entire reason there are two of them. */
+  drop: '#c2a173',
   floor: '#f0ddb8',
   floorAlt: '#e8d2a8',
   wall: '#fbf8f0',
@@ -72,6 +77,7 @@ export const TILE_STYLE = {
   [T.PATH]: { color: PALETTE.path, h: 0.05 },
   [T.FENCE]: { color: PALETTE.fence, h: 0.45 },
   [T.BAY]: { color: PALETTE.bay, h: 0.07 },
+  [T.DROP]: { color: PALETTE.drop, h: 0.07 },
 };
 
 /**

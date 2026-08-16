@@ -496,13 +496,17 @@ export function buildFixtureGhost(height, color, verdict, anchor) {
  * hold would land on, which matters when a shelf, a till and a pallet are all
  * within arm's reach of each other.
  */
-export function buildTargetMarker() {
+export function buildTargetMarker(mode = 'aim') {
   const g = new THREE.Group();
+  // Amber is "this is what you are pointing at". Red is the same sentence with
+  // a bulldozer in your hands, and the ring is the only warning that arrives
+  // before the tap rather than after it.
+  const color = mode === 'raze' ? 0xe2564a : 0xffd66b;
 
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.52, 0.66, 28),
     new THREE.MeshBasicMaterial({
-      color: 0xffd66b, transparent: true, opacity: 0.9,
+      color, transparent: true, opacity: 0.9,
       side: THREE.DoubleSide, depthTest: false,
     }),
   );
@@ -513,7 +517,7 @@ export function buildTargetMarker() {
 
   // A little downward chevron bobbing over the target.
   const arrow = new THREE.Mesh(GEO.cone, new THREE.MeshBasicMaterial({
-    color: 0xffd66b, transparent: true, opacity: 0.95, depthTest: false,
+    color, transparent: true, opacity: 0.95, depthTest: false,
   }));
   arrow.scale.set(0.26, 0.3, 0.26);
   arrow.rotation.x = Math.PI;

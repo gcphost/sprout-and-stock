@@ -236,9 +236,9 @@
       font: inherit; transition: background .12s, transform .12s;
     }
     .rail-btn:hover { transform: translateX(-2px); }
+    /* Lit means "this menu is open" — except on Build, which is a mode rather
+       than a menu, where it means the world is in it. */
     .rail-btn.on { background: #ffd66b; }
-    /* The menu is shut but the world is still in its mode. */
-    .rail-btn.mode { box-shadow: 0 4px 14px rgba(58,49,40,.15), inset 0 0 0 2px #ffd66b; }
     .rail-btn .ico { font-size: 18px; line-height: 1; }
     .rail-btn .kb { position: absolute; bottom: 2px; right: 5px; font-size: 8px; font-weight: 800; opacity: .35; }
     .rail-btn .badge {
@@ -277,7 +277,7 @@
     #prompt.show { opacity: 1; transform: translate(-50%, 0); }
     #prompt.going { background: #ffd66b; color: var(--ink); }
     #prompt b { font-weight: 800; }
-    body.building #prompt { bottom: 140px; }
+    body.building #prompt { bottom: calc(var(--build-h, 116px) + 34px); }
 
     /* toast */
     /* Just below #hq's single strip. */
@@ -458,24 +458,53 @@
       position: absolute; inset: 0 auto 0 0; background: rgba(90,163,86,.28);
     }
     .wk-energy.low i { background: rgba(226,86,74,.3); }
-    .tool.more { min-width: 52px; opacity: .75; }
-    .tool.more:hover { opacity: 1; }
+    /* The build bar. Hidden entirely unless you're building — the shop floor is
+       the game, and a permanent toolbar would make it look like a level editor.
 
-    /* The hotbar. Hidden entirely unless something has put sub-icons in it —
-       the shop floor is the game, and a permanent toolbar would make it look
-       like a level editor. */
+       Two tiers, because the palette is a database anyone can add to: tabs for
+       what sort of thing, then that tab's entries in a strip that scrolls
+       sideways. A flat row could only show its first nine, which is why there
+       used to be a second copy of this palette in a panel. */
     #build {
       bottom: 14px; left: 50%; transform: translate(-50%, 26px); opacity: 0;
       display: flex; flex-direction: column; align-items: center; gap: 6px;
       pointer-events: none; transition: .18s;
     }
     #build.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+    #build-bar {
+      display: flex; flex-direction: column; gap: 5px;
+      background: var(--panel); border-radius: 16px; padding: 6px;
+      box-shadow: 0 8px 26px rgba(58,49,40,.24);
+      max-width: min(960px, calc(100vw - 28px));
+    }
+
+    /* Tier one: what sort of thing. */
+    #build-groups {
+      display: flex; gap: 3px; padding-bottom: 5px; border-bottom: 1px solid var(--line);
+    }
+    .cat {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+      border: 0; border-radius: 10px; background: transparent; cursor: pointer;
+      font: inherit; color: var(--ink); opacity: .5; padding: 5px 10px;
+      white-space: nowrap; transition: opacity .1s, background .1s;
+    }
+    .cat:hover { opacity: .85; background: rgba(58,49,40,.06); }
+    .cat.on { opacity: 1; background: rgba(58,49,40,.1); }
+    .cat .ico { font-size: 15px; line-height: 1; }
+    .cat .nm { font-size: 11.5px; font-weight: 800; }
+
+    /* Tier two: that tab's entries. Scrolls rather than wraps, so the bar keeps
+       one row's height however much anybody authors. */
     #build-tools {
-      display: flex; gap: 6px; background: var(--panel); border-radius: 16px;
-      padding: 6px; box-shadow: 0 8px 26px rgba(58,49,40,.24);
+      display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+      scrollbar-width: thin; scrollbar-color: rgba(58,49,40,.25) transparent;
+    }
+    #build-tools::-webkit-scrollbar { height: 5px; }
+    #build-tools::-webkit-scrollbar-thumb {
+      background: rgba(58,49,40,.22); border-radius: 99px;
     }
     .tool {
-      position: relative; border: 0; background: transparent; cursor: pointer;
+      position: relative; border: 0; background: transparent; cursor: pointer; flex: none;
       font: inherit; color: var(--ink); border-radius: 12px; padding: 7px 12px 6px;
       display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 62px;
     }
@@ -484,21 +513,59 @@
     .tool .key {
       position: absolute; top: 2px; left: 5px; font-size: 9px; font-weight: 800; opacity: .4;
     }
+    /* How many are already standing in the shop. Opposite corner to the key,
+       because they are answers to different questions and both are one glyph. */
+    .tool .have {
+      position: absolute; top: 2px; right: 5px; font-size: 9px; font-weight: 800; opacity: .45;
+      font-variant-numeric: tabular-nums;
+    }
     .tool .ico { font-size: 19px; line-height: 1; }
     .tool .nm { font-size: 11px; font-weight: 700; }
     .tool .cost { font-size: 10px; font-weight: 700; opacity: .6; font-variant-numeric: tabular-nums; }
+
+    /* Tier three, and only when the selected piece comes in more than one: a
+       shape is not a fourth thing to buy, so it never takes a number key. */
+    #build-shapes {
+      display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+      padding-top: 5px; border-top: 1px solid var(--line);
+    }
+    #build-shapes[hidden] { display: none; }
+    #build-shapes .lbl {
+      font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+      opacity: .45; padding: 0 4px;
+    }
+    .shape {
+      border: 0; border-radius: 8px; background: rgba(58,49,40,.07); cursor: pointer;
+      font: inherit; font-size: 11px; font-weight: 700; color: var(--ink);
+      padding: 3px 9px; opacity: .75;
+    }
+    .shape:hover { opacity: 1; }
+    .shape.on { background: #ffd66b; opacity: 1; }
+
+    /* Above the bar, and only when it has something to report — see
+       `renderBuildHint`. Below it, it sat on the very bottom edge of the screen
+       and pushed everything else up for a line that was usually restating the
+       lit button. */
     #build-hint {
       background: rgba(58,49,40,.82); color: #fff; border-radius: 99px;
       padding: 4px 12px; font-size: 12px; font-weight: 600;
     }
-    /* Nudge the corner HUD out of the hotbar's way. */
-    body.building #log, body.building #carry { bottom: 128px; }
+    #build-hint[hidden] { display: none; }
+    /* The one that costs money if you go through with it. */
+    #build-hint.warn { background: var(--accent); }
+    /* Nudge the corner HUD out of the bar's way. Its height depends on how many
+       tiers are showing, so `renderHotbar` measures it rather than the number
+       being guessed at here and drifting the day a third tier appears. */
+    body.building #log, body.building #carry { bottom: calc(var(--build-h, 116px) + 22px); }
 
     @media (max-width: 720px) {
       #log { display: none; }
       /* Full width bar the rail, which the panel opens out of. */
       #panel { width: calc(100vw - 72px); }
       .tool { min-width: 52px; padding: 6px 8px 5px; }
+      /* No room for five labelled tabs — the icon is the tab at this width. */
+      .cat { padding: 5px 6px; }
+      .cat .nm { display: none; }
     }
   </style>
 </head>
@@ -536,8 +603,12 @@
   <div id="toast" class="hud"></div>
 
   <div id="build" class="hud">
-    <div id="build-tools"></div>
-    <div id="build-hint"></div>
+    <div id="build-hint" hidden></div>
+    <div id="build-bar">
+      <div id="build-groups"></div>
+      <div id="build-tools"></div>
+      <div id="build-shapes" hidden></div>
+    </div>
   </div>
 
   <div id="panel" class="hud">
