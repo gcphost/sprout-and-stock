@@ -60,15 +60,23 @@ export const act = (id, icon, name, sub, { danger = false, off = false, right = 
  * an icon genuinely cannot say, and they are the two you decide on — `$120`
  * and `5` stay, as a badge.
  *
+ * Nor does the word, and that is the correction to a first pass that dropped
+ * it. A tooltip is a hover, and half this game is played with a finger — so
+ * icon-plus-`title` is a label on a desktop and five unlabelled glyphs on a
+ * phone. `short` is a one-word caption under the icon, exactly what the build
+ * bar does with `.tool .nm` and for exactly this reason. The tooltip keeps the
+ * whole sentence; the caption keeps the verb.
+ *
  * `data-act` is unchanged, so every one of these wires up exactly as the rows
  * did: this is a different shape for the same button, not a different button.
  */
-export const actIcon = (id, icon, name, sub, { danger = false, off = false, right = '' } = {}) => `
+export const actIcon = (id, icon, name, sub, short, { danger = false, off = false, right = '' } = {}) => `
   <button class="fx-verb${off ? ' off' : ''}${danger ? ' danger' : ''}"
     ${off ? 'disabled' : `data-act="${id}"`}
     title="${esc(sub ? `${name} — ${sub}` : name)}" aria-label="${esc(name)}">
     ${right ? `<span class="have">${esc(right)}</span>` : ''}
     <span class="ico">${icon}</span>
+    <span class="nm">${esc(short)}</span>
   </button>`;
 
 /**
@@ -190,7 +198,7 @@ export function showFixture(ui, f) {
   const foot = [];
 
   foot.push(actIcon('move', ICONS.move, 'Move it',
-    'Picks it up with everything on it. Nothing shifts until you set it down.'));
+    'Picks it up with everything on it. Nothing shifts until you set it down.', 'Move'));
 
   if (FIXTURES[kind]?.rotates) {
     // Which side a thing faces means something different for each of them, and
@@ -200,7 +208,7 @@ export function showFixture(ui, f) {
       checkout: 'Quarter turn. Sets where you serve and which way the queue runs.',
       station: 'Quarter turn. Sets which side you load it from.',
     }[kind] ?? 'Quarter turn. Sets which aisle shoppers browse it from.';
-    foot.push(actIcon('rotate', ICONS.rotate, 'Rotate', why));
+    foot.push(actIcon('rotate', ICONS.rotate, 'Rotate', why, 'Rotate'));
   }
 
   // Upgrading sits above the destructive half of the list: it is the thing you
@@ -214,7 +222,7 @@ export function showFixture(ui, f) {
     // which is fixed and short; the row below it says what you actually get.
     const blurb = `${next.name} — ${tierBlurb(next)}`;
     foot.push(actIcon('upgrade', ICONS.tierup, 'Upgrade',
-      afford ? blurb : `${blurb} You cannot afford it yet.`,
+      afford ? blurb : `${blurb} You cannot afford it yet.`, 'Upgrade',
       // A tier that is purely cosmetic still costs nothing, and `$0` in the
       // price column reads as a broken number rather than as good news.
       { off: !afford, right: next.cost > 0 ? `$${next.cost.toFixed(0)}` : 'free' }));
@@ -222,7 +230,7 @@ export function showFixture(ui, f) {
 
   const holds = contentsOf(ui, f, live);
   if (holds.n > 0) {
-    foot.push(actIcon('empty', ICONS.empty, 'Empty it', holds.blurb, { right: `${holds.n}` }));
+    foot.push(actIcon('empty', ICONS.empty, 'Empty it', holds.blurb, 'Empty', { right: `${holds.n}` }));
   } else if ((kind === 'shelf' || kind === 'freezer') && live?.item_id) {
     // A label is what was last on it; what it is *kept* for is a tab above and
     // survives this. This one keeps its sub-line, because "take the label off"
@@ -231,13 +239,17 @@ export function showFixture(ui, f) {
     foot.push(actIcon('empty', ICONS.label, 'Take the label off',
       live.assigned
         ? `Last held ${ui.itemName(live.item_id)}. It stays kept for ${ui.itemName(live.assigned)}.`
-        : `Still labelled ${ui.itemName(live.item_id)}. Clear it and anything can go on.`));
+        : `Still labelled ${ui.itemName(live.item_id)}. Clear it and anything can go on.`,
+      // Not "Label" — that reads as a verb for putting one ON, which is the
+      // opposite of what this does and is a tab away.
+      'Unlabel'));
   }
 
   // A greyed square says nothing about why, and this is the one verb people
   // press and get refused — so the reason IS the tooltip when there is one.
   foot.push(actIcon('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
     blocked ?? 'Half of what it cost back.',
+    kind === 'station' ? 'Sell' : 'Remove',
     { danger: true, off: !!blocked, right: blocked ? '' : `+$${refund.toFixed(0)}` }));
 
   parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
