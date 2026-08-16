@@ -503,6 +503,35 @@
     /* Its own border is the divider; the heading's would double it. */
     .pnl-foot .sep { border-top: 0; margin-top: 0; }
 
+    /* The verbs, as one row of squares rather than five labelled lines.
+       Deliberately the mirror of `.tabs` at the other end of the panel: the
+       same trade, the same size, the same reason — 214px does not have room
+       for five words AND the list they act on. Tabs choose what you are
+       looking at, these do something to it, and having them read as a matched
+       pair top and bottom is worth more than either being prettier alone. */
+    .fx-verbs { display: flex; gap: 3px; padding: 4px 0 2px; }
+    .fx-verb {
+      flex: 1; position: relative; display: grid; place-items: center;
+      padding: 7px 0; border: 0; border-radius: 8px; background: transparent;
+      color: var(--ink); opacity: .55; font-size: 13px; cursor: pointer;
+      transition: opacity .1s, background .1s;
+    }
+    .fx-verb:hover { opacity: 1; background: rgba(58,49,40,.07); }
+    .fx-verb.danger:hover { background: rgba(190,60,45,.12); color: var(--accent); }
+    /* Refused, not missing. It keeps its place in the row so the four you can
+       press never shuffle sideways under your thumb, and `disabled` is what
+       stops the press — greying without it is a button that lies. */
+    .fx-verb.off { opacity: .25; cursor: default; }
+    .fx-verb.off:hover { background: transparent; }
+    .fx-verb svg { display: block; }
+    /* The price or the count — the two things an icon cannot say. Same corner
+       and same treatment the build bar's `.have` badge uses. */
+    .fx-verb .have {
+      position: absolute; top: 1px; right: 3px;
+      font-size: 9.5px; font-weight: 700; line-height: 1;
+      color: var(--good); opacity: .95; pointer-events: none;
+    }
+
     /* One fixture's own menu. The read-out at the top says what this thing is
        doing right now; the rows below are what you can do about it. */
     .fx-detail { padding: 4px 8px 5px; }

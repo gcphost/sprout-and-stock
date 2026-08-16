@@ -44,6 +44,34 @@ export const act = (id, icon, name, sub, { danger = false, off = false, right = 
   </div>`;
 
 /**
+ * The same verb as one square in a row of them.
+ *
+ * Five verbs a line each is still five lines of a pinned foot, on a panel
+ * 214px wide — and they are the most familiar thing on this menu. The same
+ * five, in the same order, on every fixture in the game: once you have moved
+ * one shelf you are reading the label to find the icon you already know.
+ *
+ * So the label comes off and the tooltip carries it, exactly the way `.tabs`
+ * above already trades four words for four pictograms on a panel this narrow.
+ * `title` is the whole name AND its explanation, because a tooltip has room
+ * for the sentence a pinned row could not afford.
+ *
+ * What does NOT come off is the number. A price and a count are the two things
+ * an icon genuinely cannot say, and they are the two you decide on — `$120`
+ * and `5` stay, as a badge.
+ *
+ * `data-act` is unchanged, so every one of these wires up exactly as the rows
+ * did: this is a different shape for the same button, not a different button.
+ */
+export const actIcon = (id, icon, name, sub, { danger = false, off = false, right = '' } = {}) => `
+  <button class="fx-verb${off ? ' off' : ''}${danger ? ' danger' : ''}"
+    ${off ? 'disabled' : `data-act="${id}"`}
+    title="${esc(sub ? `${name} — ${sub}` : name)}" aria-label="${esc(name)}">
+    ${right ? `<span class="have">${esc(right)}</span>` : ''}
+    <span class="ico">${icon}</span>
+  </button>`;
+
+/**
  * Open the menu for one fixture.
  *
  * @param {object} ui the HUD
@@ -150,19 +178,30 @@ export function showFixture(ui, f) {
 
   // ---- the foot: what you can do about it ----------------------------------
   //
-  // One line each, and that is the price of being pinned. Five verbs explaining
-  // themselves in two lines apiece is half a panel of standing prose that never
-  // changes and is read exactly once — and it was squeezing the half of the
-  // menu that actually has something to say down to a single visible row.
+  // One row of icons, not five rows of prose, and that is the price of being
+  // pinned: every line the foot takes is a line the scrolling half does not
+  // get. These five are also the most familiar thing on the menu — the same
+  // five, in the same order, on every fixture in the game — so past the first
+  // shelf you are reading a label to find an icon you already know.
   //
-  // So a sub-line has to earn its place by carrying something you cannot get
-  // from the row itself: what a tier gives you, or why Remove is refusing. Move
-  // it, Rotate and Empty it are two-word verbs for exactly what they say, and
-  // their counts and prices are already in the right-hand column.
+  // The sentence each one used to carry moves into its tooltip, which has room
+  // for the whole of it rather than the clipped half a 214px row could show.
+  // See `actIcon` for what deliberately does NOT move: the price and the count.
   const foot = [];
 
-  foot.push(act('move', ICONS.move, 'Move it', ''));
-  if (FIXTURES[kind]?.rotates) foot.push(act('rotate', ICONS.rotate, 'Rotate', ''));
+  foot.push(actIcon('move', ICONS.move, 'Move it',
+    'Picks it up with everything on it. Nothing shifts until you set it down.'));
+
+  if (FIXTURES[kind]?.rotates) {
+    // Which side a thing faces means something different for each of them, and
+    // it is the reason to turn it at all — so the tooltip says the actual
+    // reason. It costs nothing to be specific in a tooltip.
+    const why = {
+      checkout: 'Quarter turn. Sets where you serve and which way the queue runs.',
+      station: 'Quarter turn. Sets which side you load it from.',
+    }[kind] ?? 'Quarter turn. Sets which aisle shoppers browse it from.';
+    foot.push(actIcon('rotate', ICONS.rotate, 'Rotate', why));
+  }
 
   // Upgrading sits above the destructive half of the list: it is the thing you
   // are most likely to have opened a shelf you already like in order to do.
@@ -174,7 +213,7 @@ export function showFixture(ui, f) {
     // register` was both clipped and barely a sentence. The title is the verb,
     // which is fixed and short; the row below it says what you actually get.
     const blurb = `${next.name} — ${tierBlurb(next)}`;
-    foot.push(act('upgrade', ICONS.tierup, 'Upgrade',
+    foot.push(actIcon('upgrade', ICONS.tierup, 'Upgrade',
       afford ? blurb : `${blurb} You cannot afford it yet.`,
       // A tier that is purely cosmetic still costs nothing, and `$0` in the
       // price column reads as a broken number rather than as good news.
@@ -183,25 +222,25 @@ export function showFixture(ui, f) {
 
   const holds = contentsOf(ui, f, live);
   if (holds.n > 0) {
-    foot.push(act('empty', ICONS.empty, 'Empty it', '', { right: `${holds.n}` }));
+    foot.push(actIcon('empty', ICONS.empty, 'Empty it', holds.blurb, { right: `${holds.n}` }));
   } else if ((kind === 'shelf' || kind === 'freezer') && live?.item_id) {
     // A label is what was last on it; what it is *kept* for is a tab above and
     // survives this. This one keeps its sub-line, because "take the label off"
     // does not say WHICH label — and on a shelf that is also kept for something
     // else, not saying so is the menu looking like it will undo both.
-    foot.push(act('empty', ICONS.label, 'Take the label off',
+    foot.push(actIcon('empty', ICONS.label, 'Take the label off',
       live.assigned
-        ? `${ui.itemName(live.item_id)} — stays kept for ${ui.itemName(live.assigned)}`
-        : `${ui.itemName(live.item_id)} — then anything can go on`));
+        ? `Last held ${ui.itemName(live.item_id)}. It stays kept for ${ui.itemName(live.assigned)}.`
+        : `Still labelled ${ui.itemName(live.item_id)}. Clear it and anything can go on.`));
   }
 
-  // The refund is in the right-hand column, so the sub-line is free to be the
-  // one thing it cannot say: why the row is greyed out.
-  foot.push(act('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
-    blocked ?? '',
-    { danger: true, off: !!blocked, right: blocked ? '' : `+$${refund.toFixed(2)}` }));
+  // A greyed square says nothing about why, and this is the one verb people
+  // press and get refused — so the reason IS the tooltip when there is one.
+  foot.push(actIcon('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
+    blocked ?? 'Half of what it cost back.',
+    { danger: true, off: !!blocked, right: blocked ? '' : `+$${refund.toFixed(0)}` }));
 
-  parts.push(`<div class="pnl-foot">${foot.join('')}</div>`);
+  parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
 
   ui.showPanel(`${FIXTURE_ICON[kind] ?? ICONS.crate} ${ui.fixtureName(f)}`, parts.join(''));
   wireFixtureMenu(ui, f, live);
