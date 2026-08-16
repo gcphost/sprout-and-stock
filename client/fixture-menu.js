@@ -102,7 +102,9 @@ export function showFixture(ui, f) {
   // The whole layout record is kept, not just its id: turning something
   // re-mints its id (it becomes a fresh placement), and the menu should stay
   // open on the thing that is still sitting right there on that tile.
-  ui.fixtureRef = f;
+  // Through the setter, so the world marks which prop this menu is about —
+  // the panel names it, and the shop floor is where you are looking.
+  ui.setFixtureRef(f);
   // One callback, called every snapshot, that redraws this only when what it
   // shows has actually moved — stock going down, a crop ripening, a queue
   // forming. The HUD holds one of these rather than a branch per kind of menu.
@@ -168,22 +170,30 @@ export function showFixture(ui, f) {
   // ever had shapes to show — would hide three rows behind a click each.
   const rows = [];
   const at = Math.min(ui._fxTab ?? 0, Math.max(0, groups.length - 1));
+  // Tabs sit OUTSIDE the scroller — they choose what it holds, so scrolling
+  // them away leaves you in a list with no way back to the one you wanted.
   if (groups.length > 1) {
     parts.push(`<div class="tabs">${groups.map((g, n) => `
       <button class="tab${n === at ? ' on' : ''}" data-fxtab="${n}" title="${esc(g.label)}"
         aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`);
   }
+  // The one pane that scrolls, and it has to be a real element rather than
+  // whatever is left over between two sticky ones — see `#panel-body.paned`.
+  // Emitted even when empty so the layout does not change shape on a fixture
+  // that happens to have nothing to list.
+  const mid = [];
   if (groups.length) {
     const open = groups[at];
     // Named above its rows even with the tabs up, because an icon row is a
     // shape you learn and a heading is a thing you read — and on first open
     // nobody knows which pictogram is the seed one.
-    parts.push(`<div class="sep">${esc(open.label)}</div>`);
+    mid.push(`<div class="sep">${esc(open.label)}</div>`);
     // One list, numbered once: `wireRows` binds by index, so two lists each
     // starting at zero would hand the seed picker's clicks to the shape picker.
-    parts.push(open.rows.map((r, i) => ui.rowHtml(r, i)).join(''));
+    mid.push(open.rows.map((r, i) => ui.rowHtml(r, i)).join(''));
     rows.push(...open.rows);
   }
+  parts.push(`<div class="pnl-mid">${mid.join('')}</div>`);
 
   // ---- the foot: what you can do about it ----------------------------------
   //

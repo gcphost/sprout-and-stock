@@ -130,12 +130,17 @@ export function showWorker(ui, workerId) {
   // started with five lines of read-out you had already read.
   const parts = [`<div class="pnl-head">${detail(ui, entry, kind, body)}</div>`];
 
-  parts.push('<div class="sep">What they do</div>');
-  parts.push(vocabulary.map((j) => jobRow(j, weights.get(j) ?? 0)).join(''));
-  // With the rows it explains, rather than in the pinned foot: it is read once,
-  // and two lines of standing prose is a third of what the foot has room for.
-  parts.push('<div class="foot">A weight is how much of their day a job gets. '
-    + 'Nothing means never — and everyone needs at least one.</div>');
+  // The one pane that scrolls. A real element rather than whatever is left
+  // between two sticky ones, so the scrollbar belongs to the job list instead
+  // of running the whole height of the panel behind the pinned regions.
+  parts.push('<div class="pnl-mid">'
+    + '<div class="sep">What they do</div>'
+    + vocabulary.map((j) => jobRow(j, weights.get(j) ?? 0)).join('')
+    // With the rows it explains, rather than in the pinned foot: it is read
+    // once, and two lines of standing prose is more than the foot now has.
+    + '<div class="foot">A weight is how much of their day a job gets. '
+    + 'Nothing means never — and everyone needs at least one.</div>'
+    + '</div>');
 
   const foot = [];
 

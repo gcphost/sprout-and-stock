@@ -660,6 +660,20 @@ export class UI {
   // the shapes row on the bar lights it now, in the place you picked it.
 
   /**
+   * The fixture the open menu is about, and the teal ring in the world that
+   * says which one it is.
+   *
+   * One setter rather than an assignment at each of the three places that
+   * change it, because the ring and the panel must never disagree: a ring left
+   * behind is pointing at a menu that closed, which is worse than no ring at
+   * all. Pass null for "no fixture menu open".
+   */
+  setFixtureRef(f) {
+    this.fixtureRef = f;
+    this.scene?.setSelectedTarget(f);
+  }
+
+  /**
    * The fixture under the pointer, from the renderer. Only the hint changes —
    * the gold ring in the world is the renderer's job.
    */
@@ -731,7 +745,7 @@ export class UI {
     // one — a live content update, a price change — keeps what you typed.
     if (this.openPanel !== id) { this.releaseMenuMode(); this.clearFilter(); this.tab = 0; }
     this.openPanel = id;
-    this.fixtureRef = null;
+    this.setFixtureRef(null);
     this.workerRef = null;
     this.panelTick = null;
     sec.onOpen?.(this);
@@ -1168,7 +1182,7 @@ export class UI {
 
   closePanel() {
     this.openPanel = null;
-    this.fixtureRef = null;
+    this.setFixtureRef(null);
     this.workerRef = null;
     // Whatever per-entity menu was open stops being kept up to date with it.
     this.panelTick = null;
@@ -1240,6 +1254,16 @@ export class UI {
     // icon is now an inline SVG rather than a character.
     this.el.panelTitle.innerHTML = title;
     this.el.panelBody.innerHTML = html;
+    // Which of the two layouts this content wants. A menu that declared a
+    // middle pane gets three panes — head, scroller, foot — and the body itself
+    // stops scrolling; everything else stays one plain scrolling column.
+    //
+    // Decided here, from what the content actually contains, rather than by
+    // every caller remembering to say so. It was `position: sticky` on the head
+    // and foot, which pins them correctly and still leaves the *whole panel*
+    // the scroller: the scrollbar ran the full height behind both pinned
+    // regions, which reads as a bar that has lost track of what it is scrolling.
+    this.el.panelBody.classList.toggle('paned', !!this.el.panelBody.querySelector('.pnl-mid'));
     this.el.panel.classList.add('show');
     // After `show`, or the element has no size to clamp a position against.
     restorePos(this.el.panel, this.openPanel);
