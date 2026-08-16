@@ -248,6 +248,15 @@ export class MartRoom extends Room {
       if (res.ok) this.sendLayout();
     });
 
+    // Painting an area of ground rather than drawing along a line. Two corners
+    // for the same reason a wall sends two ends: a stroke is up to 256 cells
+    // and the inbound cap is 4KB.
+    this.onMessage('build-floor', (client, m) => {
+      const res = this.game.buildFloor(client.sessionId, m ?? {});
+      client.send('action-result', res);
+      if (res.ok) this.sendLayout();
+    });
+
     // ---- the fixture menu ---------------------------------------------------
     // One message per thing a fixture's own menu offers. They all take an id,
     // because the player opened that fixture's menu to get here.

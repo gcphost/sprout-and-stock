@@ -15,7 +15,7 @@
 
 import { Game } from '../server/sim/index.js';
 import { content } from '../server/content.js';
-import { canPlace, canPlaceCleanly } from '../shared/build.js';
+import { canPlace, canPlaceCleanly, isFloor } from '../shared/build.js';
 import { kindOf } from '../shared/pieces.js';
 import {
   partsAt, stageIndexAt, isStaged, modelHeight, tierProgress,
@@ -825,6 +825,17 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   );
 
   for (const fx of c.fixtures ?? []) {
+    // A floor is not aimable and must not be: it has no model, because it is not
+    // a thing standing in a cell — it *is* the cell. `pickFixture` never returns
+    // one and `pickTile` answers for the ground it paints, so "can you click it"
+    // is a question about the tile rather than about the piece. Skipped by kind
+    // rather than by "has no model", which would quietly excuse a shelf somebody
+    // forgot to draw.
+    if (isFloor(kindOf(fx))) {
+      check(fx.surface?.color != null, `floor ${fx.id} says what it is made of`);
+      check(fx.model == null, `floor ${fx.id} carries no model to draw`);
+      continue;
+    }
     const rungs = fx.tiers?.length || 1;
     const hangs = kindOf(fx) === 'prop-ceiling';
     for (let tier = 1; tier <= rungs; tier++) {

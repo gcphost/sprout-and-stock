@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, jitter, faceColor } from './palette.js';
+import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, jitter, faceColor, patternColor } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfSlots, buildBubble, buildCashDrop,
   buildHopperSlots,
@@ -18,8 +18,8 @@ import {
   buildRipple,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
-import { FIXTURES, anchorTile, canPlace, turn, rot4 } from '../../shared/build.js';
-import { pieceFor } from '../../shared/pieces.js';
+import { FIXTURES, anchorTile, canPlace, turn, rot4, floorIndex } from '../../shared/build.js';
+import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { Lights, emittersIn } from './lights.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, variantModel,
@@ -564,7 +564,13 @@ export class Scene {
     ground.receiveShadow = true;
     this.staticRoot.add(ground);
 
-    // Everything raised gets an instanced box per tile kind.
+    // Everything raised gets an instanced box per tile kind — and, for floor,
+    // per DESIGN of floor. Which design a cell is painted lives in its own
+    // sparse layer (`L.floors`) rather than in `tiles`, so the grouping key has
+    // to carry both: `tiles` still decides what may stand there and this only
+    // decides what it looks like. One mesh per kind would have collapsed four
+    // floors into one colour; one mesh per cell would be five hundred draws.
+    const painted = floorIndex(L);
     const byKind = new Map();
     for (let z = 0; z < L.h; z++) {
       for (let x = 0; x < L.w; x++) {
@@ -572,20 +578,27 @@ export class Scene {
         // floor under it is floor — which it always was, and now says so.
         const kind = L.tiles[z * L.w + x];
         if (kind === 0) continue;
-        if (!byKind.has(kind)) byKind.set(kind, []);
-        byKind.get(kind).push([x, z]);
+        const piece = kind === T.FLOOR ? (painted.get(`${x},${z}`) ?? null) : null;
+        const key = piece ? `${kind}|${piece}` : String(kind);
+        if (!byKind.has(key)) byKind.set(key, { kind, piece, cells: [] });
+        byKind.get(key).cells.push([x, z]);
       }
     }
 
     const box = new THREE.BoxGeometry(1, 1, 1);
     const dummy = new THREE.Object3D();
 
-    for (const [kind, cells] of byKind) {
+    for (const [, { kind, piece, cells }] of byKind) {
       const style = TILE_STYLE[kind];
       if (!style) continue;
       const height = Math.max(style.h, 0.04);
+      // What this floor is made of, if anybody chose. `surfaceOf` falls back to
+      // the tile's own colour, so a design deleted out of the catalog leaves
+      // plain shop floor rather than a black hole.
+      const surface = piece ? surfaceOf(this.catalog.pieces ?? [], piece, style.color) : null;
+      const base = surface?.color ?? style.color;
 
-      const mesh = new THREE.InstancedMesh(box, material(style.color), cells.length);
+      const mesh = new THREE.InstancedMesh(box, material(base), cells.length);
       mesh.castShadow = height > 0.2;
       mesh.receiveShadow = true;
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cells.length * 3), 3);
@@ -600,7 +613,11 @@ export class Scene {
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
 
-        const c = new THREE.Color(jitter(style.color, 0.05, x * 31 + z * 17));
+        // The pattern is per-cell colour and nothing else — no extra geometry,
+        // no second mesh, no texture. At 45° across a room that is all that
+        // survives anyway, and it costs one lookup in a loop that already sets
+        // a colour per instance to jitter it.
+        const c = new THREE.Color(surface ? patternColor(surface, x, z) : jitter(style.color, 0.05, x * 31 + z * 17));
         mesh.setColorAt(i, c);
       });
       mesh.instanceMatrix.needsUpdate = true;
@@ -1461,8 +1478,52 @@ export class Scene {
     this.edgeGhost = group;
   }
 
+  /**
+   * The area a brush would paint.
+   *
+   * Flat slabs a hair above the ground rather than the waist-high blocks an
+   * edge ghost uses, because a floor ghost has to be readable *through* the
+   * shop standing on it: a rectangle of chest-high green across the aisles
+   * would hide the shelves you are laying floor around.
+   *
+   * One verdict for the whole rectangle, exactly as `setEdgeGhost` does — "that
+   * would leave bare ground indoors" is true of the stroke, not of any one cell
+   * of it, and colouring cells separately would invite you to read the green
+   * ones as the part that will happen.
+   */
+  setFloorGhost(cells, state) {
+    const key = cells?.length
+      ? `${state}:${cells[0].x},${cells[0].z}:${cells.length}`
+      : null;
+    if (key === this.floorGhostKey) return;
+    this.floorGhostKey = key;
+
+    if (this.floorGhost) {
+      this.actorRoot.remove(this.floorGhost);
+      disposeGroup(this.floorGhost);
+      this.floorGhost = null;
+    }
+    if (!cells?.length || !this.storeLayout) return;
+
+    const colour = state === 'no' ? '#e2564a' : (state === 'warn' ? '#e8a33d' : '#7cc46a');
+    const group = new THREE.Group();
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    for (const c of cells) {
+      const mesh = new THREE.Mesh(geo, material(colour, 0.42));
+      // Above whatever ground is already there, so the ghost reads over floor
+      // (0.06 tall) as well as over grass, and slightly inset so a rectangle
+      // shows its own grid rather than reading as one undivided sheet.
+      mesh.position.set(c.x, 0.1, c.z);
+      mesh.scale.set(0.94, 0.05, 0.94);
+      group.add(mesh);
+    }
+    this.actorRoot.add(group);
+    this.floorGhost = group;
+  }
+
   clearBuildGhost(keepKey = false) {
     this.setEdgeGhost(null, null);
+    this.setFloorGhost(null, null);
     if (this.buildGhost) {
       this.actorRoot.remove(this.buildGhost);
       disposeGroup(this.buildGhost);

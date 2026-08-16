@@ -34,7 +34,7 @@ import { Game } from '../server/sim/index.js';
 import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import {
-  BUILD_KINDS, FIXTURE_KINDS, PROP_KINDS, FIXTURES, isProp, canPlace,
+  BUILD_KINDS, FIXTURE_KINDS, PROP_KINDS, FIXTURES, isProp, isFloor, canPlace,
 } from '../shared/build.js';
 import { kindOf, pieceFor, defaultPiece, piecesOf, countKey } from '../shared/pieces.js';
 import { WALKABLE } from '../shared/tiles.js';
@@ -146,8 +146,22 @@ for (const p of TEST_PIECES) {
 // 1. The vocabulary itself.
 // ---------------------------------------------------------------------------
 {
-  check(BUILD_KINDS.length === FIXTURE_KINDS.length + PROP_KINDS.length,
-    'every kind is either a fixture or a prop, and no kind is both');
+  // Three buckets now, not two. A floor joined the vocabulary without joining
+  // `FIXTURES`, because everything in that table answers "where may this stand
+  // and who reaches it" and a floor answers neither — it is what the cell is
+  // made of. Counted rather than asserted per kind so that adding a fourth
+  // category has to come past this line: a kind in no bucket is a kind nothing
+  // in the game knows how to treat, which is the scenery failure the whole
+  // kinds/pieces split exists to prevent.
+  const floors = BUILD_KINDS.filter((k) => isFloor(k));
+  eq(floors.length, 1, 'there is exactly one kind that is ground rather than a thing');
+  eq(BUILD_KINDS.length, FIXTURE_KINDS.length + PROP_KINDS.length + floors.length,
+    'every kind is exactly one of: a fixture, a decoration, or the floor');
+  for (const k of floors) {
+    check(!FIXTURES[k], `${k} has no placement rules — it is not placed, it is painted`);
+    check(!isProp(k), `${k} is not a decoration`);
+    check(!FIXTURE_KINDS.includes(k), `${k} is not a fixture — nothing procedural has a budget for ground`);
+  }
   for (const k of FIXTURE_KINDS) {
     // A fixture is something you own and the generator has a budget for. It
     // earns its cell either by standing in it or by *being* it — a plot is dug

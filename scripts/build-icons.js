@@ -48,6 +48,7 @@ const WANTED = {
   plot: 'game-icons:field',
   station: 'game-icons:factory',
   crate: 'game-icons:cardboard-box',
+  floor: 'game-icons:stone-path',
 
   // what you can do to a fixture
   tierup: 'game-icons:progression',

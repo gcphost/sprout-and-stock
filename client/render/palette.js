@@ -145,6 +145,42 @@ export function jitter(hex, amount, seed) {
 
 const clamp8 = (v) => Math.max(0, Math.min(255, Math.round(v)));
 
+/**
+ * What colour one cell of a laid floor is.
+ *
+ * A pattern here is per-cell colour and nothing else — no geometry, no second
+ * mesh, no texture. That is not a shortcut: the ground is seen edge-on at 45°
+ * with a shop standing on it, so a repeat finer than one tile is invisible from
+ * anywhere you actually play, while a colour that alternates tile by tile reads
+ * from across the room. It also costs nothing, because the ground loop already
+ * writes a per-instance colour to jitter it.
+ *
+ * Every pattern still jitters, at a lower amount than bare ground: a floor
+ * somebody laid should read as laid rather than as grown, but a perfectly flat
+ * sheet of one value looks like a hole in the render.
+ *
+ * `accent` defaults to a darkened `color`, so a one-colour floor is one field
+ * and a chequerboard nobody gave a second colour to is still a chequerboard.
+ */
+export function patternColor(surface, x, z) {
+  const base = surface.color;
+  const accent = surface.accent ?? shade(base, -0.16);
+  const alt = surface.pattern === 'checker'
+    ? (x + z) % 2 === 1
+    // Planks run along x and step every third row, so the joins stagger rather
+    // than lining up into one long stripe down the shop.
+    : (surface.pattern === 'planks' ? Math.floor(z + (x % 3 === 0 ? 1 : 0)) % 3 === 0 : false);
+  return jitter(alt ? accent : base, 0.03, x * 31 + z * 17);
+}
+
+/** A hex colour lightened (positive) or darkened (negative) by a fraction. */
+export function shade(hex, by) {
+  const c = parseInt(hex.slice(1), 16);
+  const mix = (v) => clamp8(by >= 0 ? v + (255 - v) * by : v * (1 + by));
+  return `#${(((mix((c >> 16) & 255) << 16) | (mix((c >> 8) & 255) << 8) | mix(c & 255)) >>> 0)
+    .toString(16).padStart(6, '0')}`;
+}
+
 /** A shopper's face: calm cream, going hot and blotchy as their patience runs out. */
 export const FACE_CALM = '#f6efe2';
 export const FACE_ANGRY = '#d0503c';

@@ -152,7 +152,32 @@
     "kind": "checkout",
     "cost": 300,
     "emits": null,
-    "tags": []
+    "tags": [],
+    "surface": null
+  },
+  {
+    "id": "chequer-tile",
+    "name": "Chequer Tile",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "floor",
+    "cost": 14,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#e6e2d8",
+      "accent": "#4a4a52",
+      "pattern": "checker"
+    }
   },
   {
     "id": "freezer",
@@ -728,7 +753,8 @@
     "kind": "freezer",
     "cost": 260,
     "emits": null,
-    "tags": []
+    "tags": [],
+    "surface": null
   },
   {
     "id": "pendant-lamp",
@@ -811,7 +837,32 @@
       "intensity": 1.3,
       "range": 5.5
     },
-    "tags": []
+    "tags": [],
+    "surface": null
+  },
+  {
+    "id": "pine-boards",
+    "name": "Pine Boards",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "floor",
+    "cost": 9,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#c09a63",
+      "accent": "#a8834f",
+      "pattern": "planks"
+    }
   },
   {
     "id": "plot",
@@ -947,7 +998,32 @@
     "kind": "plot",
     "cost": 30,
     "emits": null,
-    "tags": []
+    "tags": [],
+    "surface": null
+  },
+  {
+    "id": "poured-concrete",
+    "name": "Poured Concrete",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "floor",
+    "cost": 6,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9b9a94",
+      "accent": null,
+      "pattern": "plain"
+    }
   },
   {
     "id": "shelf",
@@ -2049,7 +2125,32 @@
     "kind": "shelf",
     "cost": 45,
     "emits": null,
-    "tags": []
+    "tags": [],
+    "surface": null
+  },
+  {
+    "id": "slate-flags",
+    "name": "Slate Flags",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "floor",
+    "cost": 22,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#5c626b",
+      "accent": "#4a4f57",
+      "pattern": "planks"
+    }
   },
   {
     "id": "station",
@@ -3105,7 +3206,8 @@
     "kind": "",
     "cost": 0,
     "emits": null,
-    "tags": []
+    "tags": [],
+    "surface": null
   },
   {
     "id": "terracotta-planter",
@@ -3222,6 +3324,31 @@
     "kind": "prop-floor",
     "cost": 35,
     "emits": null,
-    "tags": []
+    "tags": [],
+    "surface": null
+  },
+  {
+    "id": "terracotta-tile",
+    "name": "Terracotta Tile",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1
+      }
+    ],
+    "variants": [],
+    "kind": "floor",
+    "cost": 16,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#c2724a",
+      "accent": "#a75f3d",
+      "pattern": "checker"
+    }
   }
 ]

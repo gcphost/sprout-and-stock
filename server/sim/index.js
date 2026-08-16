@@ -25,7 +25,11 @@ import {
 import { spoilRate, requiredFixture, desireFor, impulsePull } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { stepStaff, breakProgress } from './staff.js';
-import { FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf } from '../../shared/build.js';
+import {
+  FIXTURES, FIXTURE_KINDS, FLOOR_KIND, canPlace, rot4, FIXTURE_REFUND,
+  canPlaceEdge, canPlaceEdges, edgeRun, isProp, isFloor, fixturesOf,
+  canPaintFloor, floorStroke, floorIndex, FLOOR_STROKE_MAX,
+} from '../../shared/build.js';
 import { pieceFor, kindOf, defaultPiece, countKey } from '../../shared/pieces.js';
 
 /** Real seconds in one in-game day. */
@@ -268,6 +272,16 @@ export class Game {
     // Walls, windows and doorways the player drew, as an overlay on the shell.
     this.edits = state.edits ?? [];
     /**
+     * Floor the player laid, as an overlay on the ground — [{x, z, p}], `p`
+     * null where they took it back up.
+     *
+     * The same shape as `edits` and for the same reason: the generator restamps
+     * the shell's whole footprint as bare floor on every re-flow, so ground
+     * anybody chose has to be re-applied on top of that or buying a shelf
+     * repaints the shop.
+     */
+    this.floors = state.floors ?? [];
+    /**
      * How big the building is, once somebody has one.
      *
      * Null until a shop has been stamped, then a fact about that shop. See
@@ -295,6 +309,7 @@ export class Game {
     const grow = w.storeGrow ?? { w: 0, h: 0 };
     const doorShift = w.doorShift ?? 0;
     const edits = w.edits ?? [];
+    const floors = w.floors ?? [];
     const shell = w.shell ?? null;
     // A stamped shop asks for what is standing in it; one nobody has opened yet
     // asks for a starter shop. `starterShop` is the second case only, and it is
@@ -312,6 +327,7 @@ export class Game {
       grow,
       doorShift,
       edits,
+      floors,
       shell,
     });
 
@@ -340,6 +356,7 @@ export class Game {
       grow,
       doorShift,
       edits,
+      floors,
       shell,
       layout,
       layoutVersion: 1,
@@ -387,6 +404,7 @@ export class Game {
       grow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
+      floors: this.floors,
       shell: this.shell,
       layout: this.layout,
       layoutVersion: this.layoutVersion,
@@ -437,6 +455,7 @@ export class Game {
       storeGrow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
+      floors: this.floors,
       shell: this.shell,
       plots: budgetOf(this.placements).plot,
       shelves: budgetOf(this.placements).shelf,
@@ -828,6 +847,17 @@ export class Game {
 
   stepPlayers(dt) {
     for (const p of Object.values(this.players)) {
+      // Staff are players — same entity, same `players` map, which is what lets
+      // every action take a player id and work for either. They are NOT moved
+      // here. `stepStaff` walks them at `speedOf`, their authored speed scaled
+      // by tier and how worn out they are; falling through to the line below
+      // moved them a second time in the same tick, at PLAYER_SPEED, which is
+      // 4.2 against a worker's 2.6. Two movers, and the wrong one setting the
+      // pace: hires crossed the shop faster than the person who hired them and
+      // no authored `speed` made any difference, because most of the distance
+      // was not coming from it.
+      if (p.staff) continue;
+
       const { dx = 0, dz = 0 } = p.input ?? {};
       const steering = dx !== 0 || dz !== 0;
 
@@ -2317,6 +2347,11 @@ export class Game {
     // kind, so those entries land on exactly the keys the line above wrote.
     for (const row of content().fixtures ?? []) {
       const k = kindOf(row);
+      // A floor is priced per tile off its own row and has no kind-level entry
+      // to fall back to, because no upgrade ever sold flooring. It is also the
+      // one price here that is not "what one of these costs" but "what a tile
+      // of it costs" — which the palette says on the button.
+      if (isFloor(k)) { costs[row.id] = this.floorUnitCost(row.id); continue; }
       if (!FIXTURES[k]) continue;
       costs[row.id] = this.fixtureUnitCost(k, null, row.id);
     }
@@ -2645,6 +2680,117 @@ export class Game {
     return ok({ placed, cost: spent, short, warn: check.warn ?? null });
   }
 
+  /**
+   * Paint an area of ground, or take the floor back up.
+   *
+   * The third build verb, and the one that finally makes the second one worth
+   * something. Walls have enclosed since step 3, so an annex you drew *counted*
+   * as indoors and then refused every shelf you tried to stand in it — the
+   * ground under it was grass and `BUILDABLE_INDOOR` is floor. This is that
+   * half. Draw the walls, lay the floor, and the room is a room.
+   *
+   * Stored as an overlay for the same reason `edits` is: the generator restamps
+   * the shell's footprint every re-flow, so ground anybody chose has to be
+   * re-applied over it or buying a shelf repaints the shop.
+   *
+   * Priced per cell, exactly as a wall is priced per edge, and for the argument
+   * docs/building.md settles under "does a wall cost per edge or per run": per
+   * area makes a big room cheaper per tile than a small one, so the cheapest
+   * shop becomes one enormous drag and the pricing quietly argues against the
+   * odd shapes enclosure exists to allow. Running out halfway lays what you
+   * could afford, the same way a wall does.
+   */
+  buildFloor(playerId, spec = {}) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if (!p.build?.on) return err('not in build mode');
+
+    const x = Math.round(Number(spec.x));
+    const z = Math.round(Number(spec.z));
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return err('nowhere to lay that');
+
+    // An empty piece is the bulldozer: take the floor up. Anything else has to
+    // name a row that really is a floor — falling back to a default the way
+    // `placeFixture` does would mean a typo silently laying oak.
+    const want = String(spec.piece ?? '');
+    const piece = want
+      ? (content().fixtures ?? []).find((f) => f.id === want && kindOf(f) === FLOOR_KIND)
+      : null;
+    if (want && !piece) return err('nothing in the catalog lays that');
+
+    const to = spec.to ? { x: Number(spec.to.x), z: Number(spec.to.z) } : null;
+    const cells = floorStroke({ x, z }, to, FLOOR_STROKE_MAX);
+
+    // Asked for the whole stroke before any of it is paid for, so a drag that
+    // clips the delivery bay at one corner is refused as a gesture rather than
+    // laid up to the bay and then billed for.
+    const check = canPaintFloor(this.layout, cells, piece?.id ?? null);
+    if (!check.ok) return err(check.reason);
+
+    const unit = piece ? this.floorUnitCost(piece.id) : 0;
+    const painted = floorIndex(this.layout);
+    const kept = new Map(this.floors.map((f) => [`${f.x},${f.z}`, f]));
+
+    let spent = 0;
+    let laid = 0;
+    let short = false;
+    for (const c of cells) {
+      const key = `${c.x},${c.z}`;
+      const had = painted.get(key) ?? null;
+      if (had === (piece?.id ?? null) && this.groundIsFloor(c.x, c.z) === !!piece) continue;
+
+      // Pay the difference, exactly as swapping a wall for a window does: what
+      // was underfoot is worth `FIXTURE_REFUND` of what it cost, whether you
+      // laid it or the shell came with it.
+      const cost = round2(unit - this.floorUnitCost(had) * FIXTURE_REFUND);
+      if (cost > 0 && this.cash - spent < cost) { short = true; break; }
+
+      spent = round2(spent + cost);
+      kept.set(key, { x: c.x, z: c.z, p: piece?.id ?? null });
+      laid++;
+    }
+
+    if (!laid) {
+      return short ? err(`need $${unit.toFixed(2)}`) : ok({ laid: 0, unchanged: true });
+    }
+
+    this.floors = [...kept.values()];
+    this.cash = round2(this.cash - spent);
+    if (spent > 0) this.stats.spent += spent;
+    this.regenerateLayout();
+
+    const what = piece ? piece.name.toLowerCase() : 'floor';
+    this.pushLog(piece
+      ? `Laid ${laid} ${laid === 1 ? 'tile' : 'tiles'} of ${what}`
+        + `${spent > 0 ? ` for $${spent.toFixed(2)}` : ''}.`
+      : `Took up ${laid} ${laid === 1 ? 'tile' : 'tiles'} of floor.`);
+    return ok({ laid, cost: spent, short, warn: check.warn ?? null });
+  }
+
+  /** Is this cell floor right now? The half of a repaint `floors` can't answer. */
+  groundIsFloor(x, z) {
+    return this.layout.tiles[z * this.layout.w + x] === T.FLOOR;
+  }
+
+  /**
+   * What one tile of a floor costs to lay.
+   *
+   * Off the catalog row and nowhere else, which is what a floor gets for
+   * arriving after step 9 rather than before it — there is no upgrade that ever
+   * sold flooring, so there is no payload to fall back to and no
+   * `FALLBACK_FIXTURE_COST` entry pretending otherwise. A floor authored at 0
+   * is genuinely free, the same way a prop is: it *is* its row, so bare
+   * concrete costing nothing is an authoring decision rather than a hole.
+   *
+   * Null is the ground the shell came with, which cost nothing and refunds
+   * nothing — you never bought it.
+   */
+  floorUnitCost(pieceId) {
+    if (!pieceId) return 0;
+    const row = (content().fixtures ?? []).find((f) => f.id === pieceId && kindOf(f) === FLOOR_KIND);
+    return round2((row?.cost ?? 0) * this.fixtureDiscount(FLOOR_KIND));
+  }
+
   /** What is currently on a lattice line, generated shell included. */
   edgeKindAt(o, x, z) {
     const L = this.layout;
@@ -2863,6 +3009,7 @@ export class Game {
       grow: this.grow,
       doorShift: this.doorShift,
       edits: this.edits,
+      floors: this.floors,
       shell: this.shell,
     });
 

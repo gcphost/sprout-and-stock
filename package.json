@@ -16,7 +16,7 @@
     "export": "node scripts/export-content.js",
     "reset": "node scripts/reset.js",
     "reset:economy": "node scripts/reset-economy.js",
-    "verify": "node scripts/verify-layout.js && node scripts/verify-build.js && node scripts/verify-edges.js && node scripts/verify-catalog.js && node scripts/verify-shell.js && node scripts/verify-economy.js && node scripts/verify-walk.js",
+    "verify": "node scripts/verify-layout.js && node scripts/verify-build.js && node scripts/verify-edges.js && node scripts/verify-catalog.js && node scripts/verify-shell.js && node scripts/verify-economy.js && node scripts/verify-floor.js && node scripts/verify-walk.js",
     "verify:layout": "node scripts/verify-layout.js",
     "verify:build": "node scripts/verify-build.js",
     "build": "vite build",
@@ -25,6 +25,7 @@
     "verify:catalog": "node scripts/verify-catalog.js",
     "verify:shell": "node scripts/verify-shell.js",
     "verify:economy": "node scripts/verify-economy.js",
+    "verify:floor": "node scripts/verify-floor.js",
     "verify:walk": "node scripts/verify-walk.js"
   },
   "dependencies": {

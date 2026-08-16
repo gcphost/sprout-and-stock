@@ -287,7 +287,12 @@ export class UI {
     // doorway have always done this — the Farm tab just put two more of them
     // one press away, which is how a silent refusal became a visible one.
     this._sentTool = null;
-    if (t.edge === undefined) {
+    // A floor is in the same position as a wall here and for the same reason:
+    // `setBuildTool` refuses anything outside FIXTURES, and a floor is
+    // deliberately not in FIXTURES because it is ground rather than a thing
+    // standing on it. Painting names its own piece in `build-floor`, so there
+    // is nothing to tell the server.
+    if (t.edge === undefined && !t.paint) {
       this._sentTool = this.buildTool;
       this.net.send('build-tool', { tool: this.buildTool });
     }
@@ -357,7 +362,22 @@ export class UI {
    * ghost to draw, and this one is about what the server has been told.
    */
   armedEdgeTool() {
-    return this.armedTool()?.edge !== undefined;
+    const t = this.armedTool();
+    return t?.edge !== undefined || !!t?.paint;
+  }
+
+  /**
+   * The floor this tool paints, or undefined if it doesn't paint.
+   *
+   * Three states, not two, which is why this returns the piece id rather than a
+   * boolean: a design lays that floor, the empty string takes floor up, and
+   * undefined means this tool is not a brush at all. Collapsing the first two
+   * would make "Bare Ground" indistinguishable from "no tool".
+   */
+  floorPieceForTool() {
+    if (!this.buildOn || this.holding) return undefined;
+    const t = buildTools(this).find((x) => x.id === this.toolId());
+    return t?.paint ? (t.piece ?? '') : undefined;
   }
 
   /** The palette entry currently armed, or null outside build mode. */
@@ -402,6 +422,10 @@ export class UI {
     if (!this.buildOn) return null;
     // A wall tool aims at a line, not a square, so there is no tile ghost.
     if (this.edgeKindForTool() !== null) return null;
+    // A brush aims at a square but paints what it is made of rather than
+    // standing something on it, so the fixture ghost would be a shelf-shaped
+    // box hovering over ground you were about to tile.
+    if (this.floorPieceForTool() !== undefined) return null;
     // What's in your hands outranks what's on the palette: while you're
     // carrying a shelf, every tile you point at is a candidate home for *it*.
     return this.holding?.kind ?? this.buildTool;

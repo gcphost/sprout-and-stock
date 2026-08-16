@@ -2,7 +2,7 @@
  * CLIENT ENTRY POINT — input, render loop, and glue.
  */
 
-import { canPlaceEdges, edgeRun } from '../shared/build.js';
+import { canPlaceEdges, edgeRun, canPaintFloor, floorStroke } from '../shared/build.js';
 import { Scene } from './render/scene.js';
 import { Net } from './net.js';
 import { UI } from './ui.js';
@@ -144,8 +144,8 @@ let ghostKey = null;
 function refreshGhost(force = false) {
   // A wall tool previews the line under the pointer, not a tile. While a drag
   // is live the drag owns the ghost — it knows the whole run, this only ever
-  // knows the one segment you are hovering.
-  if (edgeDrag) return;
+  // knows the one segment you are hovering. Same for a brush and its area.
+  if (edgeDrag || floorDrag) return;
 
   // The bulldozer aims at a thing first and a line second. A shelf standing
   // against a wall covers the line behind it on screen, and "the wall" is never
@@ -173,6 +173,23 @@ function refreshGhost(force = false) {
     return;
   }
   scene.setEdgeGhost(null, null);
+
+  // A brush previews the one cell under the pointer, so hovering already tells
+  // you whether the ground will take it — the drag then previews the rectangle.
+  // `undefined` is "this tool is not a brush"; the empty string is Bare Ground,
+  // which is very much a tool.
+  const brush = pointer.onCanvas ? ui.floorPieceForTool() : undefined;
+  if (brush !== undefined) {
+    const cell = scene.pickTile(pointer.x, pointer.y);
+    if (!cell) { scene.setFloorGhost(null, null); ui.setBuildVerdict(null); return; }
+    const verdict = canPaintFloor(scene.storeLayout, [cell], brush || null);
+    scene.setFloorGhost([cell], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
+    ui.setBuildVerdict(verdict);
+    scene.setAimTarget(null);
+    ui.setAim(null);
+    return;
+  }
+  scene.setFloorGhost(null, null);
 
   const kind = pointer.onCanvas ? ui.ghostKindForTool() : null;
   if (!kind) {
@@ -264,8 +281,19 @@ canvas.addEventListener('wheel', (e) => {
 /** Under this much travel, a press was a tap — a look, not a drag. */
 const TAP_SLOP = 7;
 
-/** ...and after this long without moving, it is a long press: open the menu. */
+/** ...and after this long without moving, it is a long press. */
 const LONG_PRESS_MS = 420;
+
+/**
+ * Does a long press open what you are pointing at?
+ *
+ * No, currently: a tap opens a fixture again, so the hold has nothing left to
+ * do that the tap does not already do sooner. Kept as a flag rather than
+ * deleted because the gesture is still wired end to end — the aim ring still
+ * winds in while you hold — and the reason it is off is a decision about what
+ * a *tap* should mean, which has now changed three times.
+ */
+const HOLD_OPENS = false;
 
 const drag = {
   id: null,
@@ -399,6 +427,39 @@ function showEdgeDrag(cx, cy) {
 }
 
 // ---------------------------------------------------------------------------
+// Painting a floor
+//
+// The third drag. A wall is a run along a line and a floor is a rectangle over
+// an area, which is a different shape but the same argument: laying a back room
+// one square at a time is not a thing anybody does twice, and the tool you
+// picked is the consent for the drag to stop steering the camera.
+//
+// Deliberately its own state rather than a mode on `edgeDrag`. They aim at
+// different things — a lattice line versus a floor square — and the one place
+// they would have to differ is the one place a shared implementation would keep
+// getting it wrong.
+// ---------------------------------------------------------------------------
+let floorDrag = null;
+
+function showFloorDrag(cx, cy) {
+  if (!floorDrag) return null;
+  const to = scene.pickTile(cx, cy);
+  const cells = floorStroke(floorDrag.start, to);
+  if (!cells.length) { scene.setFloorGhost(null, null); return null; }
+  // The empty string is Bare Ground, which is a real choice; null is what
+  // `canPaintFloor` reads as "take it up".
+  const verdict = canPaintFloor(scene.storeLayout, cells, floorDrag.piece || null);
+  const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
+  scene.setFloorGhost(cells, state);
+  ui.setBuildVerdict(verdict);
+  // `to` is where the pointer is, not the last cell of the rectangle. Those are
+  // the same corner only when you drag down and right — the other way round the
+  // list still comes out lowest-first, so sending its tail would send the corner
+  // you started on and paint one square.
+  return { cells, verdict, to };
+}
+
+// ---------------------------------------------------------------------------
 // One press, three meanings, told apart by distance and time
 //
 //   moved       -> a pan. The camera comes off the player and stays there.
@@ -417,7 +478,7 @@ canvas.addEventListener('pointerdown', (e) => {
     // and `endPress` with no event drops it without sending. This used to live
     // on `contextmenu`, which is too late on Windows — that event fires on
     // *release* there, by which point the pointerup below has already built it.
-    if (edgeDrag) { endPress(); return; }
+    if (edgeDrag || floorDrag) { endPress(); return; }
     // A mouse reuses one pointerId for every button, so a right press during a
     // left drag would hand the spin that drag's own id and steal its moves.
     if (drag.id !== null) return;
@@ -454,6 +515,20 @@ canvas.addEventListener('pointerdown', (e) => {
     }
   }
 
+  // ...and a brush takes it the same way, over an area rather than a line. It
+  // aims with `pickTile` because it is painting the ground itself — using
+  // `pickFixture` here would let you tile the roof of a shelf.
+  const brush = ui.floorPieceForTool();
+  if (brush !== undefined) {
+    const start = scene.pickTile(e.clientX, e.clientY);
+    if (start) {
+      floorDrag = { start, piece: brush, id: e.pointerId };
+      canvas.setPointerCapture(e.pointerId);
+      showFloorDrag(e.clientX, e.clientY);
+      return;
+    }
+  }
+
   drag.id = e.pointerId;
   drag.ox = drag.lx = e.clientX;
   drag.oy = drag.ly = e.clientY;
@@ -468,21 +543,27 @@ canvas.addEventListener('pointerdown', (e) => {
   pointer.y = e.clientY;
   pointer.onCanvas = true;
   refreshGhost(true);
-  // Armed on a timer rather than measured on release, so the menu opens under a
-  // pointer that is still down — which is what makes it feel like a press and
-  // not like a slow click. Armed for a mouse as well as a finger: one gesture
-  // means one thing everywhere, and the alternative costs you the ability to
-  // send yourself to a shelf by pointing at the shelf.
+  // Armed on a timer rather than measured on release, so whatever the hold does
+  // happens under a pointer that is still down — which is what makes it feel
+  // like a press and not like a slow click.
+  //
+  // Right now it does nothing (`HOLD_OPENS`), because opening moved back onto
+  // the tap. Everything is left wired: the wind-in still draws, so a held press
+  // still reads as a distinct gesture rather than a dead one, and giving the
+  // hold a job again is one flag rather than an archaeology exercise.
   clearLongPress();
   drag.timer = setTimeout(() => {
     drag.timer = null;
     if (drag.id === null || drag.travel >= TAP_SLOP) return;
+    if (!HOLD_OPENS) return;
+    // `done` is what swallows the release, and it is set only when the hold
+    // actually did something. A hold that quietly ate the press would make a
+    // slow click on a shelf do nothing at all, which is indistinguishable from
+    // a missed click.
     drag.done = true;
     // The wind-in has to land on something. Without a ripple at the end the
     // ring just stops being wound and the menu appears, which reads as the
-    // animation having been interrupted rather than completed — and on a press
-    // that opens nothing (bare floor, empty hands) it would be the only thing
-    // that ever told you the hold was finished.
+    // animation having been interrupted rather than completed.
     const spot = scene.pickTile(drag.ox, drag.oy);
     if (spot) scene.ripple(spot.x, spot.z, 'miss');
     openAtPointer(drag.ox, drag.oy);
@@ -507,6 +588,10 @@ canvas.addEventListener('pointermove', (e) => {
   if (pinch) { stepPinch(); return; }
   if (edgeDrag && e.pointerId === edgeDrag.id) {
     showEdgeDrag(e.clientX, e.clientY);
+    return;
+  }
+  if (floorDrag && e.pointerId === floorDrag.id) {
+    showFloorDrag(e.clientX, e.clientY);
     return;
   }
   if (drag.id !== e.pointerId) return;
@@ -542,6 +627,25 @@ function endPress(e) {
         o: start.o, x: start.x, z: start.z, kind,
         to: start.o === 'v' ? last.z : last.x,
       });
+    }
+    return;
+  }
+  if (floorDrag && (!e || e.pointerId === floorDrag.id)) {
+    const drawn = e ? showFloorDrag(e.clientX, e.clientY) : null;
+    const { start, piece } = floorDrag;
+    floorDrag = null;
+    scene.setFloorGhost(null, null);
+    ui.setBuildVerdict(null);
+    if (drawn) {
+      if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
+      if (drawn.verdict.warn) ui.toast(drawn.verdict.warn);
+      // Two corners and a piece, never the list. Same cap, same reasoning as a
+      // wall run — a full-size stroke is 256 cells — and one message is also
+      // one re-flow rather than 256 of them. The far corner goes over unclamped:
+      // the server runs the same `floorStroke` and trims it to the same
+      // rectangle, so clamping twice could only ever disagree.
+      const to = drawn.to ? { x: drawn.to.x, z: drawn.to.z } : null;
+      net.send('build-floor', { x: start.x, z: start.z, piece, to });
     }
     return;
   }
@@ -681,6 +785,24 @@ function tapAtPointer(cx, cy) {
       if (over) { scene.ripple(over.x, over.z, 'no'); ui.razeFixture(over); return; }
     }
 
+    // A person opens on the tap itself, with no wait.
+    //
+    // The rule everywhere else is "tap goes, hold looks", and a person is the
+    // one case where that leaves the tap with nothing to do: you cannot walk to
+    // somebody who walks off, so "go to where that clerk was standing" is not a
+    // thing anybody means. An earlier cut concluded from that same fact that a
+    // tap should look straight *past* them — which is true of what the tap
+    // cannot do and wrong about what it should. There is exactly one useful
+    // answer to pointing at a hire, so pointing at one gives it.
+    //
+    // Before the open-panel dismissal below, so a worker is always one press
+    // away rather than two whenever anything else happens to be up.
+    //
+    // Not while the bulldozer is armed: then you are aiming at things, and a
+    // clerk wandering in front of a shelf must not stop you tearing it out.
+    const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
+    if (who?.hire) { showWorker(ui, who.hire); return; }
+
     // An open panel eats the first press. Pressing the world with a menu up has
     // always meant "put that away", and taking a walk order out of the same
     // press would send you across the shop every time you dismissed something.
@@ -694,19 +816,20 @@ function tapAtPointer(cx, cy) {
       return;
     }
 
-    // People are not destinations — they walk off, and "go to where that clerk
-    // was standing" is not a thing anybody means. So a tap looks straight past
-    // them to whatever they are standing in front of, and reaching a person is
-    // the held press, where `openAtPointer` gives them priority over the
-    // fixture behind them.
-    //
     // Aim at the thing, not the floor under it — `pickFixture` is the one that
     // answers "what am I pointing at" for a box drawn most of a tile up-screen
     // of the ground it stands on. The walk names the fixture rather than a
     // tile, because where you stand to work a shelf is the layout's business
     // and worked out twice it can disagree with itself.
+    // A prop opens; the floor takes you somewhere. Pointing at a thing means
+    // "tell me about this" and pointing at the ground means "go there", which
+    // is the same division a person already gets one branch up.
+    //
+    // Pale rather than amber, and this is the only thing distinguishing the two
+    // presses at a glance: amber is "you are on your way", pale is "I heard
+    // you". A press that opens a panel must not flash the going colour.
     const over = scene.pickFixture(cx, cy);
-    if (over) { scene.ripple(over.x, over.z); walkTo({ fixture: over.id }); return; }
+    if (over) { scene.ripple(over.x, over.z, 'miss'); showFixture(ui, over); return; }
 
     const tile = scene.pickTile(cx, cy);
     if (tile) { scene.ripple(tile.x, tile.z); walkTo({ x: tile.x, z: tile.z }); }

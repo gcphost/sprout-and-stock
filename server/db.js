@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   variants   TEXT NOT NULL DEFAULT '[]',  -- JSON [{id, name, model}] — looks only
   cost       REAL NOT NULL DEFAULT 0,     -- 0 = priced by the upgrade that sells it
   emits      TEXT NOT NULL DEFAULT 'null',-- JSON {color, intensity, range} or null
+  surface    TEXT NOT NULL DEFAULT 'null',-- JSON {color, accent, pattern}: floors only
   tags       TEXT NOT NULL DEFAULT '[]',  -- JSON array
   created_by TEXT NOT NULL DEFAULT 'seed',
   created_at INTEGER NOT NULL
@@ -261,6 +262,9 @@ const ADDED_COLUMNS = [
   ['fixtures', 'cost', 'REAL NOT NULL DEFAULT 0'],
   ['fixtures', 'emits', "TEXT NOT NULL DEFAULT 'null'"],
   ['fixtures', 'tags', "TEXT NOT NULL DEFAULT '[]'"],
+  // What a floor is made of. Every row that predates floors has none, and
+  // 'null' is exactly right for them: nothing but a `floor` piece ever reads it.
+  ['fixtures', 'surface', "TEXT NOT NULL DEFAULT 'null'"],
   // 'null' rather than '{}': a pastime with no prop drawn for it yet has no
   // model at all, and an empty object is a model that fails its own schema.
   ['pastimes', 'model', "TEXT NOT NULL DEFAULT 'null'"],
@@ -341,7 +345,7 @@ const JSON_FIELDS = {
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
-  fixtures: ['model', 'tiers', 'variants', 'emits', 'tags'],
+  fixtures: ['model', 'tiers', 'variants', 'emits', 'surface', 'tags'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
 };

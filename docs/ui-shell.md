@@ -307,11 +307,19 @@ second input. That only works because the anchor is right.
 
 ### One press, three meanings
 
-| the press | what it means |
-|---|---|
-| moved | pan the camera |
-| still, released | go there — and if it was a thing, do the thing |
-| still, held | open it |
+| the press | on the floor | on a thing |
+|---|---|---|
+| moved | pan the camera | pan the camera |
+| still, released | go there | open it |
+| still, held | — | — |
+
+The hold is wired and drawn — the aim ring winds in while you keep pressing —
+but does nothing (`HOLD_OPENS` in `main.js`). Opening moved back onto the tap,
+which leaves the hold with no job the tap does not already do sooner. It is a
+flag rather than a deletion because what a *tap* should mean has now changed
+three times, and the server still resolves a fixture's working spot
+(`walkToFixture`, covered by `verify:walk`) even though nothing currently asks
+it to.
 
 Same three on a mouse and on a finger, which is a decision that was made
 **twice** and is worth recording in both directions.
@@ -328,9 +336,19 @@ end up clicking the floor beside things, which is the fiddliness the whole
 change was meant to remove.
 
 So: one gesture, one meaning, and the wait is the price of the tap doing the
-useful thing. People are the one exception in the other direction — a tap looks
-straight past them, because "go to where that clerk was standing" is not
-something anyone means, and they get priority on the held press instead.
+useful thing.
+
+**People are the one exception, and it went the wrong way first.** You cannot
+walk to somebody who walks off, so a tap on a hire has nothing to *go* to. The
+first reading of that fact was that a tap should look straight past them to the
+shelf behind — true about what the tap cannot do, and wrong about what it
+should, because it left no way to open a worker at all except by holding. There
+is exactly one useful answer to pointing at a person, so pointing at one now
+gives it, on the tap, with no wait.
+
+It is checked before the open-panel dismissal, so a worker is one press away
+rather than two whenever anything else is up, and skipped entirely while the
+bulldozer is armed — a clerk wandering in front of a shelf must not shield it.
 
 Steering always outranks a route: `stepPlayers` drops `p.path` on the first
 frame of key input rather than blending the two, because a key that only slowed

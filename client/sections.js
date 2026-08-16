@@ -1,6 +1,6 @@
 import { ICONS, icon } from './icons.js';
 import { pinLast } from './bar.js';
-import { FIXTURES, isProp } from '../shared/build.js';
+import { FIXTURES, isProp, isFloor, FLOOR_KIND } from '../shared/build.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
 
@@ -89,6 +89,15 @@ export const KIND_TOOLS = {
     icon: ICONS.ambient,
     group: 'decor',
     blurb: 'Hangs from the ceiling, so it needs a room to hang in.',
+  },
+  floor: {
+    icon: ICONS.floor,
+    // Under Building rather than Decoration, which it visibly is not: laying
+    // floor is how a walled annex stops being a walled field. Walls make the
+    // room, floor makes it usable, and finding those on two different tabs
+    // would hide the second half of a job from anyone doing the first.
+    group: 'shell',
+    blurb: 'Drag out an area. Floor is what a shelf needs under it — walls alone only make a room.',
   },
 };
 
@@ -198,12 +207,23 @@ export function buildTools(ui) {
   const pieces = [];
   for (const kind of Object.keys(KIND_TOOLS)) {
     const mine = rows.filter((p) => kindOf(p) === kind);
-    const entries = mine.length ? mine : (isProp(kind) ? [] : [{ id: kind, name: FIXTURES[kind]?.label ?? kind }]);
+    // A kind that *is* its art gets no entry until somebody draws one. Props
+    // were the original case — an undrawn planter is nothing — and a floor is
+    // the same claim from the other end: an undrawn floor has no colour, so
+    // offering one would be a button that paints the ground the shade the
+    // renderer happens to default to.
+    const artOnly = isProp(kind) || isFloor(kind);
+    const entries = mine.length ? mine : (artOnly ? [] : [{ id: kind, name: FIXTURES[kind]?.label ?? kind }]);
     for (const p of entries) {
       pieces.push({
         id: p.id,
         kind,
         piece: p.id,
+        // What the gesture is. A fixture is tapped onto a tile, a wall is
+        // dragged along a line, and this one is dragged over an area — the bar
+        // needs to know which without asking the kind, because `edge` already
+        // works exactly this way for walls.
+        ...(isFloor(kind) ? { paint: true } : {}),
         icon: KIND_TOOLS[kind]?.icon ?? ICONS.fixtures,
         // A kind nobody grouped lands in the shop rather than nowhere: an entry
         // in no group is one no tab shows, which is the same as not existing.
@@ -212,6 +232,28 @@ export function buildTools(ui) {
         blurb: KIND_TOOLS[kind]?.blurb ?? '',
       });
     }
+  }
+
+  // Taking floor back up, offered only once there is any floor to take up.
+  //
+  // Not the bulldozer, and that is worth defending because "two gestures for one
+  // idea" is exactly the mistake Demolish was built to fix. The bulldozer's drag
+  // is already spoken for: it runs along a lattice LINE to knock a wall through,
+  // and there is no way to tell that drag apart from one over an area. So this
+  // is the floor palette's own null entry — the same shape as Doorway sitting in
+  // the wall palette as the wall that isn't one — rather than a second
+  // everything-remover.
+  if (pieces.some((p) => p.paint)) {
+    pieces.push({
+      id: 'floor:none',
+      kind: FLOOR_KIND,
+      piece: '',
+      paint: true,
+      group: 'shell',
+      icon: ICONS.remove,
+      name: 'Bare Ground',
+      blurb: 'Takes the floor back up. Indoors that leaves a cell nothing can use — outdoors it is grass again.',
+    });
   }
 
   const stations = (ui?.catalog?.upgrades ?? [])

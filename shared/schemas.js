@@ -12,6 +12,9 @@
 
 import { z } from 'zod';
 import { ALL_TAGS } from './tags.js';
+// One spelling of the kind that is ground. `shared/build.js` reaches only
+// tiles.js and edges.js, so there is no cycle to pay for taking it from source.
+import { FLOOR_KIND } from './build.js';
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lowercase kebab/snake case');
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb hex colour');
@@ -207,7 +210,10 @@ export const UpgradeSchema = z.object({
   name: z.string().min(1).max(48),
   description: z.string().max(280).default(''),
   cost: z.number().min(0),
-  kind: z.enum(['shelf', 'freezer', 'plot', 'checkout', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment']),
+  // `floor` is here so a flooring deal can be authored as a discount the way
+  // every other fixture deal is (`fixtureDiscount`). Nothing ships one — it
+  // costs a word to allow and a migration to add later.
+  kind: z.enum(['shelf', 'freezer', 'plot', 'checkout', 'floor', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment']),
   /** Free-form knobs, interpreted by the sim for that `kind`. */
   payload: z.record(z.string(), z.any()).default({}),
   /** Must own these upgrades first. */
@@ -265,8 +271,14 @@ export const FixtureSchema = z.object({
   /**
    * Staged by tier: stage 1 is what you buy, the last stage is fully upgraded.
    * An unstaged model just means every tier looks the same.
+   *
+   * Nullable for exactly one kind, and the refine at the bottom is what holds
+   * that line. A floor has no model because it is not a thing standing in a
+   * cell — it *is* the cell, and a slab drawn one tile wide is the tile. Giving
+   * it a model would mean authoring a box whose geometry is then ignored, which
+   * is a lie the next person has to discover. It carries `surface` instead.
    */
-  model: ModelSchema,
+  model: ModelSchema.nullable().default(null),
   /**
    * Other shapes of the same thing: a corner unit, an endcap, a low one.
    *
@@ -327,6 +339,24 @@ export const FixtureSchema = z.object({
     range: z.number().min(0.5).max(12).default(4),
   }).nullable().default(null),
   /**
+   * What a floor is made of. The `model` of a piece that hasn't got one.
+   *
+   * Two colours and a pattern, which is the whole vocabulary on purpose. A
+   * floor is seen edge-on at 45° under everything else in the shop, so what
+   * reads from across the room is its colour and whether it repeats — geometry
+   * would cost a tile of draw call each and be invisible. The renderer already
+   * jitters every ground cell slightly, so `plain` is not flat.
+   *
+   * `accent` is the second colour of the pattern and is ignored by `plain`.
+   * Left out it derives from `color`, so a one-colour floor is one field.
+   */
+  surface: z.object({
+    color: hexColor.default('#b9a888'),
+    accent: hexColor.nullable().default(null),
+    /** How the two colours repeat. `plain` uses only the first. */
+    pattern: z.enum(['plain', 'checker', 'planks']).default('plain'),
+  }).nullable().default(null),
+  /**
    * Feeds the tag system, if a decoration should ever do more than look nice.
    * Nothing reads it yet — deliberately. Call `list_tags` before inventing any.
    */
@@ -334,6 +364,13 @@ export const FixtureSchema = z.object({
 }).refine((v) => (v.tiers?.[0]?.cost ?? 0) === 0, {
   message: 'tier 1 is what a new one already is, so it must cost 0',
   path: ['tiers'],
+}).refine((v) => (v.kind === FLOOR_KIND ? v.surface != null : v.model != null), {
+  // Split rather than one required field each way round, because the two halves
+  // fail for opposite reasons and a shared message would explain neither: a
+  // floor with a model is asking for geometry nothing draws, and a shelf with
+  // no model is a shelf nobody can see.
+  message: 'a floor is authored as a `surface` (colour + pattern) and everything else as a `model`',
+  path: ['model'],
 });
 
 /**

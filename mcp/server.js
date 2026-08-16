@@ -226,7 +226,10 @@ server.registerTool('create_fixture', {
     + '  station       an appliance (which machine it is still comes from its upgrade)\n'
     + '  plot          a farm bed, outdoors, on bare grass\n'
     + '  prop-floor    a decoration standing on the floor, indoors or out\n'
-    + '  prop-ceiling  a decoration hanging from the ceiling, so indoors only\n\n'
+    + '  prop-ceiling  a decoration hanging from the ceiling, so indoors only\n'
+    + '  floor         the ground itself — painted over an area, not placed on a tile\n\n'
+    + 'A FLOOR is the odd one and the only kind with no `model`: it is not a thing standing in a cell, it IS the cell, so what you author is `surface` — a colour, an optional second colour and how they repeat. '
+    + 'It is also the only kind priced PER TILE, and it is what makes a walled extension usable: walls decide what counts as indoors, floor decides what a shelf can stand on. Price it so paving a back room is a real decision — the shipped range is $6 to $22 a tile.\n\n'
     + 'Props never block: people walk past them. A barrel that stopped somebody would need to own its cell, and a cell can only say one thing at a time — so anything that must be walked around is a shelf, not a prop.\n\n'
     + 'Several pieces may name one kind, and that is the point: a second shelf design, a corner till, four different planters. They share the kind\'s rules and nothing else — each carries its own model, its own variants, its own tier ladder and its own price.\n\n'
     + 'TIERS are the progression. Tier 1 is what a newly built one already is, so it must cost 0. Every tier after it is something the player pays to step up to, in place, keeping its stock. The multipliers are what the upgrade is FOR — a tier that changes no numbers and no art is a button that takes money and does nothing:\n'
@@ -246,10 +249,16 @@ server.registerTool('create_fixture', {
     + STAGE_HELP,
   inputSchema: {
     id: z.string().describe('Slug, yours to choose, e.g. "terracotta-planter" or "chiller-shelf". Reuse one to update it.'),
-    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling'])
+    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor'])
       .describe('Which build rules it plays by. Closed set — this is not a way to invent kinds.'),
     name: z.string().describe('Display name, e.g. "Shelving". This is what the build palette calls it.'),
-    model: z.any().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. ' + STAGE_HELP),
+    model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except a floor, which has no model. ' + STAGE_HELP),
+    surface: z.object({
+      color: z.string().describe('#rrggbb. The main colour of the floor.'),
+      accent: z.string().optional().describe('#rrggbb, the second colour of the pattern. Left out it is a darker shade of the first, which is usually what you want.'),
+      pattern: z.enum(['plain', 'checker', 'planks']).default('plain')
+        .describe('How the two colours repeat, tile by tile. "plain" uses only the first.'),
+    }).optional().describe('FLOORS ONLY, and required for one. A floor is a colour and a repeat — there is no geometry, because the ground is seen edge-on at 45° with a shop standing on it and nothing finer than a tile survives that.'),
     variants: z.any().optional().describe('Optional other shapes of this kind: [{id, name, model}]. Looks only — no costs, no multipliers, and the kind\'s own model is always offered alongside them as "Standard".'),
     tiers: z.array(z.object({
       name: z.string().describe('What this rung is called, e.g. "Chilled" or "Deep Freeze".'),
@@ -259,7 +268,7 @@ server.registerTool('create_fixture', {
       speed_mult: z.number().min(0.1).max(10).default(1),
     })).min(1).max(6).describe('Lowest rung first. Tier 1 is what a new one already is.'),
     cost: z.number().min(0).optional()
-      .describe('What one costs to build. 0 (the default) means "priced by the upgrade that sells this kind" — right for fixtures, free for props.'),
+      .describe('What one costs to build — per TILE for a floor. 0 (the default) means "priced by the upgrade that sells this kind" — right for fixtures, free for props and for floors, neither of which has an upgrade behind it.'),
     emits: z.object({
       color: z.string().describe('#rrggbb. Warm for a bulb, cold for a chiller light.'),
       intensity: z.number().min(0).max(4).default(1).describe('Brightness. 1 is a room fitting; above 2 washes an aisle out.'),

@@ -1,15 +1,16 @@
 # Building — design
 
-Status: **steps 1–9 and 11 built. 10 is cancelled. 12 is what step 9 left.**
+Status: **steps 1–9, 11 and 13 built. 10 is cancelled. 12 is what step 9 left.**
 There is also a working interactive mockup —
 [turn the shop around here](https://claude.ai/code/artifact/1aac9d71-46fc-4e78-9f93-d54a6e6d2467).
 
 What that means in practice: walls, windows, doorways and fences live on the
 edges between cells and everything reads them; "indoors" means whatever the
-walls enclose; you draw a run with a wall tool; the catalog is split into
-kinds-in-code and pieces-in-content, so a second shelf design, a planter or a
-hanging lamp is an MCP call; a tile means ground and nothing else; and a shop is
-stamped once and then stays where you put it.
+walls enclose; you draw a run with a wall tool and paint a floor with a brush,
+which together are how the shop gets bigger; the catalog is split into
+kinds-in-code and pieces-in-content, so a second shelf design, a planter, a
+hanging lamp or a floor is an MCP call; a tile means ground and nothing else;
+and a shop is stamped once and then stays where you put it.
 
 Each section below says what landed and where it stopped. Read the build order
 at the bottom for the running tally.
@@ -401,6 +402,60 @@ stamped shop *is* its placements, so a stored count was a second opinion about a
 fact, and a second opinion is a thing that drifts — it double-counted a freezer
 on every server restart once.
 
+### Floors, and the half of enclosure that was missing
+
+**Built** — step 13, and it is the answer to a question nobody had asked in this
+doc: *how do I make my shop bigger?*
+
+Enclosure has meant "whatever the walls close in" since step 3, so an annex you
+drew genuinely counted as indoors from that day. And then it refused every shelf
+you tried to stand in it, because the ground under it was grass and
+`BUILDABLE_INDOOR` is floor. Walls could say "this is a room" and nothing could
+say "this is a floor". The refusal even came out as *"something is already
+there"*, which sends you looking for the thing — so the missing feature
+presented as a bug in the wrong place entirely.
+
+The shape it landed in is worth recording because two of the three decisions
+were the ones that kept it small.
+
+**A floor is not a tile kind.** The obvious move is `T.FLOOR_WOOD`,
+`T.FLOOR_TILE`, and it is wrong twice over: every new material would have to be
+added to `WALKABLE` and `BUILDABLE_INDOOR` and the renderer's `TILE_STYLE`, so
+flooring stops being content; and a save holds `tiles` as raw numbers, which is
+the same reason the enum has gaps in it. So `tiles` still only ever holds
+`GRASS` or `FLOOR` here, and *which design* rides in its own sparse layer,
+`layout.floors`. Nothing that reads `tiles` changed at all — which is the
+claim, and `verify:floor` asserts it directly: two floors of different colours
+and different prices produce byte-identical `tiles`, `blocked` and `indoor`.
+
+**A floor is not in `FIXTURES`.** Every row in that table answers "where may
+this stand, and who reaches it", and a floor answers neither — it *is* the cell.
+It is still a `BUILD_KIND`, because it is still a thing content designs. So the
+vocabulary partitions in three now rather than two, and `verify:catalog` counts
+the buckets rather than trusting anyone to remember.
+
+**A floor is the one piece with no `model`.** It carries `surface` instead — a
+colour, an optional second colour and a repeat. That is not laziness about art:
+the ground is seen edge-on at 45° with a whole shop standing on it, so nothing
+finer than one tile survives, while a colour that alternates tile by tile reads
+from across the room. It costs one lookup in a loop that already writes a
+per-instance colour to jitter it, and no extra geometry, mesh or texture.
+
+Two consequences worth knowing:
+
+- **`space` upgrades stopped being the only way to grow and became the honest
+  one.** You can wall and floor an extension for the price of the materials, so
+  the two extension rows would be dead — except that `canPlaceEdges` refuses to
+  build off the map and the world grid is sized off `shell`. So what `space`
+  sells is *land*, which is what its name always said. Its descriptions were
+  reworded to stop promising floor area.
+- **Taking floor up from under a fixture refuses, and that is a deliberate
+  exception to warn-don't-refuse.** It reads like a consequence you should be
+  allowed to cause. It isn't: the generator would not leave the shelf standing
+  on grass, it would drop the placement on the next re-flow and refund it. A
+  brush that quietly sells your shelving and its stock back is a bulldozer
+  wearing a paintbrush, and the bulldozer is right there.
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:
@@ -514,6 +569,13 @@ the number.
     encloses, so removing it moves no `indoor` mask and no tile.
 12. **Appliances become pieces.** The last thing priced off an upgrade, and the
     last place the palette reads a table that isn't the catalog. See above.
+13. **Floors.** *Built.* A brush that paints an area, a `floor` kind that is
+    ground rather than a thing, `surface` on the piece where a model would be,
+    and `world.floors` as an overlay for exactly the reason `edits` is one. Not
+    in this plan originally, and it should have been: step 3 shipped the half of
+    "build your own shop" that decides what counts as inside, and this is the
+    half that decides what you can put there. See above for the three decisions
+    that kept it small.
 
 ---
 

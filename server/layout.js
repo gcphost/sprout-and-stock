@@ -67,6 +67,10 @@ const ROW_PITCH = 2;
  * @param {object[]} opts.placements player-positioned fixtures, honoured first
  * @param {object} opts.grow        bought floor area, {w, h} extra tiles
  * @param {number} opts.doorShift   player-moved door, tiles east of centre
+ * @param {object[]} opts.floors    floor the player laid, [{x, z, p}]. `p` null
+ *   means they took it back up, which is a thing that has to be recorded rather
+ *   than simply absent: the shell stamps its whole footprint as floor, so
+ *   "there is no floor here" is only expressible as an override.
  * @param {object} [opts.shell]     a building that already exists, {w, h}. Given
  *   one, this stops searching for a size and builds exactly that — see below.
  */
@@ -81,6 +85,7 @@ export function generateLayout({
   grow = { w: 0, h: 0 },
   doorShift = 0,
   edits = [],
+  floors = [],
   shell = null,
 } = {}) {
   const req = {
@@ -91,6 +96,8 @@ export function generateLayout({
     // on every re-flow, so anything hand-built has to be re-applied on top or a
     // shelf purchase quietly demolishes your back room.
     edits: edits ?? [],
+    /** ...and the same again for ground, for exactly the same reason. */
+    floors: floors ?? [],
     doorShift: Math.trunc(doorShift) || 0,
   };
 
@@ -330,6 +337,32 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const bay = pad(store.x + 1, T.BAY);
   const drop = pad(store.x + store.w - 3, T.DROP);
 
+  // ---- the ground the player laid -----------------------------------------
+  //
+  // Last of everything procedural, and first of everything the player owns, so
+  // a floor is the last word on what its cell is made of the same way an edit
+  // is the last word on its line. Above this: the shell's footprint, the path
+  // out to the fields, the two yard pads. Below it: every placement, which is
+  // checked against the ground as it finally is — so a shelf may stand on floor
+  // somebody painted this morning, and `canPaintFloor` refusing to pave the bay
+  // is the rule that keeps the order from mattering in the other direction.
+  //
+  // Only cells that ended up as floor are carried out. A cell taken back up is
+  // grass with nothing painted on it, which is the same thing as never having
+  // been painted — so the emitted list stays a list of what IS, and a shop
+  // nobody has redecorated emits an empty array.
+  const floorsOut = [];
+  for (const f of req.floors) {
+    const fx = Math.round(f.x);
+    const fz = Math.round(f.z);
+    if (fx < 0 || fz < 0 || fx >= worldW || fz >= worldH) continue;
+    // A floor is a look, never a permission: what it can write is FLOOR or
+    // GRASS and nothing else. If that ever grows a third answer, every rule
+    // that reads `tiles` has to be re-read with a painter in mind.
+    set(fx, fz, f.p ? T.FLOOR : T.GRASS);
+    if (f.p) floorsOut.push({ x: fx, z: fz, p: f.p });
+  }
+
   // ---- where shoppers walk on from ----------------------------------------
   // The edge of the map, not a point in the middle of the field. A customer
   // blinking into existence five tiles south of the door and evaporating on the
@@ -388,6 +421,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
     props: propsOut,
+    floors: floorsOut,
     blocked,
   });
 
@@ -651,6 +685,15 @@ function compose(req, storeW, storeH, allowDrops = true) {
       plots: plotsOut,
       /** Decorations. Placed only, never generated. */
       props: propsOut,
+      /**
+       * Which design of floor is painted on each cell that has one.
+       *
+       * Sparse, and separate from `tiles` on purpose: `tiles` says what may
+       * stand on a cell and this says what it looks like, and the day those
+       * become one field is the day a paint colour can decide whether a shelf
+       * fits. Empty for a shop nobody has redecorated.
+       */
+      floors: floorsOut,
       /** Placements that no longer fit (the building re-flowed under them). */
       droppedPlacements: dropped.map((p) => p.id),
     },

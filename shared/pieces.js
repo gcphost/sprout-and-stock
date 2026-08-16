@@ -88,3 +88,22 @@ export function pieceFor(rows, f) {
 export function countKey(kind, { station = null, piece = null } = {}) {
   return kind === 'station' ? `station:${station}` : (piece || kind);
 }
+
+/**
+ * What a laid floor is made of.
+ *
+ * The `model` lookup's opposite number, and it needs its own because a floor is
+ * the one piece with no model: it is not a thing standing in a cell, it *is*
+ * the cell, so what content authors is a colour and a repeat.
+ *
+ * Falls back to plain shop floor rather than to nothing, which is the same
+ * forgiveness `pieceFor` shows a deleted design and matters more here — a
+ * floor row tidied out of the catalog while a shop is standing on it would
+ * otherwise render as a black hole across half the building.
+ */
+export function surfaceOf(rows, pieceId, fallbackColor) {
+  const row = (rows ?? []).find((p) => p.id === pieceId);
+  const s = row?.surface;
+  if (!s?.color) return { color: fallbackColor, accent: null, pattern: 'plain' };
+  return { color: s.color, accent: s.accent ?? null, pattern: s.pattern ?? 'plain' };
+}

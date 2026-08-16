@@ -79,6 +79,13 @@ Six sweeps, about five seconds:
 - `verify:shell` stamps a shop, builds in it and sells out of it, and asserts
   that nothing else moved. That claim is a negative and invisible by eye — you
   would have to notice a shelf you weren't looking at is one tile over.
+- `verify:floor` guards the claim the floor layer rests on: that a floor is a
+  *look* and never a permission. Two floors of different colours and different
+  prices must leave byte-identical `tiles`, `blocked` and `indoor`, or what a
+  shop is made of has become a rendering decision. It also asserts the bug
+  floors exist to fix, end to end — wall an annex, fail to put a shelf in it,
+  floor it, succeed — and that paint survives three re-flows and a purchase,
+  because an overlay that didn't would mean buying a shelf repaints the shop.
 - `verify:economy` guards what a fixture costs and how many of them there are:
   that the price comes off the catalog row and not off an upgrade payload, that
   a build-and-sell round trip always loses money rather than printing it, that a
@@ -117,7 +124,7 @@ Keep to your side and you'll almost never touch the same file.
 | Economy and balance | `server/sim/economy.js` | Re-run `simulate` after every change. |
 | Customer behaviour, crops, actions | `server/sim/index.js` | The biggest file. Coordinate before restructuring. |
 | Layout generation | `server/layout.js` | Re-run `npm run verify` after every change. |
-| Build placement rules | `shared/build.js` | Imported by **both** client and server on purpose — see below. |
+| Build placement rules | `shared/build.js` | Imported by **both** client and server on purpose — see below. Also owns the floor brush, which is ground rather than a fixture. |
 | Tile vocabulary | `shared/tiles.js` | The one place tile kinds are defined. |
 | Tag vocabulary | `shared/tags.js` | Adding a tag is safe. Changing what one *means* affects everything. |
 | Validation rules | `shared/schemas.js` | Loosen carefully — this is what stops bad content reaching the game. |
@@ -248,6 +255,19 @@ what the next step was meant to be.
   which reads as bad modelling rather than bad wiring. `verify:catalog` gives its
   test shelf a deliberately *shorter* tier ladder so the wrong row is a number
   that differs rather than a picture that happens to match.
+- **A floor is a look, and it is what makes a walled room a shop.** Enclosure
+  has meant "whatever the walls close in" since step 3 of docs/building.md — so
+  you could always draw an annex and it counted as indoors, and it then refused
+  every shelf, because the ground was grass and `BUILDABLE_INDOOR` is floor.
+  Worse, the refusal read "something is already there", so the missing half
+  presented as a bug in the wrong place. The Floor brush is that half: drag out
+  an area, priced per cell the way a wall is priced per edge. Two rules keep it
+  cheap. It is **not a tile kind** — `tiles` still only ever holds `GRASS` or
+  `FLOOR`, and which design a cell wears rides in `layout.floors`, so nothing
+  that reads the ground changed and no material can ever move a tile. And it is
+  **not in `FIXTURES`** — a floor has no anchor, blocks nobody and is painted
+  rather than placed, so `BUILD_KINDS` partitions in three now, which
+  `verify:catalog` counts rather than trusting anyone to remember.
 - **A tile is ground. What is standing on it is `layout.blocked`.** They were
   one array until step 5 of docs/building.md, which is why there was nowhere to
   put a rug — a rug is not a floor material and not an occupant, and one value

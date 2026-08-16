@@ -51,8 +51,25 @@ export const FIXTURES = {
   'prop-ceiling': { label: 'Hanging', blocks: false, where: 'indoor', rotates: true, anchor: null, at: 'ceiling' },
 };
 
+/**
+ * The one kind that is GROUND rather than something standing on it, which is
+ * why it is not in `FIXTURES` above.
+ *
+ * Everything in that table answers "where may this stand, and who can reach
+ * it". A floor answers neither: it is what the cell is *made of*, so it has no
+ * anchor, blocks nobody, cannot be lifted, rotated or reached round the back,
+ * and is painted over an area rather than placed on a tile. Giving it a row
+ * there would mean five fields that are lies and a `canPlace` branch that skips
+ * every rule in the function.
+ *
+ * It is still a build KIND, because it is still a thing content designs: "Oak
+ * Boards" and "Chequer Tile" are rows in the same catalog a planter is a row
+ * in, and `create_fixture` gates on this list.
+ */
+export const FLOOR_KIND = 'floor';
+
 /** Every kind a piece may name. The closed vocabulary, in one place. */
-export const BUILD_KINDS = Object.keys(FIXTURES);
+export const BUILD_KINDS = [...Object.keys(FIXTURES), FLOOR_KIND];
 
 /**
  * The kinds the generator has a budget for, and the kinds it doesn't.
@@ -60,11 +77,18 @@ export const BUILD_KINDS = Object.keys(FIXTURES);
  * Read off `at` rather than off `blocks`, which they used to share: a plot
  * blocks nobody and is still very much a fixture you buy, own and count. A prop
  * is the thing with no budget, because nothing procedural ever places one.
+ *
+ * Both derive from `FIXTURES` rather than from `BUILD_KINDS`, so a floor is in
+ * neither. It has no budget for the same reason a prop hasn't, and it is not a
+ * fixture for a stronger one: nothing in the world is ever a floor, the ground
+ * simply *is* one.
  */
-export const PROP_KINDS = BUILD_KINDS.filter((k) => FIXTURES[k].at != null);
-export const FIXTURE_KINDS = BUILD_KINDS.filter((k) => FIXTURES[k].at == null);
+export const PROP_KINDS = Object.keys(FIXTURES).filter((k) => FIXTURES[k].at != null);
+export const FIXTURE_KINDS = Object.keys(FIXTURES).filter((k) => FIXTURES[k].at == null);
 
 export const isProp = (kind) => FIXTURES[kind]?.at != null;
+
+export const isFloor = (kind) => kind === FLOOR_KIND;
 
 /** Does one of these own the cell it stands in? */
 export const blocksCell = (kind) => FIXTURES[kind]?.blocks === true;
@@ -364,6 +388,160 @@ function whatThisUnroofs(L, probe) {
   if (roofed.length) return `that roofs over ${roofed.length} plots — nothing grows indoors`;
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Laying a floor
+//
+// The third gesture, and the one that had been missing. A fixture is placed on
+// a tile and a wall is drawn along a line; a floor is painted over an AREA,
+// because "make this corner of the yard into shop" is a region and clicking it
+// out one square at a time is not something anybody does twice.
+//
+// What it changes is `tiles` and only `tiles` — GRASS becomes FLOOR, FLOOR
+// becomes GRASS — which is the whole reason it needed no new tile kinds. Every
+// rule that already reads the ground reads the new ground for free: a shelf
+// still needs `BUILDABLE_INDOOR`, a plot still needs bare grass, and both stay
+// exactly as strict as they were. Which design of floor it is rides in a
+// separate layer entirely (`layout.floors`), because a look must never be able
+// to change what may stand somewhere.
+//
+// The pairing with walls is the point. Since enclosure replaced the store rect
+// you could already wall off an annex, and it counted as indoors — and then
+// refused every shelf you tried to put in it, because the ground under it was
+// still grass. Walls said "this is a room" and nothing could say "this is a
+// floor". That is the missing half, and it is why a floor tool is also the
+// answer to "how do I make my shop bigger".
+// ---------------------------------------------------------------------------
+
+/**
+ * Longest side of one paint stroke.
+ *
+ * A cap on the gesture, not on how much floor you may own — drag again. It is
+ * here because a stroke is charged and re-flowed as one action: the drag has to
+ * arrive as two corners (the 4KB inbound cap), it is priced per cell, and every
+ * cell of it is validated before any of it is paid for.
+ */
+export const FLOOR_STROKE_MAX = 16;
+
+/**
+ * The cells a drag from `start` to `to` would paint.
+ *
+ * Clamped around `start` rather than around the lower corner, which is the one
+ * place this differs from `edgeRun` and is a deliberate fix rather than a
+ * divergence: clamping a rect by its minimum trims the corner you began the
+ * drag on, so an oversized stroke up and to the left walks away from your
+ * finger instead of stopping under it.
+ */
+export function floorStroke(start, to, max = FLOOR_STROKE_MAX) {
+  const x0 = Math.round(start.x);
+  const z0 = Math.round(start.z);
+  const near = (from, end) => (end > from
+    ? Math.min(end, from + max - 1)
+    : Math.max(end, from - max + 1));
+  const x1 = to == null ? x0 : near(x0, Math.round(to.x));
+  const z1 = to == null ? z0 : near(z0, Math.round(to.z));
+  const out = [];
+  for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) {
+    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) out.push({ x, z });
+  }
+  return out;
+}
+
+/**
+ * Which design of floor is painted on each cell, as a lookup.
+ *
+ * The layer that carries the *look*, kept clear of `tiles`, which carries what
+ * may stand there. Sparse and rebuilt per call rather than emitted as a
+ * full-grid array: an unpainted shop sends nothing at all, and the alternative
+ * is a second w×h array on the wire on every re-flow to say "plain" 500 times.
+ */
+export function floorIndex(L) {
+  const m = new Map();
+  for (const f of L?.floors ?? []) m.set(`${f.x},${f.z}`, f.p);
+  return m;
+}
+
+export const floorPieceAt = (L, x, z) => floorIndex(L).get(`${x},${z}`) ?? null;
+
+/**
+ * May this stroke be painted?
+ *
+ * Same two answers as everything else here, and the split falls in a slightly
+ * different place because a floor is ground: almost all of this is physics.
+ * There is no "you could seal yourself in" to warn about, since floor and grass
+ * are both walkable and swapping one for the other cuts nothing off from
+ * anything.
+ *
+ * The one refusal that is worth spelling out is taking floor out from under
+ * something standing on it. That reads like the kind of consequence this
+ * codebase usually allows you to cause — and it isn't, because the generator
+ * would not leave the shelf standing on grass, it would DROP the placement on
+ * the next re-flow and refund it. A tool that quietly sells your shelving and
+ * its stock back is not a choice anybody made; it is a bulldozer wearing a
+ * paintbrush. So it is a no, and the bulldozer is right there.
+ *
+ * @param {object} L        the layout
+ * @param {object[]} cells  [{x, z}], from `floorStroke`
+ * @param {?string} piece   which design to lay, or null to take the floor up
+ */
+export function canPaintFloor(L, cells, piece = null) {
+  if (!cells?.length) return no('nothing to lay');
+  const laying = piece != null;
+  const painted = floorIndex(L);
+
+  let changed = 0;
+  let bared = 0;
+  for (const c of cells) {
+    const x = Math.round(c.x);
+    const z = Math.round(c.z);
+    if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return no('off the edge of the world');
+
+    const ground = tileAt(L, x, z);
+    if (laying) {
+      // Only ever over plain ground. Everything else a cell can be made of is
+      // something with a job — a bed, the delivery bay, the drop-off, the path
+      // out to the fields — and paving one over would take that job away
+      // silently, with no fixture removed and nothing to put back.
+      if (ground !== T.GRASS && ground !== T.FLOOR) return no(groundIsBusy(ground));
+      // Restyling counts. Floor that is already floor still changes hands when
+      // the design differs, which is most of what this tool is for — asking
+      // only whether the GROUND moved would report a whole shop re-tiled as
+      // "nothing to do".
+      if (ground !== T.FLOOR || (painted.get(`${x},${z}`) ?? null) !== piece) changed++;
+    } else {
+      if (ground !== T.FLOOR) continue;              // nothing to take up
+      // See above: this would drop the fixture rather than strand it.
+      if (blockedAt(L, x, z)) return no('something is standing on it');
+      changed++;
+      if (insideStore(L, x, z)) bared++;
+    }
+  }
+
+  if (!changed) return { ok: true, unchanged: true };
+
+  // The one genuine consequence, and it only exists in one direction. Bare
+  // ground indoors is a cell nothing can ever use: a shelf needs floor and a
+  // bed needs to be outdoors, so it is not a patch of garden in your shop, it
+  // is a hole. Allowed, because knocking your own floor out is a move and the
+  // sim copes with it perfectly well — people walk over it.
+  if (bared) {
+    return {
+      ok: true,
+      warn: bared === 1
+        ? 'that leaves bare ground indoors — nothing can be built or dug on it'
+        : `that leaves ${bared} cells of bare ground indoors — nothing can be built or dug on them`,
+    };
+  }
+  return { ok: true };
+}
+
+const groundIsBusy = (ground) => {
+  if (ground === T.PLOT) return 'there is a bed there — clear it first';
+  if (ground === T.BAY) return 'that is the delivery bay';
+  if (ground === T.DROP) return 'that is the drop-off';
+  if (ground === T.PATH) return 'that is the path out to the fields';
+  return 'you can only lay floor over bare grass';
+};
 
 /** Every fixture currently in the layout, as uniform placement specs. */
 export function fixturesOf(L) {

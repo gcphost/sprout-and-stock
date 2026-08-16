@@ -131,7 +131,7 @@
   {
     "id": "space-1",
     "name": "Side Extension",
-    "description": "Knock through the west wall for three more tiles of shop floor. More room for shelving, and more room to arrange it how you like.",
+    "description": "Buys the land west of the shop and pushes the building out three tiles. Since you can wall and floor a room yourself, what this really sells is room to do it in — the map only stretches as far as you own.",
     "cost": 650,
     "kind": "space",
     "payload": {
@@ -142,7 +142,7 @@
   {
     "id": "space-2",
     "name": "Back Extension",
-    "description": "Push the back wall out by three tiles. Deeper aisles, longer queues before anyone spills onto the street.",
+    "description": "Three more tiles of land behind the shop, and the building grows into them. Deeper aisles, longer queues before anyone spills onto the street, and more ground you are allowed to build on.",
     "cost": 900,
     "kind": "space",
     "payload": {
