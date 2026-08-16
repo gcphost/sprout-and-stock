@@ -15,6 +15,7 @@ import {
   buildTextSprite, buildPallet, buildProgressRing, setRingProgress, buildGhost,
   buildSoil, buildFixtureGhost, buildTargetMarker, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
+  buildRipple,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
 import { FIXTURES, anchorTile, canPlace, turn, rot4 } from '../../shared/build.js';
@@ -156,6 +157,24 @@ const GROUND_STRETCH = BASE_CAM_OFFSET.length() / BASE_CAM_OFFSET.y;
 /** How far the view may be shoved off the player it follows, in tiles. */
 const PAN_LIMIT = 14;
 
+/** Scratch for aiming readouts at the camera, so no frame allocates one. */
+const YAW_Q = new THREE.Quaternion();
+
+/**
+ * The press ripple: how long it lives, and the radii it travels between.
+ *
+ * Short on purpose. This is a receipt for an input, not an effect — long
+ * enough to catch out of the corner of your eye while you are already looking
+ * somewhere else, short enough that pressing four times in a row does not
+ * leave four of them stacked up arguing.
+ */
+const RIPPLE_MS = 420;
+const RIPPLE_FROM = 0.09;
+const RIPPLE_TO = 0.46;
+
+/** What the press meant, said in colour. Amber matches the aim marker. */
+const RIPPLE_COLORS = { go: '#ffd66b', no: '#e2564a', miss: '#f4efe2' };
+
 
 
 /** Day-cycle endpoints, resolved once so syncState allocates nothing. */
@@ -198,6 +217,19 @@ export class Scene {
     // allocating a vector every frame.
     this.camPan = new THREE.Vector3();
     this.camAim = new THREE.Vector3();
+    // What angle the readouts were last aimed at, and whether anything has
+    // been built since. Both, because there are two ways to go stale: the
+    // camera turns under the existing ones, or a new one is born while the
+    // camera is already turned. Missing the second is subtler — the shop is
+    // correct, and only the bar on the crop that started growing *after* you
+    // turned is edge-on.
+    this.readoutAngle = null;
+    this.readoutsDirty = true;
+    // Live press ripples, and how far through a held press we are. Both are
+    // pure feedback: nothing in the world reads them, and dropping them all on
+    // the floor would change nothing except how the game feels to press.
+    this.ripples = [];
+    this.holdProgress = null;
     // Two values, like camTarget/camLook: where the wheel says we're going, and
     // where we've eased to. Set before resize(), which bakes the projection.
     this.camZoom = ZOOM_DEFAULT;
@@ -369,6 +401,91 @@ export class Scene {
   /** Has the view been shoved off the player? Lets the HUD offer a way back. */
   get panned() {
     return Math.hypot(this.camPan.x, this.camPan.z) > 0.01;
+  }
+
+  /**
+   * Answer a press where it happened: a ring that spreads and fades.
+   *
+   * Fired from the tile you pressed rather than from the route the server
+   * plans, because the whole job of this is to be instant. A confirmation that
+   * waits for a round trip arrives after you have already pressed again, which
+   * is the state it exists to prevent.
+   *
+   * `kind` picks what the press *meant*, so the colour is information rather
+   * than decoration: amber for a walk, red for a refusal, white for a press
+   * that landed on nothing.
+   */
+  ripple(x, z, kind = 'go') {
+    const color = RIPPLE_COLORS[kind] ?? RIPPLE_COLORS.go;
+    const g = buildRipple(color);
+    g.position.set(x, 0.07, z);
+    this.actorRoot.add(g);
+    // Born at the moment of the press, not at the next frame: `render` reads
+    // the age off this, and a ripple that starts its life a frame late starts
+    // it visibly grown.
+    this.ripples.push({ g, born: performance.now() });
+    return g;
+  }
+
+  /**
+   * How far through a held press we are, 0..1, or null when nothing is held.
+   *
+   * A hold that shows nothing is indistinguishable from a click that missed —
+   * you let go at 300ms, having done nothing, with no way to know you were
+   * 120ms short. So the ring that already marks what you are pointing at fills
+   * up, using the same sweep the action charge uses: one vocabulary for "keep
+   * doing that", whether the game is waiting on your finger or on your legs.
+   */
+  setHoldProgress(t) {
+    this.holdProgress = t === null ? null : Math.max(0, Math.min(1, t));
+  }
+
+  /** Advance every live ripple, and retire the ones that have finished. */
+  animateRipples(now) {
+    for (let i = this.ripples.length - 1; i >= 0; i--) {
+      const r = this.ripples[i];
+      const k = (now - r.born) / RIPPLE_MS;
+      if (k >= 1) {
+        this.actorRoot.remove(r.g);
+        disposeGroup(r.g);
+        this.ripples.splice(i, 1);
+        continue;
+      }
+      // Out fast and then slower, which is what makes it read as a wave losing
+      // energy rather than as a circle being animated. Fading on a square so
+      // most of the life is spent visible and the tail is quick.
+      const ease = 1 - (1 - k) ** 3;
+      r.g.scale.setScalar(RIPPLE_FROM + (RIPPLE_TO - RIPPLE_FROM) * ease);
+      r.g.userData.ring.material.opacity = 0.9 * (1 - k) ** 2;
+    }
+  }
+
+  /**
+   * Turn every readout to face the camera again.
+   *
+   * `Ry(camAngle) · base` rather than "set rotation.y": a rotation about world
+   * Y applied *after* whatever base orientation the thing was built with is
+   * exactly the transform that leaves its appearance unchanged as the camera
+   * orbits by the same angle. Folding the yaw into a Euler's y term only works
+   * for a base that is itself a pure yaw, which the growth bar is and the
+   * progress ring is not.
+   *
+   * Found by traversal rather than by a registry on purpose. A registry of
+   * live meshes is one more thing to unsubscribe from on disposal, and this
+   * renderer already has a scar there — clearing the `shelfProps` maps without
+   * removing the meshes orphaned a full set of stock in the scene on every
+   * re-flow. Traversal cannot leak, and it runs only when the angle changes or
+   * something new was built, which is a handful of frames per quarter turn
+   * rather than every frame forever.
+   */
+  faceReadouts() {
+    YAW_Q.setFromAxisAngle(AXIS_Y, this.camAngle);
+    const aim = (o) => {
+      const base = o.userData.faceCam;
+      if (base) o.quaternion.copy(YAW_Q).multiply(base);
+    };
+    this.actorRoot.traverse(aim);
+    this.staticRoot.traverse(aim);
   }
 
   setCatalog(catalog) {
@@ -1433,6 +1550,7 @@ export class Scene {
       let rec = this.actionRings.get(p.id);
       if (!rec) {
         rec = buildProgressRing(p.id === myId ? '#ffd66b' : '#9ad285');
+        this.readoutsDirty = true;
         this.actorRoot.add(rec);
         this.actionRings.set(p.id, rec);
       }
@@ -1469,6 +1587,7 @@ export class Scene {
     if (!item) return;
 
     const bubble = buildBubble();
+    this.readoutsDirty = true;
     const icon = buildModel(item.model, { castShadow: false });
     // Sized to sit *inside* the shell rather than burst out of it.
     icon.scale.setScalar(0.42);
@@ -1692,6 +1811,7 @@ export class Scene {
 
     if (growing && !rec.bar) {
       rec.bar = buildGrowthBar();
+      this.readoutsDirty = true;
       rec.bar.position.y = 0.95;
       rec.overlay.add(rec.bar);
     }
@@ -1716,6 +1836,7 @@ export class Scene {
     if (!item) return;
 
     const bubble = buildBubble();
+    this.readoutsDirty = true;
     const icon = buildModel(item.model, { castShadow: false });
     icon.scale.setScalar(0.42);
     icon.position.y = -0.14;
@@ -1781,6 +1902,7 @@ export class Scene {
       this.aimMarker.userData.arrow.position.y = 1.62 + Math.sin(t * 4) * 0.11;
       this.aimMarker.userData.ring.rotation.z = t * 0.5;
     }
+    this.animateRipples(now);
     if (this.targetMarker) {
       const t = now / 1000;
       const held = this.targetMarker.userData.held;
@@ -1789,6 +1911,34 @@ export class Scene {
       this.targetMarker.userData.arrow.position.y = held ? 1.5 : 1.62 + Math.sin(t * 4) * 0.11;
       this.targetMarker.userData.ring.scale.setScalar(held ? 1.12 : 1 + Math.sin(t * 4) * 0.045);
       this.targetMarker.userData.ring.rotation.z = t * (held ? 1.8 : 0.5);
+    }
+    // A held press winds the aim ring in and speeds it up, so the thing you are
+    // pointing at is the thing that reacts. Drawn on `aimMarker` — what your
+    // pointer is over — and not on `targetMarker`, which is what your *body* is
+    // next to; on a press they are usually different objects, and animating the
+    // wrong one tells you the game heard a press somewhere else.
+    if (this.aimMarker) {
+      const k = this.holdProgress;
+      const t = now / 1000;
+      const ring = this.aimMarker.userData.ring;
+      if (k === null) {
+        ring.scale.setScalar(1);
+        ring.material.opacity = 0.9;
+        ring.rotation.z = t * 0.5;
+      } else {
+        // Tightening rather than filling: a ring that shrinks onto its target
+        // says "this one, keep going" without needing a second ring in a
+        // different style, and it reads at a glance at any zoom.
+        //
+        // Every term starts at exactly the idle value, so pressing and letting
+        // go are both continuous. An earlier cut wound in from 1.22 — a nice
+        // anticipation beat in principle, and in practice a ring that jumps a
+        // fifth of its size in the single frame you press, which is
+        // indistinguishable from a glitch.
+        ring.scale.setScalar(1 - 0.26 * k);
+        ring.material.opacity = 0.9 + 0.1 * k;
+        ring.rotation.z = t * (0.5 + 4 * k);
+      }
     }
     // Eased like camLook, and for the same reason: a wheel notch that snapped
     // straight to its new scale read as the world flinching rather than as the
@@ -1804,6 +1954,14 @@ export class Scene {
     if (da) {
       this.camAngle += Math.abs(da) < 0.0005 ? da : da * 0.14;
       this.camOffset.copy(BASE_CAM_OFFSET).applyAxisAngle(AXIS_Y, this.camAngle);
+    }
+    // Readouts follow the eased angle, not the target one, so they turn *with*
+    // the swing instead of snapping to the new corner while the shop is still
+    // arriving there.
+    if (this.readoutsDirty || this.camAngle !== this.readoutAngle) {
+      this.readoutAngle = this.camAngle;
+      this.readoutsDirty = false;
+      this.faceReadouts();
     }
     this.camLook.lerp(this.camAim.copy(this.camTarget).add(this.camPan), 0.08);
     // Which lamps get a real light follows the camera, so it belongs here rather

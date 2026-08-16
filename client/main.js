@@ -273,6 +273,7 @@ const drag = {
   lx: 0, ly: 0,     // where it was last frame, for the pan delta
   travel: 0,
   timer: null,
+  pressedAt: 0,     // when it started, for the wind-in the frame loop draws
   done: false,      // a long press already fired; the release means nothing
 };
 
@@ -454,27 +455,38 @@ canvas.addEventListener('pointerdown', (e) => {
   }
 
   drag.id = e.pointerId;
-  drag.touch = e.pointerType === 'touch';
   drag.ox = drag.lx = e.clientX;
   drag.oy = drag.ly = e.clientY;
   drag.travel = 0;
   drag.done = false;
-  // Only a finger waits. A mouse has a second button, a keyboard beside it and
-  // a pointer you can put on a three-pixel target — none of which a phone has,
-  // and all of which are the reason a mouse should never be asked to hold still
-  // for half a second to do the most ordinary thing in the game.
+  drag.pressedAt = performance.now();
+  // A finger has no hover, so the ring that says what you are pointing at has
+  // never been asked for at the moment a touch lands — it only ever appeared
+  // under a mouse that moved first. Aiming here is what gives the held press
+  // something to animate on a phone at all.
+  pointer.x = e.clientX;
+  pointer.y = e.clientY;
+  pointer.onCanvas = true;
+  refreshGhost(true);
+  // Armed on a timer rather than measured on release, so the menu opens under a
+  // pointer that is still down — which is what makes it feel like a press and
+  // not like a slow click. Armed for a mouse as well as a finger: one gesture
+  // means one thing everywhere, and the alternative costs you the ability to
+  // send yourself to a shelf by pointing at the shelf.
   clearLongPress();
-  if (drag.touch) {
-    // Armed on a timer rather than measured on release, so the menu opens under
-    // a finger that is still down — which is what makes it feel like a press
-    // and not like a slow tap.
-    drag.timer = setTimeout(() => {
-      drag.timer = null;
-      if (drag.id === null || drag.travel >= TAP_SLOP) return;
-      drag.done = true;
-      openAtPointer(drag.ox, drag.oy);
-    }, LONG_PRESS_MS);
-  }
+  drag.timer = setTimeout(() => {
+    drag.timer = null;
+    if (drag.id === null || drag.travel >= TAP_SLOP) return;
+    drag.done = true;
+    // The wind-in has to land on something. Without a ripple at the end the
+    // ring just stops being wound and the menu appears, which reads as the
+    // animation having been interrupted rather than completed — and on a press
+    // that opens nothing (bare floor, empty hands) it would be the only thing
+    // that ever told you the hold was finished.
+    const spot = scene.pickTile(drag.ox, drag.oy);
+    if (spot) scene.ripple(spot.x, spot.z, 'miss');
+    openAtPointer(drag.ox, drag.oy);
+  }, LONG_PRESS_MS);
   canvas.setPointerCapture(e.pointerId);
 });
 
@@ -537,9 +549,8 @@ function endPress(e) {
   // A press that never really moved is a tap, not a pan — and a long press has
   // already spent the gesture, so its release means nothing.
   const tapped = e && !drag.done && drag.travel < TAP_SLOP;
-  const byTouch = drag.touch;
   endDrag();
-  if (tapped) tapAtPointer(e.clientX, e.clientY, byTouch);
+  if (tapped) tapAtPointer(e.clientX, e.clientY);
 }
 /**
  * The right button backs out, the way it does in every builder — unless the
@@ -612,9 +623,11 @@ function walkTo(spec) {
  * Look at what you are pointing at. The long press, and nothing else.
  *
  * This was what a *tap* did, back when tapping only ever looked. Tapping now
- * goes, which is the one gesture a phone has and the one a shop needs most, so
- * looking moved to the press that a phone already spells "tell me about this".
- * Nothing about which menu opens changed in the move.
+ * goes — the one gesture every device has, spent on the thing a shop needs
+ * most — so looking moved to the same press held still. Nothing about which
+ * menu opens changed in the move, and this is also where a person is reachable
+ * at all: `tapAtPointer` looks past them on purpose, and here they outrank the
+ * fixture they are standing in front of.
  */
 function openAtPointer(cx, cy) {
   // Not while your hands are full: then every tile is a home for what you carry
@@ -634,32 +647,28 @@ function openAtPointer(cx, cy) {
 }
 
 /**
- * What a tap means, decided by what you tapped, what you're holding, and —
- * for one case only — whether it was a finger.
+ * What a tap means, decided by what you tapped and whether you're building.
  *
- * Bare ground is a destination either way: it walks you there. The split is
- * what a tap on a *thing* means, and it is a split because the two devices
- * genuinely disagree about what is cheap:
+ * **Press and let go, and you go there.** Bare ground walks you to it, and a
+ * *thing* walks you to the side of it you work from — which, because actions
+ * charge on proximity, is the whole errand in one gesture: point at a shelf,
+ * and you cross the shop and stock it with no second input. Looking at a thing
+ * is the same press, held: see `openAtPointer`.
  *
- * - **Mouse**: clicking a thing opens it, exactly as it always has. A mouse
- *   can hit a shelf precisely, has WASD next to it, and has the floor right
- *   there to click if walking is what you wanted. Making it hold still for
- *   420ms to open a menu it used to open instantly is a straight downgrade,
- *   which is what the first cut of this did.
- * - **Finger**: tapping a thing walks you to the side you work it from, which
- *   because actions charge on proximity is the entire errand in one gesture.
- *   Opening moves to the long press — the gesture a phone already spells
- *   "tell me about this", and one a mouse has no equivalent of.
+ * One rule for a mouse and a finger, which is a decision that was made twice.
+ * The middle version gave the mouse click-to-open and left the errand to
+ * touch, on the reasoning that a mouse should not have to wait — and waiting
+ * is genuinely the cost. What it buys is that pointing at a shelf sends you to
+ * the shelf, on the device where you can point at a shelf precisely; splitting
+ * it meant the neatest thing in the scheme was the one thing a mouse could not
+ * do, and you were back to clicking the floor beside things.
  *
- * So neither device is asked to do the other's gesture, and both spellings of
- * "go there" and "look at that" are the ones native to the hardware.
- *
- * In build mode a tap places, and still opens a fixture's own menu on either
- * device — move, turn, empty, sell. Build mode is the one place where pointing
- * at something is already a verb, so walking there would take the tap away
- * from the job you turned the mode on to do.
+ * In build mode a tap places, and still opens a fixture's own menu — move,
+ * turn, empty, sell. Build mode is the one place where pointing at something
+ * is already a verb, so walking there would take the tap away from the job you
+ * turned the mode on to do.
  */
-function tapAtPointer(cx, cy, byTouch = false) {
+function tapAtPointer(cx, cy) {
   const kind = ui.ghostKindForTool();
 
   if (!kind && !ui.holding) {
@@ -669,33 +678,38 @@ function tapAtPointer(cx, cy, byTouch = false) {
     // between every single press.
     if (ui.demolishArmed()) {
       const over = scene.pickFixture(cx, cy);
-      if (over) { ui.razeFixture(over); return; }
+      if (over) { scene.ripple(over.x, over.z, 'no'); ui.razeFixture(over); return; }
     }
 
     // An open panel eats the first press. Pressing the world with a menu up has
     // always meant "put that away", and taking a walk order out of the same
     // press would send you across the shop every time you dismissed something.
-    if (ui.openPanel) { ui.closePanel(); return; }
-
-    // Aim at the thing, not the floor under it — `pickFixture` is the one that
-    // answers "what am I pointing at" for a box drawn most of a tile up-screen
-    // of the ground it stands on.
-    const who = byTouch ? null : scene.pickPerson(cx, cy);
-    if (who?.hire) { showWorker(ui, who.hire); return; }
-
-    const over = scene.pickFixture(cx, cy);
-    if (over) {
-      // A finger goes; a mouse looks. See the split above.
-      // The walk names the fixture rather than a tile, because where you stand
-      // to work a shelf is the layout's business and worked out twice it can
-      // disagree with itself.
-      if (byTouch) walkTo({ fixture: over.id });
-      else showFixture(ui, over);
+    // Rippling pale rather than amber is the difference between "I heard you"
+    // and "you are on your way", which is exactly the thing this press did not
+    // do — press again and you go.
+    if (ui.openPanel) {
+      const spot = scene.pickTile(cx, cy);
+      if (spot) scene.ripple(spot.x, spot.z, 'miss');
+      ui.closePanel();
       return;
     }
 
+    // People are not destinations — they walk off, and "go to where that clerk
+    // was standing" is not a thing anybody means. So a tap looks straight past
+    // them to whatever they are standing in front of, and reaching a person is
+    // the held press, where `openAtPointer` gives them priority over the
+    // fixture behind them.
+    //
+    // Aim at the thing, not the floor under it — `pickFixture` is the one that
+    // answers "what am I pointing at" for a box drawn most of a tile up-screen
+    // of the ground it stands on. The walk names the fixture rather than a
+    // tile, because where you stand to work a shelf is the layout's business
+    // and worked out twice it can disagree with itself.
+    const over = scene.pickFixture(cx, cy);
+    if (over) { scene.ripple(over.x, over.z); walkTo({ fixture: over.id }); return; }
+
     const tile = scene.pickTile(cx, cy);
-    if (tile) walkTo({ x: tile.x, z: tile.z });
+    if (tile) { scene.ripple(tile.x, tile.z); walkTo({ x: tile.x, z: tile.z }); }
     return;
   }
 
@@ -785,6 +799,14 @@ function pollInput() {
 function loop() {
   pollInput();
   if (ui.buildOn) refreshGhost();
+  // How far through a held press we are, recomputed per frame rather than
+  // stepped by the timer that fires it: the timer knows when the press is over
+  // and nothing else, and a progress bar driven by a single timeout can only
+  // ever jump from empty to full.
+  const holding = drag.id !== null && !drag.done && drag.travel < TAP_SLOP;
+  scene.setHoldProgress(holding
+    ? (performance.now() - drag.pressedAt) / LONG_PRESS_MS
+    : null);
   scene.render();
   requestAnimationFrame(loop);
 }

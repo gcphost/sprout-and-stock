@@ -307,19 +307,30 @@ second input. That only works because the anchor is right.
 
 ### One press, three meanings
 
-| | moved | still, brief | still, held |
-|---|---|---|---|
-| **mouse** | pan the camera | click: a thing opens, the floor walks you | — |
-| **finger** | pan the camera | tap: a thing walks you to it, and you do it | open it |
+| the press | what it means |
+|---|---|
+| moved | pan the camera |
+| still, released | go there — and if it was a thing, do the thing |
+| still, held | open it |
 
-**The last column is the whole reason this table has two rows.** The first cut
-used one rule for both — tap goes, long press opens — and it was a straight
-downgrade on a mouse: a menu that used to open on click now wanted the button
-held still for 420ms. A mouse can hit a shelf precisely, has WASD beside it and
-has the floor right there to click if walking is what you meant, so it keeps
-click-to-open and gets walking on the floor. A finger has none of that, so it
-gets the errand on a tap and looks with the press a phone already spells "tell
-me about this". Neither device is asked to perform the other's gesture.
+Same three on a mouse and on a finger, which is a decision that was made
+**twice** and is worth recording in both directions.
+
+The middle version split them: a mouse clicked to open and a finger tapped to
+run the errand, on the reasoning that a mouse should not have to wait 420ms for
+a menu it used to get instantly. That cost is real and it is the honest argument
+against what is here now.
+
+What the split cost was worse. The best thing in the scheme — point at a shelf
+and you cross the shop and stock it — became the one thing a mouse could not do,
+on the device where pointing at a shelf precisely is *easiest*. Playing it, you
+end up clicking the floor beside things, which is the fiddliness the whole
+change was meant to remove.
+
+So: one gesture, one meaning, and the wait is the price of the tap doing the
+useful thing. People are the one exception in the other direction — a tap looks
+straight past them, because "go to where that clerk was standing" is not
+something anyone means, and they get priority on the held press instead.
 
 Steering always outranks a route: `stepPlayers` drops `p.path` on the first
 frame of key input rather than blending the two, because a key that only slowed

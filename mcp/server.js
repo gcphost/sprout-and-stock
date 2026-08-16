@@ -527,6 +527,17 @@ server.registerTool('add_cash', {
   },
 }, async (args) => text(await call('POST', '/cash', args)));
 
+server.registerTool('set_reputation', {
+  title: 'Set standing in the town',
+  description:
+    'Set reputation directly, 0..1. Reputation drives footfall via `pull`, which floors at 0.08 and recovers at only +0.004 per sale — '
+    + 'so a shop knocked to the floor gets a trickle of customers however well it is stocked, and cannot earn its way back out. '
+    + 'Use this to undo damage a bug did; `reset_economy` also fixes it but takes the day and the cash with it.',
+  inputSchema: {
+    set: z.number().min(0).max(1).describe('0 = nobody has heard of you, 1 = the best shop in town. 0.5 is a fresh start.'),
+  },
+}, async (args) => text(await call('POST', '/reputation', args)));
+
 server.registerTool('add_modifier', {
   title: 'Force a demand or price change',
   description:

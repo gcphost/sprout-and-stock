@@ -284,6 +284,31 @@ export function createApi() {
     res.json({ ok: true, world: g.worldId, cash: Math.round(g.cash * 100) / 100 });
   }));
 
+  /**
+   * Set standing in the town directly.
+   *
+   * Exists because reputation is the one economic value with no way back: it
+   * drives footfall through `pull`, which floors at 0.08, and it recovers at
+   * +0.004 per sale — so a shop knocked to the floor gets ~8% of its customers
+   * and cannot earn its way out, however well it is stocked. `reset-economy`
+   * would fix it and also take the day and the cash with it, which is not a
+   * repair, it is a new game.
+   */
+  api.post('/reputation', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
+    const set = Number(req.body?.set);
+    if (!Number.isFinite(set)) throw new HttpError(400, 'set is required, 0..1');
+    const before = g.reputation;
+    g.reputation = Math.min(1, Math.max(0, set));
+    g.persist();
+    res.json({
+      ok: true,
+      world: g.worldId,
+      before: Math.round(before * 1000) / 1000,
+      reputation: Math.round(g.reputation * 1000) / 1000,
+    });
+  }));
+
   api.post('/modifier', wrapAsync(async (req, res) => {
     const g = await gameFor(req);
     const { tag, demand_mult = 1, price_mult = 1, days = 2, label = 'manual' } = req.body ?? {};

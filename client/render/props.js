@@ -151,6 +151,11 @@ export function buildBubble() {
   }
 
   g.position.y = 1.32;
+  // The shell is a sphere and could not care less, but the two trailing dots
+  // are placed off one shoulder to read as a thought coming *from* whoever is
+  // under it. Left alone they trail off the front of a shopper's face as soon
+  // as you turn the view.
+  faceCam(g);
   return g;
 }
 
@@ -530,6 +535,65 @@ export function buildTargetMarker(mode = 'aim') {
 }
 
 /**
+ * The ring that spreads out from where you pressed.
+ *
+ * Ordering a walk is the one input in the game with nothing to look at: the
+ * character sets off, but a route across the shop starts with a step that
+ * looks like any other, and pressing somewhere off screen looks like pressing
+ * nothing at all. So the press answers on the spot, before the server has been
+ * asked anything — this is drawn from the tile you pressed, not from the route
+ * that comes back, because feedback that waits for a round trip is feedback
+ * that arrives after you have already pressed again.
+ *
+ * Flat on the ground and unlit, like every other readout here. Sized by the
+ * caller each frame; this only builds the shape.
+ */
+export function buildRipple(color = '#ffd66b') {
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(
+    // Thin-walled, so scaling it up reads as a wave spreading rather than as a
+    // disc growing. The geometry is unit-sized and the scale does the work —
+    // which also means the wall thickness is a *proportion*, so shrinking the
+    // ripple thins the line by the same factor. This is 0.28 of the radius
+    // rather than 0.14 because the ripple was halved after it was first drawn,
+    // and halving it again in weight turned "smaller" into "fainter".
+    new THREE.RingGeometry(0.72, 1, 40),
+    new THREE.MeshBasicMaterial({
+      color: new THREE.Color(color), transparent: true, opacity: 0.9,
+      side: THREE.DoubleSide, depthTest: false,
+    }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.renderOrder = 11;
+  g.add(ring);
+  g.position.y = 0.07;
+  g.userData.ring = ring;
+  return g;
+}
+
+/**
+ * Mark a readout as something that must keep facing the camera.
+ *
+ * A readout is aimed at the *player*, not at the world, so its orientation is
+ * a fact about where you are sitting rather than about where it is standing.
+ * These were all built with a corner baked in — `rotation.y = π/4` and
+ * friends — which is correct for exactly one of the four views the camera has,
+ * and turns a growth bar edge-on into an unreadable green splinter in the
+ * other three. Easy to miss, because the shop itself looks perfect from every
+ * corner: the bug is only on the things that are not part of the shop.
+ *
+ * Recording the base *quaternion* rather than a Euler angle is what lets the
+ * ring come along. Its base is a tilt about X as well, and yaw folded into the
+ * middle of an XYZ Euler is not the same rotation as yaw applied after one —
+ * the bar would look right and the ring would tumble. `Scene.faceReadouts`
+ * composes `Ry(camAngle) · base`, which preserves any base you like.
+ */
+export function faceCam(obj) {
+  obj.userData.faceCam = obj.quaternion.clone();
+  return obj;
+}
+
+/**
  * A radial charge-up meter that floats over whoever is mid-action. Built from
  * a ring geometry whose sweep we rewrite each frame, so it reads as filling up
  * rather than just changing colour.
@@ -558,6 +622,7 @@ export function buildProgressRing(color) {
   // Sprites always face the camera; a ring doesn't, so tilt it to match the
   // isometric view instead of having it edge-on and invisible.
   g.rotation.set(-Math.PI / 4, Math.PI / 4, 0);
+  faceCam(g);
   return g;
 }
 
@@ -610,6 +675,7 @@ export function buildGrowthBar() {
   g.add(track, fill);
   g.userData.fill = fill;
   g.rotation.y = Math.PI / 4;
+  faceCam(g);
   setGrowthBar(g, 0);
   return g;
 }

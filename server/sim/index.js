@@ -62,6 +62,18 @@ const EDGE_LABEL = {
 const PLAYER_SPEED = 4.2;      // tiles/sec
 const CUSTOMER_SPEED = 2.4;
 const REACH = 1.6;             // how close you must be to interact
+/**
+ * Most of one thing anybody takes off one shelf in one visit.
+ *
+ * The list made this look redundant — an errand says "two milks", so why cap it
+ * — and it was deleted on that argument. Wrong: the errand bounds what *one*
+ * shopper wants, and the cap bounds what one shelf gives up to them. Without it
+ * a bulk-shopper drawing `kids:4` empties four units in a single stop, and a
+ * busy hour strips the shop faster than anyone can restock. Invisible while
+ * reputation was on the floor; the moment footfall came back it read as being
+ * raided.
+ */
+const MAX_UNITS_PER_SHELF = 3;
 const CASH_REACH = 1.8;        // how close you stand to scoop up the till
 const CASH_MIN_LIFE = 3.5;     // seconds a pile stays put so you can see it
 const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
@@ -346,6 +358,10 @@ export class Game {
     // shop, an old save, a balance run, a restored room. A migration that only
     // one caller remembers to run is a migration that has already been skipped.
     game.freezeShell();
+    // After the stamp, not before: `freezeShell` can re-flow the layout, and
+    // restoring onto shelves that are about to be replaced puts the stock back
+    // on objects nobody keeps.
+    game.restoreContents(w.stock, w.crops);
     return game;
   }
 
@@ -424,7 +440,58 @@ export class Game {
       shell: this.shell,
       plots: budgetOf(this.placements).plot,
       shelves: budgetOf(this.placements).shelf,
+      // What is ON the shop, as opposed to what the shop IS. The save held
+      // placements and never their contents, so every restart — and
+      // `dev:server` runs under `node --watch`, so every edit to `server/` is a
+      // restart — emptied every shelf and unplanted every bed. The shop looked
+      // untouched, which is exactly why it read as a mystery rather than a
+      // reload. Keyed by fixture id, the same key `carryOver` re-homes stock on
+      // during a re-flow.
+      stock: this.layout.shelves
+        .filter((s) => s.item_id)
+        .map((s) => ({
+          id: s.id, item_id: s.item_id, qty: s.qty, price: s.price, stockedDay: s.stockedDay ?? 0,
+        })),
+      crops: this.layout.plots
+        .filter((p) => p.crop_id || p.soil !== 'untilled')
+        .map((p) => ({
+          id: p.id,
+          soil: p.soil,
+          crop_id: p.crop_id,
+          ready: p.ready,
+          yield: p.yield ?? null,
+          // How long it HAS grown, not when it was planted: `plantedAt` is
+          // measured against `elapsed`, which restarts at zero, so a stamp
+          // saved raw would put every bed's sowing in the future and freeze it
+          // half-grown for ever.
+          grown: round2(Math.max(0, this.elapsed - (p.plantedAt ?? 0))),
+        })),
     });
+  }
+
+  /**
+   * Put the shelves and beds back after a restart. Anything whose fixture is no
+   * longer there is dropped on the floor rather than restored onto nothing —
+   * a shelf you sold between sessions should not resurrect with its stock.
+   */
+  restoreContents(stock, crops) {
+    for (const row of stock ?? []) {
+      const shelf = this.layout.shelves.find((s) => s.id === row.id);
+      if (!shelf) continue;
+      shelf.item_id = row.item_id;
+      shelf.qty = row.qty;
+      shelf.price = row.price;
+      shelf.stockedDay = row.stockedDay ?? 0;
+    }
+    for (const row of crops ?? []) {
+      const plot = this.layout.plots.find((p) => p.id === row.id);
+      if (!plot) continue;
+      plot.soil = row.soil;
+      plot.crop_id = row.crop_id;
+      plot.ready = row.ready;
+      if (row.yield != null) plot.yield = row.yield;
+      plot.plantedAt = -(row.grown ?? 0);
+    }
   }
 
   /**
@@ -3326,7 +3393,7 @@ export class Game {
     // that does not carry its tag, which is the whole point of a substitution.
     const line = cust.list[cust.errandAt] ?? null;
     const spent = () => cust.basket.reduce((s, b) => s + b.price, 0);
-    const maxRun = Math.min(line ? line.qty - line.got : 1, shelf.qty);
+    const maxRun = Math.min(line ? line.qty - line.got : 1, MAX_UNITS_PER_SHELF, shelf.qty);
 
     for (let n = 0; n < maxRun; n++) {
       if (spent() + shelf.price > cust.budget) break;
