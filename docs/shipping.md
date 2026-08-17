@@ -82,14 +82,16 @@ after packaging is inside `Sprout & Stock.app/Contents/` or Program Files. Both
 are read-only. The first write fails, or worse, succeeds into a location the
 next update wipes.
 
-### The sweeper deletes saves after a fortnight
+### ~~The sweeper deletes saves after a fortnight~~ — gone
 
-[`sweepWorlds`](../server/worlds.js#L255) bins any world untouched for
-`SNS_WORLD_TTL_DAYS` (default 14), skipping pinned worlds, occupied worlds and
-the last one standing. That is correct for a shared dev box filling up with
-throwaway test shops. For someone who plays every other weekend it deletes their
-shop, and the guard "the last world standing survives" means they keep *a*
-save — just not the one they cared about.
+`sweepWorlds` binned any world untouched for a fortnight, skipping worlds you
+had pressed Keep on, occupied ones and the last standing. Right for a shared dev
+box filling up with throwaway test shops, wrong for anybody who plays every other
+weekend: it deleted their shop, and "the last world standing survives" meant they
+kept *a* save, just not the one they cared about. Removed rather than defaulted
+off — the Keep button on the menu only existed to say "not this one", so a save
+that never expires retires both halves and one fewer thing on the card is the
+point. A save goes when somebody deletes it.
 
 ### There is no pause
 
@@ -224,8 +226,8 @@ Per-user application data (`~/Library/Application Support`, `%APPDATA%`,
 frozen-world measurements. The mechanism exists; only the caller is new.
 
 First run copies the bundled `data/seed/*.json` in and mints the first world,
-which `ensureAWorld` already does. Packaged builds set
-`SNS_WORLD_TTL_DAYS=0`.
+which `ensureAWorld` already does. Nothing to turn off beyond that — saves no
+longer expire.
 
 ### Pause
 
@@ -262,8 +264,8 @@ doing — a guest whose shop silently freezes will assume it crashed.
 
 ## Steps
 
-1. **Data dir.** Per-user path via `SNS_DB`, first-run seed copy, `SNS_WORLD_TTL_DAYS=0`
-   when packaged. Nothing user-visible; everything else needs it.
+1. **Data dir.** Per-user path via `SNS_DB`, first-run seed copy. Nothing
+   user-visible; everything else needs it.
 2. **Drop on disconnect.** `dropGoods` in `removePlayer`. Three lines, and the
    only step that fixes a bug that exists *today*.
 3. **Stable player id + `allowReconnection`.** Bypassing `addPlayer`'s human

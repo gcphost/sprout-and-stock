@@ -538,17 +538,32 @@ export function buildTools(ui) {
  * list with unique ids and no notion of which tab is showing.
  */
 export function buildGroups(ui) {
+  const cash = ui?.state?.cash ?? 0;
   const tools = buildTools(ui).map((t) => {
     const cost = ui?.buildCosts?.[t.id];
     // How many of these are standing in the shop. It was a line of the old
     // panel's row copy, and it is the half worth keeping — "six owned" is what
     // decides whether a seventh is the buy.
     const have = ownedCount(ui, t);
+    // What you cannot afford, said on the button rather than after the tap. The
+    // server has always refused it (`placeFixture` checks the cash last, after
+    // every rule about the tile), so the only thing this changes is WHERE you
+    // find out: a lit tile, a ghost, a tap and a refusal, against a tile that
+    // was never offering.
+    //
+    // Per unit for the brushes, which is the honest test a price per tile can
+    // support — affording a cell of tarmac is not affording the drive, and the
+    // drag prices itself as you pull it out.
+    const poor = cost != null && cost > cash;
     return {
       ...t,
       note: cost == null ? '' : `$${cost.toFixed(0)}`,
+      poor,
       badge: have ? String(have) : '',
-      title: `${t.name} — ${t.blurb}`,
+      // The shortfall goes in the tip, because the tile has room for the price
+      // and not for the arithmetic — and greyed-out with no reason given is the
+      // one state where somebody would otherwise think the button was broken.
+      title: `${t.name} — ${t.blurb}${poor ? ` · $${cost.toFixed(0)} and you have $${cash.toFixed(0)}` : ''}`,
       // Whether this one comes in shapes, which is what earns the tile its
       // chevron and makes a hold on it mean something. Asked of the PIECE, since
       // that is what `variantsOf` reads and what the popover will offer — a tool
@@ -642,7 +657,12 @@ export function staffGroups(ui) {
       icon: icon(e.kind, ICONS.staff),
       name: e.name,
       note: doingNow(ui, e, body),
-      title: `${e.name} — ${doingNow(ui, e, body)}`,
+      // What they were taken on as, said once, in the one place there is room
+      // for it. A hire's name used to BE their kind — "Stocker 3" — so the
+      // roster answered "what do they do" for free and stopped the day people
+      // got names of their own. The art still shows it and the menu still
+      // prints it, but neither is readable at a glance across six tiles.
+      title: `${e.name} — ${nameOfKind(e.kind)}, ${doingNow(ui, e, body)}`,
       warn: !body,
     };
   };
@@ -660,9 +680,14 @@ export function staffGroups(ui) {
   // there is no menu behind it, because the tile already says the name, the
   // price and how many you have, and a second screen repeating that is the
   // thing this replaced.
+  // Pressing one of these HIRES, with no menu in between, so it is the one bar
+  // where a tile you cannot afford spends a press and gets an error. Same test
+  // `hire` makes on the server, in the same words the palette uses.
+  const cash = ui.state?.cash ?? 0;
   const forHire = kinds.map((w) => ({
     id: `kind:${w.id}`,
     kind: w.id,
+    poor: w.cost > cash,
     // How they turn up: the bottom rung, in the colours they were drawn in —
     // the same call `artForModel` makes about selling the battered freezer
     // rather than the chrome one.
@@ -671,7 +696,8 @@ export function staffGroups(ui) {
     name: w.name,
     note: `$${w.cost.toFixed(0)}`,
     badge: roster.filter((e) => e.kind === w.id).length || null,
-    title: `${w.name} — ${kindSummary(w)}`,
+    title: `${w.name} — ${kindSummary(w)}${
+      w.cost > cash ? ` · $${w.cost.toFixed(0)} and you have $${cash.toFixed(0)}` : ''}`,
   }));
 
   const seen = [...new Set(roster.map((e) => e.kind))];

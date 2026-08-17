@@ -71,6 +71,28 @@ function scrollerOf(body) {
   return body.querySelector('.pnl-mid') ?? body;
 }
 
+/**
+ * How long a hint that is about a STATE rather than about news stays up.
+ *
+ * Every other line above the bar answers a question you are asking *right now*
+ * — what is in my hands, what am I pointing at, what will this tap cost — so it
+ * lives exactly as long as the thing it describes. "Nothing armed" is the
+ * exception: it is an introduction to the mode, true from the moment build mode
+ * opens until you pick something, which can be the whole time you spend
+ * dragging shelves around. Read once it is furniture, and it holds the corner
+ * HUD up off the bottom of the screen for as long as it sits there.
+ */
+const HINT_LINGER = 4000;
+
+/**
+ * How long the bar is watched for after something changes its height.
+ *
+ * The hint's own transition plus a frame or two of margin — see `followBar`. It
+ * is a ceiling on a loop rather than a duration anything is timed to, so it only
+ * has to be *at least* as long as the longest transition in `#build`.
+ */
+const BAR_SETTLE = 260;
+
 /** How each kind of fixture shows up in its own menu. */
 const FIXTURE_ICON = {
   shelf: ICONS.shelf, freezer: ICONS.freezer, checkout: ICONS.checkout,
@@ -309,12 +331,12 @@ export class UI {
     // the fixture visibly turning is the feedback, and announcing a mode change
     // either side of it says twice as much as happened.
     if (quiet) return;
-    // Says the keys have changed hands, because that is the one thing about
-    // build mode you cannot find out by pointing at something: WASD stops
-    // walking you and starts moving the view.
-    this.toast(on
-      ? 'Build mode — tap bare ground to build, tap anything you own to open it · WASD moves the view'
-      : 'Back to shopkeeping');
+    // The mode, and nothing else. It used to carry three instructions — what a
+    // tap on the ground does, what a tap on a fixture does, what WASD does now —
+    // which is the welcome-toast mistake said again: a list nobody reads at the
+    // one moment they cannot use it. All three are answered where they happen,
+    // by the ghost under the pointer and the line above the bar.
+    this.toast(on ? 'Build mode' : 'Back to shopkeeping');
   }
 
   /**
@@ -825,7 +847,12 @@ export class UI {
     // Nothing up: the bar is still in the document and still has a height, so
     // say zero explicitly. Everything above it in the stack is `calc()` off
     // this, and a stale value floats the panel over empty screen.
-    if (!this.bar) { this.measureBar(true); return; }
+    // …and a bar that has gone has taken the hint with it, which is the one
+    // moment `renderBuildHint` cannot see for itself: it is not called from here,
+    // so without this the "Nothing armed" line would still be marked as read the
+    // next time build mode opens, and having closed the bar once would be enough
+    // to never see it again.
+    if (!this.bar) { this.forgetHint(); this.measureBar(true); return; }
     const browse = this.browseGroups();
     if (browse) return this.renderBrowseBar(browse, (it) => this.openBarEntry(it), this.litEntry());
     return this.renderBuildBar();
@@ -1063,14 +1090,52 @@ export class UI {
    * things the bar cannot show you: what is in your hands, what you are pointing
    * at, and what a tap is about to cost you.
    */
+  /** Forget that a lingering line has been shown, so the next one starts over. */
+  forgetHint() {
+    clearTimeout(this._hintTimer);
+    this._hintTimer = null;
+    this._hintKey = null;
+    this._hintDone = false;
+  }
+
   renderBuildHint() {
     if (!this.el.buildHint) return;
     const say = this.buildHintText();
-    this.el.buildHint.textContent = say?.text ?? '';
-    this.el.buildHint.hidden = !say;
-    this.el.buildHint.classList.toggle('warn', !!say?.warn);
-    this.el.buildHint.classList.toggle('bad', !!say?.bad);
-    this.measureBar();
+    // A `linger` line is one that has been read by the time it has been up for
+    // a few seconds. Keyed by its own text rather than by a flag, so the timer
+    // starts when the line APPEARS and re-arms every time the state is entered
+    // again — arming a tool clears the line, and disarming brings the same words
+    // back as a new appearance rather than as the tail of the last one.
+    //
+    // The timeout has to re-render rather than just hide, or the bar keeps the
+    // height it had with the line in it (`measureBar`) and the corner HUD floats
+    // above a gap.
+    const key = say?.linger ? say.text : null;
+    if (key !== (this._hintKey ?? null)) {
+      this.forgetHint();
+      this._hintKey = key;
+      if (key) {
+        this._hintTimer = setTimeout(() => {
+          this._hintDone = true;
+          this.renderBuildHint();
+        }, HINT_LINGER);
+      }
+    }
+    const show = say && !(say.linger && this._hintDone);
+    // Only written on the way IN. It slides out over about a fifth of a second
+    // (`#build-hint.gone`), and a box emptied of its words on the first frame of
+    // that is a blank bubble shrinking — the animation exists to show the line
+    // leaving, so the line has to still be in it. Same for the two colours: a
+    // refusal that went grey as it left would flicker on its way out.
+    if (show) {
+      this.el.buildHint.textContent = say.text;
+      this.el.buildHint.classList.toggle('warn', !!say.warn);
+      this.el.buildHint.classList.toggle('bad', !!say.bad);
+    }
+    this.el.buildHint.classList.toggle('gone', !show);
+    // `followBar` rather than `measureBar`: the height this changes takes a fifth
+    // of a second to arrive, and one read now is the height it had before.
+    this.followBar();
   }
 
   buildHintText() {
@@ -1108,8 +1173,11 @@ export class UI {
     // with nothing lit and no ghost under the pointer is otherwise
     // indistinguishable from a mode that has stopped working — and it is the one
     // state in build mode with nothing on screen to explain itself.
+    // `linger`, because this one is an introduction rather than an answer: it is
+    // true for as long as you have not picked anything, which is the whole time
+    // you spend rearranging what is already there.
     if (this.paletteArmed && !this.toolArmed) {
-      return { text: 'Nothing armed — drag things about, or pick something to build' };
+      return { text: 'Nothing armed — drag things about, or pick something to build', linger: true };
     }
     const v = this.buildVerdict;
     // A red ghost is a refusal, and the reason is the only thing that turns it
@@ -1131,6 +1199,42 @@ export class UI {
   measureBar(empty = false) {
     const h = empty ? 0 : (this.el.build?.offsetHeight ?? 0);
     document.documentElement.style.setProperty('--build-h', `${h}px`);
+  }
+
+  /**
+   * Keep measuring while the bar is still changing size.
+   *
+   * `measureBar` reads a height, and the hint now takes about a fifth of a second
+   * to get to its own (`#build-hint`), so one read taken the instant the class
+   * flips is the height the bar had *before* — and the panel and the corner HUD
+   * are positioned off that number. Read once and they never move; read once at
+   * the end and they jump to their new place a fifth of a second late, which is
+   * the snap this animation was added to get rid of, moved somewhere else.
+   *
+   * So it follows: a frame at a time for as long as the transition lasts, and
+   * everything above the bar rides up with the hint rather than being told where
+   * to be afterwards. Cheap — about a dozen frames, one layout read each, and
+   * nothing at all the rest of the time.
+   *
+   * A clock rather than "stop once the height stops changing", which is the
+   * version to reach for first and is wrong: `offsetHeight` is a whole number, so
+   * a slow frame or the shallow end of an eased curve holds the same integer for
+   * two or three frames in the middle of the animation, and the loop gives up
+   * there — leaving `--build-h` at a height the bar passed through.
+   *
+   * Stops dead if the bar goes: a closed bar still has a height, which is exactly
+   * why `renderHotbar` says zero explicitly rather than measuring, and a loop
+   * still running would write that height straight back over it.
+   */
+  followBar() {
+    cancelAnimationFrame(this._barFrame ?? 0);
+    const until = performance.now() + BAR_SETTLE;
+    const step = (now) => {
+      if (!this.bar) { this.measureBar(true); return; }
+      this.measureBar();
+      if (now < until) this._barFrame = requestAnimationFrame(step);
+    };
+    step(performance.now());
   }
 
   /**
@@ -1239,6 +1343,26 @@ export class UI {
   }
 
   /**
+   * How many of the priced things on the bar this much money reaches.
+   *
+   * A signature for "which tiles are greyed out", not a readout — the point is
+   * that it does NOT move when cash does. Prices are fixed, so a count of the
+   * ones at or under your cash is monotone and steps exactly at each price: two
+   * different balances that afford the same set answer the same number, and the
+   * bar is rebuilt when the set changes rather than when a shopper pays.
+   *
+   * Which prices depends on which bar is up, because they are two catalogues —
+   * asking the palette's costs while the roster is on screen is a signature that
+   * never moves for the thing it is watching.
+   */
+  affordStep(cash) {
+    const prices = this.bar === 'staff'
+      ? (this.catalog.workers ?? []).map((w) => w.cost)
+      : Object.values(this.buildCosts ?? {});
+    return prices.filter((c) => c != null && c <= cash).length;
+  }
+
+  /**
    * What a number key presses: the nth entry of whichever bar is up, and the
    * same thing tapping it would do. Capped at what the bar draws a number on,
    * so a key can never reach a button that isn't wearing it.
@@ -1246,6 +1370,10 @@ export class UI {
   selectBuildToolByIndex(i) {
     const t = i < KEYED ? this.hotbarTools()[i] : null;
     if (!t) return;
+    // The key reaches the same tile the pointer does, so it has to be refused for
+    // the same reason — a greyed tile the 6 key still arms is a button that means
+    // two different things depending on how you pressed it.
+    if (t.poor) return;
     // A browse bar opens a menu rather than arming anything, so a number key
     // does exactly what tapping the entry does — see `renderBrowseBar`. It has
     // to be the same branch, or `selectBuildTool` is handed a person's id.
@@ -1461,8 +1589,18 @@ export class UI {
    * readout keeps its value on the right — there is no icon to stack it under
    * and the labels want to line up.
    *
-   * The description wraps but is clamped to two lines and repeated in `title`,
-   * so a row stays bounded whatever the copy says and the rest is a hover away.
+   * The description wraps and is clamped to two lines, so a row stays bounded
+   * whatever the copy says. It carries NO `title`: it used to repeat itself into
+   * one as an escape hatch for the clamp, which meant hovering a row put a tip
+   * over the panel saying word for word what was already printed under the
+   * pointer — and the tip is opaque, so the answer covered the rows either side
+   * of the question. Two lines of 10.5px is about 90 characters and every sub in
+   * the game fits; a longer one should be shortened rather than hidden behind a
+   * hover nobody would know to try.
+   *
+   * `art` wins over `icon` where a row has one — a picture of the thing beats a
+   * glyph for its kind, which is the same call the palette makes, and `icon`
+   * stays as the fallback for anything nobody has drawn.
    */
   rowHtml(r, i) {
     if (r.sep) return `<div class="sep">${r.sep}</div>`;
@@ -1472,10 +1610,10 @@ export class UI {
     if (r.run) cls.push('clickable');
     const stacked = !r.plain;
     return `<div class="${cls.join(' ')}"${r.run ? ` data-row="${i}"` : ''}${
-  r.acts ? ` data-acts="${i}"` : ''}${
-  r.sub ? ` title="${r.sub.replace(/"/g, '&quot;')}"` : ''}>
-      ${stacked && (r.icon || r.right) ? `<div class="lead">
-        ${r.icon ? `<span class="bico">${r.icon}</span>` : ''}
+  r.acts ? ` data-acts="${i}"` : ''}>
+      ${stacked && (r.art || r.icon || r.right) ? `<div class="lead">
+        ${r.art ? `<span class="bico art">${r.art}</span>`
+    : r.icon ? `<span class="bico">${r.icon}</span>` : ''}
         ${r.right ? `<span class="cost">${r.right}</span>` : ''}
       </div>` : ''}
       <div class="name"><span class="t">${r.name}</span>${
@@ -1829,7 +1967,12 @@ export class UI {
     // Placing one is exactly when that count moves, and nothing else redraws the
     // bar for it — hands are empty on either side of a build. Compared as a
     // string first, because this runs at 10Hz over a live canvas.
-    const counts = JSON.stringify(this.fixtureCounts ?? {});
+    // …and what you can AFFORD moves the same way, for the same reason: a tile
+    // greys out when the money for it goes and comes back when it arrives, and
+    // nothing else on this bar redraws for a sale. Bucketed rather than the
+    // figure itself (`affordStep`) — cash moves every tick a shopper pays, and
+    // rebuilding the strip at 10Hz would throw the DOM away under the pointer.
+    const counts = JSON.stringify([this.fixtureCounts ?? {}, this.affordStep(state.cash ?? 0)]);
     if (this.bar === 'build' && counts !== this._countKey) {
       this._countKey = counts;
       this.renderHotbar();
@@ -1843,6 +1986,8 @@ export class UI {
       const who = JSON.stringify([
         (state.roster ?? []).map((e) => [e.id, e.name, e.kind]),
         (state.players ?? []).filter((p) => p.staff).map((p) => [p.hire, p.job, p.carry?.qty, p.pastime]),
+        // Who you can afford to take on, on the same terms as the palette.
+        this.affordStep(state.cash ?? 0),
       ]);
       if (who !== this._staffKey) { this._staffKey = who; this.renderHotbar(); }
     }

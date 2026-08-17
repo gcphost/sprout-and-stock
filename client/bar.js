@@ -37,7 +37,7 @@
  *
  * Shapes:
  *   group   = { id, name, icon, blurb, items: [item], subs?: [group] }
- *   item    = { id, icon, art, name, note, badge, title, warn, last }
+ *   item    = { id, icon, art, name, note, badge, title, warn, poor, last }
  *   choice  = { options: [{ id, name, art }], picked, open, onPick } | null
  *
  * `art` is a picture of the thing itself where one can be drawn (see
@@ -101,9 +101,15 @@ export function renderBar(el, {
 
   renderSubTabs(el.subs, subs, sub?.id);
 
+  // `poor` is drawn and not `disabled`: a disabled button takes no pointer
+  // events in some browsers, and the tip explaining WHY it cannot be pressed is
+  // a hover away — so the one state that most needs its explanation would be the
+  // one state with no way to ask for it. The press is refused below instead.
   el.items.innerHTML = items.map((it, i) => `
-    <button class="tool${it.id === picked ? ' on' : ''}${it.warn ? ' warn' : ''}"
-      data-slot="${i}" title="${esc(it.title ?? it.name)}">
+    <button class="tool${it.id === picked ? ' on' : ''}${it.warn ? ' warn' : ''}${
+  it.poor ? ' poor' : ''}"
+      data-slot="${i}" title="${esc(it.title ?? it.name)}"
+      ${it.poor ? 'aria-disabled="true"' : ''}>
       ${i < KEYED ? `<span class="key">${i + 1}</span>` : ''}
       ${it.badge ? `<span class="have">${esc(it.badge)}</span>` : ''}
       <span class="ico${it.art ? ' art' : ''}">${it.art ?? it.icon}</span>
@@ -140,7 +146,9 @@ export function renderBar(el, {
     let from = null;
     const stop = () => { clearTimeout(timer); timer = null; };
     b.onpointerdown = (e) => {
-      if (!it.shapes || !onShapes) return;
+      // A hold ARMS the tile on its way to the shape card (`onShapes`), so it is
+      // the same press as a tap as far as affording it goes.
+      if (!it.shapes || !onShapes || it.poor) return;
       held = false;
       from = { x: e.clientX, y: e.clientY };
       timer = setTimeout(() => { held = true; onShapes(it); }, HOLD_MS);
@@ -160,6 +168,12 @@ export function renderBar(el, {
       // The hold already answered this press. Arming as well would put the
       // popover up over a tile and then re-render it out from under itself.
       if (held) { held = false; return; }
+      // Nothing, for something you cannot buy — the chevron included, since that
+      // is the same door the hold goes through and it arms the tile to get there.
+      // The tile says so (greyed, price in the accent colour) and the tip beside
+      // the pointer has the arithmetic, which is the same deal a section row you
+      // cannot afford already offers: dim, and dead.
+      if (it.poor) return undefined;
       if (it.shapes && onShapes && e.target.closest('[data-more]')) return onShapes(it);
       return onPick(it);
     };

@@ -233,8 +233,6 @@ CREATE TABLE IF NOT EXISTS worlds (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
   seed       TEXT NOT NULL,
-  -- Never swept by the idle cleaner, however long it sits. See server/worlds.js.
-  pinned     INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   played_at  INTEGER NOT NULL
 );
@@ -370,13 +368,11 @@ function migrateToWorlds(handle) {
     let seed = 'sprout-1';
     try { seed = String(JSON.parse(legacy.value).seed ?? seed); } catch { /* keep the default */ }
     const now = Date.now();
-    handle.prepare(`INSERT INTO worlds (id, name, seed, pinned, created_at, played_at)
-                    VALUES (?, ?, ?, 1, ?, ?)`)
+    handle.prepare(`INSERT INTO worlds (id, name, seed, created_at, played_at)
+                    VALUES (?, ?, ?, ?, ?)`)
       .run(DEFAULT_WORLD_ID, 'First shop', seed, now, now);
   }
 
-  // Pinned above, because the world somebody has been playing since before save
-  // slots existed is the last one that should be swept for looking abandoned.
   handle.prepare('INSERT OR REPLACE INTO world (key, value) VALUES (?, ?)')
     .run(worldStateKey(DEFAULT_WORLD_ID), legacy.value);
   handle.prepare("DELETE FROM world WHERE key = 'state'").run();
@@ -474,7 +470,7 @@ export function setWorld(key, value) {
 // Save slots
 //
 // Rows only. Everything with an opinion about what a world *is* — naming one,
-// creating its first save, sweeping stale ones — lives in server/worlds.js.
+// creating its first save, throwing one away — lives in server/worlds.js.
 // ---------------------------------------------------------------------------
 
 export function listWorldRows() {
@@ -487,24 +483,24 @@ export function worldRow(id) {
 
 export function insertWorldRow({ id, name, seed }) {
   const now = Date.now();
-  db().prepare(`INSERT INTO worlds (id, name, seed, pinned, created_at, played_at)
-                VALUES (?, ?, ?, 0, ?, ?)`)
+  // A database written before the sweeper was removed still has a `pinned`
+  // column on this table — NOT NULL, but with a default, so naming the columns
+  // we do write keeps an old file and a fresh one taking the same insert. It is
+  // read by nothing now; dropping it would mean rebuilding the table for a dead
+  // integer, and a save someone is playing is not worth that.
+  db().prepare(`INSERT INTO worlds (id, name, seed, created_at, played_at)
+                VALUES (?, ?, ?, ?, ?)`)
     .run(id, name, String(seed), now, now);
   return worldRow(id);
 }
 
-/** Last opened. What the menu sorts by, and what the stale sweep measures. */
+/** Last opened. What the menu sorts by. */
 export function touchWorldRow(id) {
   db().prepare('UPDATE worlds SET played_at = ? WHERE id = ?').run(Date.now(), id);
 }
 
 export function renameWorldRow(id, name) {
   db().prepare('UPDATE worlds SET name = ? WHERE id = ?').run(name, id);
-  return worldRow(id);
-}
-
-export function pinWorldRow(id, pinned) {
-  db().prepare('UPDATE worlds SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id);
   return worldRow(id);
 }
 

@@ -140,7 +140,7 @@
 
     /* Armed to delete. The card itself changes, not just the button, because a
        list of five cards is scanned by shape — a single word swapped inside one
-       of three buttons is exactly the thing a mis-click already wasn't reading. */
+       of its buttons is exactly the thing a mis-click already wasn't reading. */
     .wcard.arm { box-shadow: 0 4px 16px rgba(58,49,40,.13), inset 0 0 0 2px var(--accent); }
 
     /* Two things that take it in turns, stacked in one grid cell so the cell is
@@ -898,6 +898,17 @@
     .sec-row.clickable { cursor: pointer; }
     .sec-row.picked { background: #fff3d0; box-shadow: inset 0 0 0 2px #ffd66b; }
     .sec-row .bico { font-size: 14px; line-height: 1.2; width: 19px; text-align: center; }
+    /* A row whose lead is a PICTURE of the thing rather than a glyph for its
+       kind — a shape in the fixture menu, drawn from the same catalog row the
+       game builds it from. The same well `.shape .ico.art` stands the palette's
+       shape card in, at row size: art with no ground under it reads as a
+       floating drawing, and the two lists are picking between the same shapes. */
+    .sec-row .bico.art {
+      width: 26px; height: 22px; padding: 2px; border-radius: 6px;
+      background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.9), rgba(58,49,40,.055));
+      box-shadow: inset 0 0 0 1px rgba(58,49,40,.06);
+    }
+    .sec-row .bico.art svg { width: 100%; height: 100%; display: block; }
     .sec-row .name { gap: 2px; }
     .sec-row .tags { line-height: 1.35; }
     /* Icon over price, one narrow column. */
@@ -1044,6 +1055,13 @@
     .fx-board .qty i.coming {
       font-size: 9.5px; color: var(--good); opacity: .95; margin-left: 2px;
     }
+    /* A board that is only a promise: kept for something, with nothing on it yet.
+       It has to read as lighter than a board with goods on it — the two are the
+       same row and the difference between them is the whole point of the count —
+       but not as *disabled*, because two of its buttons work and ordering some is
+       the reason you are looking at it. So the name and the count dim and the
+       controls do not. */
+    .fx-board.pending .nm, .fx-board.pending .qty { opacity: .5; }
     /* The stepper itself is shared — a hire's job weights use it too (`wk-w`),
        so what is specific to a board row is scoped to one below rather than
        left here to move somebody else's buttons. */
@@ -1055,6 +1073,11 @@
       width: 22px; height: 22px; font: inherit; font-weight: 800; line-height: 1; cursor: pointer;
     }
     .fx-price button:hover { background: rgba(58,49,40,.18); }
+    /* Same as `.fx-take:disabled` below and for the same reason — a stepper on a
+       board with nothing to price is drawn so the row keeps its grid, and one
+       drawn identically to a live one is a button that looks like it works. */
+    .fx-price button:disabled { opacity: .25; cursor: default; background: transparent; }
+    .fx-price button:disabled:hover { background: transparent; }
     .fx-take {
       border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 7px;
       width: 24px; height: 22px; font-size: 12px; cursor: pointer; flex: none;
@@ -1114,9 +1137,13 @@
        what sort of thing, then that tab's entries in a strip that scrolls
        sideways. A flat row could only show its first nine, which is why there
        used to be a second copy of this palette in a panel. */
+    /* No `gap`. The only gap this column ever had was the one between the hint
+       and the bar, and the hint carries it as a margin of its own now so that it
+       can animate away with it — a gap belongs to the parent and cannot go, so a
+       collapsed hint would leave 6px of nothing above the bar. */
     #build {
       bottom: var(--nav-top); left: 50%; transform: translate(-50%, 26px); opacity: 0;
-      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      display: flex; flex-direction: column; align-items: center;
       pointer-events: none; transition: .18s;
     }
     #build.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
@@ -1272,6 +1299,29 @@
        them. That is a problem rather than a job, and it should not read as one. */
     .tool.warn .cost { color: var(--accent); opacity: .9; }
 
+    /* MORE THAN YOU HAVE. Not `disabled`, because the tip explaining why is a
+       hover away and a disabled button is the one that most needs to be able to
+       answer for itself — the press is refused in `bar.js` instead.
+
+       The picture goes grey and quiet while the PRICE goes bright: the number is
+       the reason, so it is the one thing on the tile that should get louder, and
+       greying the whole button would fade the only part of it worth reading. No
+       lift on hover and no pointer either, which between them are what a tile
+       says about itself before you press it. It can be `on` as well — money
+       spent after you armed something — and then the amber ring stays, because
+       the tool genuinely is still in your hand. */
+    .tool.poor { cursor: not-allowed; }
+    .tool.poor:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07); }
+    .tool.poor .ico { opacity: .34; filter: grayscale(1); }
+    .tool.poor .nm { opacity: .45; }
+    .tool.poor .cost { color: var(--accent); opacity: .95; }
+    /* Armed and unaffordable keeps its ring — see above — so the well under the
+       art must not be greyed back to nothing against it. */
+    .tool.on.poor:hover, .tool.on.poor {
+      box-shadow: inset 0 0 0 1.5px #d99b1f, 0 4px 12px rgba(217,155,31,.34);
+      transform: translateY(-2px);
+    }
+
     /* THE BUILD STRIP IS TILES. A picture, the key it answers to, how many you
        already own, what it costs — and that is the whole button.
 
@@ -1422,8 +1472,33 @@
     #build-hint {
       background: rgba(58,49,40,.82); color: #fff; border-radius: 99px;
       padding: 4px 12px; font-size: 12px; font-weight: 600;
+      /* It grows out of the bar and sinks back into it. Appearing and vanishing
+         between two frames is what made this harsh — a line of text arriving at
+         full contrast on the bottom edge of the screen reads as an alert, and
+         "Nothing armed" is not one.
+
+         The height is animated as well as the fade, because this element is IN
+         FLOW: everything above the bar is positioned off `--build-h`, so a hint
+         that only faded would still shove the HUD up the instant it appeared and
+         drop it the instant it went. `max-height` rather than `height`, because
+         the line has to stay free to wrap — a refusal reason on a narrow window
+         is two lines and a fixed height would cut one off. The cost of that is
+         the usual one: the animation ends at 4.5em rather than at the real
+         height, so a one-line hint has finished growing about two thirds of the
+         way through and coasts the rest on the fade and the slide, which are
+         still moving. The padding goes with it or a collapsed box is 8px tall. */
+      margin-bottom: 6px; max-height: 4.5em; overflow: hidden;
+      pointer-events: none;
+      transition: opacity .15s, transform .18s, max-height .18s,
+        margin-bottom .18s, padding-top .18s, padding-bottom .18s;
     }
-    #build-hint[hidden] { display: none; }
+    /* Down and away, which is the same direction the whole bar arrives from
+       (`#build` above) — so a hint leaving looks like it went back behind the
+       bar rather than like it was switched off. */
+    #build-hint.gone {
+      opacity: 0; transform: translateY(7px);
+      max-height: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0;
+    }
     /* Amber is a consequence you may still choose; red is a no. Same two
        colours the ghost on the ground is using, so the words and the box can
        never disagree about what is about to happen. */
@@ -1491,7 +1566,7 @@
   <div id="toast" class="hud"></div>
 
   <div id="build" class="hud">
-    <div id="build-hint" hidden></div>
+    <div id="build-hint" class="gone"></div>
     <div id="build-bar">
       <div id="build-nav">
         <div id="build-groups"></div>

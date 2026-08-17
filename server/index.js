@@ -24,7 +24,7 @@ import { MartRoom } from './rooms/MartRoom.js';
 import { createApi } from './api.js';
 import { db } from './db.js';
 import { refresh, content } from './content.js';
-import { ensureAWorld, listWorlds, sweepWorlds } from './worlds.js';
+import { ensureAWorld, listWorlds } from './worlds.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 2567);
@@ -42,12 +42,6 @@ if (content().items.length === 0) {
 // than on the first join. Once only, marked on the save: deleting every shop is
 // allowed, and a boot that refilled the menu would take it straight back.
 ensureAWorld();
-
-// Sweep abandoned saves on boot and once every six hours after. Pinned worlds,
-// worlds with somebody in them and the last world standing are never touched —
-// see server/worlds.js.
-sweepWorlds();
-setInterval(() => sweepWorlds(), 6 * 60 * 60 * 1000).unref();
 
 const app = express();
 

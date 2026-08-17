@@ -20,8 +20,8 @@ import { TAG_GROUPS, ALL_TAGS } from '../shared/tags.js';
 import { runDirector, describeWorld } from './director.js';
 import { OPEN_HOUR } from './sim/index.js';
 import {
-  listWorlds, getWorldSummary, createWorld, deleteWorld, renameWorld, pinWorld,
-  resolveWorldId, roomForWorld, focusedWorldId, setFocus, sweepWorlds,
+  listWorlds, getWorldSummary, createWorld, deleteWorld, renameWorld,
+  resolveWorldId, roomForWorld, focusedWorldId, setFocus,
 } from './worlds.js';
 
 const KINDS = {
@@ -141,12 +141,7 @@ export function createApi() {
     let world = getWorldSummary(req.params.id);
     if (!world) throw new HttpError(404, `no world "${req.params.id}"`);
     if (req.body?.name !== undefined) world = renameWorld(req.params.id, req.body.name) ?? world;
-    if (req.body?.pinned !== undefined) world = pinWorld(req.params.id, !!req.body.pinned);
     res.json({ ok: true, world });
-  }));
-
-  api.post('/worlds/sweep', wrap((req, res) => {
-    res.json({ ok: true, ...sweepWorlds({ ttlDays: req.body?.ttlDays }) });
   }));
 
   // Which world an agent's later calls mean, when they don't say. Shared across

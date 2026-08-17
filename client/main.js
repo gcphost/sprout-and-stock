@@ -1866,7 +1866,18 @@ async function openWorld(worldId, name) {
   await net.connect(name, worldId);
   rememberInUrl(worldId);
   boot.remove();
-  ui.toast('Drag to move · tap a plot to sow · walk up to things to use them');
+  // No welcome toast. There was one — "Drag to move · tap a plot to sow · walk up
+  // to things to use them" — and every clause of it had stopped being true: a
+  // drag pans the camera rather than moving you, walking up to something stopped
+  // being how you use it the day the errand ring landed (proximity is down to a
+  // till with somebody at it and a rough bed), and what there is to sow is
+  // already a line in the to-do list. It is deleted rather than rewritten,
+  // because the shape was the problem too: three instructions across the top of
+  // the screen for two and a half seconds, at the moment you have least idea what
+  // any of them are about, and gone before you could want them. Everything it was
+  // trying to say is said where it applies now — the ring names what a press is
+  // about to do at the thing you pressed, and the line above the build bar says
+  // what is in your hands and what a tap would cost.
   loop();
 }
 

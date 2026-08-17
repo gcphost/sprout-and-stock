@@ -276,7 +276,7 @@ what the next step was meant to be.
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads and the break area alike, and who a way through is for | steps 1–9, 11, 13–14 built; 10 cancelled; 12 next; 15 proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, and the shop hand who takes goods back *off* a shelf | steps 1–6 and 8–10 built; 7 proposed |
-| [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
+| [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
@@ -1101,6 +1101,20 @@ what the next step was meant to be.
   and drive `simulate` in-process against the copy. No server, no restart, no
   other player, and both halves run against one frozen world — which is how a
   rendering change can honestly claim "identical to the cent".
+- **…which is also why everybody's NAME comes off a stream of its own.**
+  `server/sim/names.js` — two registers, machines for the hires (a worker is
+  drawn with a chassis, trim and a glow, so "Marla Finch" is a picture and a
+  name disagreeing) and mostly people for the shoppers. `Game.namer` is seeded
+  once in the constructor and **never re-seeded**, which is two claims rather
+  than one. It is not `this.rng`, because that one is re-seeded `seed:day` and
+  every balance number in the game is downstream of how many times it has been
+  called — naming a shopper out of it would move every basket, crop and spawn
+  roll after it, and two `simulate` runs either side of a word list would
+  diverge with nothing to say why. And it is not re-seeded at the day roll,
+  because a namer restarted each morning hands out Monday's names again. If you
+  add anything else that wants a name, take it from the namer; if you find
+  yourself wanting a random *look* or a random *position*, that is the sim's rng
+  and it belongs in the measured stream.
 - **A convenience that spends money needs to spend it on what you asked for.**
   Harvest replants the bed with the seed you have *selected*, not the crop it
   just picked. Those look equivalent and aren't: replanting the old crop

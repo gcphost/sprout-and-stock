@@ -15,6 +15,7 @@ import { pieceFor } from '../shared/pieces.js';
 import { requiredFixture } from '../shared/tags.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
+import { artForVariant } from './thumb.js';
 // What is on a van, shared with the supplier so the two cannot disagree about
 // how many eggs are coming — see client/orders.js.
 import { comingByItem, comingWhy } from './orders.js';
@@ -35,6 +36,17 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
  */
 const carrying = (ui) => (ui.state?.players ?? [])
   .find((p) => p.id === ui.net.myId)?.carry ?? null;
+
+/**
+ * What the shop MAKES rather than buys.
+ *
+ * `buyStock` has refused a recipe output for as long as appliances have existed,
+ * so this is the difference between "there is nothing on this board yet, order
+ * some" and "there is nothing on this board yet, and the kitchen is the only
+ * thing that will ever change that". Both the board rows and the item list ask
+ * it, and they used to answer differently — the list promised a van for salsa.
+ */
+const craftedItems = (ui) => new Set((ui.catalog.recipes ?? []).map((r) => r.output_id));
 
 /** How each kind of fixture shows up in its own menu. */
 const FIXTURE_ICON = {
@@ -436,6 +448,12 @@ function recipeRows(ui, f, live) {
 function styleRows(ui, f) {
   const here = f.variant ?? '';
   return variantsOf(pieceFor(ui.catalog.fixtures ?? [], f)).map((v) => ({
+    // Each shape wearing its own shape, the same picture the palette's shape
+    // card draws — "Wall corner" and "Wall corner (other way)" are one word in
+    // two spellings otherwise, and a column of identical glyphs is the list
+    // saying nothing about the only thing being chosen here. `icon` stays as
+    // the fallback for a shape nobody has drawn a model for.
+    art: artForVariant(v),
     icon: ICONS.fixtures,
     name: v.name,
     sub: v.id === here ? 'what this one is' : 'free — it keeps whatever is on it',
@@ -473,6 +491,7 @@ function stockRows(ui, f, live) {
   const elsewhere = new Set((ui.state?.shelves ?? [])
     .filter((s) => s.id !== f.id)
     .flatMap((s) => s.assigned ?? []));
+  const crafted = craftedItems(ui);
   // What this particular unit would hold of it — tier included, and DIVIDED by
   // how many ways it is being shared, because that is the number the shop
   // actually fills to. Showing the undivided one would promise 12 on a shelf
@@ -507,7 +526,13 @@ function stockRows(ui, f, live) {
       // this one — a shelf that already has the thing on it outranks any
       // argument for putting it there.
       const note = on
-        ? (here ? `kept for this — ${here.qty} on this board` : 'kept for this — a van is due')
+        ? (here ? `kept for this — ${here.qty} on this board`
+          // …and a van is never due for something the shop cannot buy. `buyStock`
+          // refuses a recipe output, so an empty board kept for salsa is waiting
+          // on an appliance and a stocker, and the delivery wording sent you to
+          // the supplier to look for an order that could not exist.
+          : (crafted.has(it.id) ? 'kept for this — the kitchen makes it'
+            : 'kept for this — a van is due'))
         : (here
           ? 'on it, but not kept — it will sell down and not be refilled'
           : (noRoom
@@ -921,7 +946,6 @@ function fixtureDetail(ui, f, live) {
 
   if (f.kind === 'shelf' || f.kind === 'freezer') {
     const stacks = live?.stacks ?? [];
-    const kept = live?.assigned ?? [];
     const boards = live?.boards ?? 1;
 
     // One row per board, and everything about that board is on it: what it is,
@@ -951,9 +975,17 @@ function fixtureDetail(ui, f, live) {
     // want to know whether you already did something about it.
     const coming = comingByItem(ui);
     // Anything a recipe makes cannot be ordered at all — `buyStock` has refused
-    // it for as long as appliances have existed. A button that can only error is
-    // worse than no button, so the row simply doesn't get one.
-    const crafted = new Set((ui.catalog.recipes ?? []).map((r) => r.output_id));
+    // it for as long as appliances have existed.
+    //
+    // It used to get no button, on the "a button that can only error is worse
+    // than no button" rule, and that rule is right about a button and wrong about
+    // a HOLE. A row of three units kept for salsa, juice and skewers had no order
+    // control anywhere on it, so the reading was that ordering had gone missing
+    // from this menu — the question is "where is the order button", and an absence
+    // cannot answer it. Disabled, saying why, is not a button that errors: it is
+    // the one place the answer can be read, and it keeps the row's grid the way
+    // the always-drawn Take button does.
+    const crafted = craftedItems(ui);
     // How much more the yard will take. An order over this is refused by the
     // server, so the button offers a smaller one rather than a doomed one.
     // `null` is "the snapshot didn't say" and means don't clamp and don't
@@ -961,7 +993,21 @@ function fixtureDetail(ui, f, live) {
     // in the shop and blame the bay for it.
     const bayRoom = ui.state?.orders?.bayRoom ?? null;
 
-    const boardRows = stacks.map((k) => {
+    // Every board this unit has anything to say about: what is on it, then what
+    // it is being kept for and has not arrived yet.
+    //
+    // Those used to be a list of rows and one line of prose — "Waiting for Garden
+    // Juice, Veg Skewers, Fresh Salsa" — and the prose was the wrong shape twice
+    // over. It read as a *status* when what you had just done was give three
+    // boards a job, so ticking three boxes and getting a sentence looks like the
+    // shelf ignored you. And it was the only thing in this menu you could not act
+    // on: the reason you are looking at an empty reserved board is almost always
+    // to order some, which was a button two rows further down under a different
+    // heading, or to untick it, which meant going back to the item list to find
+    // the box you had just ticked.
+    const rows = [...stacks, ...(live?.waiting ?? []).map((w) => ({ ...w, pending: true }))];
+
+    const boardRows = rows.map((k) => {
       const item = ui.itemById(k.item_id);
       const name = item?.name ?? k.item_id;
       // Off the wire. It used to be the stack times the tier's multiplier
@@ -976,6 +1022,13 @@ function fixtureDetail(ui, f, live) {
       const why = k.qty <= 0 ? 'Nothing on this board yet.'
         : (clash ? `Your hands are full of ${ui.itemName(held.item_id)}.`
           : `Go and take an armful of ${name} off this board.`);
+      // A board that is only a promise. Nothing has ever stood on it, so there is
+      // no price to change — `setPrice` needs a stack and refuses without one, so
+      // a live stepper here would be two buttons that can only error. Drawn
+      // disabled rather than dropped, because the row is a grid: a missing
+      // stepper slides the three buttons after it out of line with every other
+      // board, and a ragged column reads as a layout bug.
+      const pending = k.pending === true;
 
       // On its way, and when. The count hangs off the board's own number rather
       // than taking a column — the supplier settled that argument, and the two
@@ -995,52 +1048,56 @@ function fixtureDetail(ui, f, live) {
       // which the client cannot tell apart from a full one, and which the
       // server refuses with the exact sentence either way.
       const want = Math.max(0, Math.min(room, item?.stack ?? room, bayRoom ?? room));
-      const orderWhy = crafted.has(k.item_id) ? '' // no button at all
+      const orderWhy = crafted.has(k.item_id)
+        ? `${name} is made here, not delivered — set an appliance to it and a stocker brings it over.`
         : bayRoom === 0 ? 'No room at the bay for another order.'
           : room <= 0 ? (inbound
             ? `${inbound} already on the way — ${comingWhy(due)}`
             : 'This board is full.')
             : `Order ${want}× ${name} — it lands at the bay on the next van.`;
 
-      return `<div class="fx-board">
+      return `<div class="fx-board${pending ? ' pending' : ''}">
         <span class="nm" title="${esc(name)}">${esc(name)}</span>
         <b class="qty"${due ? ` title="${esc(comingWhy(due))}"` : ''}>${k.qty}${cap ? `<i>/${cap}</i>` : ''}${inbound ? `<i class="coming">+${inbound}</i>` : ''}</b>
         <span class="fx-price">
-          <button data-price="-1" data-item="${esc(k.item_id)}"
-            title="${esc(`Charge less for ${name}`)}" aria-label="Charge less">−</button>
-          <b>$${(k.price ?? 0).toFixed(2)}</b>
-          <button data-price="1" data-item="${esc(k.item_id)}"
-            title="${esc(`Charge more for ${name}`)}" aria-label="Charge more">+</button>
+          <button ${pending ? 'disabled' : `data-price="-1" data-item="${esc(k.item_id)}"`}
+            title="${esc(pending ? `Nothing on this board to price yet — ${name} takes its price when it lands.` : `Charge less for ${name}`)}" aria-label="Charge less">−</button>
+          <b>${pending ? '—' : `$${(k.price ?? 0).toFixed(2)}`}</b>
+          <button ${pending ? 'disabled' : `data-price="1" data-item="${esc(k.item_id)}"`}
+            title="${esc(pending ? `Nothing on this board to price yet — ${name} takes its price when it lands.` : `Charge more for ${name}`)}" aria-label="Charge more">+</button>
         </span>
-        ${crafted.has(k.item_id) ? '' : `<button class="fx-take fx-order"
-          ${want > 0 ? `data-order="${esc(k.item_id)}" data-qty="${want}"` : 'disabled'}
-          title="${esc(orderWhy)}" aria-label="Order more">${ICONS.supplier}</button>`}
+        <button class="fx-take fx-order"
+          ${want > 0 && !crafted.has(k.item_id)
+    ? `data-order="${esc(k.item_id)}" data-qty="${want}"` : 'disabled'}
+          title="${esc(orderWhy)}" aria-label="Order more">${ICONS.supplier}</button>
         <button class="fx-take" ${k.qty > 0 && !clash ? `data-take="${esc(k.item_id)}"` : 'disabled'}
           title="${esc(why)}" aria-label="Take some">${ICONS.crate}</button>
-        <button class="fx-take fx-clear" data-clear="${esc(k.item_id)}"
+        ${pending
+    // Un-tick, not Empty. There is nothing on this board to strip, so the only
+    // thing "get rid of it" can mean is the reservation — and `build-empty` on a
+    // board with no stack is a verb with nothing to do that also needs build
+    // mode. Same message the item list's checkbox sends, which is what keeps the
+    // two views one decision rather than two.
+    ? `<button class="fx-take fx-clear" data-unkeep="${esc(k.item_id)}"
+          title="${esc(`Stop keeping a board for ${name}. Nothing is on it, so nothing moves.`)}"
+          aria-label="Stop keeping it">${ICONS.remove}</button>`
+    : `<button class="fx-take fx-clear" data-clear="${esc(k.item_id)}"
           title="${esc(k.qty > 0
-            ? `Take ${name} off this shelf — ${k.qty} into a crate beside it, and the board is free.`
-            : `Take ${name} off this shelf and free the board.`)}"
-          aria-label="Take it off">${ICONS.remove}</button>
+      ? `Take ${name} off this shelf — ${k.qty} into a crate beside it, and the board is free.`
+      : `Take ${name} off this shelf and free the board.`)}"
+          aria-label="Take it off">${ICONS.remove}</button>`}
       </div>`;
     }).join('');
 
-    // What it is kept for but has not arrived yet. Worth saying outright: a
-    // ticked box with no goods behind it looks like nothing happened, and this
-    // is the line that says the van is the thing you are waiting for.
-    // ...and whether that van is a real one. "Waiting for milk" with nothing on
-    // order and "waiting for milk, 6 at 14:00" are opposite situations — one of
-    // them is a thing to go and do — and the line said the same words for both.
-    const waiting = kept.filter((id) => !stacks.some((k) => k.item_id === id))
-      .map((id) => {
-        const due = coming.get(id) ?? null;
-        return `${esc(ui.itemName(id))}${due ? ` <i>(${esc(comingWhy(due))})</i>` : ''}`;
-      });
-
+    // `Waiting for` retired here — those are rows now (`rows` above), which is
+    // where every other thing you can do to a board already lived. `+6 at 14:00`
+    // still gets said, on the board's own number, by the same `coming` fold: what
+    // the line was for was telling "kept for juice, nothing ordered" apart from
+    // "kept for juice, a van is due", and a board reading `0/12 +6` says that in
+    // the column the question was asked in.
     return `<div class="fx-detail">
       ${line('Boards', `${stacks.length} of ${boards} in use`)}
       ${boardRows || line('Holding', '<i>nothing</i>')}
-      ${waiting.length ? line('Waiting for', waiting.join(', ')) : ''}
       ${live?.priority ? line('Refilled', live.priority > 0 ? 'first' : 'last') : ''}
     </div>`;
   }
@@ -1195,6 +1252,14 @@ function wireFixtureMenu(ui, f, live) {
     el.onclick = () => ui.withBuildMode(() => {
       send('build-empty', { id: f.id, itemId: el.dataset.clear });
     });
+  });
+
+  // The same square on a board that is only a promise. Straight out rather than
+  // through `withBuildMode`, because this is not Empty aimed at one board — it is
+  // the item list's checkbox pressed from the row it made, and saying what a
+  // shelf is for was never gated on building.
+  ui.el.panelBody.querySelectorAll('[data-unkeep]').forEach((el) => {
+    el.onclick = () => send('assign', { shelfId: f.id, itemId: el.dataset.unkeep, on: false });
   });
 
   ui.el.panelBody.querySelectorAll('[data-price]').forEach((el) => {

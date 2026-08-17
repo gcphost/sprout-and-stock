@@ -186,9 +186,8 @@ export class Menu {
   /**
    * Deleting asks first, and asks on the card rather than in a dialog.
    *
-   * The sweeper can take an unpinned world that has sat for a fortnight, which
-   * makes this the one place a shop disappears *immediately* — and the row it
-   * sits on is two rows from Play. So the first click only arms it: the button
+   * It is the only way a shop ever disappears — nothing expires a save — and the
+   * row it sits on is two rows from Play. So the first click only arms it: the button
    * says what a second one does, the card says what goes with it, and the shop
    * you are about to lose is still in front of you with its day and its cash
    * on it. A `confirm()` had to reprint all of that, badly, and by name.
@@ -212,10 +211,6 @@ export class Menu {
     await this.act(() => api('DELETE', `/worlds/${encodeURIComponent(world.id)}`));
   }
 
-  async togglePin(world) {
-    await this.act(() => api('PATCH', `/worlds/${encodeURIComponent(world.id)}`, { pinned: !world.pinned }));
-  }
-
   // ---- drawing ------------------------------------------------------------
 
   card(w, i) {
@@ -236,15 +231,11 @@ export class Menu {
           <div class="wsub">
             ${w.upgrades} upgrade${w.upgrades === 1 ? '' : 's'} ·
             ${w.staff} staff · played ${ago(w.played_at)}
-            ${w.pinned ? ' · kept' : ''}
           </div>
           <div class="wwarn">This shop goes for good. Items and crops you made stay.</div>
         </div>
         <div class="wacts">
           <button class="wplay" data-play="${i}">${w.live ? 'Join' : 'Play'}</button>
-          <button class="wghost wswap${w.pinned ? ' on' : ''}" data-pin="${i}" title="${w.pinned
-            ? 'Kept — never cleaned up automatically'
-            : 'Keep this shop, whatever happens'}"><span>Keep</span><span>Kept</span></button>
           <button class="wghost wdel wswap${arm ? ' on' : ''}" data-del="${i}"
             ><span>Delete</span><span>Click again</span></button>
         </div>
@@ -256,7 +247,7 @@ export class Menu {
     // `this.root` is the scroll container as well as the thing being rebuilt,
     // so emptying it collapses the content and the browser pins scroll to 0.
     // With eight shops in the list that reads as the menu jumping to the top
-    // every time you arm, pin or delete one — the card you clicked leaves the
+    // every time you arm or delete one — the card you clicked leaves the
     // screen. Nothing above resizes now, so putting it back always lands.
     const scroll = this.root.scrollTop;
     this.root.innerHTML = `
@@ -340,9 +331,6 @@ export class Menu {
 
     this.root.querySelectorAll('[data-play]').forEach((el) => {
       el.addEventListener('click', () => this.play(this.worlds[Number(el.dataset.play)]));
-    });
-    this.root.querySelectorAll('[data-pin]').forEach((el) => {
-      el.addEventListener('click', () => this.togglePin(this.worlds[Number(el.dataset.pin)]));
     });
     this.root.querySelectorAll('[data-del]').forEach((el) => {
       el.addEventListener('click', () => this.remove(this.worlds[Number(el.dataset.del)]));

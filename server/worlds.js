@@ -3,8 +3,13 @@
  *
  * Everything above this file talks about "the game". Everything below it talks
  * about rows. This is the layer in between: it names worlds, mints their first
- * save, hands out the live room for one, and sweeps the ones nobody comes back
- * to.
+ * save, and hands out the live room for one.
+ *
+ * A save is kept until somebody deletes it, and that is the whole policy. There
+ * used to be a sweeper that binned worlds nobody had opened for a fortnight,
+ * which is why the menu carried a Keep button: a shop could go away on its own,
+ * so you needed a way to say "not this one". Nothing expires now, so there is
+ * nothing to protect a world from, and both halves are gone.
  *
  * The one rule worth stating out loud, because the rest of the codebase leans
  * on it: **content is not part of a world.** Items, crops, customers, fixtures,
@@ -18,20 +23,10 @@ import { matchMaker } from 'colyseus';
 
 import {
   DEFAULT_WORLD_ID, listWorldRows, worldRow, insertWorldRow, deleteWorldRow,
-  touchWorldRow, renameWorldRow, pinWorldRow, getWorld, setWorld,
+  touchWorldRow, renameWorldRow, getWorld, setWorld,
 } from './db.js';
 import { world as loadWorld, saveWorld, DEFAULT_WORLD } from './content.js';
 import { rooms, primaryRoom } from './rooms/MartRoom.js';
-
-/**
- * How long a world can go unopened before the sweeper bins it.
- *
- * Deliberately a fortnight rather than a couple of days: the cost of being
- * wrong here is somebody's shop, and a save you last touched a week ago is not
- * abandoned, it is Tuesday. `SNS_WORLD_TTL_DAYS=0` turns the sweep off.
- */
-const TTL_DAYS = Number(process.env.SNS_WORLD_TTL_DAYS ?? 14);
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Naming
@@ -79,7 +74,6 @@ export function summarise(row) {
     id: row.id,
     name: row.name,
     seed: row.seed,
-    pinned: !!row.pinned,
     created_at: row.created_at,
     played_at: row.played_at,
     live: live.length > 0,
@@ -216,11 +210,6 @@ export function renameWorld(id, name) {
   return row ? summarise(row) : null;
 }
 
-export function pinWorld(id, pinned) {
-  const row = pinWorldRow(id, pinned);
-  return row ? summarise(row) : null;
-}
-
 /**
  * Throw a world away, along with the room playing it.
  *
@@ -235,7 +224,6 @@ export function pinWorld(id, pinned) {
  * install starts. What the guard actually did was make deleting your shops
  * depend on the order you did it in, and leave the one you least wanted
  * (usually the throwaway you were testing with) as the one that would not go.
- * The sweep still stops at one, because that is unattended.
  */
 export async function deleteWorld(id) {
   if (!worldRow(id)) return { ok: false, error: `no world "${id}"` };
@@ -252,38 +240,9 @@ export async function deleteWorld(id) {
   return { ok: gone, deleted: gone ? id : null };
 }
 
-/** Called when somebody joins. Keeps the menu's sort order and the sweep honest. */
+/** Called when somebody joins. Keeps the menu's sort order honest. */
 export function markPlayed(id) {
   if (worldRow(id)) touchWorldRow(id);
-}
-
-// ---------------------------------------------------------------------------
-// The sweep
-//
-// Auto-deletion is real deletion, so it refuses four ways rather than one: a
-// pinned world, a world with a room open, the last world standing, and anything
-// touched inside the TTL. Every removal is logged with how long it had been
-// sitting, because the first question after "where did my shop go" is "when did
-// it decide that".
-// ---------------------------------------------------------------------------
-
-export function sweepWorlds({ now = Date.now(), ttlDays = TTL_DAYS } = {}) {
-  if (!ttlDays) return { swept: [], skipped: 'disabled' };
-
-  const rows = listWorldRows();
-  const swept = [];
-  for (const row of rows) {
-    if (rows.length - swept.length <= 1) break;
-    if (row.pinned) continue;
-    if (roomsFor(row.id).length) continue;
-    const idleDays = (now - row.played_at) / DAY_MS;
-    if (idleDays < ttlDays) continue;
-
-    deleteWorldRow(row.id);
-    swept.push({ id: row.id, name: row.name, idleDays: Math.round(idleDays) });
-    console.log(`[worlds] swept "${row.name}" (${row.id}) — untouched for ${Math.round(idleDays)} days`);
-  }
-  return { swept };
 }
 
 // ---------------------------------------------------------------------------

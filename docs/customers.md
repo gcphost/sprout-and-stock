@@ -1,9 +1,10 @@
 # Customers — mood, anger and crowding
 
-Status: **steps 1–3 and 7–9 built.** Patience is a budget, shoppers get cross
-and walk out, you can see it on their faces, and they arrive with a list rather
-than a number. Steps 4–6 — capacity and crowding, theft, and the HUD meter —
-are still proposed.
+Status: **steps 1–4 and 6–9 built; 10–12 proposed.** Patience is a budget,
+shoppers get cross and walk out, you can see it on their faces, a full shop
+turns people away at the door, and they arrive with a list rather than a
+number. Step 5 — theft — is still proposed. Steps 10–12 are the second part of
+this doc: **regulars**, the people who come back.
 
 ⚠️ `simulate` **cannot see any of steps 1–3.** Its bot auto-serves the front of
 the queue after 1.5s and keeps the shelves full, so no queue ever builds, no
@@ -429,3 +430,250 @@ What to expect, and what would be a bug:
 The honest risk is impulse. Measure steps 7–8 together first, land them, and
 only then measure 9 against that new baseline — stacking both into one
 before/after cannot tell you which half moved the money.
+
+---
+
+# Regulars — the people who come back
+
+Status: **proposed** (steps 10–12).
+
+Steps 1–9 give a shopper a genuinely rich inner life — a list of tag lines with
+staples on it, a patience budget that everything wrong with the shop draws on, a
+mood you can read off their face, a car they may have parked. It lasts about
+forty seconds. Then:
+
+```js
+despawn(cust) {
+  delete this.customers[cust.id];
+```
+
+and nothing anywhere has ever remembered an individual.
+
+## What's wrong today
+
+### Everybody is a stranger, including the ones who aren't
+
+Customers are not in `persist()` — deliberately, and that stays true: a shopper
+mid-aisle is not state worth saving. But there is no *other* record either.
+Everything the shop remembers is an aggregate:
+
+| Kept | Shape | Scope |
+|---|---|---|
+| `reputation` | one number, 0..1 | the whole town's opinion, for ever |
+| `demand.asked/served/moved` | per tag, rolling at `DEMAND_MEMORY` | what the town wants |
+| `ledger` | revenue and spend | last 30 days |
+| `stats` | today's counters | reset nightly |
+
+So the loop every shopkeeping game actually runs on — *you failed this person,
+and they stopped coming* — cannot be expressed. Reputation is the mean of
+everybody's opinion and moves `+0.004` on a good sale. You can disappoint the
+town by a rounding error. You cannot lose **somebody**.
+
+### The names made the gap visible rather than closing it
+
+`server/sim/names.js` gives every shopper a name, and `despawn` throws it away
+with them. The log now says
+
+> Ted Salter the Budget Parent came in for dairy and you had none.
+
+which reads like a person and is a dice roll wearing a name for forty seconds.
+Tomorrow's Ted Salter is unrelated to today's. That sentence is a promise the
+save cannot keep, and it is the whole argument for this part.
+
+### The town is a number
+
+`catchment()` is `BASE_CATCHMENT + upgrades + charmReach + parkReach` — *how far
+away somebody would come from*. It is a good model and it is not a place: there
+are no people in it, no houses, and no rival shop (`pull` deliberately models
+the town choosing you without one existing). None of that needs to change. A
+town does not need to be a map to have somebody in it you recognise.
+
+---
+
+## The shape
+
+**A regular is a name with a memory.** The memory is the feature; the name is
+just the handle you hold it by.
+
+### They are save state, not content
+
+`world.regulars`, alongside `roster` and `ledger` in `persist()`. Not a content
+table, no MCP tool, nothing to `npm run export`.
+
+CLAUDE.md's one rule splits on authored-versus-happened, and this falls cleanly
+on the second side: an archetype is *designed* (a Foodie is a decision somebody
+made about what kinds of people exist), a regular is *what happened in this
+shop*. Two worlds sharing a person would be wrong the same way two worlds
+sharing a ledger would be — and the MCP tool nobody writes is the tell.
+
+One row, six fields:
+
+```js
+{ id: 'r7', name: 'Marla Finch', archetype: 'foodie',
+  regard: 0.72,          // their own opinion of you, 0..1
+  visits: 9, lastDay: 41, lastMiss: 'dairy' }
+```
+
+`lastMiss` is **one tag, not a history**. "The last thing you let them down on"
+is the whole of what a shop plausibly remembers about a customer, and it is the
+line between a save and a database: a per-person purchase log grows without
+bound, says nothing `demand.asked/served` does not already say in aggregate, and
+buys no sentence the single field cannot write.
+
+### A regular is an arrival that was going to happen anyway
+
+This is the load-bearing decision, and everything cheap about this feature
+follows from it. **A regular does not change who arrives or how many. It renames
+an arrival the spawner had already decided on.**
+
+```js
+// spawnCustomer — the archetype draw is UNTOUCHED, in place, same draw
+const arch = archetypeId ? byId[archetypeId] : this.rng.weighted(c.archetypes, 'spawn_weight');
+// ...and only then, off a stream the balance never reads:
+const who = this.townRoll() < REGULAR_SHARE ? this.regularOf(arch.id) : null;
+```
+
+Three things fall out of it:
+
+- **Footfall, the archetype mix and every downstream roll are identical.** The
+  spawn loop's `space && this.rng.next() < DRIVE_SHARE` ordering is the
+  precedent and says why it is written that way: a term that cannot be used must
+  not consume a draw. Ten seeds before and after should match **to the cent**,
+  and that is an assertion to write down, not a hope.
+- **An empty pool is today's game, exactly.** Which is every save that exists
+  when this ships.
+- **The choice comes off the namer's stream**, never `this.rng` — see the
+  gotcha in CLAUDE.md. Identity is cosmetic; how many people came and what they
+  came for is not.
+
+⚠️ **Do not pick the person first and take their archetype.** It is the obvious
+way to write it and it quietly replaces `spawn_weight` with the composition of
+the pool — one good week with three Foodies and the town becomes Foodies. The
+arrival is drawn as it always was; the pool only answers *"do I know anybody
+like that?"*, and if it does not, a stranger walks in. Rare archetypes therefore
+make rare regulars, which is correct and free.
+
+### How the pool fills and empties
+
+A trading day is roughly `6 × catchment × pull × 0.513` arrivals — the constant
+is the integral of `dayShape` across 08:00–20:00 — so **20–50 people a day at
+base catchment**, 30–75 in a grown town. That sets every number here:
+
+| Knob | Value | Why |
+|---|---|---|
+| `REGULAR_POOL` | 40 | About a day's arrivals. Much smaller and it is the same six faces all week; much larger and nobody ever repeats, which is the feature not happening. |
+| `REGULAR_SHARE` | 0.45 | Just under half. A shop of nothing but regulars is a private members' club, and the stranger is what makes a regular mean anything. |
+| Draw weight | `regard × recency` | Weighted by regard **and** by how long since they were last in, or one delighted Foodie shops eleven times a day. |
+| Joining | rolled at the end of a trip that went well | The pool fills from your **good days**, which is the flavour worth having: you earned them. |
+
+Eviction, when the pool is full: the lowest `regard × recency` drops out.
+`rollDemand` already made exactly this call about tags — dropped below noticing
+rather than kept at 0.001 for ever — and it is the same trap wearing a face: **a
+save that only ever gains keys only ever gets bigger.**
+
+### What the memory is for
+
+`regard` is one person's reputation. It moves on the events that already move
+the shop's, but only for them, and about ten times harder — because it is one
+trip out of one person's handful rather than one out of the whole town's
+thousands:
+
+| What happened | `reputation` (the town) | `regard` (them) |
+|---|---|---|
+| Served, mood high | `+0.004 × mood` | `+0.05 × mood` |
+| Missed a staple | `−REP_MISSED_STAPLE` per line | `−0.15`, and `lastMiss = tag` |
+| Left empty-handed | `−0.015` | `−0.10` |
+| Stormed out | `−0.03` | `−0.25` |
+
+Somebody at regard 0 stops being drawn, sits out their absence, and evicts. That
+is a customer you **lost** — said in a way a 0.015 nudge on a shop-wide average
+never could, about somebody whose name you have seen in the log nine times.
+
+**What regard is worth mechanically is step 11, not step 10.** Step 10 is
+identity and memory and moves no money, which is what makes it measurable at
+all. Steps 7–8 then 9 set that precedent in this doc and it was the right call
+both times.
+
+### What it makes sayable
+
+The log, which is where the names already are:
+
+- *"Marla Finch is in — third time this week."* (`visits`, `lastDay`)
+- *"Marla Finch is back. You haven't seen her since you ran out of dairy."*
+  (`lastMiss`)
+- *"You haven't seen Otto Finch in a fortnight."* — on eviction, which is the
+  only place a shop ever gets told it lost somebody.
+
+And nothing else on screen. Names over people's heads and a regulars panel are
+UI, and UI is step 12.
+
+---
+
+## What must not happen
+
+- **`regard` must not feed `footfall` or `pull`.** The same rule this doc
+  already sets for mood, and for the same reason: reputation is the only thing
+  driving how many people come. Regard decides *who*, never *how many*. Wire it
+  into `pull` and every effect is counted twice, in a loop that oscillates.
+- **A regular must not want an item.** They are an archetype wearing a name; the
+  list is still tags rolled at spawn from the archetype, exactly as today. A
+  regular who wants `tomato` is the `if (item.id === 'tomato')` failure with a
+  face on it, and a face makes it much harder to argue with.
+- **The pool must not be written by an ephemeral game.** `simulate` and every
+  `verify:*` sweep build a `Game` from the **saved** world and inherit whatever
+  is on it — the roster already proves this. `persist()` is disabled there, so
+  this is free *provided the pool is only ever written through `persist`* and
+  never through a direct `saveWorld`. A balance run that quietly ages your town
+  is the `DEFAULT_WORLD` array bug again, one field along.
+- **Picking a regular must not consume `this.rng`.** See above, twice.
+- **A regular is not a body.** The row is the person, the shopper on the floor is
+  this visit — exactly the relationship `roster` has to a hire's NPC. Nothing in
+  `this.customers` becomes saved, and `despawn` still deletes.
+- **Regard must not be shown as a bar the player manages.** It is somebody's
+  opinion, not a stat with a slider — the moment it is a meter, keeping Marla
+  Finch topped up becomes a chore. It surfaces as sentences about people.
+
+---
+
+## Steps
+
+10. `world.regulars` in `persist()`, the rename-an-arrival draw off the namer's
+    stream, joining on a good trip, `regard` on the four events, eviction, and
+    the three log lines. **Balance-identical by construction.**
+11. What regard buys: a fond regular arrives more forgiving (a patience term) or
+    with a fuller list (a basket term) — one of the two, not both, measured over
+    ten seeds against a frozen database. This is the step that can break the
+    economy, because a regular is by definition somebody who comes back.
+12. Seeing them: a name over a known face on the floor, and a regulars list.
+    Wants its own screenshot pass and Will's eye — nothing in 10 or 11 is
+    visible.
+
+Step 10 stands alone and is worth shipping alone; the log lines are the feature
+in miniature, and if they do not read well in play, 11 and 12 are building on
+sand.
+
+---
+
+## Verifying it
+
+Every claim in step 10 is invisible in a screenshot — a regular and a stranger
+are the same capsule with the same nose — which is the signature of something
+that needs a sweep rather than a look. `verify:regulars`:
+
+| Claim | Why it is not obvious |
+|---|---|
+| Ten seeds, before and after, identical to the cent | The whole "renames an arrival" premise. If this fails, the pool is steering who comes. |
+| A shop with an empty pool draws exactly what it draws today | Every existing save on the day this ships. |
+| The arrival's archetype is the one the spawner drew, never the one on the row | The trap above. A drift here is a balance change disguised as flavour, and it compounds daily. |
+| The pool never exceeds `REGULAR_POOL` across a long run | Save bloat is silent until somebody's world file is a megabyte. |
+| An ephemeral game leaves the saved pool byte-identical | `simulate` inherits the world; a balance run must not age the town. |
+| Regard 0 stops being drawn but stays until eviction | Otherwise "you lost somebody" and "somebody left the pool" are the same tick and the log line never fires. |
+| A regular's visit conserves nothing else — no second `carry`, no second entity | The roster-versus-body rule, asserted rather than assumed. |
+
+`simulate` cannot see step 10 at all beyond the identity assertion, and that is
+the point of it. For step 11 the warnings at the top of this doc apply with full
+force: copy `data/game.db`, drive it in-process through `SNS_DB`,
+`clear_modifiers`, and average ten seeds. The number to watch is not profit but
+**repeat share** — what fraction of a day's arrivals were people you had served
+before — because that is the term step 11 is paying to move, and profit is
+downstream of it.

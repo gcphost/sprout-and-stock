@@ -118,18 +118,6 @@ server.registerTool('delete_world', {
   },
 }, async ({ world }) => text(await call('DELETE', `/worlds/${encodeURIComponent(world)}`)));
 
-server.registerTool('keep_world', {
-  title: 'Protect a shop from cleanup, or stop protecting it',
-  description:
-    'Worlds nobody has opened for a fortnight are deleted automatically to keep the menu short (SNS_WORLD_TTL_DAYS on the server). '
-    + 'A kept world is never swept, however long it sits. Worlds with somebody in them, and the last world standing, are never swept either.\n\n'
-    + 'Use this on anything that matters — a long save, a shop somebody is proud of — before it has a chance to go quiet for two weeks.',
-  inputSchema: {
-    world: z.string().describe('World id from list_worlds.'),
-    kept: z.boolean().default(true).describe('true to protect it, false to let it be swept again.'),
-  },
-}, async ({ world, kept }) => text(await call('PATCH', `/worlds/${encodeURIComponent(world)}`, { pinned: kept })));
-
 // ---------------------------------------------------------------------------
 // Looking at the world
 // ---------------------------------------------------------------------------

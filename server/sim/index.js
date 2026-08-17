@@ -28,6 +28,7 @@ import {
   spoilRate, requiredFixture, desireFor, impulsePull, tagLabel, DEPARTMENTS,
 } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
+import { makeNamer } from './names.js';
 import { stepStaff, syncStaff, breakProgress, carryOf } from './staff.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND,
@@ -582,6 +583,16 @@ export class Game {
   constructor(state) {
     Object.assign(this, state);
     this.rng = makeRng(`${this.seed}:${this.day}`);
+    /**
+     * Who everybody is — and a stream of its own, which is the whole of what
+     * makes naming free. `this.rng` is re-seeded every morning and every
+     * balance number in the game is downstream of how many times it has been
+     * called, so a name drawn out of it would move every crop, basket and spawn
+     * roll after it. This one is seeded once, here, and nothing re-seeds it: a
+     * namer restarted at each day roll hands out yesterday's names again.
+     */
+    this.namer = makeNamer(String(this.seed));
+    this.nameTheRoster();
     this.walk = buildWalkGrid(this.layout);
     this.layQueueLanes();
     /**
@@ -1181,7 +1192,6 @@ export class Game {
             soldDay: k.soldDay,
           })),
           assigned: s.assigned ?? [], priority: s.priority ?? 0,
-        managed: s.managed !== false,
           managed: s.managed !== false,
         })),
       // What each appliance is set to make. A decision, so it is saved for the
@@ -1505,6 +1515,10 @@ export class Game {
       // budget ask; this is the one place it is about a picture.
       customers: Object.values(this.customers).filter((c) => !inACar(c)).map((c) => ({
         id: c.id, x: r2(c.x), z: r2(c.z), facing: r2(c.facing),
+        // Who they are. Sent for the same reason a hire's is: an id is a
+        // protocol and a name is a person, and anything the client ever says
+        // about a shopper on screen has to call them something.
+        name: c.name ?? null,
         color: c.color, state: c.state,
         // What is in their arms, which after the till is what they PAID for —
         // `bought`. Goods that vanished at the counter would read as the sale
@@ -1537,6 +1551,22 @@ export class Game {
         // client-side: it comes off the model at this fixture's tier, and the
         // client would need the whole ladder to ask.
         boards: this.shelfBoards(s),
+        // The boards this unit is KEPT for and has nothing on yet. Same shape a
+        // stack has, and deliberately NOT in `stacks`: that list is what is
+        // physically on the unit, which is what the renderer draws goods from and
+        // what "2 of 3 boards in use" counts. A promised board is neither.
+        //
+        // It is here rather than worked out from `assigned` on the client because
+        // of `cap`: how much of a thing one board holds is the tier multiplied by
+        // the boards and divided by how many ways the unit is shared, and that
+        // division is enforced by the sim. A second spelling of it is how a menu
+        // starts promising 12 on a shelf the stocker fills to 4.
+        waiting: (s.assigned ?? [])
+          .filter((id) => !this.shelfStack(s, id))
+          .map((id) => {
+            const item = content().byId.items[id];
+            return { item_id: id, qty: 0, cap: item ? this.shelfCapacity(s, item) : 0 };
+          }),
         // What it is *for* and where it sits in the restock queue. Both ride the
         // snapshot rather than the layout, because they change while the shop
         // stands still — a menu reading them off the layout would show the shelf
@@ -1546,6 +1576,15 @@ export class Game {
         // units of the same design differ only by this, and nothing about the
         // model shows it — without it on the wire the button has no state.
         boh: s.boh === true,
+        // …and the same is true of the shop hand's switch, which shipped SAVED
+        // but never sent: `handRows` reads `live.managed`, so it was always
+        // undefined, always resolved to the default, and left "Let them
+        // rearrange it" permanently lit with a dead press under it while "Leave
+        // it alone" sent, worked, and never moved the highlight. Two dead
+        // buttons is what a control with no state on the wire looks like, and it
+        // is invisible in the sim — `handMayTouch` reads the layout and was
+        // right the whole time.
+        managed: s.managed !== false,
       })),
       plots: this.layout.plots.map((p) => ({
         id: p.id, crop_id: p.crop_id, growth: r2(this.plotGrowth(p)), ready: p.ready,
@@ -3685,6 +3724,39 @@ export class Game {
   // take on two stockers, let one go, and give one of them a different job list
   // from the other — none of which "you own upgrade staff-stocker" can say.
 
+  /**
+   * Give a name to anyone who was hired before there were names.
+   *
+   * Every hire made before this shipped is called after their job — "Clerk",
+   * "Stocker 2" — and the roster is saved, so without this the feature only
+   * exists for people you take on from today: a shop that has been running for
+   * a fortnight shows you a stock list and a couple of strangers. Cosmetic and
+   * one-way, which is what makes it safe to do to a save at all; nothing in the
+   * game reads a hire's name, and there has never been a way to *choose* one,
+   * so there is no player decision here to overwrite.
+   *
+   * The test for "was never named" is the name being the kind's own, with or
+   * without the counter `hire` used to add. A kind whose row has since been
+   * deleted is left alone rather than guessed at — it has no body either.
+   *
+   * Runs in the constructor, so an ephemeral balance game names its inherited
+   * roster too and `simulate`'s log reads like the shop's.
+   */
+  nameTheRoster() {
+    const roster = this.roster ?? [];
+    const kinds = content().byId.workers;
+    const taken = new Set(roster.map((e) => e.name));
+    for (const entry of roster) {
+      const kind = kinds[entry.kind];
+      if (!kind) continue;
+      const legacy = new RegExp(`^${kind.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( \\d+)?$`);
+      if (!legacy.test(entry.name ?? '')) continue;
+      taken.delete(entry.name);
+      entry.name = this.namer.unique(taken, { bot: true });
+      taken.add(entry.name);
+    }
+  }
+
   /** Take someone on. `kindId` is a row in the workers content table. */
   hire(kindId) {
     const w = content().byId.workers[kindId];
@@ -3694,9 +3766,24 @@ export class Game {
     this.cash -= w.cost;
     this.stats.spent += w.cost;
     const id = `w${this.nextWorkerId++}`;
-    // Two clerks are two people, so the second one has to be tellable apart.
-    const sameKind = this.roster.filter((e) => e.kind === kindId).length;
-    const name = sameKind ? `${w.name} ${sameKind + 1}` : w.name;
+    /**
+     * Somebody, rather than a second copy of a job title.
+     *
+     * This used to be the kind's name with a count after it — "Clerk",
+     * "Clerk 2" — which told two people apart and nothing else: the roster read
+     * as a stock list, and the one thing you might want to say about a hire
+     * ("the one on the tills is knackered") had no way to be said. The kind has
+     * not gone anywhere; it is on the row and the menu prints it as *Taken on
+     * as*, which is where it belongs, because what they were hired as stops
+     * being the interesting fact about them the moment there are two.
+     *
+     * A machine, always. A hire is drawn out of `workers` with a chassis, trim
+     * and a glow — the shoppers are the ones who might be either.
+     *
+     * Names already on the roster are the only ones worth avoiding: they are
+     * the only names in the game anything remembers.
+     */
+    const name = this.namer.unique(this.roster.map((e) => e.name), { bot: true });
     this.roster.push({
       id,
       kind: kindId,
@@ -7520,6 +7607,31 @@ export class Game {
     const cust = {
       id,
       archetype_id: arch.id,
+      /**
+       * Who they are, as opposed to what they are.
+       *
+       * The archetype is still the interesting half to the shop — "a Foodie
+       * came in for artisanal and you had none" is a restocking instruction —
+       * but it is a demographic, and the log was writing sentences about
+       * "a Budget Parent" as though that were somebody's name. Both, now: the
+       * name says which trip this was and the archetype says what to do about
+       * it.
+       *
+       * Mostly people, some machines (`BOT_SHOPPER_SHARE`). A shopper is a
+       * capsule with a nose, so nothing on screen contradicts either — unlike a
+       * hire, who is visibly a machine.
+       *
+       * Off the namer's own stream, so a shopper's name costs the balance
+       * stream nothing: the basket, budget and jitter draws below are the same
+       * numbers from the same rolls they were before names existed. Avoided
+       * against everyone currently in the shop and everyone on the payroll —
+       * two people answering to one name at the same till is the sort of thing
+       * that reads as the game having lost track of somebody.
+       */
+      name: this.namer.unique(
+        [...Object.values(this.customers).map((c) => c.name), ...this.roster.map((e) => e.name)],
+        { bot: this.namer.botShopper() },
+      ),
       // A driver is put down ON their space and a walker off the edge of the
       // world. The jitter that keeps four people arriving on one footpath from
       // filing in single file is wrong in a car park, where two thirds of a tile
@@ -7848,7 +7960,23 @@ export class Game {
       this.reputation = clamp(
         this.reputation - REP_MISSED_STAPLE * cust.missed.length, 0, 1,
       );
-      const name = arch?.name ?? 'customer';
+      /**
+       * Who, and what sort of shopper they were.
+       *
+       * Both, and in that order, because they answer different questions. The
+       * name is what makes a line about one trip rather than about a
+       * demographic — the same person can turn up in three lines on one visit,
+       * and "A Foodie… A Foodie… A Foodie…" never said whether that was one
+       * bad afternoon or three. The archetype is the restocking instruction and
+       * has to survive, which is why it stays in the sentence rather than being
+       * replaced by the name.
+       *
+       * A customer written before names (there are none saved, but the sim runs
+       * against ephemeral games and sweeps that build their own) falls back to
+       * the line exactly as it read before.
+       */
+      const kind = arch?.name ?? 'customer';
+      const who = cust.name ? `${cust.name} the ${kind}` : `A ${kind}`;
       // One line per KIND of miss rather than per line, so a shopper who struck
       // out on two tags for the same reason reads as one sentence.
       const byWhy = new Map();
@@ -7857,10 +7985,10 @@ export class Game {
         const tags = misses.map((m) => tagLabel(m.tag)).join(' and ');
         const it = misses[0];
         this.pushLog(
-          why === 'none' ? `A ${name} came in for ${tags} and you had none.`
-            : why === 'blocked' ? `A ${name} came in for ${tags} and couldn't get to it.`
-              : why === 'budget' ? `A ${name} came in for ${tags} and couldn't afford any of it.`
-                : `A ${name} came in for ${tags}, looked at your ${it.what} at $${it.price.toFixed(2)} and left it.`,
+          why === 'none' ? `${who} came in for ${tags} and you had none.`
+            : why === 'blocked' ? `${who} came in for ${tags} and couldn't get to it.`
+              : why === 'budget' ? `${who} came in for ${tags} and couldn't afford any of it.`
+                : `${who} came in for ${tags}, looked at your ${it.what} at $${it.price.toFixed(2)} and left it.`,
         );
       }
     }
