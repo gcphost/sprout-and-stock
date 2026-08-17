@@ -1187,26 +1187,7 @@
       padding-left: 8px; border-left: 1px solid var(--line);
     }
     #build-subs[hidden] { display: none; }
-    /* The one word the tiles gave up: the name of the thing under the pointer, or
-       of the one you have armed when nothing is. At the far end of the row the
-       tabs are in, so naming a thing costs no tier of its own. Not the price —
-       that is still on every tile, because comparing four of them is the point.
-
-       A FIXED slot rather than one that hugs its text, because it changes on
-       every mouseenter: a slot that grew and shrank with the name in it would
-       shunt the sub-tabs sideways as the pointer crossed the strip, which is the
-       same "you cannot aim at a moving target" problem the bar's own width had.
-       Ellipsis rather than wrap, for the same reason — a second line would move
-       the tiles down. */
-    #build-caption {
-      flex: none; width: 200px; margin-left: auto; text-align: right;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      font-size: 11.5px; font-weight: 800; color: var(--ink);
-    }
-    /* A browse bar keeps its names on its buttons — see `.tool` below — so a
-       caption there would say a thing twice. */
-    #build.browse #build-caption { display: none; }
-    .subcat {
+        .subcat {
       display: flex; align-items: center; gap: 4px;
       border: 0; border-radius: 8px; background: transparent; cursor: pointer;
       font: inherit; font-size: 10.5px; font-weight: 700; color: var(--ink);
@@ -1300,8 +1281,10 @@
        small text rather than as a row of things. The art is already the label
        here — `thumb.js` draws the actual piece off its own row, which is the
        entire reason five floors stopped being five grey glyphs — and a name is
-       long, ragged and only ever a question about ONE entry, the one under the
-       pointer or the one you have armed. That goes in `#build-caption`.
+       long, ragged and only ever a question about ONE entry: the one under the
+       pointer. `tip.js` answers that, at the tile, which is where the question
+       was asked. It went to a caption at the end of the tab row for a while, and
+       that was the same answer given at the other end of the bar.
 
        THE PRICE STAYS. It is four characters, it is right-aligned arithmetic, and
        it is the actual decision: $40 against $110 across a row of lamps is a
@@ -1462,10 +1445,7 @@
       .cat { padding: 5px 6px; }
       /* The open tab keeps its label — it is the one thing naming where you are,
          and the inactive four have been icons at every width since the nav rows
-         merged. The caption keeps its slot too, narrower: on a touch screen
-         nothing hovers, so it is only ever saying what you have armed, which is
-         exactly the thing a strip of unlabelled tiles cannot tell you. */
-      #build-caption { width: 110px; }
+         merged. */
       .subcat { padding: 3px 7px; }
     }
   </style>
@@ -1516,7 +1496,6 @@
       <div id="build-nav">
         <div id="build-groups"></div>
         <div id="build-subs" hidden></div>
-        <div id="build-caption"></div>
       </div>
       <div id="build-tools"></div>
       <div id="build-shapes" hidden></div>

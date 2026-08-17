@@ -49,6 +49,18 @@ export const T = {
    *  the shop's goods, a break area holds the shop's people, and this holds the
    *  people who came to buy. */
   PARK: 14,
+  /**
+   * The lane vehicles come in on. The first ground since `FLOOR` that is a
+   * *look* rather than a job — the four pads above each say what happens on
+   * them, and this one only says what it is made of.
+   *
+   * It is not a permission, and that is the whole of its design: `DRIVABLE` in
+   * `server/layout.js` has always included grass, so every outdoor cell is
+   * already a road and painting one takes nothing away. What it buys is that a
+   * lane finder PREFERS it, so the way in is the way you drew rather than the
+   * shortest line across somebody's lawn.
+   */
+  ROAD: 15,
 };
 
 /**
@@ -58,6 +70,10 @@ export const T = {
  */
 export const WALKABLE = new Set([
   T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY, T.DROP, T.BREAK, T.PARK,
+  // Walkable, because a road is tarmac over grass you could always cross and
+  // taking that away would mean a lane you paint can wall your own shop off.
+  // Nothing in this game gets run over.
+  T.ROAD,
 ]);
 
 /** Ground you can stand a shop fixture on — bare indoor floor and nothing else. */

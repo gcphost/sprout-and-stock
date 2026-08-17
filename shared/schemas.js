@@ -515,8 +515,28 @@ export const FixtureSchema = z.object({
   surface: z.object({
     color: hexColor.default('#b9a888'),
     accent: hexColor.nullable().default(null),
-    /** How the two colours repeat. `plain` uses only the first. */
-    pattern: z.enum(['plain', 'checker', 'planks']).default('plain'),
+    /**
+     * How the two colours repeat. `plain` uses only the first.
+     *
+     * `stripes` is bands one cell wide running along z, which is what makes a
+     * pedestrian crossing authorable rather than a kind — see `GROUND.path`. It
+     * is the one pattern whose *direction* means something, so a crossing drawn
+     * north–south and one drawn east–west are the same design laid two ways.
+     */
+    pattern: z.enum(['plain', 'checker', 'planks', 'stripes']).default('plain'),
+    /**
+     * How many bars a `stripes` cell is painted with. Null takes the default.
+     *
+     * The pattern LIST is code — how a pattern is drawn is renderer geometry,
+     * and the closed set is the same bargain `BUILD_KINDS` strikes — but how
+     * *coarse* one is is a look, and a look belongs on the row. Two bars is a
+     * wide continental crossing, five is a hatched box junction, and both are
+     * somebody authoring a design rather than somebody editing the renderer.
+     *
+     * The gaps are always the same width as the bars, so this is one number and
+     * not two: a zebra that is not half-and-half is a different marking.
+     */
+    bars: z.number().int().min(1).max(8).nullable().default(null),
   }).nullable().default(null),
   /**
    * Feeds the tag system, if a decoration should ever do more than look nice.

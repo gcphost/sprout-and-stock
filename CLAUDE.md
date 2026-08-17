@@ -59,7 +59,7 @@ its canvas and hands you the PNG. Look at it. `stock_shop` first if you want
 the shelves full rather than an empty building.
 
 **After touching `layout.js`, `shared/build.js` or an action — run `npm run verify`.**
-Fourteen sweeps, about twenty seconds:
+Fifteen sweeps, about twenty seconds:
 
 - `verify:layout` generates ~100k layouts across seeds × counts and asserts the
   generator placed *exactly* what it was asked for, that every fixture has a
@@ -162,11 +162,32 @@ Fourteen sweeps, about twenty seconds:
   on its way, the days), conservation of the goods, that your own hands and a
   reservation both overrule the shop having given up, and that a merged shop
   stays merged. It writes one worker row and removes it on exit.
+- `verify:park` guards the shopper who *drove*, and its centrepiece is a claim
+  about somebody who is not there yet. A car arriving and a car that was placed
+  are the same still frame, so nothing in here can be looked at: that a shop
+  which never painted a pad is the old game exactly; that there is one lane per
+  space and it ends **on** the cell rather than one short of it the way the
+  van's does; that a space with no lane is *still a space*, or an animation
+  moves `parkReach` and therefore every number in a balance run; that the space
+  is held from the tick they set off to the tick they despawn, including the
+  drive out; and that a re-flow **parks** a car rather than restarting it —
+  building re-flows on every wall segment, so a car that began its approach
+  again each time is a customer who never arrives. The one that costs money is
+  the patience budget: `stepMood` drains everyone in `this.customers`, which
+  since the drive includes people still on the approach road, so it asserts a
+  driver arrives at mood 1 *and* that the same seconds spent in the shop do cost
+  them. Plus the road: that the border ring cannot be painted, that a drive laid
+  out of the bay re-routes the van onto it, that two road designs steer
+  identically, and that tearing the tarmac up leaves the lane it had before. And
+  the pavement, which is the same claim about feet: given two equally short ways
+  the paved one is walked, paving nowhere near you changes nothing, no route ever
+  gets *longer*, and a crossing painted across a lane is still drivable.
 
-Each of the first twelve found real bugs the day it was written. `verify:motion`
-and `verify:hand` are the exceptions and say so: each shipped with its feature,
-because every claim it makes is invisible in a still frame by construction. None of them is visible
-in a screenshot of one seed — which is exactly why they exist.
+Each of the first twelve found real bugs the day it was written. `verify:motion`,
+`verify:hand` and `verify:park` are the exceptions and say so: each shipped with
+its feature, because every claim it makes is invisible in a still frame by
+construction. None of them is visible in a screenshot of one seed — which is
+exactly why they exist.
 
 ⚠️ **`simulate` also inherits who works for you.** `Game.create` reads the saved
 world, so the roster and `ownedUpgrades` come along into the throwaway run. Hire
@@ -194,7 +215,7 @@ Keep to your side and you'll almost never touch the same file.
 | Economy and balance | `server/sim/economy.js` | Re-run `simulate` after every change. |
 | Customer behaviour, crops, actions | `server/sim/index.js` | The biggest file. Coordinate before restructuring. |
 | Layout generation | `server/layout.js` | Re-run `npm run verify` after every change. |
-| Build placement rules | `shared/build.js` | Imported by **both** client and server on purpose — see below. Also owns `GROUND` — the brush that paints floor, the delivery bay and the storage pad, none of which is a fixture. |
+| Build placement rules | `shared/build.js` | Imported by **both** client and server on purpose — see below. Also owns `GROUND` — the brush that paints floor and the road (a look), and the bay, the drop-off, the break area and the car park (a job). None of the six is a fixture. |
 | Tile vocabulary | `shared/tiles.js` | The one place tile kinds are defined. |
 | Tag vocabulary | `shared/tags.js` | Adding a tag is safe. Changing what one *means* affects everything. |
 | Validation rules | `shared/schemas.js` | Loosen carefully — this is what stops bad content reaching the game. |
@@ -257,7 +278,7 @@ what the next step was meant to be.
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, and the shop hand who takes goods back *off* a shelf | steps 1–6 and 8–10 built; 7 proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
-| [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, and the lane a shopper's car does not yet have | steps 1–4 built; 5–6 proposed |
+| [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | proposed, nothing built |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
@@ -282,10 +303,50 @@ what the next step was meant to be.
   item when `qty > 0` — otherwise farm produce has nowhere to go once every
   shelf has been claimed by a delivery.
 - **A pallet is the only "goods on the floor" object there is.** Deliveries,
-  clearing your hands at the bay, a stripped shelf, an emptied hopper — all of
-  it becomes a pallet. That's deliberate: one entity means one renderer, one
-  pickup path, and the stocker tidying every case of it for free. Never invent
-  a second container; call `dropGoods`.
+  clearing your hands at the bay, an armful put down where you stand, a stripped
+  shelf, an emptied hopper — all of it becomes a pallet. That's deliberate: one
+  entity means one renderer, one pickup path, and the stocker tidying every case
+  of it for free. Never invent a second container; call `dropGoods`.
+- **…and a crate in a PILE is a box, not a container.** Alone it is both: tap for
+  one unit, hold for the whole thing, right-click to put one back. Stacked
+  (`crateStacked`), the only thing on offer is the whole box — a buried crate is a
+  band of about a dozen pixels, so a rummage up there was always somebody else's
+  tin, and standing at a tower of boxes the tap took one. *Which* box is still
+  chosen by pointing: `pickPallet` picks them apart by height, the ring marks the
+  one the ray met, and `liftCrate` no longer refuses a buried one — the boxes
+  above settle a step, and the crate you aimed at was the only crate you meant.
+  The pile menu that used to name them for you is deleted; a list was answering
+  the question the pointer had already answered. Staff still take the top one
+  only, and that is the one place `crateOnTop` survives: a job loop has no aim.
+- **…which is why the drop-off stopped being the only place hands could be
+  emptied.** `stow` was the whole way to let go of an armful and it insisted on
+  the pad, so picking anything up was a commitment: your hands stayed full until
+  you had walked them across the shop, and carrying stock anywhere else was a
+  round trip you could not abandon. Nothing about six loaves needs painted
+  ground — `dropGoods` puts a crate on any tile, which a stripped shelf has
+  always done — so `dropCarry` is the armful's `dropCrate`, armed by the same
+  `'ground'` errand a hauled crate uses. The pad still wins when you name a tile
+  *on* it, and that ordering is the one non-obvious bit: `stow` hands `dropGoods`
+  the pad as a REGION, so crates fill the cells you painted, where a tile drop
+  knows only its own tile. Its own verb rather than a branch in `dropCrate`, for
+  the reason `haul` is its own field — a shared function is one caller reading
+  the wrong one of two hands, which is a conservation hole rather than a visible
+  bug.
+- **…and a square beside you is two sentences: the GESTURE picks which.** "Over
+  there" and "down there" are both true of it while your hands are full, and each
+  way of deciding by *distance* breaks the other. Routing first cost the aim — a
+  walk ends on the tile you named, so the crate went down under your feet however
+  carefully you pointed at the square next to you. Refusing to route inside
+  `UNLOAD_REACH` fixed that and cost you the step: no nearby tile was somewhere to
+  stand any more, so you could not move one square holding a box. So `walkTo` is
+  untouched (a tap goes) and `placeAt` is its own verb (a hold does): it names a
+  square without going to it, refuses out of reach rather than widening, and turns
+  you to face it. The press arms it so the ring winds where you point; an early
+  release is an ordinary tap and you walk. The choice would be invisible, so
+  `canDropAt`/`setFloorGhost` paint the square green or red — through
+  `isWalkableTile` and `edgeBetween` rather than a second opinion, since a ghost
+  the server refuses is the green-ghost bug. A cell that already holds a crate is
+  green on purpose: `dropGoods` tops up or stacks, and a pile can be peeled.
 - **…and `haul` is where goods can be that is not `carry`.** You can pick the
   whole crate up now, which is `p.haul` — a second place stock lives, beside
   hands. Three things about it are worth knowing before touching either.
@@ -351,14 +412,35 @@ what the next step was meant to be.
   did put a state no player can reach inside the sweeps, though, which is why
   `verify-build`'s `stand` clears the path and the keys along with the position —
   `take` plans a route, and teleporting to its end *is* arriving.
-- **There is one errand and it has three kinds of address.** `p.errand` is
-  `{ at, itemId }`: a crate by its own id, a fixture by its id, or the literal
-  `'pad'`, which is the drop-off — the only target in the shop that is a
+- **There is one errand and it has four kinds of address.** `p.errand` is
+  `{ at, itemId }`: a crate by its own id, a fixture by its id, a bare tile as
+  `'ground'` plus coordinates — which is where goods in your hands or on your
+  shoulder go down — or the literal `'pad'`, which is the drop-off — the only target in the shop that is a
   *region* of painted ground rather than an object, and the reason the errand is
   not simply a fixture id. `take` still exists as its own verb for the one case
   that names something finer than a fixture: a shelf holding three things is
-  three piles at one address, and only the shelf's own menu can say which board
-  you meant. Everything else is `walk-to`.
+  three piles at one address, and a fixture id cannot say which board you meant.
+  Everything else is `walk-to`.
+- **…and the pointer can name a board now, which is what a pile of goods being
+  drawn as itself was always worth.** For four steps the only thing that could
+  say *which* board was the shelf's own menu, so an armful off a shelf cost four
+  inputs — open the unit, find the row, walk, press and hold — and three of them
+  were ceremony around a decision you had made by looking at the bread. The
+  address was the missing half, not the verb: `pickFixtureHit` answered "which
+  fixture", and a unit is one target however many piles are standing on it. Each
+  welded goods group carries its item id (`syncShelves`), the walk up to the
+  pickable group notes it, and `pickAim` hands it back beside the fixture. Three
+  things about it are worth knowing before touching either end. The **marker has
+  to be round the pile** (`boardBox`, a cage measured off those meshes) — a frame
+  on the tile is the same frame for all three piles, and the whole question here
+  is which one. The press names it on the way **down**, the way a crate does, or
+  a board you are already standing at arms its charge under a button that has
+  just come up and the press reads as dead until you press again — which is the
+  four-step version wearing one fewer step. And the **unit is still the target
+  everywhere its stock is not**: a tap on the frame, the base or an end panel
+  opens the menu, which is what keeps pricing and assignment one press away, so
+  `boardTakes` is asked identically by hover, press and tap or the highlight
+  advertises something the press does differently.
 - **Held actions re-arm the instant they finish, and that is now only true of
   the two proximity ones.** It is why the `till` charge is long and why a Clear
   tool that stayed armed once ate seven shelves in a row. The general rule
@@ -367,6 +449,17 @@ what the next step was meant to be.
   in** — the retired `tookFrom` existed because a pickup leaves you holding
   something *stood at the thing it came off*, which was exactly what `stock`
   armed on, so a board emptied by hand refilled itself on the next tick.
+- **…and how LONG a hold is has a floor, which is on the client.** `ACTION_TIME`
+  came down from a second to half of one, and every goods-handling time with it
+  (`stow` 0.45, `crate` 0.65), because neither thing the second was buying is
+  still true: the duration was the defence against a walk-past and `moving` is
+  now, and these actions are all *named* by pointing first, so the ring is
+  confirming a finished sentence rather than guessing at one. What it may not go
+  below is `LONG_PRESS_MS` (420ms, `client/main.js`): the press is only ruled a
+  hold at that mark, and an action that fired before it would have its release
+  read as a tap **as well**, which re-sends the errand it just spent. `till`
+  (1.7) and `serve` stay where they are — one is effort you can see, the other is
+  a throughput number the checkout ladder divides.
 - **Build mode is the exception: it arms nothing.** `actionFor` returns null the
   moment `p.build.on` is set. Proximity picked the nearest fixture *centre*, and
   with seventeen shelves on a three-tile pitch that is not a choice anybody can
@@ -604,6 +697,85 @@ what the next step was meant to be.
   strictly worse than never having painted one. Measured at +47 mean profit over
   12 seeds beside the door and +12 in the far corner — where you put it is most
   of what it is worth, and that falls out of the walk rather than out of a rule.
+- **A shopper who has not arrived is not a customer, and four loops disagreed.**
+  A car drives to its space now (`DRIVE`), and back off the map when its owner is
+  done (`DEPART`) — so `this.customers` holds people who are not in the shop, and
+  every loop over it was written when the only way into that object was to be
+  standing in one. `inACar` is the predicate, and the four readers are the crush
+  everyone inside feels (`measureOccupancy`), the shop's mood (`moodAverage`),
+  the snapshot (or you draw a shopper skating up the road with their arms out,
+  inside the car that is also being drawn) — and **`stepMood`, which is the one
+  that costs money**. `patience` is a budget the shop draws on and the road is
+  not the shop: ungarded, the further away somebody parked the crosser they would
+  arrive, and it presents as shoppers storming out of a shop that has done
+  nothing to them. The general shape is worth keeping: **a container whose
+  membership used to imply a fact stops implying it the moment something can be
+  in it earlier**, and nothing about the old readers looks wrong afterwards.
+- **…and a re-flow parks a car rather than restarting it.** The van's answer to
+  a lane that moved is to go home and come back, which is right for a lorry that
+  reappears six in-game hours later and wrong for a car, because a player who is
+  *building* re-flows on every wall segment: a car that began its approach again
+  each time never arrives at all, so the shopper inside it is a customer who
+  never happens — in a shop being extended precisely because it is busy. And a
+  car set down at the facing it was *travelling* is parked across its bay, since
+  a lane's last leg runs along the road; `parkNow` puts it on the cell at the
+  facing worked out when the space was claimed, which is the one thing in the
+  whole step that IS visible in a screenshot.
+- **A pavement is the same idea for feet, and `findPath` now CHARGES a step
+  rather than counting one.** `T.PATH` — the strip the generator lays from the
+  door — has been in the game since before ground was paintable, so "add
+  sidewalks" was one `GROUND` row and no new enum, colour or renderer code. The
+  two constants in `server/sim/pathing.js` mirror the road's: paving 1,
+  everything else outdoors 1.25, and **the preference must never be cheaper than
+  an ordinary step** — `h` is Manhattan distance, which is admissible only while
+  no step costs less than 1, so a discount on paving quietly turns A* into
+  something that returns *a* route rather than the shortest one. The surcharge is
+  **outdoors only**: nothing indoors is ever pavement, so a uniform one in a shop
+  would change every score, leave every ordering identical and cost real time, on
+  the hottest loop in the game. And 1.25 is not a *speed* — what a step costs the
+  search and what it costs the walker are different questions, and nobody moves
+  faster on paving; making it a speed turns a look into a balance change.
+- **…and a crossing is a design, not a kind.** `T.PATH` is in `DRIVABLE` and
+  always has been, so pavement painted across a lane is drivable *and* the thing
+  feet prefer, which is exactly what a pedestrian crossing is. It cost one
+  `surface.pattern` (`stripes`) and no code that knows what a crossing is. Before
+  authoring a new kind for something, check whether two kinds you have already
+  overlap on it.
+- **A car was smaller than the person driving it, and that reads as the ground
+  being wrong.** The `shopper-car` model was 1.16 × 0.62 tiles against a person
+  0.68 across. What it *presented* as was roads and parking that felt out of
+  scale, which is the trap: an art bug one file away shows up as a complaint
+  about level design. Vehicles are 1.75× on the floor plan now (x and z only —
+  a car as tall as it is long is a bus), and the ground grew to match, because
+  a 1.21-wide car hangs off a one-cell lane. Two rules came out of it. A road
+  stroke is `ROAD_THICK` cells thick whatever you dragged, decided inside
+  `groundStroke` because the ghost and the server both run it and the client
+  sends a drag's ENDS rather than its cells — a width rule in only one of them
+  is a green ghost promising a road the shop refuses. And **a parking bay is two
+  cells**, paired in `parkSpaces`, with the bay owning its own `mid` and
+  `facing`: `parkedAt` stays the anchor cell because that is the tile A* can
+  route a driver out of, while the car stands on the line between two of them. A
+  lone cell is not a bay. `PARK_HALF` halved with it — the geometry changed and
+  the balance was not meant to.
+- **The starting world has a front now, and only a NEW one does.** Yard behind,
+  fields down the east flank, street across the bottom (`defaultStreet`, laid by
+  the same one-time mark `defaultPads` is). It could only ever be new worlds:
+  every fixture is an absolute tile, so moving the building would strand a live
+  shop's contents outside it. `FRONT_DEPTH` is the agreement between the farm
+  loop and the street — 8, which is exactly what the starting shop already had,
+  so a shop that has not grown comes out where it always did. No car park is
+  seeded, and that is `parkReach` feeding `catchment` rather than tidiness.
+- **A road is a preference, and the border ring is not yours to paint.** Every
+  outdoor cell has been in `DRIVABLE` since the van first drove, so `T.ROAD`
+  cannot grant permission and does not try — `ROAD_COST` 1 against
+  `OFF_ROAD_COST` 2 only changes which legal lane is *chosen*, and with no road
+  painted every candidate scales by one constant, so no existing shop's lane
+  moves. The half nobody predicts: `canPaintGround` refuses row 0 and column 0,
+  which is exactly the border ring, so the leg *along* the border can never be
+  tarmac. What you price is the **spur** — and that is the better design said out
+  loud: the ring is the public road and you cannot pave it because it is not
+  yours; what you paint is the driveway, which is what decides which side of the
+  map anything arrives from.
 - **`charm` feeds catchment, and the ceiling is the point.** Reputation is what
   the people who already came in think of you and the shop can max it out;
   catchment is how much of the town is in reach at all, which is the term

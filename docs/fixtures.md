@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-34 pieces across 12 kinds.
+44 pieces across 14 kinds.
 
 ## Fixtures
 
@@ -113,6 +113,8 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 8 parts · 4 stages, driven by tier · no `surface` boards — goods pile on its roof
 
+Shapes: Standard, Express Kiosk, Corner Counter — looks only, same price and same ladder.
+
 1. **Manual Till** — free, as built
 2. **Barcode Scanner** — $180, speed ×1.4
 3. **Belted Checkout** — $420, speed ×1.9
@@ -136,8 +138,11 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 - ⚙️ **Juicer** while running — 3 stages across a batch · 1 moving part
 - ⚙️ **Soft-Serve Machine** while running — 3 stages across a batch · 1 moving part
 - ⚙️ **Deep Fryer** while running — 3 stages across a batch · steams · the machine itself shakes
+- ⚙️ **Oven** while running — 3 stages across a batch · 1 moving part
+- ⚙️ **Grill** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
+- ⚙️ **Preserving Pot** while running — 3 stages across a batch · steams · the machine itself shakes
 
-Shapes: Standard, Espresso Machine, Blender, Toaster, Sandwich Press, Juicer, Soft-Serve Machine, Deep Fryer — looks only, same price and same ladder.
+Shapes: Standard, Espresso Machine, Blender, Toaster, Sandwich Press, Juicer, Soft-Serve Machine, Deep Fryer, Oven, Grill, Preserving Pot — looks only, same price and same ladder.
 
 1. **Domestic** — free, as built
 2. **Commercial** — $340, speed ×2
@@ -152,8 +157,11 @@ Outdoors only, blocks nobody, nobody stands at it.
 
 4 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
+Shapes: Standard, Timber Trough, Cold Frame — looks only, same price and same ladder.
+
 1. **Bare earth** — free, as built
 2. **Raised bed** — $90, speed ×1.6
+3. **Greenhouse** — $260, speed ×2.3
 
 ## Decorations
 
@@ -214,6 +222,12 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 4 parts
 
 💡 Emits `#ffe0b0`, intensity 0.7, range 3.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Awning
+
+`awning` · kind `prop-floor` · $28 to build
+
+8 parts
 
 ### `prop-ceiling`
 
@@ -287,7 +301,7 @@ Not placed — **painted**, over an area, priced per tile. These have no anchor 
 
 ### `floor`
 
-Ground. Painted over an area, blocks nobody, and is purely a **look** — two floors of different colours leave byte-identical tiles.
+Ground. Painted over an area, blocks nobody, and is purely a **look** — two designs of floor leave byte-identical tiles.
 
 #### Pine Boards
 
@@ -318,6 +332,36 @@ Surface `#c2724a` / `#a75f3d`, checker repeat. No model — ground *is* the cell
 `slate-flags` · kind `floor` · $22 per tile
 
 Surface `#5c626b` / `#4a4f57`, planks repeat. No model — ground *is* the cell.
+
+#### Paving Slabs
+
+`paving-slabs` · kind `floor` · $7 per tile
+
+Surface `#c9c7c0` / `#b0aea6`, checker repeat. No model — ground *is* the cell.
+
+#### Asphalt
+
+`asphalt` · kind `floor` · $5 per tile
+
+Surface `#4b4d51`, plain repeat. No model — ground *is* the cell.
+
+#### Cobblestone
+
+`cobblestone` · kind `floor` · $13 per tile
+
+Surface `#8d8478` / `#786f64`, checker repeat. No model — ground *is* the cell.
+
+#### Brick Paving
+
+`brick-paving` · kind `floor` · $11 per tile
+
+Surface `#a35e49` / `#8b4e3c`, planks repeat. No model — ground *is* the cell.
+
+#### Shop Floor
+
+`shop-floor` · kind `floor` · $6 per tile
+
+Surface `#f0ddb8`, plain repeat. No model — ground *is* the cell.
 
 ### `bay`
 
@@ -358,6 +402,38 @@ Ground. Painted over an area, blocks nobody, and carries a **job**: shoppers who
 `car-park` · kind `park` · $10 per tile
 
 Surface `#79808c` / `#98a0ad`, planks repeat. No model — ground *is* the cell.
+
+### `road`
+
+Ground. Painted over an area, blocks nobody, and is purely a **look** — two designs of road leave byte-identical tiles.
+
+#### Tarmac
+
+`tarmac-road` · kind `road` · $4 per tile
+
+Surface `#5f646d` / `#565b63`, plain repeat. No model — ground *is* the cell.
+
+#### Gravel Track
+
+`gravel-track` · kind `road` · $2 per tile
+
+Surface `#9a9184` / `#867e72`, checker repeat. No model — ground *is* the cell.
+
+### `path`
+
+Ground. Painted over an area, blocks nobody, and is purely a **look** — two designs of pavement leave byte-identical tiles.
+
+#### Pavement
+
+`paving-path` · kind `path` · $3 per tile
+
+Surface `#d9cbb0` / `#c6b79a`, checker repeat. No model — ground *is* the cell.
+
+#### Crossing
+
+`zebra-crossing` · kind `path` · $6 per tile
+
+Surface `#f2efe6` / `#5f646d`, stripes repeat. No model — ground *is* the cell.
 
 ---
 

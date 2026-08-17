@@ -135,7 +135,13 @@ const shape = (g) => fixturesOf(g.layout)
 /** A patch of open grass south-east of the building, clear of path and pads. */
 function grassPatch(g, w = 2, h = 2) {
   const L = g.layout;
-  for (let z = L.store.z + L.store.h + 4; z < L.h - 2; z++) {
+  // From the top of the building down, not from the forecourt. This used to
+  // start below the shop, because the front was open lawn and the only things
+  // out there were the beds — and a new world seeds a street across it now, so
+  // the two rows this could reach are pavement and road. The GRASS test below
+  // is the real filter and always was; starting higher just lets it see the
+  // flank beside the building, which is where the open grass moved to.
+  for (let z = L.store.z; z < L.h - 2; z++) {
     for (let x = 1; x < L.w - 1 - w; x++) {
       let all = true;
       for (let dz = 0; dz < h && all; dz++) {

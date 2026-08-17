@@ -32,7 +32,9 @@
 
 import { partsAt, variantModel, skinnedParts, skinKey, tierProgress } from '../shared/model.js';
 import { FIXTURES } from '../shared/build.js';
-import { PALETTE, TILE_STYLE, EDGE_STYLE, edgeBands, patternColor, shade } from './render/palette.js';
+import {
+  PALETTE, TILE_STYLE, EDGE_STYLE, edgeBands, patternColor, shade, stripeBars, stripeDuty,
+} from './render/palette.js';
 
 /**
  * The game's camera, as the two numbers a projection needs.
@@ -351,6 +353,27 @@ export function artForGround(surface) {
       cells.push(poly(
         [[x, z], [x + 1, z], [x + 1, z + 1], [x, z + 1]].map(([cx, cz]) => project(cx - R, 0, cz - R)),
         hex(patternColor(surface, x, z)),
+      ));
+    }
+  }
+
+  // `stripes` is the one pattern that is not a per-cell colour — a zebra bar is
+  // a fraction of a tile, so the renderer lays real bars over the cell and the
+  // cell itself stays plain (`patternColor`). This is the same bars in SVG,
+  // and it has to be: a button that showed a flat swatch where the game draws a
+  // crossing is the "a picture of a thing has to come from the thing" mistake
+  // with the pattern left out of it. Along z, which is what the shape of a
+  // 3x3 patch resolves to in the renderer too.
+  if (surface.pattern === 'stripes') {
+    const bar = hex(surface.accent ?? shade(surface.color, -0.55));
+    const n0 = stripeBars(surface);
+    const duty = stripeDuty(surface);
+    for (let i = 0; i < 3 * n0; i++) {
+      const x0 = (i + 0.5 - duty * 1.5) / n0;
+      const x1 = x0 + duty * 3;
+      cells.push(poly(
+        [[x0, 0], [x1, 0], [x1, 3], [x0, 3]].map(([cx, cz]) => project(cx - R, 0, cz - R)),
+        bar,
       ));
     }
   }

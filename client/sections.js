@@ -129,6 +129,25 @@ export const BUILD_GROUPS = [
         icon: ICONS.floor,
         blurb: 'What a shelf needs under it. Walls alone only make a room.',
       },
+      // The ways in, and the one sub-tab that is not about the building at all.
+      //
+      // Road and pavement started on Floors, filed by a fact about the code —
+      // both are ground that is a *look*, the way a floor is, and neither
+      // carries a job the way the four pads do. That is true and it is not what
+      // anybody is looking for a road under. What these two have in common with
+      // each other is the thing a player has in mind when they reach for one:
+      // how anything gets here. What they have in common with Pine Boards is
+      // how they are implemented.
+      //
+      // Both of them, together, for the reason neither Yard nor Customers could
+      // hold either: a van and a shopper's car drive the same tarmac, and the
+      // pavement beside it is walked by staff, shoppers and you.
+      {
+        id: 'roads',
+        name: 'Roads',
+        icon: ICONS.move,
+        blurb: 'How everybody gets here. Vehicles take the cheapest lane and feet take the paved way, so what you lay is the way in.',
+      },
       {
         id: 'yard',
         name: 'Yard',
@@ -282,15 +301,26 @@ export const KIND_TOOLS = {
     blurb: 'Drag out an area. Staff take their breaks here instead of wherever they finished, and come back fresher. One cell seats one.',
   },
   // The fourth pad, on the one sub-tab where it is not filed under somebody
-  // else's job. The blurb says what the ground IS rather than what arriving by
-  // car will be worth: nothing spawns a driver yet (step 4b of
-  // docs/deliveries.md), and a palette that sold the mechanic before it existed
-  // would be a button making a promise the shop cannot keep.
+  // else's job.
   park: {
     icon: ICONS.walk,
     group: 'shell',
     sub: 'customers',
     blurb: 'Drag out an area. Hardstanding out front for shoppers who drive here — one cell parks one, and they walk in from where they left it.',
+  },
+  // The two ways in, on their own tab. See the `roads` sub-tab for why they are
+  // not filed with the floors they are built like.
+  road: {
+    icon: ICONS.move,
+    group: 'shell',
+    sub: 'roads',
+    blurb: 'Drag out an area. Vans and shoppers’ cars come in on whichever way is cheapest, and they would rather drive on this than on your grass.',
+  },
+  path: {
+    icon: ICONS.walk,
+    group: 'shell',
+    sub: 'roads',
+    blurb: 'Drag out an area. Anybody walking outdoors would rather go round on this than cut across the grass. A striped one laid over a road is a crossing.',
   },
 };
 

@@ -26,7 +26,7 @@ import { T, WALKABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
-  FLOOR_KIND, groundTile, padCells,
+  FLOOR_KIND, groundTile, padCells, ROAD_THICK,
 } from '../shared/build.js';
 
 export { T };
@@ -47,8 +47,29 @@ export const WORLD_H = 22;
 const MIN_STORE_W = 9;
 const MIN_STORE_H = 9;
 
-/** Farm plots per side of the path, per row. */
+/**
+ * What the world is kept wide enough for, in plot columns a side.
+ *
+ * It used to be a placement rule as well — the farm grew outward from the path
+ * four beds a side before starting a new row. The farm moved to the east flank
+ * (see `farmX0`) and this is now only a *width*: the map stays big enough for a
+ * farm of this span whether or not anybody has dug one, which is what keeps
+ * `worldW` independent of how many beds you own. A world that got wider as you
+ * bought plots would re-centre the building under a shop whose every fixture is
+ * an absolute tile.
+ */
 const PLOTS_PER_SIDE = 4;
+
+/**
+ * How many rows the front needs, below the wall the door is in.
+ *
+ * Forecourt, pavement, road — `defaultStreet` lays the last two into the bottom
+ * two paintable rows and this is the promise the generator makes it: nothing
+ * procedural is placed in here. 8 because that is exactly what the starting
+ * shop already had (`WORLD_H` 22, door line 14), so a shop that has not grown
+ * comes out byte-identical to one generated before there was a street.
+ */
+const FRONT_DEPTH = 8;
 
 /**
  * How far the building stands from the north edge — the depth of the yard.
@@ -250,16 +271,45 @@ function compose(req, storeW, storeH, allowDrops = true) {
     store.x, store.x + store.w - 2,
   );
 
-  // How wide the farm can spread before it runs off the map, and therefore how
-  // many rows it needs. Computed up front so no plot is ever silently dropped.
-  const perSide = clampInt(
-    Math.min(PLOTS_PER_SIDE, Math.floor((Math.min(doorX - 3, worldW - 5 - doorX) - 2) / ROW_PITCH) + 1),
-    1, PLOTS_PER_SIDE,
-  );
   const pathZEnd = doorZ + 3;
-  const plotTop = pathZEnd + 1;
-  const plotRows = Math.max(1, Math.ceil(req.plots / (perSide * 2)));
-  const worldH = Math.max(WORLD_H, plotTop + plotRows * ROW_PITCH + 3);
+
+  /**
+   * The farm stands BESIDE the building, not in front of it.
+   *
+   * It flanked the path out of the front door for as long as there was nothing
+   * else for the front to be — which put the fields between the shopper and the
+   * shop, and left the one side of the building a customer ever sees looking
+   * like the back of a smallholding. The front is the street now
+   * (`defaultStreet`), the yard is still behind, and the fields went to the one
+   * side that was empty grass in every generated world.
+   *
+   * East rather than west for no reason except that it has to be one of them,
+   * and both are the same width: the building is centred, so the two margins are
+   * equal by construction.
+   *
+   * It grows across first and then DOWN, which is the opposite of the old
+   * outward-then-down and is what keeps the world compact — a column runs beside
+   * the shop and then past the forecourt, where there is as much room as the
+   * farm ever needs, instead of pushing the map wider for every four beds.
+   */
+  const farmX0 = store.x + store.w + 2;
+  const farmCols = Math.max(1, Math.floor((worldW - 2 - farmX0) / ROW_PITCH) + 1);
+  const plotTop = store.z;
+  const plotRows = Math.max(1, Math.ceil(req.plots / farmCols));
+
+  /**
+   * How much room the front needs, below the doorway: forecourt, pavement, road.
+   *
+   * A floor under the world's height rather than a thing added to it, so a shop
+   * that has not grown comes out at exactly `WORLD_H` and no existing save moves
+   * — `doorLine + FRONT_DEPTH` is 22 for the starting building, which is what
+   * `WORLD_H` already was.
+   */
+  const worldH = Math.max(
+    WORLD_H,
+    doorLine + FRONT_DEPTH,
+    plotTop + plotRows * ROW_PITCH + FRONT_DEPTH,
+  );
 
   const tiles = new Uint8Array(worldW * worldH).fill(T.GRASS);
   const idx = (x, z) => z * worldW + x;
@@ -758,21 +808,26 @@ function compose(req, storeW, storeH, allowDrops = true) {
   }
 
   // ---- farm plots ----------------------------------------------------------
-  // Tidy blocks either side of the path, growing outward then downward. The
-  // world was sized for exactly this many rows, so nothing gets clipped.
+  // A tidy block down the east flank, across then down — see `farmX0`. The world
+  // was sized for exactly this many rows, so nothing gets clipped.
+  //
+  // The bound is the FRONTAGE, not the map edge: a bed in the last few rows
+  // would be a bed on the pavement, or in the road. `defaultStreet` lays those
+  // two and `FRONT_DEPTH` is the agreement between them.
+  const farmFloor = worldH - FRONT_DEPTH;
   let nPlot = 0;
-  for (let i = 0, n = 0; budget.plot > 0; i++) {
+  for (let i = 0; budget.plot > 0; i++) {
     if (i > req.plots * 8 + 64) break;         // belt and braces
-    const side = i % 2 === 0 ? -1 : 1;
-    n = Math.floor(i / 2);
-    const px = doorX + side * (2 + (n % perSide) * ROW_PITCH) + (side < 0 ? 0 : 1);
-    const pz = plotTop + Math.floor(n / perSide) * ROW_PITCH;
-    if (pz >= worldH - 2 || px < 1 || px > worldW - 2) continue;
+    const px = farmX0 + (i % farmCols) * ROW_PITCH;
+    const pz = plotTop + Math.floor(i / farmCols) * ROW_PITCH;
+    if (pz > farmFloor || px < 1 || px > worldW - 2) continue;
     if (at(px, pz) !== T.GRASS) continue;
     set(px, pz, T.PLOT);
     plotsOut.push(makePlot(`plot-p${nPlot++}`, px, pz));
     budget.plot--;
   }
+  // A taller building is what buys more farm: it pushes the door down, which
+  // pushes `worldH` down with it, which is another row of flank to grow into.
   if (budget.plot > 0) return incomplete(layoutSoFar(), 'h');
 
   // ---- no fence ------------------------------------------------------------
@@ -1053,69 +1108,96 @@ const VAN_OFF = 8;
  *
  * A plot is walkable and a van does not drive over somebody's carrots; a door
  * is walkable and a van does not drive through the shop. Everything left is
- * outdoor going: grass, the path, an outdoor floor somebody paved, and the
- * three pads, which are the one kind of ground whose whole job is that things
- * arrive on them.
+ * outdoor going: grass, the path, an outdoor floor somebody paved, the road,
+ * and the three pads, which are the one kind of ground whose whole job is that
+ * things arrive on them.
  */
-const DRIVABLE = new Set([T.GRASS, T.PATH, T.FLOOR, T.BAY, T.DROP, T.PARK]);
+const DRIVABLE = new Set([T.GRASS, T.PATH, T.FLOOR, T.BAY, T.DROP, T.PARK, T.ROAD]);
 
 /**
- * The lane the delivery van drives: on at the edge of the map, round the
- * border ring, in to the bay, and back out the way it came.
+ * What a cell costs to drive over, and the only thing `T.ROAD` does.
  *
- * **A vehicle is not a person, and this is the whole reason this function
- * exists rather than a `findPath` call.** A* walks the same tile grid a shopper
- * walks, and it is *right* for a shopper: it threads between planters, turns on
- * the spot, and takes whichever gap is shortest. A lorry doing that reads as a
- * bug in the renderer. So there is no pathfinding here at all — the van gets a
- * fixed route, computed once per layout, and drives it with `followPath` the
- * same way a customer walks a path A* handed them. Whether the way is clear is
- * decided HERE, once, rather than re-asked every tick by something with wheels.
+ * A road is a *preference*, not a permission — see `GROUND.road`. Every cell in
+ * `DRIVABLE` is drivable whether or not anybody painted it, and these two
+ * numbers decide only which of several legal lanes the finder picks: a route
+ * over tarmac wins until it is more than twice as long as the one across the
+ * grass.
+ *
+ * **A shop with no road painted comes out exactly where it did before this
+ * existed**, and that is arithmetic rather than a promise. Every cell then
+ * costs the same, so every candidate is scaled by one constant, and scaling
+ * both sides of `best.cost <= cost` compares the same two lanes in the same
+ * order — including the ties, which is what stops a lane moving on a re-flow
+ * for a shop that has never seen a road.
+ */
+const ROAD_COST = 1;
+const OFF_ROAD_COST = 2;
+
+/**
+ * How anything with wheels gets from the edge of the map to one cell of this
+ * shop, and back. The lorry uses it for the bay; a shopper's car uses it for
+ * the space it parks in.
+ *
+ * **A vehicle is not a person, and this is the whole reason this exists rather
+ * than a `findPath` call.** A* walks the same tile grid a shopper walks, and it
+ * is *right* for a shopper: it threads between planters, turns on the spot, and
+ * takes whichever gap is shortest. A lorry doing that reads as a bug in the
+ * renderer. So there is no pathfinding here at all — a vehicle gets a fixed
+ * route, computed once per layout, and drives it with `followPath` the same way
+ * a customer walks a path A* handed them. Whether the way is clear is decided
+ * HERE, once, rather than re-asked every tick by something with wheels.
  *
  * The route is two straight legs and one turn:
  *
- *   1. a **spur**, straight out of a bay cell to the border ring, and
- *   2. a **run along the ring** from the nearest end of that border, off the map.
+ *   1. a **spur**, straight out of the cell to the border ring, and
+ *   2. a **run along the ring** to the cheaper end of that border, off the map.
  *
  * Both are straight lines of drivable cells, which is what makes them a lane
  * rather than a path: nothing in either can be walked round, so a shelf on the
  * ring is not an obstacle to steer past, it is a lane that does not exist. Every
- * bay cell × every direction is tried and the shortest total drive wins, so a
- * bay painted out the front, or down the east side, gets its own way in for
- * free — and a bay walled in on all four sides returns null, which the sim
- * reads as "no van today" and lands the goods the way it did before there was
- * anything to look at. That fallback is the honest half: a shop whose yard
- * nobody can drive to must still get the stock it paid for.
+ * direction is tried and the cheapest total drive wins — `ROAD_COST` is what
+ * "cheapest" means and the only thing a painted road changes — so a bay out the
+ * front, or down the east side, gets its own way in for free, and one walled in
+ * on all four sides returns null. The sim reads that as "no van today" and lands
+ * the goods the way it did before there was anything to look at, which is the
+ * honest half: a shop whose yard nobody can drive to must still get the stock it
+ * paid for.
  *
- * The van stops one cell SHORT of the pad rather than on it. Goods land on the
- * pad — `dropGoods` picks the cells, as it does for everything else — and a van
- * parked on top of the crates it just put down is a picture of the wrong thing.
+ * It is a factory rather than a function because the three closures inside it
+ * are the expensive half and a car park asks the same question a dozen times.
  *
- * @returns {{dock: {x,z}, in: {x,z}[], out: {x,z}[]}|null}
+ * @returns {(cell: {x,z}) => ({cost, spur, ring, entry}|null)}
  */
-function vanRoute(L, bay) {
-  if (!bay?.cells?.length) return null;
-
+function laneFinder(L) {
   const drivable = (x, z) => {
     if (x < 0 || z < 0 || x >= L.w || z >= L.h) return false;
     const i = z * L.w + x;
     return DRIVABLE.has(L.tiles[i]) && !L.blocked[i] && !L.indoor[i];
   };
 
+  // What one cell of driving costs. The road's entire mechanism — see
+  // `ROAD_COST`. Read off `tiles` rather than off the ground overlay, because
+  // which DESIGN of road you painted is a look and this is not: two roads of
+  // different colours must steer a van identically, the same claim
+  // `verify:floor` makes about floors.
+  const cellCost = (x, z) => (L.tiles[z * L.w + x] === T.ROAD ? ROAD_COST : OFF_ROAD_COST);
+
   // Straight out of `b` until the world runs out. Null if anything is in the
   // way — there is no going round, that is the point.
   const spur = (b, dx, dz) => {
     const cells = [];
+    let cost = 0;
     for (let x = b.x + dx, z = b.z + dz; drivable(x, z); x += dx, z += dz) {
       cells.push({ x, z });
+      cost += cellCost(x, z);
       const off = x + dx < 0 || z + dz < 0 || x + dx >= L.w || z + dz >= L.h;
-      if (off) return cells;                  // reached the border ring
+      if (off) return { cells, cost };         // reached the border ring
     }
     return null;
   };
 
   // ...and along the border the spur came out on, to whichever end of it is
-  // nearer and clear. `axis` is the one the road runs on, which is always the
+  // cheaper and clear. `axis` is the one the road runs on, which is always the
   // one the spur did not: a spur north hits row 0, and row 0 runs east-west.
   const ringLeg = (ring, axis) => {
     const span = axis === 'x' ? L.w : L.h;
@@ -1124,50 +1206,116 @@ function vanRoute(L, bay) {
     for (const step of [-1, 1]) {
       const end = step < 0 ? 0 : span - 1;
       let clear = true;
+      let cost = 0;
       for (let a = here + step; step < 0 ? a >= end : a <= end; a += step) {
         const x = axis === 'x' ? a : ring.x;
         const z = axis === 'x' ? ring.z : a;
         if (!drivable(x, z)) { clear = false; break; }
+        cost += cellCost(x, z);
       }
       if (!clear) continue;
-      const dist = Math.abs(end - here);
-      if (best && best.dist <= dist) continue;
+      if (best && best.cost <= cost) continue;
       const from = end + step * VAN_OFF;
       best = {
-        dist,
+        cost,
         entry: axis === 'x' ? { x: from, z: ring.z } : { x: ring.x, z: from },
       };
     }
     return best;
   };
 
-  let best = null;
-  for (const b of bay.cells) {
+  /** The cheapest way off the map from one cell, or null if there is none. */
+  return (cell) => {
+    let best = null;
     for (const [dx, dz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
-      const lane = spur(b, dx, dz);
+      const lane = spur(cell, dx, dz);
       if (!lane) continue;
-      const ring = lane[lane.length - 1];
+      const ring = lane.cells[lane.cells.length - 1];
       const leg = ringLeg(ring, dz === 0 ? 'z' : 'x');
       if (!leg) continue;
-      const cost = lane.length + leg.dist;
+      const cost = lane.cost + leg.cost;
       if (best && best.cost <= cost) continue;
-      best = { cost, dock: lane[0], ring, entry: leg.entry };
+      best = { cost, spur: lane.cells, ring, entry: leg.entry };
     }
-  }
-  if (!best) return null;
+    return best;
+  };
+}
 
-  // Three points for two legs, because a waypoint in the middle of a straight
-  // is a waypoint nobody turns at. The ring cell and the dock collapse into one
-  // when the pad is against the border already — the van drives up the road and
-  // stops beside it without ever turning off.
-  const inbound = [best.entry, best.ring, best.dock].filter((p, i, all) => (
+/**
+ * Three points for two legs, and the route both ways.
+ *
+ * A waypoint in the middle of a straight is a waypoint nobody turns at, so the
+ * lane is only ever its ends and its one corner. The ring cell and the stop
+ * collapse into one when the vehicle is parking against the border already — it
+ * drives up the road and halts without ever turning off, and a repeated point
+ * would be a waypoint reached before it was set out for.
+ */
+function laneVia(entry, ring, stop) {
+  const inbound = [entry, ring, stop].filter((p, i, all) => (
     i === 0 || p.x !== all[i - 1].x || p.z !== all[i - 1].z
   ));
   return {
-    dock: { ...best.dock },
+    dock: { ...stop },
     in: inbound.map((p) => ({ ...p })),
     out: [...inbound].reverse().map((p) => ({ ...p })),
   };
+}
+
+/**
+ * The one lane the delivery van drives, best-of over every cell of the bay.
+ *
+ * It stops one cell SHORT of the pad rather than on it: goods land on the bay —
+ * `dropGoods` picks the cells, as it does for everything else — and a van parked
+ * on top of the crates it just put down is a picture of the wrong thing.
+ */
+function vanRoute(L, bay) {
+  if (!bay?.cells?.length) return null;
+  const bestFrom = laneFinder(L);
+
+  let best = null;
+  for (const b of bay.cells) {
+    const lane = bestFrom(b);
+    if (!lane) continue;
+    if (best && best.cost <= lane.cost) continue;
+    best = lane;
+  }
+  if (!best) return null;
+
+  // `best.spur[0]` is the first cell outside the pad — see above.
+  return laneVia(best.entry, best.ring, best.spur[0]);
+}
+
+/**
+ * ...and one lane per parking space, which is what a shopper's car comes in on.
+ *
+ * Three things differ from the van's, and only the first is arithmetic.
+ *
+ * **A car stops ON its space**, where the van stops one short of the pad. The
+ * van's reason not to is that goods land on the bay; a car puts nothing down,
+ * and a space with the car beside it rather than in it is a car park that does
+ * not work.
+ *
+ * **It is per cell rather than best-of.** One bay takes one van, so its lane is
+ * a property of the yard; a car park is a dozen independent spaces and each
+ * needs its own way in. Hence a list in and a list out, with the finder built
+ * once — the closures are the expensive half and this is the caller that asks
+ * a dozen times.
+ *
+ * **Null is ordinary here**, where for the van it is the walled-in yard. A space
+ * with no straight run out is perfectly usable parking; what it loses is the
+ * drive, not the space. See `parkSpaces` for why that distinction had to be
+ * kept — dropping those cells would quietly move the balance, because how many
+ * spaces there are is what catchment reads.
+ *
+ * @returns {({dock,in,out}|null)[]} one per cell, in the order given
+ */
+export function carLanes(L, cells) {
+  if (!cells?.length) return [];
+  const bestFrom = laneFinder(L);
+  return cells.map((cell) => {
+    const best = bestFrom(cell);
+    return best ? laneVia(best.entry, best.ring, cell) : null;
+  });
 }
 
 function makePlot(id, x, z) {
@@ -1259,6 +1407,65 @@ export function defaultPads(L) {
   };
   pad(L.store.x, 'bay');
   pad(L.store.x + L.store.w - PAD_SEED_W, 'drop');
+  return out;
+}
+
+/**
+ * The street out front: a road along the bottom of the world, a pavement above
+ * it, and a walk up to the door.
+ *
+ * `defaultPads`' argument, pointed at the front of the building instead of the
+ * back. The yard was generated furniture until it became ground somebody owns;
+ * the frontage was never anything at all — a shop opened onto a lawn, and the
+ * only thing telling you which side was the front was which way the door faced.
+ *
+ * Three claims, and the third is the one that makes it worth seeding rather
+ * than leaving to the palette:
+ *
+ * - **The seed may only lay ground the player could lay.** `canPaintGround`
+ *   refuses the border ring, so the road is the bottom *paintable* row rather
+ *   than the map edge. A street you can only delete three quarters of is worse
+ *   than no street, because it looks like it worked — the lesson the first
+ *   version of the yard cost.
+ * - **It is ground, so it is yours.** Move it, widen it, tear it out, pave the
+ *   whole forecourt. Nothing here is a rule; the road prefers itself to the
+ *   grass and the pavement does the same for feet, and both of those are
+ *   preferences the player can re-point somewhere else.
+ * - **No car park.** Deliberately, and not for tidiness: `parkReach` feeds
+ *   `catchment`, so a seeded pad would change what a new shop earns on day one
+ *   and every balance number taken before today would be measuring a different
+ *   game. The road is the invitation; where the cars stop is the player's
+ *   decision, and it is the one this whole feature is for.
+ *
+ * Offered as cells, never placed — see `freezeYard`, which is the one caller and
+ * the thing that guarantees it happens once. An existing shop has that mark set
+ * already, which is exactly why no save grows a road overnight.
+ */
+export function defaultStreet(L) {
+  const out = [];
+  const lay = (x, z, kind) => {
+    if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return;
+    if (L.tiles[z * L.w + x] !== T.GRASS) return;
+    out.push({ x, z, k: kind, p: null });
+  };
+
+  // The bottom paintable rows, all the way across: the road, then the pavement
+  // between it and the shop. `ROAD_THICK` rather than a 2 written here, because
+  // the brush lays that many and a seeded road narrower than a drawn one would
+  // be the world shipping something the player cannot reproduce — the yard's
+  // rule about laying only what the player could lay, said about width.
+  const walkZ = L.h - 2 - ROAD_THICK;
+  for (let x = 1; x < L.w - 1; x++) {
+    for (let d = 0; d < ROAD_THICK; d++) lay(x, L.h - 2 - d, 'road');
+    lay(x, walkZ, 'path');
+  }
+
+  // ...and the walk up to the door, which meets the strip the generator lays
+  // out of the doorway. Two cells wide, because the doorway is.
+  for (let z = L.door.z + 1; z < walkZ; z++) {
+    lay(L.door.x, z, 'path');
+    lay(L.door.x + 1, z, 'path');
+  }
   return out;
 }
 

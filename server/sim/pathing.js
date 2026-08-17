@@ -13,8 +13,41 @@
 
 import { isWalkable } from '../layout.js';
 import { SOLID, edgeBetween } from '../../shared/edges.js';
+import { T } from '../../shared/tiles.js';
 
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+/**
+ * What one step costs, and the whole of "people use the pavement if there is
+ * one".
+ *
+ * The road's design said about feet, and the two numbers are the same bargain:
+ * a pavement is never *cheaper* than an ordinary step, everything else outdoors
+ * is dearer. That direction is not a style choice — `h` below is Manhattan
+ * distance, which is only admissible while no step costs less than 1, and a
+ * discount on pavement would quietly turn A* into something that returns a
+ * route rather than the shortest one.
+ *
+ * **The penalty is outdoors only**, and that is the half worth keeping. Nothing
+ * indoors is ever a pavement, so a uniform surcharge in a shop would change
+ * every gScore, leave every ordering identical, and cost real time — a weaker
+ * heuristic expands more nodes, and in-shop pathing is the hot loop in this
+ * game. Indoors every step is 1 and the search is bit-identical to the one that
+ * was here before. The sentence it comes to is also the true one: *inside a
+ * shop, the floor is the path.*
+ *
+ * 1.25 is a quarter further round, which is far enough to take a pavement laid
+ * roughly the right way and near enough that nobody walks the long way round the
+ * building to use one. It is not a speed: what a step costs the SEARCH and what
+ * it costs the walker are different questions, and nobody moves faster on paving.
+ */
+const PAVED = 1;
+const ROUGH = 1.25;
+const stepCost = (layout, x, z) => {
+  const i = z * layout.w + x;
+  if (layout.indoor?.[i]) return PAVED;
+  return layout.tiles[i] === T.PATH ? PAVED : ROUGH;
+};
 
 /**
  * @returns {Array<{x:number,z:number}>|null} tile path excluding the start
@@ -77,7 +110,9 @@ export function findPath(grid, layout, start, goal, { maxNodes = 4000 } = {}) {
       if (SOLID.has(edgeBetween(layout, cx, cz, nx, nz))) continue;
 
       const nk = key(nx, nz);
-      const tentative = cg + 1;
+      // Charged on the cell you step ONTO, so the pavement you are walking
+      // along is what is being paid for rather than the one you left.
+      const tentative = cg + stepCost(layout, nx, nz);
       if (tentative < (gScore.get(nk) ?? Infinity)) {
         gScore.set(nk, tentative);
         cameFrom.set(nk, current);

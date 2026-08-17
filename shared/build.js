@@ -178,6 +178,57 @@ export const GROUND = {
     does: 'shoppers who drive here leave the car, and how big you paint it is how many of them can',
     lastGone: 'that is your last parking space — nobody would be able to drive to the shop',
   },
+  /**
+   * The road — the fifth ground kind and the second that is only a *look*.
+   *
+   * `floor` is the other one, and the pair is the whole taxonomy: the four pads
+   * between them carry a job (`pad: true`, and a `does` sentence saying what),
+   * and these two carry nothing but a surface. That is why this row is four
+   * fields and a bay is six.
+   *
+   * **It is a preference, never a requirement**, and everything else about it
+   * follows from that. `DRIVABLE` in `server/layout.js` has included `GRASS`
+   * since the van first drove — every outdoor cell in the game is already a
+   * road — so what a painted one changes is which lane the finder *chooses*,
+   * by weighing a road cell cheaper than the grass beside it. Pointed the other
+   * way, as ground a vehicle must have, it would be a brush that breaks every
+   * shop in the world on the re-flow after it ships: no road, no lane, no van.
+   *
+   * It is also the reason the ring stopped being a technicality. One lorry for
+   * six seconds a run could drive over a lawn and nobody minded — that is the
+   * argument step 3 of docs/deliveries.md used to turn this down. A dozen
+   * shoppers' cars using the same stretch is the busiest ground on the map, and
+   * the thing you notice is that it is grass.
+   */
+  road: {
+    label: 'Road',
+    tile: T.ROAD,
+  },
+  /**
+   * The pavement — the road's pedestrian twin, and the one ground kind that was
+   * already in the game before it had a row.
+   *
+   * `T.PATH` is the strip the generator lays from the door out to the fields.
+   * It has been a tile since long before ground was paintable, so it was
+   * hardcoded scenery in exactly the way the delivery bay and the drop-off were
+   * before step 13 of docs/building.md — a thing you could see, could not move,
+   * and could not have more of. Giving it a kind is the same promotion, and it
+   * costs one row: no new enum, no new colour, no renderer change. The generated
+   * strip becomes ground you could have painted, which is the yard's rule the
+   * other way round.
+   *
+   * It does the same job for people that a road does for vehicles — `findPath`
+   * charges a step across anything else outdoors slightly more — and the two are
+   * deliberately the same shape, down to the preference never being cheaper than
+   * an ordinary step. What makes it *not* simply the road is that both are true
+   * of it at once: `T.PATH` is in `DRIVABLE` and always has been, so a design of
+   * this kind painted across a road is a **crossing** — the place the pavement
+   * and the lane are the same cell — and that is content rather than a kind.
+   */
+  path: {
+    label: 'Pavement',
+    tile: T.PATH,
+  },
 };
 
 export const FLOOR_KIND = 'floor';
@@ -853,6 +904,22 @@ function whatThisUnroofs(L, probe) {
 export const GROUND_STROKE_MAX = 16;
 
 /**
+ * How thick a lane the road brush lays, whatever you dragged.
+ *
+ * A car is 1.21 tiles wide — see the `vehicles` rows — so a one-cell lane is
+ * one a car hangs off both edges of. That is a scale fact rather than a taste,
+ * and the brush is where it belongs: a road you can draw too narrow for the
+ * things that drive on it is a brush that lets you make a mistake with no way
+ * to see you have made it, because the lane finder is perfectly happy with one
+ * cell and the ghost is green either way.
+ *
+ * It is a FLOOR on the thickness rather than a fixed size — drag a wide
+ * rectangle and you get what you dragged. One drag is one road; four drags is
+ * a car park you should have painted with the car park brush.
+ */
+export const ROAD_THICK = 2;
+
+/**
  * The cells a drag from `start` to `to` would paint.
  *
  * Clamped around `start` rather than around the lower corner, which is the one
@@ -860,8 +927,18 @@ export const GROUND_STROKE_MAX = 16;
  * divergence: clamping a rect by its minimum trims the corner you began the
  * drag on, so an oversized stroke up and to the left walks away from your
  * finger instead of stopping under it.
+ *
+ * `thick` widens a stroke that came out thinner than that, which is the road
+ * brush and nothing else. **Which way it widens has to be decided here**, in
+ * the one function both the ghost and the server run: the client sends the two
+ * ends of the drag and never the cells (the 4KB inbound cap), so a rule the
+ * preview applied and the server did not would be a green ghost promising a
+ * road the shop then refuses. It grows towards the higher coordinate, and away
+ * from it when that would run off the map — which is not a nicety, it is the
+ * seeded street: that sits in the bottom paintable row, so a road brush that
+ * only ever grew downward could never redraw the one the world starts with.
  */
-export function groundStroke(start, to, max = GROUND_STROKE_MAX) {
+export function groundStroke(start, to, max = GROUND_STROKE_MAX, thick = 1, L = null) {
   const x0 = Math.round(start.x);
   const z0 = Math.round(start.z);
   const near = (from, end) => (end > from
@@ -869,12 +946,38 @@ export function groundStroke(start, to, max = GROUND_STROKE_MAX) {
     : Math.max(end, from - max + 1));
   const x1 = to == null ? x0 : near(x0, Math.round(to.x));
   const z1 = to == null ? z0 : near(z0, Math.round(to.z));
+
+  let ax = Math.min(x0, x1);
+  let bx = Math.max(x0, x1);
+  let az = Math.min(z0, z1);
+  let bz = Math.max(z0, z1);
+
+  if (thick > 1) {
+    // The thin axis is the one that gets widened, and a stroke thin both ways —
+    // a single tap — is widened across rather than along, so a tap lays a stub
+    // of road pointing the way a road points.
+    const wide = bx - ax + 1;
+    const deep = bz - az + 1;
+    const grow = (a, b, limit) => {
+      const room = Math.min(thick - (b - a + 1), max - (b - a + 1));
+      if (room <= 0) return [a, b];
+      // Down/right unless that leaves the world, in which case up/left.
+      if (limit == null || b + room <= limit) return [a, b + room];
+      return [Math.max(1, a - room), b];
+    };
+    if (deep <= wide && deep < thick) [az, bz] = grow(az, bz, L ? L.h - 2 : null);
+    else if (wide < thick) [ax, bx] = grow(ax, bx, L ? L.w - 2 : null);
+  }
+
   const out = [];
-  for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) {
-    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) out.push({ x, z });
+  for (let z = az; z <= bz; z++) {
+    for (let x = ax; x <= bx; x++) out.push({ x, z });
   }
   return out;
 }
+
+/** How thick a stroke of this kind comes out, whatever was dragged. */
+export const strokeThick = (kind) => (kind === 'road' ? ROAD_THICK : 1);
 
 /**
  * Which design of ground is painted on each cell, as a lookup.
@@ -1024,7 +1127,10 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
 
 const groundIsBusy = (ground) => {
   if (ground === T.PLOT) return 'there is a bed there — clear it first';
-  if (ground === T.PATH) return 'that is the path out to the fields';
+  // T.PATH used to be refused here — "that is the path out to the fields" — and
+  // that line retired with `GROUND.path`. It is a kind now, so `was` answers for
+  // it above and this is never reached with one: the strip the generator lays is
+  // ground you could have painted, and therefore ground you may paint over.
   return 'you can only lay ground over bare grass';
 };
 

@@ -55,8 +55,11 @@ function rulesFor(kind) {
     // right up until there is a third one and it describes it as the second.
     return g.pad
       ? `Ground. Painted over an area, blocks nobody, and carries a **job**: ${g.does}.`
+      // ...and the same trap one step along: this said "two FLOORS", which was
+      // the whole of look-ground until a road turned up and got described as a
+      // floor. Two designs of whatever this kind is.
       : 'Ground. Painted over an area, blocks nobody, and is purely a **look** — '
-        + 'two floors of different colours leave byte-identical tiles.';
+        + `two designs of ${g.label.toLowerCase()} leave byte-identical tiles.`;
   }
   const f = FIXTURES[kind];
   if (!f) return 'Unknown kind — nothing in the game knows how to treat this.';

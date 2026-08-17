@@ -7,23 +7,23 @@
  * once. So the shape moved here and the two callers describe their contents
  * rather than drawing them.
  *
- * Five tiers and only TWO rows, because the first three share one and the last
- * is not in the bar at all:
+ * Four tiers and only TWO rows, because the first two share one and the last is
+ * not in the bar at all:
  *
  *   groups   what sort of thing        — tabs
  *   subs     which part of that        — quieter chips beside them, when a tab has any
- *   caption  what one entry is called  — the far end of that same row
  *   items    that tab's entries        — scrolls sideways, 1–9 reach the first nine
  *   choice   a choice about the picked entry — a card floating over its tile
  *
- * The caption is where a build entry's NAME lives, because the tiles stopped
- * carrying it: a strip of pictures is a row of *things*, and a name is long,
- * ragged and only ever a question about the one under the pointer or the one you
- * have armed. Its price stayed on it — that is four characters and it is the
- * comparison you are actually making. So this file answers hover directly
- * (`setCaption` on `mouseenter`, back to the resting caption on the way out)
- * rather than calling back: a caller that had to re-render the whole bar to name
- * a button would repaint it on every pixel of mouse movement.
+ * There was a fifth, a CAPTION at the far end of the tab row, which named
+ * whatever was under the pointer and fell back to whatever was armed. It was
+ * built when a hover explanation in this game was a native `title` — grey, a
+ * second late, and wherever the pointer happened to be, which on a 40px tile in
+ * a row of eight is nowhere near the thing it is about. `tip.js` answers that
+ * question properly now, at the tile, so the caption was the same answer given
+ * twice in a worse place: a name that had to be cut short to fit a fixed slot,
+ * appearing at the opposite end of the bar from the thing you were pointing at.
+ * It is gone rather than restyled — see CLAUDE.md on removing UI.
  *
  * A caller supplies data and callbacks and never touches the DOM, which is what
  * lets the number keys, the tab cycling, the scroll-the-selection-into-view and
@@ -39,7 +39,6 @@
  *   group   = { id, name, icon, blurb, items: [item], subs?: [group] }
  *   item    = { id, icon, art, name, note, badge, title, warn, last }
  *   choice  = { options: [{ id, name, art }], picked, open, onPick } | null
- *   caption = string | null
  *
  * `art` is a picture of the thing itself where one can be drawn (see
  * `client/thumb.js`) and `icon` the glyph to fall back on. Two fields rather
@@ -83,7 +82,7 @@ export const groupAt = (groups, id) => groups.find((g) => g.id === id) ?? groups
  * choice that resolved to something other than what it asked for.
  */
 export function renderBar(el, {
-  groups, at, atSub, picked, choice, caption, onTab, onSubTab, onPick, onShapes,
+  groups, at, atSub, picked, choice, onTab, onSubTab, onPick, onShapes,
 }) {
   const open = groupAt(groups, at);
   const subs = open?.subs ?? null;
@@ -101,11 +100,6 @@ export function renderBar(el, {
     </button>`).join('');
 
   renderSubTabs(el.subs, subs, sub?.id);
-  // What the caption says when nothing is under the pointer. A caller passing
-  // none gets an empty slot rather than a missing one — it is reserved space, so
-  // that it cannot move anything by filling and emptying.
-  const resting = caption ?? null;
-  setCaption(el.caption, resting);
 
   el.items.innerHTML = items.map((it, i) => `
     <button class="tool${it.id === picked ? ' on' : ''}${it.warn ? ' warn' : ''}"
@@ -169,12 +163,7 @@ export function renderBar(el, {
       if (it.shapes && onShapes && e.target.closest('[data-more]')) return onShapes(it);
       return onPick(it);
     };
-    // Pointing at a tile names it, and leaving the strip hands the caption back
-    // to whatever is armed. `mouseenter` on each button rather than `mouseover`
-    // on the strip, because the gaps between tiles are the strip.
-    b.onmouseenter = () => setCaption(el.caption, it.name);
   });
-  if (el.items) el.items.onmouseleave = () => setCaption(el.caption, resting);
   // Over the tile it belongs to, and only once it is drawn and has a width.
   placeChoice(el.choice, el.items.querySelector('.tool.on'));
 
@@ -202,20 +191,6 @@ function renderSubTabs(el, subs, at) {
       data-tip-wait title="${esc(s.blurb ?? s.name)}">
       <span class="ico">${s.icon}</span><span class="nm">${esc(s.name)}</span>
     </button>`).join('');
-}
-
-/**
- * Name one entry, in the slot at the end of the tab row.
- *
- * Written in place rather than through a re-render: this changes on every
- * mouseenter, and repainting three tiers of buttons to relabel one of them would
- * also blow away the sideways scroll position the pointer is sitting in.
- */
-function setCaption(el, text) {
-  if (!el) return;
-  el.textContent = text ?? '';
-  // The whole thing, for a name the slot had to cut short.
-  el.title = text ?? '';
 }
 
 /**

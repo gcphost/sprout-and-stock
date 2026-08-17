@@ -5263,6 +5263,34 @@
     "work": null
   },
   {
+    "id": "gravel-track",
+    "name": "Gravel Track",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0
+      }
+    ],
+    "variants": [],
+    "kind": "road",
+    "cost": 2,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9a9184",
+      "accent": "#867e72",
+      "pattern": "checker"
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null
+  },
+  {
     "id": "lamp-post",
     "name": "Lamp Post",
     "model": {
@@ -6861,6 +6889,34 @@
       "lamp"
     ],
     "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null
+  },
+  {
+    "id": "paving-path",
+    "name": "Pavement",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0
+      }
+    ],
+    "variants": [],
+    "kind": "path",
+    "cost": 3,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#d9cbb0",
+      "accent": "#c6b79a",
+      "pattern": "checker"
+    },
     "yields": null,
     "charm": 0,
     "work": null
@@ -14136,6 +14192,34 @@
     "work": null
   },
   {
+    "id": "tarmac-road",
+    "name": "Tarmac",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0
+      }
+    ],
+    "variants": [],
+    "kind": "road",
+    "cost": 4,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#5f646d",
+      "accent": "#565b63",
+      "pattern": "plain"
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null
+  },
+  {
     "id": "terracotta-planter",
     "name": "Terracotta Planter",
     "model": {
@@ -14409,6 +14493,34 @@
       "lamp"
     ],
     "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null
+  },
+  {
+    "id": "zebra-crossing",
+    "name": "Crossing",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0
+      }
+    ],
+    "variants": [],
+    "kind": "path",
+    "cost": 6,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#f2efe6",
+      "accent": "#5f646d",
+      "pattern": "stripes"
+    },
     "yields": null,
     "charm": 0,
     "work": null

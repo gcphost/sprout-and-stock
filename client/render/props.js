@@ -1028,6 +1028,12 @@ const MARKER_LOOK = {
   // a person occupies about a third of a tile and a tile-sized frame under one
   // in an aisle rings the shelf behind them as well.
   person: { color: 0xffd66b, half: 0.34, band: 0.07, chevron: true },
+  // One pile of goods on a unit that holds several. The same amber as the aim
+  // frame, because it is the same sentence — and with no chevron, which is the
+  // only thing separating the two: the arrow is drawn well clear of the box it
+  // belongs to, and on a shelf that is over the *unit*, which is precisely the
+  // answer a board marker is not giving. Nothing else about a cage cares.
+  board: { color: 0xffd66b, chevron: false },
 };
 
 /**

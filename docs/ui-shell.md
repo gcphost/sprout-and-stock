@@ -121,14 +121,14 @@ calls back; it knows nothing about fixtures or people. A caller supplies
 group   = { id, name, icon, blurb, items: [item], subs?: [group] }
 item    = { id, icon, art, name, note, badge, title, warn, last }
 choice  = { options: [{ id, name, art }], picked, open, onPick } | null
-caption = string | null
 ```
 
-`caption` is the *resting* one — what the slot says with nothing under the
-pointer. Hover is answered inside `bar.js` rather than through a callback: it
-fires on every mouseenter, and a caller that had to re-render the bar to relabel
-one button would repaint three tiers of markup per pixel of mouse travel, and
-throw away the sideways scroll position the pointer is sitting in.
+There was a fifth field, `caption` — a fixed slot at the far end of the tab row
+naming whatever was under the pointer, falling back to whatever was armed. It
+was written when a hover explanation in this game was a native `title`, and
+`tip.js` retired the reason for it: the name now appears **at the tile**, which
+is where the question was asked. A caption is the same answer given at the other
+end of the bar, cut short to fit.
 
 and gets the behaviour for free. `pinLast` is how Demolish and Hire stay at the
 end of every tab they appear on — a stable sort, because without it a pinned
@@ -142,13 +142,12 @@ there are, so a tenth fixture had nowhere to go but the panel. The bar has tiers
 now and it scrolls, so it *is* the catalogue and the panel copy is gone.
 
 Five tiers, all in `#build-bar` — but **three rows**, because the first three
-share one (`#build-nav`). Two of the five come and go:
+share one (`#build-nav`). Two of the four come and go:
 
 | Tier | Element | Build | Roster |
 |---|---|---|---|
 | Category | `#build-groups` | `BUILD_GROUPS` — Shop, Farm, Appliances, Building, Decoration | Everyone, then one per kind actually hired |
-| Part | `#build-subs` | a split group's `subs` — Building is Walls, Floors, Yard, Staff, Customers; Decoration is Greenery, Lighting, Signs, Odds and ends | unused |
-| Caption | `#build-caption` | the *name* of the entry under the pointer, or of the armed one. Not its price — that stays on the tile | unused |
+| Part | `#build-subs` | a split group's `subs` — Building is Walls, Floors, Roads, Yard, Staff, Customers; Decoration is Greenery, Lighting, Signs, Odds and ends | unused |
 | Entries | `#build-tools` | palette entries. `1`–`9` reach the first nine | one per hire, note = what they are doing now |
 | Choice | `#build-shapes` | `variantsOf` the piece — a card floating over the tile, not a row. Asked for | unused |
 
@@ -175,10 +174,9 @@ name and its price permanently: three lines, 78px tall, ~100px wide, eight on
 screen, and it read as a wall of small text rather than as a row of things. The
 art is already the label — `thumb.js` draws the actual piece, which is the whole
 reason five floors stopped being five grey glyphs — and a name is long, ragged,
-and only ever a question about *one* entry. So a name lives in the caption, fed
-by `mouseenter` and falling back to whatever is armed. At 48px about eighteen
-tiles fit where eight did, which is the half of this that matters as the
-catalogue grows.
+and only ever a question about *one* entry — which is a tooltip, and `tip.js`
+puts it at the tile. At 48px about eighteen tiles fit where eight did, which is
+the half of this that matters as the catalogue grows.
 
 **The price did not come off them**, and that is the line between the two. It is
 four characters of right-aligned arithmetic, and $40 against $110 across a row of
@@ -193,9 +191,7 @@ the tile under your pointer sideways. You cannot aim at something that moved
 because you looked at something else. Fixed at `min(760px, 100vw - 28px)`: the
 tabs are always in the same place, the tiles always start at the same edge, and a
 short tab has room to its right — which is what a strip that scrolls looks like
-when it doesn't need to. The caption is a fixed-width slot for the same reason
-one step down; it changes on every mouseenter, and one that hugged its text would
-shunt the sub-tabs about as the pointer crossed the strip.
+when it doesn't need to.
 
 Everything above the bar is `calc()` off `--build-h`, which is *measured*
 (`measureBar`), so none of this needed a second number kept in step.
@@ -620,11 +616,15 @@ is never the thing you want. `readyToTake` in `main.js` is the test: it reads
 the fruit and the thought bubble from, so the tap cannot disagree with the
 picture it is aimed at.
 
-Shelves stay out of it on purpose. Their stock is merchandise rather than
-something waiting to be collected, one board of one shelf is a choice that has
-to be named (see *Picking things up is asked for*), and swallowing the tap would
-put pricing, assignment and priority behind a gesture that currently does
-nothing. The rule does cost a ripe bed its menu for as long as it is ripe, since
+Shelves stay out of it as *units*, and their goods do not. Stock is merchandise
+rather than something waiting to be collected, and one board of one shelf is a
+choice that has to be named — which for four steps meant that naming it was the
+shelf menu's job and the tap on a shelf stayed a question. The pointer can name a
+board now (see *Picking things up is asked for*), so the split runs through the
+unit rather than around it: a tap on a **pile** goes and gets that pile, and a tap
+on the **unit** — any pixel of it that is not stock — still opens it, which is
+what keeps pricing, assignment and priority one press away instead of behind a
+gesture that does nothing. The rule does cost a ripe bed its menu for as long as it is ripe, since
 there is no second gesture to move it to: build mode is the way back in, and
 `sow` refuses a ripe bed regardless, so what ends up behind the mode is move,
 sell and restyle — the three things you do to a bed you are not farming.
@@ -677,12 +677,77 @@ build verb started naming its target. And the cost of getting it wrong is
 asymmetric: a pickup you did not ask for fills your hands, and full hands
 refuse every other action in the game until you walk to the drop-off.
 
-So there are two ways to say which, and one verb behind both:
+So there are three ways to say which, and one verb behind all of them:
 
 | you point at | you press | it sends |
 |---|---|---|
 | a crate in the yard | the crate itself | `take { palletId }` |
+| one pile of goods on a shelf or freezer | the pile itself | `take { shelfId, itemId }` |
 | one board of a shelf or freezer | its Take button, beside the count | `take { shelfId, itemId }` |
+
+**A crate on its own and a crate in a pile are two different things**, and only
+one of them has contents you can reach. Alone: tap for one unit, hold for the
+whole box, right-click to put one back. In a pile: whole boxes only
+(`crateStacked`). *Which* box is still yours to choose — `pickPallet` picks them
+apart by height and the ring marks the one the ray met, and `liftCrate` no longer
+refuses a buried one, because the boxes above it just settle a step and the crate
+you pointed at was the only crate you meant. What a pile takes away is the tin at
+a time: a buried crate shows a band of about a dozen pixels, so a rummage up
+there was always somebody else's tin.
+
+This replaced a list. The pile used to open as a menu — a row per crate, "on top"
+/ "under 2", pick one and walk — and it was answering, at length, a question the
+pointer answers by itself; worse, the tap *underneath* the menu was still the
+rummage, so pressing a tower of boxes you were standing at took one tin out of
+it. Deleted rather than reworked: the aim was always the better instrument, it
+only needed the rummage to get out of its way.
+
+**The middle row came last, and it is the one that made the other two agree.**
+A crate has been pointable since crates existed; a board was reachable only
+through a list, so getting an armful off a shelf was four inputs — open the unit,
+find the row, walk, press and hold — three of which were ceremony around a
+decision already made by looking at the shelf. What was actually missing was not a
+verb but an *address*: `pickFixtureHit` answered "which fixture", and a fixture id
+cannot say which of three piles standing on it you meant.
+
+It says both now. `syncShelves` already builds one welded group per kind — that is
+how a unit draws three things on its own boards — so each group carries the item
+id it is drawing, and the walk up to the pickable group notes it on the way past.
+The pile is the target the ray actually hit, which is what makes the marker
+honest: a cage measured off those same meshes (`boardBox`), not a frame on the
+tile, because a frame under the unit is the same frame for every pile on it and
+the question here is *which pile*.
+
+Everything else about the gesture is the crate's, deliberately. The press names it
+on the way **down**, which is what makes a board you are already standing at one
+continuous gesture — press the bread, keep holding, the ring winds on the cage and
+the armful lands. Named on release, the errand would arm the charge under a button
+that had just come up, so the press would appear to do nothing until you pressed
+again. The release then sends the same thing once more, which matters only for a
+board across the shop and costs nothing to repeat.
+
+**In reach only, on the press** — which a crate does not have to ask and a shelf
+does. A crate is a small thing standing in a yard; a shelf is most of a wall, and
+a mouse turns the view by dragging, so naming a board across the shop on the way
+down means every camera drag that happened to start on shelving sends you walking
+to it. Naming early buys nothing at that distance anyway: the ring cannot wind
+until you arrive, and by then the button is long since up. The release still names
+a board you have to walk to.
+
+`boardTakes` in `main.js` is the list of states where pointing at a pile means
+something else: the palette is up (a tap places, and a tap on a unit opens it),
+the bulldozer is armed (you are aiming at things to destroy them), you are
+carrying a fixture, or your hands are full of stock — where a shelf is somewhere
+to PUT things, and the unit wins the whole gesture rather than a corner of it
+deciding. Hover, press and tap all ask that one function, or the highlight would
+advertise something the press then did differently.
+
+The Take row stays, and not as a duplicate: the row is also the count, the price
+and the order button, and it is the only way to reach a board with **nothing drawn
+on it** — a unit reserved for carrots that is waiting on the van is a row with an
+empty board behind it, and there is no pile there to point at. Taking is the one
+thing on that row the pointer now does better, because a pile of goods is a
+picture of the thing you meant.
 
 `Game.take` sets `p.errand` — a target and nothing else, no timer — and walks
 you to it. `errandAction` arms the ordinary charge once you are in reach, so a
@@ -719,6 +784,77 @@ The general rule is the one the old latch already stated, and it survives the
 scheme that was supposed to remove the need for it: **two actions that undo each
 other and both arm by themselves will ping-pong, and making one of them explicit
 is not enough — what matters is the state the first one leaves you in.**
+
+### Putting them down is asked for too
+
+The mirror of the table above, and for four steps it had one row fewer than it
+should have. `stow` was the only way to let go of an armful and it insisted on
+the drop-off, so picking anything up was a *commitment*: your hands stayed full
+until you had walked them across the shop, and there was no such thing as
+changing your mind halfway down an aisle.
+
+| you are holding | you point at | it becomes |
+|---|---|---|
+| an armful | a shelf that will take it | `stock` |
+| an armful | the drop-off | `stow` — crates fill the cells you painted |
+| an armful | any bare tile | `dropCarry` — a crate on that tile |
+| a crate | any bare tile | `dropCrate` — same crate, back on the floor |
+
+...and the *pointing* is `placeAt` for the last two: hold a square in reach and it
+lands there. Tapping that same square still walks you to it.
+
+The last two are one errand (`{ at: 'ground', x, z }`) and differ only in which
+pair of hands they empty and how long the ring takes. Nothing about six loaves
+needed painted ground: `dropGoods` has always been able to stand a crate on any
+tile — it is what a stripped shelf and an emptied hopper do — and a pallet is the
+only "goods on the floor" object there is, so the thing you put down is
+immediately something a stocker will come and tidy.
+
+**The pad still wins when you name a tile on it**, which is the opposite priority
+to a hauled crate and deliberate: `stow` hands `dropGoods` the pad as a *region*,
+so crates spread across the cells you painted, where a tile drop knows only its
+own tile. On the pad the tidier answer is available; everywhere else there was no
+answer at all.
+
+`dropCarry` is its own verb rather than a branch inside `dropCrate`, for the same
+reason `haul` is its own field rather than a flag on `carry`: everything that
+accounts for hands has to go on asking about hands, and one function reading the
+wrong one of the two is a conservation hole — the goods on the floor *and* still
+in your arms — rather than a bug anybody can see.
+
+**A square is two sentences, and the gesture picks which.** "Over there" and
+"down there" are both true of the tile beside you while your hands are full, and
+this took two goes to get right. Routing first cost the aim: `walk-to` ends *on*
+the tile you named, so the crate went down under your feet however carefully you
+had pointed at the square next to you. Refusing to route inside `UNLOAD_REACH`
+fixed the aim and cost you the step — with full hands, no nearby tile was
+somewhere to stand any more, so you could not move a single square holding a box.
+
+So they are split by gesture, which is the split the whole shop floor already runs
+on: **a tap goes, a hold does**. `walkTo` is untouched and still walks you
+anywhere. `placeAt` is the new verb — it names a square as somewhere to put things
+*without going to it*, refuses out of reach rather than quietly widening, and turns
+you to face the square. The press arms it, so the ring winds on the square you are
+pointing at; the release, if it comes early, is an ordinary tap and you walk.
+
+That choice is real and would be invisible, so it is drawn: `canDropAt` +
+`setFloorGhost` paint the square under the pointer green, or red if it will not
+take a crate. Both clauses are the server's own tests through the shared
+functions — `isWalkableTile` (the grid `isWalkable` reads) and `edgeBetween` for
+the wall on the line a tile test cannot see — because a green square the server
+refuses is worse than no square. A square that already holds a crate stays green:
+`dropGoods` tops up a box of the same thing and stacks anything else, and a pile
+is a thing you can peel.
+
+**Both ends of it are named on the press, in reach.** A hold with nothing armed
+is a dead gesture: the ring has nothing to wind, so pressing the square you want
+the box on would do nothing until you had tapped it once and pressed again.
+So a press on a tile you can already reach sends the nought-step `walk-to` that
+names it (`Game.walkTo` reads your hands and writes the errand), and the hold
+that follows spends it — one continuous gesture, the same shape a crate has had
+since the press started naming crates on the way down. Reach is the gate for
+both, because a mouse turns the view by dragging and a drag that started on the
+floor across the shop would be a walk nobody asked for.
 
 ### Looking without going
 

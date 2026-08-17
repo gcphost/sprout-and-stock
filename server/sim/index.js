@@ -16,7 +16,7 @@ import { content, world as loadWorld, saveWorld, freshEconomy } from '../content
 import { JOBS } from '../../shared/schemas.js';
 import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '../db.js';
 import {
-  generateLayout, defaultPads, defaultAwning, buildWalkGrid, isWalkable, T,
+  generateLayout, defaultPads, defaultStreet, defaultAwning, buildWalkGrid, isWalkable, carLanes, T,
 } from '../layout.js';
 import { E, SOLID, edgeBetween } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
@@ -32,7 +32,7 @@ import { stepStaff, syncStaff, breakProgress, carryOf } from './staff.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
-  canPaintGround, groundStroke, groundIndex, GROUND_STROKE_MAX,
+  canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt,
 } from '../../shared/build.js';
 import {
@@ -120,6 +120,35 @@ const UNLOAD_SECONDS = 2.5;
  */
 const VAN_SPEED = 3;
 
+/**
+ * ...and the same floor for a shopper's car, which is a different number
+ * because it is a different thing. A car is quicker than a lorry, and it is the
+ * quicker one that spends the least time being a box sliding across your lawn.
+ *
+ * Both are only reached by a row with no `speed`, which the seeded pair have.
+ */
+const CAR_SPEED = 4;
+
+/**
+ * Is this shopper still in their car — driving in, or driving out?
+ *
+ * The one predicate step 5 of docs/deliveries.md added, and it exists because
+ * **a shopper who has not arrived is not a customer yet**. Four loops walk
+ * `this.customers` and every one of them meant "people in my shop" while the
+ * only way to be in that object was to be standing in the shop: the crush
+ * everybody is fed up with, the crush an arrival balks at, the shop's average
+ * mood, and — the one that costs money — the patience budget, which would
+ * otherwise start draining at the edge of the map. The further away somebody
+ * parked, the crosser they would arrive, and it would present as shoppers
+ * storming out of a shop that had done nothing to them.
+ *
+ * Deliberately not folded in with `ENTER`, which is a person on foot who really
+ * has arrived and is walking to the door. The three readers disagree about
+ * `ENTER` and `LEAVE` — occupancy counts a leaver and mood does not — and they
+ * agree about this, which is why it is one word rather than a fourth list.
+ */
+const inACar = (cu) => cu.state === 'DRIVE' || cu.state === 'DEPART';
+
 /** Half a body's width, for stopping short of a thin wall rather than in it. */
 const PLAYER_RADIUS = 0.34;
 
@@ -201,13 +230,14 @@ const CHARM_HALF = 10;
  * `BASE_CATCHMENT` and half of `CHARM_MAX`: parking widens the town by less
  * than a shop worth crossing it for does, because it is one decision on ground
  * rather than everything you have ever placed. `PARK_HALF` is the e-folding
- * size in spaces, so six spaces is about two thirds of the ceiling and twelve
- * is about six sevenths of it — a small pad is most of what a big one is worth,
- * and nothing anybody paints is worth more than `PARK_MAX`.
+ * size in BAYS — halved from 6 when a bay stopped being one cell and became
+ * two, so that a pad of a given painted size is worth what it was worth before
+ * the cars were drawn to scale. That is deliberate and it is the whole of the
+ * re-tune: the geometry changed, the balance was not meant to.
  */
 const DRIVE_SHARE = 0.35;
 const PARK_MAX = 4;
-const PARK_HALF = 6;
+const PARK_HALF = 3;
 
 const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
 /**
@@ -251,7 +281,31 @@ const DEMAND_MEMORY = 0.55;
  * description of a 2x2 pad and a bad one of any other shape.
  */
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-const ACTION_TIME = 1.0;       // seconds of standing still before an action fires
+/**
+ * Seconds of standing still before an action fires — the default, and what
+ * every job that moves goods by hand costs: an armful off a board, an armful
+ * out of a crate, stocking, collecting a tray, picking a bed.
+ *
+ * It was a flat second, and a second is what it had to be while the duration was
+ * the whole defence against a walk-past: `REACH` takes about three quarters of
+ * one to cross, so anything shorter fired on people going somewhere else, and a
+ * pickup nobody asked for fills your hands and then refuses you everything.
+ *
+ * Neither half of that argument survives. `stepActions` drops the charge for
+ * anyone `moving`, so stopping is the consent and the clock is no longer
+ * defending anything; and every one of these jobs is *named* by pointing at the
+ * thing first, so the ring is confirming a sentence you have already finished
+ * rather than guessing at one. What is left for it to buy is the chance to
+ * change your mind by walking off, which half a second says as well as a whole
+ * one — and a full second of holding still for each of a dozen armfuls is the
+ * shop's most repeated gesture charging rent.
+ *
+ * The floor is the client's `LONG_PRESS_MS` (420ms): a press whose action lands
+ * *before* the gesture has been ruled a hold would have its release read as a
+ * tap as well, which re-sends the errand it just spent. Nothing held may be
+ * quicker than that, which is why the numbers below stop at 0.45.
+ */
+const ACTION_TIME = 0.5;
 /**
  * When a board is worth sending a van for, as a SHARE of what that board holds.
  *
@@ -424,10 +478,16 @@ const basketGoods = (lines) => {
  * How long each held action takes. Everything used to cost a flat second, which
  * made turning soil feel identical to picking a tomato up. Destructive things
  * are deliberately slower — a long ring is the confirmation dialog.
+ *
+ * The order between them is the part worth keeping: an armful is quicker than a
+ * box, a box is quicker than serving somebody, and turning a bed over is the
+ * slowest thing in the shop. Only the *scale* came down (see `ACTION_TIME`) —
+ * everything that moves goods by hand now sits between 0.45 and 0.65, because
+ * those are the actions you make dozens of in a row.
  */
 const ACTION_TIMES = {
   till: 1.7,
-  stow: 0.8,
+  stow: 0.45,
   /**
    * Picking a whole crate up, and setting it down again.
    *
@@ -438,9 +498,11 @@ const ACTION_TIMES = {
    * the same effort; the only thing that changes is which way up.
    *
    * Longer than `stow`, which is an armful going into a box you are stood over.
-   * A crate is the box.
+   * A crate is the box. Still the longest of the goods-handling holds now they
+   * have all come down, for the same reason it was: it is the heaviest thing a
+   * pair of hands in this game picks up, and the ring is the only weight it has.
    */
-  crate: 1.0,
+  crate: 0.65,
   // What one sale costs the person doing it, before the till's own speed. It
   // was the flat second by omission until a checkout had a ladder worth
   // climbing; naming it is what lets `serveSeconds` divide it.
@@ -1387,7 +1449,15 @@ export class Game {
         // trying each one. Only for a human: staff already know, and five
         // hires carrying five things would be recomputed ten times a second
         // for a marker nobody draws.
-        takers: !p.staff && p.carry ? this.stockTargets(p.carry.item_id) : null,
+        // `carry ?? haul`, because a crate on your shoulder is goods looking for
+        // a home exactly as much as an armful is. It read as "the only move is to
+        // put it down" for as long as a shelf could only be stocked out of hands
+        // — and what that produced was a box of tomatoes and no idea which of
+        // seventeen units wanted them, on the one occasion you are carrying the
+        // most stock. `stockShelf` takes from the shoulder now, so the chevrons
+        // are a promise it can keep.
+        takers: !p.staff && (p.carry ?? p.haul)
+          ? this.stockTargets((p.carry ?? p.haul).item_id) : null,
         // Which roster row this body belongs to, and which rung it is on. The
         // roster says who works here and this says what they are up to; without
         // a key the UI can only join them by reconstructing `staff-${id}`,
@@ -1428,7 +1498,12 @@ export class Game {
           }
           : null,
       })),
-      customers: Object.values(this.customers).map((c) => ({
+      // Everybody in the shop — which is not everybody in `this.customers`.
+      // Somebody driving in or out is inside the car the line below draws, and
+      // sending them too would put a shopper skating along the road with their
+      // arms out. `inACar` is the same predicate the crush and the patience
+      // budget ask; this is the one place it is about a picture.
+      customers: Object.values(this.customers).filter((c) => !inACar(c)).map((c) => ({
         id: c.id, x: r2(c.x), z: r2(c.z), facing: r2(c.facing),
         color: c.color, state: c.state,
         // What is in their arms, which after the till is what they PAID for —
@@ -2300,6 +2375,17 @@ export class Game {
       if (p.carry) {
         return { kind: 'stock', target: f.id, label: 'Stock', at, run: () => this.stockShelf(p.id, f.id) };
       }
+      // ...and a crate on the shoulder pours straight onto the board, which is
+      // the job the hires have had since hauling existed (`stockFromCrate`) and
+      // the player did not. Without it the only thing a box could do was be put
+      // back down: carrying twelve tomatoes to a shelf meant setting the crate
+      // on the floor, lifting six out of it, stocking, and picking the box up
+      // again — a dance the staff loop was deliberately written to avoid.
+      // Whatever will not fit stays on your shoulder, so the next board is the
+      // next tap.
+      if (p.haul) {
+        return { kind: 'stock', target: f.id, label: 'Stock', at, run: () => this.stockFromCrate(p.id, f.id) };
+      }
       return null;
     }
 
@@ -2378,14 +2464,27 @@ export class Game {
       };
     }
 
-    // A tile you named while holding a crate. The only errand whose address is
-    // a coordinate — the drop-off above is a *region* and a fixture has an id,
-    // and setting a crate down is neither: it is that tile and no other, which
-    // is what makes "hold on an empty square" mean somewhere rather than near
-    // somewhere.
+    // A tile you named while holding goods — a crate on your shoulder or an
+    // armful in your hands. The only errand whose address is a coordinate: the
+    // drop-off above is a *region* and a fixture has an id, and putting goods
+    // down on the floor is neither: it is that tile and no other, which is what
+    // makes "hold on an empty square" mean somewhere rather than near somewhere.
     if (e.at === 'ground') {
-      if (!p.haul) { p.errand = null; return null; }
+      // Hands empty of both, so whatever you named this tile for is done or
+      // gone: somebody unloaded the crate off your shoulder, a shelf took the
+      // armful. Nothing to put down is not a refusal.
+      if (!p.haul && !p.carry) { p.errand = null; return null; }
       if (Math.hypot(e.x - p.x, e.z - p.z) > UNLOAD_REACH) return null;
+      // A box, or an armful — same target, same verb, and the only differences
+      // are how long it takes and what the label says. Both end as a crate on
+      // that tile, because a crate is the only thing goods on the floor are.
+      if (!p.haul) {
+        return {
+          kind: 'setdown', target: 'ground', label: 'Put it down', time: ACTION_TIMES.stow,
+          at: { x: e.x, z: e.z },
+          run: () => spend(() => this.dropCarry(p.id, e.x, e.z)),
+        };
+      }
       return {
         kind: 'setdown', target: 'ground', label: 'Set it down', time: ACTION_TIMES.crate,
         at: { x: e.x, z: e.z },
@@ -2402,11 +2501,31 @@ export class Game {
       // honest one both ways round: you cannot shoulder a box while holding
       // tomatoes, and somebody already holding six of this walked over to top
       // up rather than to pick the box up.
-      // ...and only the one on top. Buried, it falls through to the armful,
-      // which is the one thing you CAN do to a crate under a stack — reach in
-      // and take some. Deciding here rather than refusing in `liftCrate` is
-      // what makes every row of the pile menu do something.
-      if (!p.carry && !p.haul && this.crateOnTop(crate)) {
+      // **A pile is boxes only**, and that is the rule the whole crate gesture
+      // now rests on. Reaching into a buried crate used to be the fallback here,
+      // on the argument that it is the one thing you can do to a box under a box
+      // — and in the hand it was the opposite: standing at a stack, the common
+      // thing you want is the box on top, and what you got was one unit out of
+      // whichever band of a dozen pixels the pointer happened to land on. A pile
+      // is now peeled rather than rummaged: take the top one off, and the one
+      // under it is a crate on its own.
+      if (this.crateStacked(crate)) {
+        // Whichever box you aimed at, whole — `liftCrate` no longer minds which
+        // one of the pile it is. Hands or shoulder already full is nothing to
+        // offer rather than a refusal: there is no armful to be had here, so
+        // there is nothing to say no to.
+        if (p.carry || p.haul) { p.errand = null; return null; }
+        return {
+          kind: 'lift', target: crate.id, label: 'Pick up crate', time: ACTION_TIMES.crate, at: crate,
+          run: () => spend(() => this.liftCrate(p.id, crate.id)),
+        };
+      }
+      // A crate standing on its own keeps both jobs, chosen by the state you are
+      // in rather than by a modifier nobody would find — and the choice is the
+      // honest one both ways round: you cannot shoulder a box while holding
+      // tomatoes, and somebody already holding six of this walked over to top up
+      // rather than to pick the box up.
+      if (!p.carry && !p.haul) {
         return {
           kind: 'lift', target: crate.id, label: 'Pick up crate', time: ACTION_TIMES.crate, at: crate,
           run: () => spend(() => this.liftCrate(p.id, crate.id)),
@@ -2442,9 +2561,16 @@ export class Game {
    * where the shop floor stops mattering because the goods come to you.
    *
    * Kept as its own verb even though `walkToFixture` now names an errand for
-   * anything you point at, because this is the one case that names a *board*:
-   * a shelf holding three things is three piles at one address, and only the
-   * menu can say which of them you meant.
+   * anything you point at, because this is the one case that names a *board*: a
+   * shelf holding three things is three piles at one address, and a fixture id
+   * cannot say which of them you meant.
+   *
+   * Two things say it now. The shelf's own menu, one row per board, which is the
+   * only thing that can name a board with no stock drawn on it yet; and the
+   * pointer, since the goods are drawn as themselves on the boards they are on —
+   * `pickFixtureHit` answers which pile the ray met and the tap sends it straight
+   * here. Same message either way, which is the point: the choice is made on the
+   * client, by whichever instrument is better placed to make it.
    */
   take(playerId, { palletId = null, shelfId = null, itemId = null } = {}) {
     const p = this.players[playerId];
@@ -2458,12 +2584,72 @@ export class Game {
     // Refused *before* the errand is set, so a shelf behind a wall you have not
     // put a door in yet leaves you where you stand with nothing pending, rather
     // than committed to a walk that never happens.
-    const spot = target.browseAt ?? target;
-    const walk = this.walkTo(playerId, spot.x, spot.z);
-    if (!walk.ok) return walk;
+    //
+    // A shelf says where it is worked from and a crate cannot: it is a box on the
+    // floor, not furniture, so it has no `browseAt` and routing to it routed you
+    // ON TO it — you stood inside the thing you had come to pick up, which reads
+    // as the walk having overshot. `beside` is the crate's answer to the same
+    // question `browseAt` answers for a shelf, and it is a list rather than a
+    // point because any of four sides will do and only some of them may be
+    // reachable — a crate against a wall, or one in the middle of a full bay.
+    const spots = palletId ? this.beside(p, target) : [target.browseAt ?? target];
+    let walk = null;
+    for (const s of spots) {
+      walk = this.walkTo(playerId, s.x, s.z);
+      if (walk.ok) break;
+    }
+    if (!walk?.ok) return walk ?? err('No way through to there');
 
     p.errand = { at: palletId ?? shelfId, itemId: palletId ? null : itemId };
     return ok({ walking: walk.steps });
+  }
+
+  /**
+   * Where to stand to work a crate — the tiles around it, nearest first.
+   *
+   * A crate does not block, so its own tile is walkable and A* was perfectly
+   * happy to end the route there. Standing on the box is not wrong by any rule
+   * in the sim (reach is satisfied, every verb works) and it looks like a
+   * mistake, which is the only test that matters for where a walk stops.
+   *
+   * Four sides, and which one is decided by where you already are, so the walk
+   * stops on the near side rather than crossing the pile to some canonical
+   * corner. Three things can rule a side out, and the middle one is the one that
+   * is easy to leave out and impossible to see missing:
+   *
+   * - **the ground.** `isWalkable` is the live walk grid rather than the tile
+   *   kind, which is both halves at once: the ground takes a person AND nothing
+   *   is standing on it. So a shelf, a till or the wall's own cell is out.
+   * - **the line between.** A wall lives on the *edge* between two tiles, so the
+   *   cells either side of one are both plain floor and a tile test says the side
+   *   is fine. The bay backs onto the shop wall, which is exactly where this
+   *   bites: `pathTo` would honour the wall and route you the long way round to a
+   *   cell that is next to the crate on the grid and on the far side of a wall
+   *   from it — where reach still passes, so you would pick a crate up through
+   *   the wall. Same test `canWalk` and `findPath` make (`edgeBetween`/`SOLID`),
+   *   because three opinions about one wall is two too many.
+   * - **another crate.** Arriving stood on a different box is the same picture
+   *   this function exists to stop.
+   *
+   * The crate's own tile stays on the end of the list, because a box walled into
+   * a corner of a full bay must still be reachable — a crate you cannot pick up
+   * is worse than one you stand on. Ordered rather than filtered so the caller
+   * can walk the list: whether a side can be *got to* is `pathTo`'s answer, and
+   * asking it here would be a second pathfinder.
+   */
+  beside(p, crate) {
+    const cx = Math.round(crate.x);
+    const cz = Math.round(crate.z);
+    const occupied = (x, z) => this.deliveries.some((d) => d.id !== crate.id
+      && Math.round(d.x) === x && Math.round(d.z) === z);
+    const out = NEIGHBOURS
+      .map(([dx, dz]) => ({ x: cx + dx, z: cz + dz }))
+      .filter((s) => isWalkable(this.walk, this.layout, s.x, s.z)
+        && !SOLID.has(edgeBetween(this.layout, cx, cz, s.x, s.z))
+        && !occupied(s.x, s.z))
+      .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+    out.push({ x: cx, z: cz });
+    return out;
   }
 
   /** Would this shelf take that item right now? */
@@ -3226,6 +3412,7 @@ export class Game {
     // `take` sets its errand *after* calling this, so it survives its own walk.
     p.errand = null;
     const goal = { x: Math.round(x), z: Math.round(z) };
+
     if (!this.pathTo(p, goal)) {
       p.path = null;
       return err('No way through to there');
@@ -3258,7 +3445,69 @@ export class Game {
     // short, which has to be "you did not get there" rather than a crate landing
     // wherever you gave up.
     if (p.haul) p.errand = { at: 'ground', x: goal.x, z: goal.z, itemId: null };
+    // ...and an armful is the same sentence about smaller goods. A crate is the
+    // only "goods on the floor" object there is, so putting six loaves down on a
+    // tile and setting a box down on it are one action with two sizes — and
+    // "everything you are holding can be put down where you are pointing" is one
+    // rule where there used to be two, the second of which was "walk it to the
+    // drop-off". Being made to cross the shop to free your hands is what made
+    // carrying stock anywhere feel like a commitment.
+    //
+    // *Under* the pad rule rather than over it, which is the opposite way round
+    // to `haul` and for a reason: `stow` hands `dropGoods` the pad as a REGION,
+    // so crates fill the cells you painted, where a tile drop knows only its own
+    // tile. On the pad the tidier answer is the right one; everywhere else there
+    // was no answer at all.
+    else if (p.carry && !p.errand) p.errand = { at: 'ground', x: goal.x, z: goal.z, itemId: null };
     return ok({ to: goal, steps });
+  }
+
+  /**
+   * Name a square as somewhere to PUT things, without going to it.
+   *
+   * Its own verb, and the reason is that "over there" and "down there" are two
+   * different sentences about the same tile and both have to stay available.
+   * Folding this into `walkTo` — no route inside `UNLOAD_REACH` while your hands
+   * are full — put the drop exactly where the aim said, and cost you the ability
+   * to take a single step while holding a box: every nearby tile had stopped
+   * being somewhere to stand. Before that, routing first cost the aim instead,
+   * because the walk ends *on* the tile you named, so the crate always went down
+   * under your feet.
+   *
+   * So the two are split by GESTURE rather than by distance, which is the split
+   * the whole shop floor already runs on: a tap goes, a hold does. `walkTo` is
+   * unchanged and still walks you anywhere; this is what the press arms, so the
+   * ring winds on the square you are pointing at and the box lands there.
+   *
+   * Refused rather than quietly widened when it is out of reach or unstandable —
+   * the client only sends it for a square it has already drawn as green, so a no
+   * here means the two disagree, and a silent fallback to walking would hide it.
+   */
+  placeAt(id, x, z) {
+    const p = this.players[id];
+    if (!p) return err('no such player');
+    if (!p.haul && !p.carry) return err('nothing in hand');
+
+    const goal = { x: Math.round(x), z: Math.round(z) };
+    if (Math.hypot(goal.x - p.x, goal.z - p.z) > UNLOAD_REACH) return err('too far to reach');
+    if (!isWalkable(this.walk, this.layout, goal.x, goal.z)
+        || !this.canWalk(p.x, p.z, goal.x, goal.z)) {
+      return err('nothing to stand a crate on there');
+    }
+
+    // Turn to it. Putting something down is done with your hands, so standing
+    // square to the shop while a box lands over your shoulder reads as the aim
+    // having been ignored.
+    if (goal.x !== Math.round(p.x) || goal.z !== Math.round(p.z)) {
+      p.facing = Math.atan2(goal.x - p.x, goal.z - p.z);
+    }
+    // The pad keeps its own errand for an armful, because `stow` hands `dropGoods`
+    // the pad as a REGION and fills the cells you painted — see `walkTo`.
+    const pad = this.dropPadKind();
+    p.errand = p.carry && pad && isPadAt(this.layout, pad, goal.x, goal.z)
+      ? { at: 'pad', itemId: null }
+      : { at: 'ground', x: goal.x, z: goal.z, itemId: null };
+    return ok({ at: goal });
   }
 
   /**
@@ -4302,10 +4551,13 @@ export class Game {
    * through a crate of the thing you are already carrying quietly unloads you
    * into it. Left takes, right puts. You always know which you asked for.
    *
-   * ONE, not an armful. `unload` is the armful and it is what the pile menu and
-   * a buried crate arm; this is the fine-grained one, so the three gestures
-   * grade properly: a tap is a unit, a hold is the box, and the menu is the
-   * armful in between.
+   * ONE, not an armful. `unload` is the armful and it is what a tap on a crate
+   * you have to walk to arms; this is the fine-grained one, so a lone crate
+   * grades properly: a tap is a unit, a hold is the box.
+   *
+   * And only ever a LONE crate. In a pile there is one thing a crate can be —
+   * see `crateStacked` — so this refuses, and the gesture that used to send it
+   * takes the top box off instead.
    */
   tapCrate(playerId, crateId, put = false) {
     const p = this.players[playerId];
@@ -4317,6 +4569,11 @@ export class Game {
       : this.nearest(this.deliveries, p, UNLOAD_REACH);
     if (!crate) return err('no crate here');
     if (!near(p, crate, UNLOAD_REACH)) return err('too far from the crate');
+    // A pile is boxes only — see `crateStacked`. Both directions, because one
+    // unit into the crate under two others is the same unanswerable "which one"
+    // as one unit out of it, and the client aims the top box of a pile rather
+    // than sending this at all.
+    if (this.crateStacked(crate)) return err('it is in a stack — take the top crate off first');
 
     const name = content().byId.items[crate.item_id]?.name ?? crate.item_id;
 
@@ -4366,10 +4623,8 @@ export class Game {
    * tower through the floor, and it is also just not a thing you can do.
    *
    * Asked in two places and that is the point. `liftCrate` refuses on it,
-   * because a verb has to defend itself; `errandAction` *chooses* on it, so a
-   * buried crate arms the armful instead of arming a refusal. The pile menu
-   * lists every crate on the tile, so without the second caller four rows out
-   * of five walk you over there to be told no.
+   * because a verb has to defend itself; `errandAction` *chooses* on it, so an
+   * aim at a buried crate arms nothing rather than arming a refusal.
    */
   crateOnTop(crate) {
     const n = (d) => Number(String(d.id).slice(4)) || 0;
@@ -4377,6 +4632,24 @@ export class Game {
       && Math.round(d.x) === Math.round(crate.x)
       && Math.round(d.z) === Math.round(crate.z)
       && n(d) > n(crate));
+  }
+
+  /**
+   * ...and is it in a pile at all?
+   *
+   * The line between the two things a crate can be. On its own, a crate is a
+   * container: reach in for an armful, or shoulder the box. In a pile it is only
+   * ever a box, because "which of these do you mean" cannot be answered by a
+   * pointer — a crate is a fifth of a tile tall and the buried ones show a band
+   * of about a dozen pixels, so item-level access to a stack was always the
+   * wrong crate's contents. Peel the top one off and what is under it is a crate
+   * on its own again, which is the same answer arrived at by moving the shop
+   * rather than by reading a list.
+   */
+  crateStacked(crate) {
+    return this.deliveries.some((d) => d.id !== crate.id
+      && Math.round(d.x) === Math.round(crate.x)
+      && Math.round(d.z) === Math.round(crate.z));
   }
 
   /**
@@ -4411,11 +4684,18 @@ export class Game {
     if (!crate) return err('no crate here');
     if (!near(p, crate, UNLOAD_REACH)) return err('too far from the crate');
 
-    // A crate under a stack is a crate with another one standing on it. Taking
-    // it out from underneath would drop the tower through the floor — the
-    // renderer stacks by id per tile — so the top one comes off first, which is
-    // also what anybody would do.
-    if (!this.crateOnTop(crate)) return err('something is stacked on that one');
+    // A buried crate used to be refused here, on the grounds that taking one out
+    // from underneath drops the tower through the floor. It does not: the
+    // renderer stacks by id per tile, so the boxes above simply settle a step —
+    // and refusing meant the crate you had *pointed at* was the one thing you
+    // could not have. Pointing is how everything else in this shop is chosen, and
+    // a pile of four boxes is four separate things you can see and aim at. Which
+    // one you get is which one you picked, not which one is easiest.
+    //
+    // Staff go on taking the top one only (`crateOnTop`, in `staff.js`), and that
+    // stays: a hire choosing a buried crate is a hire whose reach is decided by a
+    // job loop rather than by a pointer, and the top of the pile is the answer
+    // that needs no aim.
 
     this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
     p.haul = { item_id: crate.item_id, qty: crate.qty };
@@ -4466,6 +4746,47 @@ export class Game {
     p.haul = null;
     const name = content().byId.items[itemId]?.name ?? itemId;
     this.pushLog(`Set down a crate of ${qty}x ${name}.`);
+    return ok({ dropped: qty, item_id: itemId, at });
+  }
+
+  /**
+   * ...and the same thing with what is in your HANDS.
+   *
+   * `stow` was the only way to let go of an armful, and it insisted on the
+   * drop-off: your hands were full until you had walked them across the shop,
+   * which made picking anything up a commitment rather than a move. There is
+   * nothing about six loaves that needs a painted pad — `dropGoods` puts a crate
+   * on any tile, which is what a stripped shelf and an emptied hopper already do
+   * — so the pad stopped being a rule and went back to being what it is: the
+   * place crates are *tidy*, where they fill the cells you painted and a stocker
+   * comes and finds them.
+   *
+   * Its own verb rather than a branch in `dropCrate`, for the reason `haul` is
+   * its own field: everything that accounts for hands has to keep asking about
+   * hands. Sharing one function means one of the two callers reads the wrong
+   * field, and getting that wrong is a conservation hole rather than a bug you
+   * can see — the goods would be on the floor *and* still in your arms.
+   *
+   * Same two guards as `dropCrate`, and the walk grid is the right test for both
+   * halves at once: the ground is walkable AND nothing is standing on it, so an
+   * armful cannot be posted into a shelf you happen to be facing.
+   */
+  dropCarry(playerId, x = null, z = null) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if (!p.carry || p.carry.qty <= 0) return err('nothing in hand');
+
+    const at = { x: Math.round(x ?? p.x), z: Math.round(z ?? p.z) };
+    if (!isWalkable(this.walk, this.layout, at.x, at.z)) {
+      return err('nothing to stand a crate on there');
+    }
+    if (Math.hypot(at.x - p.x, at.z - p.z) > UNLOAD_REACH) return err('too far to reach');
+
+    const { item_id: itemId, qty } = p.carry;
+    this.dropGoods(itemId, qty, at);
+    p.carry = null;
+    const name = content().byId.items[itemId]?.name ?? itemId;
+    this.pushLog(`Put ${qty}x ${name} down in a crate.`);
     return ok({ dropped: qty, item_id: itemId, at });
   }
 
@@ -4830,6 +5151,11 @@ export class Game {
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
     if (!near(p, shelf)) return err('too far from that shelf');
+    // Same refusal `tapCrate` gives, and it was missing here: hands are what
+    // this fills, and a shoulder holding a box does not stop them being full of
+    // box. Reachable through the shelf menu's Take row, which is why the guard
+    // belongs on the verb rather than on the gesture that arms it.
+    if (p.haul) return err('put the crate down first');
 
     const stack = this.shelfStack(shelf, itemId);
     if (!stack || stack.qty <= 0) return err('nothing on that board');
@@ -6263,7 +6589,10 @@ export class Game {
     const kind = piece ? kindOf(piece) : null;
 
     const to = spec.to ? { x: Number(spec.to.x), z: Number(spec.to.z) } : null;
-    const cells = groundStroke({ x, z }, to, GROUND_STROKE_MAX);
+    // `strokeThick` off the ROW's kind, not off anything the client said — the
+    // same reason `kind` is read off the row two lines up. It is the one place
+    // the width rule lives, and the ghost runs this exact call.
+    const cells = groundStroke({ x, z }, to, GROUND_STROKE_MAX, strokeThick(kind), this.layout);
 
     // Asked for the whole stroke before any of it is paid for, so a drag that
     // clips a bed at one corner is refused as a gesture rather than laid up to
@@ -6566,9 +6895,13 @@ export class Game {
   freezeYard() {
     if (this.yardStamped) return false;
     this.yardStamped = true;
-    const yard = defaultPads(this.layout);
-    if (!yard.length) return false;
-    this.ground = [...this.ground, ...yard];
+    // The yard behind and the street in front, stamped by one mark because they
+    // are one event: this is the ground a world starts with. Keeping a second
+    // flag for the frontage would mean an existing shop — which has this one set
+    // — waking up tomorrow with a road through its lawn.
+    const seeded = [...defaultPads(this.layout), ...defaultStreet(this.layout)];
+    if (!seeded.length) return false;
+    this.ground = [...this.ground, ...seeded];
     this.regenerateLayout();
     return true;
   }
@@ -6775,6 +7108,28 @@ export class Game {
         this.despawn(cu);
         continue;
       }
+      /**
+       * Anybody at the wheel is on a lane this call has just recomputed, and
+       * the answer is the van's, one step harder.
+       *
+       * A driver going OUT keeps going: their route was copied when they got in
+       * for exactly this reason, they own nothing the shop needs back, and
+       * popping a car out of existence beside the shop is worse than letting it
+       * drive off a lane that moved. The one below despawns it at the border.
+       *
+       * A driver coming IN is parked, on the spot. Restarting the drive is what
+       * the van does, and it is wrong here for a reason the van does not have: a
+       * player who is building re-flows on every wall segment, and a car that
+       * started its approach again each time would never arrive at all — the
+       * shopper inside it is a customer who never happens, in a shop that is
+       * being extended precisely because it is busy. So they take the space they
+       * were already holding and walk in from it, which is exactly what a space
+       * with no lane has always done.
+       */
+      if (inACar(cu)) {
+        if (cu.state === 'DRIVE') this.parkNow(cu);
+        continue;
+      }
       cu.path = null;
       cu.targetShelf = null;
       // Anyone on their way out stays on their way out. Sending them back to
@@ -6840,7 +7195,7 @@ export class Game {
    */
   measureOccupancy() {
     const inside = Object.values(this.customers)
-      .reduce((n, cu) => n + (cu.state === 'ENTER' ? 0 : 1), 0);
+      .reduce((n, cu) => n + (cu.state === 'ENTER' || inACar(cu) ? 0 : 1), 0);
     // Units with something on them, NOT boards. How much room a shop has is
     // about how many places there are to stand and browse, and a shelf holding
     // three things is still one shelf with one aisle in front of it — counting
@@ -6864,7 +7219,7 @@ export class Game {
     let sum = 0;
     let n = 0;
     for (const cu of Object.values(this.customers)) {
-      if (cu.state === 'ENTER' || cu.state === 'LEAVE') continue;
+      if (cu.state === 'ENTER' || cu.state === 'LEAVE' || inACar(cu)) continue;
       sum += cu.mood;
       n++;
     }
@@ -6896,6 +7251,18 @@ export class Game {
    * takes has to be a fact about the shop and not about the order a scan
    * happened to run in — two runs of one seed must agree.
    *
+   * Each one carries the **lane its car drives in on** (`c.lane`), or null. This
+   * is the cache the lanes belong in and not a second one, for two reasons that
+   * both come down to timing: `carLanes` reads `blocked` and `indoor` as they
+   * finally are, which is true exactly when a layout is finished, and it is an
+   * identical once-per-re-flow question to the A* above. Computing them in
+   * `compose` instead would make every thrown-away size probe pay for a dozen
+   * lane searches, and every headless sweep pay for lanes nobody drives.
+   *
+   * **A space with no lane is still a space.** It is parking you cannot be
+   * watched arriving at, and filtering it out here would make an animation
+   * change `parkReach` — see `carLanes`.
+   *
    * Memoised, and it has to be: this is A* per cell, and it is asked on the
    * spawn of every shopper and on every snapshot. Once per re-flow is free, and
    * a shop with no car park never gets past the empty `padCells`.
@@ -6904,11 +7271,59 @@ export class Game {
     if (this.parkCache?.layout === this.layout) return this.parkCache.cells;
     const door = { x: this.layout.door.x, z: this.layout.door.z - 1 };
     const near = (c) => Math.hypot(c.x - door.x, c.z - door.z);
-    const cells = padCells(this.layout, 'park')
+    const usable = padCells(this.layout, 'park')
       .sort((a, b) => (near(a) - near(b)) || (a.z - b.z) || (a.x - b.x))
       .filter((c) => findPath(this.walk, this.layout, c, door) !== null);
-    this.parkCache = { layout: this.layout, cells };
-    return cells;
+
+    /**
+     * ...paired up, because **a bay is two cells and a car is one car.**
+     *
+     * It was one cell one car for as long as a car was 1.16 tiles long, which
+     * was smaller than the shopper who got out of it. The models are car-sized
+     * now (2.05 × 1.21) and a single cell is a car parked across three of them.
+     *
+     * Greedy along the sorted list, which does the work the sort already did:
+     * cells come out nearest-the-door first, so a pad fills from the end
+     * somebody would use and the pairs are neighbours by construction. A cell
+     * with no neighbour left is **not** a bay — an odd row parks one fewer car,
+     * which is the honest answer and the one a player can see coming.
+     *
+     * The pair is stored, not just its anchor: `cells` is what the sim claims
+     * and `mid` is where the car is drawn, because a car 2 tiles long standing
+     * on the first of its two cells hangs out of the bay at the front.
+     */
+    const taken = new Set();
+    const key = (c) => `${c.x},${c.z}`;
+    const at = new Map(usable.map((c) => [key(c), c]));
+    const bays = [];
+    for (const c of usable) {
+      if (taken.has(key(c))) continue;
+      // Along z first: a bay you nose into off a road running east-west, which
+      // is the road the world seeds and the one most people will draw.
+      const mate = [{ x: c.x, z: c.z + 1 }, { x: c.x, z: c.z - 1 },
+        { x: c.x + 1, z: c.z }, { x: c.x - 1, z: c.z }]
+        .map((p) => at.get(key(p)))
+        .find((p) => p && !taken.has(key(p)));
+      if (!mate) continue;                       // a lone cell is not a bay
+      taken.add(key(c));
+      taken.add(key(mate));
+      bays.push({
+        x: c.x, z: c.z,                          // the anchor: nearest the door
+        cells: [{ x: c.x, z: c.z }, { x: mate.x, z: mate.z }],
+        mid: { x: (c.x + mate.x) / 2, z: (c.z + mate.z) / 2 },
+        // Nose out along the bay, never at the door. A car is two tiles long
+        // and the bay is two cells deep, so any other angle is a car parked
+        // across its own markings — the facing is a property of the BAY now,
+        // where it used to be a line of trigonometry about the shopfront.
+        facing: Math.atan2(c.x - mate.x, c.z - mate.z),
+      });
+    }
+
+    // One lane per bay, off its anchor — the cell a car reaches first.
+    const lanes = carLanes(this.layout, bays);
+    bays.forEach((b, i) => { b.lane = lanes[i]; });
+    this.parkCache = { layout: this.layout, cells: bays };
+    return bays;
   }
 
   /**
@@ -6957,22 +7372,30 @@ export class Game {
   }
 
   /**
-   * The cars standing in the car park, for whoever is drawing them.
+   * The cars, for whoever is drawing them — driving in, standing, or driving
+   * out.
    *
    * Derived from the shoppers rather than kept as its own list, so a car exists
-   * for exactly as long as the person who drove it is in the shop and there is
-   * no second thing to tidy up. Keyed by the customer's id for the same reason
-   * the van sends `vehicle`: the renderer needs to know which mesh is which one
-   * between frames, and a car is the one prop in the game that stands perfectly
-   * still for a minute and then is gone.
+   * for exactly as long as the person who drove it and there is no second thing
+   * to tidy up. Keyed by the customer's id for the same reason the van sends
+   * `vehicle`: the renderer needs to know which mesh is which one between frames,
+   * and this is the only list in the game whose members appear at the edge of the
+   * map, come to a stop for a minute, and leave again.
+   *
+   * `cu.drive` is the car's body and `cu.parkedAt` is its claim on a cell. They
+   * were one field while a car never moved — the claim, the picture and the
+   * walk-back-to target were the same fact — and step 5 of docs/deliveries.md is
+   * where that stopped being true: a car halfway down the lane is somewhere its
+   * space is not, and holding the space is the whole reason nobody else takes it
+   * while it is on its way.
    */
   parkedCars() {
     const out = [];
     for (const cu of Object.values(this.customers)) {
-      if (!cu.parkedAt || !cu.car) continue;
+      if (!cu.drive || !cu.car) continue;
       out.push({
         id: cu.id, vehicle: cu.car,
-        x: cu.parkedAt.x, z: cu.parkedAt.z, facing: r2(cu.parkedFacing ?? 0),
+        x: r2(cu.drive.x), z: r2(cu.drive.z), facing: r2(cu.drive.facing ?? 0),
       });
     }
     return out;
@@ -7113,17 +7536,37 @@ export class Game {
       // holding. See the `basket` line in `snapshot`.
       bought: null,
       budget: this.rng.float(arch.budget_min, arch.budget_max) * bigger,
-      // Which space they are holding and what is standing in it, or null for
-      // everybody who walked. It is the claim on the cell (`freeSpace`), the
-      // thing the renderer draws (`parkedCars`), and where they walk back to
-      // when they are done (`leaveShop`) — one field, because they are one fact.
+      // Which space they are holding, or null for everybody who walked. The
+      // CLAIM on the cell and nothing else now: it is what `freeSpace` reads so
+      // nobody else takes it, and where they walk back to when they are done.
+      // Where the car actually *is* is `drive`, which is a different answer for
+      // the length of the lane — see `parkedCars`.
       parkedAt: car ? { x: space.x, z: space.z } : null,
       car: car?.id ?? null,
-      // Nose towards the shop, worked out once. A parked car never moves, so
-      // there is nothing to derive a facing from later.
-      parkedFacing: car
-        ? Math.atan2(this.layout.door.x - space.x, this.layout.door.z - space.z)
-        : 0,
+      // Nose out along the bay, worked out once when it was claimed. This is
+      // the facing it settles at — while it is moving, `followPath` decides.
+      parkedFacing: car ? (space.facing ?? 0) : 0,
+      // Where the CAR stands: the middle of its two cells. `parkedAt` is the
+      // anchor — the cell nearest the door, which is the one its driver walks
+      // back to — and a two-tile car standing on that one alone hangs out of
+      // the front of the bay.
+      parkedMid: car ? { ...(space.mid ?? { x: space.x, z: space.z }) } : null,
+      /**
+       * The car's body, or null for anyone who walked: `{ x, z, facing, path,
+       * phase }`, which is exactly the shape `followPath` drives and exactly
+       * the shape the van is.
+       *
+       * Filled in below, because whether it starts at the edge of the map or
+       * standing in its space is the one decision this feature makes.
+       */
+      drive: null,
+      /**
+       * ...and the lane it came in on, kept rather than looked up on the way
+       * out. Same reason the van copies `lane.out` when it loads: a re-flow
+       * between arriving and leaving would otherwise hand the car a route
+       * computed for a shop it is standing in the wrong version of.
+       */
+      lane: null,
       wantCount: units,
       list: this.rollList(arch, units),
       errandAt: -1,
@@ -7141,6 +7584,49 @@ export class Game {
     };
     this.customers[id] = cust;
     if (car) this.stats.drove++;
+
+    /**
+     * ...and if they drove, the car exists before they do.
+     *
+     * A lane means they arrive: the car is put down eight tiles off the map at
+     * `lane.in[0]`, the shopper rides in it, and neither of them is in the shop
+     * until it stops. `DRIVE` is what says so — see `stepCustomers` for the
+     * three places that had to learn about a customer who has not arrived, and
+     * `stepMood` for the one that costs money if it doesn't.
+     *
+     * No lane means the space has no straight run out to the border, and the
+     * answer is exactly what this did before step 5: the car is simply standing
+     * there and its driver walks in. The parking works, the arrival is not
+     * something you can watch. An animation that can fail must never decide
+     * whether the mechanic happens — the same bargain `loadVan` strikes about a
+     * walled-in yard, and the reason `parkSpaces` keeps a lane-less cell.
+     */
+    const lane = car ? (space.lane ?? null) : null;
+    if (car) {
+      const start = lane ? lane.in[0] : (space.mid ?? space);
+      cust.drive = {
+        x: start.x,
+        z: start.z,
+        facing: cust.parkedFacing,
+        // `followPath` eats this from the front, so it is a copy — the space's
+        // lane is read by every car that ever parks there.
+        path: lane ? lane.in.slice(1).map((p) => ({ ...p })) : [],
+        phase: lane ? 'in' : 'parked',
+      };
+      cust.lane = lane;
+    }
+    if (lane) {
+      cust.state = 'DRIVE';
+      // The body rides with the car so that anything asking where this shopper
+      // is gets an answer that is at least true. It matters in exactly one
+      // place: `regenerateLayout` despawns whoever is off the tile grid, and a
+      // driver still out on the approach road should go the same way a walker
+      // out on the footpath does.
+      cust.x = cust.drive.x;
+      cust.z = cust.drive.z;
+      return ok({ id, archetype: arch.id, drove: true });
+    }
+
     // A driver has a tile under them already, so they walk from where they are.
     // The `from` argument is the off-grid leg a walker needs and a shopper
     // standing in a marked bay does not — handing A* a start that is not on the
@@ -7405,6 +7891,99 @@ export class Game {
     return path !== null;
   }
 
+  /**
+   * Drive a shopper's car along the leg it is on.
+   *
+   * `followPath` and nothing else — the same function the van drives with and
+   * the same one their own legs use, handed a lane decided once per re-flow
+   * rather than found per tick. **A vehicle is not a person**, which is the
+   * whole reason `carLanes` exists rather than an A* call: a hatchback that
+   * threaded between two planters and turned on the spot would read as a bug in
+   * the renderer.
+   *
+   * The body rides along with the car. Nothing draws them — `snapshot` leaves a
+   * shopper in a car out of `customers` — but a position that is a lie is a
+   * position something eventually reads, and here it is `regenerateLayout`
+   * asking who is off the edge of the world.
+   *
+   * Arriving is where the shopping trip actually begins: the car is set down
+   * exactly on its space at the facing it was given when the space was claimed,
+   * rather than wherever the last waypoint left it pointing, because a lane is
+   * whole tiles and a car nosed in at the angle of the road is a car parked
+   * across the bay. From there they walk in, which is the tick this used to
+   * start on.
+   */
+  stepDrive(cust, dt) {
+    const d = cust.drive;
+    if (!d) { this.despawn(cust); return; }
+
+    const speed = content().byId.vehicles?.[cust.car]?.speed || CAR_SPEED;
+    const arrived = followPath(d, speed, dt);
+    cust.x = d.x;
+    cust.z = d.z;
+    if (!arrived) return;
+
+    // Off the map, and that is the end of them. The space goes back on the same
+    // tick, which is the latest it possibly could — see `driveOff`.
+    if (cust.state === 'DEPART') { this.despawn(cust); return; }
+
+    this.parkNow(cust);
+  }
+
+  /**
+   * Put the car in its space and start the shopping trip.
+   *
+   * Two callers and they are the same event told two ways: the car finished its
+   * lane, or the shop was rebuilt underneath it and the lane is gone. Either
+   * way the answer is the state a car park had before it had any lanes at all —
+   * standing in the space it claimed, driver walking in.
+   *
+   * It is set down exactly on the cell at the facing worked out when the space
+   * was claimed, rather than wherever the last waypoint left it pointing. A
+   * lane is whole tiles and its final leg runs along the road, so a car nosed in
+   * at the angle it was travelling is a car parked across the bay.
+   */
+  parkNow(cust) {
+    const d = cust.drive;
+    if (!d || !cust.parkedAt) { this.despawn(cust); return; }
+    d.phase = 'parked';
+    d.path = [];
+    const mid = cust.parkedMid ?? cust.parkedAt;
+    d.x = mid.x;
+    d.z = mid.z;
+    d.facing = cust.parkedFacing;
+    // ...and their driver gets out onto the ANCHOR cell, which is a tile A*
+    // can route out of. The car's midpoint is on the line between two of them.
+    cust.x = cust.parkedAt.x;
+    cust.z = cust.parkedAt.z;
+    cust.state = 'ENTER';
+    this.pathTo(cust, { x: this.layout.door.x, z: this.layout.door.z - 1 });
+  }
+
+  /**
+   * The end of a shop: get in and go, or simply be gone.
+   *
+   * One function for both because from here they are the same event — somebody
+   * has reached the tile they were walking to and there is nothing left for
+   * them in the shop. A walker has no car and despawns where the old code
+   * despawned them; a driver whose space had no lane despawns too, because the
+   * car that appeared out of nothing is allowed to leave the same way.
+   *
+   * A driver with a lane holds their space for the length of the drive out, and
+   * that is deliberate rather than incidental: the space is theirs until the
+   * car is off the map, so a pad of one cell serves one shopping trip at a time
+   * end to end. Freeing it as they pulled away would let the next arrival be
+   * put down on top of a car still reversing off it.
+   */
+  driveOff(cust) {
+    const out = cust.lane?.out;
+    if (!cust.drive || !out || out.length < 2) { this.despawn(cust); return; }
+    cust.state = 'DEPART';
+    cust.drive.phase = 'out';
+    // `out[0]` is the space it is standing in — see `laneVia`.
+    cust.drive.path = out.slice(1).map((p) => ({ ...p }));
+  }
+
   stepCustomers(dt, c, folded) {
     const open = this.isOpen();
     for (const cust of Object.values(this.customers)) {
@@ -7414,6 +7993,14 @@ export class Game {
       if (this.stepMood(cust, dt)) continue;   // walked out; already heading for the door
 
       switch (cust.state) {
+        // Still in the car, coming in or going out. `dt` and not the world
+        // delta, for the reason `driveVan` takes it: a body with wheels must
+        // not do six times the speed once the night is being skipped through.
+        case 'DRIVE':
+        case 'DEPART':
+          this.stepDrive(cust, dt);
+          break;
+
         case 'ENTER':
           if (followPath(cust, CUSTOMER_SPEED, dt)) cust.state = 'BROWSE';
           break;
@@ -7439,7 +8026,11 @@ export class Game {
           break;
 
         case 'LEAVE':
-          if (followPath(cust, CUSTOMER_SPEED * (cust.storming ? STORM_SPEED : 1), dt)) this.despawn(cust);
+          if (followPath(cust, CUSTOMER_SPEED * (cust.storming ? STORM_SPEED : 1), dt)) {
+            // At the door, or at their car. `driveOff` answers both — a walker
+            // and a driver with nowhere to drive are the same despawn.
+            this.driveOff(cust);
+          }
           break;
 
         default:
@@ -7459,8 +8050,10 @@ export class Game {
    * nobody at all: they left, `leftEmpty` went up, and their mood was still 1.
    */
   stepMood(cust, dt) {
-    // Not yet through the door, or already on their way out.
-    if (cust.state === 'ENTER' || cust.state === 'LEAVE') return false;
+    // Not yet through the door, or already on their way out — and `inACar` is
+    // the same clause about somebody who has not even parked yet. Patience is a
+    // budget the SHOP draws on, and a drive is not the shop's doing.
+    if (cust.state === 'ENTER' || cust.state === 'LEAVE' || inACar(cust)) return false;
 
     let annoy = ANNOY_IN_SHOP;
     // `till` is set the moment a slot is claimed, so walking up the line costs
@@ -7509,8 +8102,13 @@ export class Game {
    */
   lastOrders(cust) {
     if (cust.state === 'LEAVE' || cust.state === 'TO_TILL' || cust.state === 'QUEUE') return false;
+    // Somebody already driving away is as dealt-with as it gets.
+    if (cust.state === 'DEPART') return false;
 
-    if (cust.state === 'ENTER') { this.despawn(cust); return true; }
+    // Turned round on the approach — on foot, or at the wheel. A driver who
+    // arrived at a shut shop and then walked to the door would be the one
+    // arrival the shutters do not stop.
+    if (cust.state === 'ENTER' || cust.state === 'DRIVE') { this.despawn(cust); return true; }
 
     // Settled without a tally — see above. It also stops `stopShopping` billing
     // the shop for them later if anything else routes them through it.
@@ -8138,16 +8736,12 @@ export class Game {
     cust.till = null;
     cust.state = 'LEAVE';
 
-    // Somebody who drove goes back to the car, and it leaves with them. Their
-    // space is held right up until `despawn` for exactly that reason: a car that
-    // freed its bay the moment its owner joined the queue is a car park that
-    // holds more shopping trips than it holds cars.
-    //
-    // There is no drive out, and that is a limit rather than a decision. A
-    // vehicle needs a lane — `vanRoute`, which is the layout's job and computed
-    // once per re-flow — and there is no lane per parking space yet, so the car
-    // goes when its driver does. Whoever writes `carRoute` changes this line and
-    // nothing else.
+    // Somebody who drove walks back to the car, gets in, and drives off — see
+    // `driveOff`, which is where the walk ends. Their space is held right up
+    // until `despawn` and no earlier: a car that freed its bay the moment its
+    // owner joined the queue is a car park that holds more shopping trips than
+    // it holds cars, and one that freed it as the car pulled away would put the
+    // next arrival down on top of it.
     if (cust.parkedAt) {
       this.pathTo(cust, cust.parkedAt);
       return;

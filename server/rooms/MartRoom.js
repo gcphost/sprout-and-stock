@@ -172,6 +172,17 @@ export class MartRoom extends Room {
       if (!res.ok) client.send('action-result', res);
     });
 
+    // ...and name a square as somewhere to PUT what you are holding, without
+    // going to it. The other half of the tile gesture: a tap walks (above), a
+    // hold puts down, and this is what the press arms so the ring has a target.
+    // Silent on refusal like `walk-to` is — the client only sends it for a square
+    // it has drawn as green, so a no here is a disagreement to fix, not news for
+    // the player. See `Game.placeAt`.
+    this.onMessage('place', (client, m) => {
+      const res = this.game.placeAt(client.sessionId, Number(m?.x), Number(m?.z));
+      if (!res.ok) client.send('action-result', res);
+    });
+
     this.onMessage('interact', (client, m) => {
       const res = this.game.interact(client.sessionId, m ?? {});
       client.send('action-result', res);

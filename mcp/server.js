@@ -249,8 +249,11 @@ server.registerTool('create_fixture', {
     + '  plot          a farm bed, outdoors, on bare grass\n'
     + '  prop-floor    a decoration standing on the floor, indoors or out\n'
     + '  prop-ceiling  a decoration hanging from the ceiling, so indoors only\n'
-    + '  floor         the ground itself — painted over an area, not placed on a tile\n\n'
-    + 'A FLOOR is the odd one and the only kind with no `model`: it is not a thing standing in a cell, it IS the cell, so what you author is `surface` — a colour, an optional second colour and how they repeat. '
+    + '  floor         the ground itself — painted over an area, not placed on a tile\n'
+    + '  road          the same, and the lane a van or a shopper\'s car would rather drive on\n'
+    + '  path          pavement — the same again, for feet. A `stripes` design of one laid across a road is a crossing.\n'
+    + '  bay/drop/break/park  the pads — ground that carries a job. Deliveries land, stock waits, staff rest, shoppers park.\n\n'
+    + 'GROUND is the odd one and the only kind with no `model`: it is not a thing standing in a cell, it IS the cell, so what you author is `surface` — a colour, an optional second colour and how they repeat. '
     + 'It is also the only kind priced PER TILE, and it is what makes a walled extension usable: walls decide what counts as indoors, floor decides what a shelf can stand on. Price it so paving a back room is a real decision — the shipped range is $6 to $22 a tile.\n\n'
     + 'Props never block: people walk past them. A barrel that stopped somebody would need to own its cell, and a cell can only say one thing at a time — so anything that must be walked around is a shelf, not a prop.\n\n'
     + 'Several pieces may name one kind, and that is the point: a second shelf design, a corner till, four different planters. They share the kind\'s rules and nothing else — each carries its own model, its own variants, its own tier ladder and its own price.\n\n'
@@ -277,17 +280,19 @@ server.registerTool('create_fixture', {
     + STAGE_HELP,
   inputSchema: {
     id: z.string().describe('Slug, yours to choose, e.g. "terracotta-planter" or "chiller-shelf". Reuse one to update it.'),
-    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor', 'bay', 'drop', 'break', 'park'])
+    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor', 'road', 'path', 'bay', 'drop', 'break', 'park'])
       .describe('Which build rules it plays by. Closed set — this is not a way to invent kinds.'),
     name: z.string().describe('Display name, e.g. "Shelving". This is what the build palette calls it.'),
-    model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except GROUND (floor, bay, drop, break), which has no model. ' + STAGE_HELP),
+    model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except GROUND (floor, road, bay, drop, break, park), which has no model. ' + STAGE_HELP),
     work: z.any().optional().describe('What it looks like while it is WORKING — same shape as `model`, staged by how far through a batch it is rather than by tier. Appliances only, for now: nothing else in the game can be busy. ' + WORK_HELP),
     surface: z.object({
       color: z.string().describe('#rrggbb. The main colour of the floor.'),
       accent: z.string().optional().describe('#rrggbb, the second colour of the pattern. Left out it is a darker shade of the first, which is usually what you want.'),
-      pattern: z.enum(['plain', 'checker', 'planks']).default('plain')
-        .describe('How the two colours repeat, tile by tile. "plain" uses only the first.'),
-    }).optional().describe('GROUND ONLY (floor, bay, drop, break), and required for one. Ground is a colour and a repeat — there is no geometry, because it is seen edge-on at 45° with a shop standing on it and nothing finer than a tile survives that. `bay` is where wholesale orders land as pallets, `drop` is where hands are cleared and stock waits, and `break` is where the staff go when they stop working; all three are painted the same way floor is, and how big you paint one is how much it holds — crates for the two yard pads, one worker per cell for a break area.'),
+      bars: z.number().int().min(1).max(8).optional()
+        .describe('STRIPES ONLY: how many bars a cell is painted with (default 3). The gaps are always the same width as the bars, so this one number is the whole marking: 2 is a wide continental crossing, 5 is a hatched box junction.'),
+      pattern: z.enum(['plain', 'checker', 'planks', 'stripes']).default('plain')
+        .describe('How the two colours repeat, tile by tile. "plain" uses only the first. "stripes" is bands one cell wide running along z — that is a pedestrian crossing, and it is the one pattern whose direction means something, so the same design laid east-west and north-south reads as bars across your way or rails along it.'),
+    }).optional().describe('GROUND ONLY (floor, road, bay, drop, break, park), and required for one. Ground is a colour and a repeat — there is no geometry, because it is seen edge-on at 45° with a shop standing on it and nothing finer than a tile survives that. The four PADS carry a job, and how big you paint one is how much it holds: `bay` is where wholesale orders land as pallets, `drop` is where hands are cleared and stock waits, `break` seats one resting worker per cell, and `park` parks one shopper\'s car per cell. `floor` and `road` carry none — they are only a look. A road is a PREFERENCE and never a permission: every outdoor cell is drivable already, so what a painted one changes is which lane the van and the cars choose, which means you can draw the drive rather than watch a lorry cross your lawn.'),
     yields: z.object({
       cash: z.number().min(0).max(500).describe('How much money one payout is.'),
       every: z.number().min(1).max(1440).default(60).describe('In-game MINUTES between payouts. A day is 24x60 of these.'),

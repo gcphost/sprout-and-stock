@@ -176,7 +176,6 @@ export class UI {
       build: document.getElementById('build'),
       buildGroups: document.getElementById('build-groups'),
       buildSubs: document.getElementById('build-subs'),
-      buildCaption: document.getElementById('build-caption'),
       buildTools: document.getElementById('build-tools'),
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
@@ -861,25 +860,16 @@ export class UI {
 
   renderBuildBar() {
     const groups = this.buildGroupList();
-    // One resolution of which tab, which part of it and what is on it, shared by
-    // the caption below and by the render — `openBuildGroup` already writes back
-    // a tab that resolved to something other than what was remembered, which is
-    // what `renderBar` would otherwise be asked to work out a second time.
+    // One resolution of which tab, which part of it and what is on it —
+    // `openBuildGroup` already writes back a tab that resolved to something
+    // other than what was remembered, which is what `renderBar` would otherwise
+    // be asked to work out a second time.
     const open = this.openBuildGroup(groups);
-    // What the caption says with nothing under the pointer: the entry you have
-    // armed. Against what is *drawn* rather than against `buildTool`, for the
-    // reason the shape row is (see `renderChoice`) — naming a fixture that is not
-    // on the tab in front of you is a label for something you cannot see, and
-    // browsing another tab is not a change of what is armed.
-    const armed = open.items.find((it) => it.id === this.toolId());
     const { group, sub } = renderBar(this.barEl(), {
       groups,
       at: open.group?.id ?? null,
       atSub: open.sub?.id ?? null,
       picked: this.toolId(),
-      // The one word the tiles gave up. Not the price — that is still on every
-      // one of them, because comparing four of them is the point of it.
-      caption: armed?.name ?? null,
       // Shapes are not palette entries of their own — a corner shelf is a shelf,
       // at a shelf's price, and the number keys should keep meaning one fixture.
       choice: {
@@ -955,17 +945,15 @@ export class UI {
   }
 
   /**
-   * The five elements `bar.js` draws into. A browse bar has no sub-tabs, no
-   * choice row and no caption — its buttons keep their own names, which is what
-   * the caption is *for* on the build bar — and all three are hidden rather than
-   * absent: one strip of screen means one set of elements, and a bar that swapped
-   * its own markup would have to put the height back too.
+   * The four elements `bar.js` draws into. A browse bar has no sub-tabs and no
+   * choice row, and both are hidden rather than absent: one strip of screen
+   * means one set of elements, and a bar that swapped its own markup would have
+   * to put the height back too.
    */
   barEl() {
     return {
       groups: this.el.buildGroups,
       subs: this.el.buildSubs,
-      caption: this.el.buildCaption,
       items: this.el.buildTools,
       choice: this.el.buildShapes,
     };
@@ -1807,11 +1795,20 @@ export class UI {
     // the thing a player has to be told: your hands are full of box, so the
     // chevrons are gone and the only move is to put it down. "Tap where it
     // goes" would be a lie — there is no shelf that will take it from here.
+    // "Hold", not "tap", and it is the honest verb for both: pointing at a
+    // square NAMES it and the ring is what spends it, which is the one thing
+    // about putting goods down that nothing else on screen can say. An armful
+    // keeps the tap in front of it, because a tap on a shelf is still the common
+    // way to spend one and the chevrons are already pointing at those.
+    // A crate says the same sentence an armful does now: the chevrons are up for
+    // it (`takers` reads both hands and shoulder) and a shelf pours it straight
+    // off the box, so "the only move is to put it down" stopped being true.
     this.el.carry.textContent = me?.haul
       ? `carrying a crate of ${me.haul.qty}x ${this.itemName(me.haul.item_id)} `
-        + '— tap an empty square to set it down'
+        + '— tap where it goes, or hold a square to set it down'
       : me?.carry
-        ? `carrying ${me.carry.qty}x ${this.itemName(me.carry.item_id)} — tap where it goes`
+        ? `carrying ${me.carry.qty}x ${this.itemName(me.carry.item_id)} `
+          + '— tap where it goes, or hold a square to put it down'
         : '';
     this.updatePrompt(me?.action ?? null);
     // Which seed is chosen is the SERVER's answer, mirrored down rather than
@@ -2001,9 +1998,6 @@ export class UI {
     this.openPanel = null;
     this.setFixtureRef(null);
     this.workerRef = null;
-    // A pile of crates is a place rather than a thing, so what the crate menu
-    // holds on to is a tile — see client/crate-menu.js.
-    this.crateRef = null;
     // Whatever per-entity menu was open stops being kept up to date with it.
     this.panelTick = null;
     this.el.panel.classList.remove('show');

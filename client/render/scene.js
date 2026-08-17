@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, edgeBands, jitter, faceColor, patternColor } from './palette.js';
+import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
   buildBubble, buildCashDrop, buildVehicle,
@@ -884,6 +884,58 @@ export class Scene {
   // Static world
   // -------------------------------------------------------------------------
 
+  /**
+   * Lay the bars of a striped design over the cells that wear it.
+   *
+   * **Which way they run is read off the shape you painted**, not authored and
+   * not fixed. A crossing is a patch two cells deep across a road and however
+   * many long, and its bars run the SHORT way — across the traffic, along the
+   * walk. So each cell measures its own contiguous run in x and in z within
+   * this design's own cells, and the bars span whichever is shorter. A square
+   * patch has no answer and takes z, which is the crossing on the road the
+   * world seeds.
+   *
+   * Doing it per cell rather than per patch is what keeps it local: a crossing
+   * that turns a corner gets bars that turn with it, and no part of this has to
+   * know what a patch is.
+   *
+   * One extra instanced mesh for the whole design, laid a hair over the cell
+   * tops. It is the only ground pattern that costs any geometry at all.
+   */
+  addStripes(cells, surface, height, box, dummy) {
+    const has = new Set(cells.map(([x, z]) => `${x},${z}`));
+    const run = (x, z, dx, dz) => {
+      let n = 1;
+      for (let i = 1; has.has(`${x + dx * i},${z + dz * i}`); i++) n++;
+      for (let i = 1; has.has(`${x - dx * i},${z - dz * i}`); i++) n++;
+      return n;
+    };
+    const bars = new THREE.InstancedMesh(
+      box,
+      material(surface.accent ?? shade(surface.color, -0.55)),
+      cells.length * stripeBars(surface),
+    );
+    bars.castShadow = false;
+    bars.receiveShadow = true;
+    const n0 = stripeBars(surface);
+    const duty = stripeDuty(surface);
+    let n = 0;
+    for (const [x, z] of cells) {
+      // Longer along x means the road runs east-west, so the bars run along z.
+      const alongZ = run(x, z, 1, 0) >= run(x, z, 0, 1);
+      for (let i = 0; i < n0; i++) {
+        const off = (i - (n0 - 1) / 2) / n0;
+        dummy.position.set(alongZ ? x + off : x, height + 0.012, alongZ ? z : z + off);
+        dummy.scale.set(alongZ ? duty : 1, 0.02, alongZ ? 1 : duty);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        bars.setMatrixAt(n++, dummy.matrix);
+      }
+    }
+    bars.instanceMatrix.needsUpdate = true;
+    this.staticRoot.add(bars);
+  }
+
   /** Redraw the world we already have — for when the art changed, not the shop. */
   rebuildWorld() {
     if (!this._layout) return;
@@ -987,6 +1039,9 @@ export class Scene {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.staticRoot.add(mesh);
+
+      // ...and the one pattern that is not a colour. See `STRIPE_BARS`.
+      if (surface?.pattern === 'stripes') this.addStripes(cells, surface, height, box, dummy);
 
       // A contrasting top slab, so a raised tile reads as built rather than as
       // an anonymous coloured block. Only the wall is left: the four furniture
@@ -2240,6 +2295,14 @@ export class Scene {
    * result would make the shelf underneath it unpointable instead of making the
    * lamp transparent. Skipping the hit carries on down the ray, which is what
    * "you can see straight through it" has to mean.
+   *
+   * `board` comes back beside the fixture, and it is the *finer* half of the
+   * same answer: which pile of goods on that unit the ray actually met. It is
+   * there because a shelf holding three things is three piles at one address,
+   * and until the pointer could say which, the only thing that could was the
+   * unit's own menu. Null for every hit that is not stock — the frame of the
+   * shelf itself, a crop, a machine — which is what leaves "the whole unit"
+   * still pointable: aim at the thing, get the thing.
    */
   pickFixtureHit(clientX, clientY, keep = null) {
     if (!this.storeLayout) return null;
@@ -2248,7 +2311,13 @@ export class Scene {
       // Up to whichever group was tagged as one pickable thing — the hit
       // itself is one board of a shelf or one apple on it.
       let o = hit.object;
-      while (o && !o.userData.pick) o = o.parent;
+      let board = null;
+      while (o && !o.userData.pick) {
+        // ...noting which pile it was on the way past, since the group that
+        // says so sits between the mesh and the group that says "one thing".
+        if (o.userData.item) board = o.userData.item;
+        o = o.parent;
+      }
       if (!o) continue;
       // The thing the ray HIT, whenever the group can say which it is — and it
       // has to be asked before the tile, because a tile stopped being one
@@ -2262,7 +2331,7 @@ export class Scene {
       // does still answer for.
       const f = (o.userData.fixture ? this.fixtureById(o.userData.fixture) : null)
         ?? this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
-      if (f && (!keep || keep(f))) return { f, dist: hit.distance };
+      if (f && (!keep || keep(f))) return { f, dist: hit.distance, board };
     }
     return this.pickPropBox(clientX, clientY, keep);
   }
@@ -2309,13 +2378,13 @@ export class Scene {
    * build ghost, the bulldozer and "walk to the side you work it from" all
    * take a layout record, and none of them has an answer for a crate.
    *
-   * It answers *which* crate of a stack, which is the honest answer and not a
-   * sufficient one: a crate is `CRATE_STEP` tall, which at the default zoom is
-   * a band of about a dozen pixels, and a buried one shows nothing but that
-   * band. So this is the aim, `y` is what lets the ring say which one it
-   * landed on, and the long press opens the pile as a list — see
-   * `client/crate-menu.js`. A target you can only hit by hunting for it is a
-   * target the menu has to be able to name.
+   * It answers *which* crate of a stack, and that answer is the whole of how a
+   * pile is worked now: a crate is `CRATE_STEP` tall, so at the default zoom a
+   * buried one is a band of about a dozen pixels, and `y` is what lets the ring
+   * say which of them the ray met. A pile once had a list on the tap to name its
+   * crates for you; the aim plus the ring says it without reading anything out,
+   * and what a pile takes away is not which box you may have but the tin-at-a-
+   * time access — see `crateStacked`, server side.
    *
    * `dist` comes back for the same reason: a crate and a fixture are two
    * separate rays, so which of them wins can no longer be decided by which
@@ -2365,8 +2434,11 @@ export class Scene {
   pickAim(clientX, clientY, keep = null) {
     const crate = this.pickPallet(clientX, clientY);
     const hit = this.pickFixtureHit(clientX, clientY, keep);
-    if (crate && (!hit || crate.dist <= hit.dist)) return { crate, fixture: null };
-    return { crate: null, fixture: hit?.f ?? null };
+    if (crate && (!hit || crate.dist <= hit.dist)) return { crate, fixture: null, board: null };
+    // The board rides along with the fixture and never on its own: it is the
+    // same target said more precisely, so anything that only knows about units
+    // can go on reading `fixture` and ignore it.
+    return { crate: null, fixture: hit?.f ?? null, board: hit?.board ?? null };
   }
 
   /**
@@ -2421,7 +2493,7 @@ export class Scene {
    * driven by the server's armed action and gets torn down every snapshot,
    * which would take this with it ten times a second.
    */
-  setAimTarget(f, mode = 'aim') {
+  setAimTarget(f, mode = 'aim', board = null) {
     // The mode is part of the key: pointing at the same shelf with the bulldozer
     // up is a different marker, and comparing ids alone would leave an amber
     // ring on the thing the next tap deletes.
@@ -2430,7 +2502,14 @@ export class Scene {
     // tower says "one of these three" — the whole reason to ring a crate is to
     // say WHICH — and moving the pointer up the stack changes nothing else
     // about the target but where it is.
-    const key = f ? `${f.id}:${mode}:${f.y ?? 0}` : null;
+    //
+    // ...and so is the board, plus the shelf's own art key. A cage is drawn to
+    // the size of the pile it is round, so a sale that redraws that pile has to
+    // redraw the cage with it — keyed on the item alone, the box would stay the
+    // size the stack was when you first pointed at it, which is a highlight
+    // that stops agreeing with what you can see while you watch it.
+    const art = board ? this.shelfProps.get(f?.id)?.key ?? '' : '';
+    const key = f ? `${f.id}:${mode}:${f.y ?? 0}:${board ?? ''}:${art}` : null;
     if (this.aimKey === key) return;
     this.aimKey = key;
     if (this.aimMarker) {
@@ -2439,7 +2518,7 @@ export class Scene {
       this.aimMarker = null;
     }
     if (!f) return;
-    this.aimMarker = this.markerFor(f, mode);
+    this.aimMarker = this.markerFor(f, mode, board);
     this.actorRoot.add(this.aimMarker);
   }
 
@@ -2457,18 +2536,54 @@ export class Scene {
    * Sized from `propBoxes`, which is the same volume the pointer is tested
    * against — so the highlight is a picture of the hitbox rather than a second
    * guess at it, and "it lit up but the tap missed" cannot happen.
+   *
+   * A board takes the cage for a third reason, and it is the one that makes
+   * board-level aiming legible at all: a frame on the tile would be the same
+   * frame for every pile on the unit, so pointing at the bread and pointing at
+   * the milk beside it would look identical. The thing you have to be able to
+   * tell apart is *which pile*, so the marker has to be round the pile.
    */
-  markerFor(f, mode) {
-    const box = isProp(f.kind) ? this.propBoxes.get(f.id) : null;
+  markerFor(f, mode, board = null) {
+    const box = board
+      ? this.boardBox(f, board)
+      : (isProp(f.kind) ? this.propBoxes.get(f.id) : null);
     if (!box) {
       const m = buildTargetMarker(mode);
       m.position.set(f.x, f.y ?? 0, f.z);
       return m;
     }
     const size = box.getSize(new THREE.Vector3());
-    const m = buildCageMarker(mode, size);
+    // `board` rather than the mode it was asked with, and the only difference is
+    // the chevron: a board is one of several on the same unit, and an arrow
+    // floating a tile and a half over the shelf points at the shelf — which is
+    // the one thing this marker exists NOT to say. The cage is the whole answer.
+    const m = buildCageMarker(board ? 'board' : mode, size);
     box.getCenter(m.position);
     return m;
+  }
+
+  /**
+   * The box one pile of goods on a unit occupies, in world space.
+   *
+   * Measured off the meshes rather than worked out from the boards, for the same
+   * reason `pickFixtureHit` raycasts the art: the pile is what you can see and
+   * what the ray hit, and a second calculation of where it sits is a second
+   * chance to disagree with the picture — which here would present as a
+   * highlight that is next to the thing it is highlighting.
+   *
+   * On demand rather than cached beside the group, because the answer depends on
+   * where the shelf is standing *now*: `syncShelves` re-reads that every sync so
+   * a unit you pick up takes its stock with it, and a box stamped when the
+   * geometry was built would be left behind at the old tile. Only ever asked
+   * when the marker is (re)built, which is a pointer moving onto a new pile.
+   */
+  boardBox(f, itemId) {
+    const rec = this.shelfProps.get(f.id);
+    if (!rec) return null;
+    const pile = rec.group.children.find((c) => c.userData.item === itemId);
+    if (!pile) return null;
+    rec.group.updateMatrixWorld(true);
+    return new THREE.Box3().setFromObject(pile);
   }
 
   /**
@@ -3200,6 +3315,13 @@ export class Scene {
       rec.group.clear();
       if (!stacks.length) continue;
 
+      // One group per kind, and each one says which kind it is. That field is
+      // what makes a board a thing you can point at: `pickFixtureHit` walks up
+      // from whatever mesh the ray met, and a pile of bread answers "the bread
+      // on this shelf" rather than just "this shelf". Set on the group the
+      // builder hands back rather than inside it, because both builders weld —
+      // the meshes underneath are a merge of everything that shared a material
+      // and there is nothing per-item left down there to tag.
       plan.forEach((p, n) => {
         const item = this.catalog.items[p.k.item_id];
         if (!item) return;
@@ -3208,13 +3330,16 @@ export class Scene {
           // read as two heaps rather than one interpenetrating mess.
           const heap = buildStack(item.model, p.k.qty, item.stack);
           heap.position.x += (n - (plan.length - 1) / 2) * 0.34;
+          heap.userData.item = p.k.item_id;
           rec.group.add(heap);
           return;
         }
         // `buildShelfGoods` fills the boards it is handed top-first, so they go
         // back bottom-first — this kind fills its own share of the unit from
         // the top of it down, and touches nobody else's boards.
-        rec.group.add(buildShelfGoods(item.model, p.k.qty, [...p.boards].reverse(), p.k.cap));
+        const goods = buildShelfGoods(item.model, p.k.qty, [...p.boards].reverse(), p.k.cap);
+        goods.userData.item = p.k.item_id;
+        rec.group.add(goods);
       });
     }
   }
@@ -3449,7 +3574,11 @@ export class Scene {
       this.liftedRing.position.y = 1.5 + Math.sin(now / 1000 * 3.4) * 0.12;
       this.liftedRing.rotation.z = now / 1000 * 1.2;
     }
-    if (this.aimMarker) {
+    // ...if it has one. A board's cage deliberately has no chevron (see
+    // `MARKER_LOOK.board`), so this is a guard rather than a formality: the one
+    // marker in the game with nothing floating over it would otherwise throw
+    // once a frame for as long as you pointed at a shelf full of bread.
+    if (this.aimMarker?.userData.arrow) {
       // No spin any more, here or below. A ring is rotationally symmetric, so
       // the spin these markers were given was invisible — and the moment they
       // became squares that agree with the tile grid it stopped being

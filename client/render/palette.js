@@ -36,6 +36,11 @@ export const PALETTE = {
    *  should read as the front of the building rather than as more of the back
    *  of it — the two yard pads are deliberately warm and light. */
   park: '#79808c',
+  /** The road: darker than the car park it leads to, because the lane is the
+   *  thing you drive on and the pad is the thing you stand on. Near-neutral on
+   *  purpose — it is the longest run of one colour anybody will paint, so a
+   *  road with any character in it would read as a stripe across the map. */
+  road: '#5f646d',
   /** Last-resort bodywork — see `VEHICLE_LOOK`. Nothing on the road normally
    *  wears it: a vehicle row carries its own `color`, and its `model` carries
    *  the colours that actually get drawn. */
@@ -94,6 +99,11 @@ export const TILE_STYLE = {
   [T.DROP]: { color: PALETTE.drop, h: 0.07 },
   [T.BREAK]: { color: PALETTE.break, h: 0.07 },
   [T.PARK]: { color: PALETTE.park, h: 0.07 },
+  // Flush with the grass rather than raised the 0.07 the pads are. A pad is a
+  // platform you put things on and a road is ground you drive over, and a lip
+  // along a lane that runs the width of the map would read as a kerb the van
+  // climbs.
+  [T.ROAD]: { color: PALETTE.road, h: 0.02 },
 };
 
 /**
@@ -236,6 +246,28 @@ const clamp8 = (v) => Math.max(0, Math.min(255, Math.round(v)));
  * `accent` defaults to a darkened `color`, so a one-colour floor is one field
  * and a chequerboard nobody gave a second colour to is still a chequerboard.
  */
+/**
+ * How many bars a striped cell is painted with, and how wide each one is.
+ *
+ * Three at a sixth of a tile is 50% duty, which is what a zebra crossing is.
+ * The number matters less than the fact that it is sub-tile at all: every other
+ * ground pattern in this game is one colour per cell (`patternColor`), because
+ * at 45° across a room nothing finer survives — and that is true of a chequer
+ * and false of a crossing. A bar the width of a whole tile is half a car long.
+ */
+export const STRIPE_BARS = 3;
+
+/**
+ * ...off the row where one says so, and the gap is always the bar.
+ *
+ * `STRIPE_BARS` is a fallback for a design that did not choose, the way
+ * `FALLBACK_FIXTURE_COST` is a floor for a kind nobody priced — not a second
+ * opinion. Duty is derived rather than authored: half-and-half is what makes a
+ * zebra a zebra, so one number says everything about the marking.
+ */
+export const stripeBars = (surface) => Math.max(1, Math.round(surface?.bars || STRIPE_BARS));
+export const stripeDuty = (surface) => 1 / (stripeBars(surface) * 2);
+
 export function patternColor(surface, x, z) {
   const base = surface.color;
   const accent = surface.accent ?? shade(base, -0.16);
@@ -243,6 +275,12 @@ export function patternColor(surface, x, z) {
     ? (x + z) % 2 === 1
     // Planks run along x and step every third row, so the joins stagger rather
     // than lining up into one long stripe down the shop.
+    // `stripes` is deliberately absent, and that is the one pattern that is not
+    // a per-cell colour. A zebra bar is a fraction of a tile wide — one bar per
+    // CELL is a bar half a car long, which is a chequerboard with ambitions —
+    // so the cell stays its base colour here and the bars are drawn on top of
+    // it as their own geometry — see `STRIPE_BARS` above, and `addStripes` in
+    // `client/render/scene.js`, which lays them.
     : (surface.pattern === 'planks' ? Math.floor(z + (x % 3 === 0 ? 1 : 0)) % 3 === 0 : false);
   return jitter(alt ? accent : base, 0.03, x * 31 + z * 17);
 }

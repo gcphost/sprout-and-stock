@@ -2,14 +2,17 @@
  * CLIENT ENTRY POINT — input, render loop, and glue.
  */
 
-import { canPlaceEdges, edgeRun, canPaintGround, groundStroke, faceAlong, isProp } from '../shared/build.js';
+import {
+  canPlaceEdges, edgeRun, canPaintGround, groundStroke, strokeThick, GROUND_STROKE_MAX,
+  faceAlong, isProp, isWalkableTile,
+} from '../shared/build.js';
+import { SOLID, edgeBetween } from '../shared/edges.js';
 import { Scene } from './render/scene.js';
 import { Net } from './net.js';
 import { UI } from './ui.js';
 import { RAIL_ITEMS } from './sections.js';
 import { showFixture, refreshFixture } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
-import { showCrates, cratesAt } from './crate-menu.js';
 import { Menu, preselectedWorld } from './menu.js';
 
 const canvas = document.getElementById('game');
@@ -221,7 +224,16 @@ function refreshGhost(force = false) {
     ui.setAim(null);
     return;
   }
-  scene.setFloorGhost(null, null);
+  // Nothing is painting a cell — unless a pair of full hands is about to, in
+  // which case the shopkeeping branch below owns this ghost and sets or clears it
+  // itself. Skipped rather than clear-then-reset, because that pair is a dispose
+  // and a rebuild of the mesh EVERY FRAME while you hover with an armful, and the
+  // key cache exists precisely so a still pointer costs nothing.
+  //
+  // `dropping()` is false in every branch above this line by construction — the
+  // brush and the wall tools need the palette, the bulldozer is its own veto — so
+  // the guard cannot strand a ghost in a build tool's hands.
+  if (!dropping()) scene.setFloorGhost(null, null);
 
   const kind = pointer.onCanvas ? ui.ghostKindForTool() : null;
   if (!kind) {
@@ -262,14 +274,51 @@ function refreshGhost(force = false) {
     if (person?.hire) {
       scene.setAimTarget(null);
       ui.setAim(null);
+      // A person is not a square, and this branch owns the ghost now (see the
+      // guard above) — so pointing at a hire with your hands full has to put it
+      // away rather than leave the last square lit.
+      if (dropping()) scene.setFloorGhost(null, null);
       return;
     }
     const aim = pointer.onCanvas && !ui.holding
       ? scene.pickAim(pointer.x, pointer.y, aimable) : null;
-    scene.setAimTarget(aim?.crate ?? aim?.fixture ?? null);
+    // One pile of goods, when that is what is under the pointer — a cage round
+    // the bread rather than a frame under the shelf. It is the promise half of
+    // board aiming: the tap on it takes THAT board, so it has to be visible
+    // which board the pointer has, and on a stocked unit the piles are only a
+    // few pixels apart. The frame comes back the moment you point at the unit's
+    // own frame, which is still the whole unit and still opens its menu.
+    const board = aim?.board && boardTakes() ? aim.board : null;
+    scene.setAimTarget(aim?.crate ?? aim?.fixture ?? null, 'aim', board);
+    // The other half of "you can press this", the way it is for a hire: the cage
+    // says which pile, the cursor says there is one to take at all. A crate gets
+    // no cursor because a crate is a whole object you can see you are on; a board
+    // is a region of a thing that was one target until now.
+    if (board) canvas.style.cursor = 'pointer';
     // Only the fixture: this names what a build verb would act on, and there is
     // no build verb that takes a crate.
     ui.setAim(aim?.fixture ?? null);
+
+    // With goods in your hands, the square under the pointer is where they would
+    // GO — so it is drawn, the same green cell the ground brush uses. Eight
+    // squares are in reach and they are one tile apart on screen: the choice is
+    // real (`Game.walkTo` places where you aimed rather than walking you onto it)
+    // and without this it is invisible, which is the same as not having it. Red
+    // says that square will not take a crate — a wall on the line, a shelf
+    // standing on it, off the map.
+    //
+    // Beside the aim marker rather than instead of it, and it yields to it:
+    // pointing at a shelf still rings the shelf, because that is a stock errand
+    // and a different sentence. The ghost only ever claims bare ground.
+    //
+    // Set *or* cleared on every pass, because the guard further up stopped
+    // clearing it for us — see there for why.
+    const drop = dropping() && pointer.onCanvas && !aim?.fixture && !aim?.crate
+      ? scene.pickTile(pointer.x, pointer.y) : null;
+    const show = drop && inReachOf(drop);
+    if (dropping()) {
+      scene.setFloorGhost(show ? [drop] : null, show ? (canDropAt(drop) ? 'ok' : 'no') : null);
+    }
     return;
   }
   const tile = scene.pickTile(pointer.x, pointer.y);
@@ -432,6 +481,69 @@ function inReachOf(at) {
   const me = ui.me();
   if (!me || !at) return false;
   return Math.hypot(me.x - at.x, me.z - at.z) <= UNLOAD_REACH;
+}
+
+/**
+ * The crate under the pointer, plus whether it is in a pile.
+ *
+ * The crate is `Scene.pickPallet`'s own answer and deliberately nothing else:
+ * **the box you pointed at is the box you get**, buried or not. A pile is four
+ * separate things you can see, the ring already says which one the ray met at
+ * its own height, and resolving the aim "up to the top of the stack" — which one
+ * cut of this did — takes away the only way there is to say which crate you
+ * meant. `liftCrate` lifts whichever one you named; the boxes above settle.
+ *
+ * What the pile decides is not *which* crate but *what a crate is*: on its own
+ * it is a container you can reach into, and in a pile it is a box and nothing
+ * else, because one unit out of a band of a dozen pixels is never the tin
+ * anybody meant. So `stacked` rides along for the gesture to read. Worked out
+ * here rather than sent, since it is a fact about `deliveries` the client
+ * already has ten times a second.
+ */
+/**
+ * Would the goods in your hands land on this square?
+ *
+ * The preview half of the rule `Game.walkTo` now applies: a square within reach
+ * is somewhere to put things, so the ghost is what says *which* square before you
+ * commit — eight of them are in reach and they are a tile apart on screen.
+ *
+ * Every clause is the server's own test, spelled with the shared functions rather
+ * than re-derived — `isWalkableTile` is what `isWalkable`'s grid is built from
+ * (ground takes a person AND nothing is standing on it) and `edgeBetween` is the
+ * wall on the line that a tile test cannot see. A green square the server then
+ * refuses is worse than no square at all, which is why a square that already has
+ * a crate on it is **not** ruled out: `dropGoods` tops up a box of the same thing
+ * and stacks anything else, and a pile is a thing you can peel now.
+ */
+/**
+ * Are we holding goods, with nothing else claiming the pointer?
+ *
+ * The one test behind the drop ghost and behind who owns the floor ghost this
+ * frame. Full hands are the whole of it — the three exclusions are the states
+ * where pointing at the ground already means something else: the palette places,
+ * the bulldozer aims, and a fixture in your hands is looking for a home of its
+ * own.
+ */
+const dropping = () => (myCarry() || myHaul())
+  && !ui.paletteArmed && !ui.holding && !ui.demolishArmed();
+
+function canDropAt(tile) {
+  const L = scene.storeLayout;
+  if (!L || !tile || !inReachOf(tile)) return false;
+  if (!isWalkableTile(L, tile.x, tile.z)) return false;
+  const me = ui.me();
+  if (!me) return false;
+  return !SOLID.has(edgeBetween(L, Math.round(me.x), Math.round(me.z), tile.x, tile.z));
+}
+
+function aimCrate(cx, cy) {
+  const hit = scene.pickPallet(cx, cy);
+  if (!hit) return null;
+  const x = Math.round(hit.x);
+  const z = Math.round(hit.z);
+  const pile = (ui.state?.deliveries ?? [])
+    .filter((d) => Math.round(d.x) === x && Math.round(d.z) === z);
+  return { ...hit, stacked: pile.length > 1 };
 }
 
 function clearLongPress() {
@@ -641,7 +753,11 @@ let floorDrag = null;
 function showFloorDrag(cx, cy) {
   if (!floorDrag) return null;
   const to = scene.pickTile(cx, cy);
-  const cells = groundStroke(floorDrag.start, to);
+  // The same call the server makes, with the same width rule — a road is two
+  // cells thick whatever you dragged, and a ghost that showed one would be a
+  // preview of a road nobody is going to get.
+  const cells = groundStroke(floorDrag.start, to, GROUND_STROKE_MAX,
+    strokeThick(floorDrag.kind), scene.storeLayout);
   if (!cells.length) { scene.setFloorGhost(null, null); return null; }
   // The empty string is Bare Ground, which is a real choice; null is what
   // `canPaintGround` reads as "take it up".
@@ -776,9 +892,46 @@ canvas.addEventListener('pointerdown', (e) => {
   //
   // Harmless when the press turns out to be a pan — an errand is a target, not
   // an action, and nothing fires without the button still being down.
+  // ...and one pile of goods on a shelf, for the same reason and with the same
+  // timing. This is what makes a board you are ALREADY STANDING AT a single
+  // gesture: press the bread, keep holding, the ring winds on the cage and the
+  // armful lands. Named on release instead, the errand would arm the charge on a
+  // button that had just come up, and the whole thing would read as a press that
+  // did nothing until you pressed again — which is the four-step version of this
+  // that board aiming exists to delete.
   if (e.button === 0 && !ui.demolishArmed()) {
-    const aimed = scene.pickPallet(e.clientX, e.clientY);
+    // `aimCrate`, which is `pickPallet` plus "is it in a pile" — the crate named
+    // is the one the ray met, buried or not, so the ring winds on the box you
+    // are pointing at and that is the box that comes away.
+    const aimed = aimCrate(e.clientX, e.clientY);
+    const hit = aimed ? null : pickAimed(e.clientX, e.clientY);
     if (aimed) net.send('take', { palletId: aimed.id });
+    // ...but only for a unit you are STOOD at, which a crate does not have to
+    // ask because a crate is a small thing in a yard and a shelf is most of a
+    // wall. A mouse turns the view by dragging, and a drag that started on a
+    // shelf across the shop would have sent you walking to it before the first
+    // frame of the turn — an errand nobody asked for, out of the gesture people
+    // use most. Naming it early only buys anything in reach anyway: that is
+    // exactly the case where the ring can wind under the same press, and the
+    // release below still names a board you have to walk to.
+    else if (hit?.board && boardTakes() && inReachOf(hit.f)) {
+      net.send('take', { shelfId: hit.f.id, itemId: hit.board });
+    }
+    // The other end of the same idea: a square beside you, with your hands full.
+    // `place` names it as somewhere to put goods *down* without walking you onto
+    // it, so the hold has a target and the box lands where you were pointing —
+    // and the tap keeps its own meaning, which is how you still take a single
+    // step while holding a crate. A tap goes, a hold does; the press has to arm
+    // the hold, or the ring has nothing to wind and the gesture reads as dead.
+    //
+    // In reach only, and only over ground the drop can use — `canDropAt` is the
+    // same test the green square is drawn from, so the press and the picture
+    // cannot disagree. A shelf under the pointer means stock it and a crate means
+    // take from it, which is why this sits under both.
+    else if (!hit && dropping()) {
+      const tile = scene.pickTile(e.clientX, e.clientY);
+      if (tile && canDropAt(tile)) net.send('place', { x: tile.x, z: tile.z });
+    }
   }
   // Armed on a timer rather than measured on release, so whatever the hold does
   // happens under a pointer that is still down — which is what makes it feel
@@ -1019,8 +1172,12 @@ canvas.addEventListener('pointerup', (e) => {
     // the fallback: pointing at a thing is a positive act, which is the same
     // argument the tap already makes one branch up. Nothing is dismissed while
     // you are aiming at a crate.
-    const crate = scene.pickPallet(e.clientX, e.clientY);
-    if (crate && inReachOf(crate)) {
+    // ...and only on a crate standing on its own, which is the same line the
+    // left button draws: putting one unit INTO the box under two others is the
+    // same unanswerable "which one" as taking one out of it. On a pile the right
+    // button goes back to meaning "back out".
+    const crate = aimCrate(e.clientX, e.clientY);
+    if (crate && !crate.stacked && inReachOf(crate)) {
       scene.ripple(crate.x, crate.z);
       net.send('crate-one', { palletId: crate.id, put: true });
       return;
@@ -1088,6 +1245,18 @@ const myCarry = () => latestState?.players
   ?.find((p) => p.id === net.myId)?.carry ?? null;
 
 /**
+ * ...and the crate on our shoulder, which is the other place stock can be.
+ *
+ * Asked separately rather than folded into the one above, exactly as the server
+ * keeps `haul` out of `carry`: every reader that means *hands* goes on meaning
+ * hands. The two are never both set — you cannot shoulder a box while holding
+ * tomatoes — so the only thing anybody asks both for is "am I holding goods at
+ * all", which is one `||` at the single call site that wants it.
+ */
+const myHaul = () => latestState?.players
+  ?.find((p) => p.id === net.myId)?.haul ?? null;
+
+/**
  * Is this thing holding something that standing at it would hand you?
  *
  * A ripe bed and a machine with a finished tray are the two, and they are the
@@ -1108,11 +1277,14 @@ const myCarry = () => latestState?.players
  * side is how a tap starts sending you across the shop for a bed that came on
  * two ticks ago in somebody else's game.
  *
- * Not shelves, deliberately. Their goods are merchandise rather than something
- * waiting to be taken — one board of one shelf is a choice, which is why `take`
- * names its target from that shelf's own menu — and swallowing the tap would
- * put pricing and assignment behind a long press on every stocked unit in the
- * shop.
+ * Not shelves, and that is still the right answer for a shelf — but no longer
+ * for its goods. Their stock is merchandise rather than something waiting to be
+ * taken, and one board of one shelf is a choice that has to be named, which for
+ * four steps meant the shelf's own menu. The pointer can name it now (see
+ * `boardTakes`), so the choice is made by aiming and the tap on a *pile* goes.
+ * What this test still keeps is the tap on the UNIT: a tap on the frame of a
+ * stocked shelf opens it, so pricing, assignment and priority are one press away
+ * rather than behind a gesture that does nothing.
  */
 function readyToTake(f) {
   if (f.kind === 'plot') return !!latestState?.plots?.find((p) => p.id === f.id)?.ready;
@@ -1143,9 +1315,41 @@ function readyToTake(f) {
  */
 const aimable = (f) => ui.paletteArmed || !isProp(f.kind);
 
-function pickTarget(cx, cy) {
-  return scene.pickFixtureHit(cx, cy, aimable)?.f ?? null;
+function pickAimed(cx, cy) {
+  return scene.pickFixtureHit(cx, cy, aimable);
 }
+
+function pickTarget(cx, cy) {
+  return pickAimed(cx, cy)?.f ?? null;
+}
+
+/**
+ * Is pointing at one pile of goods a Take right now?
+ *
+ * The pointer can name a board (`pickFixtureHit`'s `board`), and this is the
+ * list of ways it means something else instead. Every entry is a state where the
+ * shelf is already the answer to a different question:
+ *
+ * - **the palette is up** — a tap places, and a unit's own menu is what a tap on
+ *   it opens. Build mode is the one place where pointing at something is already
+ *   a verb, and taking stock is not one of its verbs.
+ * - **the bulldozer is armed** — you are aiming at things to get rid of them,
+ *   and a tool that quietly handed you an armful instead would be the one that
+ *   does the opposite of what it says.
+ * - **you are carrying a fixture** — every tile is somewhere to put it down.
+ * - **your hands are full of stock** — a shelf is somewhere to PUT things, which
+ *   is the errand the tap has always been while carrying. `unshelve` would
+ *   accept a top-up off the same board, but a board is a smaller target than the
+ *   unit and stocking is the far commoner thing to want with full arms, so the
+ *   unit wins the whole gesture rather than a corner of it deciding.
+ * - **a crate is on your shoulder** — the same thing said about the box, and the
+ *   server refuses it outright (`unshelve`): your hands are full of crate.
+ *
+ * Written once and asked by all three of hover, press and tap, or the highlight
+ * would offer something the press then did differently.
+ */
+const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed()
+  && !myCarry() && !myHaul();
 
 /**
  * Hold a thing in build mode and you pick it up.
@@ -1296,37 +1500,38 @@ function tapAtPointer(cx, cy) {
     // front. Not gated on empty hands: topping up an armful from the same
     // pallet is the common case, and a mismatch is the server's refusal to
     // give, not a reason for the tap to do nothing.
-    // ...but a PILE of them is several verbs, and the tap cannot choose between
-    // them by aim alone. A crate stands about a fifth of a tile tall, which is
-    // a band of roughly a dozen pixels at the default zoom, and the ones
-    // underneath show nothing else of themselves — so on a stack the tap opens
-    // the pile as a list instead, and the row you press is the same `take` this
-    // would have sent. One tile, one crate: unchanged, still one tap.
-    //
-    // A menu on the tap rather than on the long press because the long press
-    // does not open anything any more (`HOLD_OPENS`) — a crate must not be the
-    // one thing in the shop that needs a gesture nothing else uses.
-    const crate = ui.demolishArmed() ? null : scene.pickPallet(cx, cy);
+    // ...and a PILE of them is one verb rather than several: whole boxes only.
+    // Which box is still yours to choose — the ray picks them apart by height
+    // and the ring says which — but a tin at a time is not on offer up there,
+    // because a buried crate shows a band of roughly a dozen pixels and one unit
+    // out of it is never the tin anybody meant. That is what the pile list was
+    // for, and a list is a poor substitute for pointing: it read out four rows to
+    // answer a question the pointer had already answered, and the tap underneath
+    // it rummaged, so standing at a tower of boxes and pressing took ONE TIN.
+    // Aim and lift now — see `crateStacked` for the rule and `aimCrate` for the
+    // aim.
+    const crate = ui.demolishArmed() ? null : aimCrate(cx, cy);
     if (crate) {
       scene.ripple(crate.x, crate.z);
-      // Already stood at it? Then a quick tap is a RUMMAGE — one unit out —
-      // and not another walk to where you are. Three gestures on one crate,
-      // graded by how much they move: tap a unit, hold the whole box, and the
-      // pile menu for the armful in between.
+      // Already stood at a crate on its own? Then a quick tap is a RUMMAGE —
+      // one unit out — and not another walk to where you are. Two gestures on a
+      // lone crate, graded by how much they move: tap a unit, hold the box.
       //
       // Reach is asked here rather than sent as an intent because the answer
       // decides which MESSAGE this is, and a `take` that quietly turned into a
       // rummage server-side would mean tapping a crate across the shop did
       // different things depending on where you happened to be standing.
-      // A quick release, stood at it: a RUMMAGE, one unit out. The press
-      // already named the crate on the way down, so what this adds is the
-      // decision that it was a tap and not a hold — and `tapCrate` spends the
-      // errand, so the lift the press armed does not sit there waiting.
-      if (inReachOf(crate)) { net.send('crate-one', { palletId: crate.id, put: false }); return; }
-      if (cratesAt(ui, crate).length > 1) { showCrates(ui, crate); return; }
-      // Out of reach the press has already sent this; sending it again is the
-      // same target twice and costs nothing, and it keeps the stack branch
-      // above readable as "one crate, one tap".
+      //
+      // `!crate.stacked`, or the gesture that means "one tin" fires on the pile
+      // where the only thing you can have is the box — and the server refuses
+      // it there anyway, so this is the half that makes the tap do the right
+      // thing rather than the half that stops the wrong one.
+      if (!crate.stacked && inReachOf(crate)) {
+        net.send('crate-one', { palletId: crate.id, put: false });
+        return;
+      }
+      // Out of reach — or a pile, where the only job is the lift. The press has
+      // usually already sent this; the same target twice costs nothing.
       net.send('take', { palletId: crate.id });
       return;
     }
@@ -1352,7 +1557,8 @@ function tapAtPointer(cx, cy) {
     // Pale rather than amber, and this is the only thing distinguishing the two
     // presses at a glance: amber is "you are on your way", pale is "I heard
     // you". A press that opens a panel must not flash the going colour.
-    const over = pickTarget(cx, cy);
+    const hit = pickAimed(cx, cy);
+    const over = hit?.f ?? null;
     if (over) {
       // With an armful of stock, pointing at a shelf is an errand and not a
       // question — so it goes, the same as pointing at the floor does. This is
@@ -1383,12 +1589,41 @@ function tapAtPointer(cx, cy) {
       // really for and `sow` refuses a ripe bed anyway ("harvest it first"), so
       // what is behind the mode is move, sell and restyle: the three things you
       // do to a bed you are not currently farming.
-      if (myCarry() || readyToTake(over)) {
+      // `myHaul` beside `myCarry`, or the chevrons over what a crate can fill
+      // would be pointing at units the tap then read a menu about. A box is
+      // goods with a home to find, same as an armful — it pours straight onto
+      // the board (`stockFromCrate`) rather than being set down first.
+      if (myCarry() || myHaul() || readyToTake(over)) {
         // Amber, not pale: this one really is "you are on your way".
         scene.ripple(over.x, over.z);
         walkTo({ fixture: over.id });
         return;
       }
+
+      // One pile of goods, pointed at directly: go and get THAT one.
+      //
+      // This is the same errand the shelf menu's Take row sends, minus the menu
+      // — and the menu was three presses of ceremony around a decision you had
+      // already made by pointing at the bread. `take` has always been able to
+      // name a board; what was missing was a way to say which board that was not
+      // a list, and the goods are drawn as themselves on boards a few pixels
+      // apart, so the pointer is a better instrument for it than a menu row is.
+      //
+      // Amber, like every other "you are on your way". Nothing else about the
+      // gesture is special: the press already named it on the way down, so this
+      // send is the one that matters only for a board across the shop — and it
+      // costs nothing to repeat, exactly as the crate branch above says.
+      //
+      // The unit itself is still one press away, at any pixel of it that is not
+      // its stock: an end panel, the frame, the base, the gap between boards. A
+      // full unit is mostly goods from this camera but never all goods — and
+      // build mode opens anything you own regardless.
+      if (hit?.board && boardTakes()) {
+        scene.ripple(over.x, over.z);
+        net.send('take', { shelfId: over.id, itemId: hit.board });
+        return;
+      }
+
       scene.ripple(over.x, over.z, 'miss');
       // ...and the one already open puts itself away, which is the same toggle
       // the rail gives its own buttons. The dismissal below used to provide
