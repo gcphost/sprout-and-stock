@@ -25,6 +25,7 @@ const FILES = [
   ['fixtures.json', 'fixture'],
   ['workers.json', 'worker'],
   ['pastimes.json', 'pastime'],
+  ['vehicles.json', 'vehicle'],
   // After workers, though nothing enforces it: a skin references no worker kind
   // and a worker references no skin, which is the whole reason one skin fits
   // every kind. The order here is only so the file list reads in the order the

@@ -6,8 +6,8 @@
  * without a page reload.
  */
 
-import { FIXTURES } from '../shared/build.js';
 import { variantsOf } from '../shared/model.js';
+import { fixtureLabel } from '../shared/pieces.js';
 import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups, upgradeGroups,
 } from './sections.js';
@@ -44,7 +44,13 @@ function tabGroups(all) {
   const groups = [];
   groups.lead = [];
   for (const r of all) {
-    if (r.sep && r.icon) { groups.push({ label: r.sep, icon: r.icon, rows: [] }); continue; }
+    if (r.sep && r.icon) {
+      // `passive` — a tab that reports rather than offers work. It is drawn and
+      // reachable like any other; all it forfeits is being the one a menu opens
+      // on. See `tabIndex`.
+      groups.push({ label: r.sep, icon: r.icon, passive: !!r.passive, rows: [] });
+      continue;
+    }
     if (!groups.length) { groups.lead.push(r); continue; }
     groups[groups.length - 1].rows.push(r);
   }
@@ -75,6 +81,19 @@ export class UI {
     this.net = net;
     this.catalog = { items: [], crops: [], upgrades: [] };
     this.selectedCrop = null;
+    /**
+     * Mirrors of the two switches on the clock, so a press knows what it is
+     * undoing.
+     *
+     * The SERVER's answer, copied down every snapshot and never decided here —
+     * the same rule `selectedCrop` is written around, and for the same reason:
+     * this is a shop two people share, so a local copy that thinks it is in
+     * charge is a button that argues with the other player. Both messages carry
+     * the state they want rather than "toggle", so the worst a stale mirror can
+     * do is ask for what is already true, which the server answers with a shrug.
+     */
+    this.shopOpen = true;
+    this.paused = false;
     this.buildOn = false;
     this.buildTool = 'shelf';
     // Which design off the catalog, when the tool is a piece. The kind is what
@@ -86,6 +105,10 @@ export class UI {
     this.buildStation = '';
     this.buildVariant = '';
     this.buildRot = 0;
+    // Whether that angle is YOURS. Off, the ghost faces itself against whatever
+    // wall it is put against (`faceAlong`); pressing R turns the pin on and the
+    // preview stops second-guessing you. See `resetRot`.
+    this.rotPinned = false;
     this.buildCosts = {};
     // Which tab each bar was last left on, and which of the three has it. Kept
     // per bar rather than one shared value: they have nothing in common but the
@@ -101,6 +124,8 @@ export class UI {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
       clock: document.getElementById('clock'),
+      btnOpen: document.getElementById('btn-open'),
+      btnPause: document.getElementById('btn-pause'),
       rep: document.getElementById('rep'),
       mood: document.getElementById('mood'),
       full: document.getElementById('full'),
@@ -130,8 +155,15 @@ export class UI {
     this.query = '';
 
     this.rail = new Rail(this, this.el.rail);
+    this.el.btnOpen.onclick = () => this.setOpen(!this.shopOpen);
+    this.el.btnPause.onclick = () => this.setPaused(!this.paused);
+    // Something in them before the first snapshot lands. `setClock` writes the
+    // right pair a tenth of a second later; two empty squares in the meantime
+    // read as icons that failed to load rather than as a HUD still filling in.
+    this.el.btnOpen.innerHTML = ICONS.open;
+    this.el.btnPause.innerHTML = ICONS.pause;
     document.getElementById('search-icon').innerHTML = ICONS.search;
-    this.el.search.oninput = () => { this.query = this.el.search.value; this.paintSection(); };
+    this.el.search.oninput = () => { this.query = this.el.search.value; this.repaint(); };
 
     const close = document.getElementById('panel-close');
     close.innerHTML = ICONS.close;
@@ -159,7 +191,18 @@ export class UI {
   setCatalog(catalog) {
     this.catalog = catalog;
     this.buildCosts = catalog.buildCosts ?? this.buildCosts;
-    if (!this.selectedCrop && catalog.crops[0]) this.selectCrop(catalog.crops[0].id);
+    // A seed is NOT chosen here, and that line cost real money for as long as
+    // it existed. It picked `crops[0]` — Carrot Row, by catalogue order rather
+    // than by anything the player did — and *sent* it, so the shop's standing
+    // answer to "what goes back in the bed" was set by a page load. Plant
+    // tomatoes, refresh (or lose wifi for four seconds, or get a hot reload),
+    // harvest: the bed comes back carrots and you are charged for the seed.
+    // Nothing on screen ever said a seed was selected at all, so it read as
+    // the game replanting at random.
+    //
+    // The selection is the server's now and only ever mirrored down — see
+    // `update`. Nothing chosen falls back to replanting what you just picked,
+    // which is what a player who has never touched a seed picker expects.
     this.renderHotbar();
     // If a section is open, redraw it so newly-added content appears instantly.
     // A fixture menu isn't a section and refreshes itself from the snapshot.
@@ -170,7 +213,7 @@ export class UI {
 
   toggleBuild(on = !this.buildOn, { quiet = false } = {}) {
     this.buildOn = on;
-    this.buildRot = 0;
+    this.resetRot();
     // Build mode owns the bar while it is on, and hands it back to nobody when
     // it goes off — the roster does not come back just because you stopped
     // building, since you never asked for it.
@@ -198,8 +241,11 @@ export class UI {
     // the fixture visibly turning is the feedback, and announcing a mode change
     // either side of it says twice as much as happened.
     if (quiet) return;
+    // Says the keys have changed hands, because that is the one thing about
+    // build mode you cannot find out by pointing at something: WASD stops
+    // walking you and starts moving the view.
     this.toast(on
-      ? 'Build mode — tap anything you already own to open it, or tap bare ground to build'
+      ? 'Build mode — tap bare ground to build, tap anything you own to open it · WASD moves the view'
       : 'Back to shopkeeping');
   }
 
@@ -309,7 +355,7 @@ export class UI {
     this.buildTool = t.kind ?? t.id;
     this.buildPiece = t.piece ?? '';
     this.buildStation = t.station ?? '';
-    this.buildRot = 0;
+    this.resetRot();
     // Follow the entry to its tab when it isn't on the one you're looking at.
     // Selections arrive from off-bar too — the server disarms Clear by kind —
     // and a lit button on a hidden tab is an armed tool nothing on screen names.
@@ -406,7 +452,7 @@ export class UI {
     const t = buildTools(this).find((x) => x.kind === serverTool);
     this.buildPiece = t?.piece ?? '';
     this._toolId = t?.id ?? null;
-    this.buildRot = 0;
+    this.resetRot();
     this.renderHotbar();
   }
 
@@ -557,6 +603,24 @@ export class UI {
 
   rotateBuild() {
     this.buildRot = (this.buildRot + 1) % 4;
+    // Turning it by hand is the whole signal that you want to choose. Without
+    // this the auto-facing would put the ghost straight back the way it was on
+    // the very next frame, and R would read as a key that does nothing.
+    this.rotPinned = true;
+  }
+
+  /**
+   * Back to a facing nobody has chosen yet.
+   *
+   * Every place that resets the angle is a place a *new* choice starts — a tool
+   * picked off the palette, the mode opened, the server disarming us — so the
+   * pin has to reset with it. Otherwise one press of R twenty shelves ago is
+   * still quietly steering the preview, and the auto-facing looks broken in a
+   * way nothing on screen explains.
+   */
+  resetRot() {
+    this.buildRot = 0;
+    this.rotPinned = false;
   }
 
   /**
@@ -855,13 +919,16 @@ export class UI {
     if (this.buildOn) this.renderBuildHint();
   }
 
-  /** "Shelf", "Freezer", "Blender" — what to call this fixture out loud. */
+  /**
+   * "Bakery Case", "Freezer", "Blender" — what to call this fixture out loud.
+   *
+   * The catalog's answer, not the kind's, and the same one the server's log
+   * lines use — see `fixtureLabel`. It reads the piece now, so a second shelf
+   * design is named as itself in the panel heading the way it is drawn as
+   * itself in the world.
+   */
   fixtureName(f) {
-    if (f.kind === 'station') {
-      const words = String(f.station ?? 'appliance').replace(/-/g, ' ');
-      return words.charAt(0).toUpperCase() + words.slice(1);
-    }
-    return FIXTURES[f.kind]?.label ?? 'Fixture';
+    return fixtureLabel(this.catalog?.fixtures ?? [], f);
   }
 
   /**
@@ -893,11 +960,6 @@ export class UI {
     this.selectBuildTool(t.id);
   }
 
-  selectCropByIndex(i) {
-    const c = this.catalog.crops[i];
-    if (c) this.selectCrop(c.id);
-  }
-
   // ---- sections ------------------------------------------------------------
   //
   // One renderer for every list in the game. Sections describe rows and never
@@ -915,7 +977,12 @@ export class UI {
     if (!sec) return;
     // Coming from a different menu means a clean slate. Coming back to the same
     // one — a live content update, a price change — keeps what you typed.
-    if (this.openPanel !== id) { this.releaseMenuMode(); this.clearFilter(); this.tab = 0; }
+    // Arriving from somewhere else is a clean slate, and a clean slate is what
+    // earns the caret — see `showFilter`.
+    if (this.openPanel !== id) {
+      this.releaseMenuMode(); this.clearFilter(); this.resetTab();
+      this._filterFresh = true;
+    }
     this.openPanel = id;
     this.setFixtureRef(null);
     this.workerRef = null;
@@ -927,6 +994,53 @@ export class UI {
     this.paintSection();
     this.renderHotbar();
   }
+
+  /**
+   * WHICH TAB IS SHOWING — BY NAME, NEVER BY POSITION.
+   *
+   * A bucket with nothing in it is never drawn (`grouped`), so a section's tabs
+   * are not a fixed row: which slot a tab sits in is a fact about the rest of
+   * the shop. The supplier is where that bites. Order one thing and On-the-way
+   * comes into existence *above* whatever you were browsing, so an index that
+   * meant Rest a tick ago now means the one item you just bought — the whole
+   * catalogue gone, out of a press whose entire job was to buy one loaf. It
+   * reads as the panel having died rather than as a tab change, because nothing
+   * moved on screen except the list, and the way back is an icon you have no
+   * reason to think you left.
+   *
+   * So the tab you are on is remembered as its LABEL and re-found on every
+   * repaint. Falling back to the old index is what happens when the tab you
+   * were on has genuinely gone — Short emptying because you just fixed it —
+   * where its slot is the closest thing to where you were standing.
+   *
+   * Assigning `ui.tab` is still how anything else picks a tab (`vanLead` jumps
+   * to the van list). The setter drops the remembered name for exactly that
+   * reason: an index handed in from outside means *this* position, right now,
+   * and is pinned to whatever it landed on here.
+   */
+  tabIndex(groups) {
+    const named = groups.findIndex((g) => g.label === this._tabName);
+    const want = Math.min(Math.max(0, this._tab ?? 0), groups.length - 1);
+    // Where a menu with nothing remembered opens: the first tab, unless that
+    // tab is one you can only read. On a quiet morning nothing is Short, so the
+    // supplier's first bucket is the van — and it opened onto the one thing you
+    // had just ordered with the catalogue nowhere on screen. A press names a
+    // passive tab perfectly well; it simply is not what a panel starts on.
+    const first = groups.findIndex((g) => !g.passive);
+    const at = named >= 0 ? named
+      : (this._tabPick || first < 0 || !groups[want].passive) ? want : first;
+    this._tab = at;
+    this._tabName = groups[at].label;
+    return at;
+  }
+
+  /** No choice made: the next paint decides, and may skip a passive tab. */
+  resetTab() { this._tab = 0; this._tabName = null; this._tabPick = false; }
+
+  get tab() { return this._tab ?? 0; }
+
+  /** A tab asked for by position — a press, or `vanLead` jumping to the van. */
+  set tab(n) { this._tab = n; this._tabName = null; this._tabPick = true; }
 
   paintSection() {
     const sec = sectionById(this.openPanel);
@@ -951,7 +1065,7 @@ export class UI {
     // tab you are on is part of what is on screen, not just part of drawing it.
     let at = 0;
     if (groups) {
-      at = Math.min(this.tab ?? 0, groups.length - 1);
+      at = this.tabIndex(groups);
       tabs = `<div class="tabs">${groups.map((g, n) => `
         <button class="tab${n === at ? ' on' : ''}" data-tab="${n}" title="${esc(g.label)}"
           aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`;
@@ -969,11 +1083,28 @@ export class UI {
     // that kept its offset would leave you scrolled past three results.
     this.showPanel(sec.title, tabs + body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''),
       `section:${this.openPanel}:${tabs ? at : ''}:${this.query}`);
-    this.el.filter.hidden = !filterable;
+    this.showFilter(filterable);
     this.wireRows(rows);
     this.el.panelBody.querySelectorAll('[data-tab]').forEach((el) => {
       el.onclick = () => { this.tab = Number(el.dataset.tab); this.paintSection(); };
     });
+  }
+
+  /**
+   * Redraw whatever is open, whichever kind of menu that is.
+   *
+   * The search box is ONE element that outlives every panel — it has to be, or
+   * typing into it would rebuild the input it is typing into and take the caret
+   * with it — so it cannot be wired to a particular menu's repaint. It asks
+   * here instead. A fixture menu is the only other filterable one today; a
+   * section is the default because `paintSection` no-ops on anything that isn't.
+   */
+  repaint() {
+    if (this.openPanel === 'fixture') {
+      if (this.fixtureRef) showFixture(this, this.fixtureRef);
+      return;
+    }
+    this.paintSection();
   }
 
   /**
@@ -996,6 +1127,35 @@ export class UI {
   clearFilter() {
     this.query = '';
     this.el.search.value = '';
+  }
+
+  /**
+   * The search box, up or down — and the caret in it the first time it goes up.
+   *
+   * Every menu that filters calls this instead of touching `filter.hidden`,
+   * because the box being visible is not the same question as whether you have
+   * just arrived at it. `showPanel` hides it on every repaint and the caller
+   * puts it straight back, so a plain "it became visible, focus it" would fire
+   * on every keystroke you typed into it and on every 10Hz redraw behind it —
+   * and the redraws are the bad half: focus would be dragged back off whatever
+   * you clicked next, and the next W would type a W instead of walking.
+   *
+   * `_filterFresh` is therefore set at the two places you can *arrive* at a
+   * menu (`showSection` from another one, `showFixture` on another unit) and
+   * spent the first time a box actually appears — which also covers a menu that
+   * opened on a short tab and grew a search box when you changed tabs.
+   *
+   * Not on a touch screen: there the caret is a keyboard over the bottom half
+   * of the panel you just opened, which nobody asked for by tapping a shelf.
+   */
+  showFilter(on) {
+    this.el.filter.hidden = !on;
+    if (!on || !this._filterFresh) return;
+    this._filterFresh = false;
+    if (matchMedia('(pointer: coarse)').matches) return;
+    // `preventScroll` because focus otherwise scrolls the box into view, and
+    // the box is inside a panel that has its own remembered scroll offset.
+    this.el.search.focus({ preventScroll: true });
   }
 
   /**
@@ -1064,6 +1224,55 @@ export class UI {
   itemById(id) { return this.catalog.items.find((i) => i.id === id) ?? null; }
 
   /**
+   * How many of a thing are standing on the shop's shelves right now.
+   *
+   * Up here rather than in whichever panel wanted it first, because two menus
+   * now print "how many have I got" and two spellings of that is how the
+   * supplier ends up disagreeing with the shelf you are stood at. The supplier
+   * asks this one on its own — "running low" is a fact about a *board*, and a
+   * crate in the yard has not filled anything.
+   */
+  heldOf(itemId) {
+    let n = 0;
+    for (const s of this.state?.shelves ?? []) {
+      for (const k of s.stacks ?? []) if (k.item_id === itemId) n += k.qty ?? 0;
+    }
+    return n;
+  }
+
+  /**
+   * ...and how many are in the shop but NOT on a board.
+   *
+   * Crates on the floor and armfuls in hands — goods you have already paid for
+   * that are not earning anything where they are. Its own function rather than
+   * folded into `heldOf` because the two answer opposite questions: `heldOf`
+   * says whether a shelf needs filling, and this says whether there is anything
+   * to fill it WITH, which is the one that decides what a board should be
+   * kept for.
+   */
+  /**
+   * Whoever you are, out of the latest snapshot.
+   *
+   * `main.js` needs it to ask "am I stood at that crate", which decides which
+   * message a press sends. One spelling of "which of these players is me", so a
+   * second copy cannot go looking in a stale `state`.
+   */
+  me() {
+    return (this.state?.players ?? []).find((p) => p.id === this.net.myId) ?? null;
+  }
+
+  spareOf(itemId) {
+    let n = 0;
+    for (const d of this.state?.deliveries ?? []) if (d.item_id === itemId) n += d.qty ?? 0;
+    for (const p of this.state?.players ?? []) {
+      for (const hands of [p.carry, p.haul]) {
+        if (hands?.item_id === itemId) n += hands.qty ?? 0;
+      }
+    }
+    return n;
+  }
+
+  /**
    * How much the world wants this particular item right now.
    *
    * The demand meter says a *tag* is hot, which is only half an answer — you
@@ -1106,6 +1315,20 @@ export class UI {
     const out = [];
     const shelves = state.shelves ?? [];
     const plots = state.plots ?? [];
+
+    // Above everything, and it has to be: a shop with its shutters down cannot
+    // fail to serve a hot tag, cannot run a shelf bare and cannot turn anybody
+    // away, so every other chip in here goes quiet at exactly the moment the
+    // shop is doing nothing at all. A new world starts shut, so this is the
+    // first thing it ever says — and "no customers are coming" is otherwise a
+    // silence you have to diagnose.
+    //
+    // The SHUTTERS, not `isOpen`: reading the latter would put this chip up
+    // every single night, nagging about a shop that is shut because it is four
+    // in the morning. A to-do you cannot do is noise.
+    if (state.shutters === false) {
+      out.push({ icon: 'shop', hot: true, text: 'The shop is <b>shut</b> — open up (O)' });
+    }
 
     // Only tags you're actually failing to serve. A hot tag you already have
     // three shelves of isn't news, it's just the day going well.
@@ -1156,10 +1379,73 @@ export class UI {
     return out.slice(0, 3);
   }
 
+  /**
+   * Choose the seed a picked bed goes back to.
+   *
+   * Nothing on screen calls this today, and that is the honest state of it: a
+   * bed's own menu names its crop when you sow, and the server treats that as
+   * the choice, so the only two callers this ever had were a boot default and
+   * an unlabelled number key — neither of which was anybody choosing anything.
+   * Kept because it is the client half of `select-crop`, and because a seed
+   * picker that is visible is a thing somebody may well want back.
+   */
   selectCrop(id) {
     this.selectedCrop = id;
-    // The server plants from its own copy — this only chooses.
+    // The server plants from its own copy, and mirrors it back down in the
+    // snapshot. Setting it here too is just so the picker doesn't lag a tick.
     this.net.send('select-crop', { cropId: id });
+  }
+
+  /** Raise or drop the shutters. The server decides; this only asks. */
+  setOpen(open) { this.net.send('shop-open', { open: !!open }); }
+
+  /** Stop or start the world. Same shape, same reason — see `shopOpen`. */
+  setPaused(paused) { this.net.send('pause', { paused: !!paused }); }
+
+  /**
+   * The hour, and the two buttons that are now attached to it.
+   *
+   * Each button shows what it DOES rather than what is true — a shut door when
+   * pressing it would shut the shop — which is the way round every play/pause
+   * control in the world already works, and the way round the state is *not*
+   * said, since the state is already said twice beside it (the clock struck
+   * through, the button gone green). The words are in `title`, so the one place
+   * this is ambiguous is the place a tooltip resolves it.
+   *
+   * The icons are diffed before they are written. `textContent` was safe to set
+   * ten times a second; `innerHTML` re-parses an SVG and throws the old node
+   * away, and a button whose contents are replaced under the pointer can drop
+   * its own `:hover`.
+   */
+  setClock(state) {
+    const hour = state.time * 24;
+    const h = Math.floor(hour);
+    const m = Math.floor((hour - h) * 60);
+    this.el.clock.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
+    // The BUTTON is about the shutters and the CLOCK is about whether anybody
+    // is being served, and those come apart every night: at 22:00 with the
+    // shutters up the clock is struck through and the button still offers to
+    // close, because there is nothing for you to do about the hour. Reading one
+    // value for both would have the button offer to open a shop that is already
+    // open, twelve hours a day.
+    this.shopOpen = state.shutters ?? state.isOpen ?? true;
+    this.paused = !!state.paused;
+
+    const key = `${!!state.isOpen}|${this.shopOpen}|${this.paused}`;
+    if (key === this._clockKey) return;
+    this._clockKey = key;
+
+    this.el.clock.classList.toggle('shut', !state.isOpen);
+    this.el.clock.classList.toggle('paused', this.paused);
+
+    this.el.btnOpen.innerHTML = this.shopOpen ? ICONS.shut : ICONS.open;
+    this.el.btnOpen.title = this.shopOpen ? 'Close the shop (O)' : 'Open the shop (O)';
+    this.el.btnOpen.classList.toggle('go', !this.shopOpen);
+
+    this.el.btnPause.innerHTML = this.paused ? ICONS.play : ICONS.pause;
+    this.el.btnPause.title = this.paused ? 'Start the clock (P)' : 'Stop the clock (P)';
+    this.el.btnPause.classList.toggle('on', this.paused);
   }
 
   /**
@@ -1199,11 +1485,7 @@ export class UI {
     this.el.rep.style.width = `${Math.round(state.reputation * 100)}%`;
     this.setGauges(state);
 
-    const hour = state.time * 24;
-    const h = Math.floor(hour);
-    const m = Math.floor((hour - h) * 60);
-    this.el.clock.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    this.el.clock.classList.toggle('shut', !state.isOpen);
+    this.setClock(state);
 
     const me = state.players.find((p) => p.id === this.net.myId);
     // ...and what to do with it, because that is the half nothing else on screen
@@ -1211,10 +1493,28 @@ export class UI {
     // so "carrying six loaves" was the whole story; now it goes where you point
     // it, and the chevrons showing which shelves will take it are no use to
     // somebody who does not know a tap is what spends them.
-    this.el.carry.textContent = me?.carry
-      ? `carrying ${me.carry.qty}x ${this.itemName(me.carry.item_id)} — tap where it goes`
-      : '';
+    // A crate says something different from an armful, and the difference is
+    // the thing a player has to be told: your hands are full of box, so the
+    // chevrons are gone and the only move is to put it down. "Tap where it
+    // goes" would be a lie — there is no shelf that will take it from here.
+    this.el.carry.textContent = me?.haul
+      ? `carrying a crate of ${me.haul.qty}x ${this.itemName(me.haul.item_id)} `
+        + '— tap an empty square to set it down'
+      : me?.carry
+        ? `carrying ${me.carry.qty}x ${this.itemName(me.carry.item_id)} — tap where it goes`
+        : '';
     this.updatePrompt(me?.action ?? null);
+    // Which seed is chosen is the SERVER's answer, mirrored down rather than
+    // kept alongside. Two copies of it disagreed in both directions: sowing
+    // from a bed's own menu is a choice ("choosing it here is choosing it", in
+    // `sow`) that never reached the picker, and the client's own copy could be
+    // pushed back up over it. The one it decides is the auto-replant, so a
+    // stale copy is a bed that comes back as something you did not ask for and
+    // a seed you paid for — see `setCatalog`.
+    if ((me?.selectedCrop ?? null) !== this.selectedCrop) {
+      this.selectedCrop = me?.selectedCrop ?? null;
+      this.renderHotbar();
+    }
     this.ownedUpgrades = state.ownedUpgrades ?? this.ownedUpgrades;
     // The build bar shows how many of each you own. Keeping it here rather
     // than only in the bar means the rail's badges can read it too.
@@ -1252,7 +1552,14 @@ export class UI {
     if (heldId !== this._heldId) {
       this._heldId = heldId;
       this.holding = me?.holding ?? null;
+      // What's in your hands changing is a new placement decision either way —
+      // one starting, or one finished — so the facing starts over with it. The
+      // angle carries (a lifted unit arrives wearing its own, which is the
+      // right thing for `faceAlong` to break ties toward) but the *pin* must
+      // not: an R pressed twenty shelves ago would otherwise follow you into
+      // the errand and stop a moved unit facing the wall you set it against.
       this.buildRot = this.holding?.rot ?? this.buildRot;
+      this.rotPinned = false;
       this.renderHotbar();
       // Hands full is the lift landing. Hands empty again is the errand over,
       // however it ended — set down, put back, or the mode dropped underneath.
@@ -1406,7 +1713,7 @@ export class UI {
    * all you wanted was to clear a search box.
    */
   escape() {
-    if (this.openPanel && this.query) { this.clearFilter(); this.paintSection(); return; }
+    if (this.openPanel && this.query) { this.clearFilter(); this.repaint(); return; }
     if (this.openPanel) { this.closePanel(); return; }
     // The roster bar is a rung of its own. It arms nothing and owns no world
     // state, so it comes off before anything that does — and it is the only

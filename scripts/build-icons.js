@@ -52,6 +52,12 @@ const WANTED = {
 
   // what you can do to a fixture
   tierup: 'game-icons:progression',
+  // The same glyph, mirrored — see `flip` below. The set has no descending
+  // counterpart to `progression`, and the near misses (`armor-downgrade`,
+  // `team-downgrade`) are pictures of something else with an arrow on them:
+  // beside a rising chart they would read as two different subjects rather than
+  // as one ladder with two directions.
+  tierdown: { ref: 'game-icons:progression', flip: 'x' },
   move: 'game-icons:grab',
   rotate: 'game-icons:clockwise-rotation',
   empty: 'game-icons:broom',
@@ -69,10 +75,23 @@ const WANTED = {
   ambient: 'game-icons:mason-jar',
   cold: 'game-icons:snowflake-2',
   fixtures: 'game-icons:cog',
+  // The shop's own shortlist, and the switches. `settings-knobs` rather than a
+  // second cog on purpose: Shape already wears `cog` and the two tabs sit next
+  // to each other, so one gear beside another gear is a row you have to read.
+  quick: 'game-icons:sparkles',
+  settings: 'game-icons:settings-knobs',
 
   // interface chrome
   search: 'ri:search-line',
   close: 'ri:close-line',
+  // The two switches on the clock. Remix rather than game-icons even though a
+  // door is a thing in the world: these sit in the HUD next to the search and
+  // close glyphs, and one hand-drawn dungeon door among them would read as a
+  // fixture you can buy rather than as a button.
+  open: 'ri:door-open-fill',
+  shut: 'ri:door-closed-fill',
+  pause: 'ri:pause-fill',
+  play: 'ri:play-fill',
 };
 
 const sets = {};
@@ -86,17 +105,29 @@ const load = (set) => {
 const missing = [];
 const out = {};
 
-for (const [key, ref] of Object.entries(WANTED)) {
+for (const [key, want] of Object.entries(WANTED)) {
+  // A name is either `set:icon` or that plus a mirror. Deriving the second
+  // glyph from the first is the same argument `client/thumb.js` makes about
+  // drawing a fixture from its own row: a pair that must read as one action in
+  // two directions has to *be* one drawing, or the day somebody swaps the up
+  // arrow the down one quietly stops matching it.
+  const { ref, flip = null } = typeof want === 'string' ? { ref: want } : want;
   const [setName, iconName] = ref.split(':');
   const set = load(setName);
   const icon = set.icons[iconName];
   if (!icon) { missing.push(ref); continue; }
   const w = icon.width ?? set.width ?? 24;
   const h = icon.height ?? set.height ?? 24;
+  // Mirrored about the middle, so it lands back inside the same viewBox.
+  // Horizontally by default and by design: these are drawn standing on a
+  // baseline, and flipping one top-to-bottom hangs it from the ceiling.
+  const body = flip
+    ? `<g transform="${flip === 'y' ? `translate(0,${h}) scale(1,-1)` : `translate(${w},0) scale(-1,1)`}">${icon.body}</g>`
+    : icon.body;
   // width/height in em so every existing font-size rule keeps sizing them, and
   // currentColor so they inherit whatever the button is already coloured.
   out[key] = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" `
-    + `width="1em" height="1em" fill="currentColor" aria-hidden="true">${icon.body}</svg>`;
+    + `width="1em" height="1em" fill="currentColor" aria-hidden="true">${body}</svg>`;
 }
 
 if (missing.length) {

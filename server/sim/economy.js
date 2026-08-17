@@ -241,6 +241,33 @@ export function purchaseChance({ item, archetype, price, folded, season, reputat
 }
 
 /**
+ * How determined somebody is about the thing they left the house for.
+ *
+ * `purchaseChance` is a *browse* — the odds that something you happened to walk
+ * past is tempting enough — and the `/ 2.2` above is what makes it one: a fair
+ * price and a healthy affinity comes out around a quarter, because most of what
+ * a shopper walks past should stay on the shelf. Rolling a staple against that
+ * same number is the bug this exists to fix. A Budget Parent whose staple is
+ * `dairy` had a 24% chance of taking fairly-priced milk off the only dairy
+ * shelf in the shop, and the other 76% were logged to the player as *"came in
+ * for dairy and you had none"* — see `Game.failLine`. Milk matches one affinity
+ * at 0.6, so no amount of stocking or pricing could move it.
+ *
+ * The curve is "they will look at more than one before giving up": one browse
+ * repeated `STAPLE_RESOLVE` times. It is deliberately a transform of the browse
+ * odds rather than a number of its own, because that keeps the two properties
+ * that matter. Priced out is still priced out — 0 maps to 0, so an overpriced
+ * staple is refused exactly as hard as it was, and the ladder of consequences
+ * for gouging is untouched. And everything that already moves a purchase —
+ * reputation, a world event, the season, a bargain — still moves this, in the
+ * same direction, without a second formula to keep in step.
+ */
+const STAPLE_RESOLVE = 3;
+export function stapleChance(browse) {
+  return clamp(1 - (1 - clamp(browse, 0, 1)) ** STAPLE_RESOLVE, 0, 0.97);
+}
+
+/**
  * Score every stocked shelf for a customer and return the ones worth walking to,
  * best first. Used by the customer FSM to pick a destination.
  */
@@ -312,6 +339,17 @@ export function pull({ reputation, folded }) {
  * such thing as building something the town could not support.
  *
  * Now the ceiling is the town's, and moving it is what an upgrade is for.
+ *
+ * Three things move it, and they are all the same sentence — how far away
+ * somebody would come from. An upgrade is a better address, `charmReach` is a
+ * shop worth crossing town for, and `parkReach` is somewhere to put the car. The
+ * two you can *build* both saturate against a ceiling of their own
+ * (`Game.catchment`), because a term you can pour ground or pot plants into
+ * without limit is not a town, it is a printing press.
+ *
+ * None of that makes it a term shopkeeping moves. Restocking, pricing and
+ * serving still cannot touch it — they are `pull`, they are bounded by 1.0, and
+ * that is still the whole reason the split is here.
  */
 export function footfall({ day, hourFraction, reputation, folded, catchment = 16 }) {
   // Weekends are busier — more of the town is out and about, not a keener town.

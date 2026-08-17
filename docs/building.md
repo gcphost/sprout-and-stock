@@ -283,6 +283,54 @@ export const PieceSchema = z.object({
 written: **tiers cost money and change numbers, variants are taste.** A brass
 sconce and an iron one are variants of one piece; a brighter sconce is a tier.
 
+### A piece that is doing something
+
+**Built**, and the smallest change in here that fixes a real complaint: an
+appliance mid-batch and one nobody has loaded since Tuesday drew the same
+picture. The only thing that said otherwise was the row of ingredient ghosts
+above it *going away* — an absence, in a shop full of things.
+
+Two fields, and the interesting part is why it is two.
+
+```js
+  /** What it looks like while it is WORKING. Stages driven by the batch, not the tier. */
+  work: ModelSchema.nullable().default(null),   // ...and the same on each variant
+
+  // ...on a PART, inside either model:
+  motion: z.object({
+    kind:   z.enum(['spin', 'bob', 'shake', 'pulse']),
+    hz:     z.number().min(0.05).max(12).default(1.5),
+    amount: z.number().min(0).max(1).default(0.05),
+  }).nullable().default(null),
+```
+
+`work` is a **second model** because one resolver takes one number and there are
+two quantities. `model`'s 0..1 is the tier ladder — a Commercial machine is
+stage 2 of its own art — and how far through a batch it is runs 0..1 on a clock
+of its own. So dough → risen → browned is three stages of `work`, and it has
+nothing to do with which rung you are on. It rides in the machine's own model
+space, so a puff authored at the spout comes out of the spout; a part in there
+flagged `drift` is steam, which is the loop the pastime prop already had.
+
+It sits on the variant as well as the piece for the reason `model` does: every
+appliance in the game is a variant of one `station` piece, so without it six of
+the seven machines steam out of the same corner. The fallback is the piece's
+own, which is what lets one generic "a light and some steam" cover whatever
+nobody has drawn yet.
+
+`motion` is a **flag on a part**, the same shape as `surface`, `drift` and
+`alpha` — one renderer knows how to read it, and there is no second kind of
+model. It runs while the thing it belongs to is *working*, and a thing that has
+no idea what working means always runs. That second half is deliberate: only a
+`station` can be busy today, so without it the field would silently do nothing
+on every other kind, which is the "tier that changes no number" trap wearing a
+different hat. It is also what makes a ceiling fan an authoring job rather than
+a code one.
+
+None of it moves a number, nothing in the sim reads either field, and a piece
+with neither draws exactly as it did — which is why no balance run was needed
+for any of it.
+
 ### Lights
 
 **Built.** `emits` is content; honouring it is code, in `client/render/lights.js`
@@ -392,6 +440,26 @@ names that machine. It stays the exemplar rather than the pattern.
 land. It was already the only one that made the building bigger rather than
 fuller; it is now the only structural upgrade at all, which is why `buyUpgrade`
 re-flows for `space` and for nothing else.
+
+**And a ladder goes both ways.** `upgradeFixture` read one direction for as long
+as it existed: a rung bought by mistake was undone by selling the whole unit and
+building it again, which loses the stock, the reservations and the tile — three
+things that have nothing to do with the tier. `downgradeFixture` is the same one
+call the other way, through the same `repositionFixture` a move and a rotate go
+through, so what changes is one number.
+
+Two things about it are not obvious. The refund is half of the rung you step
+**off**, never the one you land on: a ladder whose rungs get dearer as it climbs
+would otherwise be a press — buy the $260 rung, step down, collect half of $90,
+repeat — and half of the rung you leave means every circuit costs money whichever
+way it is walked. And a tier is not only a multiplier: `boardsOf` reads the art
+*at the tier*, so a shipped freezer draws 2, 2, 3 boards, and stepping down can
+take away how many KINDS a unit holds as well as how much of one. Nothing in the
+game had ever made a fixture smaller, so nothing had ever checked — `tierShortfall`
+refuses, before the money moves, and says how much to take off. Refusing rather
+than tipping the excess into a crate is the call `removeFixture` already makes
+with "empty it first": a verb that quietly rearranges your stock is one you
+cannot undo by pressing it again.
 
 The `world.fixtures` ledger retired. You pay when you place and get
 `FIXTURE_REFUND` back when you tear out — both of which were already true — and
@@ -550,6 +618,132 @@ Two things it changed here, both small and both worth keeping:
   out. A pad that seeds itself is answering "this shop cannot work without one";
   a pad that doesn't is answering "this is worth building".
 
+### A way through, and who it is for
+
+**Proposed** — step 15, and the first time an edge means something different
+depending on who is standing at it.
+
+The break area is a room for the staff that any shopper may walk into. So is a
+stockroom, and so will a kitchen be. Enclosure gave us rooms, floors made them
+usable, and there is still no way to say **this one is not for customers** —
+which is most of what a back-of-house *is*.
+
+#### Staff-only is a property of a way through, not a new kind of wall
+
+The obvious build is two more palette buttons: Staff Doorway, Staff Gate. It is
+the wrong shape, for the reason the tier ladder is not five separate shelves.
+You do not know a door should be staff-only when you draw it — you find out
+after the room exists, usually while watching somebody wander through it. A
+palette button asks the question at the one moment you cannot answer it, and
+gets you a shell with two kinds of opening in it that look identical and were
+chosen by whichever button you happened to have up.
+
+So it is a **toggle on the opening you already built**: aim at a doorway or a
+gate, open its menu, flip Staff only. The same gesture on both, because
+"customers do not come through here" is one idea and a fence is as good a place
+to say it as a wall. That also settles a question this doc did not think to ask
+— the farm. A gate is how you get into a fenced field, and a staff gate is how
+you keep the shop floor out of it.
+
+The honest qualification: **nothing in the sim walks the farm today.** A shopper
+paths to a `browseAt`, to a till, and to the door, and that is the whole list.
+A staff gate therefore changes no behaviour on the day it ships. It is worth
+building anyway, because the alternative is that the day something *does* send a
+shopper outdoors, the answer is a new mechanic rather than a switch that was
+already there — and because the player reading the palette has no way to know
+which of the two it is.
+
+#### It is authored as a toggle and stored as a kind
+
+`edgesV` and `edgesH` are `Uint8Array` of kind — one number per lattice line,
+and no room in it for a second bit. So the toggle writes `E.DOOR_STAFF` or
+`E.GATE_STAFF`, two more entries in the closed vocabulary, and the menu is a
+`build-edge` at that line with a different kind. Nothing about storage,
+persistence, `withEdge`, `deriveEdges` or the renderer learns a new concept.
+
+That split is the point rather than an implementation detail. The player is
+offered a *property*, because that is what it is to them; the representation
+stays one array lookup, because `SOLID.has(edgeBetween(...))` is in the inner
+loop of A\* and runs a few thousand times per path. The rejected alternative — a
+parallel `private` mask beside the two edge arrays — would have to be threaded
+through the layout, the save, the snapshot, every "what if" probe and both
+migration paths, to avoid spending two enum values.
+
+An existing save needs nothing: an edit is `{o, x, z, k}` and `k` is a number.
+
+#### The one genuinely new idea: `SOLID` stops being the only answer
+
+Everything else here is filling in tables. This is not. Today a wall is a wall
+to everybody, and only four places ever ask:
+
+| Where | Who is walking | Reads |
+|---|---|---|
+| `findPath` (`server/sim/pathing.js`) | everyone | must become per-caller |
+| `canWalk` (`server/sim/index.js`) | the player only | stays `SOLID` |
+| `growLane` (`shared/build.js`) | queueing shoppers | shopper rules |
+| `whatThisBlocks` (`shared/build.js`) | the flood from the door | stays `SOLID` — see below |
+
+`findPath` is shared by customers, staff and the player, and nothing on an
+entity says which it is. Cheapest honest answer: a `solid` option on `findPath`,
+chosen in `Game.pathTo`, keyed off the one field only a shopper has
+(`archetype_id`). Six of its eight call sites are customers.
+
+Enclosure is the other half, and the two are independent on purpose — `SOLID`
+and `ENCLOSING` have always been separate sets. A staff **doorway** goes in
+`ENCLOSING`: leave it out and your stockroom is a patio, every shelf in it is
+refused, and the refusal reads "something is already there", which sends you
+looking in the wrong place. A staff **gate** stays out of it, for the reason
+every fence stays out of it: fencing a field must never roof it.
+
+#### Two traps, both in the warnings
+
+**"That seals the shop" has to become a shopper question.** `canPlaceEdges`
+floods from the spawn to the door with `SOLID`. Unchanged, you can turn your
+front door staff-only and the game says nothing at all while no customer can
+ever enter again — a shop that looks completely normal and takes no money.
+
+**The fixture-stranding flood underneath it must *not* change.** If that also
+went shopper-solid, every shelf you ever stand in a stockroom would warn "that
+cuts a shelf off from the door" on every wall you drew afterwards, for ever,
+about something you did deliberately. Same argument `whatThisUnroofs` already
+makes: report what the action *changes*, not what was already true.
+
+Beyond those two, the sim needs no defending. A shelf a shopper cannot reach
+simply never sells — they write it off and pick another — which is the
+`canPlace` bargain (warn, don't refuse) collecting on a promise it made in step
+3.
+
+#### The toggle is not free, and that is a decision, not a bug
+
+`buildEdge` charges `EDGE_COST[new] − EDGE_COST[old] × FIXTURE_REFUND`. Price a
+staff doorway identically to a doorway and flipping the toggle still costs half
+a door — and flipping it back costs half a door again. A switch that quietly
+bills you $17 for changing your mind is not a switch.
+
+Two ways out, and this doc picks the second: price the lock honestly and accept
+that fitting one is a purchase, or teach `buildEdge` that swapping within a
+family (door ↔ staff door) is a **refit** that charges the difference and
+refunds nothing, because you still have the door. The refit is the smaller lie:
+per-edge pricing exists so a window over a wall charges the gap, and this is the
+same claim about the same line.
+
+#### What a sweep has to hold
+
+None of this is visible in a screenshot — a staff door and a door are the same
+geometry, and the whole feature is about somebody who *didn't* walk somewhere.
+`verify:staff` would pin: a staff doorway encloses exactly as a doorway does and
+a staff gate encloses exactly as a gate does; one edge, crossed by a hire and
+refused to a shopper; a break area behind one still reachable by staff (or you
+have re-created the `TIRED_PACE` pin `verify:break` exists to catch); sealing
+the entrance with one warns rather than refuses; and a till's queue never grows
+through one.
+
+#### What it is not
+
+Passability, not privacy. The room is still indoors, a shelf in it is still a
+legal shelf, and a shopper can still see in. If "customers cannot see the
+stockroom" ever matters, that is a rendering question and a different feature.
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:
@@ -670,6 +864,16 @@ the number.
     "build your own shop" that decides what counts as inside, and this is the
     half that decides what you can put there. See above for the three decisions
     that kept it small.
+14. **The yard stops being furniture.** *Built.* The bay and the drop-off become
+    designs for the floor brush, `layout.floors` becomes `layout.ground`, and
+    `freezeYard` marks a shop as seeded with a boolean rather than a count. The
+    break area is the same step's third pad. See above, and step 9 of
+    docs/workers.md.
+15. **Staff-only ways through.** A toggle on a doorway or a gate, stored as two
+    more edge kinds, which makes `SOLID` the first rule in the game whose answer
+    depends on who is asking. Additive and independent of 12 — nothing here
+    touches the catalog. See above for the pricing decision it needs and the two
+    warnings it has to fix.
 
 ---
 

@@ -24,6 +24,7 @@ const EXPORTS = [
   ['fixtures.json', 'fixtures'],
   ['workers.json', 'workers'],
   ['pastimes.json', 'pastimes'],
+  ['vehicles.json', 'vehicles'],
   ['skins.json', 'skins'],
 ];
 

@@ -138,7 +138,7 @@ Four tiers, top to bottom, all in `#build-bar`. Two of them come and go:
 | Tier | Element | Build | Roster |
 |---|---|---|---|
 | Category | `#build-groups` | `BUILD_GROUPS` — Shop, Farm, Appliances, Building, Decoration | Everyone, then one per kind actually hired |
-| Part | `#build-subs` | a split group's `subs` — Building is Walls, Floors, Yard | unused |
+| Part | `#build-subs` | a split group's `subs` — Building is Walls, Floors, Yard, Staff, Customers; Decoration is Greenery, Lighting, Signs, Odds and ends | unused |
 | Entries | `#build-tools` | palette entries. `1`–`9` reach the first nine | one per hire, note = what they are doing now |
 | Choice | `#build-shapes` | `variantsOf` the piece, when there are two or more | unused |
 
@@ -153,14 +153,41 @@ and collected the floor catalogue and both yard pads on top, so it was a dozen
 entries and the only tab you had to scroll — which hides its far end behind a
 gesture nobody makes on a strip that looks complete. `subs` on a `BUILD_GROUPS`
 entry is the same tab shape one level down, drawn by the same code, resolved by
-the same two rules: an empty sub-tab is dropped, and a group left with fewer
-than two shows its flat list instead. So a world where nobody has authored a
-floor sees Building exactly as it was. A tool names its sub-tab beside its group
-(`sub: 'walls'`), one that names none falls to the first — the same "misfiled
-beats invisible" default `group` already has — and a pinned entry is on all of
-them, because "get rid of that" is not a question about which part of the
-building it is. Depth stops there: two levels is as far as you can go and still
-see where you are.
+the same three rules: a tab that FITS is left alone, an empty sub-tab is
+dropped, and a group left with fewer than two shows its flat list instead. So a
+world where nobody has authored a floor sees Building exactly as it was. A
+pinned entry is on all of them, because "get rid of that" is not a question
+about which part of the building it is. Depth stops there: two levels is as far
+as you can go and still see where you are.
+
+**"Fits" is `KEYED`** — the same nine that decides how many entries wear a
+number. At or under it nothing scrolls and every button is one press, so
+splitting can only turn a row you can read into four rows of two you have to
+choose between first. It is a rule about the catalogue rather than about the
+tab, which is the point: the bar changes shape the day the shop outgrows it,
+and never because somebody predicted it would.
+
+**Which sub-tab an entry lands on is asked three ways, and the order is what
+lets one mechanism carry both splits.** A tool that NAMES one wins
+(`sub: 'walls'`) — that is Building, where the filing is a fact about the code,
+since a wall, a floor and a bay are three different kinds. Failing that, a
+sub-tab that asks for a TAG takes anything wearing it — that is Decoration,
+where the filing is a fact about the *content*: `prop-floor` and `prop-ceiling`
+say how a thing attaches, and a planter and a barrel attach identically, so the
+only thing that knows a planter is greenery is its row in the database. Tag
+`plant` and it is under Greenery about a second later, with no edit to the
+client. Failing both, the first sub-tab that asks for no tags takes it. For
+Building that is Walls, which is the "misfiled beats invisible" default `group`
+already has; for Decoration it is Odds and ends, which is the half a tag-driven
+split gets wrong if you leave it out — an untagged piece has to be *somewhere*,
+or the first thing a new decoration does is disappear, and that reads as a
+broken save rather than as a missing word.
+
+The vocabulary is the decision, and it lives in two places on purpose: the tags
+in `TAG_GROUPS.decor` (`shared/tags.js`, beside every other tag in the game) and
+the tabs in `DECOR_SUBS` (`client/sections.js`, where what they are called and
+what icon they wear is a UI question). A tab nobody has authored anything for
+never renders, so declaring one costs nothing until it has something in it.
 
 `UI.barSub` remembers the open sub-tab per group, the way `barTab` remembers the
 open tab per bar, so coming back to Building puts you back on the job you were
@@ -303,6 +330,8 @@ moment it exists.
 | `1`–`9` | the open tab of whichever bar is up, seeds when neither is |
 | `Tab` | next tab of the bar that is up, sub-tabs counting as their own stops (`shift` for back). Prevented hard, or focus lands in the search box |
 | `R` | turn what you're placing |
+| `O` | raise or drop the shutters — the same press as the button on the clock |
+| `P` | stop or start the clock |
 | hold `E` / `Space` | use what you're stood by |
 | hold `Q` | seed wheel |
 | `Esc` | clear the search box → close the menu → close the roster bar → put down what you're carrying → leave build mode |
@@ -720,6 +749,65 @@ by 09:00 — the same shuffling, one layer down. The numbers are therefore an
 index and not a count of shoppers, which is why only `net`, `fill`, `boards` and
 `event` go on the wire and nothing hands the HUD a figure that looks like a
 count and isn't.
+
+### The clock — a readout that became a control
+
+The hour was only ever something to read, because opening was only ever
+something that happened to you: `isOpen()` was `08:00 ≤ hour < 20:00` and
+nothing else. A struck-through clock said what had happened and never that
+anything could be done about it.
+
+Two buttons under it now — a door and a play/pause — because both are decisions
+you make while looking at the hour. What matters is which value each half reads,
+and they are **not the same value**:
+
+| Reads | Is | Because |
+|---|---|---|
+| the clock's strike-through | `state.isOpen` — the shutters **and** the hours | whether anybody is actually being served |
+| the Open/Close button | `state.shutters` — your switch alone | at 22:00 with the shutters up there is nothing for you to do about the hour, and a button offering to "open up" an open shop twelve hours a day is a button that is wrong twelve hours a day |
+| the to-do chip | `state.shutters` | same reason, louder: read `isOpen` and it nags every single night about four in the morning |
+
+The switch can only ever take hours **away** — `isOpen()` is `open && trading()`
+— so it shuts you early rather than trading late. A switch that extended the day
+would make "never close" simply correct, and a button whose right answer is
+always the same is not a decision.
+
+Each button shows what it **does** rather than what is true — a shut door when
+pressing it would shut the shop, the way every play/pause control already works
+— because the state is already said twice beside it (struck through, gone
+green). The words live in `title`, which is where the one ambiguity in that gets
+resolved.
+
+**They started as word buttons and that was the wrong shape three times over.**
+`Open up` and `Close up` are different lengths, so the panel changed width every
+time the shop did and everything to the right of it slid; two labels came to
+~110px in a readout that is otherwise five numbers; and the square icon buttons
+that replaced them read as a settings toolbar, which is the wrong genre for a
+HUD you play through. They are round pips now, 18px, sat beside the clock rather
+than under it — a solid fill and a hard bottom edge that goes away on `:active`,
+which is most of what makes a button feel like a thing rather than a rectangle
+that changed colour. Coloured only when they have something to say: green while
+the shop is shut, red while time is stopped.
+
+The whole of `#stats` came down about a fifth at the same time, and everything in
+it scales together — type, gauge bars, `SPARK_W`/`SPARK_H` in `hud-meters.js`,
+padding. A panel where only some of it shrank reads as a panel with a mistake in
+it, and the sparkline is the one to watch: left alone it becomes the biggest
+thing in the readout, which is the wrong way round for the least urgent number
+in it.
+
+Which exposed the older version of the same fault: **nothing in `#stats` may
+move sideways**, and three cells in it were free to. Every one holds a number
+that changes while you watch it, in one flex row, so a digit a pixel wider than
+the last slides the clock, the buttons and the gauges with it. It needs both
+halves — `font-variant-numeric: tabular-nums` for the per-tick jitter (a `4` is
+not a `0`), and a `min-width` for the jolt when the *digit count* changes going
+past $10,000 or Day 100. A floor that today's value already exceeds does
+nothing, so they are sized to what a shop plausibly reaches.
+
+Both messages send the state they want rather than `toggle`, and `ui.shopOpen` /
+`ui.paused` are mirrors of the server's answer — this is a shop two people
+share, so a toggle can be pressed from two places at once and land as nothing.
 
 ## Badges
 

@@ -44,6 +44,11 @@ export const T = {
   /** Where the staff go when they stop. The first pad that is not about goods:
    *  a bay holds crates and this one holds people, one per cell. */
   BREAK: 13,
+  /** Out front: where a shopper who drove here leaves the car. The first pad
+   *  that belongs to somebody who does not work here — a bay and a drop hold
+   *  the shop's goods, a break area holds the shop's people, and this holds the
+   *  people who came to buy. */
+  PARK: 14,
 };
 
 /**
@@ -51,7 +56,9 @@ export const T = {
  * taken into account. Ask `isWalkableTile` in `shared/build.js` for the whole
  * question; this one only knows about the floor.
  */
-export const WALKABLE = new Set([T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY, T.DROP, T.BREAK]);
+export const WALKABLE = new Set([
+  T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY, T.DROP, T.BREAK, T.PARK,
+]);
 
 /** Ground you can stand a shop fixture on — bare indoor floor and nothing else. */
 export const BUILDABLE_INDOOR = new Set([T.FLOOR]);

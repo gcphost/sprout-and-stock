@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 import { partsAt, seamStep, skinnedParts, FRONT_LIP } from '../../shared/model.js';
-import { FACE_CALM } from './palette.js';
+import { FACE_CALM, VEHICLE_LOOK } from './palette.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
 const GEO = {
@@ -58,6 +58,12 @@ export function material(color, alpha = 1) {
  * drawn with; a crop in your hand has no neighbours.
  *
  * Returns a Group positioned so its origin sits on the ground.
+ *
+ * Any part flagged `motion` is also collected onto `group.userData.moving`,
+ * with the rest pose it was built at. Collected HERE rather than found later by
+ * whoever wants to animate it, because a `seam` can drop a part on the way past
+ * — so the meshes are not the parts, and matching them up by index afterwards
+ * quietly spins the wrong box. See `animateMotion` in render/motion.js.
  */
 /**
  * @param {number} [opts.alpha]  Multiplies every part's own opacity, for
@@ -77,6 +83,7 @@ export function buildModel(model, {
   // parts as worn. A skin that only got applied at colour-setting time would
   // work until the first extra needed a shadow.
   const parts = skinnedParts(partsAt(model, t), skin);
+  group.userData.moving = [];
   if (!parts.length) return group;
 
   for (const part of parts) {
@@ -99,6 +106,20 @@ export function buildModel(model, {
     mesh.castShadow = castShadow && alpha >= 1;
     mesh.receiveShadow = false;
     group.add(mesh);
+    if (part.motion) {
+      group.userData.moving.push({
+        mesh,
+        motion: part.motion,
+        // Where it was drawn, so the animator has somewhere to put it back and
+        // a machine that stops stops in the pose it was authored in.
+        pos: mesh.position.clone(),
+        rot: mesh.rotation.y,
+        scale: mesh.scale.clone(),
+        // Spread, so the three moving parts of one machine don't beat in
+        // lockstep — the same trick the puffs and the angry shoppers use.
+        phase: group.userData.moving.length * 0.41,
+      });
+    }
   }
   return group;
 }
@@ -139,6 +160,55 @@ export function buildCharacter(color, { hat = null } = {}) {
   snout.position.set(0, 0.64, 0.16);
   g.add(snout);
 
+  return g;
+}
+
+/**
+ * Anything with wheels — the delivery lorry, a shopper's car — drawn from its
+ * own `vehicles` row.
+ *
+ * There is deliberately almost nothing in here. A vehicle is authored content
+ * in the same shape a worker and a fixture are, so what one looks like comes
+ * out of `buildModel` and `shared/model.js` like everything else, and this
+ * function adds exactly two things a caller would otherwise have to remember.
+ *
+ * The first is `t`, which is **how loaded it is** — the one 0..1 number a
+ * staged model wants, the same number a crop passes as growth and a break
+ * passes as progress. So a van that drives in with a full bed and pulls away
+ * with an empty one is three authored stages and no code in here that knows
+ * what a crate is. An unstaged model (every car so far) ignores it.
+ *
+ * The second is the fallback: no art means a plain block rather than an empty
+ * group. See `VEHICLE_LOOK` for why that matters more for a van than it does
+ * for a fixture.
+ *
+ * No headlamps, and that is a rule rather than an omission. If a vehicle wants
+ * them they are parts on the row, the way `shopper-car` already has a pale nub
+ * on its nose — and they are painted, never lit. `client/render/lights.js`
+ * keeps a fixed pool of eight real lights and aims it at emitters standing in
+ * the *layout*; a vehicle is not in the layout and `VehicleSchema` has no
+ * `emits`, so there is no way to author one that costs the scene a light. Worth
+ * saying out loud because headlights are the obvious thing to reach for, and
+ * three.js forward-renders every light against every fragment: two of them per
+ * lorry is a multiplier on the whole shop for a thing that is on screen for
+ * six seconds.
+ */
+export function buildVehicle(model, { t = 1 } = {}) {
+  const g = buildModel(model, { t });
+  if (g.children.length) return g;
+
+  const body = new THREE.Mesh(GEO.box, material(VEHICLE_LOOK.color));
+  body.scale.set(VEHICLE_LOOK.l, VEHICLE_LOOK.h, VEHICLE_LOOK.w);
+  // Standing on the ground, like every authored model — see `buildModel`, which
+  // every vehicle is drawn by when there is art. A block that floated would be
+  // a fallback that also has to be positioned differently by whoever draws it.
+  body.position.y = VEHICLE_LOOK.h / 2;
+  body.castShadow = true;
+  // Length along x, because a model is authored nose-east and whoever turns
+  // this is turning it by the same rule. A fallback pointing the other way
+  // would drive sideways, which is a bug in the fallback that reads as a bug
+  // in the route.
+  g.add(body);
   return g;
 }
 
@@ -296,31 +366,47 @@ export function buildShelfGoods(model, qty, surfaces, cap) {
 }
 
 /**
- * A pile of takings sitting on the counter, with the amount floating over it.
+ * How wide a banknote is drawn, in tiles. Everything else about the pile is
+ * derived from it, the way the crate derives from `CRATE`.
+ *
+ * A note used to be 0.34 across — more than half a tile, for the smallest
+ * object in the game. One sale looked like a sack of money and a busy till
+ * looked like a bank robbery, which is the wrong read twice: the pile is meant
+ * to say *somebody should come and get this*, not to be the loudest thing in
+ * the shop.
+ */
+const NOTE = 0.24;
+
+/**
+ * A pile of takings sitting on the counter.
+ *
  * Money used to be a number that ticked up in the HUD — you never saw a sale
  * happen. Now it lands somewhere and somebody has to come and get it.
+ *
+ * **No number on it.** It carried its own `+$4.20` until piles started landing
+ * next to each other: five sales at one till drew five labels in a column, each
+ * of which is a sum nobody is adding up, and the tallest thing on screen became
+ * the arithmetic rather than the money. The amount is drawn once per tile now,
+ * as a total — `Scene.syncCashLabels`. Same argument the crate stack makes: one
+ * spot, one readout, and the height of the pile is the other half of the story.
  */
-export function buildCashDrop(amount) {
+export function buildCashDrop() {
   const g = new THREE.Group();
 
   // A few banknotes, fanned so the pile reads at isometric distance.
   for (let i = 0; i < 3; i++) {
     const note = new THREE.Mesh(GEO.box, material(i === 1 ? '#7fbf6a' : '#9ad285'));
-    note.scale.set(0.34, 0.045, 0.22);
-    note.position.set((i - 1) * 0.07, 0.03 + i * 0.045, (i % 2) * 0.05);
+    note.scale.set(NOTE, NOTE * 0.13, NOTE * 0.65);
+    note.position.set((i - 1) * NOTE * 0.2, NOTE * (0.09 + i * 0.13), (i % 2) * NOTE * 0.15);
     note.rotation.y = (i - 1) * 0.35;
     note.castShadow = true;
     g.add(note);
   }
   const coin = new THREE.Mesh(GEO.cylinder, material('#e8c455'));
-  coin.scale.set(0.13, 0.04, 0.13);
-  coin.position.set(0.12, 0.19, -0.08);
+  coin.scale.set(NOTE * 0.38, NOTE * 0.12, NOTE * 0.38);
+  coin.position.set(NOTE * 0.35, NOTE * 0.56, NOTE * -0.24);
   coin.castShadow = true;
   g.add(coin);
-
-  const label = buildMoneyLabel(amount);
-  label.position.y = 0.62;
-  g.add(label);
 
   g.userData.spin = coin;
   return g;
@@ -364,7 +450,7 @@ export const CRATE_STEP = CRATE_DECK + CRATE_H;
  * crate says what is in it in words instead: the one place in the game a crate
  * has ever needed to name itself is when you cannot see into it.
  */
-export function buildPallet(model, qty, { covered = false, name = '' } = {}) {
+export function buildPallet(model, qty, { covered = false, name = '', cap = 6 } = {}) {
   const g = new THREE.Group();
 
   // Pallet boards.
@@ -392,7 +478,17 @@ export function buildPallet(model, qty, { covered = false, name = '' } = {}) {
   wall(CRATE_WALL, CRATE, rim, 0);
 
   if (model && !covered) {
-    const rows = Math.min(3, Math.max(1, Math.ceil(qty / 6)));
+    // How full it LOOKS is how full it IS — a share of the crate's own
+    // capacity, not a count against a literal.
+    //
+    // This was `ceil(qty / 6)`, capped at three rows, and the 6 was a number
+    // nothing else in the game used: a crate holds `crateCapacity()`, which is
+    // six, so it needed thirteen to draw three rows and every crate that can
+    // exist drew exactly one. A full crate looked a quarter full, which reads
+    // as a stocker who cannot pack rather than as art measured against the
+    // wrong number — and it would have stayed wrong at any cap, because the
+    // ramp was never asking what the box holds.
+    const rows = Math.max(1, Math.min(3, Math.round((qty / Math.max(1, cap)) * 3)));
     // Sized and spread off the crate's *inside*, not off literals: an item is
     // at most 0.36 across and the shortest wall stands the goods off centre, so
     // one that fits the box at this size still fits it at another.
@@ -428,10 +524,21 @@ export function buildPallet(model, qty, { covered = false, name = '' } = {}) {
   return g;
 }
 
-/** `+$4.20` drawn to a canvas and hung in the air as a sprite. */
-function buildMoneyLabel(amount) {
-  return buildTextSprite(`+$${Number(amount).toFixed(2)}`, { fill: '#eafbe2' });
+/**
+ * `+$4.20` drawn to a canvas and hung in the air as a sprite.
+ *
+ * Smaller than a crate's count on purpose, where it used to be half again
+ * bigger than one. A crate's number is a thing you *read* — how many are left
+ * to shift — and this one is a thing you *notice*: the pile under it is already
+ * saying money is there, so the figure only has to be legible enough to be
+ * worth walking over for.
+ */
+export function buildMoneyLabel(amount) {
+  return buildTextSprite(moneySaid(amount), { fill: '#eafbe2', scale: 0.55 });
 }
+
+/** What a pile says. Its own function so the sprite and its rewrite agree. */
+export const moneySaid = (amount) => `+$${Number(amount).toFixed(2)}`;
 
 let ghostMat = null;
 /**
@@ -451,48 +558,130 @@ export function buildGhost(model) {
 }
 
 /**
- * What an appliance is short of, as a row of sockets to float above it.
+ * How big an ingredient or a finished batch is drawn standing on a machine.
  *
- * One socket per ingredient of the recipe it's working toward, each holding the
- * actual item: solid once the hopper has enough of it, and the same item as a
- * ghost of itself while it's still short. So a coffee machine showing a solid
- * bean and a ghost carton is one carton of milk away, and that reads from
- * across the shop without opening anything.
- *
- * Every socket keeps its pad whether it's filled or not — a missing ingredient
- * has to be an visibly *empty place*, not a faint smudge in mid-air, or the
- * thing you're looking for is the thing that's hardest to see.
+ * Deliberately smaller than a shelf's goods. These are a READOUT stood on a
+ * worktop, not stock on display — at shelf scale two ingredients and a batch
+ * are bigger than the machine making them, which is what made a row of
+ * appliances read as a jumble rather than as a counter.
  */
-export function buildHopperSlots(slots, { ready = '#7cc46a', short = '#c8553d' } = {}) {
+const BAY_ITEM = 0.24;
+
+/** Up the pile, per unit. Small enough that three of them clear the lid above. */
+const BAY_STEP = 0.11;
+
+/** Past this a bay reads as "several" — a recipe wanting twelve is still a pile. */
+const BAY_MAX = 4;
+
+/** Colours of the pads. Green has it, red is short, gold is yours to collect. */
+const BAY_LOOK = { ready: '#7cc46a', short: '#c8553d', outlet: '#ffd66b' };
+
+/** One pad — an ingredient bay or the outlet — with its pile stood on it. */
+function buildBay(model, { solid, ghost, colour }) {
   const g = new THREE.Group();
-  const PITCH = 0.44;
 
-  slots.forEach((s, i) => {
-    const socket = new THREE.Group();
-    socket.position.x = (i - (slots.length - 1) / 2) * PITCH;
+  const pad = new THREE.Mesh(GEO.cylinder, material(colour));
+  pad.scale.set(0.3, 0.04, 0.3);
+  g.add(pad);
 
-    const pad = new THREE.Mesh(GEO.cylinder, material(s.ready ? ready : short));
-    pad.scale.set(0.36, 0.05, 0.36);
-    socket.add(pad);
-
-    if (s.model) {
-      const icon = buildModel(s.model, { castShadow: false });
-      // A missing ingredient fades but keeps its own colours. `buildGhost`'s one
-      // white material is right for a seed preview, where you already know what
-      // you picked — here the whole question is *which* thing is missing, and a
-      // white blob answers "something". Tinting per part costs nothing: the
-      // cache is keyed by colour and alpha, so the palette is reused too.
-      if (!s.ready) {
-        icon.traverse((o) => {
-          if (o.isMesh) o.material = material(o.material.color.getHex(), 0.4);
-        });
-      }
-      icon.scale.setScalar(0.42);
-      icon.position.y = 0.1;
-      socket.add(icon);
+  if (!model) return g;
+  for (let i = 0; i < Math.min(BAY_MAX, solid + ghost); i++) {
+    const one = buildModel(model, { castShadow: false });
+    // A missing unit fades but keeps its own colours. `buildGhost`'s one white
+    // material is right for a seed preview, where you already know what you
+    // picked — here the whole question is *which* thing is missing, and a white
+    // blob answers "something". Tinting per part costs nothing: the cache is
+    // keyed by colour and alpha, so the palette is reused too.
+    if (i >= solid) {
+      one.traverse((o) => {
+        if (o.isMesh) o.material = material(o.material.color.getHex(), 0.35);
+      });
     }
-    g.add(socket);
+    one.scale.setScalar(BAY_ITEM);
+    // Piled UP rather than spread out, because the bays sit a third of a tile
+    // apart on the machine's own top and a row would run into its neighbour.
+    // Height is also the reading you can take across the shop: two of three is
+    // a short stack with a gap over it.
+    one.position.set(0, 0.06 + i * BAY_STEP, 0);
+    g.add(one);
+  }
+  return g;
+}
+
+/**
+ * What an appliance takes in and what it puts out, stood on the machine itself.
+ *
+ * A row of sockets floating over it said neither of those things: every icon
+ * looked the same whether it was an ingredient or the thing being made, one
+ * icon meant one ingredient however many of it a batch wanted, and nothing at
+ * all was drawn for what was waiting to be collected. So an appliance says the
+ * whole sentence now, laid out the way it reads — **ingredients across the
+ * back, the finished thing at the front**, which is the direction a machine
+ * works in and the direction it faces.
+ *
+ * A bay holds as many units as a batch calls for: solid up to what's in the
+ * hopper, ghosted after. Three tomatoes with one solid is *one of three*, which
+ * is the number that decides whether you go and fetch more.
+ *
+ * Every bay keeps its pad whether it's filled or not — a missing ingredient has
+ * to be a visibly *empty place*, not a faint smudge, or the thing you're
+ * looking for is the thing that's hardest to see. That goes double for the
+ * outlet: an empty gold pad is the machine telling you where it will put the
+ * batch, and it is the same pad that later has the batch on it.
+ *
+ * WHERE they sit is authored when the machine says so, and measured when it
+ * doesn't. A `surface` part on an appliance is a well built into the art — the
+ * hopper on top of the machine, the tray at the front — exactly the way a
+ * `surface` on a shelf is a board. Whichever well is furthest FORWARD is the
+ * outlet; the rest are what goes in, and several ingredients spread along the
+ * well they share. A machine nobody has drawn wells into falls back to standing
+ * them on its roof, which is the same degrade a unit with no boards takes.
+ *
+ * Laid out in MODEL space — whoever adds this to the scene turns it to face the
+ * way the machine faces, or the outlet ends up round the back.
+ */
+export function buildStationBays({ intakes = [], outlet = null, bounds, wells = [] }) {
+  const g = new THREE.Group();
+  const b = bounds ?? { minX: -0.35, maxX: 0.35, minZ: -0.35, maxZ: 0.35, top: 0.8 };
+  // Far enough in that a pad overhangs nothing, and the two rows stay apart on
+  // a machine barely two thirds of a tile deep.
+  const INSET = 0.17;
+
+  // Authored wells, front-most last — so the outlet is the one at the front and
+  // everything behind it takes ingredients.
+  const sorted = [...wells].sort((a, c) => a.x - c.x);
+  const tray = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+  const hopper = sorted.length > 1 ? sorted.slice(0, -1) : sorted;
+
+  intakes.forEach((s, i) => {
+    const bay = buildBay(s.model, {
+      solid: Math.max(0, Math.min(s.held ?? 0, s.need ?? 1)),
+      ghost: Math.max(0, (s.need ?? 1) - (s.held ?? 0)),
+      colour: (s.held ?? 0) >= (s.need ?? 1) ? BAY_LOOK.ready : BAY_LOOK.short,
+    });
+    // One well each where the art drew enough of them; otherwise they share the
+    // one well (or the roof), spread along whichever way it is longer.
+    const w = hopper.length ? hopper[Math.min(i, hopper.length - 1)] : null;
+    const share = hopper.length ? intakes.length - hopper.length + 1 : intakes.length;
+    const n = hopper.length ? Math.max(0, i - hopper.length + 1) : i;
+    const run = w ? Math.max(w.span, w.depth) : (b.maxZ - b.minZ);
+    const pitch = Math.min(0.34, run / Math.max(1, share));
+    const off = (n - (share - 1) / 2) * pitch;
+    bay.position.set(
+      w ? w.x : b.minX + INSET,
+      (w ? w.y : b.top) + 0.02,
+      (w ? w.z : 0) + off,
+    );
+    g.add(bay);
   });
+
+  const out = buildBay(outlet?.model ?? null, {
+    solid: Math.max(0, Math.round(outlet?.qty ?? 0)),
+    ghost: 0,
+    colour: BAY_LOOK.outlet,
+  });
+  out.position.set(tray ? tray.x : b.maxX - INSET, (tray ? tray.y : b.top) + 0.02, tray ? tray.z : 0);
+  g.add(out);
 
   return g;
 }
@@ -1028,6 +1217,44 @@ export function buildTextSprite(text, { fill = '#ffffff', scale = 1 } = {}) {
   canvas.width = 256;
   canvas.height = 96;
   const ctx = canvas.getContext('2d');
+  paintText(ctx, canvas, text, fill);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 4;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthTest: false,
+  }));
+  sprite.scale.set(1.1 * scale, 0.41 * scale, 1);
+  sprite.renderOrder = 10;
+  // What it says and what it needs to say it again, so a label whose number
+  // changes can be rewritten rather than rebuilt — see `setTextSprite`.
+  sprite.userData.text = { canvas, ctx, tex, fill, said: text };
+  return sprite;
+}
+
+/**
+ * Rewrite what a sprite says, in place.
+ *
+ * A sprite owns a canvas, a texture and a material, and `disposeGroup` frees
+ * meshes rather than sprites — so a label rebuilt every time its number moved
+ * would leak all three on every sale. A till taking money is exactly the label
+ * that changes most, which is why this exists at all.
+ *
+ * Returns early when nothing changed, so callers can hand it the current value
+ * every frame without repainting a canvas sixty times a second.
+ */
+export function setTextSprite(sprite, text) {
+  const t = sprite?.userData?.text;
+  if (!t || t.said === text) return sprite;
+  t.said = text;
+  paintText(t.ctx, t.canvas, text, t.fill);
+  t.tex.needsUpdate = true;
+  return sprite;
+}
+
+/** The drawing itself, so building one and rewriting one cannot drift apart. */
+function paintText(ctx, canvas, text, fill) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // Shrunk to fit rather than clipped. The canvas is a fixed size and the
   // sprite is a fixed shape, so a string longer than "x12" — a crate naming
@@ -1049,15 +1276,6 @@ export function buildTextSprite(text, { fill = '#ffffff', scale = 1 } = {}) {
   ctx.strokeText(text, 128, 50);
   ctx.fillStyle = fill;
   ctx.fillText(text, 128, 50);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.anisotropy = 4;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: tex, transparent: true, depthTest: false,
-  }));
-  sprite.scale.set(1.1 * scale, 0.41 * scale, 1);
-  sprite.renderOrder = 10;
-  return sprite;
 }
 
 /** Free the GPU memory a prop group holds. Materials are shared — don't dispose those. */
@@ -1065,6 +1283,14 @@ export function disposeGroup(group) {
   group.traverse((o) => {
     if (o.isMesh && o.geometry && !Object.values(GEO).includes(o.geometry)) {
       o.geometry.dispose();
+    }
+    // A sprite's are NOT shared: `buildTextSprite` draws its own canvas and
+    // wraps it in its own texture and material, so nothing else is holding
+    // them and dropping the object alone leaks a 256×96 texture. Every crate
+    // label in the game has been doing that quietly since crates could stack.
+    if (o.isSprite) {
+      o.material?.map?.dispose();
+      o.material?.dispose();
     }
   });
 }

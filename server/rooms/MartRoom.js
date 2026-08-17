@@ -141,6 +141,25 @@ export class MartRoom extends Room {
       this.game.setInput(client.sessionId, Number(m?.dx) || 0, Number(m?.dz) || 0);
     });
 
+    // The button. Nothing in the shop fires without it — see `stepActions`.
+    // Its own message rather than a field on `input` for the reason in
+    // `setHolding`: a lost release must not also leave you walking.
+    // A quick tap on a crate you are already stood at: one unit, in or out.
+    // The hold is what lifts the whole box, and the two share a pointer press —
+    // which is why this is a separate message rather than a mode on `take`.
+    this.onMessage('crate-one', (client, m) => {
+      const res = this.game.tapCrate(
+        client.sessionId,
+        m?.palletId ? String(m.palletId) : null,
+        !!m?.put,
+      );
+      if (!res.ok) client.send('action-result', res);
+    });
+
+    this.onMessage('press', (client, m) => {
+      this.game.setPressing(client.sessionId, !!m?.down);
+    });
+
     // Tap a tile, walk there. Sent as a destination and not a route: the client
     // has no walk grid and no business having one, and a route is also the one
     // thing here that could outgrow the 4KB inbound cap.
@@ -202,6 +221,13 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.promote(m?.workerId));
     });
 
+    // The same ladder downwards. A rung is the one thing you buy for somebody
+    // that keeps charging you — `wage_mult` is per day — so it needs a way back
+    // that isn't letting them go.
+    this.onMessage('demote', (client, m) => {
+      client.send('action-result', this.game.demote(m?.workerId));
+    });
+
     // `?? null` rather than a bare read, so "take their skin off" is something
     // the wire can actually say — an absent field and a cleared one have to
     // mean the same thing or there is no way back to the factory colours.
@@ -236,8 +262,26 @@ export class MartRoom extends Room {
       ));
     });
 
+    // Which of its recipes an appliance is set to. Same gate as `assign` above
+    // and for the same reason: deciding what the kitchen makes is a choice
+    // about stock, not construction, so the menu can send it with the build bar
+    // down. It names the recipe it pressed rather than a direction — a machine
+    // that knows four has no "next one".
+    this.onMessage('station-recipe', (client, m) => {
+      client.send('action-result', this.game.setStationRecipe(
+        client.sessionId, m?.stationId, m?.recipeId,
+      ));
+    });
+
     this.onMessage('restock-order', (client, m) => {
       client.send('action-result', this.game.setRestockPriority(m?.shelfId, m?.priority));
+    });
+
+    // Whether the shop hand may rearrange this unit. Not gated on build mode,
+    // the same way `restock-order` isn't: it is a shopkeeping decision about a
+    // shelf you are stood in front of, not a change to what the shop is made of.
+    this.onMessage('shelf-hands', (client, m) => {
+      client.send('action-result', this.game.setShelfHands(m?.shelfId, m?.on));
     });
 
     // What the shop does without being asked, and what that may cost per day.
@@ -253,6 +297,24 @@ export class MartRoom extends Room {
     // one — the row already knows what it is showing.
     this.onMessage('item-rule', (client, m) => {
       client.send('action-result', this.game.setItemRule(m?.itemId, m ?? {}));
+    });
+
+    /**
+     * The doors, and the clock.
+     *
+     * Both send the state they want rather than "toggle": the button already
+     * knows what it is showing, and two people sharing one shop means a toggle
+     * can be pressed twice from two places and land as nothing. Both name who
+     * did it, because the other person's shop just shut with them standing in it.
+     */
+    this.onMessage('shop-open', (client, m) => {
+      const by = this.game.players[client.sessionId]?.name;
+      client.send('action-result', this.game.setOpen(!!m?.open, by));
+    });
+
+    this.onMessage('pause', (client, m) => {
+      const by = this.game.players[client.sessionId]?.name;
+      client.send('action-result', this.game.setPaused(!!m?.paused, by));
     });
 
     this.onMessage('buy-upgrade', (client, m) => {
@@ -321,8 +383,10 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.liftFixture(client.sessionId, m?.id));
     });
 
+    // With an `itemId` it is one board of a unit rather than the whole thing —
+    // the delete button on a board row. Same gate, same crates, finer address.
     this.onMessage('build-empty', (client, m) => {
-      client.send('action-result', this.game.emptyFixture(client.sessionId, m?.id));
+      client.send('action-result', this.game.emptyFixture(client.sessionId, m?.id, m?.itemId ?? null));
     });
 
     // The one fixture verb that sends no layout, because nothing about the shop
@@ -341,6 +405,12 @@ export class MartRoom extends Room {
 
     this.onMessage('build-upgrade', (client, m) => {
       const res = this.game.upgradeFixture(client.sessionId, m?.id);
+      client.send('action-result', res);
+      if (res.ok) this.sendLayout();
+    });
+
+    this.onMessage('build-downgrade', (client, m) => {
+      const res = this.game.downgradeFixture(client.sessionId, m?.id);
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
@@ -471,6 +541,12 @@ export class MartRoom extends Room {
       // per body — a skin edited over MCP has to reach the bots already on
       // shift, and it does that by riding the catalog rebroadcast.
       skins: c.skins,
+      // Everything that drives: the delivery van, the customers' cars. Sent for
+      // the same reason `fixtures` is — the renderer builds one out of its
+      // authored model, so a van redrawn over MCP has to reach the client, and
+      // it does that by riding the catalog rebroadcast rather than by anyone
+      // baking a van into `props.js`.
+      vehicles: c.vehicles,
       // What one more of each fixture costs in build mode. Derived from the
       // upgrades that sell them, so adding a cheaper shelf upgrade via MCP
       // reprices the build palette with no code change.

@@ -585,6 +585,283 @@ function spotFor(g, kind) {
 }
 
 // ---------------------------------------------------------------------------
+// 9. A ladder goes both ways, and walking it in a circle always costs money.
+//
+// Every rung in the game was one-way until now: a fixture's tier and a hire's
+// grade could be climbed and never stepped back off, so a rung bought by
+// mistake was undone by selling the whole unit — which loses the stock, the
+// reservations and the tile — or, for a person, by letting them go, which
+// refunds nothing and loses the person.
+//
+// Three things here are invisible in play, which is why they are asserted
+// rather than looked at:
+//
+// - **The direction of the money.** Half back of the rung you are stepping OFF,
+//   so up-then-down is a loss. Refund the rung you are stepping ON TO and a
+//   ladder whose rungs get dearer as they climb is a money press: buy the $260
+//   rung, step down, collect half of $90, repeat.
+// - **What a smaller fixture cannot hold.** A tier is not only a multiplier —
+//   a staged model can grow a *board* as it climbs — so stepping down can take
+//   away both capacity and the number of kinds a unit holds. Nothing else in
+//   the game has ever made a fixture smaller, so nothing else has ever checked.
+// - **That the refusal comes before the money.** The same shape as the bay bug
+//   in `buyStock`: a guard that is right, sitting after the charge.
+//
+// The prices are odd on purpose, like every other figure in this file, and the
+// expected numbers are arithmetic on them rather than on `prevTier`.
+// ---------------------------------------------------------------------------
+{
+  const RUNG_2 = 91;                        // dearer rungs on the way up, so a
+  const RUNG_3 = 259;                       // refund of the wrong one shows up
+  // A staged model is at least two stages by schema — a "stage" is a picture at
+  // a point on a 0..1 run, and one of them is not a run. So a piece whose art
+  // must NOT change as it climbs still authors a stage per rung; it just draws
+  // the same thing each time.
+  const board = (y) => ({
+    shape: 'box', color: '#7d6a52', pos: [0, y, 0], scale: [0.9, 0.08, 0.8], surface: true,
+  });
+  // `at` is not optional in practice: `stageIndexAt` takes the LAST stage whose
+  // `at` is under the progress, and an absent one reads as 0 — so a ladder of
+  // stages with no marks is a fixture permanently drawn as its top rung.
+  const LADDER_STAGE = (at) => ({ at, parts: [board(0.3), board(0.7)] });
+  const LADDER = 'zz-econ-ladder';
+  // Checked, unlike the earlier sections' writes only because those go through
+  // the loop at the top that checks them: a rejected row falls back to the
+  // *kind's* catalog entry, so every price below would quietly become the
+  // shipped shelf's and the failures would read as pricing bugs.
+  const ladderWritten = writeContent('fixture', {
+    id: LADDER,
+    kind: 'shelf',
+    name: 'Laddered Shelving',
+    cost: SHELF_PRICE,
+    // The same two boards at every rung, so a down-step here changes capacity
+    // and nothing else. What a *board* going away does is section 9c below, on
+    // its own piece — one claim per piece, or a failure cannot say which it was.
+    model: { stages: [LADDER_STAGE(0), LADDER_STAGE(0.5), LADDER_STAGE(1)] },
+    tiers: [
+      { name: 'Plain', cost: 0, capacity_mult: 1 },
+      { name: 'Better', cost: RUNG_2, capacity_mult: 2 },
+      { name: 'Best', cost: RUNG_3, capacity_mult: 3 },
+    ],
+  }, 'verify');
+  check(ladderWritten.ok, 'the catalog accepts the laddered shelf', ladderWritten.error ?? '');
+
+  const g = fresh();
+  const at = spotFor(g, 'shelf');
+  const built = g.placeFixture('me', { kind: 'shelf', piece: LADDER, x: at.x, z: at.z, rot: at.rot });
+  check(built.ok, 'a laddered shelf can be built', built.error ?? '');
+
+  // Re-found every time, for the reason section 7 gives: an upgrade re-flows
+  // the shop and mints a new id, so a reference held across one is a fixture
+  // from the layout before it.
+  let id = built.placed;
+  const unit = () => g.findFixture(id);
+  // Written onto the layout row rather than through `stockShelf`, which wants
+  // somebody stood next to it with the goods in their hands — none of which
+  // this is about. `findFixture` hands out a copy, so writing to `unit()` would
+  // write to something thrown away on the next line: the trap `setBackOfHouse`
+  // documents, and the reason this reaches for `layout.shelves` by hand.
+  const row = () => g.layout.shelves.find((s) => s.id === id) ?? null;
+  const put = (shelf, itemId, qty) => {
+    shelf.stacks = [
+      ...(shelf.stacks ?? []).filter((k) => k.item_id !== itemId),
+      { item_id: itemId, qty, price: 3, stockedDay: 0 },
+    ];
+  };
+
+  eq(g.fixtureTier(unit()), 1, 'it starts on the first rung');
+  check(!g.prevTier(unit()), 'and there is nothing under the first rung');
+  const bottom = g.downgradeFixture('me', id);
+  check(!bottom.ok, 'so stepping down off it is refused', JSON.stringify(bottom));
+
+  let cashWas = g.cash;
+  const up1 = g.upgradeFixture('me', id);
+  check(up1.ok, 'it can be stepped up', up1.error ?? '');
+  id = up1.upgraded;
+  const up2 = g.upgradeFixture('me', id);
+  check(up2.ok, 'and up again', up2.error ?? '');
+  id = up2.upgraded;
+  eq(g.fixtureTier(unit()), 3, 'which puts it on the top rung');
+  near(round2(cashWas - g.cash), RUNG_2 + RUNG_3, 'having charged both rungs');
+
+  // Something on it, and a price and a label, so the down-step is asked to
+  // carry the things a sell-and-rebuild would have lost.
+  const item = (content().items ?? []).find((i) => (i.stack ?? 1) >= 4) ?? content().items[0];
+  put(row(), item.id, 4);
+  eq(g.shelfQty(unit()), 4, 'there are four of something on it');
+  const where = { x: unit().x, z: unit().z, rot: unit().rot };
+
+  cashWas = g.cash;
+  const down1 = g.downgradeFixture('me', id);
+  check(down1.ok, 'it can be stepped back down', down1.error ?? '');
+  id = down1.downgraded;
+  eq(g.fixtureTier(unit()), 2, 'onto the rung below');
+  near(round2(g.cash - cashWas), round2(RUNG_3 * FIXTURE_REFUND),
+    'handing back half of the rung it stepped OFF, not half of the one it landed on');
+  eq(g.shelfQty(unit()), 4, 'and it kept what was on it');
+  eq(unit().x, where.x, 'and its tile');
+  eq(unit().z, where.z, '...and the other half of its tile');
+  eq(unit().rot, where.rot, '...and which way it faces');
+
+  const down2 = g.downgradeFixture('me', id);
+  check(down2.ok, 'and down to the bottom', down2.error ?? '');
+  id = down2.downgraded;
+  eq(g.fixtureTier(unit()), 1, 'which is where it started');
+
+  // The whole circle. Two rungs up and two rungs down is a pure loss, and it is
+  // exactly half of what the two rungs cost — the same shape as the build-and-
+  // sell loop in section 3, said about a ladder instead of a fixture.
+  const round = g.cash;
+  for (let i = 0; i < 3; i++) {
+    const u = g.upgradeFixture('me', id);
+    check(u.ok, `circuit ${i + 1} climbed`, u.error ?? '');
+    id = u.upgraded;
+    const d = g.downgradeFixture('me', id);
+    check(d.ok, `circuit ${i + 1} came back down`, d.error ?? '');
+    id = d.downgraded;
+  }
+  eq(g.fixtureTier(unit()), 1, 'three circuits later it is back on the first rung');
+  near(round2(round - g.cash), round2(3 * RUNG_2 * (1 - FIXTURE_REFUND)),
+    'and three circuits cost three un-refunded halves — a ladder is not a press');
+
+  // ---- b: a refusal comes before the money moves. -------------------------
+  //
+  // Filled to what the rung it is ON holds, which is more than the rung below
+  // — the state a shop reaches by stocking a unit it upgraded, and exactly the
+  // player who would then press Downgrade.
+  {
+    const u = g.upgradeFixture('me', id);
+    check(u.ok, 'stepped up to fill it', u.error ?? '');
+    id = u.upgraded;
+    const room = g.shelfCapacity(unit(), item);
+    const below = g.shelfCapacity({ ...unit(), tier: 1 }, item);
+    check(room > below, 'the rung it is on holds more than the one below', `${room} vs ${below}`);
+    put(row(), item.id, room);
+    eq(g.shelfQty(unit()), room, 'and it is full to that rung');
+
+    const cash = g.cash;
+    const tier = g.fixtureTier(unit());
+    const refused = g.downgradeFixture('me', id);
+    check(!refused.ok, 'stepping down under a full unit is refused', JSON.stringify(refused));
+    check(/take \d+ off/.test(refused.error ?? ''), 'and says how much to take off',
+      refused.error ?? '');
+    eq(round2(g.cash), round2(cash), 'and nothing was handed back for a refusal');
+    eq(g.fixtureTier(unit()), tier, 'and it is still on the rung it was on');
+  }
+
+  // ---- c: a rung can be a BOARD, and losing one is the same refusal. ------
+  //
+  // The shipped freezer draws 2, 2, 3 — `boardsOf` reads the art at the tier, so
+  // a down-step can take away how many KINDS a unit holds rather than how much
+  // of one. A capacity check alone passes this and the shop quietly ends up with
+  // three labelled boards on a two-board unit.
+  {
+    const BOARDS = 'zz-econ-boards';
+    const written = writeContent('fixture', {
+      id: BOARDS,
+      kind: 'shelf',
+      name: 'Growing Shelving',
+      cost: SHELF_PRICE,
+      model: { stages: [{ at: 0, parts: [board(0.3)] }, { at: 1, parts: [board(0.3), board(0.7)] }] },
+      tiers: [{ name: 'One board', cost: 0 }, { name: 'Two boards', cost: RUNG_2 }],
+    }, 'verify');
+    check(written.ok, 'the catalog accepts the growing shelf', written.error ?? '');
+
+    const h = fresh();
+    const spot = spotFor(h, 'shelf');
+    const b = h.placeFixture('me', { kind: 'shelf', piece: BOARDS, x: spot.x, z: spot.z, rot: spot.rot });
+    check(b.ok, 'a shelf that grows a board can be built', b.error ?? '');
+    const up = h.upgradeFixture('me', b.placed);
+    check(up.ok, 'and stepped up to two boards', up.error ?? '');
+    const two = h.findFixture(up.upgraded);
+    eq(h.shelfBoards(two), 2, 'which really is two boards');
+    eq(h.shelfBoards({ ...two, tier: 1 }), 1, 'against one on the rung below');
+
+    const shelfRow = h.layout.shelves.find((s) => s.id === up.upgraded);
+    const kinds = (content().items ?? []).slice(0, 2);
+    check(kinds.length === 2, 'there are two things to put on it');
+    shelfRow.stacks = kinds.map((it) => ({ item_id: it.id, qty: 1, price: 3, stockedDay: 0 }));
+    eq(shelfRow.stacks.filter((s) => s.qty > 0).length, 2, 'and both of them are on it');
+
+    const cash = h.cash;
+    const no = h.downgradeFixture('me', up.upgraded);
+    check(!no.ok, 'stepping down to one board with two kinds on it is refused', JSON.stringify(no));
+    eq(round2(h.cash), round2(cash), 'and cost nothing to be told so');
+    remove('fixtures', BOARDS);
+  }
+
+  remove('fixtures', LADDER);
+}
+
+// ---------------------------------------------------------------------------
+// 10. The same ladder, for a person — where a rung is charged every morning.
+//
+// A hire's grade is the one rung in the game with an ongoing price: `wage_mult`
+// scales what `payWages` takes every day. So the way back down is not an undo,
+// it is a standing decision, and the two things worth pinning are that the wage
+// actually falls and that half of the grade comes back — `fire` refunds nothing
+// and is the only other exit, which is what made a promotion in a good season
+// permanent.
+// ---------------------------------------------------------------------------
+{
+  const HAND = 'zz-econ-hand';
+  const WAGE = 7;
+  const GRADE = 63;
+  writeContent('worker', {
+    id: HAND,
+    name: 'Econ Hand',
+    cost: 0,
+    wage: WAGE,
+    jobs: [{ job: 'shelve', weight: 1 }],
+    model: { parts: [{ shape: 'capsule', color: '#7a9e4b', pos: [0, 0.6, 0], scale: [0.4, 0.6, 0.4] }] },
+    tiers: [
+      { name: 'Hand', cost: 0, wage_mult: 1 },
+      { name: 'Senior Hand', cost: GRADE, wage_mult: 2, speed_mult: 1.5 },
+    ],
+  }, 'verify');
+
+  const g = fresh();
+  const hired = g.hire(HAND);
+  check(hired.ok, 'somebody can be taken on', hired.error ?? '');
+  const who = hired.hired;
+  const entry = () => g.roster.find((e) => e.id === who);
+
+  const day = () => { const was = g.cash; g.payWages(); return round2(was - g.cash); };
+  near(day(), WAGE, 'a day of them costs the authored wage');
+
+  check(!g.demote(who).ok, 'nobody can be stepped down off the first rung');
+
+  let cashWas = g.cash;
+  check(g.promote(who).ok, 'they can be promoted');
+  eq(entry().tier, 2, 'onto the second grade');
+  near(round2(cashWas - g.cash), GRADE, 'for exactly what that grade costs');
+  near(day(), WAGE * 2, 'and they cost twice the wage from then on');
+
+  cashWas = g.cash;
+  const down = g.demote(who);
+  check(down.ok, 'and they can be stepped back down', down.error ?? '');
+  eq(entry().tier, 1, 'to the grade below');
+  near(round2(g.cash - cashWas), round2(GRADE * FIXTURE_REFUND),
+    'handing back half of the grade — the same rate a fixture sells back at');
+  near(day(), WAGE, 'and the wage bill falls with them');
+  eq(g.roster.length, 1, 'and they are still standing there — this is not `fire`');
+
+  // The circle, once more. A promotion that could be undone for what it cost
+  // would be free to try, and a wage that fell further than it rose would be a
+  // shop that got paid to demote everybody.
+  const before = g.cash;
+  for (let i = 0; i < 3; i++) {
+    check(g.promote(who).ok, `circuit ${i + 1} promoted`);
+    check(g.demote(who).ok, `circuit ${i + 1} stepped back`);
+  }
+  eq(entry().tier, 1, 'three circuits later they are on the grade they started on');
+  near(round2(before - g.cash), round2(3 * GRADE * (1 - FIXTURE_REFUND)),
+    'and it cost three un-refunded halves to find that out');
+
+  remove('workers', HAND);
+}
+
+// ---------------------------------------------------------------------------
 
 if (failures.length) {
   console.error(`\nverify:economy — ${failures.length} of ${checks} assertions FAILED\n`);

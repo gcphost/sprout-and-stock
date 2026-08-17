@@ -21,6 +21,7 @@
  */
 
 import { surfacesAt, tierProgress } from './model.js';
+import { FIXTURES } from './build.js';
 
 /** Every piece of one kind, in catalog order. */
 export function piecesOf(rows, kind) {
@@ -67,6 +68,40 @@ export function pieceFor(rows, f) {
     if (hit) return hit;
   }
   return defaultPiece(rows, f.kind);
+}
+
+/**
+ * What to call a placed fixture *out loud* — "Bakery Case", "Blender", "Plot".
+ *
+ * The name a player sees has to come off the same catalog row the picture does,
+ * for the reason `client/thumb.js` gives about buttons: a second place that
+ * says what a thing is called is a second thing to keep in step, and the one
+ * that drifts is always the one nobody is looking at. Which is exactly what
+ * happened — every log line about a fixture printed its *id* (`Sowed tomato
+ * vine in fx2`), because a plot is a record with an id and no name on it, and
+ * `fx2` is a fact about the save file rather than about the shop.
+ *
+ * Three answers, in order of how much they know:
+ *
+ * - the piece's own name, which is the whole point of the kinds/pieces split.
+ *   A Bakery Case called "Shelf" is the same wrong answer as a Bakery Case
+ *   drawn as one.
+ * - an appliance by the machine it is, because `station` is one catalog row
+ *   covering every machine — a blender is not a toaster, and `countKey` makes
+ *   the same exception for the same reason.
+ * - the kind's label, for a record whose design was deleted out from under it,
+ *   and `'fixture'` for one that names no kind at all. Never the id.
+ *
+ * Cased for the start of a sentence. Callers writing "the …" lowercase it, the
+ * way `shared/build.js` already does with `FIXTURES[kind].label`.
+ */
+export function fixtureLabel(rows, f) {
+  if (!f) return 'Fixture';
+  if (f.kind === 'station' && f.station) {
+    const words = String(f.station).replace(/-/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  return pieceFor(rows, f)?.name || FIXTURES[f.kind]?.label || 'Fixture';
 }
 
 /**

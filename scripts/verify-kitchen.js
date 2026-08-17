@@ -156,6 +156,23 @@ const TEST_WORKER = {
   tiers: [{ name: 'Standard', cost: 0 }],
 };
 
+/**
+ * The whole loop in one pair of hands, for section 8 only.
+ *
+ * A chef who can only `craft` cannot build the pile the section is about: with
+ * no `tidy` they end up standing there holding one tray of brew, which looks
+ * like a shop that stopped and is really a shop with nobody to put it down.
+ * `shelve` and `tidy` are what turn "the machine made another one" into a crate
+ * at the drop-off and a machine free to make the next, so they have to be here
+ * or the regression this guards against cannot happen in the sweep either.
+ */
+const TEST_HAND = {
+  id: 'zz-kit-hand', name: 'Test Hand', color: '#4ad98b',
+  jobs: [{ job: 'craft', weight: 1 }, { job: 'shelve', weight: 1 }, { job: 'tidy', weight: 1 }],
+  cost: 0, wage: 0, speed: 20, pace: 0.05,
+  tiers: [{ name: 'Standard', cost: 0 }],
+};
+
 // Registered before the first write, not after the last: a crash halfway
 // through must not leave a Test Urn on somebody's build menu.
 process.on('exit', () => {
@@ -164,6 +181,7 @@ process.on('exit', () => {
   try { remove('upgrades', TEST_UPGRADE.id); } catch { /* best effort */ }
   try { remove('fixtures', TEST_PIECE.id); } catch { /* best effort */ }
   try { remove('workers', TEST_WORKER.id); } catch { /* best effort */ }
+  try { remove('workers', TEST_HAND.id); } catch { /* best effort */ }
 });
 
 for (const r of TEST_ITEMS) {
@@ -185,6 +203,8 @@ for (const r of TEST_RECIPES) {
 {
   const res = writeContent('worker', TEST_WORKER, 'verify');
   check(res.ok, 'the catalog accepts the test chef', res.error ?? '');
+  const res2 = writeContent('worker', TEST_HAND, 'verify');
+  check(res2.ok, 'and the test hand', res2.error ?? '');
 }
 
 /** The same pinned shop the other build sweeps use. */
@@ -374,28 +394,51 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
 }
 
 // ---------------------------------------------------------------------------
-// 4. A machine with two recipes destroys nothing.
+// 4. A machine that knows two recipes makes the ONE it is set to.
 //
-// The old loop checked "is the tray already holding something else" AFTER the
-// timer ran out, so a station that could make two things spent ingredients on
-// batches it then dropped. Nothing logs that and nothing renders it; stock just
-// goes missing. So this is a count: everything loaded is in the hopper, in the
-// tray, or in somebody's hands, converted at the rate its recipe says.
+// It used to run whichever recipe its hopper happened to satisfy, which is a
+// machine nobody is driving: a jar left over from yesterday and the blender you
+// loaded for salsa makes smoothies. The choice is the player's now, and every
+// claim here is about it being obeyed rather than approximated.
+//
+// It is also still the conservation count it was written as. The old loop
+// checked "is the tray already holding something else" AFTER the timer ran out,
+// so a station that could make two things spent ingredients on batches it then
+// dropped — nothing logs that and nothing renders it; stock just goes missing.
+// So everything loaded has to be in the hopper, in the tray, or in the ledger.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
   const st = urn(g);
 
+  // Nobody has chosen, so it is on the first recipe it knows. That default is
+  // the whole of what makes this safe for a shop that already exists: every
+  // appliance standing in one was built before there was anything to choose.
+  eq(g.stationRecipe(st)?.id, BREW, 'an appliance nobody has set is on its first recipe');
+
   hold(g, 'zz-kit-bean', BEAN_PER_BATCH * BATCHES);
   check(g.loadStation('me', st.id).ok, 'beans go in');
   g.players.me.carry = null;
+
+  // The door refuses the other recipe's ingredients, and refuses them with the
+  // armful intact. A machine that swallowed them would be holding stock it can
+  // never use, recoverable only by tipping the whole thing out.
   hold(g, 'zz-kit-leaf', BATCHES);
-  check(g.loadStation('me', st.id).ok, 'and leaves go in alongside them');
+  const wrong = g.loadStation('me', st.id);
+  check(!wrong.ok, 'and leaves are refused by a machine set to brew', JSON.stringify(wrong));
+  eq(g.players.me.carry?.qty, BATCHES, 'with the armful still in your hands');
+  eq(st.contents['zz-kit-leaf'], undefined, 'and nothing of them in the hopper');
+  eq(g.stationHopperCap(st, 'zz-kit-leaf'), 0,
+    'the hopper has no room for an ingredient this recipe does not call for');
+
+  // Put them in behind the door's back. The claim is about `nextBatch`, not
+  // about `loadStation` — a machine that ran what it found would still make tea
+  // out of leaves that got in some other way, and a re-flow or a content edit is
+  // exactly such a way.
+  st.contents['zz-kit-leaf'] = BATCHES;
   g.players.me.carry = null;
 
   const collected = { 'zz-kit-brew': 0, 'zz-kit-tea': 0 };
-  // Long enough for both queues, with a collection every so often so neither
-  // tray can wedge the machine — which is what a real chef is doing.
   for (let i = 0; i < 120; i++) {
     run(g, 1);
     if (st.output) {
@@ -406,18 +449,70 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   }
 
   const beansLeft = st.contents['zz-kit-bean'] ?? 0;
-  const leavesLeft = st.contents['zz-kit-leaf'] ?? 0;
   const inFlight = st.making ? content_inputs(st.making) : { bean: 0, leaf: 0 };
   const brewMade = collected['zz-kit-brew'] + (st.output?.item_id === 'zz-kit-brew' ? st.output.qty : 0);
   const teaMade = collected['zz-kit-tea'] + (st.output?.item_id === 'zz-kit-tea' ? st.output.qty : 0);
 
   eq(brewMade / BREW_PER_BATCH * BEAN_PER_BATCH + beansLeft + inFlight.bean, BEAN_PER_BATCH * BATCHES,
     'every bean is accounted for — in the tray, in the hopper, or in the batch running');
-  eq(teaMade + leavesLeft + inFlight.leaf, BATCHES,
-    'and every leaf too');
-  check(brewMade > 0 && teaMade > 0,
-    'and it genuinely made both things rather than committing to one',
-    `brew ${brewMade}, tea ${teaMade}`);
+  eq(teaMade, 0, 'it never makes the recipe it is not set to');
+  eq(st.contents['zz-kit-leaf'], BATCHES,
+    'and leaves it holds for that recipe untouched rather than spending them');
+  check(brewMade > 0, 'while making the one it is set to', `brew ${brewMade}`);
+
+  // Say the word and it switches — and the leaves it was sitting on become the
+  // thing it is working through. Nothing was destroyed by the wait.
+  const set = g.setStationRecipe('me', st.id, TEA);
+  check(set.ok, 'it can be set to the other recipe', set.error ?? '');
+  eq(g.stationRecipe(st)?.id, TEA, 'and says so');
+  g.players.me.carry = null;
+  for (let i = 0; i < 60; i++) {
+    run(g, 1);
+    if (st.output) { g.collectStation('me', st.id); g.players.me.carry = null; }
+  }
+  eq(st.contents['zz-kit-leaf'], undefined, 'the leaves it was holding get made');
+  eq(g.stationHopperCap(st, 'zz-kit-leaf'), BATCHES,
+    'and the hopper is now sized for THAT recipe instead');
+
+  // A recipe on another machine is not a choice this one has.
+  const nope = g.setStationRecipe('me', st.id, 'latte-recipe');
+  check(!nope.ok, 'and it cannot be set to a recipe it does not know', JSON.stringify(nope));
+}
+
+// ---------------------------------------------------------------------------
+// 4b. The choice survives the two things that quietly undo a decision.
+//
+// A re-flow (buying any fixture triggers one) and a restart. `dev:server` runs
+// under `node --watch`, so every edit to `server/` is a restart — a choice that
+// only lived on the layout record would hand the kitchen back to its first
+// recipe several times an hour, and the tell is a machine that has silently
+// gone back to making the wrong thing.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const st = urn(g);
+  check(g.setStationRecipe('me', st.id, TEA).ok, 'a machine is set to its second recipe');
+
+  g.regenerateLayout();
+  const after = g.layout.stations.find((s) => s.id === st.id);
+  check(!!after, 'the appliance survives a re-flow');
+  eq(g.stationRecipe(after)?.id, TEA, 'and is still set to what you set it to');
+
+  // The save, and back off it. `saveState` is exactly what `persist` writes and
+  // what a cold start reads, so going through it is the whole round trip.
+  const rows = g.saveState().hoppers ?? [];
+  eq(rows.find((r) => r.id === st.id)?.recipe, TEA, 'the save carries the choice');
+
+  const back = fresh();
+  const stBack = urn(back);
+  back.restoreContents([], [], [{ id: stBack.id, recipe: TEA }]);
+  eq(back.stationRecipe(stBack)?.id, TEA, 'and a shop read back off it is still set to it');
+
+  // A choice pointing at a recipe somebody has since deleted is a Tuesday
+  // afternoon in a game whose content is live-editable, not a corrupt save.
+  stBack.recipe = 'zz-kit-recipe-that-went-away';
+  eq(back.stationRecipe(stBack)?.id, BREW,
+    'and a choice whose recipe was deleted falls back rather than breaking');
 }
 
 /** What the batch currently running took out of the hopper. */
@@ -526,6 +621,68 @@ function content_inputs(recipeId) {
   check(shelf.stacks[0].qty > 30,
     'and the shop floor is borrowed from a batch at a time rather than stripped',
     `${shelf.stacks[0].qty} left of 60`);
+}
+
+// ---------------------------------------------------------------------------
+// 8. A kitchen with nowhere to put the result stops, rather than piling it up.
+//
+// The regression that shipped: emptying a full tray was allowed *because* it
+// was stopping the machine, so the crate at the drop-off was what let the next
+// batch start. A shop with every board spoken for therefore made its crafted
+// goods for ever and stacked them at the yard, six at a time, and the only
+// symptom is a pile — which reads as a delivery problem, or as a stocker who
+// has stopped working, rather than as the kitchen deciding to run.
+//
+// Both halves are asserted, and the second is the one that keeps this honest:
+// "it stopped" is trivially satisfiable by a kitchen that never runs at all.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const st = urn(g);
+
+  // Every board in the shop spoken for by something else, which is what a shop
+  // looks like once its range is settled — a crafted good is never `assigned`
+  // to anything, so this is the ordinary state that used to build the pile.
+  for (const sh of g.layout.shelves) sh.assigned = ['zz-kit-bean'];
+  const shelf = g.layout.shelves[0];
+  shelf.boh = true;
+  shelf.stacks = [{ item_id: 'zz-kit-bean', qty: 60, price: 2, stockedDay: g.day }];
+
+  // The player fills the hopper once, by hand. Nothing after this line is the
+  // player: everything that happens next is somebody the shop employs deciding
+  // it was worth doing.
+  hold(g, 'zz-kit-bean', BEAN_PER_BATCH * BATCHES);
+  check(g.loadStation('me', st.id).ok, 'the player fills the hopper by hand');
+  g.players.me.carry = null;
+
+  check(g.hire(TEST_HAND.id).ok, 'a hand who can craft, shelve and tidy is taken on');
+  g.step(0.1);
+  const hand = g.players[`staff-${g.roster[0].id}`];
+  check(!!hand, 'and turns up for work');
+
+  run(g, 200);
+
+  const crated = g.deliveries
+    .filter((d) => d.item_id === 'zz-kit-brew')
+    .reduce((n, d) => n + (d.qty ?? 0), 0);
+  eq(crated, 0, 'nothing it makes is ever walked out to the drop-off');
+  eq(st.output?.qty, BREW_PER_BATCH * BATCHES,
+    'the hopper it was given runs down and waits on the tray, where it was made');
+  eq(shelf.stacks[0].qty, 60,
+    'and the stockroom is untouched — nobody fetched a second load for goods with nowhere to go');
+
+  // The other half. Free one board and the shop has somewhere for it again, so
+  // the tray comes out and the machine goes back on. Without this the section
+  // passes on a kitchen that has simply been switched off.
+  shelf.assigned = ['zz-kit-brew'];
+  shelf.stacks = [];
+  run(g, 200);
+
+  const onShelf = g.shelfStack(shelf, 'zz-kit-brew')?.qty ?? 0;
+  const inHand = hand.carry?.item_id === 'zz-kit-brew' ? hand.carry.qty : 0;
+  check(onShelf + inHand > 0,
+    'give it a board and the tray comes out to fill it',
+    `shelf ${onShelf}, hands ${inHand}, tray ${st.output?.qty ?? 0}`);
 }
 
 // ---------------------------------------------------------------------------

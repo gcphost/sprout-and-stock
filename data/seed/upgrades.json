@@ -70,6 +70,19 @@
     "requires": []
   },
   {
+    "id": "checkout-3",
+    "name": "Register Trade Account",
+    "description": "Buy registers at trade. 40% off every till you install — which is what you want before you line up a bank of self-service machines.",
+    "cost": 850,
+    "kind": "checkout",
+    "payload": {
+      "discount": 0.4
+    },
+    "requires": [
+      "checkout-2"
+    ]
+  },
+  {
     "id": "freezer-1",
     "name": "Cold Chain Deal",
     "description": "The refrigeration people know you now. 20% off every freezer you build. Ice cream money.",
@@ -241,6 +254,17 @@
     "requires": []
   },
   {
+    "id": "station-grill",
+    "name": "Grill",
+    "description": "A flat-top grill. Raw meat and vegetables go on, dinner comes off.",
+    "cost": 230,
+    "kind": "station",
+    "payload": {
+      "station": "grill"
+    },
+    "requires": []
+  },
+  {
     "id": "station-juicer",
     "name": "Juicer",
     "description": "Adds a juicer to the shop floor.",
@@ -248,6 +272,28 @@
     "kind": "station",
     "payload": {
       "station": "juicer"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-oven",
+    "name": "Oven",
+    "description": "A proper deck oven. Wheat off your own fields goes in, bread worth four times the sheaf comes out.",
+    "cost": 220,
+    "kind": "station",
+    "payload": {
+      "station": "oven"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-preserving-pot",
+    "name": "Preserving Pot",
+    "description": "A copper pot and a rack of jars. Turns a glut off the fields into something that keeps for a year.",
+    "cost": 200,
+    "kind": "station",
+    "payload": {
+      "station": "preserving-pot"
     },
     "requires": []
   },

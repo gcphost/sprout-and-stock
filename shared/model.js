@@ -83,6 +83,35 @@ export function modelHeight(parts) {
 }
 
 /**
+ * The box the art actually occupies, in model space — how far it reaches on
+ * each side, and how high.
+ *
+ * `modelHeight` answers the same question about one axis, and for one caller
+ * (aiming). This is the other three, and it exists for the same reason
+ * `surfacesAt` does: standing something ON a fixture means knowing where its
+ * front edge and its back edge are, and a machine is whatever shape somebody
+ * drew. An appliance's intake bays measured off a constant would sit inside a
+ * squat toaster and float beside a tall espresso machine.
+ *
+ * A model with no parts answers a point at the origin, which puts everything in
+ * the middle of the tile — the same degrade "no surfaces, so stack it on the
+ * roof" takes.
+ */
+export function modelBounds(parts) {
+  const b = { minX: 0, maxX: 0, minZ: 0, maxZ: 0, top: 0 };
+  for (const p of parts ?? []) {
+    const [px, py, pz] = p.pos ?? [0, 0, 0];
+    const [sx, sy, sz] = p.scale ?? [0, 0, 0];
+    b.minX = Math.min(b.minX, px - sx / 2);
+    b.maxX = Math.max(b.maxX, px + sx / 2);
+    b.minZ = Math.min(b.minZ, pz - sz / 2);
+    b.maxZ = Math.max(b.maxZ, pz + sz / 2);
+    b.top = Math.max(b.top, py + sy / 2);
+  }
+  return b;
+}
+
+/**
  * The shelves *within* a model: every part flagged `surface`, as the plane its
  * top face sits on, lowest first.
  *
@@ -125,11 +154,24 @@ const CAM_RISE = 0.85;
 /** How much of a good must clear what is over it before a board is worth using. */
 const MIN_SHOW = 0.04;
 
+/** How many points along a board's run are sampled — see `shownOn`. */
+const SAMPLES = 5;
+
 /**
  * How much of a good standing at the front of `s` clears everything above it,
  * along the sightline the fixed camera actually has. Infinity means open sky.
  *
  *     shown = headroom − setback × CAM_RISE
+ *
+ * Measured at SEVERAL points along the board and answered with the BEST of
+ * them, because goods spread along the whole run and a board only has to be
+ * open somewhere to be worth stocking. It sampled the middle alone, which is
+ * right for a straight unit — every point on it answers the same — and wrong
+ * for the first shape where it isn't. A corner's two wings cross at the middle
+ * of each other, so wing A's centre sits under wing B's lid however high either
+ * of them is: both wings read as covered, the unit stocked nothing, and the
+ * goods fell back onto the roof. The far end of each wing, which is most of it,
+ * is out in the open.
  *
  * Glass does not count, because you can see through it — a chiller's own pane
  * hangs over its boards and has never hidden anything. Nor does `drift`, which
@@ -141,26 +183,36 @@ export function shownOn(parts, s) {
   // and looking up from the wrong point answers about the wall.
   const alongZ = s.depth >= s.span;
   const lip = (alongZ ? s.span : s.depth) * FRONT_LIP;
-  const gx = s.x + (alongZ ? lip : 0);
-  const gz = s.z + (alongZ ? 0 : lip);
   const face = alongZ ? 0 : 2;
-  const at = alongZ ? gx : gz;
+  // Along the board's own length, end to end. The ends are included rather than
+  // inset: a wing that is clear at its far end is a wing you can stock.
+  const run = alongZ ? s.depth : s.span;
+  const mid = alongZ ? s.z : s.x;
 
-  let shown = Infinity;
-  for (const p of parts ?? []) {
-    if ((p.alpha ?? 1) < 1 || p.drift) continue;
-    const under = (p.pos?.[1] ?? 0) - (p.scale?.[1] ?? 0) / 2;
-    // Anything not wholly above this board is the board itself, or below it.
-    if (under <= s.y + 1e-6) continue;
-    const over = (i, v) => Math.abs(v - (p.pos?.[i] ?? 0)) <= (p.scale?.[i] ?? 0) / 2 + 1e-6;
-    if (!over(0, gx) || !over(2, gz)) continue;
-    // Every cover, not just the lowest: a tier-3 shelf hangs a sign strip below
-    // its cap, and which of the two crops the view is not the same question as
-    // which of them is lower.
-    const setback = Math.max(0, (p.pos?.[face] ?? 0) + (p.scale?.[face] ?? 0) / 2 - at);
-    shown = Math.min(shown, (under - s.y) - setback * CAM_RISE);
+  let best = -Infinity;
+  for (let i = 0; i < SAMPLES; i++) {
+    const along = mid + (i / (SAMPLES - 1) - 0.5) * run;
+    const gx = alongZ ? s.x + lip : along;
+    const gz = alongZ ? along : s.z + lip;
+    const at = alongZ ? gx : gz;
+
+    let shown = Infinity;
+    for (const p of parts ?? []) {
+      if ((p.alpha ?? 1) < 1 || p.drift) continue;
+      const under = (p.pos?.[1] ?? 0) - (p.scale?.[1] ?? 0) / 2;
+      // Anything not wholly above this board is the board itself, or below it.
+      if (under <= s.y + 1e-6) continue;
+      const over = (j, v) => Math.abs(v - (p.pos?.[j] ?? 0)) <= (p.scale?.[j] ?? 0) / 2 + 1e-6;
+      if (!over(0, gx) || !over(2, gz)) continue;
+      // Every cover, not just the lowest: a tier-3 shelf hangs a sign strip below
+      // its cap, and which of the two crops the view is not the same question as
+      // which of them is lower.
+      const setback = Math.max(0, (p.pos?.[face] ?? 0) + (p.scale?.[face] ?? 0) / 2 - at);
+      shown = Math.min(shown, (under - s.y) - setback * CAM_RISE);
+    }
+    best = Math.max(best, shown);
   }
-  return shown;
+  return best;
 }
 
 /**
@@ -229,6 +281,23 @@ export function variantsOf(kind) {
 export function variantModel(kind, variant) {
   if (!variant) return kind?.model ?? null;
   return (kind?.variants ?? []).find((v) => v.id === variant)?.model ?? kind?.model ?? null;
+}
+
+/**
+ * The model for what one shape of a kind looks like WHILE IT IS WORKING, or
+ * null if nobody has drawn one.
+ *
+ * Falls back to the kind's own the way `variantModel` does, and that fallback
+ * is doing more work here than it is there. Every appliance in the game is a
+ * variant of one `station` piece, so one generic "steam and a light" authored
+ * on the piece makes all seven machines show they are running — and a variant
+ * that wants its own says so and takes over completely. A piece with no `work`
+ * anywhere answers null, which is every fixture that existed before this and
+ * is why none of them changed.
+ */
+export function variantWork(kind, variant) {
+  if (!variant) return kind?.work ?? null;
+  return (kind?.variants ?? []).find((v) => v.id === variant)?.work ?? kind?.work ?? null;
 }
 
 /**

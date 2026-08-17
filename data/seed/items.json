@@ -224,6 +224,110 @@
     }
   },
   {
+    "id": "chicken",
+    "name": "Chicken Portions",
+    "tags": [
+      "meat",
+      "needs-freezer",
+      "perishable",
+      "cheap",
+      "classic",
+      "dinner"
+    ],
+    "base_cost": 2.4,
+    "base_price": 5.6,
+    "shelf_life_days": 5,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#f2ede4",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.18,
+            0.26
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8b0a0",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.28,
+            0.1,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#cfd6da",
+          "pos": [
+            0,
+            0.19,
+            0
+          ],
+          "scale": [
+            0.35,
+            0.02,
+            0.27
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.5,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#c8503f",
+          "pos": [
+            0,
+            0.2,
+            0.08
+          ],
+          "scale": [
+            0.16,
+            0.02,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "chips",
     "name": "Crisps",
     "tags": [
@@ -274,6 +378,132 @@
     }
   },
   {
+    "id": "chocolate-box",
+    "name": "Box of Chocolates",
+    "tags": [
+      "candy",
+      "gift",
+      "holiday",
+      "luxury",
+      "premium",
+      "party",
+      "shelf-stable"
+    ],
+    "base_cost": 4,
+    "base_price": 11.5,
+    "shelf_life_days": 120,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#8a2b4a",
+          "pos": [
+            0,
+            0.07,
+            0
+          ],
+          "scale": [
+            0.4,
+            0.14,
+            0.3
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#a8365c",
+          "pos": [
+            0,
+            0.15,
+            0
+          ],
+          "scale": [
+            0.42,
+            0.04,
+            0.32
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8c96a",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.06,
+            0.03,
+            0.32
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8c96a",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.42,
+            0.03,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#e8c96a",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.06,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "coffee",
     "name": "Coffee Beans",
     "tags": [
@@ -319,6 +549,153 @@
             0.02
           ],
           "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "doughnuts",
+    "name": "Iced Doughnut",
+    "tags": [
+      "candy",
+      "snack",
+      "junk",
+      "kids",
+      "cheap",
+      "party",
+      "perishable"
+    ],
+    "base_cost": 0.9,
+    "base_price": 3,
+    "shelf_life_days": 2,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e0a35a",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.18,
+            0.34
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f2a8c8",
+          "pos": [
+            0,
+            0.195,
+            0
+          ],
+          "scale": [
+            0.33,
+            0.05,
+            0.33
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#4a3b2c",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.3,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#6fd1e8",
+          "pos": [
+            -0.09,
+            0.22,
+            0.04
+          ],
+          "scale": [
+            0.05,
+            0.02,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f2e04a",
+          "pos": [
+            0.07,
+            0.22,
+            -0.06
+          ],
+          "scale": [
+            0.05,
+            0.02,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#7cc46a",
+          "pos": [
+            0.02,
+            0.22,
+            0.11
+          ],
+          "scale": [
+            0.04,
+            0.02,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -852,6 +1229,111 @@
     }
   },
   {
+    "id": "fruit-lolly",
+    "name": "Fruit Swirl Lolly",
+    "tags": [
+      "candy",
+      "frozen",
+      "needs-freezer",
+      "junk",
+      "kids",
+      "cheap",
+      "summer"
+    ],
+    "base_cost": 1,
+    "base_price": 2.8,
+    "shelf_life_days": 45,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c9a227",
+          "pos": [
+            0,
+            0.07,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.14,
+            0.04
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f2c4de",
+          "pos": [
+            0,
+            0.24,
+            0
+          ],
+          "scale": [
+            0.18,
+            0.24,
+            0.18
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#d267a8",
+          "pos": [
+            0,
+            0.37,
+            0
+          ],
+          "scale": [
+            0.17,
+            0.12,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#a8365c",
+          "pos": [
+            0,
+            0.43,
+            0
+          ],
+          "scale": [
+            0.09,
+            0.08,
+            0.09
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "gelato",
     "name": "Pistachio Gelato",
     "tags": [
@@ -1223,6 +1705,277 @@
     }
   },
   {
+    "id": "jam-tart",
+    "name": "Jam Tart",
+    "tags": [
+      "bakery",
+      "premium",
+      "gift",
+      "kids",
+      "party",
+      "perishable"
+    ],
+    "base_cost": 1,
+    "base_price": 3.4,
+    "shelf_life_days": 4,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e0b070",
+          "pos": [
+            0,
+            0.07,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.14,
+            0.32
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c98f4a",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.33,
+            0.04,
+            0.33
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#a8365c",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.03,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e0b070",
+          "pos": [
+            0,
+            0.175,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.02,
+            0.04
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e0b070",
+          "pos": [
+            0,
+            0.175,
+            0
+          ],
+          "scale": [
+            0.04,
+            0.02,
+            0.26
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "ketchup",
+    "name": "Tomato Ketchup",
+    "tags": [
+      "condiment",
+      "shelf-stable",
+      "cheap",
+      "classic",
+      "kids",
+      "party"
+    ],
+    "base_cost": 1.2,
+    "base_price": 3.6,
+    "shelf_life_days": 180,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c62b1f",
+          "pos": [
+            0,
+            0.15,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.3,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cone",
+          "color": "#c62b1f",
+          "pos": [
+            0,
+            0.34,
+            0
+          ],
+          "scale": [
+            0.19,
+            0.08,
+            0.19
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#a81f16",
+          "pos": [
+            0,
+            0.405,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.05,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f4f4ee",
+          "pos": [
+            0,
+            0.45,
+            0
+          ],
+          "scale": [
+            0.09,
+            0.04,
+            0.09
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f7f2e8",
+          "pos": [
+            0,
+            0.16,
+            0.105
+          ],
+          "scale": [
+            0.13,
+            0.16,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#e2564a",
+          "pos": [
+            0,
+            0.17,
+            0.115
+          ],
+          "scale": [
+            0.07,
+            0.07,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "latte",
     "name": "Flat White",
     "tags": [
@@ -1478,6 +2231,110 @@
     }
   },
   {
+    "id": "pickles",
+    "name": "Pickled Veg",
+    "tags": [
+      "condiment",
+      "pantry",
+      "shelf-stable",
+      "vegan",
+      "classic",
+      "cheap"
+    ],
+    "base_cost": 0.9,
+    "base_price": 3.2,
+    "shelf_life_days": 240,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#cfe4d0",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.34,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.55,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8fae4a",
+          "pos": [
+            0,
+            0.15,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.26,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#e8873a",
+          "pos": [
+            0.05,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.08,
+            0.07,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c9a227",
+          "pos": [
+            0,
+            0.37,
+            0
+          ],
+          "scale": [
+            0.25,
+            0.05,
+            0.25
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "rainbow-bagel",
     "name": "Rainbow Bagel",
     "tags": [
@@ -1602,6 +2459,235 @@
           "surface": false,
           "alpha": 1,
           "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "rice-cakes",
+    "name": "Rice Cakes",
+    "tags": [
+      "pantry",
+      "shelf-stable",
+      "gluten-free",
+      "healthy",
+      "vegan",
+      "cheap"
+    ],
+    "base_cost": 1.1,
+    "base_price": 3,
+    "shelf_life_days": 150,
+    "stack": 14,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e8dcc0",
+          "pos": [
+            0,
+            0.06,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.12,
+            0.3
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#dccfa8",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.06,
+            0.3
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e8dcc0",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.06,
+            0.3
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#cfe4ec",
+          "pos": [
+            0,
+            0.13,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.22,
+            0.32
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.3,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "roast-chicken",
+    "name": "Roast Chicken",
+    "tags": [
+      "meat",
+      "prepared",
+      "dinner",
+      "classic",
+      "premium",
+      "perishable"
+    ],
+    "base_cost": 3,
+    "base_price": 8.4,
+    "shelf_life_days": 2,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "sphere",
+          "color": "#d8a05a",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.28,
+            0.28
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#c98f4a",
+          "pos": [
+            0,
+            0.26,
+            -0.06
+          ],
+          "scale": [
+            0.18,
+            0.12,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cone",
+          "color": "#b5793c",
+          "pos": [
+            -0.1,
+            0.1,
+            0.14
+          ],
+          "scale": [
+            0.09,
+            0.14,
+            0.09
+          ],
+          "rot": 200,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cone",
+          "color": "#b5793c",
+          "pos": [
+            0.1,
+            0.1,
+            0.14
+          ],
+          "scale": [
+            0.09,
+            0.14,
+            0.09
+          ],
+          "rot": 160,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f2f2f2",
+          "pos": [
+            0,
+            0.03,
+            0
+          ],
+          "scale": [
+            0.4,
+            0.04,
+            0.34
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -1761,6 +2847,110 @@
           "seam": false,
           "alpha": 1,
           "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "sourdough",
+    "name": "Sourdough Loaf",
+    "tags": [
+      "bakery",
+      "artisanal",
+      "premium",
+      "classic",
+      "breakfast",
+      "perishable"
+    ],
+    "base_cost": 1.5,
+    "base_price": 4.6,
+    "shelf_life_days": 3,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "capsule",
+          "color": "#d8a462",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.38,
+            0.22,
+            0.26
+          ],
+          "rot": 90,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#b5793c",
+          "pos": [
+            -0.06,
+            0.28,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.03,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#b5793c",
+          "pos": [
+            0.06,
+            0.28,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.03,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#e8d0a8",
+          "pos": [
+            0,
+            0.29,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.04,
+            0.18
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -2015,6 +3205,110 @@
           "seam": false,
           "alpha": 1,
           "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "veg-skewers",
+    "name": "Veg Skewers",
+    "tags": [
+      "prepared",
+      "healthy",
+      "vegan",
+      "organic",
+      "summer",
+      "lunch"
+    ],
+    "base_cost": 1.4,
+    "base_price": 4.4,
+    "shelf_life_days": 2,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c9a227",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.03,
+            0.4,
+            0.03
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#e2564a",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.12,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#7cc46a",
+          "pos": [
+            0,
+            0.24,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.11,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#e8873a",
+          "pos": [
+            0,
+            0.34,
+            0
+          ],
+          "scale": [
+            0.11,
+            0.1,
+            0.11
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }

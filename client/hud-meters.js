@@ -29,8 +29,12 @@ const HALF = 26;
  */
 const DEADBAND = 0.04;
 
-const SPARK_W = 46;
-const SPARK_H = 14;
+// Scaled with the rest of #stats — see the panel's own note in index.html. A
+// sparkline that kept its old size while the type around it shrank would be the
+// biggest thing in the readout, which is the wrong way round for the least
+// urgent number in it.
+const SPARK_W = 38;
+const SPARK_H = 12;
 
 const money = (v) => `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(v > -10 && v < 10 ? 2 : 0)}`;
 const title = (s) => s.charAt(0).toUpperCase() + s.slice(1);

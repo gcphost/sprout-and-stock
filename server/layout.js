@@ -796,6 +796,16 @@ function compose(req, storeW, storeH, allowDrops = true) {
 
   const layout = layoutSoFar();
 
+  // ---- the lane the van comes in on ---------------------------------------
+  // Last of everything, because it is the only thing here that reads `blocked`
+  // as it finally is: the border ring is one of the few places a hand placement
+  // is legal, and a shelf somebody stood on it is in the way of a lorry.
+  //
+  // Computed once per finished layout rather than per tick, and never in
+  // `layoutSoFar` — a probe that is about to be thrown away does not need a
+  // road, and this loop runs across every bay cell.
+  const vanLane = vanRoute(layout, bay);
+
   // ---- how long each line really is ---------------------------------------
   // Re-measured here rather than trusted from `makeCheckout`, because the
   // shelving goes in *after* the tills — so a lane measured then is a lane
@@ -837,6 +847,12 @@ function compose(req, storeW, storeH, allowDrops = true) {
       drop,
       /** Where the staff take their breaks, if anybody has painted them one. */
       break: breakRoom,
+      /**
+       * The fixed lane a delivery van drives, or null if there is no way in.
+       * `{ dock, in: [...], out: [...] }` — see `vanRoute`. The sim drives it
+       * with `followPath` and never pathfinds.
+       */
+      vanRoute: vanLane,
       /** Where players clock on, and the anchor for "is outside still reachable". */
       spawn: layout.spawn,
       /** Map-edge tiles shoppers walk on from and back off to. */
@@ -987,6 +1003,11 @@ function makeStation(id, station, x, z, rot) {
     busyUntil: 0,
     making: null,
     output: null,
+    // Which of its recipes this machine is set to. Null means nobody has said,
+    // which reads as the first one it knows — see `Game.stationRecipe`. A
+    // decision, the way a shelf's `assigned` is, and it survives the same two
+    // things: a re-flow (`carryOver`) and a restart (`persist`).
+    recipe: null,
   };
 }
 
@@ -1009,6 +1030,143 @@ function makeProp(p) {
     rot: p.rot ?? 0,
     tier: p.tier ?? 1,
     variant: p.variant ?? '',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The van's lane
+// ---------------------------------------------------------------------------
+
+/**
+ * How far off the map the van starts and finishes.
+ *
+ * Same number and same argument as `APPROACH_OUT`: far enough that it is not
+ * seen popping into being, close enough that the drive in is not most of the
+ * journey. Kept as its own constant rather than shared, because the two would
+ * be argued about separately the moment either changes — a shopper appearing
+ * is a body and this is a lorry.
+ */
+const VAN_OFF = 8;
+
+/**
+ * Ground a vehicle drives on. Deliberately NOT `WALKABLE`.
+ *
+ * A plot is walkable and a van does not drive over somebody's carrots; a door
+ * is walkable and a van does not drive through the shop. Everything left is
+ * outdoor going: grass, the path, an outdoor floor somebody paved, and the
+ * three pads, which are the one kind of ground whose whole job is that things
+ * arrive on them.
+ */
+const DRIVABLE = new Set([T.GRASS, T.PATH, T.FLOOR, T.BAY, T.DROP, T.PARK]);
+
+/**
+ * The lane the delivery van drives: on at the edge of the map, round the
+ * border ring, in to the bay, and back out the way it came.
+ *
+ * **A vehicle is not a person, and this is the whole reason this function
+ * exists rather than a `findPath` call.** A* walks the same tile grid a shopper
+ * walks, and it is *right* for a shopper: it threads between planters, turns on
+ * the spot, and takes whichever gap is shortest. A lorry doing that reads as a
+ * bug in the renderer. So there is no pathfinding here at all — the van gets a
+ * fixed route, computed once per layout, and drives it with `followPath` the
+ * same way a customer walks a path A* handed them. Whether the way is clear is
+ * decided HERE, once, rather than re-asked every tick by something with wheels.
+ *
+ * The route is two straight legs and one turn:
+ *
+ *   1. a **spur**, straight out of a bay cell to the border ring, and
+ *   2. a **run along the ring** from the nearest end of that border, off the map.
+ *
+ * Both are straight lines of drivable cells, which is what makes them a lane
+ * rather than a path: nothing in either can be walked round, so a shelf on the
+ * ring is not an obstacle to steer past, it is a lane that does not exist. Every
+ * bay cell × every direction is tried and the shortest total drive wins, so a
+ * bay painted out the front, or down the east side, gets its own way in for
+ * free — and a bay walled in on all four sides returns null, which the sim
+ * reads as "no van today" and lands the goods the way it did before there was
+ * anything to look at. That fallback is the honest half: a shop whose yard
+ * nobody can drive to must still get the stock it paid for.
+ *
+ * The van stops one cell SHORT of the pad rather than on it. Goods land on the
+ * pad — `dropGoods` picks the cells, as it does for everything else — and a van
+ * parked on top of the crates it just put down is a picture of the wrong thing.
+ *
+ * @returns {{dock: {x,z}, in: {x,z}[], out: {x,z}[]}|null}
+ */
+function vanRoute(L, bay) {
+  if (!bay?.cells?.length) return null;
+
+  const drivable = (x, z) => {
+    if (x < 0 || z < 0 || x >= L.w || z >= L.h) return false;
+    const i = z * L.w + x;
+    return DRIVABLE.has(L.tiles[i]) && !L.blocked[i] && !L.indoor[i];
+  };
+
+  // Straight out of `b` until the world runs out. Null if anything is in the
+  // way — there is no going round, that is the point.
+  const spur = (b, dx, dz) => {
+    const cells = [];
+    for (let x = b.x + dx, z = b.z + dz; drivable(x, z); x += dx, z += dz) {
+      cells.push({ x, z });
+      const off = x + dx < 0 || z + dz < 0 || x + dx >= L.w || z + dz >= L.h;
+      if (off) return cells;                  // reached the border ring
+    }
+    return null;
+  };
+
+  // ...and along the border the spur came out on, to whichever end of it is
+  // nearer and clear. `axis` is the one the road runs on, which is always the
+  // one the spur did not: a spur north hits row 0, and row 0 runs east-west.
+  const ringLeg = (ring, axis) => {
+    const span = axis === 'x' ? L.w : L.h;
+    const here = axis === 'x' ? ring.x : ring.z;
+    let best = null;
+    for (const step of [-1, 1]) {
+      const end = step < 0 ? 0 : span - 1;
+      let clear = true;
+      for (let a = here + step; step < 0 ? a >= end : a <= end; a += step) {
+        const x = axis === 'x' ? a : ring.x;
+        const z = axis === 'x' ? ring.z : a;
+        if (!drivable(x, z)) { clear = false; break; }
+      }
+      if (!clear) continue;
+      const dist = Math.abs(end - here);
+      if (best && best.dist <= dist) continue;
+      const from = end + step * VAN_OFF;
+      best = {
+        dist,
+        entry: axis === 'x' ? { x: from, z: ring.z } : { x: ring.x, z: from },
+      };
+    }
+    return best;
+  };
+
+  let best = null;
+  for (const b of bay.cells) {
+    for (const [dx, dz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const lane = spur(b, dx, dz);
+      if (!lane) continue;
+      const ring = lane[lane.length - 1];
+      const leg = ringLeg(ring, dz === 0 ? 'z' : 'x');
+      if (!leg) continue;
+      const cost = lane.length + leg.dist;
+      if (best && best.cost <= cost) continue;
+      best = { cost, dock: lane[0], ring, entry: leg.entry };
+    }
+  }
+  if (!best) return null;
+
+  // Three points for two legs, because a waypoint in the middle of a straight
+  // is a waypoint nobody turns at. The ring cell and the dock collapse into one
+  // when the pad is against the border already — the van drives up the road and
+  // stops beside it without ever turning off.
+  const inbound = [best.entry, best.ring, best.dock].filter((p, i, all) => (
+    i === 0 || p.x !== all[i - 1].x || p.z !== all[i - 1].z
+  ));
+  return {
+    dock: { ...best.dock },
+    in: inbound.map((p) => ({ ...p })),
+    out: [...inbound].reverse().map((p) => ({ ...p })),
   };
 }
 

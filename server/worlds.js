@@ -188,7 +188,22 @@ export function createWorld({ name, seed, cash, shelves, plots } = {}) {
   });
 
   const row = insertWorldRow({ id, name: label, seed: useSeed });
-  saveWorld(id, { ...DEFAULT_WORLD, seed: useSeed, ...start });
+  /**
+   * ...and it starts SHUT.
+   *
+   * The one line that makes opening up a thing you do rather than a thing the
+   * clock does to you: the first act in a new shop is walking to the door and
+   * raising the shutters, with a bare building and no shoppers in it while you
+   * decide where the freezer goes.
+   *
+   * Written here rather than defaulted in `Game` on purpose, and the asymmetry
+   * is the point. A save that has never heard of the field reads as OPEN, so
+   * nobody's shop shuts itself on the day this shipped, and every headless game
+   * — `simulate`, every `verify:*` sweep — trades exactly as it always did. Put
+   * the default the other way round and a balance run measures a shop that never
+   * opens, which reports as zero revenue with nothing in the output to say why.
+   */
+  saveWorld(id, { ...DEFAULT_WORLD, seed: useSeed, open: false, ...start });
   const extras = Object.keys(start).length ? ` started with ${JSON.stringify(start)}` : '';
   console.log(`[worlds] created "${label}" (${id}, seed ${useSeed})${extras}`);
   return summarise(row);

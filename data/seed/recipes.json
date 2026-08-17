@@ -18,6 +18,42 @@
     "minutes": 9
   },
   {
+    "id": "doughnuts-recipe",
+    "name": "Iced Doughnut",
+    "station": "deep-fryer",
+    "inputs": [
+      {
+        "item_id": "wheat",
+        "qty": 2
+      },
+      {
+        "item_id": "egg",
+        "qty": 1
+      }
+    ],
+    "output_id": "doughnuts",
+    "output_qty": 3,
+    "minutes": 7
+  },
+  {
+    "id": "fruit-lolly-recipe",
+    "name": "Fruit Swirl Lolly",
+    "station": "soft-serve",
+    "inputs": [
+      {
+        "item_id": "jam",
+        "qty": 1
+      },
+      {
+        "item_id": "milk",
+        "qty": 1
+      }
+    ],
+    "output_id": "fruit-lolly",
+    "output_qty": 3,
+    "minutes": 8
+  },
+  {
     "id": "hot-chips-recipe",
     "name": "Hot Chips",
     "station": "deep-fryer",
@@ -30,6 +66,38 @@
     "output_id": "hot-chips",
     "output_qty": 3,
     "minutes": 6
+  },
+  {
+    "id": "jam-tart-recipe",
+    "name": "Jam Tart",
+    "station": "oven",
+    "inputs": [
+      {
+        "item_id": "wheat",
+        "qty": 2
+      },
+      {
+        "item_id": "jam",
+        "qty": 1
+      }
+    ],
+    "output_id": "jam-tart",
+    "output_qty": 3,
+    "minutes": 12
+  },
+  {
+    "id": "ketchup-recipe",
+    "name": "Tomato Ketchup",
+    "station": "juicer",
+    "inputs": [
+      {
+        "item_id": "tomato",
+        "qty": 3
+      }
+    ],
+    "output_id": "ketchup",
+    "output_qty": 2,
+    "minutes": 10
   },
   {
     "id": "latte-recipe",
@@ -48,6 +116,38 @@
     "output_id": "latte",
     "output_qty": 2,
     "minutes": 6
+  },
+  {
+    "id": "pickles-recipe",
+    "name": "Pickled Veg",
+    "station": "preserving-pot",
+    "inputs": [
+      {
+        "item_id": "carrot",
+        "qty": 2
+      },
+      {
+        "item_id": "tomato",
+        "qty": 1
+      }
+    ],
+    "output_id": "pickles",
+    "output_qty": 3,
+    "minutes": 18
+  },
+  {
+    "id": "roast-chicken-recipe",
+    "name": "Roast Chicken",
+    "station": "grill",
+    "inputs": [
+      {
+        "item_id": "chicken",
+        "qty": 2
+      }
+    ],
+    "output_id": "roast-chicken",
+    "output_qty": 2,
+    "minutes": 16
   },
   {
     "id": "salsa-recipe",
@@ -84,6 +184,20 @@
     "output_id": "smoothie",
     "output_qty": 2,
     "minutes": 12
+  },
+  {
+    "id": "sourdough-recipe",
+    "name": "Sourdough Loaf",
+    "station": "oven",
+    "inputs": [
+      {
+        "item_id": "wheat",
+        "qty": 3
+      }
+    ],
+    "output_id": "sourdough",
+    "output_qty": 2,
+    "minutes": 14
   },
   {
     "id": "toast-recipe",
@@ -138,5 +252,23 @@
     "output_id": "veg-juice",
     "output_qty": 2,
     "minutes": 10
+  },
+  {
+    "id": "veg-skewers-recipe",
+    "name": "Veg Skewers",
+    "station": "grill",
+    "inputs": [
+      {
+        "item_id": "tomato",
+        "qty": 2
+      },
+      {
+        "item_id": "lettuce",
+        "qty": 1
+      }
+    ],
+    "output_id": "veg-skewers",
+    "output_qty": 3,
+    "minutes": 9
   }
 ]

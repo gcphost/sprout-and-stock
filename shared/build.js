@@ -145,6 +145,39 @@ export const GROUND = {
     does: 'staff take their breaks here, and how big you paint it is how many of them it seats at once',
     lastGone: 'that is your last break tile — staff would go back to resting wherever they finished',
   },
+  /**
+   * The car park — the fourth pad, and the first that is not the shop's own
+   * ground at all.
+   *
+   * The bay and the drop-off hold the shop's goods; the break area holds the
+   * shop's people. This one holds the people who came to *buy*, which is the
+   * whole reason it is neither Yard nor Staff in the palette — filing it beside
+   * the bay would put it behind the one word that says it is about stock, and
+   * filing it beside the break area would put it behind the one word that says
+   * it is about the payroll.
+   *
+   * Mechanically it is nothing new, and that is the argument for it being ground
+   * rather than a fixture with parking bays drawn on it: it is the same brush,
+   * the same "how big you paint it is how many it holds" the yard already
+   * teaches, and the same one-cell-one-occupant the break area already teaches.
+   * Nothing seeds one either, for the break area's reason — a shop with no car
+   * park is every shop that exists today, and it plays exactly as it always has.
+   *
+   * Everything on this row is true of the ground the day it is painted: it is
+   * walkable, it is never buildable (`BUILDABLE_INDOOR` is floor and
+   * `BUILDABLE_OUTDOOR` is grass, so a pad is neither without a word being
+   * written), and it belongs outdoors — indoors it is the same hole a bay is,
+   * with the same warning. Who arrives on it and what having driven is worth is
+   * step 4b of docs/deliveries.md. The ground goes first deliberately: a
+   * mechanic with nowhere to happen is one nobody can measure.
+   */
+  park: {
+    label: 'Car Park',
+    tile: T.PARK,
+    pad: true,
+    does: 'shoppers who drive here leave the car, and how big you paint it is how many of them can',
+    lastGone: 'that is your last parking space — nobody would be able to drive to the shop',
+  },
 };
 
 export const FLOOR_KIND = 'floor';
@@ -202,6 +235,13 @@ export const blocksCell = (kind) => FIXTURES[kind]?.blocks === true;
  * Shared for the same reason `canPlace` is: the fixture menu prints the refund
  * on the button *before* you press it, and the server is what actually pays it.
  * Two copies of that number is two different amounts of money.
+ *
+ * It is the shop's one sell-back rate rather than the fixture's, which is why a
+ * name with `FIXTURE` in it now reaches the worker menu: stepping back down a
+ * ladder — a shelf's tier, a hire's grade — hands back half of the rung you are
+ * standing on, and half is half. What that guarantees is the thing a rate per
+ * ladder could not: every climb costs money whichever way it is walked, so no
+ * amount of up-and-down cycling can print any.
  */
 export const FIXTURE_REFUND = 0.5;
 
@@ -256,6 +296,79 @@ export function workSpots(kind, x, z, rot = 0) {
   if (def.anchor) out.push({ ...anchorTile(x, z, rot), role: 'use', field: def.anchor });
   if (def.behind) out.push({ ...behindTile(x, z, rot), role: 'tend', field: def.behind });
   return out;
+}
+
+/**
+ * Which way a thing put down HERE should face, given how it is facing now.
+ *
+ * Aim assist, not a rule. It answers the thing anybody building a row of
+ * shelving does by hand and resents doing: standing something against a wall
+ * means turning its back to the wall, every time, and there is exactly one
+ * right answer per tile, so asking the player for it is asking them to type
+ * out a fact the shop already knows.
+ *
+ * Two tests, and the second is the whole trick. **Usable** is the same
+ * condition `whatThisCosts` warns about — somebody can stand where you browse
+ * it from, and that spot is indoors. **Backed** is the one that reads a wall:
+ * whatever is on the *opposite* side is NOT somewhere a person can be. Usable
+ * alone is not enough, and the difference only shows up against a wall running
+ * the other way — a shelf on the east wall facing south has a perfectly good
+ * browsing spot and is standing side-on to the wall, which is what "it doesn't
+ * rotate properly" would have meant.
+ *
+ * Ties go to the facing it already has, because the search starts there. That
+ * is what keeps this from fighting you: out in the middle of the floor nothing
+ * is backed, so it returns what you gave it and slides along the wall without
+ * spinning. It is also why the caller has to stop asking once the player has
+ * turned it by hand — see `rotPinned`.
+ *
+ * A till is the exception it looks like: it is worked from behind, so its back
+ * is a *place* rather than a wall, and the best facing is the one with room on
+ * both sides. Same search, opposite test.
+ *
+ * `keep` is what a fixture you are CARRYING asks for, and it is the difference
+ * between assisting and overruling. A new unit off the palette has no facing
+ * anybody chose — rot 0 is where the model happens to have been drawn — so the
+ * best answer for the tile is the right answer. One you picked up already has
+ * one, and it is the one you set the last time it was standing somewhere; a
+ * search that improves on it is taking away a decision rather than saving you
+ * one. So `keep` settles for a facing that WORKS rather than holding out for
+ * the best available: the unit only turns when its own angle would leave it
+ * with nowhere to browse it from, which is the case where keeping it would
+ * silently cost you the shelf. Everything else — sliding it down a wall, past a
+ * corner, along a row — leaves it exactly as you had it.
+ */
+export function faceAlong(L, spec, { ignoreId = null, keep = false } = {}) {
+  const def = FIXTURES[spec.kind];
+  const from = rot4(spec.rot ?? 0);
+  if (!L || !def?.rotates || !def.anchor) return from;
+  const { x, z } = spec;
+  /**
+   * Can somebody use this unit from that side?
+   *
+   * One predicate, asked of both sides, and every kind of "no" it has to
+   * recognise is in it. The edge test is the one that is easy to leave out and
+   * impossible to notice missing: **a wall is not a tile**, it is drawn on the
+   * line between two of them, so the far side of your own shop wall is ordinary
+   * walkable grass and the far side of an annex divider is ordinary shop floor.
+   * Read tiles alone and a shelf against a wall you *drew* stands side-on to
+   * it, which is exactly the case somebody building a back room hits first.
+   */
+  const open = (t) => WALKABLE.has(tileAt(L, t.x, t.z))
+    && !blockedAt(L, t.x, t.z, ignoreId)
+    && insideStore(L, t.x, t.z)
+    && !SOLID.has(edgeBetween(L, x, z, t.x, t.z));
+  const usable = (rot) => open(anchorTile(x, z, rot));
+  const backed = (rot) => !open(behindTile(x, z, rot));
+  const tries = [0, 1, 2, 3].map((i) => rot4(from + i));
+  // The bar a facing has to clear to be worth having at all, as opposed to the
+  // best one going. It is the same test each search below settles for when it
+  // cannot do better — written once so `keep` cannot quietly hold a facing to a
+  // different standard than the search that would replace it.
+  const workable = def.behind ? (r) => usable(r) && !backed(r) : usable;
+  if (keep && workable(from)) return from;
+  if (def.behind) return tries.find(workable) ?? from;
+  return tries.find((r) => usable(r) && backed(r)) ?? tries.find(usable) ?? from;
 }
 
 /**
@@ -1138,59 +1251,108 @@ function withBlocked(L, x, z) {
  *
  * The flood starts at the door, because that is where shoppers come in — a
  * pocket of floor nobody can walk to is not floor.
+ *
+ * **A warning is a DELTA, and it was an absolute for as long as this existed.**
+ * The flood was run once, with the thing already standing there, and anything
+ * it failed to reach was blamed on the placement. So one freezer with a crate
+ * on its browse tile — a shop somebody had already half-blocked, which is a
+ * move the game explicitly allows — made *every* ghost anywhere in the world
+ * say "that would cut off a freezer you own". Including a plot out in the
+ * middle of a field, which is where it was finally noticed, and including the
+ * one placement that genuinely was about to seal something off: a warning that
+ * is always on is a warning nobody reads.
+ *
+ * So both floods, and only a spot that was reachable *before* and isn't now.
+ * The second one is lazy and usually free: the two masks differ by exactly the
+ * one cell being taken, so a piece that blocks nothing — a plot, a decoration —
+ * cannot change reachability at all and reuses the first flood outright. That
+ * matters here, because this runs on every ghost frame and ~100k times in
+ * `verify:layout`.
  */
 function whatThisBlocks(L, spec, def, ignoreId) {
   // The flood runs over the *occupancy* mask now rather than a doctored copy of
   // the ground. The thing being moved has already left as far as this is
   // concerned — or a shelf could never be shuffled one square along — and the
   // thing being placed is treated as already standing there.
-  const blocked = Uint8Array.from(L.blocked ?? new Uint8Array(L.w * L.h));
+  const before = Uint8Array.from(L.blocked ?? new Uint8Array(L.w * L.h));
   if (ignoreId) {
     for (const f of fixturesOf(L)) {
-      if (f.id === ignoreId) blocked[f.z * L.w + f.x] = 0;
+      if (f.id === ignoreId) before[f.z * L.w + f.x] = 0;
     }
   }
-  if (def.blocks) blocked[spec.z * L.w + spec.x] = 1;
+  // Which is also the baseline: what the shop is like with this thing lifted
+  // and not yet put down, which is exactly what the player is looking at.
+  const after = def.blocks ? Uint8Array.from(before) : before;
+  if (def.blocks) after[spec.z * L.w + spec.x] = 1;
 
-  const probe = { ...L, blocked };
-  const seen = new Set();
-  const stack = [[L.door.x, L.door.z]];
-  seen.add(`${L.door.x},${L.door.z}`);
-  while (stack.length) {
-    const [cx, cz] = stack.pop();
-    for (const f of FACING) {
-      const nx = cx + f.dx;
-      const nz = cz + f.dz;
-      const k = `${nx},${nz}`;
-      if (seen.has(k)) continue;
-      if (SOLID.has(edgeBetween(probe, cx, cz, nx, nz))) continue;
-      if (!isWalkableTile(probe, nx, nz)) continue;
-      seen.add(k);
-      stack.push([nx, nz]);
+  const flood = (blocked) => {
+    const probe = { ...L, blocked };
+    const seen = new Set([`${L.door.x},${L.door.z}`]);
+    const stack = [[L.door.x, L.door.z]];
+    while (stack.length) {
+      const [cx, cz] = stack.pop();
+      for (const f of FACING) {
+        const nx = cx + f.dx;
+        const nz = cz + f.dz;
+        const k = `${nx},${nz}`;
+        if (seen.has(k)) continue;
+        if (SOLID.has(edgeBetween(probe, cx, cz, nx, nz))) continue;
+        if (!isWalkableTile(probe, nx, nz)) continue;
+        seen.add(k);
+        stack.push([nx, nz]);
+      }
     }
-  }
+    return seen;
+  };
 
-  const reaches = (p) => seen.has(`${Math.round(p.x)},${Math.round(p.z)}`);
+  const seen = flood(after);
+  // Paid for only when something is unreachable and this placement could be the
+  // reason — so the common case, where nothing is cut off at all, runs one flood
+  // exactly as it always did.
+  let base = after === before ? seen : null;
+  const key = (p) => `${Math.round(p.x)},${Math.round(p.z)}`;
+  const reached = (p) => seen.has(key(p));
+  const wasReached = (p) => {
+    base ??= flood(before);
+    return base.has(key(p));
+  };
+  // The one question every check below is really asking. Said as two floods
+  // rather than folded into a single "reaches", because the checks that take
+  // ANY of several tiles cannot be built out of a per-tile answer: a bay with
+  // three cells already cut off and one good one is sealed by taking the good
+  // one, and a predicate that calls the three "fine, they were already gone"
+  // reports that as no change at all.
+  const cutOff = (p) => !reached(p) && wasReached(p);
   const isHere = (p) => Math.round(p.x) === spec.x && Math.round(p.z) === spec.z;
   const label = (kind) => FIXTURES[kind]?.label.toLowerCase() ?? 'fixture';
 
   // Whatever you are placing has to be usable itself, and standing somewhere
   // walkable is not the same as standing somewhere you can walk *to*.
+  //
+  // `reached` and not `reaches`: these two are the exception to the delta, and
+  // for the reason the delta exists. A thing you are about to put down has no
+  // "before" — it wasn't anywhere — so nothing here can be somebody else's
+  // pre-existing mess. Standing a shelf in a room you have sealed off deserves
+  // to be told so every time, even though that room was already sealed.
   if (def.anchor) {
     const mine = anchorTile(spec.x, spec.z, spec.rot ?? 0);
-    if (!reaches(mine)) return 'you could never get round to that side of it';
+    if (!reached(mine)) return 'you could never get round to that side of it';
   }
   if (def.behind) {
     const mine = behindTile(spec.x, spec.z, spec.rot ?? 0);
-    if (!reaches(mine)) return 'nobody could get round behind it to serve';
+    if (!reached(mine)) return 'nobody could get round behind it to serve';
   }
 
   for (const f of fixturesOf(L)) {
     if (f.id === ignoreId) continue;
     if (f.kind === 'plot') {
-      // A bed is worked from any side, so it only needs one of them.
-      const anySide = FACING.some((d) => reaches({ x: f.x + d.dx, z: f.z + d.dz }));
-      if (!anySide) return 'that would leave a plot with no way in';
+      // A bed is worked from any side, so it only needs one of them — and it
+      // has to have had one, or a bed you had already boxed in blames the next
+      // thing you put down anywhere in the shop.
+      const sides = FACING.map((d) => ({ x: f.x + d.dx, z: f.z + d.dz }));
+      if (!sides.some(reached) && sides.some(wasReached)) {
+        return 'that would leave a plot with no way in';
+      }
       continue;
     }
     // Both sides of a counter, and the reason this reads them off the record
@@ -1202,21 +1364,21 @@ function whatThisBlocks(L, spec, def, ignoreId) {
         // this side — you never do — and a player told that about a tile behind
         // a counter goes looking for a shelf that isn't there.
         if (isHere(s)) return `that is where your clerk stands to work the ${label(f.kind)}`;
-        if (!reaches(s)) return `that would leave a ${label(f.kind)} nobody can get behind`;
+        if (cutOff(s)) return `that would leave a ${label(f.kind)} nobody can get behind`;
         continue;
       }
       if (isHere(s)) return `that is where you stand to use the ${label(f.kind)} behind it`;
-      if (!reaches(s)) return `that would cut off a ${label(f.kind)} you own`;
+      if (cutOff(s)) return `that would cut off a ${label(f.kind)} you own`;
     }
   }
 
-  if (!reaches(L.spawn)) return 'that would block the way through';
+  if (cutOff(L.spawn)) return 'that would block the way through';
   // A pad is a region rather than a point now, so the question is whether ANY
   // of it is still reachable — walling off one corner of a big stockroom is a
   // choice, and sealing the whole thing is what this is here to catch.
   for (const k of PAD_KINDS) {
     const cells = padCells(L, k);
-    if (cells.length && !cells.some(reaches)) {
+    if (cells.length && !cells.some(reached) && cells.some(wasReached)) {
       return `that would cut off the ${GROUND[k].label.toLowerCase()}`;
     }
   }

@@ -36,7 +36,7 @@ import { content } from '../server/content.js';
 import { FIXTURES, GROUND, isGround, isProp, blocksCell } from '../shared/build.js';
 import { kindOf, piecesOf } from '../shared/pieces.js';
 import {
-  surfacesAt, partsAt, variantsOf, isStaged, drawableBoards, shownOn, tierProgress,
+  surfacesAt, partsAt, variantsOf, variantWork, isStaged, drawableBoards, shownOn, tierProgress,
 } from '../shared/model.js';
 
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), '../docs/fixtures.md');
@@ -139,6 +139,61 @@ const coveredTail = (c) => `${c.hidden} of ${c.of} boards `
 const coveredLine = (row, c) => `\`${row.id}\` · ${c.shape}`
   + `${c.tier ? ` tier ${c.tier}` : ''} — ${coveredTail(c)}`;
 
+/**
+ * What each shape of a piece does while it is WORKING — and which of them do
+ * nothing, which is the half worth printing.
+ *
+ * The same argument every other warning in here makes. A machine mid-batch and
+ * one that has been sat there since Tuesday are the same picture unless
+ * somebody drew the difference, and nothing in the game complains: it works, it
+ * simply never looks like it. That is invisible in a screenshot of the one
+ * appliance you happen to have built, and it is exactly what an authoring
+ * reference is for.
+ *
+ * Only a `station` is asked, because only an appliance can be busy. A `motion`
+ * part on anything else always runs, which is a decision the schema states and
+ * this reports on the parts line rather than here.
+ */
+function workLines(row) {
+  if (kindOf(row) !== 'station') return [];
+  const out = [];
+  const bare = [];
+
+  for (const v of variantsOf(row)) {
+    const model = variantWork(row, v.id);
+    // What the MACHINE ITSELF does, which is the other half and is easy to miss:
+    // a `motion` part on the shape's own model is a lid that judders or a jar
+    // that churns, and it is drawn whether or not anybody authored a `work`.
+    const body = new Set(
+      [...Array(row.tiers?.length ?? 1).keys()]
+        .flatMap((i) => partsAt(v.model, tierProgress(i + 1, row.tiers?.length ?? 1)))
+        .filter((p) => p.motion)
+        .map((p) => p.motion.kind),
+    );
+    if (!model && !body.size) { bare.push(v.name); continue; }
+
+    const bits = [];
+    if (model) {
+      const parts = partsAt(model, 0);
+      bits.push(isStaged(model)
+        ? `${model.stages.length} stages across a batch`
+        : 'one look throughout');
+      if (parts.some((p) => p.drift)) bits.push('steams');
+      const moves = parts.filter((p) => p.motion).length;
+      if (moves) bits.push(`${moves} moving part${moves === 1 ? '' : 's'}`);
+    }
+    if (body.size) bits.push(`the machine itself ${[...body].join(' + ')}s`);
+    out.push(`- ⚙️ **${v.name}** while running — ${bits.join(' · ')}`);
+  }
+
+  if (bare.length) {
+    out.push(`- ⚠️ **No working look**: ${bare.join(', ')}. A machine mid-batch draws exactly `
+      + 'the same as one nobody has loaded since Tuesday — author `work` on the variant, or on '
+      + 'the piece to cover every shape at once.');
+  }
+  return out;
+}
+
 function describe(row) {
   const kind = kindOf(row);
   const out = [];
@@ -167,8 +222,19 @@ function describe(row) {
     if (parts.some((p) => (p.alpha ?? 1) < 1)) bits.push('has glass');
     if (parts.some((p) => p.drift)) bits.push('drifts (steam/vapour)');
     if (parts.some((p) => p.seam)) bits.push('seams against a neighbour');
+    // On a station these run while it is busy; on anything else they simply
+    // always run, which is the rule that stops `motion` being a field that does
+    // nothing everywhere except one kind.
+    const moves = parts.filter((p) => p.motion).length;
+    if (moves) {
+      bits.push(`${moves} part${moves === 1 ? '' : 's'} move${moves === 1 ? 's' : ''} `
+        + `${kind === 'station' ? 'while it works' : 'always'}`);
+    }
     out.push(bits.join(' · '));
     out.push('');
+
+    const working = workLines(row);
+    if (working.length) { out.push(...working); out.push(''); }
 
     for (const c of coveredBoards(row)) {
       out.push(`${c.lids ? '⚠️ ' : ''}Covered — ${c.shape}${c.tier ? ` tier ${c.tier}` : ''}: `

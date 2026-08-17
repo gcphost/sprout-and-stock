@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-25 pieces across 11 kinds.
+34 pieces across 12 kinds.
 
 ## Fixtures
 
@@ -27,9 +27,7 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 8 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn)
 
-Covered — Wall corner: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
-
-Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner — looks only, same price and same ladder.
+Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other way) — looks only, same price and same ladder.
 
 1. **Plain shelving** — free, as built
 2. **Backed shelving** — $120, holds ×1.5
@@ -65,9 +63,7 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 8 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn) · has glass
 
-Covered — Wall corner: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
-
-Shapes: Standard, Chest, Wall run, Wall corner, Endcap — looks only, same price and same ladder.
+Shapes: Standard, Chest, Wall run, Wall corner, Wall corner (other way), Endcap — looks only, same price and same ladder.
 
 1. **Glass-door freezer** — free, as built
 2. **Sealed freezer** — $260, keeps ×1.5
@@ -89,9 +85,7 @@ Shapes: Standard, Chest, Wall run, Wall corner, Endcap — looks only, same pric
 
 8 parts · **3 boards of goods** (9 facings drawn)
 
-Covered — Wall corner: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
-
-Shapes: Standard, Wall run, Wall corner, Endcap — looks only, same price and same ladder.
+Shapes: Standard, Wall run, Wall corner, Wall corner (other way), Endcap — looks only, same price and same ladder.
 
 1. **Multideck** — free, as built
 2. **Night-blind multideck** — $190, keeps ×1.7
@@ -103,9 +97,7 @@ Shapes: Standard, Wall run, Wall corner, Endcap — looks only, same price and s
 
 7 parts · **2 boards of goods** (6 facings drawn) · has glass
 
-Covered — Wall corner: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
-
-Shapes: Standard, Wall run, Wall corner, Endcap — looks only, same price and same ladder.
+Shapes: Standard, Wall run, Wall corner, Wall corner (other way), Endcap — looks only, same price and same ladder.
 
 1. **Under-counter** — free, holds ×0.6
 2. **Upright cooler** — $140, holds ×1.1, keeps ×1.2
@@ -119,10 +111,12 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 `checkout` · kind `checkout` · $300 to build
 
-7 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+8 parts · 4 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-1. **Till** — free, as built
-2. **Scanner** — free, _no effect_
+1. **Manual Till** — free, as built
+2. **Barcode Scanner** — $180, speed ×1.4
+3. **Belted Checkout** — $420, speed ×1.9
+4. **Self-Checkout** — $900, speed ×1.5, serves itself at ×0.5 speed
 
 ### `station`
 
@@ -133,6 +127,15 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 `station` · kind `station` · priced by the upgrade that sells its kind
 
 4 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+
+- ⚙️ **Standard** while running — 3 stages across a batch · 1 moving part
+- ⚙️ **Espresso Machine** while running — 3 stages across a batch · steams · 1 moving part · the machine itself shake + bobs
+- ⚙️ **Blender** while running — 3 stages across a batch · 1 moving part · the machine itself pulses
+- ⚙️ **Toaster** while running — 2 stages across a batch · 2 moving parts
+- ⚙️ **Sandwich Press** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
+- ⚙️ **Juicer** while running — 3 stages across a batch · 1 moving part
+- ⚙️ **Soft-Serve Machine** while running — 3 stages across a batch · 1 moving part
+- ⚙️ **Deep Fryer** while running — 3 stages across a batch · steams · the machine itself shakes
 
 Shapes: Standard, Espresso Machine, Blender, Toaster, Sandwich Press, Juicer, Soft-Serve Machine, Deep Fryer — looks only, same price and same ladder.
 
@@ -188,6 +191,30 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **4** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
+#### Floor Lamp
+
+`floor-lamp` · kind `prop-floor` · $65 to build
+
+4 parts
+
+💡 Emits `#ffd7a1`, intensity 1.1, range 4.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Lamp Post
+
+`lamp-post` · kind `prop-floor` · $90 to build
+
+5 parts
+
+💡 Emits `#ffd9a6`, intensity 1.6, range 7 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Bollard Light
+
+`bollard-light` · kind `prop-floor` · $40 to build
+
+4 parts
+
+💡 Emits `#ffe0b0`, intensity 0.7, range 3.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
 ### `prop-ceiling`
 
 Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a room to hang in.
@@ -213,6 +240,46 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 5 parts
 
 💡 Emits `#ffe0b0`, intensity 0.8, range 4 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Tube Light
+
+`tube-light` · kind `prop-ceiling` · $70 to build
+
+4 parts
+
+💡 Emits `#e8f0ff`, intensity 1.5, range 6 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Fan Light
+
+`ceiling-fan` · kind `prop-ceiling` · $110 to build
+
+6 parts · 2 parts move always
+
+💡 Emits `#ffe1b3`, intensity 1, range 5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Panel Light
+
+`panel-light` · kind `prop-ceiling` · $80 to build
+
+2 parts
+
+💡 Emits `#eef4ff`, intensity 1.3, range 5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Paper Lantern
+
+`paper-lantern` · kind `prop-ceiling` · $45 to build
+
+3 parts
+
+💡 Emits `#ffdcae`, intensity 0.9, range 4.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Chandelier
+
+`chandelier` · kind `prop-ceiling` · $160 to build
+
+11 parts
+
+💡 Emits `#ffd08a`, intensity 1.8, range 6.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 ## Ground
 
@@ -281,6 +348,16 @@ Ground. Painted over an area, blocks nobody, and carries a **job**: staff take t
 `break-room` · kind `break` · $12 per tile
 
 Surface `#b59ab8` / `#9d84a1`, checker repeat. No model — ground *is* the cell.
+
+### `park`
+
+Ground. Painted over an area, blocks nobody, and carries a **job**: shoppers who drive here leave the car, and how big you paint it is how many of them can.
+
+#### Car Park
+
+`car-park` · kind `park` · $10 per tile
+
+Surface `#79808c` / `#98a0ad`, planks repeat. No model — ground *is* the cell.
 
 ---
 

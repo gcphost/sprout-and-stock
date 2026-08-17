@@ -200,11 +200,17 @@
       top: 12px; left: 12px;
       display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
     }
-    /* top-left: money + day */
+    /* top-left: money + day
+       Sized down about a fifth from where it started, and the reason is what it
+       is competing with rather than anything wrong with it: this is a readout
+       you glance at, pinned over the one thing in the game you are actually
+       looking at. Everything in here scales together — type, bars, sparkline,
+       padding — because a panel where only some of it shrank reads as a panel
+       with a mistake in it. */
     #stats {
-      background: var(--panel); border-radius: 13px;
-      padding: 6px 11px; box-shadow: 0 4px 14px rgba(58,49,40,.14);
-      display: flex; gap: 11px; align-items: center;
+      background: var(--panel); border-radius: 11px;
+      padding: 4px 9px; box-shadow: 0 3px 11px rgba(58,49,40,.14);
+      display: flex; gap: 8px; align-items: center;
     }
 
     /* ---- top centre: what to do about it ---------------------------------
@@ -217,11 +223,75 @@
       justify-content: center; pointer-events: none;
       max-width: min(860px, calc(100vw - 360px));
     }
-    #cash { font-size: 17px; font-weight: 800; letter-spacing: -.02em; }
-    #day  { font-weight: 700; font-size: 12px; line-height: 1.25; }
-    #season { text-transform: capitalize; opacity: .65; font-size: 10px; line-height: 1.25; }
-    #clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
+    /* ---- nothing in this row may move sideways ---------------------------
+       Every cell here holds a number that changes while you watch it, and they
+       sit in one flex row — so a digit that is a pixel wider than the last one
+       slides the clock, the buttons and the gauges along with it. It reads as
+       the HUD being unable to keep still.
+       Two rules, and both are needed. Tabular numerals stop a `4` being
+       narrower than a `0`, which is the per-tick jitter; a floor on the width
+       stops the *number of digits* changing anything, which is the jolt you
+       get crossing $10,000 or Day 100. Sized to what a shop plausibly reaches
+       rather than to today's value, since a floor that today's value already
+       exceeds is a floor that does nothing. */
+    #cash {
+      font-size: 14px; font-weight: 800; letter-spacing: -.02em;
+      font-variant-numeric: tabular-nums; min-width: 86px;
+    }
+    #day  { font-weight: 700; font-size: 10px; line-height: 1.25; min-width: 44px; }
+    #season { text-transform: capitalize; opacity: .65; font-size: 8.5px; line-height: 1.25; }
+    /* ---- the clock, and the two switches on it ---------------------------
+       The time was a readout for as long as opening was something the clock did
+       to you. It is a control now: the doors are yours (`Game.setOpen`) and so
+       is whether time runs at all, and both of those are decisions you make
+       while looking at the hour — so they live on it rather than in a menu.
+       A shut shop reads shut in two ways at once on purpose. The strike-through
+       is the state and the button is the way out of it: a struck-through clock
+       with nothing beside it was the whole story before, which said what had
+       happened and never that anything could be done about it. */
+    /* A row rather than a stack: the buttons under the clock made #stats a line
+       taller than the gauges beside them needed it to be, which is height spent
+       on two controls you press twice a day. */
+    #time { display: flex; align-items: center; gap: 5px; }
+    #clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px; }
     #clock.shut { opacity: .4; text-decoration: line-through; }
+    /* Paused outranks shut, because it is the bigger claim: a shut shop is still
+       a shop having a night, and a paused one is not having anything. */
+    #clock.paused {
+      opacity: 1; text-decoration: none; color: var(--accent);
+      animation: clockhold 1.6s ease-in-out infinite;
+    }
+    @keyframes clockhold { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+    /* Two pips, and they are round and chunky on purpose.
+       Words came first: "Open up" and "Close up" are different lengths, so the
+       panel changed width every time the shop did and everything to the right
+       of it slid — and at ~110px for two labels they were the widest thing in a
+       readout that is otherwise five numbers. Square icon buttons fixed both and
+       read as a settings toolbar, which is the wrong genre for a HUD you play
+       through. A circle, a solid fill and a hard bottom edge that goes away when
+       you press it is the difference; the text moved into `title`. */
+    #timebtns { display: flex; gap: 3px; }
+    #timebtns button {
+      border: 0; padding: 0; cursor: pointer; border-radius: 50%;
+      width: 18px; height: 18px; display: grid; place-items: center;
+      font-size: 9.5px; background: rgba(58,49,40,.12); color: var(--ink);
+      box-shadow: 0 1.5px 0 rgba(58,49,40,.2);
+      transition: filter .12s, background .12s;
+    }
+    #timebtns button > svg { display: block; }
+    #timebtns button:hover { filter: brightness(.94); }
+    /* Presses down and stops standing proud, which is most of what makes a
+       button feel like a thing rather than a rectangle that changed colour. */
+    #timebtns button:active { transform: translateY(1.5px); box-shadow: none; }
+    /* Coloured only when it has something to say: green while the shop is SHUT,
+       because it is then the one control on screen asking to be pressed, and red
+       while time is stopped, because that is a state you must not forget you
+       left it in. Otherwise both are quiet. */
+    #btn-open.go, #btn-pause.on { color: #fff; }
+    #btn-open.go { background: var(--good); box-shadow: 0 1.5px 0 rgba(47,89,45,.55); }
+    #btn-pause.on { background: var(--accent); box-shadow: 0 1.5px 0 rgba(140,54,34,.5); }
+    #btn-open.go:hover, #btn-pause.on:hover { filter: brightness(1.09); }
 
     /* ---- cashflow: the rate, beside the balance -------------------------------
        Cash on hand was the only money on screen, and a balance is not a rate —
@@ -230,10 +300,15 @@
        shape, in that order: the number you want most, then the comparison, then
        the trend. Tabular numerals because it changes ten times a second and
        proportional digits make it jitter sideways as it does. */
-    #flow { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+    /* `min-width` for the same reason as #cash above — this is the fastest
+       changing number on screen, so it is the one that shifts the row most. */
+    #flow {
+      display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+      min-width: 70px;
+    }
     .flow {
       display: inline-flex; align-items: baseline; gap: 3px;
-      font-variant-numeric: tabular-nums; font-size: 12.5px; font-weight: 800;
+      font-variant-numeric: tabular-nums; font-size: 10.5px; font-weight: 800;
       letter-spacing: -.01em;
     }
     .flow.up { color: var(--good); }
@@ -241,7 +316,7 @@
     /* The arrow says which way against *yesterday*, which is a different
        question from whether today is in profit — a better-than-yesterday day can
        still be a loss. So it is coloured on its own and never inherits. */
-    .flow i { font-style: normal; font-size: 8.5px; }
+    .flow i { font-style: normal; font-size: 7.5px; }
     .flow i.up { color: var(--good); }
     .flow i.down { color: var(--accent); }
     .flow i.flat { color: var(--ink); opacity: .35; }
@@ -260,13 +335,13 @@
        turn-away line rather than against capacity. A bar that filled as the
        shop got busier would mean "good" at one end of the panel and "bad" at
        the other, and the eye does not re-read a direction per row. */
-    .gauges { display: grid; gap: 3px; }
-    .gg { display: grid; grid-template-columns: 26px 52px; align-items: center; gap: 6px; }
+    .gauges { display: grid; gap: 2px; }
+    .gg { display: grid; grid-template-columns: 22px 42px; align-items: center; gap: 5px; }
     .gg-tag {
-      font-size: 7.5px; font-weight: 800; letter-spacing: .04em;
+      font-size: 6.5px; font-weight: 800; letter-spacing: .04em;
       text-transform: uppercase; opacity: .5; text-align: right;
     }
-    .repwrap { width: 52px; height: 5px; background: var(--line); border-radius: 99px; overflow: hidden; }
+    .repwrap { width: 42px; height: 4px; background: var(--line); border-radius: 99px; overflow: hidden; }
     .repwrap > div { height: 100%; background: var(--good); transition: width .4s, background .4s; }
     /* Past the line the shop is refusing people, which is not a shade of busy —
        it is a different thing happening, so it stops being a bar and pulses. */
@@ -655,11 +730,24 @@
        supplier never showed and the whole reason it read as a catalogue rather
        than a stock list — "should I buy eggs" is unanswerable without it. */
     .row .held {
-      flex: none; min-width: 30px; text-align: right;
+      flex: none; min-width: 30px; text-align: right; white-space: nowrap;
       font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
     }
-    .row .held.zero { opacity: .25; font-weight: 700; }
     .row .held.short { color: var(--accent); }
+    /* Nothing on the shelf. A dash rather than a 0 for the same reason an unset
+       minimum is one, and dimmed on its own rather than by a `zero` class on the
+       whole column, which is what this replaced — since deliveries take time the
+       column can hold "none here, six coming", and fading that pair together
+       fades the half that is news. */
+    .row .held i.none { font-style: normal; opacity: .25; font-weight: 700; }
+    /* What is on a van, hung off the count instead of taking a column of its
+       own. Green because it is the answer to the red number beside it, and
+       small because it is a promise rather than stock: you cannot sell it yet,
+       and a row that shouted it would read as though you could. */
+    .row .held .coming {
+      font-style: normal; font-size: 9.5px; font-weight: 800;
+      color: var(--good); margin-left: 2px; opacity: .9;
+    }
     /* The sub-line is a reason now rather than a tag list, and the one reason
        that is a refusal rather than a note says so in the accent colour: you
        cannot put this anywhere, so buying it is a mistake whatever else is true. */
@@ -789,6 +877,15 @@
        that moves is the first one and it now has a price sat next to it. */
     .fx-board .qty { font-weight: 800; font-variant-numeric: tabular-nums; }
     .fx-board .qty i { font-style: normal; font-weight: 700; opacity: .4; }
+    /* What is on a van, hung off the board's own count the way the supplier
+       hangs it off the shelf count — same colour, same reason. Green because it
+       is the answer to the low number beside it, and small because it is a
+       promise: you cannot sell it yet, and a row that shouted it would read as
+       though you could. It overrides the dimmed `/cap` above rather than sitting
+       next to it, or the news would be the faintest thing on the row. */
+    .fx-board .qty i.coming {
+      font-size: 9.5px; color: var(--good); opacity: .95; margin-left: 2px;
+    }
     /* The stepper itself is shared — a hire's job weights use it too (`wk-w`),
        so what is specific to a board row is scoped to one below rather than
        left here to move somebody else's buttons. */
@@ -808,6 +905,18 @@
     .fx-take:hover { background: rgba(58,49,40,.18); }
     .fx-take:disabled { opacity: .25; cursor: default; background: transparent; }
     .fx-take svg { display: block; }
+    /* Delete this board. Quiet until you are over it — it sits next to a button
+       you press all the time, and a red bin on every row would read as a shelf
+       full of warnings. Never disabled: an empty board is exactly the one you
+       most want gone, and the goods land in a crate rather than nowhere. */
+    .fx-clear { opacity: .45; }
+    .fx-clear:hover { opacity: 1; background: rgba(200,85,61,.16); color: var(--accent); }
+    /* Order more of this board. Disabled is the interesting state and it is a
+       sentence rather than a shrug — "6 already on the way" and "the bay is
+       full" are both in the title, because a greyed-out button that never says
+       why is the thing that reads as broken. */
+    .fx-order:not(:disabled) { color: var(--good); }
+    .fx-order:not(:disabled):hover { background: rgba(90,163,86,.18); }
     .fx-act { cursor: pointer; align-items: flex-start; }
     .fx-act:hover { background: rgba(58,49,40,.07); }
     .fx-act .bico { font-size: 14px; line-height: 1.2; width: 18px; text-align: center; }
@@ -1048,7 +1157,13 @@
         <div id="season">spring</div>
       </div>
       <div id="flow"></div>
-      <span id="clock">08:00</span>
+      <div id="time">
+        <span id="clock">08:00</span>
+        <div id="timebtns">
+          <button id="btn-open" type="button" title="Open the shop (O)"></button>
+          <button id="btn-pause" type="button" title="Stop the clock (P)"></button>
+        </div>
+      </div>
       <div class="gauges">
         <div class="gg"><span class="gg-tag">Rep</span>
           <div class="repwrap"><div id="rep" style="width:50%"></div></div></div>

@@ -1,9 +1,10 @@
 # Ordering — what the shop buys, and who decided
 
-Status: **steps 1–2 built.** The restocker counts what the shop can already
-supply itself before it spends money, and the three decisions it used to make
-silently are switches in the supplier. Step 3 — refill lines on the shelf
-itself — is proposed.
+Status: **steps 1–5 built.** The restocker counts what the shop can already
+supply itself before it spends money, the three decisions it used to make
+silently are switches in the supplier, every item can carry a standing order,
+a shelf's own menu will now tell you what is on the van and order more, and
+deciding what a board is *for* has a shortlist and a stock count of its own.
 
 ⚠️ Both built steps measure as **balance-neutral at their defaults**, and that
 is deliberate rather than lucky. Step 1 came out at +2.7% mean profit over ten
@@ -216,6 +217,98 @@ flip your own change back and forth inside one minute.
 A `min`/`max` somebody actually sets is a different matter and should be
 expected to move the numbers — a `max` below capacity is the first thing in the
 game that makes a shop deliberately hold less stock than it can.
+
+---
+
+## Step 4 — ordering from where the question occurs to you ✅
+
+Everything above is decided in the supplier: a panel you open from the rail,
+sorted by item, that answers "should I buy eggs". None of it is where you are
+standing when the question actually arrives, which is in front of a bare shelf
+with its menu open.
+
+Three things moved onto the board rows in the fixture menu. No new state and no
+new verb — every one of them is a fact the server already sends and a message
+that already existed.
+
+**What is on a van, on the board itself.** `+6` in green, hung off the board's
+count exactly the way the supplier hangs it off the shelf count, with the hour
+in the tooltip. This is the only fact about a board you cannot get by walking
+over and looking at it — a shelf you can see, an order you cannot — so the shelf
+saying "4" while six are on a lorry is the panel telling you half of it.
+
+**An order button per board.** It asks for the room on *that board* less what is
+already coming, clamped to what the bay will still take. Subtracting the van is
+the same rule `restock` works to, moved onto a control with a player's finger on
+it: without it, the button under a bare shelf is the "shelf reads as bare, order
+another case" bug in a shape you can press twice. When there is nothing sensible
+to ask for it disables and the tooltip is a sentence — "6 already on the way",
+"this board is full", "no room at the bay for another order" — because a greyed
+button that never says why is the thing that reads as broken.
+
+**And the "Waiting for" line says whether the van is real.** A reservation with
+nothing on order and one with six arriving at 14:00 are opposite situations —
+one of them is a job to do — and the line said the same words for both.
+
+Two notes on the shape:
+
+**`comingByItem`/`comingWhy` moved to `client/orders.js`.** They were private to
+the supplier. What is on a van is a fact about the world rather than about a
+panel, and it has two readers now; a second spelling of the fold is how the
+shelf ends up saying six while the supplier says twelve, because one of them
+counted the lorry and the other didn't.
+
+**The button is not gated on build mode and not on standing anywhere.** Ordering
+is shopkeeping, the goods land at the bay whatever you do next, and every
+refusal the server can give already arrives as a toast. It is the one control on
+the row that goes straight out — Take is gated on reach, and Delete rides
+`build-empty`'s build-mode gate.
+
+---
+
+## Step 5 — deciding what a board is for ✅
+
+Step 4 answered "how do I fill this board". This is the question one step
+earlier, and it is the one the panel was worst at: **what should this board be
+for.** *Keep it for* is every item in the catalogue, alphabetically, and it gets
+one row longer every time anybody authors a tomato. There is no wrong answer in
+it and no fast one either.
+
+**A stock count on every row.** The same column the supplier grew in step 3, in
+the same two shapes — a dash for none, `+6` in green for what is on a van. The
+list was a catalogue for exactly the reason the supplier was: you cannot decide
+what a shelf should hold without knowing what you have got.
+
+It counts more than the supplier's does, and that is the one thing here worth
+remembering. Over there `held` is stock **on the boards**, because the question
+is whether a shelf is running thin and a crate in the yard has not filled
+anything. Here it is boards **plus crates plus hands**, because the question is
+what to commit a board to and a crate on the pad is the best answer there is —
+it is already bought. Two questions, two functions (`ui.heldOf`, `ui.spareOf`),
+both on the HUD so neither panel keeps its own spelling of "how many have I
+got". Where the number came from is on the sub-line whenever any of it is in
+crates, since that is the half you cannot see from the shop floor.
+
+**Quick pick, in front of the full list.** Six rows — deliberately under the
+eight a search box appears at, because a shortlist that grew one would have
+grown the exact control it exists to save you — alternating between two
+questions that have different answers: *what sells* — today's own till first,
+then the world's appetite, then the sticker price, because the day resets at
+midnight and a shop that has sold nothing still has to answer — and *what you
+already have*, most first, nothing with none. Interleaved rather than
+concatenated, so the tab is not the good half followed by the other one, and
+every row says which half put it there.
+
+They are the *same rows* as the full list, filtered and copied — ticking one
+does exactly what ticking it below does, because a second row builder for one
+checkbox is a second set of rules about what may go where.
+
+**And the three settings tabs became one.** *When it gets refilled*, *The shop
+hand* and *Set up* were three tabs holding seven rows between them. A tab is a
+place you learn to look, and every one you add makes the rest narrower on a
+214px panel — three of them meant the thing you wanted was behind whichever
+pictogram you did not try first. One **Settings** tab, three `sep` headings, in
+the order you would read them: how it gets filled, who may touch it, what it is.
 
 ---
 

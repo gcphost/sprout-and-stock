@@ -199,7 +199,7 @@ server.registerTool('list_content', {
   title: 'List existing content',
   description: 'List all items, crops, customer archetypes, events, upgrades or recipes currently in the game. Check here before creating something to avoid duplicating an id.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin']).describe('Which kind of content to list.'),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin', 'vehicle']).describe('Which kind of content to list.'),
   },
 }, async ({ kind }) => text(await call('GET', `/content/${kind}`)));
 
@@ -214,6 +214,28 @@ const STAGE_HELP =
   + 'Each stage is {name, at, parts}, where `at` is where on a 0..1 run that look takes over — the first stage must start at 0. '
   + 'What feeds that 0..1 depends on the thing: a crop feeds its growth, so stages are seed -> sprout -> laden plant; '
   + 'a fixture feeds its tier, so stages are what tier 1, 2 and 3 look like.';
+
+/**
+ * The two ways a thing can show that it is doing something. Shared by
+ * `create_fixture` and `create_pastime`, because a part is a part — the flags
+ * live on the model, not on the kind of content that happens to carry it.
+ */
+const MOTION_HELP =
+  'MOTION makes a part move. `motion: {kind, hz, amount}` on any part, where kind is:\n'
+  + '  spin   turns about its own Y axis. `hz` is turns a second; `amount` says nothing here.\n'
+  + '  bob    rises and falls by `amount` tiles, `hz` times a second.\n'
+  + '  shake  judders by `amount` tiles across the ground. A press, a fryer basket.\n'
+  + '  pulse  swells and shrinks by `amount` of its own size. A lamp, an element, a heater.\n'
+  + 'A part that can be BUSY moves while it is busy — only an appliance can be busy today — and a part on anything else simply always moves, so a ceiling fan or a mobile turns by authoring one flag. '
+  + 'Keep it small: at this camera an `amount` over about 0.08 reads as a fault rather than as a machine, and above about 4Hz anything bobbing is a blur.';
+
+const WORK_HELP =
+  'WORK is what it looks like WHILE IT IS RUNNING — a second model, drawn over the piece only for as long as it is mid-batch, in the machine\'s own model space so a puff authored at the spout comes out of the spout. '
+  + 'Its stages are driven by how far through the batch it is, NOT by tier: stage 1 is what has just gone in and the last stage is what is about to come out, so dough -> risen -> browned is three stages of one bake. '
+  + '(The tier ladder already owns `model`\'s 0..1, which is why this is a model of its own rather than more parts on that one.) '
+  + 'A part flagged `drift` in here rises, spreads and fades on a loop — that is steam — and a part with `motion` moves. '
+  + 'Author it on a VARIANT to give one machine its own, or on the piece to cover every machine nobody has drawn a specific one for. '
+  + 'It moves no number and no shopper reads it, so it never needs `simulate` — but a machine with none is a machine you cannot tell is on, which is the whole reason it exists.';
 
 server.registerTool('create_fixture', {
   title: 'Design a piece: a fixture, a decoration or a lamp',
@@ -250,13 +272,16 @@ server.registerTool('create_fixture', {
     + 'a corner shelf costs and holds exactly what a straight one does, restyling something already built is free and keeps its stock, and no variant can move the balance. Tiers cost money and change numbers; variants are taste.\n\n'
     + 'EMITS makes it a lamp. The renderer honours it; nothing in the sim reads it, so a light is worth exactly what it looks like today. Only the eight nearest the camera get a real light — that cap is deliberate, so author lamps as fittings you would actually put in a room rather than as a way to floodlight one.\n\n'
     + 'COST is what one costs to put down. Leave it 0 on a shelf, freezer, till or plot and it stays priced by the upgrade that sells that kind, which is how the whole economy still works. A prop has no upgrade behind it, so a prop with no cost is free — price your decorations.\n\n'
+    + `${WORK_HELP}\n\n`
+    + `${MOTION_HELP}\n\n`
     + STAGE_HELP,
   inputSchema: {
     id: z.string().describe('Slug, yours to choose, e.g. "terracotta-planter" or "chiller-shelf". Reuse one to update it.'),
-    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor', 'bay', 'drop', 'break'])
+    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor', 'bay', 'drop', 'break', 'park'])
       .describe('Which build rules it plays by. Closed set — this is not a way to invent kinds.'),
     name: z.string().describe('Display name, e.g. "Shelving". This is what the build palette calls it.'),
     model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except GROUND (floor, bay, drop, break), which has no model. ' + STAGE_HELP),
+    work: z.any().optional().describe('What it looks like while it is WORKING — same shape as `model`, staged by how far through a batch it is rather than by tier. Appliances only, for now: nothing else in the game can be busy. ' + WORK_HELP),
     surface: z.object({
       color: z.string().describe('#rrggbb. The main colour of the floor.'),
       accent: z.string().optional().describe('#rrggbb, the second colour of the pattern. Left out it is a darker shade of the first, which is usually what you want.'),
@@ -269,7 +294,7 @@ server.registerTool('create_fixture', {
     }).optional().describe('Makes this piece EARN. It pays into a pile of cash on the floor that somebody has to walk over and collect \u2014 the same entity a till drops, so it renders, is picked up and is tidied away by code that already exists. Money you have to fetch is a decision; money that appears in the bank is a trickle nobody sees. Run `simulate` after authoring one: this is the only field on a fixture that prints money.'),
     charm: z.number().min(0).max(20).optional()
       .describe('How much nicer this makes the shop look, which is how far word of it travels. It raises CATCHMENT \u2014 how much of the town is within reach at all \u2014 rather than reputation, because reputation is what the people who already came in think of you. Saturating: about half the maximum at 10 total charm across the whole shop, so a room full of pot plants is worth about as much as one nice centrepiece. 1 is a pleasant pot plant, 5 is a centrepiece.'),
-    variants: z.any().optional().describe('Optional other shapes of this kind: [{id, name, model}]. Looks only — no costs, no multipliers, and the kind\'s own model is always offered alongside them as "Standard".'),
+    variants: z.any().optional().describe('Optional other shapes of this kind: [{id, name, model, work}]. Looks only — no costs, no multipliers, and the kind\'s own model is always offered alongside them as "Standard". `work` is optional and falls back to the piece\'s, which is how one generic "steam and a light" covers every appliance nobody has drawn a specific one for.'),
     tiers: z.array(z.object({
       name: z.string().describe('What this rung is called, e.g. "Chilled" or "Deep Freeze".'),
       cost: z.number().min(0).describe('What stepping up to it costs. Tier 1 must be 0.'),
@@ -287,7 +312,7 @@ server.registerTool('create_fixture', {
       range: z.number().min(0.5).max(12).default(4).describe('How far the glow carries, in tiles.'),
     }).optional().describe('Makes this piece a lamp. Renderer-only — no shopper behaves differently under it yet.'),
     tags: z.array(z.string()).optional()
-      .describe('Call list_tags first. Nothing reads these on a piece yet — they are here so a shop dressed "cosy" can mean something later.'),
+      .describe('Call list_tags first. On a DECORATION these file it on the Decoration tab of the build bar, which is the one thing its kind cannot say — `prop-floor` and `prop-ceiling` describe how a thing attaches, and a planter and a barrel attach identically. `plant` puts it under Greenery, `lamp` under Lighting, `sign` under Signs, and anything else (or nothing) lands in Odds and ends. Those tabs only appear once there are more decorations than fit the number keys, so tag every one you author and the palette sorts itself out the day it needs to. On everything else nothing reads them yet.'),
   },
 }, async (args) => text(await call('POST', '/content/fixture', args)));
 
@@ -319,7 +344,7 @@ server.registerTool('create_worker', {
     tags: z.array(z.string()).optional().describe('Call list_tags first. Events aim at tags, never at a worker id.'),
     model: z.any().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. ' + STAGE_HELP),
     jobs: z.array(z.object({
-      job: z.enum(['serve', 'restock', 'unload', 'shelve', 'till', 'sow', 'harvest', 'craft', 'tidy']),
+      job: z.enum(['serve', 'restock', 'unload', 'shelve', 'till', 'sow', 'harvest', 'craft', 'tidy', 'merchandise']),
       weight: z.number().min(0.1).max(100).default(1).describe('Share of their attention. Relative to the other jobs.'),
     })).min(1).describe('What they will do, and how much of each.'),
     tiers: z.array(z.object({
@@ -353,6 +378,7 @@ server.registerTool('create_pastime', {
     + 'MODEL is the prop they have with them — a mug, a phone, a vape and its cloud, a sandwich. It hangs on the worker for the length of the break and goes when they get back to work, and it is what makes a break visible from across the shop rather than only in their menu. A worker is about 0.9 tall, their front is +z and their hands are around y 0.6, so [0.16, 0.6, 0.28] is "held out in front" and anything past y 0.9 floats over their head. They also slump and rock while they are resting whether or not you give them a prop, so a pastime with no model is legible, just anonymous.\n\n'
     + 'Give the model `stages` and the 0..1 that picks between them is HOW FAR THROUGH THE BREAK THEY ARE — the first thing in the game to drive a staged model from time. So a mug empties, a sandwich goes down to the crusts, a cloud builds and thins. That whole arc is authored, and no code knows what a mug is.\n\n'
     + 'Flag a part `drift: true` and it stops being held: it rises off where you put it, spreads, fades out and starts again. Vapour, steam, the glow off a phone screen. That loop is the one thing stages cannot say, because a stage arc plays once across a twenty-second break — so use stages for what the break does to the prop, and `drift` for what never stops.\n\n'
+    + `${MOTION_HELP}\n\n`
     + 'Keep `doing` to one short clause — it is shown in a 214px panel and anything longer is ellipsised away.',
   inputSchema: {
     id: z.string().describe('Slug, e.g. "vape-out-back".'),
@@ -401,6 +427,32 @@ server.registerTool('create_skin', {
     tags: z.array(z.string()).optional().describe('For events to aim at. Never aim at an id.'),
   },
 }, async (args) => text(await call('POST', '/content/skin', args)));
+
+server.registerTool('create_vehicle', {
+  title: 'Design something that drives',
+  description:
+    'Create or update a vehicle — the van that brings wholesale orders in, or a car a customer arrives in. Live in the running shop within about a second.\n\n'
+    + 'A vehicle is authored exactly the way a worker is, and for the same reason: it is a thing you LOOK at, and everything in this game you look at is a row somebody can draw. Nothing about a van is hardcoded anywhere.\n\n'
+    + 'USE says which part of the game owns it, and it is a closed set because each entry is a routine somebody had to write — a `use` nobody implemented is a van that never drives anywhere:\n'
+    + '  delivery  brings a wholesale run in from the edge of the map and unloads it at the bay\n'
+    + '  customer  a shopper drove; it sits in the car park while they shop, and they take a bigger basket home\n\n'
+    + 'CAPACITY IS THE ONLY NUMBER THE SIM READS, in crates. It is therefore the only field that can move the balance and the only reason to run `simulate` after authoring one — a delivery run cannot bring more than this, and a driver takes home this much more than somebody on foot. Speed and the model are worth exactly what they look like.\n\n'
+    + 'MODEL is staged by HOW LOADED IT IS: the 0..1 that picks between stages is what fraction of `capacity` is on board, so an empty bed, a couple of crates and a full load is authored art and no code in the game knows what a crate looks like. A car has nothing to fill, so give it plain `parts`.\n\n'
+    + 'Author it NOSE EAST, length along x, sitting on y=0 upward — about 1.5 tiles long, 0.7 wide and under 0.8 tall for a van, smaller for a car. Wheels are the one thing to watch: `rot` is Y-axis only, so a cylinder cannot be laid on its side. Use a sphere squashed on z (scale like [0.3, 0.3, 0.14]) and it reads as a wheel from this camera.\n\n'
+    + 'There is no tier ladder, on purpose. A bigger van is a SECOND VEHICLE with its own art, not a rung on this one — that way the upgrade is something you can see you bought, and capacity has exactly one spelling instead of living on both the row and the rung.\n\n'
+    + 'Models are capped at 8 parts per stage, which is tight for something this shape. Four wheels, a cab and a bed is seven; spend the last one on the load.\n\n'
+    + STAGE_HELP,
+  inputSchema: {
+    id: z.string().describe('Slug, e.g. "box-lorry". Reuse one to update it.'),
+    name: z.string().describe('Display name, e.g. "Box lorry".'),
+    use: z.enum(['delivery', 'customer']).describe('Which code owns it. Closed set — this is not a way to invent uses.'),
+    model: z.any().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. For a delivery vehicle the 0..1 driving the stages is how full it is. ' + STAGE_HELP),
+    speed: z.number().min(0.1).max(20).optional().describe('Tiles per second along its route. Cosmetic — when an order lands is decided by the run it joined, not by how fast the art got there. 3.2 is a van, 2.6 is a worker on foot.'),
+    capacity: z.number().int().min(1).max(40).describe('How many crates it carries. THE one number with consequences — run `simulate` after changing it.'),
+    color: z.string().optional().describe('Bodywork, #rrggbb, where the model does not say otherwise.'),
+    tags: z.array(z.string()).optional().describe('Call list_tags first. Events aim at tags, never at a vehicle id.'),
+  },
+}, async (args) => text(await call('POST', '/content/vehicle', args)));
 
 server.registerTool('set_worker_skin', {
   title: 'Put a look on one hire',
@@ -542,7 +594,7 @@ server.registerTool('delete_content', {
   title: 'Delete content',
   description: 'Remove an item, crop, archetype, event, upgrade or recipe from the live game. Deleting an item also deletes crops that produce it.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin']),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin', 'vehicle']),
     id: z.string(),
   },
 }, async ({ kind, id }) => text(await call('DELETE', `/content/${kind}/${id}`)));
@@ -575,10 +627,22 @@ server.registerTool('set_time', {
   description: 'Set the in-game day or hour, or skip days forward. Use it to reach a state quickly — a specific season, the evening rush, or the day an event unlocks.',
   inputSchema: {
     day: z.number().int().min(1).optional(),
-    hour: z.number().min(0).max(23.9).optional().describe('Hour of day. The shop is open 08:00-20:00.'),
+    hour: z.number().min(0).max(23.9).optional().describe('Hour of day. Business hours are 08:00-20:00.'),
     skipDays: z.number().int().min(1).max(60).optional().describe('Jump this many days forward, running end-of-day for each.'),
   },
 }, async (args) => text(await call('POST', '/time', args)));
+
+server.registerTool('set_shop', {
+  title: 'Open, shut or pause the shop',
+  description:
+    'Raise or drop the shutters, and stop or start time. Business hours are still 08:00-20:00 — the shutters can only shut you EARLIER, never later, so a shop with its shutters up serves nobody at 03:00. '
+    + 'A brand-new world starts shut, so if you spawn customers into one or screenshot it and nothing is happening, this is why. '
+    + 'Pausing freezes the whole world (nobody moves, nothing grows, no van arrives) and is not saved.',
+  inputSchema: {
+    open: z.boolean().optional().describe('true raises the shutters, false drops them. Shoppers already in the queue are served; everyone else settles up and leaves.'),
+    paused: z.boolean().optional().describe('true stops time dead, false starts it again.'),
+  },
+}, async (args) => text(await call('POST', '/shop', args)));
 
 server.registerTool('add_cash', {
   title: 'Add or set money',

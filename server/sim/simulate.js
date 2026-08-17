@@ -66,8 +66,27 @@ export function simulate({
     // into the result, not only what fields were added.
     // The settings only — `day` and `spent` are today's running total, which is
     // a result rather than a starting condition.
+    //
+    // These started being worth printing the day `Game.create` began reading
+    // them back off the save at all: `persist` had written them since the
+    // switches existed and the constructor's defaults won every load, so this
+    // line reported the defaults to itself. A run against a shop whose owner
+    // has capped the staff is now genuinely a different experiment.
     orders: {
       auto: game.orders.auto, assign: game.orders.assign, budget: game.orders.budget,
+      // How many items have a rule of their own. Not the rules themselves — a
+      // shop with forty is not something to print — but "somebody has been in
+      // here setting minimums" is the difference between two runs of one seed.
+      itemRules: Object.keys(game.orders.items ?? {}).length,
+    },
+    // How big the delivery bay is, which stopped being scenery the day an order
+    // became a promise: the pad caps what may be in flight, so a shop with a
+    // 2x2 yard and a shop with a stockroom out the back restock at different
+    // speeds on identical seeds. Nothing else in the result would say which one
+    // was measured — the same argument `ownedUpgrades` and `orders` make.
+    bay: {
+      cells: game.layout.bay?.cells?.length ?? 0,
+      holds: game.bayRoom(),
     },
   };
 
@@ -75,6 +94,16 @@ export function simulate({
   game.day = 1;
   game.time = OPEN_HOUR / 24;
   game.autoServe = true;
+  /**
+   * ...and the doors are open, whatever the shop being measured left them.
+   *
+   * `Game.create` reads the saved world, so a run against a shop the player shut
+   * for the night inherits shut — and a shut shop spawns nobody, which is a
+   * sixty-day run reporting zero revenue and no clue as to why. Forced rather
+   * than reported in `startedWith`: every run trades, so it is not a condition
+   * two runs can differ in. Same argument as `autoServe` above it.
+   */
+  game.open = true;
 
   const bot = game.addPlayer('bot', 'Bot');
 
@@ -85,8 +114,8 @@ export function simulate({
   let bankruptOn = null;
   const totals = {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
-    spoiled: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
-    unmet: {}, impulse: 0,
+    spoiled: 0, spoiledValue: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
+    unmet: {}, passed: {}, impulse: 0,
     // The demand meter's two tallies over the whole run. `unmet` below is the
     // same territory narrowed to staples-missed-entirely; these are the whole
     // exchange, which is what tells a department that served nine asks out of ten
@@ -147,6 +176,14 @@ export function simulate({
     .sort((a, b) => b[1] - a[1])
     .map(([tag, count]) => ({ tag, count }));
 
+  // ...and the other half of the same sentence: staples the shop HAD and did
+  // not sell. Reported apart from `unmetDemand` because ordering more of
+  // something already on the shelf is the one action that makes this worse, and
+  // for as long as the two were one tally that is exactly what it advised.
+  const passedOver = Object.entries(totals.passed)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag, count]) => ({ tag, count }));
+
   // The demand meter, over the run instead of over a smoothed day — the same
   // function the HUD draws, handed the whole-run tallies. `folded` is deliberately
   // neutral: a world event that was live for three of forty days would stretch
@@ -186,17 +223,26 @@ export function simulate({
       tilled: totals.tilled,
       abandoned: totals.abandoned,
       spoiled: totals.spoiled,
+      // What that spoilage was worth at what it would cost to replace. It is
+      // NOT a subtraction from `spent` — the money left when the van came, and
+      // this is the same money named. A run where it approaches the margin is a
+      // shop whose whole profit is going in the bin.
+      spoiledValue: round2(totals.spoiledValue),
       leftEmpty: totals.leftEmpty,
       impulse: totals.impulse,
     },
     bestSellers,
     deadStock,
     unmetDemand,
+    passedOver,
     departments,
     daily: daily.slice(-30),
     startedWith,
     verdict: [
-      ...verdict({ profit, days, bankruptOn, totals, deadStock, uncraftedUnsold, unmetDemand, departments }),
+      ...verdict({
+        profit, days, bankruptOn, totals, deadStock, uncraftedUnsold,
+        unmetDemand, passedOver, departments,
+      }),
       ...(startedWith.staff.length
         ? [`Started with ${startedWith.staff.join(', ')} already on the books — a run that inherited different staff is not comparable to this one.`]
         : []),
@@ -219,7 +265,7 @@ const FLOAT = 250;
  */
 function verdict({
   profit, days, bankruptOn, totals, deadStock,
-  uncraftedUnsold = [], unmetDemand = [], departments = [],
+  uncraftedUnsold = [], unmetDemand = [], passedOver = [], departments = [],
 }) {
   const notes = [];
   if (bankruptOn) notes.push(`BANKRUPT on day ${bankruptOn} — the shop cannot sustain itself.`);
@@ -229,8 +275,14 @@ function verdict({
   if (totals.abandoned > totals.sold * 0.25 && totals.abandoned > 5) {
     notes.push(`High abandonment (${totals.abandoned}) — queues are too slow.`);
   }
-  if (totals.spoiled > totals.sold * 0.2 && totals.spoiled > 5) {
-    notes.push(`Heavy spoilage (${totals.spoiled} units) — perishables are overstocked or shelf life is too short.`);
+  // Against REVENUE rather than against units sold, because that is the
+  // question spoilage actually asks: a unit count is only alarming next to
+  // another unit count, and the shop bins cheap things and dear things at the
+  // same rate. A thousand rotted carrots and a thousand rotted truffles are the
+  // same line under the old test and two very different shops.
+  if (totals.spoiledValue > totals.revenue * 0.05 && totals.spoiled > 5) {
+    const share = ((totals.spoiledValue / Math.max(1, totals.revenue)) * 100).toFixed(1);
+    notes.push(`Heavy spoilage — $${totals.spoiledValue.toFixed(2)} binned (${totals.spoiled} units, ${share}% of revenue). Perishables are overstocked, shelf life is too short, or frozen goods are sitting on warm shelves.`);
   }
   if (totals.leftEmpty > totals.sold * 0.3 && totals.leftEmpty > 5) {
     notes.push(`${totals.leftEmpty} customers found nothing they wanted — shelf variety or pricing is off.`);
@@ -241,6 +293,10 @@ function verdict({
   if (unmetDemand.length) {
     const top = unmetDemand.slice(0, 4).map((u) => `${u.tag} (${u.count})`).join(', ');
     notes.push(`Came in for it and you had none: ${top}. Stock something tagged that way — this is demand you already have.`);
+  }
+  if (passedOver.length) {
+    const top = passedOver.slice(0, 4).map((u) => `${u.tag} (${u.count})`).join(', ');
+    notes.push(`Came in for it, you HAD it, and they left it: ${top}. That is a price or a placement, not a stock level — ordering more makes it worse.`);
   }
   if (uncraftedUnsold.length) {
     notes.push(`Not modelled: ${uncraftedUnsold.join(', ')} are crafted goods — this bot doesn't work the appliances, so hire a Chef and watch the live shop to judge them.`);
@@ -356,35 +412,75 @@ function runBot(game, bot, priceMult) {
     if (bot.carry) dumpCarryToShelf(game, bot, priceMult, reserved);
   }
 
-  // 3. Refill thin BOARDS by buying wholesale — but never the reserved shelves.
+  // 3. Put away whatever the van brought.
+  //
+  //    New, and it is the half of this bot that step 1 of docs/deliveries.md
+  //    made compulsory. Ordering used to hand the goods straight over, so the
+  //    pass below could buy and shelve in two consecutive lines and the bay
+  //    never entered into it. An order is a promise now: it lands as a crate at
+  //    the bay hours later, and a bot that never picked crates up would order
+  //    once, find its hands empty, and read as a shop that stopped restocking —
+  //    which is the "broken instrument reads as a broken feature" trap in
+  //    CLAUDE.md, and the doc warns about this exact instance of it by name.
+  //
+  //    `game.unload` is the same verb a player and a stocker use, and the bot
+  //    still skips the walk by blinking to the crate. That is what `autoServe`
+  //    was always for — the pathing, not the supply chain.
+  //
+  //    Only crates it has somewhere to put. `dumpCarryToShelf` drops an armful
+  //    it cannot home, so lifting one blind is how a delivery gets binned; the
+  //    stocker's own `unload` job asks the same question for the same reason.
+  for (const crate of [...game.deliveries]) {
+    if (bot.carry) dumpCarryToShelf(game, bot, priceMult, reserved);
+    if (bot.carry) break;
+    if (!shelfFor(game, crate.item_id, reserved)) continue;
+    teleport(bot, crate);
+    if (!game.unload('bot', crate.id).ok) continue;
+    dumpCarryToShelf(game, bot, priceMult, reserved);
+  }
+
+  // 4. Refill thin BOARDS by buying wholesale — but never the reserved shelves.
   //
   //    A unit holds one kind per board now, so a shopkeeper fills boards rather
   //    than shelves: a shelf with a full top row and two bare ones underneath is
   //    two thirds empty, and a bot that judged the unit would walk past it. It
   //    also has to open the boards it is not using, or the shop would run on one
   //    kind per shelf for ever and this whole change would measure as nothing.
+  //
+  //    It considers every board on the unit, thinnest first, and stops at the
+  //    first one it can actually order for. That last clause is new and it is
+  //    the wait's doing: judging the unit by its thinnest board alone was exact
+  //    while a delivery was instant, because a board that had been ordered for
+  //    was never thin on the next turn. With a van six hours out, the thinnest
+  //    board is thin for the whole six hours AND has nothing left to order — so
+  //    the unit's other boards were never looked at at all. Worth $40 of mean
+  //    profit over ten seeds (212 → 252) and about 3% on units sold: small, and
+  //    the reason to keep it is not the size but that the alternative is an
+  //    instrument that under-restocks for a reason nothing in the run reports.
   for (const shelf of game.layout.shelves) {
     if (reserved.has(shelf.id)) continue;
     const boards = game.shelfBoards(shelf);
-    for (let b = 0; b < boards; b++) {
-      const stacks = game.shelfStacks(shelf);
-      // The thinnest board it already has, or a new one if there is room.
-      const thin = stacks.slice().sort((x, y) => x.qty - y.qty)[0] ?? null;
-      // Only add a KIND once everything already on the unit is stocked. The
-      // bot's own rule about shelving, applied one level down — "a shopkeeper
-      // extends the shop when the shop ran out" — and it has to be here or the
-      // instrument breaks: told to fill every board on day one, the bot spends
-      // three times as much on wholesale as it can carry against a $250 float
-      // and bankrupts itself by day 26. Measured. The shelves are not what went
-      // broke; holding variety constant, the new code lands within noise of the
-      // old (-245/-217/-256 against -224/-234/-242 over the same three seeds).
-      const opening = stacks.length < boards
-        && stacks.every((k) => k.qty > 2)
-        && game.cash > 400;
-      const wanted = (!opening && thin) ? c.byId.items[thin.item_id]
-        : pickItemForShelf(game, shelf, folded);
+    const stacks = game.shelfStacks(shelf).slice().sort((x, y) => x.qty - y.qty);
+    // Only add a KIND once everything already on the unit is stocked. The
+    // bot's own rule about shelving, applied one level down — "a shopkeeper
+    // extends the shop when the shop ran out" — and it has to be here or the
+    // instrument breaks: told to fill every board on day one, the bot spends
+    // three times as much on wholesale as it can carry against a $250 float
+    // and bankrupts itself by day 26. Measured. The shelves are not what went
+    // broke; holding variety constant, the new code lands within noise of the
+    // old (-245/-217/-256 against -224/-234/-242 over the same three seeds).
+    const opening = stacks.length < boards
+      && stacks.every((k) => k.qty > 2)
+      && game.cash > 400;
+    // A new kind when the unit is ready for one — or has nothing on it at all —
+    // otherwise the boards it already has, emptiest first.
+    const wants = (opening || !stacks.length)
+      ? [pickItemForShelf(game, shelf, folded)]
+      : stacks.map((k) => c.byId.items[k.item_id]);
+    for (const wanted of wants) {
       if (!wanted) break;
       const have = game.shelfStack(shelf, wanted.id)?.qty ?? 0;
+      // Thinnest first, so the first well-stocked board means they all are.
       if (have > 2 && !opening) break;
 
       const unit = wholesalePrice(wanted, folded, game.season);
@@ -392,18 +488,29 @@ function runBot(game, bot, priceMult) {
       // Against the BOARD's room, which is a share of the unit — ordering a
       // whole stack for one board of three sends two thirds of it straight back
       // out to a crate on the floor.
+      //
+      // ...less what the shop can already fill it with, which is the line the
+      // wait made compulsory. A board stays thin for the whole six hours its van
+      // is on the road, so a bot that judged it on what is standing on it would
+      // re-order the same milk on every single tick until the run landed — a
+      // shelf's worth becoming twenty, all of it arriving at once with nowhere
+      // to go. `homeSupply` counts the van (and the crates, and the beds), and
+      // this is the same subtraction the hired restocker makes in `staff.js`:
+      // the bot has to model a player, and the player has staff who do this.
       const qty = Math.min(game.carryCapacity(),
-        game.shelfCapacity(shelf, wanted) - have, affordable);
-      if (qty <= 0) break;
+        game.shelfCapacity(shelf, wanted) - have - game.homeSupply(wanted.id), affordable);
+      // The next board, not the next shelf: "there is already a van of this on
+      // the way" is a fact about ONE kind, and a unit's other boards are still
+      // bare. This one word is the whole of the fix described above.
+      if (qty <= 0) continue;
 
       if (bot.carry && bot.carry.item_id !== wanted.id) dumpCarryToShelf(game, bot, priceMult, reserved);
+      // Which buys a promise, not a crate. Nothing is shelved here any more —
+      // the goods land at the bay on the next run and pass 3 puts them away,
+      // and pass 5 below prices every board every turn, so the `setPrice` that
+      // used to sit under the old `stockShelf` was never the only one.
       const bought = game.buyStock('bot', wanted.id, qty);
       if (!bought.ok) break;
-
-      teleport(bot, shelf.browseAt);
-      const res = game.stockShelf('bot', shelf.id);
-      if (!res.ok) break;
-      game.setPrice(shelf.id, suggestedPrice(wanted, folded, game.season) * priceMult, wanted.id);
       // ONE order per unit per turn, exactly as before boards existed. Filling
       // every board in one pass makes the bot spend three times as fast as the
       // shopkeeper it is supposed to model, which is a bot bankrupting itself
@@ -412,7 +519,7 @@ function runBot(game, bot, priceMult) {
     }
   }
 
-  // 4. Keep prices tracking the current market (events move fair value). Every
+  // 5. Keep prices tracking the current market (events move fair value). Every
   //    board, each priced as itself — one price per unit would have the cheese
   //    sold at the milk's price.
   for (const shelf of game.layout.shelves) {
@@ -422,7 +529,7 @@ function runBot(game, bot, priceMult) {
     }
   }
 
-  // 5. Spend surplus on ONE thing, cheapest first — a hire, an upgrade, or a
+  // 6. Spend surplus on ONE thing, cheapest first — a hire, an upgrade, or a
   //    fixture put down somewhere.
   //
   //    Staff and upgrades have to compete in a single queue. When hiring was an
@@ -649,30 +756,52 @@ function dumpCarryToShelf(game, bot, priceMult, reserved = new Set()) {
   }
 }
 
-function dumpArmfulOnce(game, bot, priceMult, reserved) {
-  if (!bot.carry) return;
+/**
+ * Where an armful of this would go, or null if the shop has nowhere for it.
+ *
+ * Pulled out of `dumpArmfulOnce` so the delivery pass can ask the question
+ * *before* lifting a crate. `dumpCarryToShelf` bins whatever it cannot home, so
+ * a bot that picked a pallet up on faith would quietly destroy the delivery it
+ * just paid for — and the loss would report as spending with no sales, which
+ * looks exactly like an economy that does not work.
+ *
+ * A board already holding it with room, then a unit with a spare board. The
+ * reserved shelves — the slice held back for farm output — are preferred for a
+ * harvest and avoided for anything bought in, which is the same sentence read
+ * from both ends: the farm should never be homeless, and a wholesale order
+ * should never be what makes it so. Bought-in goods still fall through to a
+ * reserved unit last, because a bare board beats binning the stock.
+ */
+function shelfFor(game, itemId, reserved = new Set()) {
   const c = content();
-  const item = c.byId.items[bot.carry.item_id];
-  if (!item) { bot.carry = null; return; }
+  const item = c.byId.items[itemId];
+  if (!item) return null;
   const fixture = requiredFixture(item);
-
   const usable = game.layout.shelves.filter((s) => {
     if (fixture === 'freezer' && s.kind !== 'freezer') return false;
     if (fixture !== 'freezer' && s.kind === 'freezer') return false;
     return true;
   });
 
-  // Prefer a shelf already holding this item, then any empty one. Free produce
-  // from the farm should always beat leaving a shelf bare.
-  // A board already holding it with room, then a reserved unit with a spare
-  // board, then any unit with a spare board. Free produce from the farm should
-  // always beat leaving a board bare.
   const room = (s) => (game.shelfStack(s, item.id)?.qty ?? 0) < game.shelfCapacity(s, item);
   const spare = (s) => game.shelfStacks(s).length < game.shelfBoards(s);
-  const target = usable.find((s) => game.shelfStack(s, item.id) && room(s))
-    ?? usable.find((s) => reserved.has(s.id) && spare(s))
-    ?? usable.find((s) => spare(s));
+  const grown = c.crops.some((cr) => cr.item_id === item.id);
 
+  return usable.find((s) => game.shelfStack(s, item.id) && room(s))
+    ?? (grown
+      ? usable.find((s) => reserved.has(s.id) && spare(s))
+      : usable.find((s) => !reserved.has(s.id) && spare(s)))
+    ?? usable.find((s) => spare(s))
+    ?? null;
+}
+
+function dumpArmfulOnce(game, bot, priceMult, reserved) {
+  if (!bot.carry) return;
+  const c = content();
+  const item = c.byId.items[bot.carry.item_id];
+  if (!item) { bot.carry = null; return; }
+
+  const target = shelfFor(game, item.id, reserved);
   if (!target) { bot.carry = null; return; }
 
   teleport(bot, target.browseAt);
@@ -694,7 +823,7 @@ function teleport(bot, target) {
 }
 
 function accumulate(totals, s) {
-  for (const k of ['revenue', 'spent', 'sold', 'abandoned', 'spoiled', 'harvested', 'tilled', 'leftEmpty', 'impulse']) {
+  for (const k of ['revenue', 'spent', 'sold', 'abandoned', 'spoiled', 'spoiledValue', 'harvested', 'tilled', 'leftEmpty', 'impulse']) {
     totals[k] += s[k] ?? 0;
   }
   for (const [id, n] of Object.entries(s.byItem ?? {})) {
@@ -704,7 +833,7 @@ function accumulate(totals, s) {
   // above is explicit on purpose — a scalar that gains a key silently starts
   // reporting `undefined` — but these four are all "map of tag to a count", so a
   // fifth costs a word here instead of five lines.
-  for (const key of ['unmet', 'asked', 'served', 'moved']) {
+  for (const key of ['unmet', 'passed', 'asked', 'served', 'moved']) {
     for (const [tag, n] of Object.entries(s[key] ?? {})) {
       totals[key][tag] = (totals[key][tag] ?? 0) + n;
     }

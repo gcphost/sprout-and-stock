@@ -47,6 +47,30 @@
     "staple_tags": []
   },
   {
+    "id": "family-cook",
+    "name": "Family Cook",
+    "affinities": {
+      "meat": 0.9,
+      "dinner": 0.7,
+      "dairy": 0.4,
+      "produce": 0.3,
+      "cheap": 0.3,
+      "frozen": 0.2,
+      "pantry": 0.3,
+      "luxury": -0.3,
+      "junk": -0.2
+    },
+    "price_sensitivity": 0.55,
+    "patience": 85,
+    "budget_min": 25,
+    "budget_max": 70,
+    "basket_min": 3,
+    "basket_max": 7,
+    "spawn_weight": 1.5,
+    "color": "#c98a5a",
+    "staple_tags": []
+  },
+  {
     "id": "foodie",
     "name": "Foodie",
     "affinities": {

@@ -17,8 +17,13 @@ import { Game } from '../server/sim/index.js';
 import { shelfFor } from '../server/sim/staff.js';
 import { content } from '../server/content.js';
 import { requiredFixture } from '../shared/tags.js';
-import { canPlace, canPlaceCleanly, isGround } from '../shared/build.js';
+import {
+  canPlace, canPlaceCleanly, isGround, faceAlong, behindTile,
+  blockedAt, insideStore, tileAt,
+} from '../shared/build.js';
+import { SOLID, edgeBetween } from '../shared/edges.js';
 import { kindOf } from '../shared/pieces.js';
+import { WALKABLE } from '../shared/tiles.js';
 import {
   partsAt, stageIndexAt, isStaged, modelHeight, tierProgress,
 } from '../shared/model.js';
@@ -75,6 +80,18 @@ function fresh() {
   g.freezeShell();
   g.cash = 5000;
   g.addPlayer('me', 'Tester');
+  // The tester holds the button down for the whole sweep.
+  //
+  // Since the ring stopped winding on its own, an action needs a press — see
+  // `Game.stepActions`. A sweep that did not press would find that nothing in
+  // the game does anything, which reads as every mechanic being broken rather
+  // than as the harness having forgotten to be a player. This is the newest
+  // entry in the `fresh()` trap at the top of CLAUDE.md: state that is not new
+  // to the save, but newly matters to what fires.
+  //
+  // It is deliberately NOT the default on a player. A shop where the button is
+  // down until somebody lifts it is the auto-fire this replaced.
+  g.players.me.pressing = true;
   return g;
 }
 /**
@@ -341,27 +358,39 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   eq(totalOnFloor(g, anyItem.id), 4, 'every unit survives as a crate');
 
   // Two loads of the same thing top up one crate rather than building a forest
-  // of them — but only to the brim. A crate holds an armful, so a load that
-  // does not fit fills this one and starts the next, and the pile is how much
-  // is there. Merging without a ceiling was the other bug: sixteen carrots came
-  // out as one box wearing "x16" that four trips could not empty.
+  // of them — but only to the brim. A load that does not fit fills this one and
+  // starts the next, and the pile is how much is there. Merging without a
+  // ceiling was the other bug: sixteen carrots came out as one box wearing
+  // "x16" that four trips could not empty.
+  //
+  // `cap` is asked of the game rather than assumed to be a pair of hands. It
+  // was `carryCapacity` until crates could be carried whole, and the two had to
+  // stop being the same number for hauling to be a decision at all — see
+  // `crateCapacity`. Every arithmetic below is against `cap`, so this section
+  // says what it meant to say at either value.
   const cap = g.crateCapacity();
   g.players.me.carry = { item_id: anyItem.id, qty: 3 };
   g.stow('me');
   eq(totalOnFloor(g, anyItem.id), 7, 'stowing twice keeps the total');
   eq(g.deliveries.length, 7 > cap ? 2 : 1, 'and tops up the crate rather than starting a forest');
-  check(g.deliveries.every((d) => d.qty <= cap), 'no crate holds more than an armful');
+  check(g.deliveries.every((d) => d.qty <= cap), 'no crate holds more than a crate');
   if (7 > cap) eq(g.deliveries[0].qty, cap, 'the first crate is filled to the brim before the next is opened');
 
-  // One armful is one crate, which is the whole point of the ceiling: taking a
-  // crate leaves nothing behind in it.
+  // An armful stows as one crate and comes back out in armfuls. It used to come
+  // back in ONE armful, because a crate held exactly what hands held; a crate
+  // is bigger than that now, so what this asserts is the invariant that
+  // survived the change — an armful put down is an armful you can pick up, and
+  // nothing is created or lost either way.
   {
     const one = fresh();
     stand(one, one.dropPad());
-    one.players.me.carry = { item_id: anyItem.id, qty: one.carryCapacity() };
+    const hands = one.carryCapacity();
+    one.players.me.carry = { item_id: anyItem.id, qty: hands };
     one.stow('me');
     eq(one.deliveries.length, 1, 'an armful stows as exactly one crate');
+    eq(totalOnFloor(one, anyItem.id), hands, 'holding exactly what was put in it');
     check(one.unload('me', one.deliveries[0].id).ok, 'which can be picked up again');
+    eq(one.players.me.carry?.qty, hands, 'filling the same pair of hands');
     eq(one.deliveries.length, 0, 'and nothing is left standing there');
   }
 
@@ -421,12 +450,30 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // "Sets off" is literal — `take` plans the walk — so the walk has to end
   // before the charge means anything. `stand` is how this sweep arrives.
   stand(g, crate);
-  eq(g.actionFor(g.players.me)?.kind, 'unload', 'and standing at it then arms the pickup');
+  // Empty hands at a crate is a LIFT — the whole box — and full hands is the
+  // armful it always was. One address, two jobs, chosen by the state you are in
+  // rather than by a modifier. Both are asserted, because "the crate arms
+  // something" would pass whichever of them it happened to be.
+  eq(g.actionFor(g.players.me)?.kind, 'lift', 'and standing at it arms the pickup');
 
-  // One errand, one armful. Firing it spends it, or a crate you tapped once
+  // One errand, one action. Firing it spends it, or a crate you tapped once
   // would refill your hands every time you walked past for the rest of the day.
   g.stepActions(5);
-  check(g.players.me.carry?.qty > 0, 'the charge fills your hands');
+  check(g.players.me.haul?.qty > 0, 'the charge shoulders the whole crate');
+  eq(g.players.me.carry, null, 'and leaves your hands empty, because a box is not stock');
+  eq(g.players.me.errand, null, 'and the errand is spent');
+  check(g.actionFor(g.players.me)?.kind !== 'lift', 'so it does not arm again');
+
+  // Put it back down and do it again with an armful already held, which is the
+  // other branch of the same address.
+  check(g.dropCrate('me').ok, 'and it can be set straight back down');
+  const again = g.deliveries.find((d) => d.item_id === anyItem.id);
+  g.players.me.carry = { item_id: anyItem.id, qty: 1 };
+  check(g.take('me', { palletId: again.id }).ok, 'naming it again with a hand full is accepted');
+  stand(g, again);
+  eq(g.actionFor(g.players.me)?.kind, 'unload', 'which arms the armful instead');
+  g.stepActions(5);
+  check(g.players.me.carry?.qty > 1, 'the charge fills your hands');
   eq(g.players.me.errand, null, 'and the errand is spent');
   check(g.actionFor(g.players.me)?.kind !== 'unload', 'so it does not arm again');
   // A crate parked at the drop-off is a crate you are stood *on*, so the pad
@@ -555,6 +602,71 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // to expire, whereas naming a target simply says which shelf you meant.
   check(g.walkToFixture('me', shelf.id).ok, 'pointing at that same shelf is accepted');
   eq(g.actionFor(g.players.me)?.kind, 'stock', 'and naming it puts the armful back');
+}
+
+// ---------------------------------------------------------------------------
+// 3c. Deleting one board — the row on the menu, not the unit.
+//
+// `build-empty` with an itemId, which is the same verb at a finer address. Two
+// claims here are invisible in play and one is invisible on purpose.
+//
+// It is the one thing in the game that clears the stock AND the label, and that
+// is the opposite of the rule directly above it: a board emptied *by hand* keeps
+// its label, because a stack at zero is what lets a shelf stay reserved while
+// the van is out. Delete has to do the other thing, or the row you deleted comes
+// straight back on the next delivery and the button reads as broken.
+//
+// And the unit is three boards at one id, so a delete that took the id and not
+// the item would tip a shelf of three things out when you asked it about one —
+// which looks exactly like a working button until you glance at the row above.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  g.setBuildMode('me', true, 'shelf');
+  const shelf = g.layout.shelves.find((s) => s.kind !== 'freezer');
+  const twoBoards = g.shelfBoards(shelf) >= 2 && otherItem.id !== plainItem.id;
+
+  put(shelf, plainItem, 7, { price: 3 });
+  if (twoBoards) put(shelf, otherItem, 4, { price: 2 });
+  shelf.assigned = twoBoards ? [plainItem.id, otherItem.id] : [plainItem.id];
+  stand(g, shelf.browseAt);
+
+  const gone = g.emptyFixture('me', shelf.id, plainItem.id);
+  check(gone.ok, `deleting a board works (${gone.error ?? ''})`);
+  eq(qtyOn(shelf, plainItem.id), 0, 'the board is gone rather than left at zero');
+  eq(totalOnFloor(g, plainItem.id), 7, 'and all seven are in a crate beside it');
+  check(!(shelf.assigned ?? []).includes(plainItem.id),
+    'the label goes with them, or the next van puts the row straight back');
+
+  if (twoBoards) {
+    eq(qtyOn(shelf, otherItem.id), 4, 'the other board is untouched');
+    eq(totalOnFloor(g, otherItem.id), 0, 'and none of it reached the floor');
+    check((shelf.assigned ?? []).includes(otherItem.id), 'and it is still kept for it');
+  }
+
+  // An empty board deletes too. This is the case the row exists for as often as
+  // not — a thing that has sold out still holds a board, and refusing to remove
+  // it would mean emptying the whole unit to be rid of one sold-out line.
+  put(shelf, plainItem, 0);
+  shelf.assigned = [...(shelf.assigned ?? []), plainItem.id];
+  check(g.emptyFixture('me', shelf.id, plainItem.id).ok, 'a board at zero deletes as well');
+  eq(qtyOn(shelf, plainItem.id), 0, 'and takes its board with it');
+  check(!(shelf.assigned ?? []).includes(plainItem.id), 'and its label');
+
+  // Asked about something that isn't there at all, it is a refusal rather than a
+  // no-op, and specifically not a fall-through to tipping the unit out.
+  const held0 = qtyOn(shelf);
+  check(!g.emptyFixture('me', shelf.id, plainItem.id).ok, 'a board that is not there is refused');
+  eq(qtyOn(shelf), held0, 'and nothing else moved');
+
+  // Same gate as the verb it rides on — a delete out of build mode is refused.
+  // Named at a board that is definitely there, or this passes on "no such board"
+  // and says nothing at all about the gate.
+  put(shelf, plainItem, 3);
+  g.setBuildMode('me', false);
+  check(!g.emptyFixture('me', shelf.id, plainItem.id).ok,
+    'you cannot delete a board outside build mode');
+  eq(qtyOn(shelf, plainItem.id), 3, 'and the board it refused keeps all of it');
 }
 
 // ---------------------------------------------------------------------------
@@ -787,6 +899,129 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   // A plot has no front, so there is nothing to turn.
   check(!g.rotateFixture('me', g.layout.plots[0].id).ok, 'a plot does not face anywhere');
+}
+
+// ---------------------------------------------------------------------------
+// 9b. Aim assist, and the difference between a facing nobody chose and one
+//     somebody did.
+//
+// `faceAlong` is the reason building a row of shelving does not mean typing out
+// a fact the shop already knows — stand something against a wall and it turns
+// its back to the wall. It had no sweep, and every claim it makes is one you
+// would only notice by watching a ghost spin: they are assertions about a
+// preview, over a whole shop, from four starting angles, which is exactly the
+// shape a person cannot check by eye.
+//
+// The one that earned this section is `keep`. Assist ran on a fixture you had
+// PICKED UP, at full strength, so moving a unit two tiles down its own aisle
+// re-derived its facing from the tile it landed on — and "re-derived" is only
+// the same as "kept" when the new tile happens to agree. It reads as the move
+// tool resetting your rotation, which is what it is: a search improving on a
+// decision you had already made. A carried unit settles for a facing that WORKS
+// now, and only turns when its own would leave nowhere to browse it from.
+//
+// "Workable" is asked of `canPlace` rather than re-derived here on purpose.
+// `faceAlong`'s own predicate is the thing under test, and a sweep that spells
+// it out a second time passes whatever the copy does — the edge test in
+// particular (a wall is a line between tiles, not a tile) is exactly the part
+// anybody re-writing it from memory leaves out.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const L = g.layout;
+  const S = L.store;
+
+  /** The warnings that mean "nobody could work or browse this facing". */
+  const UNUSABLE = /nothing can use it|faces out of the shop|nowhere to stand behind it|working side is outside/;
+  const workable = (kind, x, z, rot, ignoreId = null) => {
+    const v = canPlace(L, { kind, x, z, rot }, { ignoreId });
+    return v.ok && !UNUSABLE.test(v.warn ?? '');
+  };
+  /**
+   * Is this facing's back against something?
+   *
+   * The one claim `canPlace` cannot be asked, because a shelf with its back to
+   * a wall is the GOOD case and nothing warns about it. Built out of the shop's
+   * own vocabulary rather than re-implemented — `tileAt`, `blockedAt`,
+   * `insideStore` and `edgeBetween` are each the single spelling of the fact
+   * they answer, and the third and fourth are the two a hand-rolled version
+   * always leaves out: the far side of the shell wall is ordinary walkable
+   * grass, and a wall you drew is a line between two tiles rather than a tile.
+   * Leave either out and this sweep fails on shops that are perfectly correct.
+   */
+  const backed = (kind, x, z, rot, ignoreId = null) => {
+    const b = behindTile(x, z, rot);
+    const person = WALKABLE.has(tileAt(L, b.x, b.z))
+      && !blockedAt(L, b.x, b.z, ignoreId)
+      && insideStore(L, b.x, b.z)
+      && !SOLID.has(edgeBetween(L, x, z, b.x, b.z));
+    return !person;
+  };
+
+  const rots = [0, 1, 2, 3];
+  let tiles = 0;
+  let stuck = 0;       // tiles where nothing works, so nothing is claimed
+  let turned = 0;      // times `keep` moved a carried unit at all
+  for (let z = S.z; z < S.z + S.h; z++) {
+    for (let x = S.x; x < S.x + S.w; x++) {
+      if (!canPlace(L, { kind: 'shelf', x, z, rot: 0 }).ok) continue;
+      tiles++;
+      const anyWorks = rots.some((r) => workable('shelf', x, z, r));
+      const anyBacked = rots.some((r) => workable('shelf', x, z, r) && backed('shelf', x, z, r));
+      if (!anyWorks) { stuck++; continue; }
+
+      for (const from of rots) {
+        const aimed = faceAlong(L, { kind: 'shelf', x, z, rot: from });
+        // 1. It never leaves you with a facing nobody can use when one exists.
+        check(workable('shelf', x, z, aimed),
+          'assist lands on a facing somebody can use', `${x},${z} ${from} -> ${aimed}`);
+        // 2. It backs onto a wall whenever any facing could.
+        if (anyBacked) {
+          check(backed('shelf', x, z, aimed),
+            'assist backs onto a wall when one is available', `${x},${z} ${from} -> ${aimed}`);
+        }
+        // 3. It never spins: its own answer is a fixed point, which is what
+        //    makes sliding along a wall stable rather than oscillating.
+        eq(faceAlong(L, { kind: 'shelf', x, z, rot: aimed }), aimed,
+          'assist settles — its own answer is where it stops');
+
+        // 4. THE claim. A facing that works is a facing you keep.
+        const kept = faceAlong(L, { kind: 'shelf', x, z, rot: from }, { keep: true });
+        if (workable('shelf', x, z, from)) {
+          eq(kept, from, `carrying keeps a workable facing at ${x},${z}`);
+        } else {
+          turned++;
+          // 5. ...and when it does turn, it turns to exactly what assist would
+          //    have said. There is one search, not two.
+          eq(kept, aimed, `carrying falls back to assist when its own facing is unusable at ${x},${z}`);
+        }
+      }
+    }
+  }
+  check(tiles > 20, 'the test shop has a floor to sweep', `${tiles} tiles`);
+  check(turned > 0,
+    'and some facings genuinely had to turn — otherwise claim 4 is vacuous',
+    `${turned} of ${tiles * 4}`);
+  check(stuck < tiles, 'not every tile is a dead end', `${stuck}/${tiles}`);
+
+  // A till is the exception `faceAlong` names: it is worked from behind, so the
+  // bar it settles for is "room on BOTH sides" rather than "backed onto a wall".
+  // `keep` has to hold a carried till to that same bar, or moving one against a
+  // wall keeps a facing no hire can ever stand at — the one thing on a till that
+  // costs you staff rather than shoppers.
+  {
+    const till = L.checkouts[0];
+    check(!!till, 'the shop has a till to carry');
+    for (const from of rots) {
+      const kept = faceAlong(L, { kind: 'checkout', x: till.x, z: till.z, rot: from }, {
+        ignoreId: till.id, keep: true,
+      });
+      check(workable('checkout', till.x, till.z, kept, till.id)
+        || !rots.some((r) => workable('checkout', till.x, till.z, r, till.id)),
+        'a carried till keeps only a facing somebody could work',
+        `${from} -> ${kept}`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1749,6 +1984,253 @@ function canPlaceHere(g, spec, ignoreId = null) {
   // It means one thing only, so it is refused where that thing is meaningless.
   const till = g.setBackOfHouse('me', g.layout.checkouts[0].id, true);
   check(!till.ok, 'a till cannot be back of house — it has no shoppers to hide from');
+}
+
+// ---------------------------------------------------------------------------
+// N. Leaving — the last way goods could be destroyed.
+//
+// Every other case here is somebody choosing to put something down. This one
+// is nobody choosing anything: identity is `client.sessionId`, minted per
+// *connection*, so `removePlayer` deleted the whole person and `carry` went
+// with them. A devMode restart, a closed tab or four seconds of bad wifi
+// destroyed an armful of paid-for stock, silently — and it is invisible in
+// development for the obvious reason that nobody's localhost drops.
+//
+// Asserted as conservation rather than as "the crate exists", because that is
+// the claim: the shop holds the same number of units before and after, and the
+// difference is standing on the floor. See docs/shipping.md, step 2.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const before = totalOnFloor(g, anyItem.id);
+
+  Object.assign(g.players.me, { x: 9, z: 6, carry: { item_id: anyItem.id, qty: 5 } });
+  g.removePlayer('me');
+  eq(totalOnFloor(g, anyItem.id), before + 5, 'leaving puts your armful on the floor rather than deleting it');
+  check(g.deliveries.some((d) => Math.round(d.x) === 9 && Math.round(d.z) === 6),
+    'and it lands where you were standing, not at the bay');
+  check(!g.players.me, 'and you are gone');
+
+  // The other half, which a `dropGoods` with no guard gets wrong by conjuring a
+  // crate of nothing: most people leave with their hands empty.
+  const empty = fresh();
+  const floor0 = empty.deliveries.length;
+  empty.removePlayer('me');
+  eq(empty.deliveries.length, floor0, 'leaving empty-handed conjures nothing');
+}
+
+// ---------------------------------------------------------------------------
+// Carrying a whole crate — haulage, and the conservation hole it opens.
+//
+// A crate stopped being an armful the day you could pick one up: `crateCapacity`
+// is its own number now, and it has to be, or hauling moves exactly what your
+// hands move and there is no decision on either side of it.
+//
+// Everything here is a conservation claim wearing a different hat. `haul` is a
+// SECOND place goods can be, beside `carry`, and every route that used to
+// account for hands had to learn about shoulders — leaving, being fired, being
+// saved. Each of those is a place stock could silently stop existing, and none
+// of them is visible in play: you would notice a shop was poorer some time
+// later and have no way at all to connect it to a reload.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cap = g.crateCapacity();
+  const hands = g.carryCapacity();
+
+  check(cap > hands, 'a crate holds more than a pair of hands, or hauling is ceremony',
+    `crate ${cap}, hands ${hands}`);
+
+  g.deliveries = [];
+  g.dropGoods(anyItem.id, cap, g.dropPad());
+  const crate = g.deliveries[0];
+  eq(crate?.qty, cap, 'a full crate is standing at the drop-off');
+
+  // Lifting takes the crate OUT of the world and puts it on a person. Both
+  // halves matter: a lift that left the crate behind would duplicate the stock,
+  // which is the more expensive direction of the same bug.
+  stand(g, crate);
+  check(g.liftCrate('me', crate.id).ok, 'the whole crate can be picked up');
+  eq(g.players.me.haul?.qty, cap, 'and all of it is on your shoulder');
+  eq(g.players.me.carry, null, 'with your hands still empty');
+  eq(totalOnFloor(g, anyItem.id), 0, 'and nothing left standing where it was');
+
+  // Hands are the price. Everything that needs them refuses while you have a
+  // box, and that is a rule rather than a coincidence — `liftCrate` and every
+  // reader of `carry` stay disjoint on purpose.
+  check(!g.liftCrate('me', crate.id).ok, 'you cannot pick up a second crate');
+  const sh = g.layout.shelves.find((x) => x.kind !== 'freezer');
+  stand(g, sh.browseAt);
+  check(!g.stockShelf('me', sh.id).ok, 'and you cannot stock a shelf off your shoulder');
+  eq(g.players.me.haul?.qty, cap, 'the refusal costs you nothing');
+
+  // Setting down is the same object arriving on the floor, at the tile you are
+  // standing on — anywhere walkable, not the drop-off. A crate is already a
+  // thing that stands on the ground, so making the pad the only legal answer
+  // would mean hauling could only ever move a crate between two pads.
+  const put = g.dropCrate('me');
+  check(put.ok, 'and it can be set down anywhere you can stand', put.error ?? '');
+  eq(g.players.me.haul, null, 'which clears your shoulder');
+  eq(totalOnFloor(g, anyItem.id), cap, 'and every unit is back on the floor');
+  check(g.deliveries.some((d) => Math.round(d.x) === Math.round(g.players.me.x)
+    && Math.round(d.z) === Math.round(g.players.me.z)),
+    'where you were standing, rather than back at the yard');
+
+  // Conservation across a disconnect. `removePlayer` learned about `carry` the
+  // hard way — a closed tab used to bin an armful — and a crate is twice the
+  // stock, through a field that did not exist when that was fixed.
+  const gone = fresh();
+  gone.deliveries = [];
+  Object.assign(gone.players.me, { x: 9, z: 6, haul: { item_id: anyItem.id, qty: cap } });
+  gone.removePlayer('me');
+  eq(totalOnFloor(gone, anyItem.id), cap, 'leaving with a crate puts it on the floor, not into nothing');
+  check(!gone.players.me, 'and you are gone');
+
+  // ...and across a restart, for a hire. `saveState` is exactly what `persist`
+  // writes and what a cold start reads, so going through it is the whole trip —
+  // and this is the half nobody would ever catch by playing, because what you
+  // would see is a shop that is quietly poorer than it was last night.
+  const kind = c.workers[0];
+  if (kind) {
+    const saved = fresh();
+    saved.cash = 50000;
+    check(saved.hire(kind.id).ok, 'a hire can be taken on');
+    saved.step(0.1);
+    const body = Object.values(saved.players).find((p) => p.staff);
+    check(!!body, 'and has a body');
+    if (body) {
+      body.haul = { item_id: anyItem.id, qty: cap };
+      const row = (saved.saveState().staffAt ?? []).find((r) => r.id === body.id);
+      eq(row?.haul?.qty, cap, 'the save carries the crate on their shoulder');
+
+      const back = fresh();
+      back.cash = 50000;
+      back.hire(kind.id);
+      back.step(0.1);
+      const there = Object.values(back.players).find((p) => p.staff);
+      back.restoreStaff([{ ...row, id: there?.id }]);
+      eq(there?.haul?.qty, cap, 'and a shop read back off it is still carrying it');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nothing happens until you press. The consent the ring never actually asked for.
+//
+// `moving` stopped a walk-PAST firing an action, and could never stop a walk
+// *to*: every route this game plans ends stopped at the working spot, so
+// arriving anywhere was arriving armed and a second later the thing happened.
+// Standing at a ripe bed picked it; standing at a rough bed turned it over.
+//
+// Both halves, because "it does not fire" passes on a game where nothing works
+// at all — which is exactly what a sweep that forgot to press would report.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const plot = g.layout.plots[0];
+  check(!!plot, 'the shop has a bed');
+  plot.crop_id = null;
+  plot.soil = 'turf';
+  stand(g, plot);
+
+  // The button up. This is the exact situation that used to till the bed.
+  g.players.me.pressing = false;
+  const soil0 = plot.soil;
+  g.stepActions(5);
+  eq(plot.soil, soil0, 'standing at a rough bed with the button up turns nothing over');
+  eq(g.players.me.action?.elapsed ?? 0, 0, 'and the ring never leaves zero');
+  // It is still ARMED, though, and that distinction is the whole design: the
+  // prompt has to say what a press would do, or the shop stops telling you what
+  // is possible and you are back to guessing.
+  eq(g.players.me.action?.kind, 'till', 'while still naming what a press would do');
+
+  // ...and the same second with it down.
+  g.players.me.pressing = true;
+  g.stepActions(5);
+  eq(plot.soil, 'tilled', 'and pressing turns it over');
+
+  // Letting go resets rather than banks — otherwise a rapid tap-tap-tap is the
+  // auto-fire this replaced, wearing a faster hat.
+  const g2 = fresh();
+  const bed = g2.layout.plots[0];
+  bed.crop_id = null;
+  bed.soil = 'turf';
+  stand(g2, bed);
+  for (let i = 0; i < 20; i++) {
+    g2.players.me.pressing = true;
+    g2.stepActions(0.4);            // most of a charge, never all of it
+    g2.players.me.pressing = false;
+    g2.stepActions(0.1);
+  }
+  eq(bed.soil, 'turf', 'twenty part-presses add up to nothing');
+}
+
+// ---------------------------------------------------------------------------
+// Rummaging: one unit out, one unit back, and the direction is said not guessed.
+//
+// The hole the haul opened. Once empty hands always meant "lift the whole
+// crate", there was no gesture left that could START an armful — you could move
+// a crate around the shop and never get anything out of it. A tap is the unit,
+// a hold is the box, and the pile menu is the armful in between.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  g.deliveries = [];
+  g.dropGoods(anyItem.id, 5, g.dropPad());
+  const crate = g.deliveries[0];
+  stand(g, crate);
+
+  check(g.tapCrate('me', crate.id).ok, 'a tap takes one out');
+  eq(g.players.me.carry?.qty, 1, 'exactly one, not an armful');
+  eq(crate.qty, 4, 'and the crate is one lighter');
+
+  check(g.tapCrate('me', crate.id).ok, 'tapping again takes another');
+  eq(g.players.me.carry?.qty, 2, 'onto the same pile in your hands');
+
+  // Direction is SAID. Inferring it from your hands makes the same press mean
+  // opposite things depending on state you are not looking at — so rummaging
+  // through a crate of what you are already carrying would quietly unload you
+  // into it, which is the bug this signature exists to make impossible.
+  check(g.tapCrate('me', crate.id, true).ok, 'right puts one back');
+  eq(g.players.me.carry?.qty, 1, 'out of your hands');
+  eq(crate.qty, 4, 'and into the crate');
+
+  // Conservation over the whole exchange, which is the claim under all of it.
+  eq(totalOnFloor(g, anyItem.id) + (g.players.me.carry?.qty ?? 0), 5,
+    'nothing is created or lost rummaging');
+
+  // The refusals. A crate holds one kind, so the wrong thing bounces rather
+  // than mixing — and it bounces without costing you what you are holding.
+  const other = warm.find((i) => i.id !== anyItem.id);
+  if (other) {
+    g.players.me.carry = { item_id: other.id, qty: 2 };
+    check(!g.tapCrate('me', crate.id, true).ok, 'you cannot put the wrong thing in');
+    check(!g.tapCrate('me', crate.id).ok, 'nor take one out with your hands full of something else');
+    eq(g.players.me.carry?.qty, 2, 'and a refusal costs you nothing');
+    eq(crate.qty, 4, 'either way');
+  }
+
+  // A tap SPENDS the lift the press armed on the way down. Without this, the
+  // errand sits there and the next thing you hold near this crate shoulders it
+  // instead — the press and the tap are one gesture on the client, so the
+  // server has to treat the second as replacing the first.
+  {
+    const g3 = fresh();
+    g3.deliveries = [];
+    g3.dropGoods(anyItem.id, 5, g3.dropPad());
+    const box = g3.deliveries[0];
+    stand(g3, box);
+    check(g3.take('me', { palletId: box.id }).ok, 'a press names the crate');
+    eq(g3.actionFor(g3.players.me)?.kind, 'lift', 'which arms the lift');
+    check(g3.tapCrate('me', box.id).ok, 'and a quick tap rummages instead');
+    eq(g3.players.me.errand, null, 'spending the errand');
+    eq(g3.actionFor(g3.players.me), null, 'so nothing is left armed to shoulder it');
+  }
+
+  // A crate you are holding is not a crate you can rummage in.
+  g.players.me.carry = null;
+  check(g.liftCrate('me', crate.id).ok, 'the crate can be lifted');
+  check(!g.tapCrate('me', crate.id).ok, 'and cannot be rummaged while you are carrying it');
 }
 
 console.log(`\n${checks} assertions\n`);

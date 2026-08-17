@@ -15,6 +15,11 @@
 
 import { ICONS, icon } from './icons.js';
 import { actIcon } from './fixture-menu.js';
+// One sell-back rate for the whole shop, not one per ladder: a rung handed back
+// is worth what a fixture torn out is worth, and two copies of that number would
+// be two different amounts of money — which is the argument the constant itself
+// makes about the button printing it and the server paying it.
+import { FIXTURE_REFUND } from '../shared/build.js';
 // A swatch is drawn from the kind's own art, so this menu resolves a model the
 // same way the renderer does rather than keeping a second idea of one.
 import { partsAt } from '../shared/model.js';
@@ -43,6 +48,13 @@ const JOB_INFO = {
   harvest: { name: 'Harvest', doing: 'harvesting', blurb: 'Pick whatever is ripe.' },
   craft: { name: 'Craft', doing: 'working the appliances', blurb: 'Work the appliances.' },
   tidy: { name: 'Tidy', doing: 'tidying up', blurb: 'Crate what has nowhere to go.' },
+  // NOT "Shop hand" — that is the name of a worker *kind* (`shop-hand`), and a
+  // job sharing it would read as the one job that worker does.
+  merchandise: {
+    name: 'Merchandise',
+    doing: 'working the shelves',
+    blurb: 'Clear boards nothing sells off, and merge split ones.',
+  },
 };
 
 /** Highest weight the stepper will climb to. Authored lists sit at 1–10. */
@@ -194,6 +206,18 @@ export function showWorker(ui, workerId) {
       { off: !afford, right: next.cost > 0 ? `$${next.cost.toFixed(0)}` : 'free' }));
   }
 
+  // The way back down, and the only rung on any ladder where going down has an
+  // ongoing argument for it: a grade is charged every day in wages, so this is
+  // a decision rather than an undo. Nothing shows on somebody who was never
+  // promoted — the row appears when there is a rung under them.
+  const back = prevTier(kind, entry.tier);
+  if (back) {
+    const saving = back.saves > 0 ? ` Saves ${money(back.saves)} a day in wages.` : '';
+    foot.push(actIcon('demote', ICONS.tierdown, 'Demote',
+      `Back to ${esc(back.name)} — ${tierBlurb(back)}${saving} Half of that grade back.`,
+      'Demote', { right: back.refund > 0 ? `+$${back.refund.toFixed(0)}` : '' }));
+  }
+
   // The latch has to be visible in a square, and it used to be visible in the
   // row's own title — "Tap again to let them go" is a sentence, and a sentence
   // is what a caption is not. So the caption becomes the question and the
@@ -267,7 +291,7 @@ function detail(ui, entry, kind, body) {
     ${energyLine(body)}
     ${line('Taken on as', esc(kind?.name ?? entry.kind))}
     ${rung ? line('Grade', esc(rung.name)) : ''}
-    ${kind?.wage > 0 ? line('Wage', `$${kind.wage.toFixed(2)} a day`) : ''}
+    ${kind?.wage > 0 ? line('Wage', `$${wageAt(kind, entry.tier).toFixed(2)} a day`) : ''}
   </div>`;
 }
 
@@ -398,6 +422,43 @@ function nextTier(kind, tier) {
   return next ? { ...next, tier: at + 1 } : null;
 }
 
+/**
+ * The rung below, what stepping back onto it hands over, and what it saves.
+ *
+ * The saving is the reason this ladder has a way down at all: a fixture's rung
+ * is paid for once, and a hire's is charged again every morning. So the blurb
+ * carries the wage as money per day rather than as the multiplier the rung is
+ * authored with — `0.8×` of a number nobody has in their head is not a figure
+ * anybody can decide on.
+ */
+function prevTier(kind, tier) {
+  const tiers = kind?.tiers ?? [];
+  const at = Math.min(Math.max(1, Math.trunc(tier ?? 1)), Math.max(1, tiers.length));
+  if (at <= 1) return null;
+  const below = tiers[at - 2];
+  if (!below) return null;
+  return {
+    ...below,
+    tier: at - 1,
+    refund: (tiers[at - 1]?.cost ?? 0) * FIXTURE_REFUND,
+    saves: wageAt(kind, at) - wageAt(kind, at - 1),
+  };
+}
+
+/**
+ * What this shop actually pays somebody on a given rung, a day.
+ *
+ * The kind carries the wage and the rung scales it, which is exactly how
+ * `payWages` on the server adds it up — and it is why the read-out at the top
+ * of this menu could not go on printing `kind.wage`: that is what a new hire
+ * costs, and it stops being what anybody costs the moment they are promoted.
+ */
+function wageAt(kind, tier) {
+  const tiers = kind?.tiers ?? [];
+  const at = Math.min(Math.max(1, Math.trunc(tier ?? 1)), Math.max(1, tiers.length));
+  return (kind?.wage ?? 0) * (tiers[at - 1]?.wage_mult ?? 1);
+}
+
 /** Say what a promotion actually buys, out of its own numbers. */
 function tierBlurb(tier) {
   const gains = [];
@@ -436,6 +497,13 @@ function wireWorkerMenu(ui, entry, weights, vocabulary, rows) {
     el.onclick = () => {
       if (el.dataset.act === 'promote') {
         ui.net.send('promote', { workerId: entry.id });
+        return;
+      }
+      // Not armed the way letting them go is: a grade comes back for what half
+      // of it cost, and the person is still standing there. Arming every verb
+      // that moves money would make the one that cannot be undone look ordinary.
+      if (el.dataset.act === 'demote') {
+        ui.net.send('demote', { workerId: entry.id });
         return;
       }
       // Irreversible and unrefunded, so the first tap only arms it. The row

@@ -30,6 +30,12 @@ const KINDS = {
   worker: 'workers',
   pastime: 'pastimes',
   skin: 'skins',
+  // One line and it is the whole route: `/content/:kind` looks the table up in
+  // here, so GET, POST and DELETE for vehicles all exist the moment this does.
+  // That generic shape is why the MCP side is the half worth reading — the
+  // description an agent gets is the only place a new kind of content is
+  // actually explained, and it is why CLAUDE.md says change both together.
+  vehicle: 'vehicles',
 };
 
 /**
@@ -283,6 +289,31 @@ export function createApi() {
       g.onNewDay();
     }
     res.json({ ok: true, world: g.worldId, day: g.day, hour: Math.round(g.time * 24 * 10) / 10 });
+  }));
+
+  /**
+   * The two switches on the clock: the doors, and whether time runs at all.
+   *
+   * One route because they are one control in the HUD and one question in
+   * practice — "is anything happening in this shop right now". Both fields are
+   * optional, so a caller that only means one of them cannot silently set the
+   * other back to whatever it last read.
+   *
+   * Worth knowing before you take a screenshot of a new world: a shop nobody has
+   * opened yet is empty of shoppers by design, not by accident.
+   */
+  api.post('/shop', wrapAsync(async (req, res) => {
+    const g = await gameFor(req);
+    if (req.body?.open !== undefined) g.setOpen(!!req.body.open, 'An agent');
+    if (req.body?.paused !== undefined) g.setPaused(!!req.body.paused, 'An agent');
+    // `open` is the shutters and `serving` is what that adds up to with the
+    // hour — a caller that raised the shutters at 03:00 has to be able to see
+    // that the shop still is not trading, or the answer looks like a refusal.
+    res.json({
+      ok: true, world: g.worldId, open: g.open, paused: g.paused,
+      hour: Math.round(g.time * 24 * 10) / 10,
+      tradingHours: g.trading(), serving: g.isOpen(),
+    });
   }));
 
   api.post('/cash', wrapAsync(async (req, res) => {

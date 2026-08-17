@@ -95,10 +95,25 @@ if (!process.env.ANTHROPIC_API_KEY) {
 }
 console.log('');
 
-for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, async () => {
-    console.log('\nshutting down…');
-    await gameServer.gracefullyShutdown();
-    process.exit(0);
-  });
-}
+/**
+ * Shutting down is COLYSEUS'S JOB, and asking for it a second time cost us the
+ * whole of devMode.
+ *
+ * `new Server()` already registers SIGINT/SIGTERM (`registerGracefulShutdown`),
+ * and that handler is the one that ends with `presence.shutdown()` — the line
+ * that writes `.devmode.json`. A second handler here raced it: whichever call
+ * arrived second got `already_shutting_down`, which `gracefullyShutdown`
+ * *catches* and then follows with `process.exit(0)` in its `finally`. So the
+ * duplicate reliably killed the process mid-shutdown, before the cache was
+ * written. Measured: no `.devmode.json` at all, and one line of
+ * `error during shutdown: already_shutting_down` in the log to say so — which
+ * reads as a shutdown wrinkle rather than as the reason every restart put you
+ * back at the door with empty hands.
+ *
+ * A log line is all we ever wanted from it, and there is a hook for that which
+ * runs *inside* the one shutdown instead of starting a second one.
+ */
+gameServer.onBeforeShutdown(() => {
+  console.log('\nshutting down…');
+  return Promise.resolve();
+});

@@ -22,10 +22,14 @@
  * The one thing stages genuinely cannot say is a loop: a stage arc plays once
  * across a twenty-second break, and smoke has to keep going. That is what a
  * part flagged `drift` is for, and it is the whole reason the flag exists.
+ *
+ * That half now lives in render/motion.js, because an appliance mid-batch wants
+ * exactly the same thing and two copies of a puff is two things that drift
+ * apart. What is left in here is what is actually about a person: the slump,
+ * the breathing, and the tip of whatever is in their hands.
  */
 
-import * as THREE from 'three';
-import { buildModel, material } from './props.js';
+import { buildLoopingProp, animatePuffs, animateMotion } from './motion.js';
 import { partsAt } from '../../shared/model.js';
 
 /** Radians the body tips onto one hip while resting. */
@@ -35,71 +39,14 @@ const SETTLE = 0.07;
 /** Close enough to the target to stop easing and sit still. */
 const SETTLED = 0.004;
 
-/** Seconds for one rise-and-fade of a drifting part. */
-const PUFF_SECONDS = 2.4;
-/** How far a puff climbs over one cycle, in tiles. */
-const PUFF_RISE = 0.5;
-/** How opaque a puff is when it leaves them. It thins to nothing from here. */
-const PUFF_ALPHA = 0.8;
-/**
- * Steps a puff's fade is quantised to.
- *
- * Opacity has to be per-puff, and `material()` hands out ONE cached material
- * per colour — so tinting it would fade every prop in the shop that happened to
- * share the colour. Cloning per mesh would work and would then have to be
- * disposed, which `disposeGroup` deliberately doesn't do. Quantising instead
- * means the fade is ten shared materials that outlive the break, which is the
- * same trick `setGrowthBar` uses to swap between two.
- */
-const FADE_STEPS = 10;
-
 /**
  * The prop for one pastime, at one point through the break.
  *
- * Split in two at build time because the halves move differently: the held
- * parts ride with the worker, and each drifting part needs its own transform to
- * climb on. Both come out of one authored model — which half a part is in is
- * the `drift` flag and nothing else.
+ * Nothing on a person casts a shadow — the body already does, and a mug laying
+ * its own shadow across the floor from chest height reads as litter.
  */
 export function buildPastimeProp(model, t = 0) {
-  const g = new THREE.Group();
-  const parts = partsAt(model, t);
-  if (!parts.length) return g;
-
-  // Nothing on a person casts a shadow here — the body already does, and a mug
-  // laying its own shadow across the floor from chest height reads as litter.
-  const held = buildModel({ parts: parts.filter((p) => !p.drift) }, { castShadow: false });
-  g.add(held);
-
-  const puffs = [];
-  for (const part of parts.filter((p) => p.drift)) {
-    const base = part.pos ?? [0, 0, 0];
-    // Built at the origin and *moved* there, rather than built where it was
-    // authored. A puff swells as it climbs, and scaling a group scales its
-    // children's offsets too — so a cloud authored out at the mouth would sail
-    // off sideways as it grew instead of rising off the spot it was drawn on.
-    const obj = buildModel({ parts: [{ ...part, pos: [0, 0, 0] }] }, { castShadow: false });
-    obj.position.set(base[0], base[1], base[2]);
-    g.add(obj);
-    puffs.push({
-      obj,
-      base,
-      mesh: obj.children[0] ?? null,
-      color: part.color,
-      // What it's worth at the bottom of its climb. A drifting part's opacity is
-      // rewritten every frame, so without this its authored `alpha` would be a
-      // field that quietly did nothing — thin vapour and thick would look the same.
-      alpha: part.alpha ?? 1,
-      // Spread so a bank of them doesn't pulse in lockstep. Fractional, and
-      // folded into absolute time below, so a rebuild at a stage boundary
-      // picks the cycle up where it left off instead of snapping to the start.
-      phase: (puffs.length * 0.37) % 1,
-    });
-  }
-
-  g.userData.held = held;
-  g.userData.puffs = puffs;
-  return g;
+  return buildLoopingProp(partsAt(model, t), { castShadow: false });
 }
 
 /**
@@ -142,21 +89,9 @@ export function animateRest(rec, now) {
   g.userData.held.rotation.x = Math.sin(t * 1.1 + phase) * 0.16;
   g.userData.held.position.y = Math.sin(t * 2.3 + phase) * 0.012;
 
-  for (const puff of g.userData.puffs) {
-    const cycle = (t / PUFF_SECONDS + puff.phase) % 1;
-    puff.obj.position.y = puff.base[1] + cycle * PUFF_RISE;
-    puff.obj.position.x = puff.base[0] + Math.sin(cycle * 5 + puff.phase * 6) * 0.06;
-    // Spreading as it climbs is most of what makes it read as vapour rather
-    // than as a ball going up.
-    puff.obj.scale.setScalar(0.65 + cycle * 1.1);
-    if (puff.mesh) puff.mesh.material = fade(puff.color, 1 - cycle, puff.alpha);
-  }
-}
-
-/** A shared, quantised, translucent material — see FADE_STEPS. */
-function fade(color, k, peak) {
-  const step = Math.max(1, Math.round(Math.min(1, Math.max(0, k)) * FADE_STEPS));
-  // Rounded, or the cache key is a float like 0.08000000000000002 and every
-  // frame mints a material nobody will ever hit again.
-  return material(color, Math.round((step / FADE_STEPS) * PUFF_ALPHA * peak * 100) / 100);
+  animatePuffs(g.userData.puffs, t);
+  // A pastime is never idle — somebody is either on a break or they are not,
+  // and the prop only exists for as long as they are. So a `motion` part of one
+  // simply runs: a phone screen that pulses, a fan somebody is holding.
+  animateMotion(g.userData.moving, t, true);
 }

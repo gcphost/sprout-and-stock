@@ -59,7 +59,7 @@ its canvas and hands you the PNG. Look at it. `stock_shop` first if you want
 the shelves full rather than an empty building.
 
 **After touching `layout.js`, `shared/build.js` or an action — run `npm run verify`.**
-Ten sweeps, about ten seconds:
+Fourteen sweeps, about twenty seconds:
 
 - `verify:layout` generates ~100k layouts across seeds × counts and asserts the
   generator placed *exactly* what it was asked for, that every fixture has a
@@ -67,7 +67,10 @@ Ten sweeps, about ten seconds:
   fixtures land on the tile they were given.
 - `verify:build` drives a real `Game` through tilling, stowing, stripping,
   building, moving and selling back, and asserts nothing is created or
-  destroyed on the way.
+  destroyed on the way. It also sweeps `faceAlong` over every legal shelf tile
+  × four starting angles, which is the one thing in here that is purely a
+  *preview*: a ghost that spins, or that quietly re-derives a facing you had
+  already chosen, is invisible in a screenshot and unprovable by eye.
 - `verify:edges` walks the real edge rules from the shopper spawn and insists on
   reaching the shop floor, across generated layouts and hand-built rule cases. A
   sealed building fails that and passes everything else.
@@ -112,11 +115,55 @@ Ten sweeps, about ten seconds:
   of the shop rather than a number kept beside it. Every expected figure is
   arithmetic on a deliberately odd authored price, never on `fixtureUnitCost` —
   asserting a charge against the function that computes it passes whatever that
-  function does. It authors rows into the live content database and removes them
-  on exit, the same way `verify:catalog` does.
+  function does. It also guards both ladders now that they go *down*: that the
+  refund is half of the rung you step off rather than half of the one you land
+  on (the other way round, a ladder with dearer rungs at the top is a press),
+  that a circuit up and back always loses money, that a fixture keeps its stock
+  and its tile on the way down, that a down-step which would leave a unit with
+  more on it than the rung below holds — or more KINDS than it has boards — is
+  refused **before** any money moves, and that demoting a hire hands back half
+  the grade and drops what `payWages` takes the next morning. It authors rows
+  into the live content database and removes them on exit, the same way
+  `verify:catalog` does.
+- `verify:till` guards the checkout ladder, and one claim that is not about
+  tills at all: that a record the sim *ticks* and the record build mode *shows
+  you* resolve to the same catalog row. `makeStation`, `makeCheckout` and
+  `makePlot` each shipped without a `kind` on that record, so `pieceFor` matched
+  nothing and `fixtureStats` answered 1/1/1 — the Commercial appliance and the
+  Raised Bed both took money for a multiplier nothing ever read, and neither is
+  visible in play because the machine still works and the bed still grows. It
+  sweeps every fixture in a furnished shop for that. Then: that a rung moves
+  *throughput* rather than a stored number (sales over a window, against a real
+  queue), that a self-checkout empties its line with nobody in the shop while a
+  manual till holds it for ever, that serving yourself is slower than being
+  served — or the top rung is strictly better and there is no decision on the
+  ladder — and that the takings still land on the counter rather than in the
+  bank. It authors its own pieces and removes them on exit.
+- `verify:motion` guards the one thing a screenshot can never show: whether the
+  thing was moving. That a part flagged `motion` becomes the *right* moving part
+  even when a `seam` is dropped past it — the meshes are not the parts, so an
+  index taken afterwards spins the box next door and reads as bad art; that a
+  spin ACCUMULATES, or a blade eased to a stop drags itself back to where it was
+  drawn and the machine appears to rewind; that an idle machine sits *exactly*
+  where it was drawn, not nearly; and that a `work` model answers to the batch
+  while a `model` answers to the tier, which is the whole reason there are two.
+  It writes nothing — every piece it needs it authors in memory, and every
+  function it calls is pure.
+- `verify:hand` guards the `merchandise` job, which is the first one that takes
+  goods back *off* a shelf. Its centrepiece is a claim about a thing NOT
+  happening: that a board the hand clears does not come straight back. The crate
+  it makes is an ordinary pallet, so `unload` lifts it and `shelve` refills the
+  board it came off, and without `giveUpBoard` the whole job is a loop that
+  moves stock around a shop and changes nothing — while *looking* exactly like a
+  worker doing their job. It also asserts the three vetoes (a reservation, stock
+  on its way, the days), conservation of the goods, that your own hands and a
+  reservation both overrule the shop having given up, and that a merged shop
+  stays merged. It writes one worker row and removes it on exit.
 
-Each found real bugs the day it was written. None is visible in a screenshot of
-one seed — which is exactly why they exist.
+Each of the first twelve found real bugs the day it was written. `verify:motion`
+and `verify:hand` are the exceptions and say so: each shipped with its feature,
+because every claim it makes is invisible in a still frame by construction. None of them is visible
+in a screenshot of one seed — which is exactly why they exist.
 
 ⚠️ **`simulate` also inherits who works for you.** `Game.create` reads the saved
 world, so the roster and `ownedUpgrades` come along into the throwaway run. Hire
@@ -188,6 +235,8 @@ server/     db.js         SQLite, content tables, content_version trigger
             rooms/        Colyseus room; broadcasts plain JSON at 10Hz
 client/     render/       three.js isometric renderer
             render/lights.js  honours `emits`, and caps how many lamps are real
+            render/motion.js  the two loops a stage arc cannot say: `drift` and
+                              `motion`. Shared by a break and a running appliance
 mcp/        server.js     MCP tools, a thin wrapper over server/api.js
 ```
 
@@ -201,10 +250,11 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads and the break area alike | steps 1–9, 11, 13–14 built; 10 cancelled; 12 next |
-| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, and the break area they are taken in | steps 1–6, 8 and 9 built |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads and the break area alike, and who a way through is for | steps 1–9, 11, 13–14 built; 10 cancelled; 12 next; 15 proposed |
+| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, and the shop hand who takes goods back *off* a shelf | steps 1–6 and 8–10 built; 7 proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
-| [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the three switches in the supplier, and why a refill line belongs on the shelf rather than on the item | steps 1–2 built; 3 proposed |
+| [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
+| [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers | proposed, nothing built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | proposed, nothing built |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
@@ -233,6 +283,33 @@ what the next step was meant to be.
   it becomes a pallet. That's deliberate: one entity means one renderer, one
   pickup path, and the stocker tidying every case of it for free. Never invent
   a second container; call `dropGoods`.
+- **…and `haul` is where goods can be that is not `carry`.** You can pick the
+  whole crate up now, which is `p.haul` — a second place stock lives, beside
+  hands. Three things about it are worth knowing before touching either.
+  It only means anything because **`crateCapacity` stopped being
+  `carryCapacity`**. It was the same number on purpose ("a crate is a trip"),
+  and that made hauling move exactly what your arms move — a decision with
+  nothing on either side of it. A crate is `CRATE_UNITS` and hands are six, so
+  hauling buys capacity with your hands and emptying a crate by hand is two
+  trips. It also doubles what a pad holds, because `bayRoom`/`padRoom` are cells
+  × this: **+6.5% mean profit over ten seeds**, mostly from orders that stopped
+  being refused.
+  It is a **separate field rather than a flag on `carry`**, and that is what
+  keeps it cheap: every existing reader — stocking, hoppers, the chevrons,
+  `homeSupply` — goes on asking about hands and never has to learn that one of
+  them is a box. The cost is that everything which *accounts* for hands had to
+  learn about shoulders, and each of those is a silent conservation hole:
+  `removePlayer`, firing, `saveState`/`restoreStaff`, `homeSupply`. A reload
+  that binned a crate would show up as a shop that is quietly poorer with
+  nothing to connect it to.
+  And the **staff guard is not a filter**. A haul is not a `carry`, so every job
+  that tests `!s.carry` — `till`, `sow`, `harvest` — would happily send somebody
+  to turn a bed over holding a box. `stepStaff` calls `unload` directly while
+  `s.haul` is set rather than filtering the draw, because a hire whose kind
+  loses `unload` mid-shift would otherwise have no job left that could relieve
+  them. Hauling only ever runs **out of the yard** (`onAPad`), which is what
+  makes it terminate: without that, two shelves pass one crate back and forth
+  for ever.
 - **You name it, and the ring fires it.** Anything that moves goods into or out
   of your hands is pointed at first: a tap on a fixture is a *walk plus a name*
   (`walkToFixture` sets `p.errand`), a tap on the drop-off is the same thing on
@@ -311,6 +388,53 @@ what the next step was meant to be.
   what pointing at the world *does* has to ask the bar rather than the flag.
   Carrying is asked first and separately: a Move errand borrows the mode the
   same way and must still be able to put the thing down.
+- **The camera is chained to your body, and build mode is where that is wrong.**
+  `camPan` is an offset off the player with a 14-tile leash, which is right
+  while you are shopkeeping — a view that can lose you is worse than one that
+  cannot see the far shelf, and walking anywhere reclaims it (`recentre`). It
+  is exactly wrong while building, because the reason the view needs to move
+  there is to reach somewhere you *cannot stand*: a room you have just sealed,
+  the far side of the fence, the end of a grown farm. So WASD flies the view
+  instead of walking you while a tap would place (`flying()`, the same
+  `paletteArmed || holding` test the ghost uses), and `setFreeRoam` swaps the
+  leash for the map. Two things this cost, both non-obvious. `clampPan` has to
+  be the ONE place either bound is applied — a fly clamped to the world beside
+  a drag clamped to the leash fight over the same field and the view snaps back
+  the instant you touch the mouse. And taking the wheel has to stop the feet:
+  a key held across the moment build mode came up leaves you walking at the
+  server for as long as it stays down, because the *release* is what sends a
+  zero and the release now goes to the camera. An edge-scroll version of this
+  was built first and thrown away — it fires when you did not ask, and the band
+  along the bottom is also the path to the toolbar.
+- **A thing put down against a wall turns its own back to it — and a wall is not
+  a tile.** `faceAlong` in `shared/build.js` is aim assist, not a rule: it picks
+  the facing whose browsing spot is open and whose *opposite* side is not, which
+  is the one right answer per tile that building a row of shelving otherwise
+  makes you type out by hand. Three things hold it together. The edge test is
+  the one that is easy to leave out and impossible to notice missing — walls are
+  drawn on the line between two tiles, so the far side of your own shop wall is
+  ordinary walkable grass and the far side of an annex divider is ordinary shop
+  floor; read tiles alone and it works against the generated shell and does
+  nothing at all against a wall the player drew. Ties go to the facing it
+  already has, which is what stops it spinning as you slide along an aisle.
+  And `rotPinned` is the off switch: pressing R has to stop it, or the ghost
+  turns straight back on the next frame and R reads as a dead key. Verified in
+  `verify:build` as three claims — always usable, backs onto a wall whenever any
+  facing could, never spins — over every legal shelf tile × four starting angles.
+- **…and assist is for a facing nobody chose, which a fixture you PICKED UP is
+  not.** Rot 0 is where the model happens to have been drawn, so on a new unit
+  off the palette the best answer for the tile is the right answer. One you are
+  carrying already has a facing — the one you set the last time it stood
+  somewhere — and re-deriving it from the new tile only *agrees* with keeping it
+  when the tile happens to. That is what "moving something reset its rotation"
+  was: not a reset anywhere in the code, but a search improving on a decision
+  somebody had already made, every frame, invisibly. `faceAlong`'s `keep` is the
+  distinction: a carried unit settles for a facing that WORKS rather than
+  holding out for the best going, so it only turns when its own angle would
+  leave nowhere to browse it from — the one case where keeping it silently costs
+  you the shelf. The bar `keep` holds a facing to is the *same predicate* each
+  search settles for (`workable`), or a carried till would keep a facing the
+  search would have rejected.
 - **A model can carry stages, and anything can drive them.** `shared/model.js`.
   A model is either `parts` (always looks the same) or `stages[]`, and whoever
   draws it passes one 0..1 number: a crop passes its growth, a fixture passes
@@ -319,6 +443,39 @@ what the next step was meant to be.
   rather than growing its own art-swapping code. The pastime is the proof: a mug
   that empties and a sandwich eaten down to the crusts cost one nullable column
   and one field in `snapshot()`, and no code in the renderer knows what a mug is.
+- **…and one resolver takes ONE number, which is why an appliance has two
+  models.** `model`'s 0..1 is already spent on the tier — a Commercial machine
+  is stage 2 of its own art — and how far through a batch it is runs 0..1 on a
+  clock of its own. Two quantities, so two models: `work` on the piece (or on a
+  variant, since a toaster and a blender are two shapes of one appliance) is
+  what it looks like *while it is running*, drawn over it in its own model
+  space, stages driven by `progress`, and gone the moment the batch ends. Reach
+  for a second model when you find yourself wanting a second 0..1 — not for a
+  second *look*, which is a variant, and not for a second *number*, which is a
+  tier.
+- **A machine that cannot be seen working is a machine you cannot tell is on.**
+  Which is what every appliance was: mid-batch and untouched-since-Tuesday drew
+  the same picture, and the only tell was the row of ingredient ghosts over it
+  disappearing — an absence, in a shop full of things. Four traps came out of
+  fixing it, and three are invisible rather than wrong.
+  A part flagged `motion` runs while the thing it belongs to is **working**, and
+  a thing with no idea what working means — a fan, a mobile, a sign — always
+  runs. That second clause is not a nicety: without it the flag silently does
+  nothing on every kind except `station`, which is the "tier that changes no
+  number" trap wearing a different hat.
+  **A spin has to accumulate.** Read off the clock and eased down, a stopping
+  blade drags itself back to where it was drawn — a machine that rewinds. Adding
+  up how far it has turned means it stops where it stopped, which is what a
+  stopped blade does.
+  **Spinning a cylinder is invisible**, exactly as spinning a ring was: it is
+  rotationally symmetric, so a perfectly correct animation nobody can see. The
+  blender turns a paddle.
+  And the moving parts of the machine itself belong to `staticRoot`, which a
+  re-flow disposes wholesale — so `movingFixtures` is filled and cleared in the
+  one place that builds them (`addFixtureProps`). Whatever it puts on top while
+  it runs is a prop in `actorRoot` with the other readouts, positioned and
+  *turned* every sync, or the steam comes out of the back of a machine you
+  rotated.
 - **Kinds are code; pieces are content.** A `fixtures` row is a *piece* — its
   own id, its own model, variants, tier ladder and price — and it names a *kind*
   from the closed `BUILD_KINDS` set in `shared/build.js`. So there can be four
@@ -369,6 +526,26 @@ what the next step was meant to be.
   of the building outside it and refund them — and a new world starts at 5.
   Anything that changes where the building *sits* has to be opt-in per shop for
   the same reason.
+- **Opening is two switches, and only one of them is yours.** `isOpen()` is
+  `open && trading()`: the business day is still the world's (08:00–20:00,
+  `trading()`), and the shutters can only shut you *inside* it. Pointed the
+  other way — a switch that extends the day — never closing is simply correct
+  and there is no decision left on the button. Three things read the *clock*
+  rather than the shutters and have to keep doing so: the compressed night in
+  `step`, `DELIVERY_RUNS`, and the struck-through clock in the HUD — shutting at
+  noon must not fling you through the afternoon at 6×. The trap is the default.
+  `open` reads **true** when a save doesn't mention it, so no existing shop
+  shuts itself; a default of `false` would also shut every headless game —
+  `simulate` and every `verify:*` sweep — and a balance run against a shop that
+  never opens reports zero with nothing in the output to say why. "A new shop
+  starts shut" is therefore written by `createWorld` at creation, not defaulted
+  in `Game`, and `simulate` forces the shutters up beside `autoServe`. `paused`
+  is the other half of the clock and is deliberately NOT saved: it stops `step`
+  before `elapsed` moves, which is what keeps it clear of every stamp trap in
+  this list, and a save that came back paused would be a shop that looks broken
+  on load. The renderer has to be *told* (`scene.paused`), because
+  `animateStations` is the one loop driven by the page's clock rather than the
+  shop's — a blade still turning in stopped time reads as the pause not working.
 - **A refusal has to come before the money moves, not after the decision.**
   `buyStock` deducted cash, then checked there was a bay to deliver onto — so an
   order with nowhere to land was refused *and* charged for. It read as correct
@@ -454,10 +631,45 @@ what the next step was meant to be.
   falloff makes `intensity` a power, not a brightness — a lamp authored as "1
   over 4 tiles" is invisible until it is scaled by range squared.
 - **A tier that changes no number is a button that takes money and does nothing.**
-  `capacity_mult`, `keeps_mult` and `speed_mult` are the only knobs the sim
-  reads. The till ladder is deliberately priced at 0 because nothing reads a
-  till's speed yet — see the `speed` upgrade kind for what happens when you
-  forget (it sells, and `speedMult()` still hardcodes `boots-1`).
+  `capacity_mult`, `keeps_mult`, `speed_mult` and `unattended` are the only knobs
+  the sim reads. The till ladder was priced at 0 for exactly that reason until
+  `serveSeconds` gave a checkout's speed something to mean — see the `speed`
+  upgrade kind for what happens when you forget (it sells, and `speedMult()`
+  still hardcodes `boots-1`).
+- **Every ladder goes down, and the refund is of the rung you step OFF.**
+  `downgradeFixture` and `demote` are the way back off a tier and off a grade,
+  at `FIXTURE_REFUND` — the shop's one sell-back rate, which is why a constant
+  with `FIXTURE` in its name is imported by the worker menu. Refunding the rung
+  you land *on* is the trap: rungs get dearer as they climb, so half of the
+  cheap one back for stepping off the dear one is a press you can run with two
+  keys. Two more things are only visible here. A tier is not only a multiplier —
+  `boardsOf` reads the art *at the tier* (the freezer draws 2, 2, 3), so going
+  down can take away how many KINDS a unit holds as well as how much of one, and
+  `tierShortfall` refuses with the guards, before the money, the way `buyStock`
+  had to learn to. And a *grade* is the one rung charged again every morning
+  (`wage_mult` in `payWages`), which is why the way down is a standing decision
+  rather than an undo — and why the worker menu prints the wage at their rung
+  rather than `kind.wage`, which is what a NEW hire costs and stops being true
+  the moment anybody is promoted.
+- **A fixture the sim ticks is not the fixture the menu shows you, and the
+  difference is one field.** `findFixture` hands back a *copy* with `kind`
+  stamped on it, so the price, the fixture menu and the upgrade button have
+  always been right. The sim reads the raw record out of `layout.checkouts` /
+  `.plots` / `.stations`, and `pieceFor` matches on `piece` **and** `kind` — so a
+  constructor that forgets `kind` resolves to no catalog row at all and
+  `fixtureStats` answers 1/1/1. Three of them did: the Commercial appliance sold
+  `speed_mult: 2` for $340 and the Raised Bed sold `1.6` for $90, both delivering
+  nothing, for as long as they had existed. Nothing renders it and nothing logs
+  it — the machine still works, it is simply never faster — so `verify:till`
+  sweeps every fixture in a furnished shop and asserts the two resolve alike.
+- **A self-checkout is a number on a tier, not a kind of its own.**
+  `unattended` (0..1) is what share of its speed a till manages with nobody
+  behind it, so `selfServeSeconds` is a comparison rather than a branch: every
+  till answers it, and one that needs a person answers `Infinity`. What the top
+  rung sells is *not needing a clerk*, which `simulate` can never measure —
+  `autoServe` is a bot welded to every till, so a balance run always has one.
+  The rung is deliberately slower at the counter than the one below it, or the
+  ladder ends in a strict upgrade and there is no decision left on it.
 - **`canPlace` gives two kinds of no, and only one of them is a no.**
   `ok: false` is physics — the tile is taken, it is off the map, a plot is
   being dug indoors. `ok: true` with a `warn` is a *consequence*: you may wall a
@@ -571,6 +783,20 @@ what the next step was meant to be.
   scattered across the floor, and leaks another full set on every re-flow.
   Positions are also re-read every sync, not just at creation, so a fixture you
   move takes its stock with it.
+- **A readout belongs to the SPOT, not to the thing that landed on it.** Money
+  drops carried their own `+$4.20`, which is right for one sale and wrong for
+  four: the server fans successive piles across a third of a tile so they read
+  as several piles, and from this camera that stacks four labels into a column
+  of arithmetic over a till — four numbers answering a question nobody asked,
+  when the only one anybody has is *how much is on that counter*. The piles stay
+  several and the number is one per tile, which is the call `buildPallet`
+  already makes about a stack of crates. Two things fell out of it. A label
+  keyed to a drop leaves when that drop is picked up, with money still sitting
+  there — so it is keyed by tile. And a sprite owns a canvas, a texture and a
+  material that **`disposeGroup` was not freeing** (it looks for `isMesh`), so a
+  label rebuilt every time its number moved leaks all three on every sale;
+  `setTextSprite` repaints in place, and `disposeGroup` now frees sprites too,
+  which quietly fixes the same leak for every crate label in the game.
 - **The build ghost and the server share one validator.** `shared/build.js`.
   Reimplementing the rules client-side to keep the preview snappy is how a
   green ghost starts promising placements the server then refuses.
@@ -595,6 +821,31 @@ what the next step was meant to be.
   says so except `startedWith`, which is the only reason it was ever caught —
   check it, it is there for this. `structuredClone` now, and the same trap is
   waiting for any mutable field added to `DEFAULT_WORLD`.
+- **devMode never cached a thing, so `persist()` is the whole of what survives a
+  restart.** `onCacheRoom`/`onRestoreRoom` in `MartRoom` read as a safety net for
+  everything `persist()` doesn't write — crates on the bay, cash on the counter,
+  where everyone is standing, what is in your hands — and that net has never once
+  been there. Two independent reasons, both invisible. `server/index.js`
+  registered its *own* SIGINT/SIGTERM beside the one Colyseus already registers,
+  and the loser of that race gets `already_shutting_down`, which
+  `gracefullyShutdown` catches and then follows with `process.exit(0)` — killing
+  the process before `presence.shutdown()` writes `.devmode.json`. And even with
+  that gone, Colyseus 0.16.5 disposes every room (which deletes it from the
+  `rooms` map) *before* calling `cacheRoomHistory(rooms)`, so `onCacheRoom` is
+  asked of nothing. The room id still restores, which is what lets the browser
+  reconnect rather than fail eight times — but **anything that must survive a
+  reload has to be in `persist()`**, and the `elapsed` trap applies to every
+  clock you put there (`bornAt`, `plantedAt`, `yieldedAt`, `arrivesAt`). The
+  general shape: a fallback nobody has watched work is a fallback that isn't
+  there, and this one hid behind a save that restored the shop perfectly.
+- **A `sessionId` is per connection, so leaving used to destroy what you held.**
+  `removePlayer` deleted the whole person, `carry` included — a devMode restart,
+  a closed tab or four seconds of bad wifi binned an armful of paid-for stock
+  with nothing logged. It drops as a crate now (`dropGoods`, the fifth caller),
+  which `verify:build` asserts as conservation. Staff are the opposite case and
+  worth the contrast: `staff-<n>` outlives the socket, so they *are* saved, spot
+  and hands both. Keeping YOUR position and hands across a reload needs an
+  identity that outlives the socket too — step 3 of docs/shipping.md.
 - **Copying `data/game.db` with `cp` silently copies a stale shop.** SQLite is
   in WAL mode, so recent writes live in `game.db-wal` until a checkpoint. `cp`
   of the `.db` alone loses them, and the worlds you were about to measure may
@@ -648,6 +899,56 @@ what the next step was meant to be.
   covers the three switches in the supplier — and note that `assign` gates the
   shop choosing your *range*, never a stocker putting away goods you have
   already paid for.
+- **The shop stopped buying what it already had, and went on *making* it for
+  ever.** `restock` has asked "have I got somewhere to put this" since step 1 of
+  docs/ordering.md; the two jobs that produce goods — `craft` and `harvest` —
+  never asked at all, and `dropGoods` shares a cell rather than refusing once a
+  pad is full, so the pile grew upwards with nothing anywhere to say stop. Both
+  loops close through the drop-off: the kitchen emptied a full tray *because* it
+  was stopping the machine, which is what let the next batch start, and picking
+  a bed is what frees it to grow the next one. A shop with every board committed
+  therefore produced indefinitely, and it reads as a stocker who has quit rather
+  than as a farm that will not stop picking. The fix is one question asked
+  before producing — and **buying and producing are not the same question**,
+  which is the half worth remembering. Gating the farm the way the kitchen is
+  gated (a free board, or don't pick) measured **−9.3% mean profit over ten
+  seeds**, two of them down a third: a crate of bought stock with nowhere to go
+  is money already spent, but a crate of your own eggs cost nothing and is a
+  *buffer* — a stocker shelves it the moment a board frees and the bed is back
+  in production behind it. So `hasHome` (a shelf, and no crate of it already
+  waiting) gates the kitchen, and `hasSomewhere` (a shelf, or room on the pad)
+  gates the farm, which is `bayRoom`'s promise said about the drop-off: how big
+  you painted it is how much the shop will make. Measured identical to the cent
+  over ten seeds. `simulate` cannot see the kitchen half at all — the balance
+  bot never runs an appliance, so "no change" there is the instrument being
+  blind, not the change being free.
+- **A job that puts something down is not finished until nothing picks it back
+  up.** The `merchandise` job clears a board nothing has sold onto the drop-off,
+  and the crate it makes is an ordinary pallet — there is only one kind. So
+  `unload` lifted it, `shelve` filled the board it had just come off, and a
+  minute later the shop was exactly as it started, four days from doing it
+  again. The whole job was a loop that moved stock around and changed nothing,
+  and it would never have read as a bug, because a hire crossing the floor with
+  an armful is what a working shop looks like. `giveUpBoard` marks the **item**
+  — on `orders.dropped`, read by `shelvesFor` and `pickItem` — and marking the
+  *board* would have been the same bug one delivery later, on the unit next
+  door. It deliberately does not expire: the crate is still on the pad, so a
+  timer just restarts the round trip on the day it lapses. Your own hands never
+  read it (`stockShelf` is untouched) and ticking a shelf for it clears it
+  outright, which is the same line `orders.assign` draws — the shop's judgement
+  about its own range was never a rule about what you may do.
+- **…and an existing control that already vetoes the new thing is not the same
+  as a switch for it.** The shop hand shipped with a reservation as its only
+  veto, which is true and was not the control: a reservation says what a board
+  is FOR, so hands-off is its side effect, and it only ever covered the units
+  you already had plans for. Every shelf you had said nothing about was fair
+  game, and the only way to say "leave that one alone" was to tick an item onto
+  it you did not want there — a control used for its side effect, which is the
+  shape of a missing control. `shelf.managed` is the switch (`setShelfHands`,
+  read by `staleBoards` and by BOTH ends of a merge, since a locked unit that
+  quietly grew a board is a unit the hand rearranged). It defaults to true so no
+  save moves, which is why `persist`'s shelf filter had to learn that a switch
+  flipped on an *empty* unit is still worth saving.
 - **Whatever you change, check the balance bot still models a player doing it.**
   Auto-replant meant plots were never empty, and `simulate` skipped any planted
   plot — so every bed froze on its first crop and three crops reported as

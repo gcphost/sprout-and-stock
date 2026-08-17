@@ -28,7 +28,7 @@ export const SEED_DIR = path.join(DATA_DIR, 'seed');
 const DB_PATH = process.env.SNS_DB ?? path.join(DATA_DIR, 'game.db');
 
 /** Content tables — anything an agent is allowed to write to. */
-export const CONTENT_TABLES = ['items', 'crops', 'archetypes', 'events', 'upgrades', 'recipes', 'fixtures', 'workers', 'pastimes', 'skins'];
+export const CONTENT_TABLES = ['items', 'crops', 'archetypes', 'events', 'upgrades', 'recipes', 'fixtures', 'workers', 'pastimes', 'skins', 'vehicles'];
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -124,8 +124,9 @@ CREATE TABLE IF NOT EXISTS fixtures (
   kind       TEXT NOT NULL DEFAULT '',    -- a kind build.js knows; blank = the id
   name       TEXT NOT NULL,
   model      TEXT NOT NULL,               -- JSON, staged by tier
+  work       TEXT NOT NULL DEFAULT 'null',-- JSON, staged by how far through a batch
   tiers      TEXT NOT NULL DEFAULT '[]',  -- JSON [{name, cost, ...mults}]
-  variants   TEXT NOT NULL DEFAULT '[]',  -- JSON [{id, name, model}] — looks only
+  variants   TEXT NOT NULL DEFAULT '[]',  -- JSON [{id, name, model, work}] — looks only
   cost       REAL NOT NULL DEFAULT 0,     -- 0 = priced by the upgrade that sells it
   emits      TEXT NOT NULL DEFAULT 'null',-- JSON {color, intensity, range} or null
   surface    TEXT NOT NULL DEFAULT 'null',-- JSON {color, accent, pattern}: floors only
@@ -186,6 +187,33 @@ CREATE TABLE IF NOT EXISTS skins (
   slots      TEXT NOT NULL DEFAULT '{}',   -- JSON {chassis, trim, glow}
   extras     TEXT NOT NULL DEFAULT '[]',   -- JSON array of parts, added not swapped
   tags       TEXT NOT NULL DEFAULT '[]',   -- JSON array
+  created_by TEXT NOT NULL DEFAULT 'seed',
+  created_at INTEGER NOT NULL
+);
+
+-- Something that drives. A delivery van, a customer's car, and whatever else
+-- turns up on the ground outside — authored the same way a worker is, because a
+-- vehicle is a thing you LOOK at and everything in this game you look at is a
+-- row somebody can draw.
+--
+-- CAPACITY is the only column the sim reads as a number, so it is the only one
+-- that can move the balance. Everything else here is what it looks like and how
+-- fast it appears to travel, which is worth exactly what it looks like.
+--
+-- No tiers column, deliberately, and it is not an oversight to be corrected
+-- later: a ladder would put capacity in two places at once (the row and the rung
+-- you are on), and the bigger van is meant to be an upgrade you can SEE, which
+-- means a second row with its own art rather than a number on the first one.
+-- (No backticks in here — see the pastimes note above.)
+CREATE TABLE IF NOT EXISTS vehicles (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  use        TEXT NOT NULL DEFAULT 'delivery', -- delivery | customer
+  tags       TEXT NOT NULL DEFAULT '[]',   -- JSON array
+  model      TEXT NOT NULL,                -- JSON, staged by how loaded it is
+  speed      REAL NOT NULL DEFAULT 3.2,    -- tiles per second
+  capacity   INTEGER NOT NULL DEFAULT 4,   -- crates
+  color      TEXT NOT NULL DEFAULT '#c9d1d9',
   created_by TEXT NOT NULL DEFAULT 'seed',
   created_at INTEGER NOT NULL
 );
@@ -287,6 +315,11 @@ const ADDED_COLUMNS = [
   // row written before them does.
   ['fixtures', 'yields', "TEXT NOT NULL DEFAULT 'null'"],
   ['fixtures', 'charm', 'REAL NOT NULL DEFAULT 0'],
+  // What it looks like while it is working. 'null' is "it looks the same busy
+  // as it does idle", which is every piece written before appliances could show
+  // they were running — and is why nothing in a live shop changed on the day
+  // this landed.
+  ['fixtures', 'work', "TEXT NOT NULL DEFAULT 'null'"],
   // 'null' rather than '{}': a pastime with no prop drawn for it yet has no
   // model at all, and an empty object is a model that fails its own schema.
   ['pastimes', 'model', "TEXT NOT NULL DEFAULT 'null'"],
@@ -367,10 +400,11 @@ const JSON_FIELDS = {
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
-  fixtures: ['model', 'tiers', 'variants', 'emits', 'surface', 'yields', 'tags'],
+  fixtures: ['model', 'work', 'tiers', 'variants', 'emits', 'surface', 'yields', 'tags'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
   skins: ['slots', 'extras', 'tags'],
+  vehicles: ['tags', 'model'],
 };
 
 function hydrate(table, row) {

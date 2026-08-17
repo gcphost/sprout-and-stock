@@ -53,6 +53,18 @@ function fresh() {
   g.regenerateLayout(null, {}, { want: SHOP });
   g.freezeShell();
   g.addPlayer('me', 'Tester');
+  // The tester holds the button down for the whole sweep.
+  //
+  // Since the ring stopped winding on its own, an action needs a press — see
+  // `Game.stepActions`. A sweep that did not press would find that nothing in
+  // the game does anything, which reads as every mechanic being broken rather
+  // than as the harness having forgotten to be a player. This is the newest
+  // entry in the `fresh()` trap at the top of CLAUDE.md: state that is not new
+  // to the save, but newly matters to what fires.
+  //
+  // It is deliberately NOT the default on a player. A shop where the button is
+  // down until somebody lifts it is the auto-fire this replaced.
+  g.players.me.pressing = true;
   return g;
 }
 

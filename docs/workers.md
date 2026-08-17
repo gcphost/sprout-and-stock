@@ -1,9 +1,10 @@
 # Workers — design
 
-Status: **steps 1–6 and 8 built.** A worker is authored content, hiring is a
+Status: **steps 1–6, 8 and 9 built.** A worker is authored content, hiring is a
 roster, every hire has its own menu, tiers restage the model, everybody gets
-paid, and a worn-out hire downs tools and does something authored about it —
-visibly. Step 7 (tags, zones, experience) is still proposed.
+paid, a worn-out hire downs tools and does something authored about it —
+visibly — and there is a room you paint for them to do it in. Step 7 (tags,
+zones, experience) is proposed; step 10 (the shop hand) is built and opt-in.
 
 The goal: a worker is authored the same way a fixture is. Its look, its stats,
 its upgrade ladder and what it is willing to do all come out of the database, so
@@ -259,6 +260,14 @@ stockers" or "let this one go".
   screen the whole design exists for.
 - `promote(id)` — charge the next tier's cost, bump `tier`. Nothing else: the
   stats and the model are both read off that number every tick.
+- `demote(id)` — the same number back down, for **half** of the rung they are
+  stepping off (`FIXTURE_REFUND`, the one sell-back rate the shop has). Not the
+  mirror of `fire` above, and the difference is what a grade *is*: `wage_mult`
+  charges for it again every morning, so a promotion taken in a good season is
+  an ongoing bet rather than a purchase, and until this existed the only way out
+  of it was letting the person go. Half back, so promoting and demoting in a
+  circle always costs money — what is being sold back is a rung, which the shop
+  can still see, rather than a person, which it cannot.
 
 The existing `staff-*` upgrades get migrated to `workers` rows on seed, and the
 upgrades themselves retired — leaving them would mean two ways to hire.
@@ -887,6 +896,303 @@ persists it, and runs the ordinary runner against that world.
   every assertion reads the row the worker actually drew. The first draft
   asserted against its own row and passed for the wrong reason twice.
 
+## Step 10 — the shop hand ✅
+
+⚠️ **Balance-neutral by construction, not by measurement.** No worker kind in
+the catalog has `merchandise` in its job list, so the job cannot fire until
+somebody assigns it in the worker menu — and the two code paths that are always
+on (the `soldDay` stamp, and the `droppedItem` guards) read an empty map and a
+field nothing else touches. There is nothing to measure until a shop opts in,
+and the note under *On measuring it* below is what to do when one does.
+
+⚠️ **The label is "Merchandise", not "Shop hand"**, because `shop-hand` is
+already the id of a worker *kind*. A job sharing a worker's name reads as the
+one job that worker does.
+
+### What's wrong
+
+**Nothing in the game ever takes goods off a shelf.** Stock leaves a board three
+ways and a worker is none of them: a shopper buys it (`takeFromShelf`), it
+spoils (`spoilStock`), or you walk over and Take it by hand. `shelve` only ever
+puts down what is in hand and `tidy` crates what has nowhere to go at all, so
+every job in `JOBS` points one way. A board, once committed, stays committed
+until the market or the clock empties it.
+
+That is fine for anything that sells. It is exactly wrong for anything that
+doesn't, and the failure has a shape:
+
+- **A board that stops selling holds its board for ever.** `releaseBoards` is
+  the only thing that ever hands one back, and it only looks at boards at
+  *zero* — "empty two days with none coming". Three units of something nobody
+  wants is not empty, so it never qualifies; a non-perishable has no
+  `shelf_life_days`, so spoilage never takes it either. The board is gone for
+  the rest of the save.
+- **…and boards are the scarce thing, not shelf space.** `shelfCapacity`
+  divides a unit by its `shelfShares`, so a board is what the shop spends to
+  carry *range*. A dead board is not untidiness, it is one fewer kind the shop
+  can ever sell — and `pickItem` cannot choose around it, because `already`
+  counts a stocked board as part of the range.
+- **The same item splits across units with no way back.** `shelvesFor` ranks
+  "already holding it" above a bare board, which is right for one trip and
+  accumulates over many: a crate bigger than the best shelf's room spills onto
+  the second best, and the two half boards then sit there for ever. Two boards
+  spent to hold one kind.
+
+None of it reads as a bug in play. It reads as a stocker who has stopped caring
+— the same tell the farm that would not stop picking had, and the same lesson: a
+loop with no closing question.
+
+### What the job is
+
+`merchandise`. One job, two verbs, and **both of them strictly reduce the number
+of occupied boards.**
+
+| | Fires when | Does |
+|---|---|---|
+| **Clear** | a board has sold nothing for `STALE_BOARD_DAYS`, is not reserved, and nothing of it is on its way in | `unshelve` it, walk it to the drop-off, `dropGoods` |
+| **Merge** | one item is on two units and the worse-ranked holding is under an armful | `unshelve` the worse, `stockShelf` it onto the better |
+
+Clear outranks Merge, because a dead board costs the shop range and a split
+board only costs it a board.
+
+Both end somewhere the game already has. Clear is not a bin — it is the shop
+putting something back in the stockroom. That is why it is `dropGoods` and not a
+sell-back: what something is worth is the player's question, and a worker
+answering it is a worker spending your money.
+
+### …and the crate walks straight back, which the spec above missed
+
+The paragraph this replaces read *"a crate on the pad is what `unload` picks up
+the moment a shelf has room, so if demand comes back the goods walk back out on
+their own"*, and called that a feature. It is the bug.
+
+The crate a Clear makes is an ordinary pallet — there is only one kind. The
+board it just freed is a board with room on it. So `unload` lifts the crate,
+`shelve` fills the board it came off, and about a minute later the shop is
+exactly as it was, four days from doing it again. **The whole job would have
+been a loop that moves stock around a shop and changes nothing**, and the reason
+that is worth writing down rather than quietly fixing is that it would have
+*looked right*: a hire crossing the floor with an armful is what a working shop
+looks like. Nothing in a screenshot, a log or a balance run says otherwise.
+
+So Clear marks the **item**, not the board — `Game.giveUpBoard`, stored on
+`orders.dropped` as `{ item_id: day }` — and `shelvesFor` and `pickItem` skip
+it. Three things about the shape:
+
+**The item and not the board**, because giving up on one board alone means the
+next delivery lands the same thing on the unit next door.
+
+**It does not expire.** A timer is worse than either answer: the crate is still
+on the pad, so the day it lapsed a worker would carry the same goods back to the
+same board and start the same four days again. Churn on a loop reads as a bug in
+a way "we don't stock that any more" never does.
+
+**Two things overrule it and both already existed.** Ticking a shelf for it
+clears the mark outright in `assignShelf` — the log line promises exactly that,
+so it has to be the thing that happens, and a mark left standing against a shelf
+with the item's name on it is the version that would confuse. And your own hands
+never read it at all: `stockShelf` is untouched. The shop giving up is the shop's
+judgement about its own range, which is the line `orders.assign` already draws,
+and it was never a rule about what you may do.
+
+It lives on `orders` rather than on the world for the same reason: it is
+ordering state, it persists and reaches the client with `ordersOut()` for free,
+and the supplier panel is where it will eventually want a row.
+
+### Why "spread" is not in it
+
+The obvious third verb — one deep board becomes two boards on two units, so
+shoppers walk less — is deliberately out, for two reasons.
+
+**It is a decision about range, not about tidiness.** Whether an item deserves a
+second unit is the same question `pickItem` answers for a bare unit, gated on
+`orders.assign` because it is the shop choosing for you, and the same question
+your own tick in the shelf menu answers. A worker who duplicates an item across
+units is making that call a third way with no switch on it — which is the line
+docs/ordering.md drew and is worth holding.
+
+**And mechanically, it points the other way.** Clear and Merge only free boards;
+spread only takes them. Put all three in one job and the hire oscillates —
+merge two boards into one, notice a unit is now bare, spread back into it, at
+tick rate, for ever. Every fix for that is a latch, and this file has already
+retired two of them: `stowLock` and `tookFrom` both existed to hold off an
+action nobody had asked for, and both are gone because the design stopped
+generating them rather than because someone found a better latch. A job whose
+verbs all point the same way cannot oscillate and needs no latch.
+
+If "this should be on two shelves" turns out to be worth having, it is a
+standing instruction the *shop* holds — an entry in `orders.items`, beside `min`
+and `max` — and not a worker's opinion.
+
+### What it needs from the sim
+
+Three things, and only one of them is new state.
+
+**`unshelve` already exists** and is exactly this verb: one board, an armful,
+the label left behind. It was written for the shelf menu's Take, and it needs
+nothing to serve a job as well — same reach check, same refusal on mixed hands,
+same deliberate choice to leave the stack at zero rather than clear it.
+
+**A board has to know when it last sold**, and there is no such field.
+`stockedDay` answers a different question: a board refilled yesterday and
+untouched since is fresh by that measure and dead by this one. One line in
+`takeFromShelf`, beside the `stack.qty--`:
+
+```js
+stack.soldDay = this.day;
+```
+
+`this.day` and never `this.elapsed` — `elapsed` restarts at zero on load, which
+is the trap `yieldedAt` and `plantedAt` both had to learn. It rides in the
+`stock` row of `persist()` next to `stockedDay`, and a save written before it
+reads `soldDay ?? stockedDay`, so a board that has *never* sold counts stale
+from the day it was filled. That is the right default rather than the lenient
+one — never having sold is the case this job is for.
+
+**A hire mid-errand needs to remember it**, and cannot borrow the player's
+machinery: `stepActions` opens with `if (p.staff) continue`, so `p.errand` and
+the whole arming ring are for people, not hires. Clear is two legs — pull the
+board, then walk to the pad — and between them the worker is simply someone
+holding stock, which is what `shelve` fires on. So it would put the goods
+straight back on the unit it just took them off, whose board is free again the
+moment `clearStack` runs. One field on the worker (`s.clearing`) that `shelve`
+declines while it is set, cleared when the hands are. That is a *job in flight*
+rather than a latch — the same thing `p.errand` is for a player, which is why it
+is one field and not a rule about what may not follow what.
+
+**Board pressure is not needed, and the first draft was wrong to want it.**
+Gating the job on "does the shop actually want a board" — a crate with nowhere
+to go, a reservation unfilled — makes the behaviour depend on a global nothing
+on screen shows, so the same shelf is tidied on Tuesday and ignored on Wednesday
+for reasons the player cannot see. Freeing a dead board is right whether or not
+something is queuing for it, and the cost of being early is a crate on the pad.
+
+### What the player sees and sets
+
+No new UI. Three surfaces that already exist carry the whole thing:
+
+- **`merchandise` is a job**, so it appears in the weight dial in
+  `client/worker-menu.js` for free, and a shop that does not want it gives it
+  weight 0. That is the switch, and it is the same switch every other job has.
+- **The unit's own switch**, in the fixture menu's *Settings* tab under *The
+  shop hand*, beside *When it gets refilled*: **Let them rearrange it** /
+  **Leave it alone**. This is the control, and the first pass shipped without it
+  by mistake — see below.
+- **A reservation is also a veto.** A ticked board is never cleared and never
+  merged away from — the same protection `releaseBoards` gives, in the same
+  words, for the same reason: a decision the shop quietly undoes is not one.
+- **`pushLog`**, in the shape `releaseBoards` already uses — *"Cleared the
+  tinned peaches — nothing sold in 4 days."* A board that vanishes without a
+  line is a bug report waiting to be filed.
+
+`STALE_BOARD_DAYS` wants to be meaningfully longer than `EMPTY_BOARD_DAYS`'s
+two, because the two questions are different sizes: an empty board is asking to
+be refilled, a full one is asking to be given up. Start at 4 and measure.
+
+### A reservation is not the switch, which the first pass got wrong
+
+The paragraph above originally read that a reservation *was* the veto and left
+it there — one existing control doing two jobs, which is always worth a second
+look and was wrong here.
+
+A reservation answers **what a board is for**. It comes with hands-off attached,
+which is right, and that covers exactly the units you already had plans for.
+Every unit you have said nothing about was fair game, and there was no way to
+say "leave that one alone" except to tick an item onto it that you did not
+actually want there — a control used for its side effect, which is the shape of
+a missing control.
+
+So `shelf.managed` is its own switch, `setShelfHands` sets it, and it is read in
+three places: `staleBoards`, and both ends of a merge. Both ends, because a
+locked unit that quietly grew a board is a unit the hand rearranged.
+
+Two things about the shape:
+
+**It defaults to true**, so a save that has never heard of it plays exactly as
+it did — the same argument `open` makes about the shutters. Which means
+`persist`'s shelf filter had to learn about it: that filter keeps a shelf with
+stock, a reservation or a priority, and a switch flipped on an *empty* unit is
+still a decision.
+
+**It is not gated on build mode**, like `restock-order` and unlike `build-boh`.
+It is a shopkeeping instruction taken stood in front of a shelf, not a change to
+what the shop is made of.
+
+### On measuring it
+
+This is a change to `staff.js`, so it moves every number `simulate` reports.
+Decide which direction you expect *before* running it, because both are
+defensible: freeing boards raises the shop's range, and a hire spending trips on
+tidying is a hire not on the till.
+
+Two things the run has to be honest about.
+
+**Ten seeds against a frozen world** (`SNS_DB` against a copy), because
+`server/sim/index.js` is being edited by the other person at the same time and a
+before/after an hour apart measures them at least as much as it measures this.
+
+**`simulate` can only see half of it.** The balance bot's shop is stocked by
+`pickItem`, which scores on margin × pull — so the bot never stocks something
+that doesn't sell, and the case this job exists for is a case the bot cannot
+create. "No change" here is the instrument being blind, exactly as it is blind
+to the kitchen, and the honest claim is *costs nothing*, not *gains nothing*.
+The half that can be measured is the trips: shelves-found-empty and spoilage,
+which are the two numbers step 1 of docs/ordering.md ended up believing instead
+of the profit line.
+
+### Watch out for
+
+- **Claim both ends of a Merge before the first step.** `claim`/`claimed` is
+  keyed `('shelf', id)` and already stops two stockers converging. A hire
+  pulling stock off a board another hire is walking towards with an armful is
+  two workers visibly undoing each other, and claiming only the source is how
+  that happens.
+- **`unshelve` refuses mixed hands, so the job checks first rather than
+  catching after.** The weighted draw does not care what is in a worker's hands,
+  so `merchandise` comes up mid-armful about as often as not — and a job that
+  starts a walk it cannot finish is the twelve-round-trips bug in `unload`'s
+  comment, wearing a different hat.
+- **Re-test a merge target on arrival.** `shelvesFor` is read before the walk
+  and the shop moves during it: the better shelf can fill, spoil or be sold back
+  on the way over. Arriving with an armful and nowhere to put it is `tidy`'s job
+  and that is fine — what is not fine is asserting it cannot happen.
+- **`homeSupply` counts a cleared crate**, which is correct and worth saying out
+  loud: the moment a board is cleared onto the pad the supplier stops ordering
+  that item. That is the loop closing, not a side effect to work around.
+- **Do not extend `releaseBoards` to do this.** It runs once in `onNewDay` and
+  writes straight into the layout; this is a worker walking across a shop. A
+  rule that teleports goods into a crate is the same shape docs/deliveries.md
+  exists to argue against. The two stay neighbours and stay separate:
+  `releaseBoards` hands back a *label*, `merchandise` moves *goods*.
+- **A reservation is the merge TARGET, never the source, so the veto is
+  invisible from the obvious angle.** `verify-hand`'s first draft asserted that a
+  ticked board is never merged and failed — correctly, because `shelvesFor`
+  ranks a reservation first, so the reserved unit is where everything ends up.
+  What the veto actually decides is *which* board survives, and the assertion has
+  to reserve the SMALL board to reach it. Both outcomes are one board; only one
+  of them honours what you asked for, and nothing on screen tells them apart.
+- **A merge frees its source board the instant it is lifted**, so a test that
+  waits on "one board left" reads the shop with the worker still halfway across
+  it, holding all of it. `verify-hand` waits on the board count *and* empty
+  hands. Anything asserting on a state a worker walks through needs the same.
+
+### What 10 touched
+
+| File | Why |
+|---|---|
+| `server/sim/index.js` | `STALE_BOARD_DAYS`, `soldDay` in `takeFromShelf` and `persist`/`restoreContents`, `staleBoards`, `giveUpBoard`, `droppedItem`, `orders.dropped`, the un-mark in `assignShelf`, `setShelfHands`/`handMayTouch` and `managed` through persist, restore and the snapshot |
+| `server/sim/staff.js` | `merchandise` + `deliver`, `s.shifting`, the `shelve` guard, the errand reset in `stepStaff`, `droppedItem` in `shelvesFor` and `pickItem`, `handMayTouch` on both ends of a merge |
+| `shared/schemas.js` | `merchandise` in `JOBS` |
+| `mcp/server.js` | the same, in `create_worker`'s job enum |
+| `client/worker-menu.js` | the `JOB_INFO` row — named "Merchandise", see above |
+| `client/fixture-menu.js` | `HANDS` + `handRows`, and the group on a shelf's menu |
+| `server/rooms/MartRoom.js` | the `shelf-hands` message |
+| `scripts/verify-hand.js` | new — 48 assertions |
+| `package.json` | `verify:hand`, and into `npm run verify` |
+
+Thirteen sweeps green. Nothing was written to the content database: no worker
+kind is authored with the job, so the shipped shop plays exactly as it did.
+
 ## Once a worker is data-driven
 
 These are cheap *because* of the split above, and expensive without it.
@@ -929,6 +1235,9 @@ Each step leaves the game playable.
    through the break they are.
 9. ✅ **A break area you paint** — a third kind of ground, one cell per person,
    and a shop without one plays exactly as it always did.
+10. ✅ **The shop hand** — `merchandise`: clear a dead board, merge a split one.
+    The first job that takes goods *off* a shelf, and the reason every other one
+    could get away with pointing one way.
 
 Steps 1 and 2 are the ones that matter; everything after is only worth doing
 once a worker is genuinely data-driven. `guard` is deliberately not on this

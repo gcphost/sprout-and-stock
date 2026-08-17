@@ -31,6 +31,15 @@ export const PALETTE = {
    *  the one patch of ground that is for the staff rather than for the stock
    *  does not read as more yard. */
   break: '#b59ab8',
+  /** The car park: cold tarmac, and the darkest ground in the game on purpose.
+   *  It is the one piece of hardstanding a customer sees before the shop, so it
+   *  should read as the front of the building rather than as more of the back
+   *  of it — the two yard pads are deliberately warm and light. */
+  park: '#79808c',
+  /** Last-resort bodywork — see `VEHICLE_LOOK`. Nothing on the road normally
+   *  wears it: a vehicle row carries its own `color`, and its `model` carries
+   *  the colours that actually get drawn. */
+  vehicle: '#c9d1d9',
   floor: '#f0ddb8',
   floorAlt: '#e8d2a8',
   wall: '#fbf8f0',
@@ -83,6 +92,7 @@ export const TILE_STYLE = {
   [T.BAY]: { color: PALETTE.bay, h: 0.07 },
   [T.DROP]: { color: PALETTE.drop, h: 0.07 },
   [T.BREAK]: { color: PALETTE.break, h: 0.07 },
+  [T.PARK]: { color: PALETTE.park, h: 0.07 },
 };
 
 /**
@@ -109,6 +119,30 @@ export const FIXTURE_LOOK = {
   'prop-floor': { color: PALETTE.floor, h: 0.3 },
   'prop-ceiling': { color: PALETTE.floor, h: 0.3 },
 };
+
+/**
+ * What a vehicle looks like when there is no art to draw.
+ *
+ * The same fallback `FIXTURE_LOOK` is, for the same reason — an invisible thing
+ * is worse than a generic one — but it answers a different question, and the
+ * difference is worth writing down. A fixture kind can genuinely have no model:
+ * it becomes buildable before anyone styles it, and this is what it looks like
+ * that day. A vehicle cannot, because `VehicleSchema` requires one. So this is
+ * only ever reached two ways: the row was deleted out from under a van already
+ * on the road, or somebody authored a stage with nothing in it. Both are the
+ * case where a paid-for delivery arrives as *nothing at all*, which is
+ * indistinguishable from a delivery that never came — and telling those apart
+ * is the entire reason the van exists.
+ *
+ * Longer than it is wide, because that is the one thing true of a vehicle
+ * before you know which one it is. A cube on the tarmac reads as a crate, and a
+ * crate at the bay is a thing the game already draws and means something else by.
+ *
+ * The colour is the last resort of the last resort. A row that still exists
+ * carries its own `color`, which is what "bodywork, where the model doesn't say
+ * otherwise" means on the schema; this is for when even the row has gone.
+ */
+export const VEHICLE_LOOK = { color: PALETTE.vehicle, l: 1.4, w: 0.7, h: 0.6 };
 
 /**
  * Edge kind -> how it renders.

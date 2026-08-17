@@ -15,6 +15,9 @@ import { pieceFor } from '../shared/pieces.js';
 import { requiredFixture } from '../shared/tags.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
+// What is on a van, shared with the supplier so the two cannot disagree about
+// how many eggs are coming — see client/orders.js.
+import { comingByItem, comingWhy } from './orders.js';
 
 /**
  * Group labels are ours, not the database's — but they are about to be printed
@@ -102,7 +105,17 @@ export function showFixture(ui, f) {
   // reason: turning something re-mints its id, and a tab that reset itself
   // every time you pressed Rotate would be its own small bug.
   const on = `${f.kind}@${f.x},${f.z}`;
+  // ...and what you typed belongs to the list you typed it into. Aiming at
+  // another unit starts with the whole catalogue again rather than with whatever
+  // you were hunting for on the last one — and so does arriving from a menu that
+  // is not a fixture at all, or the supplier's search would follow your finger
+  // onto a shelf and hide most of it.
+  const arrived = ui._fxTabOn !== on || ui.openPanel !== 'fixture';
   if (ui._fxTabOn !== on) { ui._fxTabOn = on; ui._fxTab = 0; }
+  // ...and arriving is also what puts the caret in the box when there is one —
+  // see `showFilter`. A redraw of the unit you are already looking at must not,
+  // or the tick behind the menu takes focus off whatever you moved to.
+  if (arrived) { ui.clearFilter(); ui._filterFresh = true; }
 
   ui.openPanel = 'fixture';
   // A fixture menu is not a section, so nothing on the rail is open.
@@ -135,9 +148,15 @@ export function showFixture(ui, f) {
   // tomato. The verbs are the fixed part of this menu — the same five in the
   // same order on every fixture in the game — and they were the part you had to
   // go looking for.
+  //
+  // `find` is what the rows ARE, in one plural noun, and it is only ever the
+  // placeholder in the search box: "search items…" over what a shelf is kept
+  // for. The label cannot do that job — a heading is a sentence about the
+  // fixture ("Keep it for", "Sow it with") and reads as nonsense with `search`
+  // in front of it.
   const groups = [];
-  const group = (label, icon, rows) => {
-    if (rows?.length) groups.push({ label, icon, rows });
+  const group = (label, icon, rows, find) => {
+    if (rows?.length) groups.push({ label, icon, rows, find });
   };
 
   // What to plant belongs to the plot you're stood at, not to a menu of its own
@@ -147,7 +166,7 @@ export function showFixture(ui, f) {
   // A ripe bed offers no seeds: picking one there would throw the harvest away.
   if (f.kind === 'plot' && !live?.ready) {
     group(live?.crop_id ? 'Sow something else' : 'Sow it with', ICONS.seeds,
-      seedRows(ui, f, live));
+      seedRows(ui, f, live), 'seeds');
   }
 
   // Anything that holds stock gets the same treatment a bed gets: what goes in
@@ -156,11 +175,27 @@ export function showFixture(ui, f) {
   // keeps that promise — which is the difference between "we sell milk here"
   // and "we are never out of milk".
   if (kind === 'shelf' || kind === 'freezer') {
-    group(live?.assigned?.length ? 'Kept for' : 'Keep it for', ICONS.crate, stockRows(ui, f, live));
-    group('When it gets refilled', ICONS.supplier, priorityRows(ui, f, live));
+    // Built once and shown twice. The shortlist is a *selection* of these rows,
+    // not a second list about the same items — see `quickRows`.
+    const items = stockRows(ui, f, live);
+    // In front of the full list, because it is the answer for almost every
+    // shelf almost every time: the whole catalogue is what you open when the
+    // shortlist did not have it. No `find`, and none needed — `QUICK_ROWS`
+    // keeps it under the line the search box appears at, on purpose.
+    group('Quick pick', ICONS.quick, quickRows(ui, items));
+    group(live?.assigned?.length ? 'Kept for' : 'Keep it for', ICONS.crate, items, 'items');
   }
 
-  // The switches: things that are true of THIS unit rather than of its design.
+  // What an appliance is set to make. The same argument the shelf above makes:
+  // what a thing is FOR is decided at the thing, and for a machine that knows
+  // four recipes and runs one, it is the only decision there is.
+  if (kind === 'station') {
+    group('Set it to make', ICONS.station, recipeRows(ui, f, live), 'recipes');
+  }
+
+  // Every standing decision about THIS unit rather than about its design — the
+  // refill order, the shop hand and the switches, under one heading each. See
+  // `settingRows` for why they stopped being three tabs.
   //
   // A tab and a list rather than more icons in the foot, and the reason is that
   // the foot is a FIXED row you learn the shape of — five pictograms in the same
@@ -168,16 +203,15 @@ export function showFixture(ui, f) {
   // that: the sixth switch would push the row into two, and by the tenth nobody
   // could find any of them. A list has room for the sentence each one needs, and
   // adding the next is a row in `MODIFIERS` rather than a decision about layout.
-  const mods = modifierRows(ui, f, live);
-  if (mods.length) group('Set up', ICONS.label, mods);
+  group('Settings', ICONS.settings, settingRows(ui, f, live));
 
   // A shape is free and keeps whatever is on it, so it is a browse rather than a
   // decision — which is exactly what belongs in the scrolling half. One shape is
   // not a choice, so a kind nobody has drawn a second design for gets no tab.
   const styles = styleRows(ui, f);
-  if (styles.length > 1) group('Shape', ICONS.fixtures, styles);
+  if (styles.length > 1) group('Shape', ICONS.fixtures, styles, 'shapes');
 
-  group('More of these', ICONS.build, moreOfTheseRows(ui, f));
+  group('More of these', ICONS.build, moreOfTheseRows(ui, f), 'deals');
 
   // ---- the head: what it is ------------------------------------------------
   const parts = [`<div class="pnl-head">${fixtureDetail(ui, f, live)}</div>`];
@@ -201,16 +235,37 @@ export function showFixture(ui, f) {
   // Emitted even when empty so the layout does not change shape on a fixture
   // that happens to have nothing to list.
   const mid = [];
+  // Whether the search box is up, which is decided here and applied after
+  // `showPanel` — that hides it for every menu on principle, so a fixture can
+  // never inherit the supplier's.
+  let filterable = false;
   if (groups.length) {
     const open = groups[at];
+    // Search once a tab is long enough to get lost in, at the same eight-row
+    // line `paintSection` draws it at and for the same reason: a box over five
+    // rows costs more panel than it saves. What a shelf is kept for is the case
+    // that asked for it — every item in the catalogue, in one list, one row
+    // longer every time anybody authors a tomato. The rule is on the LENGTH of
+    // the open tab rather than on a flag per group, so the next long list
+    // somebody writes in here gets a search box without knowing about one.
+    filterable = open.rows.length >= 8;
+    // A filter you cannot see the cause of is worse than none: a tab that just
+    // got short takes its box away, and must take the query with it.
+    if (!filterable && ui.query) ui.clearFilter();
+    const shown = filterable ? ui.applyFilter(open.rows) : open.rows;
+    if (filterable) ui.el.search.placeholder = `search ${open.find ?? 'this'}…`;
     // Named above its rows even with the tabs up, because an icon row is a
     // shape you learn and a heading is a thing you read — and on first open
     // nobody knows which pictogram is the seed one.
     mid.push(`<div class="sep">${esc(open.label)}</div>`);
     // One list, numbered once: `wireRows` binds by index, so two lists each
     // starting at zero would hand the seed picker's clicks to the shape picker.
-    mid.push(open.rows.map((r, i) => ui.rowHtml(r, i)).join(''));
-    rows.push(...open.rows);
+    // Which is also why the FILTERED list is the one both numbered and wired —
+    // indices into the unfiltered rows would fire the wrong item the moment you
+    // typed anything.
+    mid.push(shown.length ? shown.map((r, i) => ui.rowHtml(r, i)).join('')
+      : '<div class="foot">Nothing matches that.</div>');
+    rows.push(...shown);
   }
   parts.push(`<div class="pnl-mid">${mid.join('')}</div>`);
 
@@ -258,6 +313,17 @@ export function showFixture(ui, f) {
       { off: !afford, right: next.cost > 0 ? `$${next.cost.toFixed(0)}` : 'free' }));
   }
 
+  // Straight under Upgrade, because it is the same ladder and the pair reads as
+  // one control. It only appears on something that has actually been climbed —
+  // a Standard shelf showing a greyed Downgrade would put a dead square on
+  // every fixture in the shop to serve the few that are not on rung one.
+  const back = prevTier(ui, f);
+  if (back) {
+    foot.push(actIcon('downgrade', ICONS.tierdown, 'Downgrade',
+      `Back to ${back.name} — ${tierBlurb(back)} Half of that rung back, and it keeps its stock.`,
+      'Downgrade', { right: back.refund > 0 ? `+$${back.refund.toFixed(0)}` : '' }));
+  }
+
   const holds = contentsOf(ui, f, live);
   if (holds.n > 0) {
     foot.push(actIcon('empty', ICONS.empty, 'Empty it', holds.blurb, 'Empty', { right: `${holds.n}` }));
@@ -289,14 +355,70 @@ export function showFixture(ui, f) {
   // redraws the whole menu and must keep your place in a list that can run to
   // forty items; changing tab or aiming at another shelf must not.
   ui.showPanel(`${FIXTURE_ICON[kind] ?? ICONS.crate} ${ui.fixtureName(f)}`, parts.join(''),
-    `fixture:${f.id}:${at}`);
+    `fixture:${f.id}:${at}:${ui.query}`);
+  // After `showPanel`, which hides it — see the note there.
+  ui.showFilter(filterable);
   wireFixtureMenu(ui, f, live);
   if (rows.length) ui.wireRows(rows);
   ui.el.panelBody.querySelectorAll('[data-fxtab]').forEach((el) => {
     // Redrawn rather than shown/hidden, because the rows are live: a tab built
     // once would still be offering to sow a bed that has since been harvested.
-    el.onclick = () => { ui._fxTab = Number(el.dataset.fxtab); showFixture(ui, f); };
+    // The query goes with the tab: each list is searched on its own terms, and
+    // carrying "carrot" onto Shape would leave you looking at an empty pane.
+    el.onclick = () => {
+      ui._fxTab = Number(el.dataset.fxtab);
+      ui.clearFilter();
+      showFixture(ui, f);
+    };
   });
+}
+
+/**
+ * The recipe an appliance is set to, resolved the same way the server resolves
+ * it: whatever the snapshot says, and failing that the first one the machine
+ * knows, because a machine nobody has chosen for is running its first recipe.
+ *
+ * Two spellings of "which recipe is this making" is a menu that names one thing
+ * while the bays over the machine draw another.
+ */
+function stationRecipe(ui, f, live) {
+  const mine = (ui.catalog.recipes ?? []).filter((r) => r.station === f.station);
+  return mine.find((r) => r.id === live?.recipe) ?? mine[0] ?? null;
+}
+
+/**
+ * What this appliance could be making, as pickable rows.
+ *
+ * A machine knows several recipes and runs ONE, so this is a picker rather than
+ * a list of checkboxes — the shape a seed picker takes, not the shape a shelf's
+ * reservations take. Pressing a row is the whole decision: the hopper resizes
+ * to it, the shop starts buying for it, and what the machine will and won't
+ * take in your hands changes with it.
+ *
+ * Each row prints its own ingredients, because the choice IS the ingredients —
+ * "Fresh Salsa" over "Berry Smoothie" is a decision about whether you have
+ * tomatoes. It costs a line and saves opening something else to find out.
+ */
+function recipeRows(ui, f, live) {
+  const here = stationRecipe(ui, f, live)?.id ?? null;
+  const batches = live?.batches ?? 1;
+  return (ui.catalog.recipes ?? [])
+    .filter((r) => r.station === f.station)
+    .map((r) => ({
+      icon: ICONS.station,
+      name: r.name,
+      // Per batch, not per hopper. It is the number that decides whether the
+      // thing can run at all, and the hopper's ceiling is on the head above.
+      sub: `${r.inputs.map((i) => `${i.qty}× ${ui.itemName(i.item_id)}`).join(' + ')} → ${r.output_qty ?? 1}× ${ui.itemName(r.output_id)}`,
+      facets: r.inputs.map((i) => ui.itemName(i.item_id)),
+      right: `${(r.minutes ?? 0)}m`,
+      picked: r.id === here,
+      // The one already set is dead rather than absent, the way the shape picker
+      // treats the shape you are already wearing: a row that vanished when you
+      // pressed it would leave the list a different length every time you looked.
+      run: r.id === here ? null
+        : () => ui.net.send('station-recipe', { stationId: f.id, recipeId: r.id }),
+    }));
 }
 
 /**
@@ -352,6 +474,9 @@ function stockRows(ui, f, live) {
   // the stocker stops at 4.
   const capMult = tiersOf(ui, f)[tierOf(ui, f) - 1]?.capacity_mult ?? 1;
   const share = Math.max(1, committed.size || 1);
+  // What is already on its way, so a row can say it the way the supplier does
+  // rather than sending you to buy something you have just bought.
+  const coming = comingByItem(ui);
 
   const rows = (ui.catalog.items ?? [])
     .filter((it) => (requiredFixture(it) === 'freezer') === freezer)
@@ -363,18 +488,59 @@ function stockRows(ui, f, live) {
       // the shelf you can act on, and the row that is greyed out for a different
       // reason (somewhere else has it) already says so.
       const noRoom = !on && !here && full;
+      // What the SHOP has of it, which is a different question from what this
+      // unit has and the one you are actually answering here: a board is worth
+      // giving to something there is stock for. Split in two because the halves
+      // mean opposite things — on the shelves is already working, in crates and
+      // in hands is paid for and earning nothing.
+      const shelved = ui.heldOf(it.id);
+      const spare = ui.spareOf(it.id);
+      const inbound = coming.get(it.id)?.qty ?? 0;
+      // The state of this row in one sentence, or null when there is nothing to
+      // say and the tags may as well have the line. Pulled out of the `sub`
+      // chain because Quick pick prints its own reason and must not talk over
+      // this one — a shelf that already has the thing on it outranks any
+      // argument for putting it there.
+      const note = on
+        ? (here ? `kept for this — ${here.qty} on this board` : 'kept for this — a van is due')
+        : (here
+          ? 'on it, but not kept — it will sell down and not be refilled'
+          : (noRoom
+            ? `no board free — this ${f.kind} holds ${boards}`
+            : (elsewhere.has(it.id)
+              ? 'another shelf is already kept for this'
+              : null)));
       return {
+        id: it.id,
         icon: ICONS.crate,
         name: it.name,
-        sub: on
-          ? (here ? `kept for this — ${here.qty} on it now` : 'kept for this — a van is due')
-          : (here
-            ? 'on it, but not kept — it will sell down and not be refilled'
-            : (noRoom
-              ? `no board free — this ${f.kind} holds ${boards}`
-              : (elsewhere.has(it.id)
-                ? 'another shelf is already kept for this'
-                : (it.tags ?? []).join(', ')))),
+        note,
+        // How many the shop has and how many are coming, in the column the
+        // supplier already puts that number in and in the same two shapes: a
+        // dash for none, and what is on a van hung off it as `+6` rather than
+        // taking a second column.
+        //
+        // It counts MORE than the supplier's does, though — crates and hands as
+        // well as boards — and the two are different on purpose. Over there the
+        // question is "is a shelf running thin", which a crate in the yard has
+        // not fixed. Here it is "what should this board be for", and a crate in
+        // the yard is the best answer there is: it is already bought.
+        stock: shelved + spare,
+        spare,
+        count: `${shelved + spare || '<i class="none">–</i>'}${inbound ? `<i class="coming">+${inbound}</i>` : ''}`,
+        // Where the count in the column came from, but only when the answer is
+        // interesting: goods in crates are the half you cannot see from the
+        // shop floor and the half that argues for giving this a board. Tags
+        // otherwise, which is what the row has always said when it had nothing
+        // to report.
+        sub: note ?? (spare > 0
+          ? `${spare} in crates, ${shelved} on the shelves`
+          : (it.tags ?? []).join(', ')),
+        // Search reaches the tags whatever the sub-line ended up saying. It is
+        // the row that has stopped printing them that needs this most: a shelf
+        // kept for cheese elsewhere says so instead of listing `dairy`, and
+        // typing `dairy` would then hide the very rows you were looking for.
+        facets: it.tags ?? [],
         // What a board of it holds once this one is ticked, which is the number
         // that changes as you tick more. Worked out against what the share WOULD
         // be, so the figure you read is the figure you are choosing.
@@ -405,6 +571,96 @@ function stockRows(ui, f, live) {
     });
   }
   return rows;
+}
+
+/**
+ * How many rows a shortlist is allowed to be.
+ *
+ * Under the eight the search box appears at, and that is the whole rule: a list
+ * long enough to need searching has stopped being a shortlist. Eight itself
+ * would put a box over it, since `filterable` is `>= 8` — the shortlist would
+ * have grown the exact control it exists to save you. Even, because this is two
+ * halves and an odd cap quietly favours whichever half goes first.
+ */
+const QUICK_ROWS = 6;
+
+/**
+ * The shortlist: half what sells, half what you are sitting on.
+ *
+ * Deciding what a board is for means scrolling forty items to find the two you
+ * would ever pick, and the two you would ever pick are answers to two different
+ * questions. What does the town buy — that is the shelf earning. And what have
+ * I already got — a crate of your own eggs on the pad is money spent that is
+ * not on a board, and it is the *only* reason to keep a shelf for something
+ * nobody is asking for yet.
+ *
+ * Interleaved rather than concatenated, so the tab is not "the good half and
+ * then the other one": every other row swaps the question, and a thing that
+ * wins both only appears once, at the higher of its two places.
+ *
+ * Built from `stockRows` rather than beside it — these ARE those rows, ticking
+ * one does exactly what ticking it over there does, and a second row builder
+ * for the same checkbox is a second set of rules about what may go where.
+ * Copies, though: the reason line is this tab's own, and mutating the shared
+ * object would rewrite the list it was borrowed from.
+ */
+function quickRows(ui, rows) {
+  // Only what you could actually press. A dead row is worse here than in the
+  // full list: there it is a list you are reading, and this is a list of
+  // suggestions — one that cannot be taken is not a suggestion.
+  const live = rows.filter((r) => r.id && r.run);
+  const sold = ui.state?.stats?.byItem ?? {};
+
+  // What sells. Today's own till first, because "popular" in a shop with
+  // eleven shelves means popular HERE — but the day resets at midnight and a
+  // shop that has sold nothing yet still has to answer, so the world's own
+  // appetite is behind it and the sticker price is behind that. Every term is
+  // a real fact about the item; none of them is a guess at the others.
+  const popular = [...live].sort((a, b) => (
+    (sold[b.id] ?? 0) - (sold[a.id] ?? 0)
+    || ui.heatFor(ui.itemById(b.id) ?? {}) - ui.heatFor(ui.itemById(a.id) ?? {})
+    || (ui.itemById(b.id)?.base_price ?? 0) - (ui.itemById(a.id)?.base_price ?? 0)
+  ));
+  // ...and what you have. Nothing with none of it: "0 in the shop" is not a
+  // reason to do anything, and half a tab of them would be half a tab of noise.
+  const stocked = live.filter((r) => r.stock > 0).sort((a, b) => b.stock - a.stock);
+
+  const out = [];
+  const seen = new Set();
+  const take = (list) => {
+    while (list.length) {
+      const r = list.shift();
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
+      return;
+    }
+  };
+  while (out.length < QUICK_ROWS && (popular.length || stocked.length)) {
+    take(out.length % 2 === 0 ? popular : stocked);
+    // One of the two ran dry — the other finishes the list rather than leaving
+    // a shortlist of three on a shop with forty items in it.
+    if (!popular.length) take(stocked); else if (!stocked.length) take(popular);
+  }
+
+  return out.map((r) => {
+    const item = ui.itemById(r.id) ?? {};
+    const n = sold[r.id] ?? 0;
+    // Why this row is here — the same rule the supplier's tabs follow: a list
+    // that sorts you into a pile and does not say which pile is the scrolling
+    // problem one level up. `note` outranks all of it: that the thing is
+    // already on this board, or kept somewhere else, is news and this is not.
+    const why = r.note ?? (
+      n > 0 ? `${n} sold today`
+        : r.spare > 0 ? `${r.stock} in the shop, ${r.spare} of it in crates`
+          : r.stock > 0 ? `${r.stock} on the shelves already`
+            : ui.heatFor(item) >= 1.25 ? 'in demand right now'
+              : `$${(item.base_price ?? 0).toFixed(2)} each`);
+    // The heat pill only here. It is the one number on the row that is about
+    // the world rather than the shop, which is worth 40px on a shortlist and
+    // is noise repeated down forty rows of the full list.
+    return { ...r, sub: why, heat: ui.heatPill(item) };
+  });
 }
 
 /**
@@ -463,6 +719,42 @@ function modifierRows(ui, f, live) {
   });
 }
 
+/**
+ * Whether the shop hand may rearrange this unit.
+ *
+ * A picker rather than a switch in `MODIFIERS`, for two reasons. The switches
+ * go through `withBuildMode` because the server gates them on it, and this one
+ * is not gated — it is the same kind of standing instruction the refill order
+ * is, taken stood in front of the shelf. And it reads better as two sentences
+ * than as one label that changes: "leave it alone" is worth saying in full,
+ * because the whole point of the row is that the shop will otherwise act on
+ * this shelf without asking.
+ */
+const HANDS = [
+  {
+    on: true,
+    name: 'Let them rearrange it',
+    sub: 'Boards nothing sells off are cleared to the stockroom, and a split one is merged.',
+  },
+  {
+    on: false,
+    name: 'Leave it alone',
+    sub: 'Nothing comes off this unit but a sale. Refilling it is unaffected.',
+  },
+];
+
+function handRows(ui, f, live) {
+  const at = live?.managed !== false;
+  return HANDS.map((h) => ({
+    icon: ICONS.stocker,
+    name: h.name,
+    sub: h.sub,
+    picked: h.on === at,
+    run: h.on === at ? null
+      : () => ui.net.send('shelf-hands', { shelfId: f.id, on: h.on }),
+  }));
+}
+
 function priorityRows(ui, f, live) {
   const at = live?.priority ?? 0;
   return PRIORITIES.map((p) => ({
@@ -473,6 +765,33 @@ function priorityRows(ui, f, live) {
     run: p.at === at ? null
       : () => ui.net.send('restock-order', { shelfId: f.id, priority: p.at }),
   }));
+}
+
+/**
+ * Everything about THIS unit that is a standing decision, under one tab.
+ *
+ * Three tabs before this — the refill order, the shop hand and the switches —
+ * and none of them was more than three rows. A tab is a place you learn to
+ * look, and three of them holding seven rows between them means the thing you
+ * want is behind whichever pictogram you did not try first, on a panel where
+ * every tab you add makes the rest of them narrower. They are one tab and three
+ * headings now, which is the same information in the order you would read it:
+ * how it gets filled, who may touch it, and what it is.
+ *
+ * `sep` rows rather than three lists, because that is the shape `paintSection`
+ * already draws a heading with and `applyFilter` already knows to drop when you
+ * type — the whole tab is under the eight-row line today, but the next switch
+ * anybody adds should not have to think about that.
+ */
+function settingRows(ui, f, live) {
+  const rows = [];
+  const under = (heading, list) => { if (list.length) rows.push({ sep: heading }, ...list); };
+  if (f.kind === 'shelf' || f.kind === 'freezer') {
+    under('When it gets refilled', priorityRows(ui, f, live));
+    under('The shop hand', handRows(ui, f, live));
+  }
+  under('Set up', modifierRows(ui, f, live));
+  return rows;
 }
 
 /**
@@ -508,6 +827,10 @@ function seedRows(ui, f, live) {
           ? `${Math.round(c.grow_minutes)} min · ${c.seasons?.length ? c.seasons.join(', ') : 'any season'}`
           : `out of season · ${c.seasons.join(', ')}`),
       right: growing ? '' : `$${c.seed_cost.toFixed(2)}`,
+      // A crop carries no tags of its own — what it grows INTO does, and that is
+      // what anybody typing `produce` in here is looking for. The seasons are
+      // already in the sub-line and searchable from there.
+      facets: ui.itemById(c.item_id)?.tags ?? [],
       picked: growing,
       dim: !growing && (!inSeason || !affordable),
       run: growing ? null : () => ui.net.send('sow', { plotId: f.id, cropId: c.id }),
@@ -561,10 +884,30 @@ export function fixtureSignature(ui, f, live) {
     // tab would let the next tick repaint the menu on the tab you had just
     // left — a press that visibly undoes itself a tenth of a second later.
     ui._fxTab ?? 0,
+    // ...and what it is filtered to, for the same reason: the key is meant to
+    // describe what is on screen, and a menu showing three of forty rows is not
+    // the same picture as one showing forty.
+    ui.query ?? '',
     // What every *other* shelf is kept for. This menu says which items are
     // already spoken for elsewhere, so it has to redraw when somebody else
     // spoke for one — `live` is only ever this shelf's own row.
-    (ui.state?.shelves ?? []).map((s) => (s.assigned ?? []).join('+')).join(',')]);
+    (ui.state?.shelves ?? []).map((s) => (s.assigned ?? []).join('+')).join(','),
+    // What is on a van, and how much more the bay will take. Both are drawn on
+    // every board row now — the `+6` and how much the order button asks for —
+    // and neither is anywhere in `live`, so a menu blind to them would go on
+    // offering a case you have already bought until you closed and reopened it.
+    (ui.state?.orders?.pending ?? []).map((o) => `${o.item_id}:${o.qty}:${o.at}:${o.onVan}`).join(','),
+    ui.state?.orders?.bayRoom ?? null,
+    // What the whole shop holds, which every item row now prints as a count and
+    // Quick pick ranks half its list on. Shelf stock is folded to ONE total
+    // rather than listed per item: this is a staleness test, not a readout, and
+    // a forty-entry string rebuilt ten times a second to notice one sale is a
+    // lot of work to spot something the cash figure beside it usually catches
+    // anyway. Crates are listed, because there are never many and the whole
+    // point of the number is that a crate turning up changes your mind.
+    (ui.state?.shelves ?? []).reduce((n, s) => n
+      + (s.stacks ?? []).reduce((m, k) => m + (k.qty ?? 0), 0), 0),
+    (ui.state?.deliveries ?? []).map((d) => `${d.item_id}:${d.qty}`).join(',')]);
 }
 
 /** The read-out at the top: what this particular thing is doing right now. */
@@ -595,6 +938,24 @@ function fixtureDetail(ui, f, live) {
     // worse than one that says why it can't.
     const held = carrying(ui);
 
+    // What is already on a van, folded the same way the supplier folds it — the
+    // same function, so the two panels cannot disagree about how many eggs are
+    // coming. This is the one fact about a board you cannot get by walking over
+    // and looking at it, which is why it belongs on the board rather than only
+    // in the supplier: the moment you notice a shelf is bare is the moment you
+    // want to know whether you already did something about it.
+    const coming = comingByItem(ui);
+    // Anything a recipe makes cannot be ordered at all — `buyStock` has refused
+    // it for as long as appliances have existed. A button that can only error is
+    // worse than no button, so the row simply doesn't get one.
+    const crafted = new Set((ui.catalog.recipes ?? []).map((r) => r.output_id));
+    // How much more the yard will take. An order over this is refused by the
+    // server, so the button offers a smaller one rather than a doomed one.
+    // `null` is "the snapshot didn't say" and means don't clamp and don't
+    // refuse — a missing field defaulted to 0 would grey out every order button
+    // in the shop and blame the bay for it.
+    const bayRoom = ui.state?.orders?.bayRoom ?? null;
+
     const boardRows = stacks.map((k) => {
       const item = ui.itemById(k.item_id);
       const name = item?.name ?? k.item_id;
@@ -610,9 +971,35 @@ function fixtureDetail(ui, f, live) {
       const why = k.qty <= 0 ? 'Nothing on this board yet.'
         : (clash ? `Your hands are full of ${ui.itemName(held.item_id)}.`
           : `Go and take an armful of ${name} off this board.`);
+
+      // On its way, and when. The count hangs off the board's own number rather
+      // than taking a column — the supplier settled that argument, and the two
+      // numbers are not comparable anyway: one is stock you can sell this
+      // second, the other is a promise.
+      const due = coming.get(k.item_id) ?? null;
+      const inbound = due?.qty ?? 0;
+
+      // What to order, which is the room on this board LESS what is already
+      // coming. Subtracting the van is the whole rule the restocker works to —
+      // the shop should not buy what it has already bought — and a button that
+      // ignored it would be the "shelf reads as bare, order another case" bug
+      // with a player's finger on it instead of a stocker's.
+      const room = (cap ?? item?.stack ?? 0) - k.qty - inbound;
+      // Same wording the supplier's foot uses for a bay with nothing left,
+      // because it covers the shop that has painted no bay at all as well —
+      // which the client cannot tell apart from a full one, and which the
+      // server refuses with the exact sentence either way.
+      const want = Math.max(0, Math.min(room, item?.stack ?? room, bayRoom ?? room));
+      const orderWhy = crafted.has(k.item_id) ? '' // no button at all
+        : bayRoom === 0 ? 'No room at the bay for another order.'
+          : room <= 0 ? (inbound
+            ? `${inbound} already on the way — ${comingWhy(due)}`
+            : 'This board is full.')
+            : `Order ${want}× ${name} — it lands at the bay on the next van.`;
+
       return `<div class="fx-board">
         <span class="nm" title="${esc(name)}">${esc(name)}</span>
-        <b class="qty">${k.qty}${cap ? `<i>/${cap}</i>` : ''}</b>
+        <b class="qty"${due ? ` title="${esc(comingWhy(due))}"` : ''}>${k.qty}${cap ? `<i>/${cap}</i>` : ''}${inbound ? `<i class="coming">+${inbound}</i>` : ''}</b>
         <span class="fx-price">
           <button data-price="-1" data-item="${esc(k.item_id)}"
             title="${esc(`Charge less for ${name}`)}" aria-label="Charge less">−</button>
@@ -620,20 +1007,35 @@ function fixtureDetail(ui, f, live) {
           <button data-price="1" data-item="${esc(k.item_id)}"
             title="${esc(`Charge more for ${name}`)}" aria-label="Charge more">+</button>
         </span>
+        ${crafted.has(k.item_id) ? '' : `<button class="fx-take fx-order"
+          ${want > 0 ? `data-order="${esc(k.item_id)}" data-qty="${want}"` : 'disabled'}
+          title="${esc(orderWhy)}" aria-label="Order more">${ICONS.supplier}</button>`}
         <button class="fx-take" ${k.qty > 0 && !clash ? `data-take="${esc(k.item_id)}"` : 'disabled'}
           title="${esc(why)}" aria-label="Take some">${ICONS.crate}</button>
+        <button class="fx-take fx-clear" data-clear="${esc(k.item_id)}"
+          title="${esc(k.qty > 0
+            ? `Take ${name} off this shelf — ${k.qty} into a crate beside it, and the board is free.`
+            : `Take ${name} off this shelf and free the board.`)}"
+          aria-label="Take it off">${ICONS.remove}</button>
       </div>`;
     }).join('');
 
     // What it is kept for but has not arrived yet. Worth saying outright: a
     // ticked box with no goods behind it looks like nothing happened, and this
     // is the line that says the van is the thing you are waiting for.
-    const waiting = kept.filter((id) => !stacks.some((k) => k.item_id === id));
+    // ...and whether that van is a real one. "Waiting for milk" with nothing on
+    // order and "waiting for milk, 6 at 14:00" are opposite situations — one of
+    // them is a thing to go and do — and the line said the same words for both.
+    const waiting = kept.filter((id) => !stacks.some((k) => k.item_id === id))
+      .map((id) => {
+        const due = coming.get(id) ?? null;
+        return `${esc(ui.itemName(id))}${due ? ` <i>(${esc(comingWhy(due))})</i>` : ''}`;
+      });
 
     return `<div class="fx-detail">
       ${line('Boards', `${stacks.length} of ${boards} in use`)}
       ${boardRows || line('Holding', '<i>nothing</i>')}
-      ${waiting.length ? line('Waiting for', waiting.map((id) => esc(ui.itemName(id))).join(', ')) : ''}
+      ${waiting.length ? line('Waiting for', waiting.join(', ')) : ''}
       ${live?.priority ? line('Refilled', live.priority > 0 ? 'first' : 'last') : ''}
     </div>`;
   }
@@ -661,36 +1063,33 @@ function fixtureDetail(ui, f, live) {
     const inside = Object.entries(live?.contents ?? {})
       .map(([id, n]) => `${n}× ${ui.itemName(id)}`).join(', ');
 
-    // Every recipe, with each ingredient counted against what's actually in the
-    // hopper. Listing recipe *names* was the whole problem: "Can make: Flat
-    // White" tells you nothing about why it isn't, and the ingredients were
-    // written down nowhere in the game at all.
-    const recipes = (ui.catalog.recipes ?? []).filter((r) => r.station === f.station);
+    // The ONE recipe it is set to, with each ingredient counted against what is
+    // actually in the hopper. It listed every recipe the machine knew while the
+    // machine chose for itself, and that was two lists of numbers where only one
+    // of them was ever going to happen. The others are a tab below, as things to
+    // switch to rather than as things it might be doing.
+    const recipe = stationRecipe(ui, f, live);
     const held = (id) => live?.contents?.[id] ?? 0;
 
     // How much of an ingredient this machine takes, computed here off the same
-    // recipes and the same `batches` the server used — the largest call any
-    // recipe on it makes, times the batches its tier holds. The bar has to say
-    // the ceiling: a hopper you can keep filling is only worth filling if the
-    // game tells you how far, and "1 / 1" beside a full armful reads as a
-    // machine that is refusing you rather than one that is loaded.
+    // recipe and the same `batches` the server used. The bar has to say the
+    // ceiling: a hopper you can keep filling is only worth filling if the game
+    // tells you how far, and "1 / 1" beside a full armful reads as a machine
+    // that is refusing you rather than one that is loaded.
     const batches = live?.batches ?? 1;
-    const cap = (id) => recipes
-      .flatMap((r) => r.inputs.filter((i) => i.item_id === id))
-      .reduce((n, i) => Math.max(n, i.qty), 0) * batches;
 
-    const body = recipes.map((r) => `
+    const body = recipe ? `
       <div class="fx-recipe">
         <div class="fx-recipe-h">
-          <span>${r.name}</span>
-          <b>makes ${r.output_qty ?? 1}×</b>
+          <span>${esc(recipe.name)}</span>
+          <b>makes ${recipe.output_qty ?? 1}×</b>
         </div>
-        ${r.inputs.map((i) => `
+        ${recipe.inputs.map((i) => `
           <div class="fx-ing${held(i.item_id) >= i.qty ? ' ok' : ''}">
             <span>${ui.itemName(i.item_id)}</span>
-            <b>${held(i.item_id)} / ${cap(i.item_id)}</b>
+            <b>${held(i.item_id)} / ${i.qty * batches}</b>
           </div>`).join('')}
-      </div>`).join('');
+      </div>` : '';
 
     // What is waiting to be picked up, which used only ever to be one batch and
     // so was never worth its own line. It is the reason to walk over now.
@@ -702,7 +1101,7 @@ function fixtureDetail(ui, f, live) {
       ${line('In the hopper', inside || '<i>empty</i>')}
       ${line('Making', live?.making ? ui.itemName(live.output?.item_id ?? live.making) : '<i>idle</i>')}
       ${line('Ready to collect', ready)}
-      ${body || line('Can make', '<i>no recipes yet</i>')}
+      ${body || line('Set to make', '<i>no recipes yet</i>')}
     </div>`;
   }
   return '';
@@ -757,6 +1156,8 @@ function wireFixtureMenu(ui, f, live) {
         send('build-empty', { id: f.id });
       } else if (what === 'upgrade') {
         send('build-upgrade', { id: f.id });
+      } else if (what === 'downgrade') {
+        send('build-downgrade', { id: f.id });
       } else if (what === 'remove') {
         send('build-remove', { id: f.id });
         ui.closePanel();
@@ -770,6 +1171,25 @@ function wireFixtureMenu(ui, f, live) {
   // what tells you it worked, and it drops as you arrive.
   ui.el.panelBody.querySelectorAll('[data-take]').forEach((el) => {
     el.onclick = () => send('take', { shelfId: f.id, itemId: el.dataset.take });
+  });
+
+  // Ordering is shopkeeping, not building, and it is not gated on standing
+  // anywhere either — the goods land at the bay whatever you do next. So it is
+  // the one control on the row that goes straight out. A refusal (no bay, no
+  // cash, a full pad) arrives as a toast like every other refusal.
+  ui.el.panelBody.querySelectorAll('[data-order]').forEach((el) => {
+    el.onclick = () => send('buy-stock', {
+      itemId: el.dataset.order, qty: Number(el.dataset.qty) || 1,
+    });
+  });
+
+  // Through `withBuildMode`, unlike Take beside it: this is Empty in the foot
+  // aimed at one board, and the server gates it the same way. Sent raw it comes
+  // back "not in build mode" and the button reads as dead.
+  ui.el.panelBody.querySelectorAll('[data-clear]').forEach((el) => {
+    el.onclick = () => ui.withBuildMode(() => {
+      send('build-empty', { id: f.id, itemId: el.dataset.clear });
+    });
   });
 
   ui.el.panelBody.querySelectorAll('[data-price]').forEach((el) => {
@@ -810,6 +1230,23 @@ function nextTier(ui, f) {
   const tiers = tiersOf(ui, f);
   const next = tiers[tierOf(ui, f)];
   return next ? { ...next, tier: tierOf(ui, f) + 1 } : null;
+}
+
+/**
+ * The rung below, and what stepping back onto it hands you — or null at the
+ * bottom. The refund is worked out here for the same reason the Remove button's
+ * is: the number has to be on the button *before* it is pressed, and the server
+ * computes the identical one from the identical constant.
+ */
+function prevTier(ui, f) {
+  const at = tierOf(ui, f);
+  if (at <= 1) return null;
+  const tiers = tiersOf(ui, f);
+  return {
+    ...tiers[at - 2],
+    tier: at - 1,
+    refund: (tiers[at - 1]?.cost ?? 0) * FIXTURE_REFUND,
+  };
 }
 
 /** Say what a tier actually buys you, from its own numbers. */

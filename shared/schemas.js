@@ -90,6 +90,39 @@ const PART = z.object({
    */
   drift: z.boolean().default(false),
   /**
+   * "This part MOVES while the thing it belongs to is working."
+   *
+   * A machine mid-batch and a machine that has been sat there since Tuesday
+   * are the same picture, which is the whole reason this exists: an appliance
+   * says what it is doing by moving, not by a number in a menu you have to
+   * open. So a blade turns, a lever judders, a light throbs.
+   *
+   * The same split every other look in here makes. The AUTHORED half is these
+   * three numbers; the LOOP is code, because a loop is exactly what stages
+   * cannot say — a stage arc plays once across a batch and a blade has to keep
+   * going. Same argument, same shape, as `drift`.
+   *
+   *   spin    turns about its own Y axis. `hz` is turns per second, and this is
+   *           the one kind `amount` says nothing about — a turn is a turn.
+   *   bob     rises and falls by `amount` tiles, `hz` times a second.
+   *   shake   judders by `amount` tiles in the ground plane. A press, a fryer.
+   *   pulse   swells and shrinks by `amount` of its own size. A lamp, a heater.
+   *
+   * WHAT COUNTS AS WORKING is the renderer's question, and it has one rule:
+   * a fixture that can be busy moves while it *is* busy, and a fixture that has
+   * no idea what busy means — a fan, a sign, a mobile — always moves. Only an
+   * appliance can be busy today. Without that second half this would be a field
+   * that silently does nothing on everything except a station, which is the
+   * "tier that changes no number" trap wearing a different hat.
+   */
+  motion: z.object({
+    kind: z.enum(['spin', 'bob', 'shake', 'pulse']),
+    /** Cycles a second — turns a second for `spin`. */
+    hz: z.number().min(0.05).max(12).default(1.5),
+    /** How big the movement is: tiles for `bob`/`shake`, a share of its own size for `pulse`. */
+    amount: z.number().min(0).max(1).default(0.05),
+  }).nullable().default(null),
+  /**
    * "Whoever is wearing this decides what colour this part is."
    *
    * A skin is a palette, not a body — see `SkinSchema`. A part naming a slot
@@ -107,6 +140,24 @@ const PART = z.object({
 });
 
 /**
+ * How many boxes one look may be made of.
+ *
+ * Eight for as long as everything in the game was a single run of shelving, a
+ * machine or a pot plant. A CORNER unit is the thing that broke it: an L is two
+ * runs meeting, so it wants two backs, two lids, two plinths and two boards per
+ * level — twice a straight unit, and no amount of care gets that under eight.
+ * Every attempt to fit it instead came out as a worse corner: no lid, two board
+ * levels instead of three, wings too shallow to line up with the units either
+ * side.
+ *
+ * It is a ceiling on how much geometry one prop is worth drawing, not a design
+ * rule, and the cost of raising it is meshes per fixture. Sixteen is still well
+ * inside what this renderer does happily, and it is the first number here that
+ * was ever load-bearing on what could be MODELLED rather than on what performs.
+ */
+const MAX_PARTS = 16;
+
+/**
  * One look, for something that changes as it goes along. `at` is where on the
  * 0..1 run this stage takes over — see `shared/model.js` for who feeds what
  * into that number.
@@ -114,12 +165,12 @@ const PART = z.object({
 const STAGE = z.object({
   name: z.string().max(32).default(''),
   at: z.number().min(0).max(1).default(0),
-  parts: z.array(PART).min(1).max(8),
+  parts: z.array(PART).min(1).max(MAX_PARTS),
 });
 
 export const ModelSchema = z.object({
   /** The whole thing, always. What almost everything wants. */
-  parts: z.array(PART).min(1).max(8).optional(),
+  parts: z.array(PART).min(1).max(MAX_PARTS).optional(),
   /** ...or a progression: a sprout, a bush, a laden plant. */
   stages: z.array(STAGE).min(2).max(6).optional(),
 })
@@ -301,6 +352,30 @@ export const FixtureSchema = z.object({
    */
   model: ModelSchema.nullable().default(null),
   /**
+   * What it looks like WHILE IT IS WORKING — drawn over the piece for as long
+   * as it is mid-batch, and staged by how far through that batch it is.
+   *
+   * A second model rather than more parts on the first one, for a reason that
+   * is structural rather than tidiness. `model` already spends its 0..1 on the
+   * TIER — a Commercial machine is stage 2 of its own art — and a batch is a
+   * second quantity that runs from 0 to 1 on its own clock. One resolver takes
+   * one number, so two quantities need two models. That split also says the
+   * right thing about each half: the machine is what you bought, the work is
+   * what it is doing, and dough going into a loaf has nothing to do with which
+   * rung of the ladder you are on.
+   *
+   * It is drawn in the machine's own model space, so a puff authored at the
+   * spout comes out of the spout. `drift` on a part gives it steam, `motion`
+   * gives it movement, and a piece with no `work` at all simply carries on
+   * looking exactly as it does today.
+   *
+   * Nothing in the sim reads it — it moves no number and needs no `simulate`.
+   * A variant may carry its own; one that doesn't falls back to this, so a
+   * generic "steam and a light" authored here covers every appliance nobody has
+   * drawn a specific one for.
+   */
+  work: ModelSchema.nullable().default(null),
+  /**
    * Other shapes of the same thing: a corner unit, an endcap, a low one.
    *
    * A variant is a LOOK and nothing else, and that is enforced by where it
@@ -312,12 +387,28 @@ export const FixtureSchema = z.object({
    *
    * The empty id is the kind's own `model` — "Standard" — so every fixture
    * that never heard of variants still has one.
+   *
+   * `work` is here for the same reason `model` is, and stays a look for the
+   * same reason: a toaster and a blender are two variants of one appliance, so
+   * what they do while they run has to be authorable per shape or six of the
+   * seven machines in the shop steam out of the same corner.
+   */
+  /*
+   * The ceiling is 16 rather than 8 because of what the station row turned
+   * out to be: every appliance in the game is a VARIANT of that one row, so
+   * this bound is not "how many shapes may a shelf come in" — it is how many
+   * machines the shop may ever own. Eight was reached by the oven, and the
+   * ninth failed validation with a message about array length, which reads as
+   * a typo rather than as a design ceiling. Raising it is safe in the way the
+   * comment above says: a variant carries a model and no numbers, so nothing
+   * added here can move the balance.
    */
   variants: z.array(z.object({
     id: slug,
     name: z.string().min(1).max(32),
     model: ModelSchema,
-  })).max(8).default([]),
+    work: ModelSchema.nullable().default(null),
+  })).max(16).default([]),
   /**
    * Tier 1 is what a new one is, so it costs nothing and is listed first.
    * Every later tier is something you pay to step up to, in order.
@@ -467,6 +558,7 @@ export const JOBS = [
   'harvest',  // pick a ripe plot
   'craft',    // load a station, collect what it made
   'tidy',     // crate what can't be put away
+  'merchandise', // take goods back OFF a shelf: clear a dead board, merge a split one
 ];
 
 /**
@@ -645,6 +737,87 @@ export const PastimeSchema = z.object({
   model: ModelSchema.nullable().default(null),
 });
 
+/**
+ * What a vehicle is FOR.
+ *
+ * Closed, and closed for the same reason `JOBS` is: each entry is a routine
+ * somebody has to write — a delivery run that ends at the bay, a shopper who
+ * parks and walks in — so a `use` nobody implemented is a van that never drives
+ * anywhere, which reads as a broken van rather than as content pointed at a
+ * feature that does not exist.
+ *
+ * A tag would have been the other option and is the wrong one here. Tags are how
+ * content connects to content — an event aims at `frozen`, a shopper likes
+ * `organic` — and they are deliberately open, so a typo is a warning rather than
+ * a refusal. What a vehicle is for is not a connection, it is which piece of
+ * code owns it, and that is the same shape of question `kind` asks on a fixture.
+ */
+export const VEHICLE_USES = [
+  'delivery', // brings wholesale orders in and unloads them at the bay
+  'customer', // a shopper drove; it waits in the car park while they shop
+];
+
+/**
+ * A VEHICLE — a van, a car, whatever else turns up on the ground outside.
+ *
+ * Authored content in the same shape as a worker, and for the same reason: it is
+ * a thing you look at, and everything in this game you look at is a row somebody
+ * can draw without touching `server/`. See docs/deliveries.md.
+ *
+ * CAPACITY IS THE ONLY FIELD THE SIM READS AS A NUMBER, so it is the only one
+ * that can move the balance and the only reason authoring a second vehicle would
+ * need `simulate` re-run. `speed` is how fast it appears to cross the ground on
+ * a fixed route and `model` is what it looks like doing it — neither can make
+ * the shop richer or poorer, exactly the way a fixture variant cannot. That
+ * split is worth keeping: it means a kid can draw a lorry and the worst that
+ * happens is a lorry.
+ *
+ * Deliberately no tier ladder. A fixture has one because a shelf you already own
+ * can be improved in place; a bigger van is a different vehicle, and the doc says
+ * as much ("a bigger one is an upgrade later, and it is a better upgrade than
+ * most because you can see what you bought"). A ladder would also put capacity in
+ * two places — the row and the rung — which is the one field that must have
+ * exactly one spelling.
+ */
+export const VehicleSchema = z.object({
+  id: slug,
+  name: z.string().min(1).max(48),
+  /** Which code owns it. See VEHICLE_USES. */
+  use: z.enum(VEHICLE_USES),
+  tags: z.array(slug).max(12).default([]),
+  /**
+   * What it looks like. Staged, and **the 0..1 that picks the stage is how
+   * loaded it is** — a crop feeds that number from growth, a fixture from its
+   * tier, a pastime from how far through the break they are, and a van from how
+   * much of its capacity is on board. So an empty bed, a couple of crates and a
+   * full load is authored art with no code that knows what a crate looks like.
+   *
+   * Required, unlike a pastime's: a break with no prop is still a worker
+   * slumping against a shelf, but a vehicle with no model is nothing at all.
+   */
+  model: ModelSchema,
+  /**
+   * Tiles per second along its route. Cosmetic today and probably forever: the
+   * van drives a fixed path to the bay, and *when* an order lands is decided by
+   * the run it joined rather than by how quickly the art got there. If that ever
+   * stops being true this comment is the thing that has to change first.
+   */
+  speed: z.number().min(0.1).max(20).default(3.2),
+  /**
+   * How much it carries, in crates. The one number with consequences: a delivery
+   * run cannot bring more than this, and a shopper who drove takes home this
+   * much more than one who walked.
+   *
+   * Required rather than defaulted, unlike every other number on here. A default
+   * capacity is a balance number nobody chose, sitting on the one field that can
+   * change what the shop earns — and it would arrive silently, on a row somebody
+   * wrote to try out a paint job.
+   */
+  capacity: z.number().int().min(1).max(40),
+  /** Bodywork, where the model doesn't say otherwise. */
+  color: hexColor.default('#c9d1d9'),
+});
+
 export const SCHEMAS = {
   item: ItemSchema,
   crop: CropSchema,
@@ -656,4 +829,5 @@ export const SCHEMAS = {
   worker: WorkerSchema,
   pastime: PastimeSchema,
   skin: SkinSchema,
+  vehicle: VehicleSchema,
 };

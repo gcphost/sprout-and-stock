@@ -77,14 +77,26 @@ export function showCrates(ui, at) {
   // and the order they are drawn up the screen.
   const rows = [...list].reverse().map((d, n) => {
     const i = list.length - 1 - n;
+    // The top crate comes away whole; the ones under it can only be reached
+    // into. That is the server's rule (`crateOnTop`) and the row says which you
+    // are going to get, because "pick one and you will go and get it" is a
+    // promise about two different things depending on where in the pile it sits
+    // — and walking across the shop to discover which is the version of this
+    // menu that reads as broken.
+    //
+    // Said in the caption rather than as a second button: there is no choice to
+    // offer. One of the two is simply not available on a buried crate, and a
+    // greyed-out row you can never press is a worse answer than a sentence.
+    const top = i === list.length - 1;
     return {
       icon: ICONS.crate,
       name: ui.itemName(d.item_id),
-      sub: place(i, list.length),
+      sub: `${place(i, list.length)} · ${top ? 'lift the whole crate' : 'take an armful'}`,
       right: `x${d.qty}`,
-      // One verb, the same one the tap sends. It walks you there and fills your
-      // hands when you arrive — the errand, not a teleport, which is the whole
-      // reason `take` names its target instead of handing goods over.
+      // One verb, the same one the tap sends. It walks you there and does
+      // whichever of the two applies when you arrive — the errand, not a
+      // teleport, which is the whole reason `take` names its target instead of
+      // handing goods over.
       run: () => ui.net.send('take', { palletId: d.id }),
     };
   });
@@ -92,6 +104,7 @@ export function showCrates(ui, at) {
   ui.showPanel(`${ICONS.crate} ${list.length === 1 ? 'A crate' : `${list.length} crates`}`,
     rows.map((r, i) => ui.rowHtml(r, i)).join('')
     + '<div class="foot">Pick one and you will go and get it. '
+    + 'Only the top crate can be carried off whole \u2014 reach into the rest for an armful. '
     + 'A crate holds one kind of thing, so a pile is a pile of different things.</div>',
     `crates:${x},${z}`);
   ui.wireRows(rows);

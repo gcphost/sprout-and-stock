@@ -1,9 +1,12 @@
 import { ICONS, icon } from './icons.js';
-import { pinLast } from './bar.js';
+import { pinLast, KEYED } from './bar.js';
 import { FIXTURES, isProp, isGround, FLOOR_KIND } from '../shared/build.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { artForTool, artForStation } from './thumb.js';
 import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
+// What is on a van. Shared with the shelf menu, which asks the same two
+// questions of it — see client/orders.js.
+import { comingByItem, comingWhy } from './orders.js';
 
 /**
  * Every browsable list that renders into #panel.
@@ -46,6 +49,59 @@ import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
  * below: empty ones are dropped, and a tab left with fewer than two of them
  * shows none at all.
  */
+/**
+ * Decoration's sub-tabs, and the one split filed by TAG rather than by kind.
+ *
+ * Building splits by what you are doing and every entry names its sub-tab in
+ * code, which works because a wall, a floor and a bay are three kinds. A
+ * decoration is one kind wearing any number of hats: `prop-floor` and
+ * `prop-ceiling` say how a thing attaches, and a planter and a barrel attach
+ * identically. So the code that could file these does not know what they are,
+ * and the row that knows is in the database — which is the same shape of
+ * problem as "what do customers want", and gets the same answer.
+ *
+ * `tags` on a sub is therefore the whole mechanism: a piece tagged `plant`
+ * lands under Greenery about a second after somebody authors it, with no edit
+ * here. What IS a decision here is the vocabulary — one tab per tag, named and
+ * iconed — and a tab nobody has authored anything for never renders, so
+ * declaring one costs nothing until it has something in it.
+ *
+ * The last has no tags and takes the rest. That is deliberate and it is the
+ * half a tag-driven split gets wrong: a decoration authored with no tag, or
+ * with a tag nobody has made a tab for, has to be SOMEWHERE — otherwise the
+ * first thing an untagged piece does is disappear, which reads as a bad save
+ * rather than as a missing word.
+ */
+export const DECOR_SUBS = [
+  {
+    id: 'plants',
+    name: 'Greenery',
+    icon: ICONS.seeds,
+    tags: ['plant'],
+    blurb: 'Things that grow, or look like they do. Nothing to water.',
+  },
+  {
+    id: 'lighting',
+    name: 'Lighting',
+    icon: ICONS.ambient,
+    tags: ['lamp'],
+    blurb: 'What the shop looks like once the light comes off something you chose.',
+  },
+  {
+    id: 'signs',
+    name: 'Signs',
+    icon: ICONS.label,
+    tags: ['sign'],
+    blurb: 'Words on the shop floor. Nobody reads them but you.',
+  },
+  {
+    id: 'bits',
+    name: 'Odds and ends',
+    icon: ICONS.fixtures,
+    blurb: 'Everything else you can stand about the place.',
+  },
+];
+
 export const BUILD_GROUPS = [
   { id: 'shop', name: 'Shop', icon: ICONS.shelf, blurb: 'Where goods sit and money changes hands.' },
   { id: 'farm', name: 'Farm', icon: ICONS.plot, blurb: 'Beds to grow in, and what fences them off.' },
@@ -56,7 +112,9 @@ export const BUILD_GROUPS = [
     icon: ICONS.build,
     blurb: 'The building itself — what makes a room a room.',
     // In the order you do them: walls make the room, floor makes it usable, and
-    // the yard is what you lay once the shop it serves exists.
+    // the yard is what you lay once the shop it serves exists. The last two are
+    // the same brush laying ground for *people* rather than for the building —
+    // yours, and then everybody else's.
     subs: [
       {
         id: 'walls',
@@ -87,9 +145,26 @@ export const BUILD_GROUPS = [
         icon: ICONS.staff,
         blurb: 'Ground for the people who work here. Paint a break area and that is where they rest.',
       },
+      // And the same argument once more, one step further out. Staff is ground
+      // for the people on your payroll; this is ground for everybody else. A
+      // car park is not the yard — the yard is where the goods arrive and this
+      // is where the people do — and it is not Staff either, because a customer
+      // does not work here. Its own tab is the only place that is true of it.
+      {
+        id: 'customers',
+        name: 'Customers',
+        icon: ICONS.walk,
+        blurb: 'Ground for the people who come to buy. Paint a car park and that is where they leave the car.',
+      },
     ],
   },
-  { id: 'decor', name: 'Decoration', icon: ICONS.fixtures, blurb: 'Looks. Weighs nothing and stops nobody.' },
+  {
+    id: 'decor',
+    name: 'Decoration',
+    icon: ICONS.fixtures,
+    blurb: 'Looks. Weighs nothing and stops nobody.',
+    subs: DECOR_SUBS,
+  },
 ];
 
 /** Whether a palette entry belongs to a group. A tool may name several. */
@@ -101,12 +176,24 @@ const inSub = (t, id) => (Array.isArray(t.sub) ? t.sub.includes(id) : t.sub === 
 /**
  * Which sub-tab of a split group an entry sits on.
  *
- * Falling through to the first rather than to nothing, for the same reason a
- * kind nobody grouped lands in the shop: an entry on no sub-tab is one no tab
- * shows, which is the same as not existing. So authoring a new kind under
- * Building misfiles it at worst, rather than making it unbuildable.
+ * Three answers in order, and the order is what lets one mechanism carry both
+ * splits. A tool that NAMES its sub-tab wins — that is Building, where the
+ * filing is a fact about the code (`sub: 'walls'`) and could not be anything
+ * else. Failing that, a sub-tab that asks for a TAG takes anything wearing it —
+ * that is Decoration, where the filing is a fact about the content, because a
+ * planter and a barrel are the same kind and only their row knows the
+ * difference.
+ *
+ * Then the catch-all, which is the first sub-tab that asks for no tags. For
+ * Building that is Walls, so it is exactly the fallback that was here before:
+ * an entry on no sub-tab is one no tab shows, which is the same as not
+ * existing, and misfiled beats invisible. For Decoration it is the drawer at
+ * the end, which is the honest home for a piece nobody has tagged yet.
  */
-const subIdFor = (g, t) => g.subs.find((s) => inSub(t, s.id))?.id ?? g.subs[0]?.id ?? null;
+const subIdFor = (g, t) => g.subs.find((s) => inSub(t, s.id))?.id
+  ?? g.subs.find((s) => s.tags?.some((tag) => t.tags?.includes(tag)))?.id
+  ?? g.subs.find((s) => !s.tags)?.id
+  ?? g.subs[0]?.id ?? null;
 
 /** Which sub-tab a palette entry is found on, for a selection made elsewhere. */
 export function subOfTool(t, groupId) {
@@ -192,6 +279,17 @@ export const KIND_TOOLS = {
     group: 'shell',
     sub: 'staff',
     blurb: 'Drag out an area. Staff take their breaks here instead of wherever they finished, and come back fresher. One cell seats one.',
+  },
+  // The fourth pad, on the one sub-tab where it is not filed under somebody
+  // else's job. The blurb says what the ground IS rather than what arriving by
+  // car will be worth: nothing spawns a driver yet (step 4b of
+  // docs/deliveries.md), and a palette that sold the mechanic before it existed
+  // would be a button making a promise the shop cannot keep.
+  park: {
+    icon: ICONS.walk,
+    group: 'shell',
+    sub: 'customers',
+    blurb: 'Drag out an area. Hardstanding out front for shoppers who drive here — one cell parks one, and they walk in from where they left it.',
   },
 };
 
@@ -331,6 +429,11 @@ export function buildTools(ui) {
         // in no group is one no tab shows, which is the same as not existing.
         group: KIND_TOOLS[kind]?.group ?? 'shop',
         sub: KIND_TOOLS[kind]?.sub,
+        // What the row says it IS, which is the only thing that can file two
+        // pieces of one kind apart — see `DECOR_SUBS` and `subIdFor`. Off the
+        // piece rather than the kind, deliberately: a kind's tags would be the
+        // same word on every entry in the tab, which sorts nothing.
+        tags: p.tags ?? [],
         name: p.name,
         blurb: KIND_TOOLS[kind]?.blurb ?? '',
       });
@@ -425,17 +528,27 @@ export function buildGroups(ui) {
 /**
  * A group's sub-tabs, or null for a group that doesn't earn any.
  *
- * The same two rules the tabs above them follow, one level down: an empty
+ * Three rules, and the first is about the tab rather than the split: a tab that
+ * FITS is left alone. `KEYED` is how many entries wear a number key, so at or
+ * under it nothing scrolls, every button is one press, and splitting can only
+ * turn one row you can read into four rows of two you have to choose between
+ * first. Decoration is why: seven planters and signs is a palette, and the
+ * moment it is fifteen it is a drawer you rummage in. The bar should change
+ * when the catalogue does, not when somebody predicted it would.
+ *
+ * Then the two the tabs above them already follow, one level down: an empty
  * sub-tab never renders, and a group left with fewer than two of them shows the
  * flat list instead — one sub-tab is a row of chrome asking a question with a
  * single answer. That is what a world with no floors authored gets, and it means
- * the split can never make Building *harder* to read than it was flat.
+ * the split can never make a tab *harder* to read than it was flat.
  *
  * Pinned entries are on every sub-tab, the way Demolish is on every tab: "get
- * rid of that" is not a question about which part of the building it is.
+ * rid of that" is not a question about which part of the building it is. They
+ * count towards the length, because they are buttons on the row and they take
+ * number keys off the end of it.
  */
 function splitGroup(g, items) {
-  if (!g.subs) return null;
+  if (!g.subs || items.length <= KEYED) return null;
   const subs = g.subs
     .map((s) => ({ ...s, items: items.filter((t) => t.last || subIdFor(g, t) === s.id) }))
     .filter((s) => s.items.some((t) => !t.last));
@@ -630,15 +743,6 @@ const dayProfits = (state) => (state?.ledger ?? []).map((d) => (d.revenue ?? 0) 
 const ORDER_CAPS = [null, 25, 50, 100, 250, 500, 1000];
 const capLabel = (n) => (n > 0 ? `$${n}` : 'No cap');
 
-/** How many of an item are standing on the shop's shelves right now. */
-function heldOf(ui, itemId) {
-  let n = 0;
-  for (const s of ui.state?.shelves ?? []) {
-    for (const k of s.stacks ?? []) if (k.item_id === itemId) n += k.qty ?? 0;
-  }
-  return n;
-}
-
 /**
  * Every item, as a row that says what to do about it.
  *
@@ -655,10 +759,20 @@ function itemRows(ui) {
   const shelves = ui.state?.shelves ?? [];
   const hasFreezer = shelves.some((s) => s.kind === 'freezer');
   const cash = ui._cash ?? 0;
+  // Anything a recipe outputs cannot be ordered at all — `buyStock` refuses it,
+  // and it has refused it since appliances existed. The supplier listed them
+  // anyway, with a buy button and two steppers that could do nothing, which is
+  // three lies per row. The client already had the recipes; it had never asked.
+  const madeBy = new Map();
+  for (const r of ui.catalog.recipes ?? []) if (!madeBy.has(r.output_id)) madeBy.set(r.output_id, r.station);
+  const applianceName = (id) => (ui.catalog.fixtures ?? []).find((f) => f.id === id)?.name ?? id;
+  const coming = comingByItem(ui);
 
   return ui.catalog.items.map((it) => {
     const rule = ui.state?.orders?.items?.[it.id] ?? {};
-    const held = heldOf(ui, it.id);
+    const held = ui.heldOf(it.id);
+    const due = coming.get(it.id) ?? null;
+    const inbound = due?.qty ?? 0;
     const stack = it.stack ?? 12;
     const heat = ui.heatFor(it);
     const needsCold = it.tags.includes('needs-freezer') || it.tags.includes('frozen');
@@ -672,24 +786,46 @@ function itemRows(ui) {
     // at the line, not below it, and a list that disagreed with the shop by one
     // unit would show you a green row the staff were already ordering for.
     const floor = rule.min > 0 ? rule.min : Math.max(1, Math.floor(stack * 0.25));
-    const short = !homeless && rule.auto !== false && held <= floor && (held > 0 || rule.min > 0);
+    // Thin *now* and worth doing something about are two different facts since
+    // deliveries stopped being instant, and the row says both. `thin` is what
+    // the shelf looks like this second and paints the count red; `short` is the
+    // tab, and something already on a van does not belong in a list of things
+    // to go and buy — you bought it. What is left to do about it is wait.
+    const thin = !homeless && rule.auto !== false && held <= floor && (held > 0 || rule.min > 0);
+    const short = thin && !inbound;
     const hot = !homeless && heat >= 1.25;
     const on = shelves.filter((s) => (s.stacks ?? [])
       .some((k) => k.item_id === it.id && k.qty > 0)).length;
 
-    const why = homeless ? 'no freezer to put it in'
-      : rule.auto === false ? "you've told staff not to order this"
-        : short ? (rule.min > 0 ? `below your minimum of ${rule.min}` : 'running low')
-          : hot ? 'in demand right now'
-            : held > 0 ? `on ${on} shelf${on === 1 ? '' : 'ves'}` : '';
+    const crafted = madeBy.has(it.id);
+    // Nowhere to put it still wins, because that is a refusal rather than news.
+    // Everything under it gives way to the van: what is already on its way is
+    // the newest true thing about the row and the one you cannot see from the
+    // shop floor — a shelf you can walk over and look at, an order you cannot.
+    const why = crafted ? `made in the ${applianceName(madeBy.get(it.id))}`
+      : homeless ? 'no freezer to put it in'
+        : inbound ? comingWhy(due)
+          : rule.auto === false ? "you've told staff not to order this"
+            : short ? (rule.min > 0 ? `below your minimum of ${rule.min}` : 'running low')
+              : hot ? 'in demand right now'
+                : held > 0 ? `on ${on} shelf${on === 1 ? '' : 'ves'}` : '';
 
     return {
       name: it.name,
       heat: ui.heatPill(it),
       // How many you have, in its own column, so scanning the list is reading
       // one line of numbers rather than forty rows of prose.
-      count: held || '–',
-      countClass: held ? (short ? 'short' : '') : 'zero',
+      //
+      // What is on a van hangs off that number as `+6` rather than taking a
+      // second column: a column is 30px of every row in the panel to say
+      // nothing on almost all of them, and the two numbers are not comparable
+      // anyway — one is stock you can sell this second and the other is a
+      // promise. Read together they are the sentence you want: **4** on the
+      // shelf in red, **+6** coming, and the caption says when.
+      count: `${held || '<i class="none">–</i>'}${inbound ? `<i class="coming">+${inbound}</i>` : ''}`,
+      // Red is still "this shelf is thin right now", van or no van — the relief
+      // is the `+6` beside it, not a reason to stop showing the problem.
+      countClass: thin && held ? 'short' : '',
       // Why this row is here, instead of three tags that said the same word on
       // every row in a department. Plain text — it also becomes the hover title.
       sub: why || it.tags.slice(0, 3).join(' · '),
@@ -700,14 +836,28 @@ function itemRows(ui) {
       facets: it.tags,
       tags: it.tags,
       held,
+      inbound,
+      // Soonest first, and a finite stand-in for "no van" rather than Infinity,
+      // because `Infinity - Infinity` is NaN and a NaN in a comparator silently
+      // stops sorting the list at all. Only ever reorders the On-the-way tab:
+      // everything else in the panel has the same stand-in and falls straight
+      // through to the keys it always used.
+      dueIn: due ? due.legs[0].in : 1e9,
       short,
       hot,
       homeless,
-      dim: homeless || cash < it.base_cost * 6,
-      ...ruleFor(ui, it),
-      button: { label: '×6', run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }) },
+      crafted,
+      dim: homeless || (!crafted && cash < it.base_cost * 6),
+      // No rule and no buy button on something you make. A stepper that sets a
+      // minimum nothing will ever act on is worse than an absent one — it reads
+      // as a shop ignoring an instruction you gave it.
+      ...(crafted ? {} : {
+        ...ruleFor(ui, it),
+        button: { label: '×6', run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }) },
+      }),
     };
-  }).sort((a, b) => b.hot - a.hot || a.held - b.held || a.name.localeCompare(b.name));
+  }).sort((a, b) => a.dueIn - b.dueIn || b.hot - a.hot || a.held - b.held
+    || a.name.localeCompare(b.name));
 }
 
 /**
@@ -820,6 +970,139 @@ function orderRows(ui) {
   ];
 }
 
+/** The van tab's label, named once because two things have to agree on it. */
+const VAN_TAB = 'On the way';
+
+/**
+ * The supplier's tabs: what you should DO about a thing, not where it has to
+ * live.
+ *
+ * Frozen / Fresh / Keeps answered "do I have somewhere to put this", which is a
+ * real question and the wrong one to organise a shop around: it splits the
+ * catalogue three ways and leaves every tab a flat alphabet you scroll hunting
+ * for the thing you meant. It also said the same word on every row in a
+ * department, so the list carried no information at the point you were reading
+ * it.
+ *
+ * These are a queue of work instead. `grouped` puts a row in the FIRST bucket
+ * that takes it, so an item appears exactly once, in the most urgent thing that
+ * is true of it — deal with Short, see what is coming, then Wanted, then glance
+ * at what you hold, and Rest is the catalogue you were browsing before. Where it
+ * lives has not gone away; it moved onto the row, where it can be a warning
+ * about THIS item rather than a heading over forty.
+ */
+const STOCK_TABS = [
+  // Every buying tab has to say `!crafted`, rather than the made-here bucket
+  // simply sitting first and swallowing them. `grouped` takes the first
+  // bucket that fits, so first place is also the tab the panel OPENS on —
+  // and the first thing the supplier shows you should be something you can
+  // do something about, not the appliance list.
+  {
+    label: 'Short',
+    icon: ICONS.trouble,
+    test: (r) => !r.crafted && r.short,
+  },
+  // The whole inbound list, and the reason it is a tab here rather than a menu
+  // on the bay: you ordered it in this panel, so this is where you come back to
+  // ask what happened to it. Ground has never been tappable either, which makes
+  // a pad with a menu a genuinely new kind of object bought for one list.
+  //
+  // It sits above Wanted because what is already coming answers "what should I
+  // buy" before demand does — and it is `passive`, which is the half that
+  // position could never say. An empty bucket is dropped, so "second" is only
+  // second on a morning something is already short: on a quiet one this bucket
+  // IS the first, and the panel opened onto a list of things there is nothing
+  // to do about — one press of ×6 and the catalogue you were reading was
+  // replaced by the single loaf you had just bought, which reads as the
+  // supplier having broken rather than as a tab you did not choose.
+  {
+    label: VAN_TAB,
+    icon: ICONS.supplier,
+    passive: true,
+    test: (r) => !r.crafted && r.inbound > 0,
+  },
+  {
+    label: 'Wanted',
+    icon: ICONS.report,
+    // Hot and you have none of it. Hot and well stocked is not a job.
+    test: (r) => !r.crafted && r.hot && r.held <= 0,
+  },
+  { label: 'Stocked', icon: ICONS.crate, test: (r) => !r.crafted && r.held > 0 },
+  { label: 'Rest', icon: ICONS.shop, test: (r) => !r.crafted },
+  // What is left is exactly the crafted goods, and they are here to be
+  // counted rather than bought — how many smoothies you have is worth
+  // knowing, which is why they are not simply dropped from the list.
+  { label: 'Made here', icon: ICONS.station },
+];
+
+/**
+ * One line saying a van is out, above the tabs on every one of them.
+ *
+ * A tab you have to be on is not somewhere you can *see* something: the whole
+ * argument for making an order visible is that you plan against it while you
+ * are doing something else, and "something else" in this panel is any of the
+ * other five tabs. Anything before the first tab heading lands in `lead`, which
+ * `paintSection` draws whichever tab you are on — so this is one row, drawn only
+ * while something is actually out, and gone the moment the van lands.
+ *
+ * Pressing it goes to the list. Which tab that is cannot be a constant: an
+ * empty bucket is never drawn, so the van tab is second on a bad morning and
+ * first on a good one. Counting the headings that were actually produced is the
+ * only honest answer, and it is why this is handed the built list rather than
+ * building its own.
+ */
+function vanLead(ui, list) {
+  const pending = ui.state?.orders?.pending ?? [];
+  if (!pending.length) return [];
+  const units = pending.reduce((n, p) => n + (p.qty ?? 0), 0);
+  const next = pending.reduce((a, b) => ((b.in ?? 0) < (a.in ?? 0) ? b : a));
+  const at = list.filter((r) => r.sep && r.icon).map((r) => r.sep).indexOf(VAN_TAB);
+  return [{
+    // No sub-line, deliberately. It would be a second line on every tab in the
+    // panel to say something the tab it sends you to says per item, and this
+    // list has already been too tall twice.
+    plain: true,
+    name: `${units} on the way`,
+    right: next.onVan ? 'arriving' : next.at,
+    ...(at >= 0 ? { run: (u) => { u.tab = at; u.paintSection(); } } : {}),
+  }];
+}
+
+function stockRows(ui) {
+  const list = grouped(itemRows(ui), STOCK_TABS);
+  return [...vanLead(ui, list), ...list, ...orderRows(ui)];
+}
+
+/**
+ * The line under the list: when the vans come, and what the yard will take.
+ *
+ * Both are rules of the world rather than settings, which is why they are a
+ * caption and not rows — nothing here can be pressed. They are also the two
+ * facts that explain every refusal and every wait above them: a shop that has
+ * been told "only room for 4 more at the bay" once, at the moment it was
+ * refused, has been told it in the least useful place there is.
+ *
+ * The soonest arrival is picked on `in` rather than on the label, because
+ * `at` is a clock face — "08:00" is the next van at ten past two in the
+ * afternoon and yesterday's at nine in the morning, and sorting text would say
+ * the wrong one every afternoon.
+ */
+function stockFoot(ui) {
+  const o = ui.state?.orders ?? {};
+  const pending = o.pending ?? [];
+  const runs = (o.runs ?? []).join(' and ');
+  const bay = o.bayRoom == null ? ''
+    : o.bayRoom > 0 ? ` Room for ${o.bayRoom} more at the bay.`
+      : ' No room at the bay for another order.';
+  if (!pending.length) {
+    return `${runs ? `Vans come at ${runs}. ` : ''}An order lands at the bay as a pallet.${bay}`;
+  }
+  const units = pending.reduce((n, p) => n + (p.qty ?? 0), 0);
+  const next = pending.reduce((a, b) => ((b.in ?? 0) < (a.in ?? 0) ? b : a));
+  const when = next.onVan ? 'the van is pulling in' : `next at ${next.at}`;
+  return `${units} unit${units === 1 ? '' : 's'} on the way, ${when}.${bay}`;
+}
+
 /**
  * Sections, in rail order.
  *
@@ -847,8 +1130,11 @@ function grouped(rows, buckets) {
     const i = buckets.findIndex((b) => !b.test || b.test(r));
     if (i >= 0) bins[i].push(r);
   }
+  // `passive` rides along on the heading, because a bucket is what knows
+  // whether there is anything to DO in it and `tabGroups` is what has to not
+  // open onto one. See the van tab, and `UI.tabIndex`.
   return buckets.flatMap((b, i) => (
-    bins[i].length ? [{ sep: b.label, icon: b.icon }, ...bins[i]] : []
+    bins[i].length ? [{ sep: b.label, icon: b.icon, passive: b.passive }, ...bins[i]] : []
   ));
 }
 
@@ -920,41 +1206,38 @@ export const SECTIONS = [
       }).length;
       return low ? String(low) : null;
     },
-    // The settings rows at the top read the snapshot too, so they belong in the
-    // signature — a toggle that did not redraw would read as a press that
-    // didn't land, and the honest test of a switch is that it moved.
-    live: (ui) => `${Math.floor(ui._cash ?? 0)}:${JSON.stringify(ui.state?.orders ?? null)}`,
-    // Tabbed by what you should DO about a thing, not by where it has to live.
-    //
-    // Frozen / Fresh / Keeps answered "do I have somewhere to put this", which
-    // is a real question and the wrong one to organise a shop around: it splits
-    // the catalogue three ways and leaves every tab a flat alphabet you scroll
-    // hunting for the thing you meant. It also said the same word on every row
-    // in a department, so the list carried no information at the point you were
-    // reading it.
-    //
-    // These four are a queue of work instead. `grouped` puts a row in the FIRST
-    // bucket that takes it, so an item appears exactly once, in the most urgent
-    // thing that is true of it — deal with Short, then Wanted, then glance at
-    // what you hold, and Rest is the catalogue you were browsing before. Where
-    // it lives has not gone away; it moved onto the row, where it can be a
-    // warning about THIS item rather than a heading over forty.
-    rows: (ui) => [...grouped(itemRows(ui), [
-      {
-        label: 'Short',
-        icon: ICONS.trouble,
-        test: (r) => r.short,
-      },
-      {
-        label: 'Wanted',
-        icon: ICONS.report,
-        // Hot and you have none of it. Hot and well stocked is not a job.
-        test: (r) => r.hot && r.held <= 0,
-      },
-      { label: 'Stocked', icon: ICONS.crate, test: (r) => r.held > 0 },
-      { label: 'Rest', icon: ICONS.shop },
-    ]), ...orderRows(ui)],
-    foot: () => 'Lands at the bay as a pallet.',
+    /**
+     * Everything the rows read, and nothing that merely ticks.
+     *
+     * The settings rows read the snapshot, so they belong here — a toggle that
+     * did not redraw would read as a press that didn't land, and the honest
+     * test of a switch is that it moved. So does what is on the shelves, which
+     * only ever redrew by accident before: the count column moves when a
+     * stocker fills a board, and it was `Math.floor(cash)` changing at the till
+     * that happened to repaint it.
+     *
+     * The pending list is spelled out field by field rather than stringified
+     * whole, and the field it deliberately leaves out is `in` — seconds still
+     * to wait, which moves every tick. `JSON.stringify(orders)` picks it up,
+     * and a signature that never settles repaints forty rows ten times a second
+     * for the entire six hours an order is in flight. Nothing on screen prints
+     * seconds; what the rows say is the hour, so the hour is what is watched.
+     */
+    live: (ui) => {
+      const o = ui.state?.orders ?? {};
+      const van = (o.pending ?? []).map((p) => `${p.item_id}${p.qty}@${p.at}${p.onVan ? '!' : ''}`);
+      const shelved = (ui.state?.shelves ?? [])
+        .flatMap((s) => (s.stacks ?? []).map((k) => `${k.item_id}${k.qty}`));
+      return [
+        // `spent` to the cent, unlike the till: it only moves when an order is
+        // placed, so it cannot be the thing that never settles, and the cap row
+        // prints it to the cent.
+        Math.floor(ui._cash ?? 0), o.auto, o.assign, o.budget, o.spent,
+        o.bayRoom, JSON.stringify(o.items ?? null), van.join(','), shelved.join(','),
+      ].join('|');
+    },
+    rows: stockRows,
+    foot: stockFoot,
   },
 
   {
@@ -1070,7 +1353,14 @@ export const SECTIONS = [
         { sep: 'Going wrong', icon: ICONS.trouble },
         stat('Walked out', String(st.abandoned ?? 0), 'queued too long or could not find it'),
         stat('Found nothing', String(st.leftEmpty ?? 0), 'came in, shelf was bare'),
-        stat('Spoiled', String(st.spoiled ?? 0), 'sat out past its shelf life'),
+        // The VALUE is the headline and the count is the caption, which is the
+        // other way round from how this read for as long as it has existed. A
+        // shop binning 47 units has no idea whether that mattered; a shop
+        // binning $61.40 knows immediately, because it is the same unit as
+        // every other number on this panel. Nothing is deducted for it — that
+        // money left when the stock was bought — so this is where it gets said.
+        stat('Binned', money(st.spoiledValue ?? 0),
+          `${st.spoiled ?? 0} unit${(st.spoiled ?? 0) === 1 ? '' : 's'} past their shelf life`),
 
         { sep: 'The shop', icon: ICONS.shop },
         stat('Shelves', `${shelves.filter((x) => (x.stacks ?? []).some((k) => k.qty > 0)).length} / ${shelves.length}`, 'holding something'),
@@ -1121,7 +1411,7 @@ export const SECTIONS = [
       { sep: 'Building', icon: ICONS.build },
       { name: 'Build mode', sub: 'tap ground to place, tap a fixture to open', right: 'G', plain: true },
       { name: 'Turn a fixture', sub: 'a quarter turn', right: 'R', plain: true },
-      { name: 'Bottom bar', sub: 'the open tab while building, seeds otherwise', right: '1–9', plain: true },
+      { name: 'Bottom bar', sub: 'the open tab — nothing with the bar down', right: '1–9', plain: true },
       { name: 'Next tab', sub: 'every tab in turn, and every part of a split one', right: 'Tab', plain: true },
     ],
   },

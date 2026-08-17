@@ -11,9 +11,10 @@ import * as THREE from 'three';
 import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, edgeBands, jitter, faceColor, patternColor } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
-  buildBubble, buildCashDrop,
-  buildHopperSlots,
-  buildTextSprite, buildPallet, CRATE_STEP, buildProgressRing, setRingProgress, buildGhost,
+  buildBubble, buildCashDrop, buildVehicle,
+  buildStationBays,
+  buildTextSprite, setTextSprite, buildMoneyLabel, moneySaid,
+  buildPallet, CRATE_STEP, buildProgressRing, setRingProgress, buildGhost,
   buildSoil, buildFixtureGhost, buildTargetMarker, buildWorkSpot, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
   buildRipple,
@@ -26,10 +27,11 @@ import {
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { Lights, emittersIn } from './lights.js';
 import {
-  isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, surfacesAt, drawableBoards,
-  variantModel, skinKey,
+  isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
+  variantModel, variantWork, skinKey,
 } from '../../shared/model.js';
 import { buildPastimeProp, animateRest } from './pastime.js';
+import { buildLoopingProp, animatePuffs, animateMotion } from './motion.js';
 
 /** How many world tiles fit vertically on screen at 1× zoom. Smaller = closer in. */
 const FRUSTUM = 17;
@@ -41,6 +43,9 @@ const FRUSTUM = 17;
  * pickTile and pickFixture keep working at any zoom without knowing it exists.
  */
 const RING_Y = 1.2;           // charge ring height — just clear of a head at 0.96
+/** Where a pile of takings sits: on the counter, not inside it. Its label
+ *  hangs a fixed distance over the same spot, so the two cannot drift apart. */
+const CASH_Y = 0.95;
 const ZOOM_MIN = 0.7;         // wider than the old fixed view, for finding things
 const ZOOM_MAX = 2.4;         // close enough to read a single shelf
 const ZOOM_DEFAULT = 1.45;    // ~12 tiles tall: the shop, not the whole county
@@ -171,6 +176,20 @@ const GROUND_STRETCH = BASE_CAM_OFFSET.length() / BASE_CAM_OFFSET.y;
 /** How far the view may be shoved off the player it follows, in tiles. */
 const PAN_LIMIT = 14;
 
+/**
+ * How fast the keys fly the view in build mode, in tiles a second at zoom 1.
+ *
+ * Divided by zoom where it is used, so it is a *screen* speed: the view crosses
+ * the frustum in about a second and a half however far out you are, which is
+ * the same relationship a drag has and the one the eye is expecting.
+ */
+const FLY_SPEED = 14;
+
+/** How far past the edge of the world the free camera may look, in tiles. */
+const FLY_MARGIN = 3;
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
 /** Scratch for aiming readouts at the camera, so no frame allocates one. */
 const YAW_Q = new THREE.Quaternion();
 
@@ -238,7 +257,70 @@ const LAND_SQUASH = 0.24;
  */
 const STAMP_MAX = 4;
 
+/**
+ * What the one lorry is filed under.
+ *
+ * `snapshot().van` is a field rather than a row in a list, because there is one
+ * delivery run at a time — so it has no id of its own, and the map that holds
+ * every drawn vehicle needs one. A literal that cannot collide with a customer
+ * id, which is what every other key in that map is.
+ */
+const VAN_ID = '@van';
 
+/**
+ * How fast a drawn vehicle chases where the server says it is, and how fast it
+ * comes round to which way it is pointing. Both per second.
+ *
+ * Vehicles are eased per FRAME rather than per snapshot, which is the one place
+ * they differ from people, and the reason is speed. State lands at 10Hz and
+ * `syncActors` lerps toward it there, so a shopper at 1.6 tiles/second advances
+ * in sixth-of-a-tile hops six frames apart — small enough that nobody has ever
+ * noticed. A lorry at 3.2 does twice that in the same hop, along a straight
+ * open lane with nothing beside it, which is where a judder is most visible. So
+ * this is the same argument the bobbing markers make in `render`: something
+ * that only moves ten times a second reads as the renderer stuttering.
+ *
+ * The turn is deliberately slower than the chase. `vanRoute` is straight legs
+ * with a right angle in the middle of them, so `facing` snaps a quarter turn
+ * between two ticks; easing it is what makes that read as a lorry going round a
+ * corner rather than as the mesh being swapped for a different one.
+ */
+const VEHICLE_CHASE = 9;
+const VEHICLE_TURN = 5;
+
+/**
+ * Which way to turn a vehicle so its nose points where it is going.
+ *
+ * Two conventions meet here and neither of them is wrong. A model is authored
+ * FACING EAST — nose at +x, length along x — which is the convention every
+ * fixture is drawn in and the one `buildFixtureGhost` turns by. A body's
+ * `facing` is `Math.atan2(dx, dz)`, which is a +z-forward reading: setting
+ * `rotation.y = facing` swings local +z onto the heading, and that is right for
+ * a character because its nose is a nub on +z.
+ *
+ * A quarter turn is the whole difference between them. Worth its own function
+ * with its own name because getting it wrong is not subtle in principle and is
+ * very subtle in practice: a van is nearly symmetric front to back at this
+ * scale and this zoom, so a lorry driving sideways up the border ring still
+ * reads as a lorry — a slightly odd one, in a way you would blame on the art.
+ */
+const vehicleYaw = (facing) => (Number(facing) || 0) - Math.PI / 2;
+
+/**
+ * The shorter way round from one angle to another, in radians, −π..π.
+ *
+ * The double modulo is not superstition. JavaScript's `%` keeps the sign of the
+ * *dividend*, so the one-line version of this returns a number below −π
+ * whenever the gap happens to be negative enough — and it is only ever that
+ * negative when a yaw has wandered a long way from its target, which is exactly
+ * the case where an answer outside the range spins the lorry the wrong way. It
+ * cannot happen with the angles this is handed today, and "cannot happen today"
+ * is how a function ends up wrong the day something else grows a heading.
+ */
+function turnTo(from, to) {
+  const TAU = Math.PI * 2;
+  return (((to - from + Math.PI) % TAU) + TAU) % TAU - Math.PI;
+}
 
 /** Day-cycle endpoints, resolved once so syncState allocates nothing. */
 const SKY_HIGH = new THREE.Color(PALETTE.sky);
@@ -290,6 +372,10 @@ export class Scene {
     // allocating a vector every frame.
     this.camPan = new THREE.Vector3();
     this.camAim = new THREE.Vector3();
+    // Whether that pan is bounded by the world rather than by a radius around
+    // the player — build mode, where the view has to reach places nobody can
+    // stand. See `setFreeRoam`.
+    this.freeRoam = false;
     // What angle the readouts were last aimed at, and whether anything has
     // been built since. Both, because there are two ways to go stale: the
     // camera turns under the existing ones, or a new one is born while the
@@ -324,10 +410,28 @@ export class Scene {
     this.players = new Map();
     this.customers = new Map();
     this.stationProps = new Map();
+    // The parts of built fixtures that move under their own steam — a blade, a
+    // lever, a fan. Kept as its own index rather than walked out of `staticRoot`
+    // every frame, because that is the whole shop and almost none of it moves.
+    // Filled by `addFixtureProps` and therefore emptied by it too: the meshes in
+    // here belong to groups that a re-flow disposes.
+    this.movingFixtures = new Map();
     this.shelfProps = new Map();
     this.plotProps = new Map();
     this.cashProps = new Map();
+    // One label per TILE of money rather than one per pile — see
+    // `syncCashLabels`. Keyed by tile for the same reason: the piles under it
+    // are picked up one at a time, and a readout that belonged to one of them
+    // would leave with it while the rest of the money was still sitting there.
+    this.cashLabels = new Map();
     this.deliveryProps = new Map();
+    // The lorry on its run and the cars in the car park, in one map, because
+    // they are one thing — see `syncVehicles`. In `actorRoot` with the other
+    // props, and NOT cleared by `buildWorld`: a vehicle is positioned from the
+    // snapshot rather than from the layout, so a re-flow neither moves one nor
+    // renumbers it, which is what `clearFixtureProps` exists to cope with for
+    // the props that are hung off a fixture id.
+    this.vehicleProps = new Map();
     this.actionRings = new Map();
     this.catalog = { items: {}, crops: {} };
     this.layoutVersion = -1;
@@ -454,6 +558,64 @@ export class Scene {
     const away = dyPx * upp * GROUND_STRETCH;
     this.camPan.x += rx * across + fx * away;
     this.camPan.z += rz * across + fz * away;
+    return this.clampPan();
+  }
+
+  /**
+   * Fly the view itself, from a direction the keys named, for `dt` seconds.
+   *
+   * The build camera. It moves `camPan` exactly as a drag does — same offset,
+   * same follow underneath, same one line to let go of it — so the two can be
+   * used in the same breath without either snatching the view off the other.
+   *
+   * `dx`/`dz` arrive already turned by whatever quarter the view is on, and are
+   * normalised here so a diagonal is not 1.4× faster than a straight line.
+   */
+  flyBy(dx, dz, dt) {
+    if (!dx && !dz) return this.camPan;
+    const len = Math.hypot(dx, dz) || 1;
+    const step = (FLY_SPEED / this.camZoom) * dt;
+    this.camPan.x += (dx / len) * step;
+    this.camPan.z += (dz / len) * step;
+    return this.clampPan();
+  }
+
+  /**
+   * Take the view off the leash, or put it back on.
+   *
+   * The leash is what makes the follow camera a follow camera, and build mode
+   * is the one time it is wrong: the whole reason the view needs to move there
+   * is to reach somewhere you cannot stand — a room you have just sealed, the
+   * far side of the fence, the end of a grown farm — and a radius around your
+   * body cannot express that. So while building, the world is the limit.
+   *
+   * Putting it back on re-clamps, which matters: leaving build mode from the
+   * far end of the farm would otherwise leave you playing somebody who is off
+   * screen. The glide back is free, because `camLook` eases toward its aim.
+   */
+  setFreeRoam(on) {
+    if (this.freeRoam === !!on) return;
+    this.freeRoam = !!on;
+    this.clampPan();
+  }
+
+  /**
+   * Hold the view inside whichever bound is in force. One place, because both
+   * ways of moving it write the same field — a fly that clamped to the world
+   * and a drag that clamped to the leash would fight over every frame.
+   */
+  clampPan() {
+    const L = this.storeLayout;
+    if (this.freeRoam && L) {
+      // Per-axis and against the map, so the corners of a rectangular world are
+      // all reachable. Aimed at where the view ENDS UP (`camTarget + camPan`),
+      // because the bound is a fact about the world and the pan is measured
+      // from a body that could be standing anywhere in it.
+      const lo = -FLY_MARGIN;
+      this.camPan.x = clamp(this.camPan.x, lo - this.camTarget.x, L.w + FLY_MARGIN - this.camTarget.x);
+      this.camPan.z = clamp(this.camPan.z, lo - this.camTarget.z, L.h + FLY_MARGIN - this.camTarget.z);
+      return this.camPan;
+    }
     // Far enough to see over the shop, not so far the person you are playing is
     // a rumour. Clamped as a radius rather than per-axis so a diagonal pan
     // doesn't reach 1.4× further than a straight one.
@@ -636,6 +798,13 @@ export class Scene {
       // What a hire is wearing, keyed the same way, and cleared by the same
       // sweep below — a skin recoloured over MCP repaints whoever has it on.
       skins: Object.fromEntries((catalog.skins ?? []).map((s) => [s.id, s])),
+      // A van and a car are drawn from their own rows too, and looked up by the
+      // id the snapshot sends rather than by `use` — which vehicle turns up is
+      // the sim's decision (`vehicleFor`), and the renderer draws whichever one
+      // it was told about. Asking `use` here would be a second, quieter answer
+      // to that question, and the two would disagree the day somebody authors a
+      // bigger lorry.
+      vehicles: Object.fromEntries((catalog.vehicles ?? []).map((v) => [v.id, v])),
       // Kept as a list, not keyed: what an appliance shows is chosen by looking
       // across every recipe its kind can make, not by looking one up.
       recipes: catalog.recipes ?? [],
@@ -646,7 +815,15 @@ export class Scene {
     // ...including the people already on shift, so a worker kind redrawn over
     // MCP reaches the ones you have rather than only the next one you hire.
     for (const [, rec] of this.players) rec.key = null;
-    for (const [, rec] of this.stationProps) rec.key = null;
+    // Both props on an appliance: the ingredient row, and what it looks like
+    // while it runs. A working look redrawn over MCP should reach the machine
+    // that is running right now, not the next batch.
+    for (const [, rec] of this.stationProps) { rec.key = null; rec.workKey = null; }
+    // ...and the van that is on the road while you are drawing it. A vehicle is
+    // on screen for about six seconds a run, so "it'll be right next time" is a
+    // worse answer here than anywhere else in this sweep — the next time is six
+    // in-game hours away, and by then nobody is watching the bay.
+    for (const [, rec] of this.vehicleProps) rec.key = null;
     // Fixtures are built with the world, so redrawing one means redrawing that.
     // This also covers the ordinary boot order: the catalog usually lands after
     // the first layout, and without it the shop would be furnished with the
@@ -893,6 +1070,11 @@ export class Scene {
       if (landed.size > STAMP_MAX) landed = new Set();
     }
 
+    // Every mesh in here was built against the shop we are about to replace.
+    // Emptied before the loop rather than in `buildWorld` so that the one place
+    // that fills it is the one place that clears it.
+    this.movingFixtures.clear();
+
     for (const f of fixturesIn(L)) {
       const model = this.fixtureModel(f);
       // A fixture nobody has drawn used to be a coloured tile block, because it
@@ -915,6 +1097,13 @@ export class Scene {
       prop.userData.pick = true;
       this.staticRoot.add(prop);
       if (landed.has(f.id)) this.land(prop, f.x, f.z);
+      // Anything authored with `motion`. Two identical machines side by side
+      // would otherwise beat in perfect unison, which reads as one animation
+      // playing twice rather than as two machines — so each gets a fixed offset
+      // out of where it stands, which survives a re-flow the way its id does.
+      if (prop.userData.moving?.length) {
+        this.movingFixtures.set(f.id, { moving: prop.userData.moving, phase: (f.x * 0.31 + f.z * 0.17) % 1 });
+      }
     }
 
     // Lamps. Rebuilt with the world because a light is a position, and the
@@ -954,7 +1143,27 @@ export class Scene {
   carriesOn(byTile, f, step) {
     const d = turn(step, f.rot ?? 0);
     const n = byTile.get(`${f.x + d.dx},${f.z + d.dz}`);
-    return !!n && n.kind === f.kind && rot4(n.rot ?? 0) === rot4(f.rot ?? 0);
+    if (!n || n.kind !== f.kind) return false;
+    if (rot4(n.rot ?? 0) === rot4(f.rot ?? 0)) return true;
+    // ...or the row TURNS here. A corner unit stands at a different rot to the
+    // run butting into it — that is what makes it a corner — so a same-rot test
+    // called every run beside one an end, and every row in the shop grew a panel
+    // where it met the corner it was supposed to flow into.
+    return this.turnsCorner(n);
+  }
+
+  /**
+   * Does this unit carry shelving on BOTH axes — is it a corner?
+   *
+   * Read off the art rather than off the variant's name, the same argument
+   * `seamStep` and `drawableBoards` make: an L is a unit with boards running
+   * one way and boards running the other, and that is visible in the boxes
+   * somebody drew. A name test would answer "no" for the next corner design
+   * anybody authors under a different id.
+   */
+  turnsCorner(f) {
+    const boards = surfacesAt(this.fixtureModel(f), this.fixtureT(f));
+    return boards.some((b) => b.depth >= b.span) && boards.some((b) => b.span > b.depth);
   }
 
   /** A striped awning over the shop door — pure decoration, sells the vibe. */
@@ -1081,15 +1290,34 @@ export class Scene {
   // -------------------------------------------------------------------------
 
   syncState(state, myId) {
+    /**
+     * Whether the world is stopped, which the renderer has to be told rather
+     * than able to work out.
+     *
+     * Everything else in here is a function of the snapshot, so a paused world
+     * freezes for free — a body that does not move arrives at the same place ten
+     * times a second. The exception is `animateStations`, which is the one loop
+     * driven by the PAGE's clock instead of the shop's, precisely so a blade
+     * turns at 60fps off a flag that arrives at 10Hz. Left alone it keeps
+     * turning in stopped time, which reads as the pause having failed.
+     */
+    this.paused = !!state.paused;
     // Kept for `pickPerson`: the records hold the meshes, and the answer has to
     // be the person, not the group they are drawn as.
     this.playerState = state.players;
+    // Stashed on the scene rather than threaded through every sync that wants
+    // it: how much a crate holds is a property of the shop, like the catalog,
+    // and it is read by two renderers at different depths. Set BEFORE the actor
+    // pass, which is the one that would otherwise key a carried crate against
+    // `undefined` on the first frame and redraw it on the second.
+    this.crateCap = state.crateCap ?? 6;
     this.syncActors(state.players, this.players, (p) => this.buildActor(p), (p) => actorKey(p));
     this.syncActors(state.customers, this.customers, (c) => buildCharacter(c.color));
     this.syncShelves(state.shelves);
     this.syncPlots(state.plots);
     this.syncCashDrops(state.cashDrops ?? []);
-    this.syncDeliveries(state.deliveries ?? []);
+    this.syncDeliveries(state.deliveries ?? [], this.crateCap);
+    this.syncVehicles(state.van ?? null, state.cars ?? []);
     this.syncStations(state.stations ?? []);
     this.syncActionRings(state.players, myId);
     this.syncLifted(state.players.find((p) => p.id === myId));
@@ -1150,6 +1378,7 @@ export class Scene {
         this.actorRoot.add(obj);
         rec = {
           obj, key, bubble: null, bubbleKey: null, carry: null, carryKey: null,
+          haul: null, haulKey: null,
           // The break: the prop, which stage of it is built, whether they are
           // on one, and how far the body has eased into the slump. `phase` is
           // per-person and stable, so two hires sat on the same step don't
@@ -1180,6 +1409,13 @@ export class Scene {
       // go through one sync as a list of lines rather than growing a second
       // renderer that would drift from this one.
       this.syncCarry(rec, a.carry ? [a.carry] : (a.basket ?? null));
+      // ...and the box, which is the third spelling and deliberately not part
+      // of that one. A crate is not "some goods held in a different pose" — it
+      // is the container itself, drawn from the same `buildPallet` that draws
+      // it standing in the yard, so setting one down is visibly the same object
+      // arriving on the floor. Routed through `carry`'s list it would have come
+      // out as twelve loose tomatoes at chest height.
+      this.syncHaul(rec, a.haul ?? null, this.crateCap);
       this.syncPastime(rec, a);
     }
     for (const [id, rec] of map) {
@@ -1219,9 +1455,9 @@ export class Scene {
     for (const d of drops) {
       seen.add(d.id);
       if (this.cashProps.has(d.id)) continue;
-      const obj = buildCashDrop(d.amount);
+      const obj = buildCashDrop();
       // Sit on top of the till rather than inside it.
-      obj.position.set(d.x, 0.95, d.z);
+      obj.position.set(d.x, CASH_Y, d.z);
       obj.userData.born = performance.now();
       this.actorRoot.add(obj);
       this.cashProps.set(d.id, obj);
@@ -1231,6 +1467,60 @@ export class Scene {
       this.actorRoot.remove(obj);
       disposeGroup(obj);
       this.cashProps.delete(id);
+    }
+    this.syncCashLabels(drops);
+  }
+
+  /**
+   * One number per tile, not one per sale.
+   *
+   * A pile carried its own `+$4.20`, which is right for the first sale and
+   * wrong for the fourth: the server fans successive drops across a third of a
+   * tile so they read as several piles rather than one, and from this camera
+   * that turns four labels into a column of arithmetic standing over a till —
+   * four numbers where the only question anybody has is *how much is on that
+   * counter*. So the piles stay several and the readout becomes one, which is
+   * the call `buildPallet` already made about a stack of crates.
+   *
+   * Keyed by tile rather than by the drop that happens to be nearest it,
+   * because the drops under one label come and go: a sale lands, somebody walks
+   * over half the pile, and a label that belonged to one of them would vanish
+   * with money still sitting there. Rewritten in place through `setTextSprite`
+   * rather than rebuilt, since the number moves on every sale and a sprite
+   * costs a canvas, a texture and a material each time.
+   */
+  syncCashLabels(drops) {
+    const totals = new Map();
+    for (const d of drops) {
+      const x = Math.round(d.x);
+      const z = Math.round(d.z);
+      const key = `${x}:${z}`;
+      const at = totals.get(key) ?? { x, z, total: 0 };
+      at.total += d.amount ?? 0;
+      totals.set(key, at);
+    }
+
+    for (const [key, at] of totals) {
+      let sprite = this.cashLabels.get(key);
+      if (!sprite) {
+        sprite = buildMoneyLabel(at.total);
+        // Over the middle of the tile, not over any one pile: the fan is a look
+        // and the tile is the thing being totalled.
+        sprite.position.set(at.x, CASH_Y + 0.5, at.z);
+        this.actorRoot.add(sprite);
+        this.cashLabels.set(key, sprite);
+      }
+      // Handed the total every sync whether or not it moved — `setTextSprite`
+      // returns early when the string is the one already painted, which is what
+      // makes calling it unconditionally the cheap thing to do.
+      setTextSprite(sprite, moneySaid(at.total));
+    }
+
+    for (const [key, sprite] of this.cashLabels) {
+      if (totals.has(key)) continue;
+      this.actorRoot.remove(sprite);
+      disposeGroup(sprite);
+      this.cashLabels.delete(key);
     }
   }
 
@@ -1253,7 +1543,7 @@ export class Scene {
    * the only ordering that stays put — the snapshot's array order changes as
    * crates are taken and the tower must not shuffle underneath your pointer.
    */
-  syncDeliveries(deliveries) {
+  syncDeliveries(deliveries, cap = 6) {
     const seen = new Set();
     const stacks = new Map();
     for (const d of deliveries) {
@@ -1274,7 +1564,10 @@ export class Scene {
       const covered = at < (height.get(d.id) ?? 1) - 1;
       // The level is part of the key: taking the top crate off has to redraw the
       // one under it, which is uncovered now and owes you a look at its goods.
-      const key = `${d.item_id}:${d.qty}:${at}:${covered ? 'c' : 'o'}`;
+      // `cap` is part of the key for the same reason `qty` is: buying a
+      // rucksack moves what a crate holds, so every crate standing in the yard
+      // is suddenly a different share of full and owes you a redraw.
+      const key = `${d.item_id}:${d.qty}/${cap}:${at}:${covered ? 'c' : 'o'}`;
       const existing = this.deliveryProps.get(d.id);
       if (existing && existing.userData.key === key) continue;
       if (existing) {
@@ -1282,7 +1575,7 @@ export class Scene {
         disposeGroup(existing);
       }
       const item = this.catalog.items[d.item_id];
-      const obj = buildPallet(item?.model ?? null, d.qty, { covered, name: item?.name ?? '' });
+      const obj = buildPallet(item?.model ?? null, d.qty, { covered, name: item?.name ?? '', cap });
       obj.position.set(d.x, at * CRATE_STEP, d.z);
       // A hand's turn per crate, so a tower reads as boxes somebody put there
       // rather than as one extruded box, and each one's edges stay findable to
@@ -1309,79 +1602,325 @@ export class Scene {
   }
 
   /**
-   * Which recipe an appliance is working toward.
+   * Everything with wheels: the lorry on its delivery run, and the cars of
+   * whoever drove here to shop.
    *
-   * A blender knows two, so "the first one" would have a machine half-loaded
-   * with tomatoes advertising the ingredients for a smoothie. The one it is
-   * closest to being able to make is the one you are actually part-way through,
-   * and it flips over to the other as soon as you put a different thing in.
+   * **One sync for both, because they are one thing** — a `vehicles` row
+   * standing at a position, pointing somewhere. Every difference between them
+   * is in the data rather than in the drawing: the van arrives as a single
+   * field because there is one run at a time, the cars as a list because there
+   * are as many as there are painted spaces, and the van carries a `load` where
+   * a car does not. Neither this function nor `buildVehicle` can tell you which
+   * one it is holding, and that is the test that the split is honest — the day
+   * somebody authors a second `use`, it turns up here already drawn.
+   *
+   * Nothing about a van's *look* is decided here. The model comes off the row
+   * the snapshot named, the stage comes off how full it is, and the fallback
+   * for a row that has gone lives in `buildVehicle`. A renderer that knew what
+   * a delivery van looks like would be the "a picture of a thing has to come
+   * from the thing" mistake with a windscreen — and it would be the expensive
+   * version of it, because the whole point of `vehicles` being content is that
+   * a kid can draw a lorry.
+   *
+   * `phase` is deliberately not read. It says 'in' | 'unload' | 'out' so a
+   * renderer could hold the thing still with its doors open rather than having
+   * to notice it stopped moving — but the van already stops moving, and its
+   * doors are three authored stages of `load`, which runs to zero over exactly
+   * the pause `phase` describes. Two spellings of one fact is how the picture
+   * and the state come apart; if something ever needs the phase it should need
+   * it for a reason `load` cannot express.
    */
-  stationRecipe(st) {
-    const mine = (this.catalog.recipes ?? []).filter((r) => r.station === st.station);
-    if (!mine.length) return null;
-    if (st.making) return mine.find((r) => r.id === st.making) ?? mine[0];
+  syncVehicles(van, cars) {
+    const seen = new Set();
+    // The lorry first, under a key of its own — see `VAN_ID`. Concatenated
+    // rather than looped over twice, because everything below is the same three
+    // lines for either of them and a second copy is a second place to fix.
+    const all = van ? [{ id: VAN_ID, ...van }] : [];
+    for (const c of cars ?? []) all.push(c);
 
-    const shortfall = (r) => r.inputs
-      .reduce((n, i) => n + Math.max(0, i.qty - (st.contents?.[i.item_id] ?? 0)), 0);
-    return mine.slice().sort((a, b) => shortfall(a) - shortfall(b))[0];
+    for (const v of all) {
+      seen.add(v.id);
+      const model = this.catalog.vehicles?.[v.vehicle]?.model ?? null;
+      // How loaded it is, which is the 0..1 a staged model wants. A car sends
+      // no `load` at all and reads as full, which is the right answer for
+      // anything unstaged and the honest one for a boot with the shopping in it.
+      const t = Math.min(1, Math.max(0, v.load ?? 1));
+      // Keyed on the STAGE rather than on the load. `load` runs down
+      // continuously across the unload pause, so keying on it would rebuild a
+      // group of meshes ten times a second for a picture that has not changed —
+      // the same cache `syncStationWork` and the crops keep. The row id is in
+      // there too so a van and a car never share a body by accident.
+      const key = `${v.vehicle}:${model ? stageIndexAt(model, t) : 'none'}`;
+
+      let rec = this.vehicleProps.get(v.id);
+
+      if (!rec) {
+        // The record is the DRAWN state — where the body has eased to and which
+        // way it has come round to — kept apart from the group because the group
+        // is thrown away and rebuilt every time the load crosses a stage.
+        //
+        // A new one starts exactly where the server says, never eased in from
+        // wherever the last vehicle happened to be. A parked car does not
+        // arrive: it is simply there, at a facing worked out once when its
+        // driver claimed the space, so one that rolled into place and swung
+        // round to face the door would be inventing a manoeuvre that never
+        // happened. The van sets off eight tiles off the map (`lane.in[0]`), so
+        // it is doing this out of sight either way.
+        const yaw = vehicleYaw(v.facing);
+        rec = { obj: null, key: null, x: v.x, z: v.z, yaw, tyaw: yaw };
+        this.vehicleProps.set(v.id, rec);
+      }
+
+      if (rec.key !== key) {
+        // Restaged, or drawn for the first time. **Rebuilt where it stands**,
+        // not where the server says it is: a stage change is the load crossing
+        // a threshold, which happens with the body still easing toward the
+        // dock, and taking the target as the new position would be the lorry
+        // jumping forward at the exact moment you are watching it unload.
+        // `rec` carries the drawn state across the swap, which is most of why
+        // it exists at all — the group is a thing this throws away.
+        const at = rec.obj ? rec.obj.position.clone() : new THREE.Vector3(v.x, 0, v.z);
+        if (rec.obj) {
+          this.actorRoot.remove(rec.obj);
+          disposeGroup(rec.obj);
+        }
+        rec.obj = buildVehicle(model, { t });
+        rec.obj.position.copy(at);
+        rec.obj.rotation.y = rec.yaw;
+        this.actorRoot.add(rec.obj);
+        rec.key = key;
+      }
+
+      // Where it is going, re-read every sync rather than only at creation.
+      // Stashed as a target rather than applied, because the chase toward it
+      // runs per frame — see `animateVehicles`.
+      rec.x = v.x;
+      rec.z = v.z;
+      rec.tyaw = vehicleYaw(v.facing);
+    }
+
+    for (const [id, rec] of this.vehicleProps) {
+      if (seen.has(id)) continue;
+      this.actorRoot.remove(rec.obj);
+      disposeGroup(rec.obj);
+      this.vehicleProps.delete(id);
+    }
   }
 
   /**
-   * What each appliance is waiting for, floating above it.
+   * Chase every vehicle toward where the server last put it.
+   *
+   * An exponential chase against `dt` rather than a fixed fraction per frame,
+   * so a van crosses the yard at the same rate on a 144Hz screen as on a 30Hz
+   * one — the fraction is whatever the frame length makes it. See
+   * `VEHICLE_CHASE` for why this is per frame at all when people are not.
+   *
+   * The turn takes the short way round (`turnTo`), which is what stops a lorry
+   * whose heading crosses π from unwinding the long way about — a full spin on
+   * the spot at the one corner of the route, and only at that corner, which is
+   * the kind of bug you see once and cannot reproduce because it depends on
+   * which way the bay faces.
+   */
+  animateVehicles(dt) {
+    if (!this.vehicleProps.size) return;
+    const move = 1 - Math.exp(-dt * VEHICLE_CHASE);
+    const turn = 1 - Math.exp(-dt * VEHICLE_TURN);
+    for (const rec of this.vehicleProps.values()) {
+      rec.obj.position.x += (rec.x - rec.obj.position.x) * move;
+      rec.obj.position.z += (rec.z - rec.obj.position.z) * move;
+      rec.yaw += turnTo(rec.yaw, rec.tyaw) * turn;
+      rec.obj.rotation.y = rec.yaw;
+    }
+  }
+
+  /**
+   * Which recipe an appliance is set to.
+   *
+   * Off the snapshot, which is the server's own answer — this used to guess,
+   * because there was nothing to read: a machine ran whichever recipe its hopper
+   * happened to satisfy, so the bays showed the one it was CLOSEST to making and
+   * flipped to the other as you loaded it. A row of ingredients that changes
+   * while you are fetching them is a machine arguing with you.
+   *
+   * The fallback to the first recipe mirrors `Game.stationRecipe` for the one
+   * tick a client can be ahead of the content it is drawing.
+   */
+  stationRecipe(st) {
+    const mine = (this.catalog.recipes ?? []).filter((r) => r.station === st.station);
+    return mine.find((r) => r.id === st.recipe) ?? mine[0] ?? null;
+  }
+
+  /**
+   * What each appliance takes in and what it has put out, stood on the machine.
    *
    * A coffee machine with no milk looks exactly like one about to run, and the
    * only way to tell them apart was to enter build mode and read a text panel
-   * that lists recipe *names* and not their ingredients. So the ingredients
-   * hang over the machine instead — see `buildHopperSlots`.
+   * that lists recipe *names* and not their ingredients. The first answer was a
+   * row of sockets floating over the machine, and it was the wrong picture
+   * twice: an ingredient and the thing being made were the same kind of icon in
+   * the same place, and one icon meant one ingredient however many of it a
+   * batch actually wanted. So the machine wears it instead, in the two places
+   * that say which is which — in at the back, out at the front. See
+   * `buildStationBays`.
    *
-   * Nothing is shown while it's mid-cycle or holding a finished batch: those
-   * are their own states, and a row of ghosts over a working machine is noise.
+   * The three states are now three different pictures rather than one picture
+   * and its absence. Idle: what it wants, ghosted where it is short. Running:
+   * the ingredients are inside it, so the bays go and the *bar* comes up. Done:
+   * the batch is standing on the outlet pad, which is a thing to walk over for
+   * rather than a line in a panel nobody has open.
    */
   syncStations(stations) {
     const seen = new Set();
 
     for (const st of stations) {
       seen.add(st.id);
-      const busy = Boolean(st.making || st.output);
-      const recipe = busy ? null : this.stationRecipe(st);
-      const slots = (recipe?.inputs ?? []).map((i) => ({
+      const making = Boolean(st.making);
+      const recipe = this.stationRecipe(st);
+      // Nothing while it runs: what it was short of went in when the batch
+      // started, so a bay drawn now is a red pad on a machine doing its job.
+      const intakes = making ? [] : (recipe?.inputs ?? []).map((i) => ({
         model: this.catalog.items[i.item_id]?.model ?? null,
-        ready: (st.contents?.[i.item_id] ?? 0) >= i.qty,
+        need: i.qty,
+        held: st.contents?.[i.item_id] ?? 0,
       }));
+      const outlet = st.output
+        ? { model: this.catalog.items[st.output.item_id]?.model ?? null, qty: st.output.qty }
+        : null;
 
       // Rebuilt only when what it says changes, but repositioned every sync —
       // an appliance you move in build mode has to take its readout with it.
-      const key = recipe
-        ? `${recipe.id}:${slots.map((s) => (s.ready ? 1 : 0)).join('')}`
-        : 'idle';
+      const key = [
+        recipe?.id ?? 'idle',
+        intakes.map((s) => `${Math.min(s.held, s.need)}/${s.need}`).join(','),
+        outlet ? `${st.output.item_id}x${outlet.qty}` : '',
+      ].join('|');
       let rec = this.stationProps.get(st.id);
-
-      if (!rec || rec.key !== key) {
-        if (rec?.group) {
-          this.actorRoot.remove(rec.group);
-          disposeGroup(rec.group);
-        }
-        const group = slots.length ? buildHopperSlots(slots) : null;
-        if (group) this.actorRoot.add(group);
-        rec = { key, group };
+      // Kept and updated in place rather than replaced, because there are three
+      // props on this record now and they change on different beats: the bays
+      // when the hopper does, the working prop when the batch crosses a stage,
+      // the bar ten times a second. Rebuilding the record for one drops the
+      // other two.
+      if (!rec) {
+        rec = { key: null, group: null, work: null, workKey: null, bar: null, making: false };
         this.stationProps.set(st.id, rec);
       }
 
-      if (rec.group) rec.group.position.set(st.x, this.stationSlotY(st), st.z);
+      if (rec.key !== key) {
+        if (rec.group) {
+          this.actorRoot.remove(rec.group);
+          disposeGroup(rec.group);
+        }
+        rec.group = buildStationBays({
+          intakes, outlet, bounds: this.stationBounds(st), wells: this.stationWells(st),
+        });
+        this.actorRoot.add(rec.group);
+        rec.key = key;
+      }
+
+      // Stood on the machine and turned with it, out of the layout rather than
+      // the snapshot — which appliance is which is state, but which way round it
+      // stands is the shop. Models are authored facing east, the same convention
+      // `addFixtureProps` uses, or the outlet ends up round the back.
+      rec.group.position.set(st.x, this.fixtureBaseY({ kind: 'station' }), st.z);
+      rec.group.rotation.y = -(this.stationRot(st)) * (Math.PI / 2);
+
+      // How far through the batch is, over the machine — the one reading a
+      // still frame can take that the moving parts cannot give you, since
+      // "spinning" says it is on and says nothing about how long is left.
+      if (making && !rec.bar) {
+        rec.bar = buildGrowthBar();
+        this.actorRoot.add(rec.bar);
+      } else if (!making && rec.bar) {
+        this.actorRoot.remove(rec.bar);
+        disposeGroup(rec.bar);
+        rec.bar = null;
+      }
+      if (rec.bar) {
+        rec.bar.position.set(st.x, this.stationSlotY(st), st.z);
+        setGrowthBar(rec.bar, st.progress ?? 0);
+      }
+
+      // Read every sync and *animated* every frame — the machine's own moving
+      // parts are driven off this, at 60fps, from a flag that arrives at 10.
+      rec.making = making;
+      this.syncStationWork(st, rec);
     }
 
     for (const [id, rec] of this.stationProps) {
       if (seen.has(id)) continue;
-      if (rec.group) {
-        this.actorRoot.remove(rec.group);
-        disposeGroup(rec.group);
+      for (const g of [rec.group, rec.work, rec.bar]) {
+        if (!g) continue;
+        this.actorRoot.remove(g);
+        disposeGroup(g);
       }
       this.stationProps.delete(id);
     }
   }
 
   /**
-   * Just clear of *this* appliance, so the row never sits inside one — measured
+   * The placed record behind a station in the snapshot.
+   *
+   * Which appliance is which and what it is doing is state, and arrives every
+   * tick. Which way round it stands and how far up its ladder it is belong to
+   * the shop, and live in the layout — so anything about the machine rather
+   * than about the batch comes from here.
+   */
+  placedStation(st) {
+    return (this.storeLayout?.stations ?? []).find((s) => s.id === st.id) ?? null;
+  }
+
+  /** Which way round this appliance stands. Models are authored facing east. */
+  stationRot(st) {
+    return this.placedStation(st)?.rot ?? 0;
+  }
+
+  /**
+   * What an appliance looks like while it is working, standing in its own model
+   * space so a puff authored at the spout comes out of the spout.
+   *
+   * Only ever there while it is mid-batch. Rebuilt when the batch crosses a
+   * stage and NOT before: `progress` moves every tick, and rebuilding a group of
+   * meshes ten times a second would churn geometry for a picture that has not
+   * changed — the same cache `syncCrops` keys off `stageIndexAt`.
+   *
+   * In `actorRoot` with the other readouts rather than parented to the machine,
+   * for the reason the ingredient row is: the fixture belongs to `staticRoot`,
+   * which a re-flow disposes wholesale, and build mode re-flows on every
+   * placement. So it is positioned and turned every sync instead, which is also
+   * what lets you pick a running machine up and carry it.
+   */
+  syncStationWork(st, rec) {
+    const model = st.making ? this.stationWorkModel(st) : null;
+    const t = model ? Math.min(1, Math.max(0, st.progress ?? 0)) : 0;
+    const key = model ? `${st.station}:${stageIndexAt(model, t)}` : '';
+
+    if (key !== rec.workKey) {
+      if (rec.work) {
+        this.actorRoot.remove(rec.work);
+        disposeGroup(rec.work);
+        rec.work = null;
+      }
+      if (model) {
+        rec.work = buildLoopingProp(partsAt(model, t), { castShadow: true });
+        this.actorRoot.add(rec.work);
+      }
+      rec.workKey = key;
+    }
+
+    if (!rec.work) return;
+    rec.work.position.set(st.x, this.fixtureBaseY({ kind: 'station' }), st.z);
+    // Turned to face the way the machine faces — see `stationRot`, or the steam
+    // comes out of the back.
+    rec.work.rotation.y = -(this.stationRot(st)) * (Math.PI / 2);
+  }
+
+  /** The authored working look of this appliance, or null if nobody drew one. */
+  stationWorkModel(st) {
+    return variantWork(this.pieceOf({ kind: 'station' }), st?.station);
+  }
+
+  /**
+   * Just clear of *this* appliance, so the bar never sits inside one — measured
    * per station now that a toaster and an espresso machine are different heights.
    *
    * `modelHeight` wants parts rather than a model; handing it the model iterates
@@ -1391,6 +1930,37 @@ export class Scene {
   stationSlotY(st) {
     const model = this.fixtureModel({ kind: 'station', station: st?.station });
     return (model ? modelHeight(partsAt(model, 1)) : 1) + 0.42;
+  }
+
+  /**
+   * The box *this* appliance occupies, for standing its bays on top of.
+   *
+   * At the tier it is actually built to, which is why it can't come off the
+   * snapshot: `stations` carries what a machine is doing, and how far up its
+   * ladder it is belongs to the shop. A Commercial machine is a taller box than
+   * a Domestic one, and bays measured off the wrong one sink into the lid.
+   */
+  stationBounds(st) {
+    return modelBounds(partsAt(this.fixtureModel(this.stationSpec(st)), this.fixtureT(this.stationSpec(st))));
+  }
+
+  /** This appliance, as the catalog knows it — which shape, and which rung. */
+  stationSpec(st) {
+    return { kind: 'station', station: st?.station, tier: this.placedStation(st)?.tier };
+  }
+
+  /**
+   * The wells built into this appliance's art: every part it flagged `surface`.
+   *
+   * The same flag a shelf uses for a board, which is the point — "goods stand
+   * here" is one idea and it should not grow a second spelling because the thing
+   * underneath is a machine. An appliance that authors two of them has said
+   * where its hopper is and where its tray is; one that authors none gets its
+   * readout stood on its roof, the same fallback a boardless unit takes.
+   */
+  stationWells(st) {
+    const spec = this.stationSpec(st);
+    return surfacesAt(this.fixtureModel(spec), this.fixtureT(spec));
   }
 
   // -------------------------------------------------------------------------
@@ -1543,8 +2113,16 @@ export class Scene {
    * The same answer with how far away it was, for `pickAim` to weigh a fixture
    * against a crate. Every other caller wants the record and nothing else,
    * which is why `pickFixture` stays the plain one.
+   *
+   * `keep` is a caller's veto on which fixtures may answer — a decoration
+   * outside build mode, today. It is applied *inside* the walk rather than to
+   * the answer, and that is the whole reason it lives here: a hanging lamp is
+   * the first thing the ray meets over the tile it hangs on, so vetoing the
+   * result would make the shelf underneath it unpointable instead of making the
+   * lamp transparent. Skipping the hit carries on down the ray, which is what
+   * "you can see straight through it" has to mean.
    */
-  pickFixtureHit(clientX, clientY) {
+  pickFixtureHit(clientX, clientY, keep = null) {
     if (!this.storeLayout) return null;
     const hits = this.pointerRay(clientX, clientY).intersectObjects(this.pickTargets(), true);
     for (const hit of hits) {
@@ -1557,7 +2135,7 @@ export class Scene {
       // which fixture it belongs to. Cheaper than an id to keep honest: ids are
       // re-minted on a re-flow and this is re-read from the layout every time.
       const f = this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
-      if (f) return { f, dist: hit.distance };
+      if (f && (!keep || keep(f))) return { f, dist: hit.distance };
     }
     return null;
   }
@@ -1623,9 +2201,9 @@ export class Scene {
    * that names what a BUILD verb would act on and there is no build verb that
    * takes a crate.
    */
-  pickAim(clientX, clientY) {
+  pickAim(clientX, clientY, keep = null) {
     const crate = this.pickPallet(clientX, clientY);
-    const hit = this.pickFixtureHit(clientX, clientY);
+    const hit = this.pickFixtureHit(clientX, clientY, keep);
     if (crate && (!hit || crate.dist <= hit.dist)) return { crate, fixture: null };
     return { crate: null, fixture: hit?.f ?? null };
   }
@@ -2099,11 +2677,18 @@ export class Scene {
     }
   }
 
-  /** Bob the piles and spin their coins so money reads as money. */
+  /**
+   * Bob the piles and spin their coins so money reads as money.
+   *
+   * The labels are deliberately left out of it. They used to be children of a
+   * pile and bobbed with it, which is one moving thing per sale in a corner of
+   * the screen you are trying to read a number in — the pile is what says
+   * "notice me", and a total that holds still is what says how much.
+   */
   animateCash(now) {
     for (const obj of this.cashProps.values()) {
       const age = (now - (obj.userData.born ?? now)) / 1000;
-      obj.position.y = 0.95 + Math.sin(age * 3) * 0.045;
+      obj.position.y = CASH_Y + Math.sin(age * 3) * 0.045;
       if (obj.userData.spin) obj.userData.spin.rotation.y = age * 2.2;
     }
   }
@@ -2197,6 +2782,46 @@ export class Scene {
     held.position.set(0, 0.62, 0.34);
     rec.obj.add(held);
     rec.carry = held;
+  }
+
+  /**
+   * The crate somebody is carrying, drawn as the crate it is.
+   *
+   * `buildPallet` rather than a box of its own, for the reason `client/thumb.js`
+   * derives a palette button instead of matching one: a second picture of a
+   * thing the game already draws goes wrong the moment either changes, and
+   * nobody holds a carried crate up against one in the yard to notice. It is
+   * also the fact the player needs — set it down and *that* is what appears —
+   * so the sample inside and the count on the front both carry over for free.
+   *
+   * Held high and forward, at the height a box is carried rather than the chest
+   * height an armful is: the two have to be tellable apart across the shop,
+   * because they are the difference between hands you can use and hands you
+   * cannot. Scaled down slightly so a crate does not read as wider than the
+   * person under it.
+   */
+  syncHaul(rec, haul, cap) {
+    const key = haul ? `${haul.item_id}:${haul.qty}/${cap}` : null;
+    if (rec.haulKey === key) return;
+    rec.haulKey = key;
+
+    if (rec.haul) {
+      rec.obj.remove(rec.haul);
+      disposeGroup(rec.haul);
+      rec.haul = null;
+    }
+    if (!key) return;
+
+    const item = this.catalog.items[haul.item_id];
+    // `covered: false` so you can see into it — what is in the box is the whole
+    // question when somebody walks past you with one.
+    const box = buildPallet(item?.model ?? null, haul.qty, {
+      covered: false, name: item?.name ?? '', cap,
+    });
+    box.scale.setScalar(0.72);
+    box.position.set(0, 0.52, 0.3);
+    rec.obj.add(box);
+    rec.haul = box;
   }
 
   /**
@@ -2506,11 +3131,60 @@ export class Scene {
 
   // -------------------------------------------------------------------------
 
+  /**
+   * Everything that is running, one frame.
+   *
+   * Two halves, and they are two halves because a machine is drawn in two
+   * places. Its own moving parts belong to the fixture standing in `staticRoot`
+   * — a blade is part of the blender whether it is turning or not — and are
+   * driven by whether it is busy. Whatever it puts on top while it works is a
+   * prop of its own, and only exists while there is something to show.
+   *
+   * The rule for the first half is the one the schema states: a fixture that can
+   * be busy moves while it *is* busy, and a fixture that has no idea what busy
+   * means always moves. Without that second clause `motion` would be a field
+   * that silently does nothing on everything except an appliance, and a ceiling
+   * fan would be a fixture you can author and never see turn.
+   */
+  animateStations(now) {
+    // Stopped time stops the machines. A return rather than passing `false` for
+    // "working": false eases them down to a halt over the next second, which is
+    // a machine being switched off, and time stopping is not that.
+    if (this.paused) return;
+    const t = now / 1000;
+    for (const [id, body] of this.movingFixtures) {
+      const st = this.stationProps.get(id);
+      animateMotion(body.moving, t + body.phase, st ? st.making : true);
+    }
+    for (const rec of this.stationProps.values()) {
+      if (!rec.work) continue;
+      animatePuffs(rec.work.userData.puffs, t);
+      animateMotion(rec.work.userData.moving, t, true);
+    }
+  }
+
   render() {
     const now = performance.now();
+    // How long the last frame took. Everything else animated in here is a sine
+    // of `now` and could not care — an oscillation is at the same place at the
+    // same moment however many frames got you there — but a *chase* toward a
+    // moving target is not, and one written as a fixed fraction per frame runs
+    // at whatever speed the machine happens to draw at. Clamped for the same
+    // reason main.js clamps its own: a backgrounded tab comes back with a delta
+    // of however long you were away, which would snap the thing being chased
+    // straight to its target and lose the corner it was going round.
+    const dt = Math.min(0.05, (now - (this.lastFrameAt ?? now)) / 1000);
+    this.lastFrameAt = now;
     this.animateCash(now);
     this.animatePlots(now);
     this.animateMoods(now);
+    // The van and the parked cars. Per frame rather than per snapshot, unlike
+    // every other body in the game — see `VEHICLE_CHASE`.
+    this.animateVehicles(dt);
+    // Appliances. Per-frame like everything else here: a batch is thirty
+    // seconds and the flag that says one is running arrives at 10Hz, so a blade
+    // that only turned when the snapshot did would read as a dropped frame.
+    this.animateStations(now);
     // Breaks. Nobody who is working costs more than a compare and a return, and
     // this has to be per-frame rather than per-sync for the same reason the
     // markers below are: a worker who only slumped ten times a second would
