@@ -55,7 +55,8 @@ exactly when a new player most needs it.
 | `client/panel-drag.js` | Dragging `#panel` by its header, and remembering where each menu was left. |
 | `client/upgrade-menu.js` | One upgrade's own menu — what it does off its payload, and the button that buys it. |
 | `client/worker-menu.js` | Everything one hire can do. Opened by pressing them on the bar. |
-| `client/rail.js` | The rail widget: icons, the lit state, badges. |
+| `client/rail.js` | The rail widget: icons, the lit state, badges, the delivery ring. |
+| `client/tip.js` | The tooltip. One element, moved. Adopts any `title` in the game — see below. |
 | `client/icons.js` | **Generated.** Inline SVG strings. `npm run icons`. |
 | `client/fixture-menu.js` | Everything one fixture can do, including its seed list. |
 | `client/ui.js` | `showSection`/`paintSection` — the one renderer — plus the HUD, the panel and the seed wheel. |
@@ -832,6 +833,68 @@ game compared today against **zero**, which cannot answer "am I doing better or
 worse". `world.ledger` is the fix and it is a saved field, not a derived one:
 profit per day is not recoverable from a cash balance once anything has been
 spent out of it.
+
+### The delivery ring
+
+The one badge that is not a number. An order is a promise rather than a
+teleport, so the supplier button traces its own outline with an arc that fills
+as the van covers its journey — amber on the road, green and pulsing once it is
+pulling in — with the units on order in the opposite corner, in the ring's
+colour. Two channels rather than two numbers in one slot: the red badge is a
+problem you can act on, the ring is a wait you can only plan around, and they
+are most interesting at exactly the same moment.
+
+It needs **two** numbers from the server and has both since this shipped:
+`in` (seconds left) and `wait` (the whole journey). `in` alone cannot draw it —
+the runs are two hours apart in the day and one hour apart overnight, so "twenty
+minutes to go" is most of the way there on one and a third of the way on the
+other. `wait` is stored on the order rather than derived, for the same reason
+`runHour` is: `arrivesAt` is rewritten on every load, so the only surviving
+record of how far you have come is the distance you set out to cover.
+
+The arc is diffed on its *rounded* percent, not on `in` — which is the one field
+the supplier's `live` signature deliberately leaves out because it moves every
+tick. A percent moves a hundred times over the whole journey and the CSS
+transition covers each step, so smooth motion costs about one DOM write a
+minute rather than ten a second for six hours.
+
+## Tooltips
+
+`client/tip.js`. One fixed element on the body, moved to whatever is hovered —
+not an `::after` per element, which the rail alone would have made eight of, the
+build bar forty, every one of them a child of something with `overflow` on it.
+Listeners are delegated on the document, because the rail and every menu rebuild
+themselves out of `innerHTML` and a bound listener dies with the node.
+
+Anything can ask for one: `data-tip` (headline), `data-tip-key` (a key cap),
+`data-tip-note` (a second line), `data-tip-tone` (`good`/`warn`, which colours
+it). **But a plain `title` gets one too** — `harvest` moves it onto those
+attributes on first hover and removes the attribute, so the native one never
+surfaces underneath. It splits on the house `${name} — ${blurb}` convention, so
+most of the game got the two-line treatment without a single call site changing,
+and a `title` written tomorrow is drawn in the shop's handwriting without anyone
+knowing this module exists. A live `title` always beats what was harvested last
+time, or the shop's open and pause buttons would freeze on whatever they said
+the first time you pointed at them.
+
+Three things are less obvious than they look:
+
+- **Taking `title` away takes an accessible name away.** `harvest` writes
+  `aria-label` where there is nothing else naming the thing — and only there,
+  since on a button with its own words an `aria-label` overrides rather than
+  adds.
+- **It flips below when there is no room above**, because the rail is at the
+  bottom of the screen and the meters are at the top. Clamping to the viewport
+  instead would cover the readout it was sent to explain.
+- **The caret is positioned by script, not centred in CSS.** A tip pushed off
+  the screen edge slides out from under a caret that stays over its target, and
+  the box's `transform-origin` follows the caret — a tip that centres perfectly
+  and points at nothing is worse than one sitting off to one side.
+
+Touch is excluded (`pointerType !== 'mouse'`): `pointerover` fires on the tap
+that also presses the button, so a finger would get a tooltip explaining the
+thing it just did. That is why a label under an icon still beats a tooltip
+anywhere it fits — see `.fx-verb .nm` and the build bar's `.tool .nm`.
 
 ## Staff
 

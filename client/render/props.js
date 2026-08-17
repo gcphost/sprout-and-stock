@@ -11,6 +11,7 @@
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { partsAt, seamStep, skinnedParts, FRONT_LIP } from '../../shared/model.js';
 import { FACE_CALM, VEHICLE_LOOK } from './palette.js';
 
@@ -362,7 +363,10 @@ export function buildShelfGoods(model, qty, surfaces, cap) {
     );
     g.add(one);
   }
-  return g;
+  // Sixteen carrots go on being sixteen carrots and stop being sixteen objects
+  // — see `weld`. This is the single biggest object count in the game, and
+  // nothing on a shelf moves on its own.
+  return weld(g);
 }
 
 /**
@@ -1283,6 +1287,94 @@ function paintText(ctx, canvas, text, fill) {
   ctx.fillText(text, 128, 50);
 }
 
+/**
+ * Bake a pile of little meshes down into one mesh per colour.
+ *
+ * The renderer's cost is per OBJECT, not per triangle: three.js walks the
+ * graph, updates a matrix, frustum-culls and sets up a draw call for every mesh
+ * in it, every frame — and with shadows on it does the whole lot again for the
+ * shadow pass. Nothing here is short of triangles. It is short of *objects*.
+ *
+ * Stock is where that bites, because the promise is one prop per unit: sixteen
+ * on the shelf draws sixteen, which is the entire reason a shelf is worth
+ * looking at from across the room, and it means a full unit is ~18 items × the
+ * handful of primitives each item is drawn from. A stocked shop is a few
+ * thousand meshes that never move relative to one another.
+ *
+ * So they stop being separate objects and stay exactly the same picture: every
+ * geometry is cloned, transformed into the group's own space and merged per
+ * material — materials are cached by colour (`material`), so "per material" is
+ * "per colour", and a shelf of carrots ends up as two or three draws instead of
+ * seventy. The look is identical by construction: same primitives, same
+ * positions, same colours.
+ *
+ * ONLY for things that do not move independently. A part that spins, drifts,
+ * or is coloured per-actor has to stay its own object, which is why this is
+ * called on stock and crops and on nothing else — welding a machine would weld
+ * its blade to its housing.
+ *
+ * Falls back to the group it was given if the merge cannot be done (mixed
+ * indexed and non-indexed geometry, say). A shelf that draws the slow way is a
+ * frame-rate question; one that draws nothing is a bug.
+ */
+export function weld(group, keep = null) {
+  group.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(group.matrixWorld).invert();
+  const byMaterial = new Map();
+  const loose = [];
+
+  group.traverse((o) => {
+    // A part the caller still needs to move on its own — a blade, a lever —
+    // comes through untouched and is re-hung below. Welding one is the whole
+    // failure mode this guards: it would be *drawn* correctly and then never
+    // turn again, which reads as a machine that has broken rather than as a
+    // renderer that has.
+    if (keep && o !== group && keep(o)) { loose.push(o); return; }
+    if (o.isMesh && o.geometry) {
+      const rec = byMaterial.get(o.material);
+      const g = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+      // Shadow flags come off the source rather than being assumed. Everything
+      // grouped here shares a material, and a material is a colour and an
+      // alpha — so glass, which casts no shadow, is always in a group of its
+      // own and can never be welded into something that does.
+      if (rec) rec.parts.push(g);
+      else byMaterial.set(o.material, { parts: [g], cast: o.castShadow, receive: o.receiveShadow });
+    } else if (o.isSprite) {
+      // A label is not geometry and has nothing to merge with. Rehung as-is.
+      loose.push(o);
+    }
+  });
+  // Their transforms were relative to a group that is about to be replaced, so
+  // they carry the whole chain with them rather than only their own offset.
+  for (const o of loose) {
+    o.matrix.copy(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    o.matrix.decompose(o.position, o.quaternion, o.scale);
+  }
+  if (byMaterial.size === 0) return group;
+
+  const out = new THREE.Group();
+  out.userData = group.userData;
+  for (const [mat, { parts, cast, receive }] of byMaterial) {
+    const merged = parts.length === 1 ? parts[0] : mergeGeometries(parts, false);
+    if (!merged) {
+      // Give back the original rather than half a shelf. Everything cloned on
+      // the way here is dropped: the group still owns the geometry it was
+      // built with, and these were copies. Whatever was already welded into
+      // `out` goes too, or the fallback leaks what it just built.
+      for (const r of byMaterial.values()) r.parts.forEach((g) => g.dispose());
+      disposeGroup(out);
+      return group;
+    }
+    if (merged !== parts[0]) parts.forEach((g) => g.dispose());
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = cast;
+    mesh.receiveShadow = receive;
+    out.add(mesh);
+  }
+  for (const s of loose) out.add(s);
+  return out;
+}
+
 /** Free the GPU memory a prop group holds. Materials are shared — don't dispose those. */
 export function disposeGroup(group) {
   group.traverse((o) => {
@@ -1297,5 +1389,21 @@ export function disposeGroup(group) {
       o.material?.map?.dispose();
       o.material?.dispose();
     }
+    // An InstancedMesh keeps its per-instance matrices and colours in buffers
+    // of its OWN, beside the geometry rather than in it — so `geometry.dispose`
+    // frees the one-tile box and leaves 600 tiles' worth of transforms on the
+    // GPU, along with the VAO binding states three.js cached against the
+    // object. Nothing collects them: `WebGLObjects.onInstancedMeshDispose` is
+    // the only path that calls `attributes.remove`, and it fires on this and
+    // nothing else — not on GC, not on removal from the scene.
+    //
+    // Which made it the most expensive leak in the game, because it is on the
+    // one thing that runs constantly: `buildWorld` builds an instanced mesh per
+    // tile kind, per floor design and per edge kind, and build mode rebuilds
+    // the world on every placement, every wall segment and every floor stroke.
+    // An evening of building leaks a few hundred kilobytes a gesture and never
+    // gives any of it back, which is the shape of a session that starts at half
+    // a gig and ends over one.
+    if (o.isInstancedMesh) o.dispose();
   });
 }

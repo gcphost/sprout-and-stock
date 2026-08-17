@@ -467,6 +467,139 @@
     }
     .rail-btn .badge[hidden] { display: none; }
 
+    /* The delivery ring. It traces the button's own border — see RING_PATH in
+       client/rail.js for why that shape rather than a circle.
+
+       `pointer-events: none` is not a nicety: the svg covers the whole button,
+       so without it the ring eats every click on the one control it is drawn
+       on. It sits first in the markup so the badge and the icon paint over it
+       at the corner, where the two overlap by a pixel or so.
+
+       Both strokes are faded in together rather than the arc alone, or an empty
+       ring at the start of a wait is indistinguishable from no ring at all —
+       the track is what says "this is filling up", and it is the half that
+       makes a countdown legible from one glance rather than two. */
+    .rail-btn .ring {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      pointer-events: none; overflow: visible;
+    }
+    .rail-btn .ring path { fill: none; stroke-width: 2.5; opacity: 0; transition: opacity .25s; }
+    .rail-btn .ring .trk { stroke: var(--line); }
+    .rail-btn .ring .arc {
+      stroke: var(--warn); stroke-linecap: round;
+      /* Long and linear, because the arc is written about once a minute (see
+         `updateRings`) — the transition is what turns a hundred stepped writes
+         into something that looks like it is moving at all. An eased one would
+         visibly stall between steps. */
+      transition: stroke-dashoffset .5s linear, stroke .3s, opacity .25s;
+    }
+    .rail-btn.waiting .ring path { opacity: 1; }
+
+    /* How much is on the way. Opposite corner to the badge, and a different
+       colour, because they are different kinds of news: the badge is a problem
+       you can act on (red, top right, where every notification count in the
+       world lives) and this is money already spent that has not landed yet.
+       Sharing one slot would have them flicker between two unrelated numbers.
+
+       It wears the ring's colour rather than its own, so the count and the arc
+       read as one readout — the number is what the ring is counting down. */
+    .rail-btn .cargo {
+      position: absolute; bottom: -4px; left: -4px; min-width: 16px; height: 16px; padding: 0 4px;
+      border-radius: 99px; background: var(--warn); color: #fff;
+      font-size: 10px; font-weight: 800; display: grid; place-items: center;
+      box-shadow: 0 2px 6px rgba(58,49,40,.25);
+      transition: background .3s;
+    }
+    .rail-btn .cargo[hidden] { display: none; }
+    .rail-btn.landing .cargo { background: var(--good); }
+    /* Pulling in. Green because the wait is over, and moving because a full
+       ring holding still is the same picture as a full ring that has finished. */
+    .rail-btn.landing .ring .arc { stroke: var(--good); animation: van-in 1.1s ease-in-out infinite; }
+    @keyframes van-in { 50% { opacity: .3; } }
+    @media (prefers-reduced-motion: reduce) {
+      .rail-btn.landing .ring .arc { animation: none; }
+    }
+
+    /* ---- the tooltip -------------------------------------------------------
+       One element, moved to whatever is hovered — see client/tip.js for why it
+       is not an `::after` on the button.
+
+       Above the HUD (10) and below the modal layers (50/60): it explains the
+       HUD, so it has to clear it, and it explains nothing about a dialog that
+       has taken the whole screen. `pointer-events: none` is load-bearing rather
+       than tidy — the box sits directly over the row above the rail, and a tip
+       that could be hovered would swallow clicks on whatever it covers, as well
+       as fighting its own `pointerout`. */
+    #tip {
+      position: fixed; z-index: 40; pointer-events: none;
+      max-width: 240px; padding: 7px 10px 8px;
+      background: var(--panel-solid); color: var(--ink);
+      border-radius: 11px; box-shadow: 0 8px 22px rgba(58,49,40,.22);
+      font-size: 12px; line-height: 1.3;
+      opacity: 0; transform: translateY(5px) scale(.93);
+      /* Out fast and flat, in slower with an overshoot past 1: a tip that
+         springs into place reads as the shop answering you, and the same curve
+         on the way out reads as it bouncing off the screen. Leaving is not an
+         event and should not be animated like one. */
+      transition: opacity .09s ease, transform .09s ease;
+    }
+    #tip.show {
+      opacity: 1; transform: translateY(0) scale(1);
+      transition: opacity .13s ease, transform .22s cubic-bezier(.34, 1.56, .64, 1);
+    }
+    /* Flipped below, for anything near the top of the screen. It springs DOWN
+       out of its caret rather than up, or a tip under the meters would rise
+       into the thing it is describing.
+
+       These sit after `.show` deliberately: `#tip.down` and `#tip.show` are the
+       same specificity, so the later rule is the one that wins the transform,
+       and swapping the two blocks would break the flip with nothing in either
+       one looking wrong. */
+    #tip.down { transform: translateY(-5px) scale(.93); }
+    #tip.down.show { transform: translateY(0) scale(1); }
+    /* Shadow cast the other way with it. Left pointing down it would fall
+       across the box it is attached to, which reads as a smudge on the card. */
+    #tip.down .arrow { bottom: auto; top: -3px; box-shadow: -2px -2px 6px rgba(58,49,40,.12); }
+
+    #tip .row { display: flex; align-items: center; gap: 8px; }
+    #tip .ttl { font-weight: 800; letter-spacing: -.01em; }
+    /* The hotkey as a key cap, which is the same thing `.kb` says on the button
+       itself — said properly, because here there is room for it. */
+    #tip .key {
+      margin-left: auto; padding: 1px 5px; border-radius: 5px;
+      background: rgba(58,49,40,.09); box-shadow: inset 0 -1px 0 rgba(58,49,40,.14);
+      font-size: 9.5px; font-weight: 800; opacity: .6;
+    }
+    #tip .key[hidden] { display: none; }
+    /* The second line: what the thing is doing right now. Quieter than the
+       name, because you read the name to find the button and this to find out
+       what it has to say. */
+    #tip .note { margin-top: 2px; opacity: .62; font-size: 11px; }
+    #tip .note[hidden] { display: none; }
+    /* ...unless it is live, in which case it is the reason you hovered. It
+       wears the same two colours the delivery ring does, so the arc on the
+       button and the sentence above it are visibly one readout. */
+    #tip .note[data-tone] { opacity: 1; font-weight: 700; }
+    #tip .note[data-tone="warn"] { color: #b5801f; }
+    #tip .note[data-tone="good"] { color: #46803f; }
+    /* The caret. A rotated square rather than a border triangle, so it takes
+       the box's own background and shadow and stays one shape with it — and it
+       is positioned by script rather than centred here, because a tip pushed
+       off the screen edge must still point at its button. */
+    #tip .arrow {
+      position: absolute; bottom: -3px; width: 10px; height: 10px;
+      margin-left: -5px; border-radius: 2px;
+      background: var(--panel-solid); transform: rotate(45deg);
+      /* The box's own shadow stops at the box, so without this the caret is a
+         flat tab hanging off a lifted card. Offset down-and-right in the
+         element's own axes, which after the 45° turn is straight down the
+         screen — a shadow is transformed with the thing that casts it. */
+      box-shadow: 2px 2px 6px rgba(58,49,40,.12);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #tip, #tip.show { transition: opacity .1s ease; transform: none; }
+    }
+
     /* The drag joystick draws nothing — see client/main.js. */
 
     /* bottom-left: event log */

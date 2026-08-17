@@ -6,7 +6,7 @@ import { artForTool, artForStation, artForWorker } from './thumb.js';
 import { doingNow, bodyOf, kindSummary } from './worker-menu.js';
 // What is on a van. Shared with the shelf menu, which asks the same two
 // questions of it — see client/orders.js.
-import { comingByItem, comingWhy } from './orders.js';
+import { comingByItem, comingWhy, nextVan } from './orders.js';
 
 /**
  * Every browsable list that renders into #panel.
@@ -1271,6 +1271,17 @@ export const SECTIONS = [
       }).length;
       return low ? String(low) : null;
     },
+    /**
+     * ...and the other thing you cannot see from across the shop: that the
+     * money you spent is still on the road.
+     *
+     * The badge counts a problem you could act on; this counts down a wait you
+     * can only plan around, so it is a second channel rather than a second
+     * number — a badge that flipped between "3 shelves low" and "12 coming"
+     * would be one slot arguing with itself, and the two are most interesting
+     * at exactly the same moment. See `nextVan` for why it takes two numbers.
+     */
+    ring: (ui) => nextVan(ui),
     /**
      * Everything the rows read, and nothing that merely ticks.
      *

@@ -524,6 +524,19 @@ what the next step was meant to be.
   **not in `FIXTURES`** — a floor has no anchor, blocks nobody and is painted
   rather than placed, so `BUILD_KINDS` partitions in three now, which
   `verify:catalog` counts rather than trusting anyone to remember.
+- **A drag sends the POINTER's far end, never the tail of the list it built.**
+  Both build drags send two ends rather than the segments, because the inbound
+  cap is 4KB — so the server re-runs the same generator and has to land on the
+  same run. `edgeRun` emits lowest-index-first whichever way you dragged, so
+  reading the far end back off `segs[segs.length - 1]` is the end you *started*
+  on for every drag towards a lower x or z, and the server built a run of
+  exactly one. What you saw was eight segments of green ghost and one wall,
+  with no refusal and nothing in the log — and the *screen* direction that
+  fails changes as you turn the view, so it reads as flaky rather than as
+  directional. `showFloorDrag` already carried its own `to` for this reason and
+  says so; the wall drag went four steps without it. Anything that previews a
+  run locally and sends its ends has to send what it AIMED at, not what it
+  computed.
 - **The yard is ground you paint, and the mark that it was seeded is a boolean
   rather than a count.** The delivery bay and the drop-off used to be stamped by
   `compose` against the corners of the back wall on every re-flow, which is

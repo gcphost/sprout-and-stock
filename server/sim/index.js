@@ -731,6 +731,13 @@ export class Game {
       pending: (state.orders?.pending ?? []).map(({ arrivesIn, arrivesAt, ...o }) => ({
         ...o,
         arrivesAt: this.elapsed + Math.max(0, arrivesIn ?? 0),
+        // An order placed before the journey was recorded has no distance to
+        // measure against, and a progress bar with no total reads 0 for ever —
+        // a countdown that never counts. Reconstructing it HERE, once, as
+        // "however far there is left to go", is what makes it fill from the
+        // load onward. Doing the same thing where the snapshot is built would
+        // recompute it every tick, which is the same lie with more arithmetic.
+        wait: o.wait ?? Math.max(0, arrivesIn ?? 0),
       })),
     };
     this.nextOrderId = state.nextOrderId ?? 1;
@@ -1344,6 +1351,10 @@ export class Game {
           placedDay: o.placedDay ?? this.day,
           at: clockLabel(o.runHour ?? DELIVERY_RUNS[0]),
           in: r2(Math.max(0, o.arrivesAt - this.elapsed)),
+          // ...and how long it was when it set off, so `in` is a *fraction* of
+          // something rather than a bare number of seconds. The pair is what
+          // the rail's ring is drawn from; neither half is enough alone.
+          wait: r2(o.wait ?? 0),
           // Its wait ran out and it is on the lorry you can see coming up the
           // road. Without it a row on the van and a row nobody has loaded both
           // read as "0 seconds", which is a countdown that finished and then
@@ -3800,6 +3811,14 @@ export class Game {
       // saved and loaded, and "the 14:00 one" is what the player was told.
       runHour: run.hour,
       arrivesAt: this.elapsed + run.wait,
+      // How long the whole journey is, which is the one number a countdown
+      // cannot be drawn without and the client can never work out: `in` says
+      // how much is left, and "40 minutes left" is a full ring on the overnight
+      // hourly run and a third of one on the two-hour daytime gap. Stored
+      // rather than derived, for the same reason `runHour` is — `arrivesAt` is
+      // rewritten on every load, so the only surviving record of how far you
+      // have come is the distance you set out to cover.
+      wait: round2(run.wait),
     };
     this.orders.pending.push(order);
     this.persist();

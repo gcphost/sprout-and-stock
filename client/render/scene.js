@@ -19,6 +19,7 @@ import {
   buildGrowthBar, setGrowthBar,
   buildRipple,
   buildStamp,
+  weld,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
 import {
@@ -159,6 +160,15 @@ function plantSpots(count, seed = 0) {
  * whole farm turning.
  */
 const SUN_OFFSET = new THREE.Vector3(26, 40, 14);
+
+/**
+ * One shadow map per this many frames. See the constructor.
+ *
+ * 3 is 20Hz at a 60fps draw, which is twice the rate the world itself arrives
+ * at — the snapshot is 10Hz, so a shadow updated any faster than this is
+ * interpolating a body position that has not moved on the server yet.
+ */
+const SHADOW_EVERY = 3;
 
 /** The camera's home corner. Rotation swings this around Y in quarter turns. */
 const BASE_CAM_OFFSET = new THREE.Vector3(20, 24, 20);
@@ -341,6 +351,20 @@ export class Scene {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    /**
+     * The shadow pass is a SECOND full draw of the scene — every object walked,
+     * culled and issued again into a 2048² depth map — and by default three.js
+     * does it on every single frame. Nothing in this shop justifies that: the
+     * building never moves, and the things that do are people ambling at
+     * walking pace under a sun that is 40° up. A shadow one frame stale is not
+     * a shadow anybody can see is stale.
+     *
+     * So the map is redrawn on a cadence instead (`SHADOW_EVERY`), which halves
+     * the per-frame object work outright. It is the frame budget's single
+     * biggest lever and the only one that costs nothing visible.
+     */
+    this.renderer.shadowMap.autoUpdate = false;
+    this.shadowTick = 0;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(PALETTE.sky);
@@ -1134,13 +1158,25 @@ export class Scene {
       // WAS a tile. Nothing stamps one now, so an unstyled kind would be an
       // invisible thing you can walk into — hence the fallback block, at the
       // colour and height its tile used to have.
-      const prop = model
+      let prop = model
         ? buildModel(model, {
           t: this.fixtureT(f),
           abuts: (step) => this.carriesOn(byTile, f, step),
         })
         : plainBlock(FIXTURE_LOOK[f.kind]);
       if (!prop) continue;
+      // Down to one mesh per colour, the same way stock is — a shelf is eight
+      // or ten primitives that will never move relative to each other, and a
+      // furnished shop is a few hundred of them drawn twice a frame. Anything
+      // flagged `motion` is held out by name: the picture would be right and
+      // the blade would never turn again, which reads as a broken machine.
+      // Whatever it comes back as still wears the group's `userData`, so
+      // picking, landing and the moving list all go on pointing at the same
+      // things.
+      if (prop.userData.moving?.length !== undefined) {
+        const spin = new Set(prop.userData.moving.map((m) => m.mesh));
+        prop = weld(prop, spin.size ? (o) => spin.has(o) : null);
+      }
       // Models are authored facing east, which is rot 0 — the same convention
       // the layout generator has always used for which side you work from.
       prop.rotation.y = -(f.rot ?? 0) * (Math.PI / 2);
@@ -1466,6 +1502,12 @@ export class Scene {
     for (const [id, rec] of map) {
       if (!seen.has(id)) {
         this.actorRoot.remove(rec.obj);
+        // The one sweep in this file that used to drop an actor without freeing
+        // it. Mostly cheap — a body is shared `GEO` shapes — but not always:
+        // whatever `syncHaul` hung on them is a `buildPallet`, and a pallet
+        // carries a text label, which is a canvas and a texture nobody else
+        // holds. A hire who logs out mid-trip leaked one every time.
+        disposeGroup(rec.obj);
         map.delete(id);
       }
     }
@@ -2778,6 +2820,7 @@ export class Scene {
     rec.bubbleKey = itemId;
     if (rec.bubble) {
       rec.obj.remove(rec.bubble);
+      disposeGroup(rec.bubble);
       rec.bubble = null;
     }
     if (!itemId) return;
@@ -3027,6 +3070,13 @@ export class Scene {
         + `:${rows.length}:${shares}`;
       if (rec.key === key) continue;
       rec.key = key;
+      // Freed, not just dropped. This was a bare `clear()` for as long as a
+      // stack was a pile of meshes over the SHARED `GEO` primitives — nothing
+      // to free, so nothing leaked. Welding gives every stack a merged geometry
+      // of its own, and a shelf's stock is rebuilt on every sale, so a `clear()`
+      // here would have turned the cheapest thing in the renderer into the
+      // fastest leak in it. The same line syncPlots has always had.
+      disposeGroup(rec.group);
       rec.group.clear();
       if (!stacks.length) continue;
 
@@ -3097,7 +3147,10 @@ export class Scene {
       if (!p.crop_id || !crop) continue;
 
       // One plant per unit the bed will yield, so what is growing there is what
-      // picking it hands over.
+      // picking it hands over. Built into a bed of their own and welded, the way
+      // stock is — a bed of twelve is twelve plants and one object, and nothing
+      // growing in it moves independently of the rest.
+      const bed = new THREE.Group();
       for (const spot of plantSpots(count, hashId(p.id))) {
         const plant = buildModel(crop.model, { t: grown });
         // A crop that draws its own stages has already said what growing looks
@@ -3109,8 +3162,9 @@ export class Scene {
         // bed of unstaged crops would lose its growth ramp entirely.
         plant.scale.multiplyScalar(spot.scale);
         plant.position.set(spot.x, 0, spot.z);
-        rec.group.add(plant);
+        bed.add(plant);
       }
+      rec.group.add(weld(bed));
 
       if (p.ready) {
         const glow = new THREE.Mesh(
@@ -3379,6 +3433,9 @@ export class Scene {
     this.camera.lookAt(this.camLook);
     this.sun.target.position.copy(this.camLook);
     this.sun.position.copy(this.camLook).add(SUN_OFFSET);
+    // See the constructor. Set the frame before it is wanted, not after: three
+    // clears `needsUpdate` inside `render`, so this is a request for THIS draw.
+    this.renderer.shadowMap.needsUpdate = (this.shadowTick++ % SHADOW_EVERY) === 0;
     this.renderer.render(this.scene, this.camera);
   }
 

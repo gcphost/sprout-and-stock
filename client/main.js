@@ -576,25 +576,31 @@ function stepTurn(anchor, x) {
 // ---------------------------------------------------------------------------
 let edgeDrag = null;
 
-/** The segments a drag from its start to the pointer would lay. */
+/** The segments a drag from its start to the pointer would lay, and its far end. */
 function edgeDragRun(cx, cy) {
-  if (!edgeDrag) return [];
+  if (!edgeDrag) return { segs: [], to: null };
   // How far along the run's own axis the pointer has got. Read off the tile
   // rather than off `pickEdge`, which answers "which line" — the wrong question
   // once the line is already chosen.
   const tile = scene.pickTile(cx, cy, 0.55);
   const to = tile ? (edgeDrag.start.o === 'v' ? tile.z : tile.x) : null;
-  return edgeRun(edgeDrag.start, to);
+  return { segs: edgeRun(edgeDrag.start, to), to };
 }
 
 function showEdgeDrag(cx, cy) {
-  const segs = edgeDragRun(cx, cy);
+  const { segs, to } = edgeDragRun(cx, cy);
   if (!segs.length) { scene.setEdgeGhost(null, null); return null; }
   const verdict = canPlaceEdges(scene.storeLayout, segs, edgeDrag.kind);
   const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
   scene.setEdgeGhost(segs, state);
   ui.setBuildVerdict(verdict);
-  return { segs, verdict };
+  // `to` is where the POINTER is, not the tail of the run — the same
+  // distinction `showFloorDrag` makes about its far corner, and the wall drag
+  // spent longer getting it wrong. `edgeRun` emits lowest-index-first whichever
+  // way you dragged, so the last segment is the far end only when you dragged
+  // towards increasing x or z; the other way round it is the segment you
+  // STARTED on, and sending it asks the server for a run of exactly one.
+  return { segs, verdict, to };
 }
 
 // ---------------------------------------------------------------------------
@@ -829,12 +835,14 @@ function endPress(e) {
     if (drawn) {
       if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
       if (drawn.verdict.warn) ui.toast(drawn.verdict.warn);
-      const last = drawn.segs[drawn.segs.length - 1];
       // Two ends and a kind, never the list — a long wall would blow past the
-      // 4KB inbound cap, and one message is also one re-flow.
+      // 4KB inbound cap, and one message is also one re-flow. The far end goes
+      // over as the pointer's own index, unclamped: the server runs the same
+      // `edgeRun` against the same maximum and trims it to the same segments,
+      // so reading it back off the list could only ever disagree — and did, in
+      // one direction, for every drag towards a lower x or z.
       net.send('build-edge', {
-        o: start.o, x: start.x, z: start.z, kind,
-        to: start.o === 'v' ? last.z : last.x,
+        o: start.o, x: start.x, z: start.z, kind, to: drawn.to,
       });
     }
     return;

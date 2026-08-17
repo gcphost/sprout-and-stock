@@ -15,6 +15,7 @@ import { renderBar, groupAt, nextGroup, KEYED } from './bar.js';
 import { showWorker } from './worker-menu.js';
 import { showUpgrade } from './upgrade-menu.js';
 import { Rail } from './rail.js';
+import { tip } from './tip.js';
 import { ICONS } from './icons.js';
 import { showFixture } from './fixture-menu.js';
 import { wireDrag, restorePos } from './panel-drag.js';
@@ -156,6 +157,11 @@ export class UI {
     // Per-section, and wiped when the section closes — a filter you can't see
     // the cause of is worse than no filter at all.
     this.query = '';
+
+    // Once, for the whole HUD. It listens on the document and adopts any
+    // `title` it is pointed at, so it belongs to the shell rather than to any
+    // one panel — the rail was only the first thing to want it.
+    tip.install();
 
     this.rail = new Rail(this, this.el.rail);
     this.el.btnOpen.onclick = () => this.setOpen(!this.shopOpen);
