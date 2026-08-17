@@ -17,7 +17,7 @@
     "docs:fixtures": "node scripts/document-fixtures.js",
     "reset": "node scripts/reset.js",
     "reset:economy": "node scripts/reset-economy.js",
-    "verify": "node scripts/verify-layout.js && node scripts/verify-build.js && node scripts/verify-edges.js && node scripts/verify-catalog.js && node scripts/verify-shell.js && node scripts/verify-economy.js && node scripts/verify-floor.js && node scripts/verify-yard.js && node scripts/verify-break.js && node scripts/verify-kitchen.js && node scripts/verify-walk.js && node scripts/verify-till.js && node scripts/verify-motion.js && node scripts/verify-hand.js && node scripts/verify-park.js",
+    "verify": "node scripts/verify-layout.js && node scripts/verify-build.js && node scripts/verify-edges.js && node scripts/verify-catalog.js && node scripts/verify-shell.js && node scripts/verify-economy.js && node scripts/verify-floor.js && node scripts/verify-yard.js && node scripts/verify-break.js && node scripts/verify-kitchen.js && node scripts/verify-walk.js && node scripts/verify-till.js && node scripts/verify-motion.js && node scripts/verify-hand.js && node scripts/verify-park.js && node scripts/verify-hot.js && node scripts/verify-doors.js",
     "verify:layout": "node scripts/verify-layout.js",
     "verify:build": "node scripts/verify-build.js",
     "build": "vite build",
@@ -34,7 +34,9 @@
     "verify:till": "node scripts/verify-till.js",
     "verify:motion": "node scripts/verify-motion.js",
     "verify:hand": "node scripts/verify-hand.js",
-    "verify:park": "node scripts/verify-park.js"
+    "verify:park": "node scripts/verify-park.js",
+    "verify:doors": "node scripts/verify-doors.js",
+    "verify:hot": "node scripts/verify-hot.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.0",

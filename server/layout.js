@@ -26,7 +26,7 @@ import { T, WALKABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
-  FLOOR_KIND, groundTile, padCells, ROAD_THICK,
+  FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS,
 } from '../shared/build.js';
 
 export { T };
@@ -134,6 +134,10 @@ export function generateLayout({
   seed = 'sprout-1',
   shelves = 4,
   freezers = 0,
+  // Never generated, only ever re-applied from a placement — so unlike the
+  // three around it this is always whatever `budgetOf` counted, and 0 for every
+  // shop that has not bought one.
+  warmers = 0,
   checkouts = 1,
   plots = 4,
   stations = [],
@@ -145,7 +149,7 @@ export function generateLayout({
   shell = null,
 } = {}) {
   const req = {
-    seed, shelves, freezers, checkouts, plots, stations,
+    seed, shelves, freezers, warmers, checkouts, plots, stations,
     placements: placements ?? [],
     // Walls, windows and doorways the player drew. An overlay for the same
     // reason `placements` is one: the generator rebuilds the shell from scratch
@@ -535,12 +539,31 @@ function compose(req, storeW, storeH, allowDrops = true) {
     blocked,
   });
 
-  const budget = {
+  /**
+   * How many of each kind this pass may lay, spent by placements first.
+   *
+   * Derived from `FIXTURE_KINDS` rather than written out, and that is the whole
+   * of the fix for a bug the hot counter found. This was four literal keys, and
+   * the check below is `if (!(budget[p.kind] > 0)) shed(p)` — so a kind nobody
+   * remembered to add a line for is a fixture that can be BUILT, is charged for,
+   * and is then dropped and refunded by the re-flow that same purchase
+   * triggers. It reads as the shop refusing a purchase it had just accepted,
+   * with the money handed back so nothing looks stolen.
+   *
+   * `warmer` has no procedural loop and that is deliberate rather than
+   * unfinished: nothing generates a hot counter, so its budget is only ever
+   * whatever placements the player made (`budgetOf`), and it is spent entirely
+   * by re-applying them. `totalUnits` below is untouched for the same reason —
+   * a warmer must never come out of the shelf loop.
+   */
+  const budget = Object.fromEntries(FIXTURE_KINDS.map((k) => [k, 0]));
+  Object.assign(budget, {
     shelf: req.shelves,
     freezer: req.freezers,
+    warmer: req.warmers,
     checkout: req.checkouts,
     plot: req.plots,
-  };
+  });
   const stationQueue = [...req.stations];
   const dropped = [];
 
@@ -949,7 +972,13 @@ function makeShelf(id, kind, x, z, rot) {
     x,
     z,
     rot,
-    kind: kind === 'freezer' ? 'freezer' : 'shelf',
+    // `shelfKind` rather than a ternary, and this is the one site where that
+    // mattered most: every player-placed unit comes back through here on every
+    // re-flow (`makeShelf(p.id, p.kind, …)` above), so a kind this function
+    // cannot name is a kind that survives being built and is quietly demoted to
+    // plain shelving the next time anybody buys anything. The stock would come
+    // with it, onto a unit that should never have taken it.
+    kind: shelfKind(kind),
     // Customers browse from the tile this one faces.
     browseAt: anchorTile(x, z, rot),
     /**

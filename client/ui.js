@@ -1465,6 +1465,7 @@ export class UI {
     this.openPanel = id;
     this.setFixtureRef(null);
     this.workerRef = null;
+    this.wayRef = null;
     this.panelTick = null;
     sec.onOpen?.(this);
     this._sectionKey = sec.live?.(this) ?? null;
@@ -2329,6 +2330,9 @@ export class UI {
     this.openPanel = null;
     this.setFixtureRef(null);
     this.workerRef = null;
+    // A doorway is not a thing, so this is a lattice line rather than an id —
+    // see client/edge-menu.js.
+    this.wayRef = null;
     // Whatever per-entity menu was open stops being kept up to date with it.
     this.panelTick = null;
     this.el.panel.classList.remove('show');

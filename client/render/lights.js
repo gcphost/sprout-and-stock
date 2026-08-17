@@ -255,11 +255,18 @@ function tint(hex) {
  *
  * A prop is a light because its *piece* says so, which is why this needs the
  * catalog and not just the layout. Nothing here knows what a lamp is called.
+ *
+ * ...and a fridge is a light because the RUNG it is on says so. The tier wins
+ * where it has an opinion, so lighting can be something you buy for a unit you
+ * already own — a display case with a strip in it — while a lamp says it once on
+ * the piece and glows at every rung. Which is also why this reads `f.tier`: the
+ * same fixture is two different lights before and after an upgrade.
  */
 export function emittersIn(fixtures, pieceOf, ceilingY) {
   const out = [];
   for (const f of fixtures) {
-    const emits = pieceOf(f)?.emits;
+    const piece = pieceOf(f);
+    const emits = piece?.tiers?.[(f.tier ?? 1) - 1]?.emits ?? piece?.emits;
     if (!emits) continue;
     out.push({
       x: f.x,

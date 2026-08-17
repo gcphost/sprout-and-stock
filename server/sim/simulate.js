@@ -17,8 +17,8 @@
 import { Game, DAY_SECONDS, OPEN_HOUR, CLOSE_HOUR } from './index.js';
 import { content } from '../content.js';
 import { wholesalePrice, suggestedPrice, departmentMeter } from './economy.js';
-import { requiredFixture } from '../../shared/tags.js';
-import { canPlaceCleanly } from '../../shared/build.js';
+import { requiredFixture, homeKind } from '../../shared/tags.js';
+import { canPlaceCleanly, shelfKind } from '../../shared/build.js';
 import { WALKABLE } from '../../shared/tiles.js';
 import { lotStacks, lotTotal, lotMain } from '../../shared/lot.js';
 
@@ -340,7 +340,10 @@ function runBot(game, bot, priceMult) {
   // step below claims every empty shelf first and the harvest has nowhere to
   // land — which silently turns the entire farm into compost.
   const farmGrown = new Set(c.crops.map((cr) => cr.item_id));
-  const plainShelves = game.layout.shelves.filter((s) => s.kind !== 'freezer');
+  // Plain shelving only — the farm grows nothing that asks for a freezer or a
+  // hot counter, so reserving one of those for the harvest takes a unit out of
+  // the shop and leaves the crop with nowhere to go anyway.
+  const plainShelves = game.layout.shelves.filter((s) => shelfKind(s.kind) === 'shelf');
   const reserveCount = Math.min(farmGrown.size, Math.floor(plainShelves.length / 2));
   const reserved = new Set(plainShelves.slice(0, reserveCount).map((s) => s.id));
 
@@ -708,9 +711,7 @@ function pickItemForShelf(game, shelf, folded) {
 
   let candidates = c.items.filter((it) => {
     if (crafted.has(it.id)) return false;
-    const fixture = requiredFixture(it);
-    if (fixture === 'freezer') return shelf.kind === 'freezer';
-    return shelf.kind !== 'freezer';
+    return homeKind(it) === shelfKind(shelf.kind);
   });
   const bought = candidates.filter((it) => !farmGrown.has(it.id));
   if (bought.length) candidates = bought;
@@ -780,12 +781,8 @@ function shelfFor(game, itemId, reserved = new Set()) {
   const c = content();
   const item = c.byId.items[itemId];
   if (!item) return null;
-  const fixture = requiredFixture(item);
-  const usable = game.layout.shelves.filter((s) => {
-    if (fixture === 'freezer' && s.kind !== 'freezer') return false;
-    if (fixture !== 'freezer' && s.kind === 'freezer') return false;
-    return true;
-  });
+  const home = homeKind(item);
+  const usable = game.layout.shelves.filter((s) => shelfKind(s.kind) === home);
 
   const room = (s) => (game.shelfStack(s, item.id)?.qty ?? 0) < game.shelfCapacity(s, item);
   const spare = (s) => game.shelfStacks(s).length < game.shelfBoards(s);

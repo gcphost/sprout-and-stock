@@ -533,7 +533,9 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -553,7 +555,9 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -573,7 +577,9 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -593,7 +599,9 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -613,7 +621,9 @@
           "surface": true,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -633,7 +643,9 @@
           "surface": true,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -653,7 +665,9 @@
           "surface": false,
           "seam": false,
           "alpha": 0.32,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -673,7 +687,9 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         }
       ]
@@ -684,21 +700,31 @@
         "cost": 0,
         "capacity_mult": 1,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Heated case",
         "cost": 120,
         "capacity_mult": 1,
         "keeps_mult": 1.6,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Patisserie case",
         "cost": 300,
         "capacity_mult": 1.35,
         "keeps_mult": 2,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": {
+          "color": "#ffdca8",
+          "intensity": 1,
+          "range": 3
+        }
       }
     ],
     "variants": [],
@@ -2483,6 +2509,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2504,6 +2531,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2525,6 +2553,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2546,6 +2575,7 @@
           "surface": true,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2567,6 +2597,7 @@
           "surface": true,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2588,6 +2619,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2609,6 +2641,7 @@
           "surface": false,
           "seam": false,
           "alpha": 0.33,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2622,7 +2655,8 @@
         "capacity_mult": 0.6,
         "keeps_mult": 1,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Upright cooler",
@@ -2630,7 +2664,8 @@
         "capacity_mult": 1.1,
         "keeps_mult": 1.2,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Glass-door cooler",
@@ -2638,7 +2673,12 @@
         "capacity_mult": 1.6,
         "keeps_mult": 1.5,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": {
+          "color": "#dff1ff",
+          "intensity": 0.9,
+          "range": 3
+        }
       }
     ],
     "variants": [
@@ -2664,6 +2704,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2685,6 +2726,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2706,6 +2748,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2727,6 +2770,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2748,6 +2792,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2769,6 +2814,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2790,6 +2836,7 @@
               "surface": false,
               "seam": false,
               "alpha": 0.33,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2811,6 +2858,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2841,6 +2889,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2862,6 +2911,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2883,6 +2933,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2904,6 +2955,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2925,6 +2977,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2946,6 +2999,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2967,6 +3021,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2988,6 +3043,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3009,6 +3065,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3030,6 +3087,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3051,6 +3109,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3072,6 +3131,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3102,6 +3162,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3123,6 +3184,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3144,6 +3206,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3165,6 +3228,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3186,6 +3250,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3207,6 +3272,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3228,6 +3294,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3249,6 +3316,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3270,6 +3338,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3291,6 +3360,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3312,6 +3382,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3333,6 +3404,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3363,6 +3435,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3384,6 +3457,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3405,6 +3479,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3426,6 +3501,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3447,6 +3523,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3468,6 +3545,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3489,6 +3567,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3530,7 +3609,9 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -3550,7 +3631,9 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -3570,7 +3653,9 @@
           "surface": true,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -3590,12 +3675,14 @@
           "surface": false,
           "seam": false,
           "alpha": 0.32,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
           "shape": "box",
-          "color": "#aec4d0",
+          "color": "#cfe9f2",
           "pos": [
             0.06,
             1.133,
@@ -3609,8 +3696,10 @@
           "rot": 0,
           "surface": false,
           "seam": false,
-          "alpha": 1,
+          "alpha": 0.32,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         },
         {
@@ -3630,7 +3719,9 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
+          "motion": null,
           "tint": null
         }
       ]
@@ -3641,21 +3732,31 @@
         "cost": 0,
         "capacity_mult": 1,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Chilled well",
         "cost": 150,
         "capacity_mult": 1,
         "keeps_mult": 1.8,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Butcher’s counter",
         "cost": 380,
         "capacity_mult": 1.3,
         "keeps_mult": 2.6,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": {
+          "color": "#ffe7c2",
+          "intensity": 1,
+          "range": 3.2
+        }
       }
     ],
     "variants": [],
@@ -3813,6 +3914,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3834,6 +3936,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3855,6 +3958,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3876,6 +3980,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3897,6 +4002,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3918,6 +4024,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3939,6 +4046,7 @@
               "surface": false,
               "seam": false,
               "alpha": 0.33,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3960,6 +4068,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3987,6 +4096,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4008,6 +4118,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4029,6 +4140,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4050,6 +4162,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4071,6 +4184,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4092,6 +4206,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4113,6 +4228,7 @@
               "surface": false,
               "seam": false,
               "alpha": 0.3,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4134,6 +4250,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4161,6 +4278,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4182,6 +4300,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4203,6 +4322,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4224,6 +4344,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4245,6 +4366,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4266,6 +4388,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4287,6 +4410,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4308,6 +4432,7 @@
               "surface": false,
               "seam": false,
               "alpha": 0.26,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4323,7 +4448,8 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Sealed freezer",
@@ -4331,7 +4457,8 @@
         "capacity_mult": 1,
         "keeps_mult": 1.5,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Display freezer",
@@ -4339,7 +4466,12 @@
         "capacity_mult": 1.5,
         "keeps_mult": 2,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": {
+          "color": "#dff1ff",
+          "intensity": 1,
+          "range": 3.2
+        }
       }
     ],
     "variants": [
@@ -4365,6 +4497,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4386,6 +4519,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4407,6 +4541,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4437,6 +4572,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4458,6 +4594,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4479,6 +4616,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4500,6 +4638,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4521,6 +4660,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4542,6 +4682,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4563,6 +4704,7 @@
               "surface": false,
               "seam": false,
               "alpha": 0.33,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4584,6 +4726,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4614,6 +4757,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4635,6 +4779,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4656,6 +4801,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4677,6 +4823,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4698,6 +4845,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4719,6 +4867,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4740,6 +4889,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4761,6 +4911,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4782,6 +4933,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4803,6 +4955,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4824,6 +4977,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4845,6 +4999,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4875,6 +5030,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4896,6 +5052,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4917,6 +5074,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4938,6 +5096,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4959,6 +5118,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -4980,6 +5140,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5001,6 +5162,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5022,6 +5184,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5043,6 +5206,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5064,6 +5228,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5085,6 +5250,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5106,6 +5272,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5136,6 +5303,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5157,6 +5325,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5178,6 +5347,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5199,6 +5369,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5220,6 +5391,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5241,6 +5413,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5262,6 +5435,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5305,6 +5479,211 @@
       "accent": "#867e72",
       "pattern": "checker"
     },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "hot-counter",
+    "name": "Hot Counter",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#b9c6cd",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.72,
+            0.2,
+            0.82
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#cfd2cf",
+          "pos": [
+            -0.1,
+            0.45,
+            0
+          ],
+          "scale": [
+            0.52,
+            0.5,
+            0.78
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8d3ad",
+          "pos": [
+            0.02,
+            0.72,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.05,
+            0.66
+          ],
+          "rot": 0,
+          "surface": true,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#ffe3bd",
+          "pos": [
+            0.3,
+            0.906,
+            0
+          ],
+          "scale": [
+            0.06,
+            0.433,
+            0.74
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.3,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#ffe3bd",
+          "pos": [
+            0.06,
+            1.133,
+            0
+          ],
+          "scale": [
+            0.62,
+            0.06,
+            0.8
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.3,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#ff9836",
+          "pos": [
+            0.06,
+            1.088,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.025,
+            0.62
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#56656f",
+          "pos": [
+            0.34,
+            0.6,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.05,
+            0.7
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Heat lamp",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      },
+      {
+        "name": "Hot cabinet",
+        "cost": 170,
+        "capacity_mult": 1,
+        "keeps_mult": 1.8,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      },
+      {
+        "name": "Carvery counter",
+        "cost": 400,
+        "capacity_mult": 1.3,
+        "keeps_mult": 2.6,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "warmer",
+    "cost": 260,
+    "emits": {
+      "color": "#ffab4f",
+      "intensity": 0.55,
+      "range": 2.5
+    },
+    "tags": [],
+    "surface": null,
     "yields": null,
     "charm": 0,
     "work": null,
@@ -5700,6 +6079,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -5721,6 +6101,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -5742,6 +6123,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -5763,6 +6145,7 @@
           "surface": true,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -5784,6 +6167,7 @@
           "surface": true,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -5805,6 +6189,7 @@
           "surface": true,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -5826,6 +6211,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -5847,6 +6233,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -5860,7 +6247,8 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Night-blind multideck",
@@ -5868,7 +6256,8 @@
         "capacity_mult": 1,
         "keeps_mult": 1.7,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       },
       {
         "name": "Glass-end multideck",
@@ -5876,7 +6265,12 @@
         "capacity_mult": 1.4,
         "keeps_mult": 2.4,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": {
+          "color": "#dff1ff",
+          "intensity": 1.1,
+          "range": 3.5
+        }
       }
     ],
     "variants": [
@@ -5902,6 +6296,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5923,6 +6318,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5944,6 +6340,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5965,6 +6362,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -5986,6 +6384,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6007,6 +6406,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6028,6 +6428,7 @@
               "surface": false,
               "seam": false,
               "alpha": 0.33,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6049,6 +6450,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6079,6 +6481,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6100,6 +6503,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6121,6 +6525,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6142,6 +6547,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6163,6 +6569,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6184,6 +6591,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6205,6 +6613,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6226,6 +6635,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6247,6 +6657,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6268,6 +6679,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6289,6 +6701,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6310,6 +6723,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6340,6 +6754,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6361,6 +6776,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6382,6 +6798,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6403,6 +6820,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6424,6 +6842,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6445,6 +6864,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6466,6 +6886,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6487,6 +6908,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6508,6 +6930,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6529,6 +6952,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6550,6 +6974,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6571,6 +6996,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6601,6 +7027,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6622,6 +7049,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6643,6 +7071,7 @@
               "surface": false,
               "seam": true,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6664,6 +7093,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6685,6 +7115,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6706,6 +7137,7 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -6727,6 +7159,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null

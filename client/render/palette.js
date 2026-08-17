@@ -59,6 +59,14 @@ export const PALETTE = {
   path: '#d9cbb0',
   fence: '#c99a63',
   door: '#f6f3ea',
+  // A rule painted across a threshold. What a signed way through gets instead of
+  // its own geometry: a staff door and a doorway are the same hole in the same
+  // wall, so the only honest difference is a marking on the floor of it — which
+  // is what a real shop does about exactly this, and which reads from across the
+  // room at this camera pitch where a plate on the lintel does not.
+  markStaff: '#8d95a6',
+  markIn: '#6fbf73',
+  markOut: '#e8a44b',
   // The awning's two stripes used to live here, because the renderer drew the
   // shop front itself. They are on the `awning` catalog row now — a piece
   // carries its own colours, which is what lets there be a second design of one.
@@ -162,14 +170,37 @@ export const VEHICLE_LOOK = { color: PALETTE.vehicle, l: 1.4, w: 0.7, h: 0.6 };
  * sits *on* the line between two cells rather than filling one — which is where
  * the two tiles of shop floor per side came back from.
  */
+/**
+ * The two ways through, once each.
+ *
+ * Written down here rather than four times below because a signed doorway is the
+ * same doorway — see `WAYS` in shared/edges.js. The only thing the signed ones
+ * add is `mark`, and having them spread the base by hand is how you end up with
+ * a staff door that stayed white when somebody restyled the wall.
+ */
+const EDGE_BASE = {
+  // A doorway is a gap you can walk through: a header spanning the opening and
+  // a threshold underfoot, with nothing in between.
+  door: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, opening: true },
+  gate: { color: PALETTE.fence, h: 0.5, t: 0.14, opening: true },
+};
+
 export const EDGE_STYLE = {
   [E.WALL]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17 },
   [E.WINDOW]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, glass: true },
-  // A doorway is a gap you can walk through: a header spanning the opening and
-  // a threshold underfoot, with nothing in between.
-  [E.DOOR]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, opening: true },
-  [E.GATE]: { color: PALETTE.fence, h: 0.5, t: 0.14, opening: true },
+  [E.DOOR]: EDGE_BASE.door,
+  [E.GATE]: EDGE_BASE.gate,
   [E.FENCE]: { color: PALETTE.fence, h: 0.5, t: 0.14 },
+  // The same hole in the same wall, with the threshold painted. `mark` is the
+  // whole difference, and it is a difference you can SEE — the feature is
+  // otherwise invisible in a screenshot, which is a fine thing to say about a
+  // rule the sim obeys and a poor thing to say about a switch you flipped and
+  // want to check. Derived off the base rather than written out, so restyling a
+  // wall takes every signed door with it.
+  [E.DOOR_STAFF]: { ...EDGE_BASE.door, mark: PALETTE.markStaff },
+  [E.DOOR_IN]: { ...EDGE_BASE.door, mark: PALETTE.markIn },
+  [E.DOOR_OUT]: { ...EDGE_BASE.door, mark: PALETTE.markOut },
+  [E.GATE_STAFF]: { ...EDGE_BASE.gate, mark: PALETTE.markStaff },
 };
 
 /** How see-through a pane of glass is. Read by the geometry and the material. */
@@ -185,15 +216,20 @@ export const GLASS = 0.35;
  * against a wall across the room. So the shape is derived once from the style
  * and both callers ask for it.
  *
- * `opening` and `glass` stay the authored facts — "you can walk through this",
- * "you can see through this" — and this is the one place that turns either into
- * geometry.
+ * `opening`, `glass` and `mark` stay the authored facts — "you can walk through
+ * this", "you can see through this", "not everybody may" — and this is the one
+ * place that turns any of them into geometry.
  */
 export function edgeBands(style) {
   // A way through: a header across the top, a threshold underfoot, nothing in
-  // between.
+  // between. A rule about who may use it rides on the threshold as a colour —
+  // the band is the same band, so a signed door is the same geometry as a plain
+  // one and nothing downstream had to learn a second shape.
   if (style.opening) {
-    return [{ y0: style.h - 0.16, y1: style.h }, { y0: 0.02, y1: 0.05 }];
+    return [
+      { y0: style.h - 0.16, y1: style.h },
+      { y0: 0.02, y1: style.mark ? 0.07 : 0.05, color: style.mark },
+    ];
   }
   // Glazed: sill, header, and a see-through band filling the gap.
   if (style.glass) {

@@ -620,8 +620,18 @@ Two things it changed here, both small and both worth keeping:
 
 ### A way through, and who it is for
 
-**Proposed** — step 15, and the first time an edge means something different
+**Built** — step 15, and the first time an edge means something different
 depending on who is standing at it.
+
+It grew one thing in the building that this section did not plan: **one way**.
+Staff-only answers "not for customers"; entrance-only and exit-only answer
+"customers, but not both ways", which is the other half of the same idea and the
+one that shows up in every real shop. Four things about it are worth reading
+before touching either, and they are in the sub-sections below where they belong:
+which way is "in" is *read* rather than stored, there is deliberately no one-way
+gate, the queue refuses every ruled opening rather than asking about direction,
+and nothing had to learn where the doors are — A* finds the way in, so signing
+your front door is a longer walk rather than a closed shop.
 
 The break area is a room for the staff that any shopper may walk into. So is a
 stockroom, and so will a kitchen be. Enclosure gave us rooms, floors made them
@@ -639,11 +649,48 @@ gets you a shell with two kinds of opening in it that look identical and were
 chosen by whichever button you happened to have up.
 
 So it is a **toggle on the opening you already built**: aim at a doorway or a
-gate, open its menu, flip Staff only. The same gesture on both, because
+gate, open its menu, pick who it is for. The same gesture on both, because
 "customers do not come through here" is one idea and a fence is as good a place
 to say it as a wall. That also settles a question this doc did not think to ask
 — the farm. A gate is how you get into a fenced field, and a staff gate is how
 you keep the shop floor out of it.
+
+**A tap opens it, and the highlight is what makes that findable.** A doorway is
+the one thing you can point at with no tile and no id, so it was also the one
+openable thing in the game that nothing marked: the menu existed and was
+unreachable, which reads as the feature not being there. `pickWay` is the aim, and
+it is asked by BOTH the hover and the tap — `boardTakes`'s rule, for the same
+reason, since a bar that lit up while the press opened the shelf behind it is the
+green-ghost bug wearing a marker. It draws the aim frame's own amber along the
+line (`setEdgeGhost`'s `aim` state, which is not a verdict) plus a pointer cursor,
+the same pair a hire gets.
+
+Precedence is: a person, then a fixture, then a crate, then the way. That ordering
+is what keeps the shop front usable — the awning stands on the very tile the front
+door opens onto (`defaultAwning`), so pointing at the canopy reaches the canopy,
+while pointing at the threshold from inside the shop reaches the door. It opens on
+**one** press rather than the two a fixture takes: the first of those two exists
+so it can spend itself on the walk and on selecting for R and M, and a doorway has
+no working spot to walk to and no build verb bound to a key.
+
+In build mode with the Doorway tool up, a **tap on a doorway that is already
+there** opens it too, and that press used to be the one gesture in the mode that
+did nothing at all — the server answered `unchanged`. It is the precise way in,
+because `pickEdge` named the line when the press went down; the ghost goes amber
+there rather than green, because green would be promising a purchase that is not
+going to happen. Only a single segment (a drag along a wall is a run, not a
+question about one door) and only within a family, so the Wall tool still bricks a
+doorway up and the bulldozer still knocks it through.
+
+The last of the affordance is the tool's own blurb, and it has to be: there is no
+palette button for a staff doorway, so nothing else on screen could say that a
+door has a setting at all.
+
+**The hold does nothing here, and that is `HOLD_OPENS`.** The ladder in
+`openAtPointer` ends in this menu too and is wired end to end, but the flag is off
+— opening moved back onto the tap. Worth knowing before you add the next thing you
+can point at: putting it only in `openAtPointer` ships it dead, and the way to
+find out is that the highlight works and the press does nothing.
 
 The honest qualification: **nothing in the sim walks the farm today.** A shopper
 paths to a `browseAt`, to a till, and to the door, and that is the whole list.
@@ -656,10 +703,27 @@ which of the two it is.
 #### It is authored as a toggle and stored as a kind
 
 `edgesV` and `edgesH` are `Uint8Array` of kind — one number per lattice line,
-and no room in it for a second bit. So the toggle writes `E.DOOR_STAFF` or
-`E.GATE_STAFF`, two more entries in the closed vocabulary, and the menu is a
-`build-edge` at that line with a different kind. Nothing about storage,
-persistence, `withEdge`, `deriveEdges` or the renderer learns a new concept.
+and no room in it for a second bit. So the toggle writes `E.DOOR_STAFF`,
+`E.DOOR_IN`, `E.DOOR_OUT` or `E.GATE_STAFF`, four more entries in the closed
+vocabulary, and the menu is a `build-edge` at that line with a different kind.
+Nothing about storage, persistence, `withEdge`, `deriveEdges` or the renderer
+learns a new concept.
+
+The four are one table (`WAYS`, `shared/edges.js`): a `base` — what it is built
+out of, which decides enclosure, price and how it draws — and a `rule`, which is
+who may cross. `SOLID`, `ENCLOSING` and `RULED` are all *derived* from it, which
+is the half that would otherwise rot in silence: a row added with the wrong base
+is a doorway that stops being a room or a gate that starts being one, and nothing
+in the game would say a word about it. `verify:doors` asserts each membership
+against the table rather than listing kinds.
+
+**There is deliberately no one-way gate.** Which way is "in" is read off the
+enclosure (below), a fence never encloses, so a one-way gate would be a rung that
+changes no number — the trap this codebase keeps naming about tiers that sell a
+multiplier nothing reads. Staff-only needs no direction, so a gate gets that one
+and stops there. For the same reason the menu offers one way only on a boundary
+that *has* an inside and an outside, and says so where it doesn't: an interior
+door between two rooms would otherwise be a button that looks like it worked.
 
 That split is the point rather than an implementation detail. The player is
 offered a *property*, because that is what it is to them; the representation
@@ -673,20 +737,46 @@ An existing save needs nothing: an edit is `{o, x, z, k}` and `k` is a number.
 
 #### The one genuinely new idea: `SOLID` stops being the only answer
 
-Everything else here is filling in tables. This is not. Today a wall is a wall
+Everything else here is filling in tables. This is not. A wall used to be a wall
 to everybody, and only four places ever ask:
 
 | Where | Who is walking | Reads |
 |---|---|---|
-| `findPath` (`server/sim/pathing.js`) | everyone | must become per-caller |
+| `findPath` (`server/sim/pathing.js`) | everyone | per-caller: `{ shopper }` |
 | `canWalk` (`server/sim/index.js`) | the player only | stays `SOLID` |
-| `growLane` (`shared/build.js`) | queueing shoppers | shopper rules |
+| `growLane` (`shared/build.js`) | queueing shoppers | refuses every `RULED` opening |
 | `whatThisBlocks` (`shared/build.js`) | the flood from the door | stays `SOLID` — see below |
 
 `findPath` is shared by customers, staff and the player, and nothing on an
-entity says which it is. Cheapest honest answer: a `solid` option on `findPath`,
-chosen in `Game.pathTo`, keyed off the one field only a shopper has
-(`archetype_id`). Six of its eight call sites are customers.
+entity says which it is. Cheapest honest answer, and the one that was built: a
+`shopper` option on `findPath`, chosen in `Game.pathTo`, keyed off the one field
+only a shopper has (`archetype_id`). Six of its eight call sites are customers.
+The one direct caller outside `pathTo` that had to be told is `parkSpaces`,
+because the walk from a bay to the door is the driver's own — a car park whose
+only way in is a staff door is parking nobody can use.
+
+**Which way is "in" is read, not stored.** `shopperCanCross` asks the `indoor`
+mask, so an entrance is a boundary a shopper may cross *into the enclosure* and an
+exit is one they may cross out of. That is what keeps a one-way door to one enum
+value instead of a stored side per edge, and it is the honest answer besides:
+nothing in this game has ever meant anything else by "in". Two consequences fall
+out of it and both are deliberate. On a boundary whose two sides agree — an
+interior door, a gate in a fence, or *any* opening once somebody takes enough wall
+out that `computeIndoor` returns zero cells — a one-way rule has nothing to say and
+lets everybody through; refusing there would seal every signed door in the world
+the day a wall came down, which is the all-or-nothing state `growLane` was already
+caught by. And the probe in `canPlaceEdges` has to be handed a *fresh* mask, because
+`withEdge` carries the old one across: ask a shopper question of a stale enclosure
+and the answer is about the shop you had before the wall.
+
+**A pathing predicate is a function of the STEP now, not of the edge.** There is no
+set of kinds that can answer "may this be crossed" for a one-way door, because the
+answer is yes one way and no the other. `reachable` therefore takes an optional
+`cross`, and the queue does *not* use it: a lane is grown outward from the till and
+walked toward it, so asking about direction would give whichever answer the loop
+happened to ask for. It refuses every `RULED` opening outright, which is also what
+you want — a queue that files in through the entrance and cannot leave is not a
+queue.
 
 Enclosure is the other half, and the two are independent on purpose — `SOLID`
 and `ENCLOSING` have always been separate sets. A staff **doorway** goes in
@@ -715,28 +805,41 @@ simply never sells — they write it off and pick another — which is the
 
 #### The toggle is not free, and that is a decision, not a bug
 
-`buildEdge` charges `EDGE_COST[new] − EDGE_COST[old] × FIXTURE_REFUND`. Price a
+`buildEdge` charged `EDGE_COST[new] − EDGE_COST[old] × FIXTURE_REFUND`. Price a
 staff doorway identically to a doorway and flipping the toggle still costs half
 a door — and flipping it back costs half a door again. A switch that quietly
 bills you $17 for changing your mind is not a switch.
 
-Two ways out, and this doc picks the second: price the lock honestly and accept
-that fitting one is a purchase, or teach `buildEdge` that swapping within a
-family (door ↔ staff door) is a **refit** that charges the difference and
-refunds nothing, because you still have the door. The refit is the smaller lie:
-per-edge pricing exists so a window over a wall charges the gap, and this is the
-same claim about the same line.
+Two ways out, and the **refit** is the one that was built: swapping within a
+family (door ↔ staff door ↔ entrance) charges the difference and refunds nothing,
+because you still have the door. With the four priced at their base that makes the
+switch free in both directions. The refit is the smaller lie: per-edge pricing
+exists so a window over a wall charges the gap, and this is the same claim about
+the same line. Outside a family nothing changed — bricking a doorway up is still a
+swap, and knocking one through still pays you back.
 
 #### What a sweep has to hold
 
-None of this is visible in a screenshot — a staff door and a door are the same
-geometry, and the whole feature is about somebody who *didn't* walk somewhere.
-`verify:staff` would pin: a staff doorway encloses exactly as a doorway does and
-a staff gate encloses exactly as a gate does; one edge, crossed by a hire and
-refused to a shopper; a break area behind one still reachable by staff (or you
-have re-created the `TIRED_PACE` pin `verify:break` exists to catch); sealing
-the entrance with one warns rather than refuses; and a till's queue never grows
-through one.
+Almost none of this is visible in a screenshot — a staff door and a door are the
+same hole in the same wall, and the whole feature is about somebody who *didn't*
+walk somewhere. `verify:doors` (not `verify:staff`, which would read as the worker
+sweep) pins: every membership derived from `WAYS`; a staff doorway encloses exactly
+as a doorway does and a staff gate exactly as a gate does; one edge, crossed by a
+hire and refused to a shopper, and still walked by *you*; an entrance crossed
+inward and not outward; a one-way rule between two rooms letting everybody
+through; a room behind a staff door still reachable by staff (or you have
+re-created the `TIRED_PACE` pin `verify:break` exists to catch); signing the last
+way in warning rather than refusing, in both directions; the stranding flood
+answering identically either side of the sign; no place in a queue beyond a ruled
+opening; and the refit costing nothing either way.
+
+The one thing that IS visible, and the reason it was built: a signed way through
+paints its **threshold**. Grey for staff, green for an entrance, amber for an exit
+— `mark` on the style, one band in `edgeBands`, and the palette's picture of it
+comes off the same record (`artForEdge`), so the button cannot show a door the game
+does not build. "Invisible in a screenshot" is a fine thing to say about a rule the
+sim obeys and a poor thing to say about a switch you just flipped and want to
+check.
 
 #### What it is not
 
@@ -869,11 +972,13 @@ the number.
     `freezeYard` marks a shop as seeded with a boolean rather than a count. The
     break area is the same step's third pad. See above, and step 9 of
     docs/workers.md.
-15. **Staff-only ways through.** A toggle on a doorway or a gate, stored as two
-    more edge kinds, which makes `SOLID` the first rule in the game whose answer
-    depends on who is asking. Additive and independent of 12 — nothing here
-    touches the catalog. See above for the pricing decision it needs and the two
-    warnings it has to fix.
+15. **Staff-only ways through.** *Built.* A toggle on a doorway or a gate, stored
+    as four more edge kinds, which makes `SOLID` the first rule in the game whose
+    answer depends on who is asking. Additive and independent of 12 — nothing here
+    touches the catalog. It grew **one way** in the building, which is the same
+    idea pointed at direction rather than at who: see above for the pricing
+    decision, the two warnings it fixes, and why "in" is read off the enclosure
+    rather than stored.
 
 ---
 

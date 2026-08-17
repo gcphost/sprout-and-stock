@@ -21,7 +21,7 @@ export const TAG_GROUPS = {
   // How fancy?
   quality: ['generic', 'cheap', 'premium', 'luxury', 'artisanal'],
   // Physical behaviour — drives spoilage, shelf space, carry weight.
-  property: ['perishable', 'shelf-stable', 'needs-freezer', 'fragile', 'bulky', 'heavy'],
+  property: ['perishable', 'shelf-stable', 'needs-freezer', 'needs-warmer', 'fragile', 'bulky', 'heavy'],
   // Diet / lifestyle filters.
   diet: ['organic', 'vegan', 'vegetarian', 'gluten-free', 'healthy', 'junk'],
   // When do people buy it?
@@ -102,6 +102,20 @@ export const BEHAVIOUR_TAGS = {
   'shelf-stable': { spoilMultiplier: 0 },
   'needs-freezer': { spoilMultiplier: 1, requiresFixture: 'freezer' },
   /**
+   * The same claim about heat, and the reason `requiresFixture` was always
+   * spelled as a kind rather than as a flag.
+   *
+   * Everything the kitchen serves hot — a roast chicken, chips, a toastie —
+   * carried nothing that said so, so it went on ordinary shelving beside the
+   * bread and kept for its authored life. The tag was half-written from the
+   * day it existed: cold food had somewhere it had to be and hot food did not.
+   *
+   * Same `spoilMultiplier` as the freezer's for the same reason — the number
+   * says "this goes off", and how fast is `shelf_life_days` on the item. What
+   * the tag decides is WHERE, and `MISKEPT_PENALTY` is what ignoring it costs.
+   */
+  'needs-warmer': { spoilMultiplier: 1, requiresFixture: 'warmer' },
+  /**
    * Everything the kitchen makes, and the reason spoilage looked switched off.
    *
    * `prepared` is a *department* tag that every crafted good already carries, so
@@ -125,8 +139,8 @@ export const BEHAVIOUR_TAGS = {
 };
 
 /**
- * What cold is worth to something that did not ask for it, and what its absence
- * costs something that did.
+ * What a fixture is worth to something that did not ask for it, and what being
+ * in the wrong one costs something that did.
  *
  * These are the two halves of what `needs-freezer` MEANS, and both used to be
  * missing in the same direction. The tag shipped as `spoilMultiplier: 0.25` —
@@ -135,13 +149,32 @@ export const BEHAVIOUR_TAGS = {
  * warm shelf kept for its full authored 45 days: the tag that exists to say
  * "this must be kept cold" had no opinion about not being kept cold.
  *
- * The rule now is that an item's authored `shelf_life_days` is its life IN the
- * fixture it asks for. Cold is therefore neutral to a frozen good (it is
- * already the assumption) and a bonus to anything else, and warmth is what the
- * tag is actually about.
+ * The rule is that an item's authored `shelf_life_days` is its life IN the
+ * fixture it asks for. Everything else is a departure from that.
+ *
+ * `CHILL_KEEPS` is the one *bonus* here, and it is the odd one out on purpose:
+ * a freezer is the only fixture in the shop that is kind to goods with no
+ * opinion about it. Milk keeps longer in one, and so does a tomato.
+ *
+ * `HEAT_SPOILS` is the same sentence about the hot counter and comes out the
+ * other way, which is the whole reason it is not simply `1 / CHILL_KEEPS` or a
+ * reused constant: a warmer is a machine for holding cooked food at serving
+ * temperature, and anything else put in one is being cooked slowly. It is
+ * deliberately mild next to `MISKEPT_PENALTY` — leaving a loaf under a heat
+ * lamp is a bad idea, not the same order of bad idea as leaving ice cream out.
+ *
+ * `MISKEPT_PENALTY` is what it costs to ignore the tag outright: goods that
+ * named a fixture and are not in it. One number for both directions, because
+ * the claim is symmetric — an item's authored life assumes its own fixture, so
+ * being anywhere else is the same size of lie whichever way the thermometer
+ * points. It was `WARM_PENALTY` while a freezer was the only thing that could
+ * be asked for; the name had to go, because for a hot counter's goods the
+ * penalty is for being COLD and a constant reading `WARM` would be exactly
+ * backwards at the one site that uses it.
  */
 export const CHILL_KEEPS = 0.25;
-export const WARM_PENALTY = 20;
+export const HEAT_SPOILS = 4;
+export const MISKEPT_PENALTY = 20;
 
 /**
  * What tempts somebody who is already standing in the queue.
@@ -221,6 +254,41 @@ export function requiredFixture(item) {
   return null;
 }
 
+/**
+ * Which kind of unit this item lives on — the one it asked for, or plain
+ * shelving if it asked for nothing.
+ *
+ * The pair below is the whole stocking rule, and it exists as two named
+ * functions because it was written out by hand in six files and eleven places,
+ * every one of them some spelling of `(itemIsFrozen) === (shelfIsFreezer)`.
+ * That is a correct rule with exactly two kinds in the world and a silent bug
+ * with three: a hot counter is not a freezer, so under the old test it took
+ * bread and turned the roast chicken away.
+ *
+ * `homeKind` is deliberately total — it always names one of `STOCK_KINDS` —
+ * because the boolean it replaces had a third state nobody could see. "Needs
+ * nothing" and "needs a freezer" were `null` and `'freezer'`, and every caller
+ * then had to remember that `null` means shelf. Saying so once is what lets
+ * `holds` be a single `===`.
+ */
+export function homeKind(item) {
+  return requiredFixture(item) ?? 'shelf';
+}
+
+/**
+ * May a unit of this kind carry this item?
+ *
+ * Note this is the rule the SHOP works to — the staff, reservations, the
+ * re-flow, the balance bot. Your own hands are looser and always have been:
+ * `boardFor` refuses only goods that named a fixture and are being put
+ * somewhere else, so you may stand a loaf in a freezer if you like and watch
+ * what that does to it. See `spoilRate` — it has an opinion about every one of
+ * these six combinations, which is what makes the loose rule survivable.
+ */
+export function holds(kind, item) {
+  return homeKind(item) === kind;
+}
+
 /** How many shelf slots one stack of this item occupies. */
 export function shelfSlots(item) {
   return item.tags.includes('bulky') ? 2 : 1;
@@ -231,17 +299,24 @@ export function shelfSlots(item) {
  * 1 is "exactly as long as it says on the row", 2 is twice as fast, and
  * 0 means it never spoils at all.
  *
- * `chilled` is whether it is sitting in a freezer. It is a parameter rather
+ * `in` is which of `STOCK_KINDS` it is sitting on. It is a parameter rather
  * than something the caller applies afterwards because the answer is not a
  * bonus you can add on at the end: cold is worth four times as much to milk as
  * it is to a tub of ice cream, whose authored life already assumes it. Working
  * that out at the call site is how the fixture ended up with a hardcoded `× 4`
  * beside a tag multiplier nobody read.
  *
+ * It was a `chilled` BOOLEAN while a freezer was the only fixture goods could
+ * ask for, and the hot counter is why it is a kind now. A boolean has no way to
+ * say "in the wrong special fixture" — a roast chicken in a freezer would have
+ * come out as `chilled: true`, which used to mean "it is where it wants to be",
+ * so the shop would have reported a chicken frozen solid as perfectly kept.
+ *
  * @param {object} item
- * @param {{chilled?: boolean}} [where]
+ * @param {{in?: string}} [where] which of `STOCK_KINDS` it is on. Plain
+ *   shelving by default, which is what everything that does not ask is.
  */
-export function spoilRate(item, { chilled = false } = {}) {
+export function spoilRate(item, { in: kind = 'shelf' } = {}) {
   // Anything explicitly shelf-stable wins over an incidental perishable tag,
   // and wins before anything else can multiply it back up above zero.
   if (item.tags.includes('shelf-stable')) return 0;
@@ -253,10 +328,25 @@ export function spoilRate(item, { chilled = false } = {}) {
   }
   if (rate <= 0) return 0;
 
-  // A frozen good is authored at its frozen life, so a freezer is what it
-  // expects rather than a favour — and the shelf it should never have been put
-  // on is the whole point of the tag.
-  if (requiredFixture(item) === 'freezer') return chilled ? rate : rate * WARM_PENALTY;
+  // What it asked for. Anything with no opinion is asking for plain shelving,
+  // which is the same answer an untagged item has always given — it is only
+  // written down now, because "no requirement" and "a requirement that happens
+  // to be met" have to reach the same line below.
+  const wants = requiredFixture(item) ?? 'shelf';
 
-  return chilled ? rate * CHILL_KEEPS : rate;
+  // Where it wants to be is where its authored shelf life is measured. This is
+  // the case that has to come first: it covers ordinary goods on ordinary
+  // shelving as well as a chicken in a hot counter, and both are simply `rate`.
+  if (kind === wants) return rate;
+
+  // It named a fixture and this is not that fixture. Symmetric on purpose —
+  // ice cream on a shelf and a roast chicken on that same shelf are both goods
+  // being kept somewhere their shelf life never assumed.
+  if (wants !== 'shelf') return rate * MISKEPT_PENALTY;
+
+  // Left with goods that asked for nothing, in a fixture that has an opinion
+  // anyway. Cold is a favour and heat is not.
+  if (kind === 'freezer') return rate * CHILL_KEEPS;
+  if (kind === 'warmer') return rate * HEAT_SPOILS;
+  return rate;
 }

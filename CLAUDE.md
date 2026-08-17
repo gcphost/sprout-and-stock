@@ -182,12 +182,52 @@ Fifteen sweeps, about twenty seconds:
   the pavement, which is the same claim about feet: given two equally short ways
   the paved one is walked, paving nowhere near you changes nothing, no route ever
   gets *longer*, and a crossing painted across a lane is still drivable.
+- `verify:hot` guards the hot counter, and everything it guards is a claim about
+  the number THREE. A unit of shelving could be two things, so every stocking
+  rule in the game was a boolean — `(itemIsFrozen) === (shelfIsFreezer)`, in six
+  files and eleven places — and a boolean is not wrong with a third kind in the
+  world, it is *silently* wrong: a warmer reads as "not a freezer", therefore as
+  ordinary shelving, so it takes bread and turns away the roast chicken it was
+  bought for, while looking exactly like a hot counter. So: that a shop which
+  never bought one is the old game to the number (frozen goods still keep in a
+  freezer and rot everywhere else, cold is still a favour to a tomato,
+  shelf-stable still never spoils); that being in the WRONG special fixture is
+  no better than being in none, which a `chilled` boolean could not say — a
+  chicken in a freezer used to come back as "where it wants to be"; that the
+  nine-way matrix is walked over `STOCK_KINDS` rather than written out, or a
+  fourth kind arrives with two of its rules; that the shop's rule and your
+  hands' rule differ *on purpose* (a reservation must be one somebody will
+  carry out, your own hands may stand a loaf under a heat lamp); and that a
+  re-flow drops misplaced stock without destroying it. Its centrepiece is that a
+  warmer you built is still a warmer afterwards. It authors one piece and
+  removes it on exit, and tags nothing — the items it needs are inputs to pure
+  functions, so it builds them in memory rather than changing what the shop next
+  door sells.
 
-Each of the first twelve found real bugs the day it was written. `verify:motion`,
-`verify:hand` and `verify:park` are the exceptions and say so: each shipped with
-its feature, because every claim it makes is invisible in a still frame by
-construction. None of them is visible in a screenshot of one seed — which is
-exactly why they exist.
+- `verify:doors` guards the first rule in the game whose answer depends on WHO is
+  asking. A signed way through is the same hole in the same wall — same enclosure,
+  same price, one painted threshold apart — so nothing here can be looked at, and
+  the feature is about somebody who did NOT walk somewhere. Its claims: that every
+  set is derived from the one `WAYS` table (a row with the wrong `base` is a
+  doorway that stops being a room or a gate that starts being one, and nothing in
+  the game would say a word); that a staff doorway encloses byte-for-byte as a
+  doorway does; that one edge is refused a shopper, crossed by a hire, and still
+  walked by YOU, because `canWalk` is the player's own test; that an entrance is
+  crossed inward and not outward, while the same rule between two rooms lets
+  everybody through both ways; that a room behind a staff door is still reachable
+  by staff, or you have re-created the `TIRED_PACE` pin `verify:break` exists to
+  catch; that signing your last way in WARNS rather than refuses, in both
+  directions; that the fixture-stranding flood answers identically either side of
+  the sign, which is the one claim that is a comparison rather than a value; that
+  no place in a queue is ever beyond a ruled opening; and that the refit costs
+  nothing in either direction. It authors one floor row and removes it on exit.
+
+Each of the first twelve found real bugs the day it was written, and so did
+`verify:hot` — two, both of them a list of kinds somebody had written out by
+hand. `verify:motion`, `verify:hand`, `verify:park` and `verify:doors` are the
+exceptions and say so: each shipped with its feature, because every claim it
+makes is invisible in a still frame by construction. None of them is visible in a screenshot of one
+seed — which is exactly why they exist.
 
 ⚠️ **`simulate` also inherits who works for you.** `Game.create` reads the saved
 world, so the roster and `ownedUpgrades` come along into the throwaway run. Hire
@@ -274,7 +314,7 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads and the break area alike, and who a way through is for | steps 1–9, 11, 13–14 built; 10 cancelled; 12 next; 15 proposed |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads and the break area alike, and who a way through is for — staff only, entrance only, exit only | steps 1–9, 11, 13–15 built; 10 cancelled; 12 next |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, and the shop hand who takes goods back *off* a shelf | steps 1–6 and 8–10 built; 7 proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
@@ -673,6 +713,42 @@ what the next step was meant to be.
   still stops the line either way. The general shape is worth keeping: a rule
   phrased against enclosure has a silent third state — no enclosure — and it is
   not "a bit less room", it is the rule applying nowhere.
+- **…and a wall's answer now depends on who is asking, which no rule in this game
+  used to.** A way through can be signed — staff only, entrance only, exit only —
+  and that is four more entries in `E` rather than a bit beside it, because
+  `SOLID.has(edgeBetween(...))` is the inner loop of A\*. Four things about it are
+  not obvious. **`shopperCanCross` is a function of the STEP, not of the edge**:
+  a one-way door is passable one way and a wall the other, so no set of kinds
+  could answer it, which is why `findPath` takes `{ shopper }` and `reachable`
+  takes an optional `cross`. **Which way is "in" is READ off the `indoor` mask**
+  rather than stored — so a probe built by `withEdge` has to be handed a fresh
+  mask or you are asking a shopper question of the shop you had before the wall,
+  and a boundary whose two sides agree (an interior door, a gate, *any* opening
+  once enclosure is gone) lets everybody through, because refusing there would
+  seal every signed door in the world the day a wall came down. **The queue
+  refuses every `RULED` opening outright** instead of asking about direction: a
+  lane is grown outward from the till and walked toward it, so a one-way test
+  would give whichever answer the loop happened to ask for. And **the sealing
+  warning had to become a shopper's flood while the fixture-stranding one had to
+  stay everybody's** — the first is why you are told that making your entrance
+  exit-only shuts the shop, and the second is why a shelf you deliberately put in
+  a stockroom does not warn you about itself on every wall you draw afterwards.
+  `verify:doors` pins all four. Nothing routes anybody to a *named* door, which is
+  the reason this cost so little: A\* finds the way in, so signing the front door
+  of a shop with a service entrance is a longer walk rather than a closed shop.
+- **…and a doorway is the one thing you can point at that has no tile.** It has no
+  id and no record either — it is a number on a lattice line — so it was also the
+  only openable thing in the shop that nothing marked, and a menu you cannot tell
+  you are pointing at is a menu that does not exist. `pickWay` (client/main.js) is
+  the aim, and it is asked by the hover AND by the tap, which is `boardTakes`'s
+  rule and matters for the same reason: a bar that lit up while the press opened
+  the shelf behind it is the green-ghost bug wearing a marker. Two things about it
+  are worth knowing. The precedence is **person, fixture, crate, then the way** —
+  things beat gaps — and that is what keeps the shop front usable, because the
+  awning stands on the very tile the front door opens onto. And **the hold opens
+  nothing** (`HOLD_OPENS = false`): the gesture is wired end to end and switched
+  off, so a new thing you can point at, added only to `openAtPointer`, ships dead
+  — the tell is a highlight that works over a press that does nothing.
 - **A floor is a look, and it is what makes a walled room a shop.** Enclosure
   has meant "whatever the walls close in" since step 3 of docs/building.md — so
   you could always draw an annex and it counted as indoors, and it then refused
@@ -935,6 +1011,34 @@ what the next step was meant to be.
   the near end of the shop instead of switching the far end off. Also: three's
   falloff makes `intensity` a power, not a brightness — a lamp authored as "1
   over 4 tiles" is invisible until it is scaled by range squared.
+- **A rule written as a boolean over two kinds is silently wrong the day there
+  are three.** A unit of shelving could be a shelf or a freezer, so every
+  stocking rule in the game was some spelling of
+  `(itemIsFrozen) === (shelfIsFreezer)` — correct, and correct only while there
+  is nothing else a shelf can be. The hot counter is the third, and nothing
+  about those eleven call sites *looks* wrong afterwards: a warmer answers "not
+  a freezer", so it reads as ordinary shelving, accepts bread, and refuses the
+  roast chicken it exists for. `STOCK_KINDS` and `shelfKind` are the one
+  normalisation now, and `homeKind(item) === shelfKind(unit.kind)` is the whole
+  rule — `homeKind` is *total* (an item that asks for nothing asks for `shelf`)
+  precisely so the third state stops being one every caller has to remember.
+  The same shape is why `spoilRate` takes a kind rather than `chilled`: a
+  boolean has no way to say "in the wrong special fixture", so a chicken in a
+  freezer came back as `chilled: true`, which meant "where it wants to be".
+- **…and the two bugs that found were both a list of kinds written out by
+  hand.** Neither is a stocking rule and both present as the same thing: you
+  buy a hot counter, it is charged for, and it is gone. `makeShelf` normalised
+  with `kind === 'freezer' ? 'freezer' : 'shelf'`, and every player-placed unit
+  goes back through it on every re-flow — so the counter survived being built
+  and was demoted to plain shelving by the next purchase, taking its stock onto
+  a unit that should never have held it. And `compose`'s budget map was four
+  literal keys against a check that reads `if (!(budget[p.kind] > 0)) shed(p)`,
+  so a kind with no line was dropped and refunded by the re-flow the purchase
+  itself triggers — money back, so nothing looks stolen, and what you see is the
+  shop refusing something it had just accepted. Both derive from `FIXTURE_KINDS`
+  now, along with `budgetOf`. **Anything that enumerates kinds and has a
+  fallback is a place a new kind dies quietly**, because the fallback is always
+  the sensible-looking one.
 - **A tier that changes no number is a button that takes money and does nothing.**
   `capacity_mult`, `keeps_mult`, `speed_mult` and `unattended` are the only knobs
   the sim reads. The till ladder was priced at 0 for exactly that reason until

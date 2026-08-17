@@ -10,9 +10,9 @@
  * the snapshot and sends messages, not part of the HUD's own state.
  */
 
-import { FIXTURES, FIXTURE_REFUND } from '../shared/build.js';
+import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, holdsGoods, shelfKind } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
-import { requiredFixture } from '../shared/tags.js';
+import { homeKind } from '../shared/tags.js';
 import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
@@ -52,8 +52,8 @@ const craftedItems = (ui) => new Set((ui.catalog.recipes ?? []).map((r) => r.out
 
 /** How each kind of fixture shows up in its own menu. */
 const FIXTURE_ICON = {
-  shelf: ICONS.shelf, freezer: ICONS.freezer, checkout: ICONS.checkout,
-  plot: ICONS.plot, station: ICONS.station,
+  shelf: ICONS.shelf, freezer: ICONS.freezer, warmer: ICONS.warmer,
+  checkout: ICONS.checkout, plot: ICONS.plot, station: ICONS.station,
 };
 
 /**
@@ -189,7 +189,7 @@ export function showFixture(ui, f) {
   // rather than a single sowing, so it also gets to say how eagerly the shop
   // keeps that promise — which is the difference between "we sell milk here"
   // and "we are never out of milk".
-  if (kind === 'shelf' || kind === 'freezer') {
+  if (holdsGoods(kind)) {
     // Built once and shown twice. The shortlist is a *selection* of these rows,
     // not a second list about the same items — see `quickRows`.
     const items = stockRows(ui, f, live);
@@ -346,7 +346,7 @@ export function showFixture(ui, f) {
   const holds = contentsOf(ui, f, live);
   if (holds.n > 0) {
     foot.push(actIcon('empty', ICONS.empty, 'Empty it', holds.blurb, 'Empty', { right: `${holds.n}` }));
-  } else if ((kind === 'shelf' || kind === 'freezer') && live?.stacks?.length) {
+  } else if (holdsGoods(kind) && live?.stacks?.length) {
     // The labels are what was last on each board; what it is *kept* for is a tab
     // above and survives this. This one keeps its sub-line, because "take the
     // labels off" does not say WHICH — and on a shelf that is also kept for
@@ -476,7 +476,7 @@ function styleRows(ui, f) {
  * ever error is worse than a row that isn't there.
  */
 function stockRows(ui, f, live) {
-  const freezer = f.kind === 'freezer';
+  const home = shelfKind(f.kind);
   // A LIST now, and every row is a checkbox rather than a picker. The same rows
   // in the same order — what changed is that pressing one toggles it instead of
   // replacing whatever was there.
@@ -505,7 +505,7 @@ function stockRows(ui, f, live) {
   const coming = comingByItem(ui);
 
   const rows = (ui.catalog.items ?? [])
-    .filter((it) => (requiredFixture(it) === 'freezer') === freezer)
+    .filter((it) => homeKind(it) === home)
     .map((it) => {
       const on = kept.includes(it.id);
       const here = (live?.stacks ?? []).find((k) => k.item_id === it.id) ?? null;
@@ -719,7 +719,7 @@ const PRIORITIES = [
 const MODIFIERS = [
   {
     id: 'boh',
-    kinds: ['shelf', 'freezer'],
+    kinds: STOCK_KINDS,
     icon: ICONS.crate,
     on: (live) => live?.boh === true,
     name: (on) => (on ? 'In the back' : 'On the shop floor'),
@@ -818,7 +818,7 @@ function priorityRows(ui, f, live) {
 function settingRows(ui, f, live) {
   const rows = [];
   const under = (heading, list) => { if (list.length) rows.push({ sep: heading }, ...list); };
-  if (f.kind === 'shelf' || f.kind === 'freezer') {
+  if (holdsGoods(f.kind)) {
     under('When it gets refilled', priorityRows(ui, f, live));
     under('The shop hand', handRows(ui, f, live));
   }
@@ -896,7 +896,7 @@ export function refreshFixture(ui, fixtures) {
 export function liveFixture(ui, f) {
   const s = ui.state;
   if (!s) return null;
-  if (f.kind === 'shelf' || f.kind === 'freezer') return s.shelves?.find((x) => x.id === f.id) ?? null;
+  if (holdsGoods(f.kind)) return s.shelves?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'plot') return s.plots?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'station') return s.stations?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'checkout') return s.queues?.find((x) => x.id === f.id) ?? null;
@@ -947,7 +947,7 @@ export function fixtureSignature(ui, f, live) {
 function fixtureDetail(ui, f, live) {
   const line = (label, value) => `<div class="fx-line"><span>${label}</span><b>${value}</b></div>`;
 
-  if (f.kind === 'shelf' || f.kind === 'freezer') {
+  if (holdsGoods(f.kind)) {
     const stacks = live?.stacks ?? [];
     const boards = live?.boards ?? 1;
 
@@ -1342,7 +1342,7 @@ const mult = (n) => `${Number(n) % 1 === 0 ? n : Number(n).toFixed(1)}×`;
 
 /** What "empty it" would tip out, and how to describe it. */
 function contentsOf(ui, f, live) {
-  if (f.kind === 'shelf' || f.kind === 'freezer') {
+  if (holdsGoods(f.kind)) {
     // Across every board, and named board by board — "empty it" tips the whole
     // unit out, one crate per kind, so the count has to be the whole unit too.
     const stacks = (live?.stacks ?? []).filter((k) => k.qty > 0);

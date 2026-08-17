@@ -314,7 +314,7 @@ export const UpgradeSchema = z.object({
   // `floor` is here so a flooring deal can be authored as a discount the way
   // every other fixture deal is (`fixtureDiscount`). Nothing ships one — it
   // costs a word to allow and a migration to add later.
-  kind: z.enum(['shelf', 'freezer', 'plot', 'checkout', 'floor', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment']),
+  kind: z.enum(['shelf', 'freezer', 'warmer', 'plot', 'checkout', 'floor', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment']),
   /** Free-form knobs, interpreted by the sim for that `kind`. */
   payload: z.record(z.string(), z.any()).default({}),
   /** Must own these upgrades first. */
@@ -342,6 +342,23 @@ export const RecipeSchema = z.object({
   output_id: slug,
   output_qty: z.number().int().min(1).max(20).default(1),
   minutes: z.number().min(0.1).max(120).default(1),
+});
+
+/**
+ * What a thing gives off, wherever it is authored.
+ *
+ * Named because it is now written in two places on one row: on the PIECE, which
+ * is a thing that glows for as long as it exists (a lamp), and on a TIER, which
+ * is a thing that glows once you have paid for the rung that lights it (the
+ * strip inside a display fridge). Same shape both times, so the renderer asks
+ * one question and content decides which of the two answers it.
+ */
+const emitsShape = z.object({
+  color: hexColor.default('#ffd9a0'),
+  /** How bright. Above ~2 a single lamp washes the aisle out. */
+  intensity: z.number().min(0).max(4).default(1),
+  /** How far the glow carries, in tiles. */
+  range: z.number().min(0.5).max(12).default(4),
 });
 
 /**
@@ -467,6 +484,23 @@ export const FixtureSchema = z.object({
      * rung worth its price.
      */
     unattended: z.number().min(0).max(1).default(0),
+    /**
+     * A light this rung switches on. Null on every rung is a fitting that never
+     * glows, which is every fixture in the game except the lamps.
+     *
+     * The first thing a tier can sell that is not a multiplier, and it is worth
+     * knowing why that is allowed here when "a tier that changes no number is a
+     * button that takes money and does nothing" is the rule everywhere else. A
+     * glow is not a number the sim reads and never will be — but it is not
+     * decoration either, because the shop's lighting is now baked out of
+     * exactly these records (`bakeInto`), so a lit rung genuinely changes what
+     * the room looks like from across it. A rung that sells ONLY this is a rung
+     * that sells a look, and should be priced like one.
+     *
+     * Falls back to the piece's own `emits`, so a lamp with tiers goes on
+     * glowing at every rung without authoring it six times.
+     */
+    emits: emitsShape.nullable().default(null),
   })).min(1).max(6).default([{ name: 'Standard', cost: 0 }]),
   /**
    * What one costs to put down, or 0 to be priced by the upgrade that sells the
@@ -488,13 +522,7 @@ export const FixtureSchema = z.object({
    * ever meant to *matter* the hook is the tag system — a dim aisle tagged, an
    * archetype that avoids it — not a check against a piece id.
    */
-  emits: z.object({
-    color: hexColor.default('#ffd9a0'),
-    /** How bright. Above ~2 a single lamp washes the aisle out. */
-    intensity: z.number().min(0).max(4).default(1),
-    /** How far the glow carries, in tiles. */
-    range: z.number().min(0.5).max(12).default(4),
-  }).nullable().default(null),
+  emits: emitsShape.nullable().default(null),
   /**
    * A thing that produces money on its own — the first thing a piece can do
    * that is neither a look nor a place to put stock.

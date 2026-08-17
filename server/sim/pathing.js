@@ -12,7 +12,7 @@
  */
 
 import { isWalkable } from '../layout.js';
-import { SOLID, edgeBetween } from '../../shared/edges.js';
+import { SOLID, edgeBetween, shopperCanCross } from '../../shared/edges.js';
 import { T } from '../../shared/tiles.js';
 
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -49,11 +49,22 @@ const stepCost = (layout, x, z) => {
   return layout.tiles[i] === T.PATH ? PAVED : ROUGH;
 };
 
+/** Anybody who works here: a wall stops them and a sign does not. */
+const anyoneCanCross = (layout, cx, cz, nx, nz) =>
+  !SOLID.has(edgeBetween(layout, cx, cz, nx, nz));
+
 /**
+ * @param {object} opts
+ * @param {boolean} opts.shopper Route this as a CUSTOMER rather than as staff.
+ *   Nothing on an entity says which it is, and six of the eight call sites are
+ *   customers, so the choice is made once in `Game.pathTo` off the one field only
+ *   a shopper has. It is the whole of "staff only" and "one way": a signed
+ *   doorway is a wall to a shopper and an ordinary opening to everyone else.
  * @returns {Array<{x:number,z:number}>|null} tile path excluding the start
  *   tile, or null if unreachable.
  */
-export function findPath(grid, layout, start, goal, { maxNodes = 4000 } = {}) {
+export function findPath(grid, layout, start, goal, { maxNodes = 4000, shopper = false } = {}) {
+  const canCross = shopper ? shopperCanCross : anyoneCanCross;
   const sx = Math.round(start.x);
   const sz = Math.round(start.z);
   const gx = Math.round(goal.x);
@@ -106,8 +117,11 @@ export function findPath(grid, layout, start, goal, { maxNodes = 4000 } = {}) {
       if (!isWalkable(grid, layout, nx, nz)) continue;
       // A walkable tile you cannot get to is not a step. Walls live on the
       // boundary between cells, so the crossing has to be checked separately
-      // from the destination — see shared/edges.js.
-      if (SOLID.has(edgeBetween(layout, cx, cz, nx, nz))) continue;
+      // from the destination — see shared/edges.js. And since a way through can
+      // be signed, the crossing is also where WHO is walking gets asked: a
+      // one-way door is passable in one direction and a wall in the other, so
+      // this test is a function of the step rather than of the edge.
+      if (!canCross(layout, cx, cz, nx, nz)) continue;
 
       const nk = key(nx, nz);
       // Charged on the cell you step ONTO, so the pavement you are walking

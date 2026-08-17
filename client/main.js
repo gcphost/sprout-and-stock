@@ -13,6 +13,7 @@ import { UI } from './ui.js';
 import { RAIL_ITEMS } from './sections.js';
 import { showFixture, refreshFixture } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
+import { showWay, isWay, sameWay } from './edge-menu.js';
 import { Menu, preselectedWorld } from './menu.js';
 
 const canvas = document.getElementById('game');
@@ -196,6 +197,20 @@ function refreshGhost(force = false) {
   if (edgeKind !== null) {
     const seg = scene.pickEdge(pointer.x, pointer.y);
     if (!seg) { scene.setEdgeGhost(null, null); ui.setBuildVerdict(null); return; }
+    // The Doorway tool over a doorway that is already there does not build one —
+    // it opens it (see `endPress`). So the bar goes amber, which is the colour
+    // everything openable wears under the pointer, and no verdict is printed:
+    // green would be promising a purchase that is not going to happen.
+    if (sameWay(scene.storeLayout, seg, edgeKind)) {
+      scene.setEdgeGhost([seg], 'aim');
+      ui.setBuildVerdict(null);
+      scene.setAimTarget(null);
+      ui.setBoardTip(null, null);
+      scene.setPersonAim(null);
+      canvas.style.cursor = 'pointer';
+      ui.setAim(null);
+      return;
+    }
     const verdict = canPlaceEdges(scene.storeLayout, [seg], edgeKind);
     scene.setEdgeGhost([seg], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
     ui.setBuildVerdict(verdict);
@@ -311,6 +326,17 @@ function refreshGhost(force = false) {
     // Only the fixture: this names what a build verb would act on, and there is
     // no build verb that takes a crate.
     ui.setAim(aim?.fixture ?? null);
+
+    // ...and a way through, which is the one openable thing in the game with no
+    // tile of its own and so the one thing no marker could ever be drawn on. A
+    // bar of the aim frame's own amber along the line, and the cursor to say
+    // there is something there at all — same pair a hire gets, and for the same
+    // reason: the menu is unreachable if you cannot tell you are pointing at it.
+    // Asked through `pickWay` so the highlight and the hold cannot disagree.
+    const way = pointer.onCanvas
+      ? pickWay(pointer.x, pointer.y, !!(aim?.fixture || aim?.crate)) : null;
+    scene.setEdgeGhost(way ? [way] : null, way ? 'aim' : null);
+    if (way) canvas.style.cursor = 'pointer';
 
     // With goods in your hands, the square under the pointer is where they would
     // GO — so it is drawn, the same green cell the ground brush uses. Eight
@@ -1229,6 +1255,18 @@ function endPress(e) {
     scene.setEdgeGhost(null, null);
     ui.setBuildVerdict(null);
     if (drawn) {
+      // A tap with a Doorway tool on a doorway that is already there used to be
+      // a message the server answered `unchanged` — the one press in build mode
+      // that did nothing at all. It opens that door's menu instead, which is
+      // where "and who is it for" lives, and it is the precise way in: this line
+      // was named by `pickEdge` when the press went down, so there is no aiming
+      // left to get wrong. A single segment only — a drag along a wall is a run,
+      // not a question about one door — and only within a family, so the Wall
+      // tool still bricks a doorway up and the bulldozer still knocks it through.
+      if (drawn.segs.length === 1 && sameWay(scene.storeLayout, start, kind)) {
+        showWay(ui, start);
+        return;
+      }
       if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
       if (drawn.verdict.warn) ui.toast(drawn.verdict.warn);
       // Two ends and a kind, never the list — a long wall would blow past the
@@ -1509,6 +1547,36 @@ function pickTarget(cx, cy) {
 }
 
 /**
+ * The way through a press here would OPEN, or null.
+ *
+ * Written once and asked by BOTH the hover and the hold, for the reason
+ * `boardTakes` is: a highlight is a promise, and a doorway that lit up while the
+ * press opened the shelf behind it would be the green-ghost bug said about a
+ * marker. Every entry in the veto list is a state where something else is already
+ * the answer:
+ *
+ * - **a fixture is under the pointer** (`blocked`, worked out by the caller,
+ *   which has already raycast for one) — things beat gaps, and this is what keeps
+ *   the shop front usable: the awning stands on the tile the front door opens
+ *   onto, so pointing at the canopy must reach the canopy.
+ * - **a crate is under the pointer** — a pallet is a target too, and the door
+ *   behind a stack of boxes is not what you were aiming at.
+ * - **you are carrying a fixture, or an armful** — then every square is somewhere
+ *   to put it down, and nothing is something to look at.
+ * - **the bulldozer is armed** — you are aiming at things to tear out, and a
+ *   doorway is torn out by dragging along it.
+ */
+/** Two lattice addresses, compared — so a second tap on the same door shuts it. */
+const sameSpot = (a, b) => !!a && !!b && a.o === b.o && a.x === b.x && a.z === b.z;
+
+function pickWay(cx, cy, blocked = false) {
+  if (blocked || ui.holding || ui.demolishArmed() || dropping()) return null;
+  if (aimCrate(cx, cy)) return null;
+  const seg = scene.pickEdge(cx, cy);
+  return seg && isWay(scene.storeLayout, seg) ? seg : null;
+}
+
+/**
  * Is pointing at one pile of goods a Take right now?
  *
  * The pointer can name a board (`pickFixtureHit`'s `board`), and this is the
@@ -1653,6 +1721,14 @@ function openAtPointer(cx, cy) {
 
   const over = pickTarget(cx, cy);
   if (over && !ui.demolishArmed()) { showFixture(ui, over); return true; }
+
+  // ...and last, a way through, which is the only thing you can look at that is
+  // not a thing at all: a doorway has no tile, no id and no record — it is a
+  // number on a lattice line. `pickWay` owns the precedence, because the hover
+  // asks it the same question and the amber bar it draws has to be a promise
+  // about this press.
+  const way = pickWay(cx, cy);
+  if (way) { showWay(ui, way); return true; }
   return false;
 }
 
@@ -1870,6 +1946,26 @@ function tapAtPointer(cx, cy) {
       }
 
       openInTwo(over, { walk: true });
+      return;
+    }
+
+    // A way through, which is the one thing you can point at that has no tile
+    // and no id — a doorway is a number on a lattice line. So it opens on ONE
+    // press rather than the two a fixture takes: the second press exists so the
+    // first can spend itself on the walk and on selecting for R and M, and a
+    // doorway has no working spot to walk to and no build verb bound to a key.
+    // The amber bar under the pointer is the promise, and `pickWay` is the same
+    // question the hover asked, so the two cannot disagree.
+    //
+    // Above the dismissal below for the reason a fixture is: pointing at a thing
+    // is a positive act, so with a menu up it means "that one instead".
+    const way = pickWay(cx, cy);
+    if (way) {
+      const spot = scene.pickTile(cx, cy);
+      // Pale, like every other press that opens a panel rather than going.
+      if (spot) scene.ripple(spot.x, spot.z, 'miss');
+      if (ui.openPanel === 'way' && sameSpot(ui.wayRef, way)) ui.closePanel();
+      else showWay(ui, way);
       return;
     }
 

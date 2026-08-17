@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-44 pieces across 14 kinds.
+45 pieces across 15 kinds.
 
 ## Fixtures
 
@@ -104,6 +104,22 @@ Shapes: Standard, Wall run, Wall corner, Wall corner (other way), Endcap — loo
 1. **Under-counter** — free, holds ×0.6
 2. **Upright cooler** — $140, holds ×1.1, keeps ×1.2
 3. **Glass-door cooler** — $300, holds ×1.6, keeps ×1.5
+
+### `warmer`
+
+Indoors only, owns its cell (people walk around it), worked from the side it faces (`browseAt`), and reachable from either end, rotates.
+
+#### Hot Counter
+
+`hot-counter` · kind `warmer` · $260 to build
+
+7 parts · **1 board of goods** (3 facings drawn) · has glass
+
+💡 Emits `#ffab4f`, intensity 0.55, range 2.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+1. **Heat lamp** — free, as built
+2. **Hot cabinet** — $170, keeps ×1.8
+3. **Carvery counter** — $400, holds ×1.3, keeps ×2.6
 
 ### `checkout`
 
@@ -277,7 +293,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 `panel-light` · kind `prop-ceiling` · $80 to build
 
-2 parts
+2 parts · has glass
 
 💡 Emits `#eef4ff`, intensity 1.3, range 5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 

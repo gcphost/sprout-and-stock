@@ -1439,7 +1439,8 @@
       "junk",
       "kids",
       "party",
-      "cheap"
+      "cheap",
+      "needs-warmer"
     ],
     "base_cost": 1.1,
     "base_price": 3.6,
@@ -1464,7 +1465,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -1483,7 +1487,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -1502,7 +1509,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -1521,7 +1531,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -2576,7 +2589,8 @@
       "dinner",
       "classic",
       "premium",
-      "perishable"
+      "perishable",
+      "needs-warmer"
     ],
     "base_cost": 3,
     "base_price": 8.4,
@@ -2601,6 +2615,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2622,6 +2637,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2643,6 +2659,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2664,6 +2681,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2685,6 +2703,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -3014,7 +3033,8 @@
       "lunch",
       "classic",
       "kids",
-      "cheap"
+      "cheap",
+      "needs-warmer"
     ],
     "base_cost": 1.4,
     "base_price": 4.2,
@@ -3039,7 +3059,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -3058,7 +3081,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -3077,7 +3103,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }

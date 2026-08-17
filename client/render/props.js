@@ -25,6 +25,9 @@ const GEO = {
   capsule: new THREE.CapsuleGeometry(0.4, 0.6, 3, 10),
 };
 
+/** The five above, by identity — see `paintLit` for the one thing that asks. */
+const SHARED_GEO = new Set(Object.values(GEO));
+
 const materialCache = new Map();
 
 /**
@@ -47,6 +50,66 @@ export function material(color, alpha = 1) {
     materialCache.set(key, m);
   }
   return m;
+}
+
+/**
+ * The same material, reading a per-vertex tint.
+ *
+ * How a static thing gets BAKED light. A lamp reaches a fixture's underside and
+ * never its lid — the pool is a point below the canopy, so the biggest face on
+ * screen faces away from every light in the room and a lit display case reads
+ * as one that isn't. Baked light has no direction to be wrong about: it is a
+ * number the shop worked out on the CPU and multiplied into the colour.
+ *
+ * Cached by the SOURCE material, so this adds one clone per colour and alpha
+ * rather than one per fixture — the sharing that makes `weld` worth doing is
+ * still intact, because the brightness rides in the geometry, not in here.
+ */
+const litVariants = new Map();
+export function litMaterial(mat) {
+  let m = litVariants.get(mat);
+  if (!m) {
+    m = mat.clone();
+    m.vertexColors = true;
+    litVariants.set(mat, m);
+  }
+  return m;
+}
+
+/**
+ * Paint one flat brightness through a whole group, as vertex colour.
+ *
+ * One value for the unit rather than per vertex: a fixture is about a tile
+ * across, which is the resolution the baked floor works at anyway, and a
+ * gradient across a shelf would need the model subdivided to show it.
+ *
+ * Re-callable — the attribute is filled in place when it already exists, which
+ * is what makes re-baking on the hour cost nothing but the fill.
+ */
+export function paintLit(group, r, g, b) {
+  group.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    const n = o.geometry.attributes.position?.count ?? 0;
+    if (!n) return;
+    // A part that dodged the weld — a blade, a lever — is still holding one of
+    // the SHARED primitives out of `GEO`, and writing a colour into that would
+    // tint every box in the game to whatever the last fixture painted. Clone
+    // first; `disposeGroup` frees a clone and skips the shared original, so the
+    // copy is collected with the shop it was made for.
+    if (SHARED_GEO.has(o.geometry)) o.geometry = o.geometry.clone();
+    let attr = o.geometry.attributes.color;
+    if (!attr || attr.count !== n) {
+      attr = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
+      o.geometry.setAttribute('color', attr);
+    }
+    for (let i = 0; i < n; i++) {
+      attr.array[i * 3] = r;
+      attr.array[i * 3 + 1] = g;
+      attr.array[i * 3 + 2] = b;
+    }
+    attr.needsUpdate = true;
+    if (!o.material.vertexColors) o.material = litMaterial(o.material);
+  });
 }
 
 /**

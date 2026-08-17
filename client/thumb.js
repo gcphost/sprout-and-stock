@@ -432,7 +432,9 @@ export function artForEdge(edge) {
 function edgeRun(style, x, w) {
   return edgeBands(style).map((b) => ({
     shape: 'box',
-    color: style.color,
+    // A band may carry its own colour — a signed way through paints its
+    // threshold — and the picture has to come from the thing.
+    color: b.color ?? style.color,
     alpha: b.alpha,
     pos: [x, (b.y0 + b.y1) / 2, 0],
     scale: [w, Math.max(0.02, b.y1 - b.y0), style.t],

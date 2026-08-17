@@ -37,7 +37,69 @@ export const E = {
   GATE: 4,
   /** Marks a boundary without ever making a room. See ENCLOSING. */
   FENCE: 5,
+  // The same three ways through, with a rule about WHO. See WAYS below: these
+  // are not new kinds of wall, they are the doorway you already built with a
+  // sign on it, and the player is offered them as a property rather than as
+  // four more palette buttons.
+  /** A doorway shoppers do not use. Back-of-house. */
+  DOOR_STAFF: 6,
+  /** In only. A shopper may cross it into the shop, never out. */
+  DOOR_IN: 7,
+  /** Out only. */
+  DOOR_OUT: 8,
+  /** A gate shoppers do not use — how you keep the shop floor out of a field. */
+  GATE_STAFF: 9,
 };
+
+/**
+ * A WAY THROUGH, and who it is for.
+ *
+ * The one table behind the whole feature, and the reason it cost four enum
+ * values rather than a parallel `private` mask beside the two edge arrays: the
+ * player is offered a *property* of the opening they already built, and the
+ * representation stays one array lookup, because `SOLID.has(edgeBetween(...))`
+ * is in the inner loop of A* and runs a few thousand times per path.
+ *
+ * `base` is what it is built out of — which decides enclosure, price and how it
+ * draws. `rule` is who may cross:
+ *
+ *   all    everybody, which is what a doorway has always been
+ *   staff  you and whoever works for you. A shopper treats it as a wall.
+ *   in     a shopper may cross it into the shop, never back out
+ *   out    the other way round
+ *
+ * There is deliberately no GATE_IN/GATE_OUT. Which way is "in" is read off the
+ * enclosure rather than stored (see `shopperCanCross`), and a fence never
+ * encloses — so a one-way gate would be a rung that changes no number, which
+ * is the trap CLAUDE.md names about tiers. Staff-only needs no direction and so
+ * a gate gets that one.
+ */
+export const WAYS = new Map([
+  [E.DOOR, { base: 'door', rule: 'all' }],
+  [E.DOOR_STAFF, { base: 'door', rule: 'staff' }],
+  [E.DOOR_IN, { base: 'door', rule: 'in' }],
+  [E.DOOR_OUT, { base: 'door', rule: 'out' }],
+  [E.GATE, { base: 'gate', rule: 'all' }],
+  [E.GATE_STAFF, { base: 'gate', rule: 'staff' }],
+]);
+
+/** Which rules each sort of opening can be given, in the order a menu lists them. */
+export const WAY_RULES = {
+  door: ['all', 'staff', 'in', 'out'],
+  gate: ['all', 'staff'],
+};
+
+/** What sort of opening this is, or null for anything that isn't one. */
+export const wayBase = (kind) => WAYS.get(kind)?.base ?? null;
+
+/** Who may cross, or null for anything that isn't an opening. */
+export const wayRule = (kind) => WAYS.get(kind)?.rule ?? null;
+
+/** The kind that is this sort of opening with this rule on it. */
+export function wayKind(base, rule) {
+  for (const [kind, w] of WAYS) if (w.base === base && w.rule === rule) return kind;
+  return null;
+}
 
 /** Edges you cannot walk through. */
 export const SOLID = new Set([E.WALL, E.WINDOW, E.FENCE]);
@@ -47,11 +109,26 @@ export const SOLID = new Set([E.WALL, E.WINDOW, E.FENCE]);
  *
  * A DOOR is in here and that is the whole trick: leave it out and the fill
  * walks straight in through the front door, every cell is reachable from the
- * map border, and the entire shop reports as outdoors.
+ * map border, and the entire shop reports as outdoors. Every *doorway* is in
+ * here for the same reason, sign or no sign: leave a staff doorway out and your
+ * stockroom is a patio, every shelf in it is refused, and the refusal reads
+ * "something is already there" — which sends you looking in the wrong place.
  *
- * A FENCE is deliberately absent. Fencing a field must never roof it.
+ * A FENCE is deliberately absent, and so is every gate. Fencing a field must
+ * never roof it.
  */
-export const ENCLOSING = new Set([E.WALL, E.WINDOW, E.DOOR]);
+export const ENCLOSING = new Set([E.WALL, E.WINDOW,
+  ...[...WAYS].filter(([, w]) => w.base === 'door').map(([kind]) => kind)]);
+
+/**
+ * Openings with a rule on them — the ones that are not a way through for
+ * everybody.
+ *
+ * Named as a set because two callers want "is there anything to think about
+ * here" rather than the answer to "who": the queue, which refuses to grow
+ * through one at all, and the menu, which lights the row you are on.
+ */
+export const RULED = new Set([...WAYS].filter(([, w]) => w.rule !== 'all').map(([k]) => k));
 
 // ---------------------------------------------------------------------------
 // Indexing
@@ -103,6 +180,42 @@ export function edgeBetween(L, x, z, nx, nz) {
 export function canStep(L, x, z, nx, nz, standable = defaultStandable) {
   if (!standable(L, nx, nz)) return false;
   return !SOLID.has(edgeBetween(L, x, z, nx, nz));
+}
+
+/**
+ * May a SHOPPER cross this boundary — the first rule in the game whose answer
+ * depends on who is asking.
+ *
+ * Everything else here is a fact about the wall. This is a fact about the wall
+ * and the person at it, which is why it is a function of the step rather than a
+ * set: a one-way door is passable in one direction and a wall in the other, so
+ * there is no set of kinds that could answer it.
+ *
+ * Which way is "in" is READ rather than stored, off the enclosure the walls
+ * already make. That is what keeps the toggle to two more enum values instead of
+ * a stored side per edge — and it is also the honest answer, because "in" means
+ * indoors and nothing else in this game has ever meant anything else by it.
+ *
+ * The consequence is worth knowing: on a boundary whose two sides agree about
+ * being indoors — an interior door between two rooms, a gate in a fence, any
+ * opening at all once somebody takes enough wall out that `computeIndoor`
+ * returns zero cells — a one-way rule has nothing to say and lets everybody
+ * through. A shop with no inside has no in and no out, and refusing at that
+ * point would seal every door in the world on the day a wall came down.
+ */
+export function shopperCanCross(L, x, z, nx, nz) {
+  const kind = edgeBetween(L, x, z, nx, nz);
+  if (SOLID.has(kind)) return false;
+  const rule = WAYS.get(kind)?.rule;
+  if (rule === undefined || rule === 'all') return true;
+  if (rule === 'staff') return false;
+  const mask = L.indoor;
+  if (!mask) return true;
+  const from = isIndoor(L, mask, x, z);
+  const to = isIndoor(L, mask, nx, nz);
+  // Not a way in or out of anywhere: no direction to be one-way about.
+  if (from === to) return true;
+  return rule === 'in' ? to : from;
 }
 
 const tileOf = (L, x, z) =>
@@ -170,8 +283,13 @@ export const isIndoor = (L, mask, x, z) =>
  * The question behind "would this wall seal my shop": build the set once from
  * the doorway and ask it about every working spot, rather than pathfinding to
  * each one in turn.
+ *
+ * `cross` is an extra test on the boundary, for the one caller that asks this
+ * question about somebody in particular: "can a SHOPPER still get in" is not the
+ * same flood as "is this cell walled off", and since step 15 those two answers
+ * differ by exactly one signed doorway.
  */
-export function reachable(L, sx, sz, standable = defaultStandable) {
+export function reachable(L, sx, sz, standable = defaultStandable, cross = null) {
   const seen = new Set();
   const x0 = Math.round(sx);
   const z0 = Math.round(sz);
@@ -185,6 +303,7 @@ export function reachable(L, sx, sz, standable = defaultStandable) {
       const k = `${nx},${nz}`;
       if (seen.has(k)) continue;
       if (!canStep(L, x, z, nx, nz, standable)) continue;
+      if (cross && !cross(L, x, z, nx, nz)) continue;
       seen.add(k);
       stack.push([nx, nz]);
     }

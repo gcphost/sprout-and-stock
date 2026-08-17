@@ -11,7 +11,9 @@
  */
 
 import { T, WALKABLE, BUILDABLE_INDOOR, BUILDABLE_OUTDOOR } from './tiles.js';
-import { E, SOLID, edgeBetween, reachable, withEdge, computeIndoor } from './edges.js';
+import {
+  E, SOLID, RULED, edgeBetween, reachable, withEdge, computeIndoor, shopperCanCross,
+} from './edges.js';
 
 /**
  * What each buildable thing is. `anchor` is the tile you have to be able to
@@ -76,6 +78,26 @@ import { E, SOLID, edgeBetween, reachable, withEdge, computeIndoor } from './edg
 export const FIXTURES = {
   shelf: { label: 'Shelf', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true },
   freezer: { label: 'Freezer', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true },
+  /**
+   * The hot counter — a freezer pointed the other way, and the third and last
+   * thing a unit of shelving can be.
+   *
+   * Every field on this row is a copy of the freezer's, which is the argument
+   * for it being a kind at all rather than a field on the `fixtures` piece: the
+   * two are identical in the things a kind decides — where it may stand, which
+   * side you browse it from, whether you can walk round the back. What they
+   * disagree about is WHAT MAY GO ON IT, and that is read off `shelf.kind`
+   * everywhere in the sim. A `keeps: 'hot'` column on the piece would mean
+   * every one of those sites resolving a placement back to its catalog row to
+   * ask a question the placement already had the answer to.
+   *
+   * The kitchen is why it exists. Raw `chicken` is `needs-freezer` and the
+   * `roast-chicken` it becomes required nothing at all, so the shop took
+   * something out of a freezer, cooked it, and stood it on a wooden shelf next
+   * to the bread — for as long as there had been a kitchen. `needs-warmer` is
+   * the other half of a tag that was only ever written down cold.
+   */
+  warmer: { label: 'Hot Counter', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true },
   checkout: {
     label: 'Till', blocks: true, where: 'indoor', rotates: true,
     anchor: 'serveAt', behind: 'tendAt',
@@ -266,6 +288,38 @@ export const BUILD_KINDS = [...Object.keys(FIXTURES), ...GROUND_KINDS];
 
 /** The ground kinds that carry a job rather than only a look. */
 export const PAD_KINDS = GROUND_KINDS.filter((k) => GROUND[k].pad);
+
+/**
+ * The kinds that hold GOODS — the three things a unit of shelving can be.
+ *
+ * They all live in `layout.shelves`, and every one of them is browsed, stocked,
+ * reserved, spoiled and re-flowed by the same code. What separates them is only
+ * which items may sit on them, which is `requiredFixture` in `shared/tags.js`
+ * answering with a kind from this list.
+ *
+ * It exists because there were two of them and the test was therefore a
+ * BOOLEAN. `s.kind === 'freezer' ? 'freezer' : 'shelf'` was written in six
+ * files, and every stocking rule in the game was some spelling of
+ * `(itemIsFrozen) === (shelfIsFreezer)` — correct, and true only while there is
+ * nothing else a shelf can be. A third kind turns every one of those into a
+ * silent bug rather than a compile error: a hot counter reads as `'shelf'`,
+ * accepts bread, and refuses the roast chicken it was bought for. So the
+ * normalisation is here, once, and it is a lookup rather than a ternary.
+ */
+export const STOCK_KINDS = ['shelf', 'freezer', 'warmer'];
+
+/**
+ * Which of `STOCK_KINDS` a stored shelf is, defaulting to plain shelving.
+ *
+ * The default is load-bearing rather than defensive: `layout.shelves` is
+ * persisted, and a save written before this existed holds units with no kind at
+ * all beside ones that say `'freezer'`. Both have to come out right with nobody
+ * running a migration — the same read-time default `kindOf` gives a piece.
+ */
+export const shelfKind = (kind) => (STOCK_KINDS.includes(kind) ? kind : 'shelf');
+
+/** Does this kind hold goods? True of a shelf, a freezer and a hot counter. */
+export const holdsGoods = (kind) => STOCK_KINDS.includes(kind);
 
 /**
  * The kinds the generator has a budget for, and the kinds it doesn't.
@@ -738,7 +792,15 @@ function growLane(s) {
     const z = at.z + d.z;
     const key = `${x},${z}`;
     if (s.used.has(key) || s.claimed?.has(key)) continue;
-    if (SOLID.has(edgeBetween(s.L, at.x, at.z, x, z))) continue;
+    // A line may not run through a wall, and it may not run through a way
+    // through that has a rule on it either. `RULED` rather than
+    // `shopperCanCross`, because a lane is grown from the till OUTWARD and
+    // walked toward the till, so a one-way door would be crossable in whichever
+    // direction this loop happened to ask about — and a queue that files in
+    // through the entrance and cannot leave is not a queue. Nothing about a
+    // staff-only door wants a customer standing in it either way.
+    const line = edgeBetween(s.L, at.x, at.z, x, z);
+    if (SOLID.has(line) || RULED.has(line)) continue;
     // The wall between two tiles still stops the line either way — a queue may
     // not run through one whether or not the shop has an inside. What relaxes
     // when there is no inside is only which floor counts. See `indoorOnly`.
@@ -856,13 +918,24 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
 
   let probe = L;
   for (const s of segs) probe = withEdge(probe, s, kind);
+  // `withEdge` carries the OLD `indoor` mask across, and a one-way door reads
+  // which way is in off that mask — so the probe has to be told what it would
+  // enclose before anything asks it a question about a shopper. Computed once
+  // here rather than twice below, which is what it used to cost.
+  const after = computeIndoor(probe);
+  probe = { ...probe, indoor: after };
 
   // Taking a wall out can't strand anybody — a hole only ever opens the way —
   // so a demolition skips every reachability question below. What it can still
   // do is un-roof, which is the half neither check used to cover.
   if (kind) {
     const from = L.spawn ?? L.door;
-    const seen = reachable(probe, from.x, from.z);
+    // Asked as a SHOPPER, which is the whole of the first warning since a way
+    // through can be signed: unchanged, you could turn your own front door
+    // staff-only or exit-only and the game would say nothing at all while no
+    // customer could ever come in again — a shop that looks completely normal
+    // and takes no money.
+    const seen = reachable(probe, from.x, from.z, undefined, shopperCanCross);
     const at = (p) => seen.has(`${Math.round(p.x)},${Math.round(p.z)}`);
 
     if (!at(L.door)) return { ok: true, warn: 'that seals the shop — nobody can get in' };
@@ -881,12 +954,16 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
     // on the patio isn't re-reported on every wall you ever draw; and skipped
     // entirely if the doorway itself ends up outdoors, which means the shell is
     // open rather than partitioned and is `whatThisUnroofs`'s story to tell.
-    const after = computeIndoor(probe);
     const indoors = (x, z) => (x < 0 || z < 0 || x >= L.w || z >= L.h
       ? false
       : after[z * L.w + x] === 1);
 
     if (indoors(Math.round(L.door.x), Math.round(L.door.z))) {
+      // Deliberately NOT a shopper's flood, unlike the one above. If this went
+      // shopper-solid too, every shelf you ever stand in a stockroom would warn
+      // "that cuts a shelf off from the door" on every wall you drew afterwards,
+      // for ever, about something you did on purpose. Same argument
+      // `whatThisUnroofs` already makes: report what the action *changes*.
       const onFloor = reachable(probe, L.door.x, L.door.z,
         (P, x, z) => indoors(x, z) && isWalkableTile(P, x, z));
       const joined = (p) => onFloor.has(`${Math.round(p.x)},${Math.round(p.z)}`);
@@ -912,7 +989,7 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
     }
   }
 
-  const roof = whatThisUnroofs(L, probe);
+  const roof = whatThisUnroofs(L, after);
   return roof ? { ok: true, warn: roof } : { ok: true };
 }
 
@@ -937,8 +1014,7 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
  * outdoors keeps its stock and keeps selling; what you lose is the right to
  * build another one beside it).
  */
-function whatThisUnroofs(L, probe) {
-  const after = computeIndoor(probe);
+function whatThisUnroofs(L, after) {
   const inside = (x, z) => (x < 0 || z < 0 || x >= L.w || z >= L.h
     ? false
     : after[z * L.w + x] === 1);
@@ -1237,7 +1313,7 @@ const groundIsBusy = (ground) => {
 /** Every fixture currently in the layout, as uniform placement specs. */
 export function fixturesOf(L) {
   const out = [];
-  for (const s of L.shelves ?? []) out.push({ kind: s.kind === 'freezer' ? 'freezer' : 'shelf', ...s });
+  for (const s of L.shelves ?? []) out.push({ kind: shelfKind(s.kind), ...s });
   for (const c of L.checkouts ?? []) out.push({ kind: 'checkout', ...c });
   for (const s of L.stations ?? []) out.push({ kind: 'station', ...s });
   for (const p of L.plots ?? []) out.push({ kind: 'plot', ...p });

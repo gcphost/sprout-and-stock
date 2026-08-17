@@ -1,7 +1,8 @@
 import { ICONS, icon } from './icons.js';
 import { money, signed } from './money.js';
 import { pinLast, KEYED } from './bar.js';
-import { FIXTURES, isProp, isGround, FLOOR_KIND } from '../shared/build.js';
+import { FIXTURES, isProp, isGround, FLOOR_KIND, STOCK_KINDS, shelfKind } from '../shared/build.js';
+import { homeKind } from '../shared/tags.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { variantsOf } from '../shared/model.js';
 import { artForTool, artForWorker } from './thumb.js';
@@ -246,6 +247,11 @@ export const KIND_TOOLS = {
     group: 'shop',
     blurb: 'The only home for frozen goods. Four times the shelf life.',
   },
+  warmer: {
+    icon: ICONS.warmer,
+    group: 'shop',
+    blurb: 'The only home for hot food. Anything else in one cooks slowly.',
+  },
   checkout: {
     icon: ICONS.checkout,
     group: 'shop',
@@ -354,7 +360,11 @@ export const BUILD_TOOLS = [
     sub: 'walls',
     icon: ICONS.shop,
     name: 'Doorway',
-    blurb: 'A way through. Still counts as part of the enclosure.',
+    // The second sentence is the whole affordance for step 15. Nothing on screen
+    // could otherwise say that a door has a setting: there is no palette button
+    // for a staff doorway on purpose — you find out a door should be one after the
+    // room exists — so the tool that builds them is where it has to be said.
+    blurb: 'A way through. Still counts as part of the enclosure. Tap one you have already built to say who it is for.',
   },
   // Fences. Same tool, same drag, same lattice — and deliberately not the same
   // *meaning*: a fence never encloses (`ENCLOSING`, shared/edges.js), so fencing
@@ -376,7 +386,7 @@ export const BUILD_TOOLS = [
     group: 'farm',
     icon: ICONS.build,
     name: 'Gate',
-    blurb: 'A way through a fence.',
+    blurb: 'A way through a fence. Tap one you have already built to keep shoppers out of the field.',
   },
   // The bulldozer, and it is on every tab because "get rid of that" is not a
   // question about what sort of thing it is.
@@ -778,7 +788,7 @@ export const UPGRADE_GROUPS = [
   {
     id: 'fixtures', name: 'Fixtures', icon: ICONS.shelf,
     blurb: 'A standing discount on everything of that kind you build from now on.',
-    kinds: ['shelf', 'freezer', 'plot', 'checkout'],
+    kinds: [...STOCK_KINDS, 'plot', 'checkout'],
   },
   {
     id: 'you', name: 'You', icon: ICONS.staff,
@@ -861,7 +871,12 @@ const capLabel = (n) => (n > 0 ? money(n) : 'No cap');
  */
 function itemRows(ui) {
   const shelves = ui.state?.shelves ?? [];
-  const hasFreezer = shelves.some((s) => s.kind === 'freezer');
+  // Which kinds of unit the shop actually owns, so `homeless` below can ask
+  // about any of them. It was a `hasFreezer` boolean, which is the same shape
+  // every stocking rule in the game was written in and wrong for the same
+  // reason: a shop with no hot counter would have listed a roast chicken as
+  // perfectly buyable.
+  const owns = new Set(shelves.map((s) => shelfKind(s.kind)));
   const cash = ui._cash ?? 0;
   // Anything a recipe outputs cannot be ordered at all — `buyStock` refuses it,
   // and it has refused it since appliances existed. The supplier listed them
@@ -879,11 +894,10 @@ function itemRows(ui) {
     const inbound = due?.qty ?? 0;
     const stack = it.stack ?? 12;
     const heat = ui.heatFor(it);
-    const needsCold = it.tags.includes('needs-freezer') || it.tags.includes('frozen');
     // Nowhere to put it is a stronger fact than anything about demand: buying
     // it is a mistake whatever the town thinks, and the old tabs said so only
     // by which of three headings you happened to be under.
-    const homeless = needsCold && !hasFreezer;
+    const homeless = !owns.has(homeKind(it));
     // Below a floor you set beats below the shop's own default, because one of
     // them is a thing you asked for. Both are "short".
     // `<=` rather than `<`, to match `restockQueue` — the sim calls a board thin

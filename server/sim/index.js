@@ -18,14 +18,14 @@ import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '..
 import {
   generateLayout, defaultPads, defaultStreet, defaultAwning, buildWalkGrid, isWalkable, carLanes, T,
 } from '../layout.js';
-import { E, SOLID, edgeBetween } from '../../shared/edges.js';
+import { E, SOLID, edgeBetween, wayBase } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
   foldModifiers, modifierMeter, departmentMeter, rankShelves, purchaseChance,
   stapleChance, suggestedPrice, wholesalePrice, footfall, pull, clamp, round2,
 } from './economy.js';
 import {
-  spoilRate, requiredFixture, desireFor, impulsePull, tagLabel, DEPARTMENTS,
+  spoilRate, requiredFixture, homeKind, desireFor, impulsePull, tagLabel, DEPARTMENTS,
 } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { makeNamer } from './names.js';
@@ -35,6 +35,7 @@ import {
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
+  shelfKind, holdsGoods,
 } from '../../shared/build.js';
 import {
   pieceFor, kindOf, defaultPiece, countKey, boardsOf, fixtureLabel,
@@ -169,10 +170,21 @@ const PLAYER_RADIUS = 0.34;
  */
 /** Longest wall one drag will lay, so a stray gesture can't spend everything. */
 const EDGE_RUN_MAX = 40;
-const EDGE_COST = { [E.WALL]: 12, [E.WINDOW]: 26, [E.DOOR]: 34, [E.GATE]: 8, [E.FENCE]: 4 };
+const EDGE_COST = {
+  [E.WALL]: 12, [E.WINDOW]: 26, [E.DOOR]: 34, [E.GATE]: 8, [E.FENCE]: 4,
+  // A sign on a door you already own is not a purchase. Priced identically to
+  // the opening it is a rule about, which — with the refit rule in `buildEdge`
+  // — is what makes flipping the switch and flipping it back cost nothing.
+  // Priced as its own thing, and the way back charges you half a door for
+  // changing your mind, twice; a switch that quietly bills you $17 either
+  // direction is not a switch.
+  [E.DOOR_STAFF]: 34, [E.DOOR_IN]: 34, [E.DOOR_OUT]: 34, [E.GATE_STAFF]: 8,
+};
 const EDGE_LABEL = {
   [E.WALL]: 'a wall', [E.WINDOW]: 'a window', [E.DOOR]: 'a doorway',
   [E.GATE]: 'a gate', [E.FENCE]: 'a fence',
+  [E.DOOR_STAFF]: 'a staff doorway', [E.DOOR_IN]: 'an entrance',
+  [E.DOOR_OUT]: 'an exit', [E.GATE_STAFF]: 'a staff gate',
 };
 const PLAYER_SPEED = 4.2;      // tiles/sec
 const CUSTOMER_SPEED = 2.2;
@@ -675,7 +687,13 @@ const BASE_CATCHMENT = 16;
  * generator has to put the right one back.
  */
 function budgetOf(placements) {
-  const b = { shelf: 0, freezer: 0, checkout: 0, plot: 0, stations: [] };
+  // Every fixture kind, counted — rather than the four somebody wrote out. A
+  // kind missing from here is a fixture the shop owns and the generator is
+  // never told about, which `compose` then drops and refunds on the next
+  // re-flow. See the budget map in `server/layout.js`, which had the same bug
+  // from the same cause.
+  const b = { stations: [] };
+  for (const k of FIXTURE_KINDS) if (k !== 'station') b[k] = 0;
   for (const p of placements ?? []) {
     if (p.kind === 'station') b.stations.push(p.station);
     else if (b[p.kind] !== undefined) b[p.kind]++;
@@ -951,6 +969,7 @@ export class Game {
       seed: useSeed,
       shelves: want.shelf,
       freezers: want.freezer,
+      warmers: want.warmer ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       stations: want.stations,
@@ -2241,7 +2260,7 @@ export class Game {
         // that used to sit on this line was the freezer's half of it said in the
         // wrong file, which is why it applied to a tub of ice cream that already
         // assumed it and to nothing that had been left out of one.
-        const rate = spoilRate(item, { chilled: shelf.kind === 'freezer' });
+        const rate = spoilRate(item, { in: shelfKind(shelf.kind) });
         if (rate <= 0) continue;
         // `keeps_mult` is the tier's contribution: a better freezer keeps for
         // longer than a basic one, whatever is in it.
@@ -2654,7 +2673,7 @@ export class Game {
     // arguing with itself.
     const at = this.spotNearest(p, f);
 
-    if (f.kind === 'shelf' || f.kind === 'freezer') {
+    if (holdsGoods(f.kind)) {
       // A board named by item is a Take — that is the shelf menu's button, and
       // it outranks stocking so that topping your hands up off a board still
       // works while you are holding some of the same thing.
@@ -3004,7 +3023,15 @@ export class Game {
   shelfAccepts(shelf, itemId) {
     const item = content().byId.items[itemId];
     if (!item) return false;
-    if (requiredFixture(item) === 'freezer' && shelf.kind !== 'freezer') return false;
+    // One-way, and it has to stay that way: this lights up where an armful in
+    // your hands COULD go, and `boardFor` is what actually judges the press. By
+    // hand you may stand a loaf in a freezer, so a freezer has to keep lighting
+    // up for bread — highlighting less than the server accepts is the green
+    // ghost bug pointed the other way. What is refused is goods that named a
+    // fixture and are being offered a different one, which now includes a roast
+    // chicken and the ordinary shelving it used to sit on quite happily.
+    const wants = requiredFixture(item);
+    if (wants && shelfKind(shelf.kind) !== wants) return false;
     // A reservation binds even when the shelf is bare — that is the whole
     // difference between it and a board that merely happens to hold something.
     // A LIST of reservations binds the same way: ticking three boxes says these
@@ -6119,9 +6146,11 @@ export class Game {
   boardFor(shelf, item) {
     if (!item) return err('that item no longer exists');
 
+    // Still one-way — a loaf in a freezer is your business — but the fixture it
+    // names is read rather than assumed, so the refusal says which one.
     const fixture = requiredFixture(item);
-    if (fixture === 'freezer' && shelf.kind !== 'freezer') {
-      return err(`${item.name} needs a freezer`);
+    if (fixture && shelfKind(shelf.kind) !== fixture) {
+      return err(`${item.name} needs a ${FIXTURES[fixture]?.label.toLowerCase() ?? fixture}`);
     }
     // A reservation refuses your hands too, and says how to take it back —
     // otherwise the shelf you set aside this morning reads as broken tonight.
@@ -6326,9 +6355,17 @@ export class Game {
     // hands get. By hand you may stand a loaf in a freezer if you like; a
     // reservation is an instruction to the shop, and one nobody will ever carry
     // out is worse than none at all — the shelf just sits empty for ever.
-    const frozen = requiredFixture(item) === 'freezer';
-    if (frozen && shelf.kind !== 'freezer') return err(`${item.name} needs a freezer`);
-    if (!frozen && shelf.kind === 'freezer') return err(`${item.name} doesn't need freezing`);
+    const home = homeKind(item);
+    const here = shelfKind(shelf.kind);
+    if (home !== here) {
+      // Two refusals rather than one, because they are different mistakes and
+      // only the first has an obvious fix. "Needs a hot counter" tells you what
+      // to go and buy; "doesn't need heating" tells you the unit you are
+      // standing at is wrong for perfectly ordinary goods.
+      return err(home !== 'shelf'
+        ? `${item.name} needs a ${FIXTURES[home].label.toLowerCase()}`
+        : `${item.name} doesn't need ${here === 'freezer' ? 'freezing' : 'heating'}`);
+    }
 
     // You cannot ask for more kinds than it has boards to put them on. This is
     // the ceiling the whole feature hangs off, and it is the art's number rather
@@ -6421,11 +6458,11 @@ export class Game {
     let stocked = 0;
 
     for (const shelf of this.layout.shelves) {
-      const wantsFreezer = shelf.kind === 'freezer';
+      const wants = shelfKind(shelf.kind);
       const pick = c.items.find((it) => {
-        if ((requiredFixture(it) === 'freezer') !== wantsFreezer) return false;
+        if (homeKind(it) !== wants) return false;
         return !used.has(it.id);
-      }) ?? c.items.find((it) => (requiredFixture(it) === 'freezer') === wantsFreezer);
+      }) ?? c.items.find((it) => homeKind(it) === wants);
       if (!pick) continue;
 
       used.add(pick.id);
@@ -6439,8 +6476,7 @@ export class Game {
       // first one over its own limit and the stocker refusing to touch it.
       const want = [pick];
       for (let b = 1; b < this.shelfBoards(shelf); b++) {
-        const it = c.items.find((x) => (requiredFixture(x) === 'freezer') === wantsFreezer
-          && !used.has(x.id));
+        const it = c.items.find((x) => homeKind(x) === wants && !used.has(x.id));
         if (!it) break;
         used.add(it.id);
         want.push(it);
@@ -6519,7 +6555,7 @@ export class Game {
   /** Every fixture as a uniform `{kind, ...}`, for build mode to work over. */
   allFixtures() {
     return [
-      ...this.layout.shelves.map((s) => ({ ...s, kind: s.kind === 'freezer' ? 'freezer' : 'shelf', ref: s })),
+      ...this.layout.shelves.map((s) => ({ ...s, kind: shelfKind(s.kind), ref: s })),
       ...this.layout.checkouts.map((c) => ({ ...c, kind: 'checkout', ref: c })),
       ...(this.layout.stations ?? []).map((s) => ({ ...s, kind: 'station', ref: s })),
       ...this.layout.plots.map((pl) => ({ ...pl, kind: 'plot', ref: pl })),
@@ -6720,7 +6756,7 @@ export class Game {
    */
   tierShortfall(f, tier) {
     const as = { ...f, tier };
-    if (f.kind === 'shelf' || f.kind === 'freezer') {
+    if (holdsGoods(f.kind)) {
       const held = this.shelfStacks(f).filter((k) => (k.qty ?? 0) > 0);
       const boards = this.shelfBoards(as);
       if (held.length > boards) {
@@ -6852,7 +6888,7 @@ export class Game {
     const { p, f, error } = this.buildTarget(playerId, id);
     if (error) return err(error);
 
-    if (f.kind === 'shelf' || f.kind === 'freezer') {
+    if (holdsGoods(f.kind)) {
       // Same verb, one address finer. A unit holding three things is three
       // boards at one id, and "tip it out" asked of the row you are looking at
       // is not the same sentence as asked of the unit — the errand's three
@@ -7320,7 +7356,7 @@ export class Game {
   setBackOfHouse(playerId, id, on = true) {
     const { f, error } = this.buildTarget(playerId, id);
     if (error) return err(error);
-    if (f.kind !== 'shelf' && f.kind !== 'freezer') {
+    if (!holdsGoods(f.kind)) {
       return err('only somewhere that holds stock can be back of house');
     }
     const placement = this.placements.find((p) => p.id === id);
@@ -7476,8 +7512,18 @@ export class Game {
       // Pay the difference: taking a wall out refunds, swapping wall for window
       // charges only the gap. Erasing something the generator built refunds
       // too — the shell is as much yours as anything you drew.
-      const cost = round2((EDGE_COST[kind] ?? 0)
-        - (EDGE_COST[existing] ?? 0) * FIXTURE_REFUND);
+      //
+      // ...except within a family. Putting a sign on a doorway — staff only, one
+      // way — is a REFIT: it charges any difference in price and refunds nothing,
+      // because you still have the door. Charged as a swap it would cost you half
+      // a doorway to fit and half a doorway again to change your mind, and a
+      // switch that bills you $17 both ways is not a switch. Per-edge pricing
+      // exists so a window over a wall charges the gap; this is the same claim
+      // about the same line.
+      const refit = wayBase(kind) && wayBase(kind) === wayBase(existing);
+      const cost = refit
+        ? Math.max(0, round2((EDGE_COST[kind] ?? 0) - (EDGE_COST[existing] ?? 0)))
+        : round2((EDGE_COST[kind] ?? 0) - (EDGE_COST[existing] ?? 0) * FIXTURE_REFUND);
       // Running out halfway builds what you could afford rather than refusing
       // the lot: a drag is a gesture, and losing all of it to the last segment
       // being a dollar short is the kind of thing you cannot see coming.
@@ -7963,6 +8009,7 @@ export class Game {
       seed: newSeed ?? this.seed,
       shelves: want.shelf,
       freezers: want.freezer,
+      warmers: want.warmer ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       stations: want.stations,
@@ -8003,14 +8050,16 @@ export class Game {
     carryOver(layout.shelves, oldShelves, alias,
       ['stacks', 'assigned', 'priority'],
       (from, to) => {
-        // Don't move freezer-only goods onto a normal shelf. Every board has to
-        // pass, not just the first: carrying a unit whose middle board is ice
-        // cream onto ordinary shelving would leave it there melting.
-        const frozen = (from.stacks ?? []).some((k) => {
+        // Don't move goods that named a fixture onto a unit that isn't it.
+        // Every board has to pass, not just the first: carrying a unit whose
+        // middle board is ice cream onto ordinary shelving would leave it there
+        // melting, and the same is true of a chicken going the other way.
+        const misplaced = (from.stacks ?? []).some((k) => {
           const item = k.item_id ? c.byId.items[k.item_id] : null;
-          return item && requiredFixture(item) === 'freezer';
+          const wants = item ? requiredFixture(item) : null;
+          return wants != null && wants !== shelfKind(to.kind);
         });
-        return !(frozen && to.kind !== 'freezer');
+        return !misplaced;
       });
 
     // Boards and reservations the destination cannot honour are dropped, not
@@ -8030,7 +8079,7 @@ export class Game {
       const kept = toList(s.assigned);
       s.assigned = kept.filter((id) => {
         const want = c.byId.items[id];
-        return want && (requiredFixture(want) === 'freezer') === (s.kind === 'freezer');
+        return want && homeKind(want) === shelfKind(s.kind);
       });
       const boards = this.shelfBoards(s);
       s.stacks = this.shelfStacks(s).filter((k) => {
@@ -8041,7 +8090,7 @@ export class Game {
         // the catalog would otherwise destroy every case of it on every shelf in
         // the shop, on the next re-flow, with a refund for nothing.
         if (!item) return true;
-        return (requiredFixture(item) === 'freezer') === (s.kind === 'freezer');
+        return homeKind(item) === shelfKind(s.kind);
       });
       if (s.assigned.length > boards) s.assigned = s.assigned.slice(0, boards);
       if (s.stacks.length > boards) {
@@ -8238,7 +8287,10 @@ export class Game {
     const near = (c) => Math.hypot(c.x - door.x, c.z - door.z);
     const usable = padCells(this.layout, 'park')
       .sort((a, b) => (near(a) - near(b)) || (a.z - b.z) || (a.x - b.x))
-      .filter((c) => findPath(this.walk, this.layout, c, door) !== null);
+      // As a shopper, because it is one: the walk from the bay to the door is
+      // the driver's own, so a car park whose only way in is a staff door is
+      // parking nobody can use rather than parking with a long walk.
+      .filter((c) => findPath(this.walk, this.layout, c, door, { shopper: true }) !== null);
 
     /**
      * ...paired up, because **a bay is two cells and a car is one car.**
@@ -8891,7 +8943,13 @@ export class Game {
    * prepended — the walk in from nowhere is just the first leg.
    */
   pathTo(entity, goal, from = null) {
-    const path = findPath(this.walk, this.layout, from ?? entity, goal);
+    // WHO is walking, which the rest of this file has never had to ask. Nothing
+    // on an entity says which sort of thing it is, and `archetype_id` is the one
+    // field only a shopper has — six of the eight callers here are customers.
+    // Staff and the player route as they always did: a signed doorway is an
+    // ordinary opening to everybody who works here.
+    const path = findPath(this.walk, this.layout, from ?? entity, goal,
+      { shopper: !!entity.archetype_id });
     entity.path = path ?? [];
     if (path && from) entity.path.unshift({ x: from.x, z: from.z });
     return path !== null;

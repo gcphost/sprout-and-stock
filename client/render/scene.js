@@ -19,11 +19,11 @@ import {
   buildGrowthBar, setGrowthBar,
   buildRipple,
   buildStamp,
-  weld,
+  weld, paintLit,
 } from './props.js';
 import { T } from '../../shared/tiles.js';
 import {
-  FIXTURES, workSpots, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp,
+  FIXTURES, workSpots, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { Lights, emittersIn, BAKED_LAYER } from './lights.js';
@@ -1019,8 +1019,15 @@ export class Scene {
    * Straight over the stored unlit colours, so it can run any number of times
    * without the light compounding. That is what `bare` is for.
    */
+  /** One fixture's share of the bake, as a flat tint through its whole group. */
+  paintProp(group, x, y, z) {
+    const c = this.lights.bakeInto(new THREE.Color(1, 1, 1), x, y, z);
+    paintLit(group, c.r, c.g, c.b);
+  }
+
   rebakeGround() {
     const c = new THREE.Color();
+    for (const { group, x, y, z } of this.bakedProps ?? []) this.paintProp(group, x, y, z);
     for (const { mesh, bare, at } of this.bakedGround ?? []) {
       if (!mesh.instanceColor) continue;
       for (let i = 0; i < mesh.count; i++) {
@@ -1351,6 +1358,7 @@ export class Scene {
     // that fills it is the one place that clears it.
     this.movingFixtures.clear();
     this.propBoxes.clear();
+    this.bakedProps = [];
 
     for (const f of fixturesIn(L)) {
       const model = this.fixtureModel(f);
@@ -1409,6 +1417,18 @@ export class Scene {
         prop.updateMatrixWorld(true);
         this.propBoxes.set(f.id, new THREE.Box3().setFromObject(prop));
       }
+      // Baked, like the ground it stands on. A lamp is a point *under* a
+      // canopy, so the lid of a display case faces away from every light in the
+      // room and stays dark however bright the strip inside it is — which reads
+      // as the upgrade not working. This has no direction to get wrong.
+      //
+      // Measured at half the unit's height, so a tall case is lit by what is
+      // beside it rather than by what is on the floor at its feet.
+      this.bakedProps.push({ group: prop, x: f.x, y: this.fixtureBaseY(f) + 0.5, z: f.z });
+      this.paintProp(prop, f.x, this.fixtureBaseY(f) + 0.5, f.z);
+      // ...and off layer 0 with the ground, or the eight real lights would light
+      // it a second time and the units near you would flare as you walked.
+      prop.traverse((o) => o.layers.set(BAKED_LAYER));
       if (landed.has(f.id)) this.land(prop, f.x, f.z);
       // Anything authored with `motion`. Two identical machines side by side
       // would otherwise beat in perfect unison, which reads as one animation
@@ -1505,8 +1525,12 @@ export class Scene {
 
     // [kind, orientation] -> the boxes to draw for it.
     const runs = new Map();
+    // Keyed by colour as well as by kind and orientation, because a band may
+    // carry its own — a signed way through is an ordinary opening with its
+    // threshold painted (see `edgeBands`). One material per mesh, so a run has
+    // to be uniform in it.
     const push = (kind, vertical, spec) => {
-      const k = `${kind}:${vertical ? 'v' : 'h'}`;
+      const k = `${kind}:${vertical ? 'v' : 'h'}:${spec.color ?? ''}`;
       if (!runs.has(k)) runs.set(k, { kind, vertical, boxes: [] });
       runs.get(k).boxes.push(spec);
     };
@@ -1540,7 +1564,8 @@ export class Scene {
       const clear = boxes.filter((b) => b.alpha !== undefined);
       for (const [set, alpha] of [[opaque, 1], [clear, GLASS]]) {
         if (!set.length) continue;
-        const mesh = new THREE.InstancedMesh(box, material(style.color, alpha), set.length);
+        const mesh = new THREE.InstancedMesh(box,
+          material(set[0].color ?? style.color, alpha), set.length);
         mesh.castShadow = alpha === 1;
         mesh.receiveShadow = true;
         set.forEach((b, i) => {
@@ -3235,7 +3260,13 @@ export class Scene {
     }
     if (!segs?.length || !this.storeLayout) return;
 
-    const colour = state === 'no' ? '#e2564a' : (state === 'warn' ? '#e8a33d' : '#7cc46a');
+    // `aim` is not a verdict at all — it is the aim frame's own amber, said about
+    // a line instead of a tile, for the one thing you can point at that has no
+    // tile of its own: a way through. Everything openable in this game lights up
+    // under the pointer, and a doorway was the exception, which reads as the menu
+    // not existing rather than as the highlight missing.
+    const colour = state === 'aim' ? '#ffd66b'
+      : state === 'no' ? '#e2564a' : (state === 'warn' ? '#e8a33d' : '#7cc46a');
     const group = new THREE.Group();
     const geo = new THREE.BoxGeometry(1, 1, 1);
     for (const s of segs) {
@@ -3666,7 +3697,7 @@ export class Scene {
       // *drawn* as, not from a constant: once a shelf's look is authored
       // content, a redesign or a tier that changes its shape would otherwise
       // leave every stack in the shop hanging in mid-air above it.
-      const fx = { ...def, kind: def.kind === 'freezer' ? 'freezer' : 'shelf' };
+      const fx = { ...def, kind: shelfKind(def.kind) };
       // The boards you can SEE INTO, not every board the model has. Those two
       // were the same thing until a fixture grew a canopy — and since goods
       // fill top-first, the covered board is the one they all land on. See
@@ -4145,7 +4176,7 @@ function actorKey(p) {
 function fixturesIn(L) {
   if (!L) return [];
   return [
-    ...(L.shelves ?? []).map((s) => ({ ...s, kind: s.kind === 'freezer' ? 'freezer' : 'shelf' })),
+    ...(L.shelves ?? []).map((s) => ({ ...s, kind: shelfKind(s.kind) })),
     ...(L.checkouts ?? []).map((c) => ({ ...c, kind: 'checkout' })),
     ...(L.stations ?? []).map((s) => ({ ...s, kind: 'station' })),
     ...(L.plots ?? []).map((p) => ({ ...p, kind: 'plot' })),

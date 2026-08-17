@@ -35,7 +35,8 @@
 import { content } from '../content.js';
 import { findPath, followPath } from './pathing.js';
 import { suggestedPrice, wholesalePrice } from './economy.js';
-import { isPadAt } from '../../shared/build.js';
+import { isPadAt, shelfKind } from '../../shared/build.js';
+import { homeKind } from '../../shared/tags.js';
 import { lotStacks, lotTotal, lotQty, lotHas, lotMain } from '../../shared/lot.js';
 
 /** Don't let a hire spend the shop down to nothing restocking. */
@@ -1798,7 +1799,15 @@ function hasSomewhere(game, itemId, c, spoken = null) {
 function shelvesFor(game, itemId, c, spoken = null) {
   const item = c.byId.items[itemId];
   if (!item) return [];
-  const needsFreezer = item.tags.includes('needs-freezer') || item.tags.includes('frozen');
+  // Which kind of unit this belongs on — its own answer, not a guess made from
+  // the department it is filed under. This read `needs-freezer || frozen`, and
+  // the second half was doing nothing: every item tagged `frozen` in the game
+  // also asks for a freezer, because the tag that MEANS something is the
+  // behaviour one. Left in with a third kind in the world it would have been
+  // worse than nothing — `frozen` is a category and there is no `hot` category
+  // to pair it with, so hot goods would have had no such shortcut and the two
+  // halves of one rule would have been written to different standards.
+  const home = homeKind(item);
   const kept = (sh) => (Array.isArray(sh.assigned) ? sh.assigned : (sh.assigned ? [sh.assigned] : []));
   // The shop hand gave up on this one, so staff stop finding it shelves —
   // otherwise Clear is a loop that changes nothing: the crate it made is a
@@ -1809,8 +1818,7 @@ function shelvesFor(game, itemId, c, spoken = null) {
   // range, which is the line `orders.assign` already draws.
   if (game.droppedItem(itemId)) return [];
   const usable = game.layout.shelves.filter((sh) => {
-    if (needsFreezer && sh.kind !== 'freezer') return false;
-    if (!needsFreezer && sh.kind === 'freezer') return false;
+    if (shelfKind(sh.kind) !== home) return false;
     // Set aside for something else is a no even when it's bare — otherwise a
     // stocker with an armful fills the shelf you reserved and the reservation
     // only means anything until the next delivery lands. A LIST of reservations
@@ -1894,8 +1902,7 @@ function pickItem(game, shelf, c) {
       // it for every bare board, order nothing, and quietly never stock that
       // board with anything else — which reads as the shelf being broken.
       if (game.droppedItem(it.id)) return false;
-      const frozen = it.tags.includes('needs-freezer') || it.tags.includes('frozen');
-      return frozen ? shelf.kind === 'freezer' : shelf.kind !== 'freezer';
+      return homeKind(it) === shelfKind(shelf.kind);
     })
     .map((it) => {
       const margin = suggestedPrice(it, folded, game.season) - wholesalePrice(it, folded, game.season);
