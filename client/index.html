@@ -240,26 +240,53 @@
        get crossing $10,000 or Day 100. Sized to what a shop plausibly reaches
        rather than to today's value, since a floor that today's value already
        exceeds is a floor that does nothing. */
+    /* The date is a CAPTION over the balance, not a column beside it.
+       Day and season used to be their own two-line cell wedged between the
+       balance and the rate — a stack of small type holding apart the two numbers
+       you actually watch, for about 60px of a row whose whole job is five
+       figures at a glance. Over the money it is the same two lines of text in
+       the same panel height, one column fewer, and the order a game HUD usually
+       reads in: what day it is, then what you have.
+       It goes with the MONEY rather than with the clock, which was the other
+       obvious home for it. A balance is a thing measured over days and seasons,
+       so the date is its unit; the clock is the hour, which is the one readout
+       up here that is not about the ledger. Splitting the pair — season by the
+       time, day by the cash — would break one date across two cells.
+       `#money` carries the width floor now, because it is the cell: the caption
+       is shorter than the balance at every plausible figure, so the number is
+       still what sets it. */
+    #money { display: flex; flex-direction: column; align-items: flex-start; min-width: 92px; }
+    #when { display: flex; align-items: baseline; gap: 4px; line-height: 1.2; }
     #cash {
       font-size: 14px; font-weight: 800; letter-spacing: -.02em;
-      font-variant-numeric: tabular-nums; min-width: 86px;
+      font-variant-numeric: tabular-nums; line-height: 1.15;
     }
-    #day  { font-weight: 700; font-size: 10px; line-height: 1.25; min-width: 44px; }
-    #season { text-transform: capitalize; opacity: .65; font-size: 8.5px; line-height: 1.25; }
-    /* ---- the clock, and the two switches on it ---------------------------
+    #day  { font-weight: 700; font-size: 9.5px; opacity: .75; }
+    #season { text-transform: capitalize; opacity: .5; font-size: 8.5px; }
+    /* ---- the clock, which IS the pause button ----------------------------
        The time was a readout for as long as opening was something the clock did
-       to you. It is a control now: the doors are yours (`Game.setOpen`) and so
-       is whether time runs at all, and both of those are decisions you make
-       while looking at the hour — so they live on it rather than in a menu.
-       A shut shop reads shut in two ways at once on purpose. The strike-through
-       is the state and the button is the way out of it: a struck-through clock
-       with nothing beside it was the whole story before, which said what had
-       happened and never that anything could be done about it. */
-    /* A row rather than a stack: the buttons under the clock made #stats a line
-       taller than the gauges beside them needed it to be, which is height spent
-       on two controls you press twice a day. */
-    #time { display: flex; align-items: center; gap: 5px; }
-    #clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px; }
+       to you. It is a control now: whether time runs at all is a decision you
+       make while looking at the hour, so it lives on the hour rather than
+       beside it.
+       Two round pips used to sit here, and what they cost was about 45px of a
+       row that is otherwise five numbers — to say what this element was already
+       saying twice over, struck through for shut and accent-and-blinking for
+       held. So what went is the pair of CONTROLS, not the pair of states: both
+       states still read exactly as they did, and pressing the thing wearing one
+       is the way out of it.
+       Nothing about that is discoverable from a glyph, which is fine, because
+       neither was a play triangle: the words were in `title` before and they
+       still are, and the shutters have a hot chip in #hq naming the key. */
+    #clock {
+      border: 0; padding: 1px 3px; margin: -1px 0; background: none; cursor: pointer;
+      color: inherit; font: inherit;
+      font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px;
+      border-radius: 5px; transition: background .12s;
+    }
+    #clock:hover { background: rgba(58,49,40,.11); }
+    /* Presses in rather than down: this one is a piece of text, and a piece of
+       text that jumps a pixel reads as the HUD twitching. */
+    #clock:active { background: rgba(58,49,40,.2); }
     #clock.shut { opacity: .4; text-decoration: line-through; }
     /* Paused outranks shut, because it is the bigger claim: a shut shop is still
        a shop having a night, and a paused one is not having anything. */
@@ -269,35 +296,35 @@
     }
     @keyframes clockhold { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
-    /* Two pips, and they are round and chunky on purpose.
-       Words came first: "Open up" and "Close up" are different lengths, so the
-       panel changed width every time the shop did and everything to the right
-       of it slid — and at ~110px for two labels they were the widest thing in a
-       readout that is otherwise five numbers. Square icon buttons fixed both and
-       read as a settings toolbar, which is the wrong genre for a HUD you play
-       through. A circle, a solid fill and a hard bottom edge that goes away when
-       you press it is the difference; the text moved into `title`. */
-    #timebtns { display: flex; gap: 3px; }
-    #timebtns button {
-      border: 0; padding: 0; cursor: pointer; border-radius: 50%;
-      width: 18px; height: 18px; display: grid; place-items: center;
-      font-size: 9.5px; background: rgba(58,49,40,.12); color: var(--ink);
-      box-shadow: 0 1.5px 0 rgba(58,49,40,.2);
-      transition: filter .12s, background .12s;
+    /* ---- the shutters, as the EDGE of the panel --------------------------
+       An open sign belongs on the door, not in a toolbar. This is the left edge
+       of the readout you are already looking at — lit while the shop is trading,
+       dull while it is shut — and it costs the row no width worth the name,
+       because it lives in padding #stats was already spending. It is also a
+       bigger target than the 18px pip it replaces, since it is as tall as the
+       panel.
+       This one says what is TRUE, where the pip said what pressing it would do.
+       That is the right way round for something with no glyph on it: a coloured
+       stripe cannot mean "shut" and "shutting" at once, and the whole reason it
+       is allowed to be this quiet is that being shut is already shouted twice —
+       the clock is struck through and #hq puts up a hot chip naming the key.
+       The paint is 5px and the button is 13, so the reach is comfortable
+       without the stripe becoming a slab; hence `::before` rather than a
+       background, which would have to be the whole hit area. The left margin
+       stops 3px short of the card so the stripe never pokes through the 11px
+       corner. */
+    #shutter {
+      align-self: stretch; width: 13px; padding: 0 8px 0 0; margin: 0 -4px 0 -6px;
+      border: 0; background: none; cursor: pointer;
+      display: flex; align-items: stretch;
     }
-    #timebtns button > svg { display: block; }
-    #timebtns button:hover { filter: brightness(.94); }
-    /* Presses down and stops standing proud, which is most of what makes a
-       button feel like a thing rather than a rectangle that changed colour. */
-    #timebtns button:active { transform: translateY(1.5px); box-shadow: none; }
-    /* Coloured only when it has something to say: green while the shop is SHUT,
-       because it is then the one control on screen asking to be pressed, and red
-       while time is stopped, because that is a state you must not forget you
-       left it in. Otherwise both are quiet. */
-    #btn-open.go, #btn-pause.on { color: #fff; }
-    #btn-open.go { background: var(--good); box-shadow: 0 1.5px 0 rgba(47,89,45,.55); }
-    #btn-pause.on { background: var(--accent); box-shadow: 0 1.5px 0 rgba(140,54,34,.5); }
-    #btn-open.go:hover, #btn-pause.on:hover { filter: brightness(1.09); }
+    #shutter::before {
+      content: ''; width: 5px; border-radius: 3px; background: var(--good);
+      transition: background .15s, opacity .15s;
+    }
+    #shutter:hover::before { filter: brightness(1.1); }
+    #shutter.shut::before { background: var(--ink); opacity: .17; }
+    #shutter.shut:hover::before { filter: none; opacity: .32; }
 
     /* ---- cashflow: the rate, beside the balance -------------------------------
        Cash on hand was the only money on screen, and a balance is not a rate —
@@ -306,11 +333,18 @@
        shape, in that order: the number you want most, then the comparison, then
        the trend. Tabular numerals because it changes ten times a second and
        proportional digits make it jitter sideways as it does. */
-    /* `min-width` for the same reason as #cash above — this is the fastest
-       changing number on screen, so it is the one that shifts the row most. */
+    /* `min-width` for the same reason as #money above — this is the fastest
+       changing number on screen, so it is the one that shifts the row most.
+       It has to be the SAME number as `SPARK_W`, and that is the whole of what
+       used to look like a hole in the row. A floor of 70 over a 38px sparkline
+       is 32px of empty column, left-aligned, so it all pooled on the right — and
+       what you see is the clock adrift, half a panel away from the readout it is
+       nearest. Nothing was wrong with either the floor or the sparkline; they
+       simply were not told about each other. Matched, the widget IS the floor
+       and there is no slack for a gap to be made of. */
     #flow {
       display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
-      min-width: 70px;
+      min-width: 56px;
     }
     .flow {
       display: inline-flex; align-items: baseline; gap: 3px;
@@ -634,6 +668,66 @@
     #prompt.show { opacity: 1; transform: translate(-50%, 0); }
     #prompt.going { background: #ffd66b; color: var(--ink); }
     #prompt b { font-weight: 800; }
+
+    /* ---- what is that pile? ----------------------------------------------
+       A card that follows the pointer while it is over one board of a shelf.
+       The gold cage says WHICH pile you are on and could never say what it is:
+       goods are drawn as themselves at about a dozen pixels, so four loaves and
+       four buns are the same little heap from this camera, and how many of them
+       there are was a number you had to open the unit to read.
+
+       Dark rather than a `--panel` card, and that is the one deliberate break
+       from the rest of the HUD: everything else up there is pinned furniture
+       you glance at, and this sits ON the shop, an inch from what it is
+       labelling. A pale card there reads as another panel that has drifted into
+       the middle of the screen. `#prompt` made the same call for the same
+       reason and this matches it, so the two things that speak *about the
+       world* look like each other.
+
+       `pointer-events: none` is load-bearing rather than tidy — the card is
+       under the cursor by construction, so without it the shelf it is
+       describing stops being clickable the moment the label appears. */
+    #boardtip {
+      opacity: 0; transform: translateY(3px); transition: opacity .1s, transform .1s;
+      /* Over the rest of the HUD, which is the one thing in here that has to be
+         said out loud: an open panel is later in the document and would paint
+         over a card that only ever appears where the pointer is — and the
+         pointer being on the canvas is exactly the case this is for. */
+      pointer-events: none; z-index: 11;
+      background: rgba(58,49,40,.9); color: #fff;
+      border-radius: 11px; padding: 6px 11px 7px 7px;
+      box-shadow: 0 6px 18px rgba(58,49,40,.28);
+      white-space: nowrap; line-height: 1.25;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #boardtip.show { opacity: 1; transform: translateY(0); }
+    /* The item, drawn from its own model — `artForModel`, the same art the heap
+       on the shelf is built from. A glyph here would be the five-floors-one-grey-
+       icon bug again: goods differ by their art and by nothing else.
+
+       The plate behind it is not decoration. Item art is authored in shop
+       colours against a pale floor, and a dark loaf on a dark card is a smudge;
+       a light tile under it puts every item back on the ground it was drawn
+       for, whatever colour somebody authors next. */
+    #boardtip .bt-ico {
+      flex: none; width: 30px; height: 30px; padding: 3px;
+      border-radius: 8px; background: rgba(255,252,245,.16);
+    }
+    #boardtip .bt-ico > svg { width: 100%; height: 100%; display: block; }
+    #boardtip .bt-ico:empty { display: none; }
+    #boardtip .bt-name { font-size: 13px; font-weight: 800; }
+    /* The second line is the numbers, and they are deliberately quieter than
+       the name: you look at this to find out what a heap IS, and then at how
+       much of it there is. */
+    #boardtip .bt-sub {
+      font-size: 11.5px; font-weight: 700; opacity: .72;
+      display: flex; gap: 7px; align-items: center;
+    }
+    /* Full boards say so, because "8/8" is why the van's crate is still on the
+       pad. `--warn` rather than the alarm colour: a full shelf is a good
+       problem. */
+    #boardtip .bt-sub .full { color: var(--warn); opacity: 1; }
+    #boardtip .bt-sub .bt-dot { opacity: .4; }
 
     /* toast */
     /* Just below #hq's single strip. */
@@ -1532,19 +1626,13 @@
 
   <div id="topleft" class="hud">
     <div id="stats">
-      <span id="cash">$0.00</span>
-      <div>
-        <div id="day">Day 1</div>
-        <div id="season">spring</div>
+      <button id="shutter" type="button" title="Open the shop (O)"></button>
+      <div id="money">
+        <div id="when"><span id="day">Day 1</span><span id="season">spring</span></div>
+        <span id="cash">$0.00</span>
       </div>
       <div id="flow"></div>
-      <div id="time">
-        <span id="clock">08:00</span>
-        <div id="timebtns">
-          <button id="btn-open" type="button" title="Open the shop (O)"></button>
-          <button id="btn-pause" type="button" title="Stop the clock (P)"></button>
-        </div>
-      </div>
+      <button id="clock" type="button" title="Stop the clock (P)">08:00</button>
       <div class="gauges">
         <div class="gg"><span class="gg-tag">Rep</span>
           <div class="repwrap"><div id="rep" style="width:50%"></div></div></div>
@@ -1563,6 +1651,7 @@
   <div id="log" class="hud"></div>
   <div id="carry" class="hud"></div>
   <div id="prompt" class="hud"></div>
+  <div id="boardtip" class="hud"></div>
   <div id="toast" class="hud"></div>
 
   <div id="build" class="hud">

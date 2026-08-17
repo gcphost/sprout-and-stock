@@ -12,6 +12,7 @@
  */
 
 import { ICONS } from './icons.js';
+import { money } from './money.js';
 import { act } from './fixture-menu.js';
 
 /** Names and descriptions are authored over MCP, so never raw. */
@@ -57,7 +58,7 @@ export function showUpgrade(ui, upgradeId) {
   const line = (label, value) => `<div class="fx-line"><span>${label}</span><b>${value}</b></div>`;
   const head = `<div class="fx-detail">
     ${sells(u).map(([k, v]) => line(k, esc(v))).join('')}
-    ${line('Costs', `$${u.cost.toFixed(0)}`)}
+    ${line('Costs', money(u.cost))}
     ${have ? line('Owned', 'yes') : ''}
   </div>`;
 
@@ -71,7 +72,7 @@ export function showUpgrade(ui, upgradeId) {
     parts.push(missing.map((id) => {
       const req = (ui.catalog.upgrades ?? []).find((x) => x.id === id);
       return act(`goto:${id}`, ICONS.upgrades, req?.name ?? id,
-        req ? `$${req.cost.toFixed(0)} — tap to open it` : 'no longer in the catalogue',
+        req ? `${money(req.cost)} — tap to open it` : 'no longer in the catalogue',
         { off: !req });
     }).join(''));
   }
@@ -84,7 +85,7 @@ export function showUpgrade(ui, upgradeId) {
     const why = missing.length ? 'Buy what it needs first.'
       : (!afford ? 'You cannot afford it yet.' : 'Permanent, and there is no selling it back.');
     foot.push(act('buy', ICONS.upgrades, 'Buy it', why,
-      { off: !!missing.length || !afford, right: `$${u.cost.toFixed(0)}` }));
+      { off: !!missing.length || !afford, right: money(u.cost) }));
   }
   parts.push(`<div class="pnl-foot">${foot.join('')}</div>`);
 

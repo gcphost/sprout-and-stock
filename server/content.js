@@ -32,6 +32,7 @@ function load() {
   const pastimes = all('pastimes');
   const skins = all('skins');
   const vehicles = all('vehicles');
+  const kits = all('kits');
 
   cache = {
     items,
@@ -45,6 +46,7 @@ function load() {
     pastimes,
     skins,
     vehicles,
+    kits,
     byId: {
       items: Object.fromEntries(items.map((i) => [i.id, i])),
       crops: Object.fromEntries(crops.map((c) => [c.id, c])),
@@ -57,6 +59,7 @@ function load() {
       pastimes: Object.fromEntries(pastimes.map((p) => [p.id, p])),
       skins: Object.fromEntries(skins.map((s) => [s.id, s])),
       vehicles: Object.fromEntries(vehicles.map((v) => [v.id, v])),
+      kits: Object.fromEntries(kits.map((k) => [k.id, k])),
     },
     version: loadedVersion,
   };
@@ -152,7 +155,7 @@ export function writeContent(kind, data, createdBy = 'agent') {
     if (unknown.length) warnings.push(`affinities reference unrecognised tags: ${unknown.join(', ')}`);
   }
 
-  const table = { item: 'items', crop: 'crops', archetype: 'archetypes', event: 'events', upgrade: 'upgrades', recipe: 'recipes', fixture: 'fixtures', worker: 'workers', pastime: 'pastimes', skin: 'skins', vehicle: 'vehicles' }[kind];
+  const table = { item: 'items', crop: 'crops', archetype: 'archetypes', event: 'events', upgrade: 'upgrades', recipe: 'recipes', fixture: 'fixtures', worker: 'workers', pastime: 'pastimes', skin: 'skins', vehicle: 'vehicles', kit: 'kits' }[kind];
   const row = upsert(table, value, createdBy);
   refresh();
   return { ok: true, row, warnings };

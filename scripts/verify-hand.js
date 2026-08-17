@@ -44,6 +44,7 @@
 import { Game } from '../server/sim/index.js';
 import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
+import { lotStacks, lotTotal, lotQty, lotHas } from '../shared/lot.js';
 
 const failures = [];
 let checks = 0;
@@ -154,8 +155,8 @@ const run = (g, ticks) => { for (let i = 0; i < ticks; i++) g.step(0.1); };
 function everywhere(g, itemId) {
   let n = 0;
   for (const sh of g.layout.shelves) n += g.shelfStack(sh, itemId)?.qty ?? 0;
-  for (const d of g.deliveries) if (d.item_id === itemId) n += d.qty ?? 0;
-  for (const p of Object.values(g.players)) if (p.carry?.item_id === itemId) n += p.carry.qty ?? 0;
+  for (const d of g.deliveries) n += lotQty(d, itemId);
+  for (const p of Object.values(g.players)) n += lotQty(p.carry, itemId) + lotQty(p.haul, itemId);
   return n;
 }
 
@@ -183,7 +184,7 @@ const onAShelf = (g, itemId) => g.layout.shelves.some((sh) => (g.shelfStack(sh, 
   board(g, s2, ITEM_B, 5, { soldAgo: 9 });     // dead, but reserved
   s2.assigned = [ITEM_B.id];
   board(g, s3, ITEM_B, 5, { soldAgo: 9 });     // dead, but a crate is coming
-  g.deliveries = [{ id: 'd-test', item_id: ITEM_B.id, qty: 2, x: 3, z: 3 }];
+  g.deliveries = [{ id: 'd-test', stacks: [{ item_id: ITEM_B.id, qty: 2 }], x: 3, z: 3 }];
 
   const stale = g.staleBoards();
   eq(stale.length, 1, 'exactly one board in a shop of four is dead');
@@ -243,7 +244,7 @@ const onAShelf = (g, itemId) => g.layout.shelves.some((sh) => (g.shelfStack(sh, 
   const done = until(g, () => !g.shelfStack(shelf, ITEM_A.id) && !hand(g)?.carry);
   check(done !== null, 'the hand clears the dead board', 'still on the shelf after 90s');
   eq(everywhere(g, ITEM_A.id), before, 'and not one unit is lost on the way');
-  eq(g.deliveries.filter((d) => d.item_id === ITEM_A.id).reduce((n, d) => n + d.qty, 0), before,
+  eq(g.deliveries.reduce((n, d) => n + lotQty(d, ITEM_A.id), 0), before,
     'all of it is in crates');
   eq(g.shelfStacks(shelf).length, 0, 'the board is free again');
   check(g.droppedItem(ITEM_A.id), 'and the shop has said it is not stocking that any more');
@@ -278,7 +279,7 @@ const onAShelf = (g, itemId) => g.layout.shelves.some((sh) => (g.shelfStack(sh, 
   const you = g.players.you;
   you.x = shelf.browseAt?.x ?? shelf.x;
   you.z = shelf.browseAt?.z ?? shelf.z;
-  you.carry = { item_id: ITEM_A.id, qty: 2 };
+  you.carry = { stacks: [{ item_id: ITEM_A.id, qty: 2 }] };
   const mine = byHand('you', shelf.id);
   check(mine.ok, 'your own hands are unaffected — the shop gave up, you did not', mine.error ?? '');
 

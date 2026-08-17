@@ -207,7 +207,7 @@ Keep to your side and you'll almost never touch the same file.
 
 | Area | Path | Notes |
 |---|---|---|
-| Content (items, crops, customers, events, upgrades, recipes, **fixture art + tiers**) | *the database* | Either person, any time, via MCP. No conflicts possible. |
+| Content (items, crops, customers, events, upgrades, recipes, **fixture art + tiers**, **kits**) | *the database* | Either person, any time, via MCP. No conflicts possible. |
 | Look of things (colours, props, characters) | `client/render/palette.js`, `client/render/props.js` | Safe, self-contained, very visible. Good place for a kid to start. |
 | UI and HUD | `client/ui.js`, `client/index.html` | |
 | What a palette button shows | `client/thumb.js` | Draws a fixture, a floor or a wall from its own art, as inline SVG. Reads `palette.js` — never its own colours. |
@@ -279,6 +279,7 @@ what the next step was meant to be.
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
+| [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | proposed, nothing built |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
@@ -460,6 +461,46 @@ what the next step was meant to be.
   read as a tap **as well**, which re-sends the errand it just spent. `till`
   (1.7) and `serve` stay where they are — one is effort you can see, the other is
   a throughput number the checkout ladder divides.
+- **…and a shelf board grades two ways: a tap is one unit into your hands, a
+  hold is the whole board into a crate you watch fill.** The hold is the only
+  action in the game that fires more than once (`repeat` in `stepActions`,
+  `crateBoard`), and the crate was always its ending — a board holds more than a
+  pair of hands, so "take it all" only means anything if what it fills is a box.
+  What is new is that the box fills *across* the second the ring already cost
+  instead of appearing at the end of it, so letting go at half a second leaves
+  you with half the board. Six things fall out of it.
+  **`PULL_SECONDS` is a duration, not a rate.** The interval is a second divided
+  by how many units are coming (`pullEvery`), so a board of three and a full one
+  take the same hold — a per-item timer makes a big board a chore and the
+  gesture stops being one decision. Worked out ONCE, at the tick it arms:
+  `p.action` lives for the whole pull and `stepActions` resets only its clock,
+  because a board that is draining answers a smaller `n` every tick and a pull
+  that re-read it would accelerate to nothing.
+  **Onto the shoulder, not the floor.** `p.haul` is the point — walking off with
+  the lot — and a crate at your feet is a second gesture to pick up. Which is
+  also why loose goods in your hands refuse the whole pull: nobody shoulders a
+  box while holding six loaves.
+  The **errand outlives its own units** — spent on the first one, the second has
+  nothing to arm from and a hold takes exactly one — so "an errand is spent when
+  it fires and nothing re-arms" now reads *except while the button that fired it
+  is still down*. Walking away spends it (`stepActions`), or it would still be
+  armed when you came back to that shelf for something else.
+  A pull is the **first job that spans ticks while what you are carrying
+  changes**, and two verbs driven by the POINTER were written on the assumption
+  that nothing does: `aimAt` and `clearAim` say where a load should GO, which
+  goes live the moment the crate exists, and either one arriving mid-pull ends
+  the gesture in your hand. `pulling(p)` is the yield — `repeat` **and** `took`,
+  so the offer is the pointer's right up until goods actually move.
+  It is **said once, at the end, with the total** (`endPull`): twelve lines of
+  "Took 1x Bread" is one event told twelve times. A job loop has no button to
+  let go of, so the staff callers leave `unshelve` alone and still sweep a board
+  in one step.
+  And **a release that ends a hold is not also a tap.** The client rules a press
+  a hold at `LONG_PRESS_MS`, and a nearly-bare board hands its first unit over
+  before that — so a short hold sends the tap as well, and you would come away
+  with the board in a crate *and* a loaf you never asked for. `tapBoard`
+  swallows it on `pulling`, which is the test the client cannot make: only the
+  shop knows whether goods actually crossed under that button.
 - **Build mode is the exception: it arms nothing.** `actionFor` returns null the
   moment `p.build.on` is set. Proximity picked the nearest fixture *centre*, and
   with seventeen shelves on a three-tile pitch that is not a choice anybody can
@@ -549,6 +590,34 @@ what the next step was meant to be.
   for a second model when you find yourself wanting a second 0..1 — not for a
   second *look*, which is a variant, and not for a second *number*, which is a
   tier.
+- **A kit is an object; a pastime is an activity.** `kits` is a content table of
+  things somebody has on them — a paper bag they walk out with, a basket they
+  fill, a trolley, a thief's swag sack. It looks like a pastime and is not one:
+  a break has a clock, a spot to stand at and energy it puts back, and the prop
+  is a detail of it. A kit has none of those. Authored into `pastimes` it would
+  be a row whose `seconds`, `spot`, `restores` and `buys` are all dead, which is
+  the "tier that changes no number" trap wearing a bag. Two columns are the
+  whole assignment: `use` is the moment (a closed set in `KIT_USES`, because a
+  moment is a thing the sim has to know it is in and hand a fullness to), and
+  `tags` is *who*, matched against the archetype's — which is why `archetypes`
+  grew a `tags` column, since until then a row that wanted to say "the
+  tight-fisted ones" had no choice but to name an id. **It replaces the loose
+  armful** rather than hanging beside it, and no kit authored is the armful
+  exactly as it was, which is what makes the whole table opt-in. The field is
+  spelled `use` and means `when` because `upsert` builds its column list
+  unquoted out of the object's own keys — a content field named after a SQL
+  keyword fails at the first write and nowhere earlier, which is worth knowing
+  before naming a column on the next kind.
+- **…and which bag somebody carries is a HASH, not a draw.** Every balance
+  number in the game is downstream of how many times `this.rng` has been called
+  — that is why `Game.namer` is a stream of its own — so drawing a shopper's bag
+  out of the measured stream would move every basket, crop and spawn roll after
+  it, and two `simulate` runs either side of authoring a *paper bag* would
+  diverge with nothing in the output to say why. `hash01(id:use)` costs no draw
+  at all, which beats either stream: the same shopper always carries the same
+  bag, a reload gives them it back, and the balance is provably untouched
+  because nothing random happened. The client already does this for a hire's
+  breathing phase. Reach for it for anything cosmetic and per-person.
 - **A machine that cannot be seen working is a machine you cannot tell is on.**
   Which is what every appliance was: mid-batch and untouched-since-Tuesday drew
   the same picture, and the only tell was the row of ingredient ghosts over it
@@ -757,6 +826,38 @@ what the next step was meant to be.
   route a driver out of, while the car stands on the line between two of them. A
   lone cell is not a bay. `PARK_HALF` halved with it — the geometry changed and
   the balance was not meant to.
+- **…and a lorry has an END that goes at the dock, which "one cell short" never
+  said.** Two bugs in one place, and the second only became visible once the
+  first was fixed. `vanRoute` has always docked the van a cell out from the bay
+  and its comment says why — goods land on the pad, and a van parked on the
+  crates it has just set down is a picture of the wrong thing. One cell *was*
+  that promise while a lorry was 1.56 long; at 2.73, with the anchor nowhere
+  near the middle, the same lane parks it 0.76 into the bay, three quarters of
+  the way across the crates. That reads as the pad being in the wrong place
+  rather than as a lorry being longer. And it arrived **nose-first**, because
+  `followPath` faces everything the way it is travelling — a model is authored
+  nose-east, so the load bed is its `-x` end, and the shop was taking delivery
+  out of the van's bonnet. `Game.vanStop` answers both: it **reverses** the last
+  leg and sets back by the *tail*, measured off the art (`modelExtent`, unioned
+  over every stage, so a full van and an empty one halt in the same spot).
+  Backing in costs no manoeuvre — the corner is still a 90° turn off the ring,
+  just the other way, and pulling out is a straight drive forward, so there is
+  no turn on the spot at either end. Four things about where the pieces live. It
+  is **not** in `vanRoute`: a lane is a property of the *shop*, whole tiles
+  computed once per re-flow, while which lorry is coming is content nothing
+  knows until one is sent. `van.dock` therefore stays the lane's own whole tile,
+  because `regenerateLayout` compares it to ask whether the lane moved, and a
+  fractional setback there would read as a lane that had gone on every single
+  re-flow. The reversed heading is a **field on the van** applied in `driveVan`
+  rather than a flag `followPath` reads — that function is what people walk
+  with, and a pedestrian who reverses is nothing anybody wants. And `out[0]`
+  gets the setback too, or pulling away begins with the van lurching *forward*
+  over the crates. A bay hard against the border ring gets none of it —
+  `laneVia` collapses the turn there, so the van halts alongside the pad rather
+  than end-on, and there is nothing to reverse into. The sideways 0.145 of
+  overhang per flank is left alone: `ROAD_THICK` is the deliberate answer to
+  width, and tightening what `drivable` demands would take the lane away from
+  shops that have one, which lands as deliveries that teleport.
 - **The starting world has a front now, and only a NEW one does.** Yard behind,
   fields down the east flank, street across the bottom (`defaultStreet`, laid by
   the same one-time mark `defaultPads` is). It could only ever be new worlds:
@@ -916,6 +1017,18 @@ what the next step was meant to be.
   and fading on a loop, for vapour and steam. Each is a flag one renderer knows
   how to read, and the pattern is deliberate: a new kind of behaviour on a part
   beats a second kind of model every time.
+- **…and glass casts no shadow *unless it asks to*.** `shadow: true` on a part
+  is that ask, and it only means anything on glass, because everything solid
+  already casts. The rule it opts out of is right about what glass usually is —
+  a door you look through, a bottle — and wrong about what a big flat *pane*
+  usually is: fade a ceiling panel down far enough to see the aisle through it
+  and the shadow it was laying on that aisle goes with it, so the fitting stops
+  being in the room and reads as a decal on the camera. three.js has no
+  half-shadow — the shadow map is a depth pass, so a part casts fully or not at
+  all whatever its opacity — which makes this a choice between two wrong
+  answers, and which is less wrong depends on how big the part is. `weld` groups
+  by material, so two parts of the same colour AND alpha that disagree about it
+  merge and take the first one's answer.
 - **…and flagging a board doesn't make it one you can see into.** Goods fill
   from the TOP board down — right on an open unit, and exactly wrong on one
   that grew a canopy, because the covered board is then the one every unit of

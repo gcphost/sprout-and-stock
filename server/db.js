@@ -28,7 +28,7 @@ export const SEED_DIR = path.join(DATA_DIR, 'seed');
 const DB_PATH = process.env.SNS_DB ?? path.join(DATA_DIR, 'game.db');
 
 /** Content tables — anything an agent is allowed to write to. */
-export const CONTENT_TABLES = ['items', 'crops', 'archetypes', 'events', 'upgrades', 'recipes', 'fixtures', 'workers', 'pastimes', 'skins', 'vehicles'];
+export const CONTENT_TABLES = ['items', 'crops', 'archetypes', 'events', 'upgrades', 'recipes', 'fixtures', 'workers', 'pastimes', 'skins', 'vehicles', 'kits'];
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   surface    TEXT NOT NULL DEFAULT 'null',-- JSON {color, accent, pattern}: floors only
   yields     TEXT NOT NULL DEFAULT 'null',-- JSON {cash, every} or null: it earns
   charm      REAL NOT NULL DEFAULT 0,     -- how far word of the shop travels
+  open       INTEGER NOT NULL DEFAULT 0,  -- 1 = workable from the back too
   tags       TEXT NOT NULL DEFAULT '[]',  -- JSON array
   created_by TEXT NOT NULL DEFAULT 'seed',
   created_at INTEGER NOT NULL
@@ -214,6 +215,26 @@ CREATE TABLE IF NOT EXISTS vehicles (
   speed      REAL NOT NULL DEFAULT 3.2,    -- tiles per second
   capacity   INTEGER NOT NULL DEFAULT 4,   -- crates
   color      TEXT NOT NULL DEFAULT '#c9d1d9',
+  created_by TEXT NOT NULL DEFAULT 'seed',
+  created_at INTEGER NOT NULL
+);
+
+-- Something somebody has on them: a shopping bag, a basket, a trolley. Not a
+-- pastime with the clock taken out -- a break is an activity and this is only
+-- the object, so a row here has no seconds, no spot and nothing it restores.
+--
+-- USE is the moment it is carried in, out of the closed list in schemas.js,
+-- and TAGS is who carries it, matched against the archetype's. Those two
+-- columns are the whole assignment: a thief's swag bag is a row tagged thief,
+-- and no code in the game knows what a swag bag is. (No backticks in here --
+-- see the pastimes note above.)
+CREATE TABLE IF NOT EXISTS kits (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  use        TEXT NOT NULL DEFAULT 'leaving',  -- the moment; see KIT_USES
+  tags       TEXT NOT NULL DEFAULT '[]',   -- JSON array, matched on the shopper
+  weight     REAL NOT NULL DEFAULT 1,
+  model      TEXT NOT NULL,                -- JSON, staged by how full it is
   created_by TEXT NOT NULL DEFAULT 'seed',
   created_at INTEGER NOT NULL
 );
@@ -318,6 +339,10 @@ const ADDED_COLUMNS = [
   // they were running — and is why nothing in a live shop changed on the day
   // this landed.
   ['fixtures', 'work', "TEXT NOT NULL DEFAULT 'null'"],
+  // Whether you can walk all the way round it. 0 is "it has a back", which is
+  // true of every unit authored before the question could be asked — so no shop
+  // gains a side it did not have on the day this landed.
+  ['fixtures', 'open', 'INTEGER NOT NULL DEFAULT 0'],
   // 'null' rather than '{}': a pastime with no prop drawn for it yet has no
   // model at all, and an empty object is a model that fails its own schema.
   ['pastimes', 'model', "TEXT NOT NULL DEFAULT 'null'"],
@@ -327,6 +352,10 @@ const ADDED_COLUMNS = [
   // An archetype written before shopping lists came for nothing in particular,
   // and an empty staple list is exactly that shopper.
   ['archetypes', 'staple_tags', "TEXT NOT NULL DEFAULT '[]'"],
+  // What kind of shopper this is, for anything authored to match them on — a
+  // kit today. Empty is every archetype written before kits existed, and a kit
+  // with no tags of its own still goes to them, so no shopper changes.
+  ['archetypes', 'tags', "TEXT NOT NULL DEFAULT '[]'"],
 ];
 
 function addLateColumns(handle) {
@@ -392,7 +421,7 @@ export function contentVersion() {
 const JSON_FIELDS = {
   items: ['tags', 'model'],
   crops: ['seasons', 'model'],
-  archetypes: ['affinities', 'staple_tags'],
+  archetypes: ['affinities', 'staple_tags', 'tags'],
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
@@ -401,6 +430,20 @@ const JSON_FIELDS = {
   pastimes: ['buys', 'tags', 'model'],
   skins: ['slots', 'extras', 'tags'],
   vehicles: ['tags', 'model'],
+  kits: ['tags', 'model'],
+};
+
+/**
+ * Columns that are a yes/no in the schema and an INTEGER in here.
+ *
+ * SQLite has no boolean and better-sqlite3 refuses to bind one, so a field zod
+ * validated as `z.boolean()` cannot go straight into a column — and coming back
+ * out it is 1, which `=== true` quietly answers no to. Both directions, in the
+ * one pair of functions every read and write already goes through, so nothing
+ * downstream has to know which storage a field happens to have.
+ */
+const BOOL_FIELDS = {
+  fixtures: ['open'],
 };
 
 function hydrate(table, row) {
@@ -413,6 +456,7 @@ function hydrate(table, row) {
       out[f] = Array.isArray(row[f]) ? [] : {};
     }
   }
+  for (const f of BOOL_FIELDS[table] ?? []) out[f] = !!row[f];
   return out;
 }
 
@@ -420,6 +464,9 @@ function dehydrate(table, obj) {
   const out = { ...obj };
   for (const f of JSON_FIELDS[table] ?? []) {
     if (out[f] !== undefined) out[f] = JSON.stringify(out[f]);
+  }
+  for (const f of BOOL_FIELDS[table] ?? []) {
+    if (out[f] !== undefined) out[f] = out[f] ? 1 : 0;
   }
   return out;
 }

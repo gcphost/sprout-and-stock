@@ -4,7 +4,7 @@
 
 import {
   canPlaceEdges, edgeRun, canPaintGround, groundStroke, strokeThick, GROUND_STROKE_MAX,
-  faceAlong, isProp, isWalkableTile,
+  faceAlong, isProp, isWalkableTile, workSpotOf, REACH,
 } from '../shared/build.js';
 import { SOLID, edgeBetween } from '../shared/edges.js';
 import { Scene } from './render/scene.js';
@@ -200,6 +200,7 @@ function refreshGhost(force = false) {
     scene.setEdgeGhost([seg], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
     ui.setBuildVerdict(verdict);
     scene.setAimTarget(null);
+    ui.setBoardTip(null, null);
     scene.setPersonAim(null);
     canvas.style.cursor = '';
     ui.setAim(null);
@@ -219,6 +220,7 @@ function refreshGhost(force = false) {
     scene.setFloorGhost([cell], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
     ui.setBuildVerdict(verdict);
     scene.setAimTarget(null);
+    ui.setBoardTip(null, null);
     scene.setPersonAim(null);
     canvas.style.cursor = '';
     ui.setAim(null);
@@ -273,11 +275,16 @@ function refreshGhost(force = false) {
     canvas.style.cursor = person?.hire ? 'pointer' : '';
     if (person?.hire) {
       scene.setAimTarget(null);
+      ui.setBoardTip(null, null);
       ui.setAim(null);
       // A person is not a square, and this branch owns the ghost now (see the
       // guard above) — so pointing at a hire with your hands full has to put it
       // away rather than leave the last square lit.
       if (dropping()) scene.setFloorGhost(null, null);
+      // ...and a person is not a shelf either. This branch returns before the
+      // aim below is ever worked out, so without this the errand survives on
+      // whatever the pointer left — the one path that could strand it.
+      syncStockAim(null);
       return;
     }
     const aim = pointer.onCanvas && !ui.holding
@@ -290,6 +297,12 @@ function refreshGhost(force = false) {
     // own frame, which is still the whole unit and still opens its menu.
     const board = aim?.board && boardTakes() ? aim.board : null;
     scene.setAimTarget(aim?.crate ?? aim?.fixture ?? null, 'aim', board);
+    // ...and what that pile IS, which the cage cannot say. Off `aim.board`
+    // rather than off `board`, so it is not gated on `boardTakes`: the cage is
+    // a promise about a press and this is a label, and the moment you most want
+    // to know what a board holds and how full it is, is with an armful in your
+    // hands looking for somewhere to put it.
+    ui.setBoardTip(shelfById(aim?.fixture?.id), aim?.board ?? null, pointer.x, pointer.y);
     // The other half of "you can press this", the way it is for a hire: the cage
     // says which pile, the cursor says there is one to take at all. A crate gets
     // no cursor because a crate is a whole object you can see you are on; a board
@@ -319,6 +332,11 @@ function refreshGhost(force = false) {
     if (dropping()) {
       scene.setFloorGhost(show ? [drop] : null, show ? (canDropAt(drop) ? 'ok' : 'no') : null);
     }
+    // ...and the unit under the pointer is the other half of the same sentence.
+    // Sent from here rather than from the press, because the prompt is the thing
+    // being fixed: a shelf you are standing beside said "Stock…" whether or not
+    // you were pointing at it, and a prompt is a promise the hold will keep.
+    syncStockAim(aim?.fixture ?? null);
     return;
   }
   const tile = scene.pickTile(pointer.x, pointer.y);
@@ -326,26 +344,38 @@ function refreshGhost(force = false) {
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
     ui.setBuildVerdict(null);
     scene.setAimTarget(null);
+    ui.setBoardTip(null, null);
     scene.setPersonAim(null);
     canvas.style.cursor = '';
     ui.setAim(null);
     return;
   }
 
-  // Pointing at something you already own means *that thing*, and the answer is
-  // its menu, not a red ghost telling you the tile is taken. This is the aiming
-  // the Move tool never had: you name one fixture, and there is no guessing
-  // which of the three shelves in reach you meant.
-  const over = ui.holding ? null : pickTarget(pointer.x, pointer.y);
-  scene.setAimTarget(over);
+  // Past here something is armed to go DOWN — a piece off the palette or a
+  // fixture in your hands — and while there is, nothing already standing is a
+  // target. Pointing used to mean *that thing*, on the reasoning that a tile you
+  // own is a menu rather than a red ghost telling you it is taken. True of the
+  // tile and false of the SCREEN, and the gap between those two is the whole
+  // bug: a hanging prop is drawn a good two tiles up-screen of the cell it
+  // belongs to, so an existing panel light blankets the very floor you are
+  // aiming the next one at. The ring lit the old one, the ghost went out, and
+  // the tap opened a menu instead of placing — and aiming *round* what you have
+  // already built is not a thing anybody can do.
+  //
+  // So the ghost owns the pointer for as long as there is one, and a tile that
+  // really is taken says so in the ghost — red, with the reason — which answers
+  // the same question without costing you the placement beside it.
+  //
+  // Cleared rather than skipped, or the last thing rung before you picked the
+  // tool up keeps its ring for as long as the tool is up. A press-and-drag still
+  // lifts a fixture (`drag.lift`): a drag is not a tap, it cannot fire by
+  // accident, and it is the gesture everybody tries first for moving something.
+  // The bulldozer is untouched too — it arms no ghost, so it never reaches here.
+  scene.setAimTarget(null);
+  ui.setBoardTip(null, null);
   scene.setPersonAim(null);
   canvas.style.cursor = '';
-  ui.setAim(over);
-  if (over) {
-    if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
-    ui.setBuildVerdict(null);
-    return;
-  }
+  ui.setAim(null);
   // Validity involves a flood fill, so only ask when something actually moved —
   // the camera tracks the player, so the tile under a still pointer drifts and
   // this runs from the render loop too.
@@ -394,11 +424,37 @@ addEventListener('blur', () => keys.clear());
 // the result, or one flick of a trackpad crosses the whole range.
 const WHEEL_UNIT = { 0: 100, 1: 3, 2: 1 };   // pixels, lines, pages
 
+// Leftover notch while the wheel is turning something rather than zooming. A
+// rotation is a *quarter*, so unlike zoom it cannot take a fractional step: a
+// trackpad streams a dozen small deltas per flick, and spending each one on a
+// quarter turn spins the shelf three times before your fingers have stopped.
+// Whole steps only, and the remainder is kept for the next event.
+let rotWheel = 0;
+
 canvas.addEventListener('wheel', (e) => {
   // Non-passive: without preventDefault the page scrolls (and on a Mac trackpad
   // a pinch, which arrives here as ctrl+wheel, zooms the whole browser instead).
   e.preventDefault();
   const steps = e.deltaY / (WHEEL_UNIT[e.deltaMode] ?? 100);
+  // With something in your hands the wheel turns it. Deliberately gated on
+  // `holding` rather than on build mode: the palette is a mode you sit in for
+  // minutes and the view still has to move while you are in it, whereas an
+  // armful is a sentence you are in the middle of — you are about to set this
+  // thing down, and which way round it goes is the only question left. It also
+  // puts the turn on the hand already aiming the ghost, which R never could.
+  if (ui.holding) {
+    rotWheel += steps;
+    while (Math.abs(rotWheel) >= 1) {
+      const dir = Math.sign(rotWheel);
+      rotWheel -= dir;
+      ui.rotateBuild(dir);
+    }
+    refreshGhost();
+    return;
+  }
+  // Nothing held: the wheel is the zoom again, and a part-turn banked against a
+  // fixture you have already put down must not be waiting for the next one.
+  rotWheel = 0;
   scene.zoomBy(Math.max(-3, Math.min(3, steps)));
 }, { passive: false });
 
@@ -481,6 +537,115 @@ function inReachOf(at) {
   const me = ui.me();
   if (!me || !at) return false;
   return Math.hypot(me.x - at.x, me.z - at.z) <= UNLOAD_REACH;
+}
+
+/**
+ * The last aim we asked for, and when — a damper, not a record of the truth.
+ *
+ * The truth is read back off the snapshot (see below). This only stops the same
+ * sentence going out on every frame between the send and the snapshot that
+ * reflects it, which at 60fps against a 10Hz world is six copies of it.
+ */
+let stockAsked = null;
+
+/**
+ * While your hands are full, the pointer owns which unit the goods are for.
+ *
+ * The ring winds off `p.errand` and `p.pressing` is one bit — a button is down,
+ * and nothing about where. So an errand set by a tap stayed armed for as long as
+ * you stood near the thing, and the shop went on saying "Stock…" over a shelf
+ * you were not pointing at, on a prompt that a hold would have kept. Naming it
+ * on the press fixed which shelf got the goods and left the *advertisement*
+ * wrong, which is worse than it sounds: the prompt is the only thing that says
+ * what the hold is about to do.
+ *
+ * So this is hover rather than press. Two things make that safe.
+ *
+ * It only ever *clears* a fixture you are **in reach of** — the test is on the
+ * server (`Game.clearAim`), because only the server knows what the errand says.
+ * That is what keeps the main stocking gesture alive: tapping a shelf across the
+ * shop walks you there and names it, and your pointer is nowhere near it for the
+ * whole of that walk. Out of reach is not a decision you are making.
+ *
+ * And it never touches a square, the pad, or a crate. Those are named by a
+ * gesture you finished — `placeAt` off a press, a tap on the pad, `take` on a
+ * box — and hover must not undo a decision somebody made on purpose.
+ */
+function syncStockAim(f) {
+  if (!dropping()) { stockAsked = null; return; }
+
+  // Only somewhere the goods would actually LAND. `takers` is the shop's own
+  // answer — the same list the green pips are drawn from — and it is four facts
+  // the client does not have: a freezer's cold, a shelf set aside for something
+  // else, a label with stock still under it, how much room is left at this tier.
+  //
+  // It has to be asked here and NOT in `aimAt`, and the difference is the
+  // gesture. A tap on a freezer is a decision, and a decision deserves to be
+  // armed and then refused out loud — "bread needs a freezer" is the answer you
+  // are owed for pointing at it. Hover is not a decision. A prompt that lights
+  // up under a drifting pointer and then refuses is the green-ghost bug: the
+  // shop offering something it has no intention of doing.
+  const takers = ui.me()?.takers ?? null;
+  const want = f && takers?.includes(f.id) && atWorkSpotOf(f) ? f.id : null;
+
+  // What the shop is currently OFFERING, read back off the snapshot rather than
+  // remembered here. That is the load-bearing bit: the errand can be set by
+  // things this function never saw — a tap that walked you to a shelf, most of
+  // all — so a local latch would sit at null, see no change, and never know
+  // there was anything to clear. Reading it back means this self-corrects from
+  // whatever state the shop is actually in.
+  //
+  // ...and only while it is in REACH, which is the same clause `clearAim`
+  // applies on the other end and the reason the walk still works: crossing the
+  // shop towards a shelf you named, the offer is not live yet, so there is
+  // nothing here to disagree with and not one message goes out. It becomes live
+  // as you arrive — which is exactly when where you are pointing starts to mean
+  // something.
+  const act = ui.me()?.action ?? null;
+  const on = act ? scene.fixtureById(act.target) : null;
+  const armed = on && atWorkSpotOf(on) ? act.target : null;
+  if (want === armed) { stockAsked = null; return; }
+
+  const now = performance.now();
+  if (stockAsked && stockAsked.want === want && now - stockAsked.at < 300) return;
+  stockAsked = { want, at: now };
+  net.send('place', want ? { fixture: want } : { clear: true });
+}
+
+/**
+ * ...and the same question about a fixture, which is a different distance to a
+ * different point.
+ *
+ * `inReachOf` measures to a crate or a square, which are things you stand *at*.
+ * A unit is worked from its side, so the sim measures `REACH` to `workSpotOf` —
+ * and this press is refused by that test on the other end (`Game.aimAt`). Asking
+ * a looser question here is the green-ghost bug said with a toast: a press that
+ * looked legal, sent, and came back red. Both halves import the same two names.
+ */
+/**
+ * ...and the third distance, which is the one `unshelve` actually measures:
+ * `near(p, shelf)`, to the unit itself, at `REACH`.
+ *
+ * Neither of the two above is it. `inReachOf` is `UNLOAD_REACH` (1.8) and would
+ * fire a tap the shop refuses by two tenths of a tile — a red toast for pressing
+ * a loaf — and `atWorkSpotOf` measures to the side you work it from, which is a
+ * different point again. It decides which MESSAGE a tap is, the way the crate's
+ * reach test does, so it has to be the same question the verb asks.
+ */
+function nearFixture(f) {
+  const me = ui.me();
+  if (!me || !f) return false;
+  return Math.hypot(me.x - f.x, me.z - f.z) <= REACH;
+}
+
+function atWorkSpotOf(f) {
+  const me = ui.me();
+  if (!me || !f) return false;
+  // The same fallback `Game.reachSpots` makes, and for the same reason: a bed
+  // and a decoration have no working spot, so the thing itself is the answer.
+  const spots = ui.spotsFor(f);
+  const at = spots.length ? spots : [workSpotOf(f)];
+  return at.some((s) => Math.hypot(me.x - s.x, me.z - s.z) <= REACH);
 }
 
 /**
@@ -917,6 +1082,13 @@ canvas.addEventListener('pointerdown', (e) => {
     else if (hit?.board && boardTakes() && inReachOf(hit.f)) {
       net.send('take', { shelfId: hit.f.id, itemId: hit.board });
     }
+    // The UNIT with your hands full is deliberately NOT here — it is
+    // `syncStockAim`, off the pointer, so there is one writer of that errand
+    // rather than two opinions about it. The pointer has already answered by the
+    // time any button goes down, including on a touch: `refreshGhost(true)` a few
+    // lines up runs at the moment the finger lands, which is the only "hover" a
+    // phone ever gets.
+    //
     // The other end of the same idea: a square beside you, with your hands full.
     // `place` names it as somewhere to put goods *down* without walking you onto
     // it, so the hold has a target and the box lands where you were pointing —
@@ -1257,6 +1429,19 @@ const myHaul = () => latestState?.players
   ?.find((p) => p.id === net.myId)?.haul ?? null;
 
 /**
+ * A shelf's live record, boards and all.
+ *
+ * `scene.fixtureById` answers off the LAYOUT, which is where a shelf's position
+ * and tier live and is rebroadcast only when the shop re-flows. What is
+ * standing on its boards is snapshot state, ten times a second — so anything
+ * that wants a count reads it here or it is quoting whatever was on the unit
+ * the last time somebody bought a shelf.
+ */
+const shelfById = (id) => (id
+  ? latestState?.shelves?.find((s) => s.id === id) ?? null
+  : null);
+
+/**
  * Is this thing holding something that standing at it would hand you?
  *
  * A ripe bed and a machine with a finished tray are the two, and they are the
@@ -1350,6 +1535,54 @@ function pickTarget(cx, cy) {
  */
 const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed()
   && !myCarry() && !myHaul();
+
+/**
+ * Pick a thing, then open it — the two presses a fixture's menu now costs.
+ *
+ * A tap on a shelf used to *be* a tap on its settings, which is a whole panel
+ * over the shop for a question you very often did not have: which one is that,
+ * where do people stand to use it, is that the freezer I meant. Selection was
+ * the answer to all three and there was no way to ask for it on its own, so
+ * every glance cost a menu and every menu cost a dismissal.
+ *
+ * So: press one picks it (the teal ring and its working spots, already built —
+ * see `setSelectedTarget` — and R and M now have something to act on without a
+ * panel), press two opens it, press three puts it away and lets go. Pressing a
+ * DIFFERENT thing always starts again at one, which is the half that keeps this
+ * cheap: switching between units is one press each, the same as before, and it
+ * is only the unit you have settled on that asks for a second.
+ *
+ * Called from both tap branches rather than written twice. They were already
+ * the same four lines with different comments, and the two of them drifting is
+ * how "a tap in build mode does something else" starts.
+ */
+function openInTwo(f, { walk = false } = {}) {
+  if (!ui.isSelected(f)) {
+    ui.selectFixture(f);
+    // ...and shopkeeping spends the same press on the walk. Picking a thing out
+    // and then crossing the floor to it are not two decisions — you pointed at
+    // that shelf because you are going to it — so the press that says WHICH
+    // also says GO, and the menu is what the second press is for. It costs
+    // nothing that was not already spent: a tap on bare floor beside the unit
+    // walked you there and named nothing, so this is that gesture with an
+    // answer attached.
+    //
+    // Deliberately not in build mode, which is the caller's decision and why
+    // this is a flag rather than the default. Building flies the view somewhere
+    // you cannot stand (`setFreeRoam`) — a room you have just sealed, the far
+    // side of the fence — so a select that walked would be sending you off
+    // across the shop every time you looked at what you had built.
+    if (walk) { scene.ripple(f.x, f.z); walkTo({ fixture: f.id }); }
+    else scene.ripple(f.x, f.z, 'miss');
+    return;
+  }
+  // Pale from here on, and the two colours are carrying the whole difference
+  // between the presses: amber is "you are on your way", pale is "I heard you".
+  // A press that opens a panel must not flash the going colour.
+  scene.ripple(f.x, f.z, 'miss');
+  if (ui.openPanel === 'fixture') ui.closePanel();
+  else showFixture(ui, f);
+}
 
 /**
  * Hold a thing in build mode and you pick it up.
@@ -1618,22 +1851,25 @@ function tapAtPointer(cx, cy) {
       // its stock: an end panel, the frame, the base, the gap between boards. A
       // full unit is mostly goods from this camera but never all goods — and
       // build mode opens anything you own regardless.
+      //
+      // ...and standing at it, the tap is ONE UNIT rather than another walk to
+      // where you already are. That is the grade a lone crate has had since it
+      // became rummageable, said about a shelf: **a tap is one, a hold is the
+      // board.** Sending the errand here instead is a press that does nothing
+      // you can see — the walk is a no-op and the goods only move under a hold.
+      //
+      // Which message it is, is decided here rather than sent as an intent, for
+      // the same reason the crate decides it here: a `take` that quietly became
+      // a rummage server-side would mean tapping a shelf across the shop did
+      // different things depending on where you were standing.
       if (hit?.board && boardTakes()) {
         scene.ripple(over.x, over.z);
-        net.send('take', { shelfId: over.id, itemId: hit.board });
+        if (nearFixture(over)) net.send('shelf-one', { shelfId: over.id, itemId: hit.board });
+        else net.send('take', { shelfId: over.id, itemId: hit.board });
         return;
       }
 
-      scene.ripple(over.x, over.z, 'miss');
-      // ...and the one already open puts itself away, which is the same toggle
-      // the rail gives its own buttons. The dismissal below used to provide
-      // this by accident, and without it the second press on the thing you are
-      // already reading about would be the only press on the whole shop floor
-      // that does nothing you can see. By tile rather than by id, for the
-      // reason `refreshFixture` is: turning something re-mints its id.
-      const open = ui.openPanel === 'fixture' && ui.fixtureRef;
-      if (open && ui.fixtureRef.x === over.x && ui.fixtureRef.z === over.z) ui.closePanel();
-      else showFixture(ui, over);
+      openInTwo(over, { walk: true });
       return;
     }
 
@@ -1649,31 +1885,30 @@ function tapAtPointer(cx, cy) {
       return;
     }
 
+    // A press on the floor lets go of whatever was picked — but does NOT eat the
+    // press the way an open panel does. A selection is a ring and nothing else:
+    // there is no panel over the shop to dismiss, so there is nothing here worth
+    // costing you the walk you just asked for.
+    if (ui.fixtureRef) ui.setFixtureRef(null);
+
     const tile = scene.pickTile(cx, cy);
     if (tile) { scene.ripple(tile.x, tile.z); walkTo({ x: tile.x, z: tile.z }); }
     return;
   }
 
-  if (!ui.holding) {
-    const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
-    if (who?.hire) { showWorker(ui, who.hire); return; }
-
-    // `pickTarget`, so a decoration answers here too — `pickFixture` skips the
-    // box a prop is aimed by, which made the one class of thing you build a
-    // palette tab for the one class you could not open with a tool in your hand.
-    const over = pickTarget(cx, cy);
-    if (over && ui.demolishArmed()) { ui.razeFixture(over); return; }
-    if (over) {
-      // Press it again and the menu goes away, which the shopkeeping branch has
-      // always done and this one never did — so the only way out of a fixture
-      // menu in build mode was the × or a key. By tile rather than by id, for
-      // the reason `refreshFixture` is: turning something re-mints its id.
-      const open = ui.openPanel === 'fixture' && ui.fixtureRef;
-      if (open && ui.fixtureRef.x === over.x && ui.fixtureRef.z === over.z) ui.closePanel();
-      else showFixture(ui, over);
-      return;
-    }
-  }
+  // Past here something is armed to go down — a tool or an armful, since the
+  // branch above owns every tap that has neither. So a tap PLACES, and nothing
+  // already in the shop can take it away: not a shelf, not a lamp, and not a
+  // clerk who wandered under the ghost. This used to open whatever was under
+  // the pointer — you could still pick things up with something already in hand
+  // to put down — and the hover half now says otherwise, since the build branch
+  // of `refreshGhost` rings nothing and aims no person. A press that does what
+  // no marker on screen advertised is the worse half of the two.
+  //
+  // Which leaves the menus one gesture away rather than none: Escape or the lit
+  // button puts the tool down (`disarmTool`), and then everything points at
+  // things again. The bulldozer never comes through here — it arms no ghost, so
+  // it is served by the branch above with its aiming intact.
 
   // Building on bare ground is the only part that needs the mode.
   if (!kind) { ui.closePanel(); return; }

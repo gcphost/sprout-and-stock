@@ -53,6 +53,7 @@ import { writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { canPlace } from '../shared/build.js';
 import { WALKABLE } from '../shared/tiles.js';
+import { lotStacks, lotTotal, lotQty, lotHas } from '../shared/lot.js';
 
 const failures = [];
 let checks = 0;
@@ -306,7 +307,7 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   const over = g.loadStation('me', st.id);
   check(!over.ok, 'a full hopper refuses one more', JSON.stringify(over));
   eq(st.contents['zz-kit-bean'], cap, 'and holds exactly what it held');
-  eq(g.players.me.carry?.qty, 1, 'and the unit is still in your hands, not gone');
+  eq(lotTotal(g.players.me.carry), 1, 'and the unit is still in your hands, not gone');
 
   // A partial load: as much as fits, the rest stays held. The alternative is
   // arithmetic before every trip to the shelf.
@@ -318,7 +319,7 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   check(part.ok, 'an armful bigger than the room left still loads', part.error ?? '');
   eq(part.loaded, 2, 'it takes exactly what fits');
   eq(st2.contents['zz-kit-bean'], cap, 'filling the hopper');
-  eq(g2.players.me.carry?.qty, 4, 'and hands the remainder back');
+  eq(lotTotal(g2.players.me.carry), 4, 'and hands the remainder back');
 }
 
 // ---------------------------------------------------------------------------
@@ -426,7 +427,7 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   hold(g, 'zz-kit-leaf', BATCHES);
   const wrong = g.loadStation('me', st.id);
   check(!wrong.ok, 'and leaves are refused by a machine set to brew', JSON.stringify(wrong));
-  eq(g.players.me.carry?.qty, BATCHES, 'with the armful still in your hands');
+  eq(lotTotal(g.players.me.carry), BATCHES, 'with the armful still in your hands');
   eq(st.contents['zz-kit-leaf'], undefined, 'and nothing of them in the hopper');
   eq(g.stationHopperCap(st, 'zz-kit-leaf'), 0,
     'the hopper has no room for an ingredient this recipe does not call for');
@@ -579,7 +580,7 @@ function content_inputs(recipeId) {
   let peak = 0;
   for (let i = 0; i < 900; i++) {
     g.step(0.1);
-    peak = Math.max(peak, (st.contents['zz-kit-bean'] ?? 0) + (chef.carry?.qty ?? 0));
+    peak = Math.max(peak, (st.contents['zz-kit-bean'] ?? 0) + lotTotal(chef.carry));
   }
   check(peak > BEAN_PER_BATCH,
     'the chef fetches more than one batch at a time out of the stockroom',
@@ -587,13 +588,13 @@ function content_inputs(recipeId) {
   check(peak >= Math.min(cap, g.carryCapacity()),
     'and carries as much as their hands hold toward filling it',
     `peak ${peak}, hands hold ${g.carryCapacity()}`);
-  check((st.output?.qty ?? 0) + (chef.carry?.item_id === 'zz-kit-brew' ? chef.carry.qty : 0) > BREW_PER_BATCH,
+  check((st.output?.qty ?? 0) + lotQty(chef.carry, 'zz-kit-brew') > BREW_PER_BATCH,
     'and the machine gets through more than one batch while they do it',
     `tray ${st.output?.qty ?? 0}`);
 
   // Nobody is wedged. A chef holding something the machine has no room for used
   // to walk back to it forever; the job has to hand that armful to `shelve`.
-  check(chef.carry?.item_id !== 'zz-kit-bean' || g.stationHopperRoom(st, 'zz-kit-bean') > 0,
+  check(!lotHas(chef.carry, 'zz-kit-bean') || g.stationHopperRoom(st, 'zz-kit-bean') > 0,
     'and is never left holding an ingredient nothing has room for');
 }
 
@@ -616,7 +617,7 @@ function content_inputs(recipeId) {
 
   for (let i = 0; i < 900; i++) g.step(0.1);
   const made = (st.output?.qty ?? 0)
-    + Object.values(g.players).reduce((n, p) => n + (p.carry?.item_id === 'zz-kit-brew' ? p.carry.qty : 0), 0);
+    + Object.values(g.players).reduce((n, p) => n + lotQty(p.carry, 'zz-kit-brew'), 0);
   check(made > 0, 'a kitchen with nowhere to stockpile still makes things', `made ${made}`);
   check(shelf.stacks[0].qty > 30,
     'and the shop floor is borrowed from a batch at a time rather than stripped',
@@ -679,7 +680,7 @@ function content_inputs(recipeId) {
   run(g, 200);
 
   const onShelf = g.shelfStack(shelf, 'zz-kit-brew')?.qty ?? 0;
-  const inHand = hand.carry?.item_id === 'zz-kit-brew' ? hand.carry.qty : 0;
+  const inHand = lotQty(hand.carry, 'zz-kit-brew');
   check(onShelf + inHand > 0,
     'give it a board and the tray comes out to fill it',
     `shelf ${onShelf}, hands ${inHand}, tray ${st.output?.qty ?? 0}`);

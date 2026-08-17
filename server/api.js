@@ -36,6 +36,7 @@ const KINDS = {
   // description an agent gets is the only place a new kind of content is
   // actually explained, and it is why CLAUDE.md says change both together.
   vehicle: 'vehicles',
+  kit: 'kits',
 };
 
 /**

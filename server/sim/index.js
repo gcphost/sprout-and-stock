@@ -34,11 +34,16 @@ import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
-  GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt,
+  GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
 } from '../../shared/build.js';
 import {
   pieceFor, kindOf, defaultPiece, countKey, boardsOf, fixtureLabel,
 } from '../../shared/pieces.js';
+import {
+  LOT_KINDS, lotStacks, lotTotal, lotQty, lotHas, lotMain, lotRoom,
+  lotAdd, lotTake, lotSweep, lotLabel, lotOf,
+} from '../../shared/lot.js';
+import { modelExtent } from '../../shared/model.js';
 
 /** Real seconds in one in-game day. */
 export const DAY_SECONDS = 360;
@@ -171,7 +176,9 @@ const EDGE_LABEL = {
 };
 const PLAYER_SPEED = 4.2;      // tiles/sec
 const CUSTOMER_SPEED = 2.2;
-const REACH = 1.6;             // how close you must be to interact
+// REACH lives in `shared/build.js` now, beside `workSpotOf`, for the same
+// reason: the client has to decide whether a press that names a unit is worth
+// sending, and a reach spelled twice disagrees exactly at the edge.
 /**
  * Most of one thing anybody takes off one shelf in one visit.
  *
@@ -251,6 +258,20 @@ const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
  * shop rather than on a row somebody can edit into an imbalance.
  */
 const CRATE_UNITS = 12;
+
+/**
+ * How many different things one crate holds, and one pair of hands.
+ *
+ * The cap that makes mixing safe rather than total. Both are `LOT_KINDS` today
+ * and are spelled separately anyway, because they answer different questions —
+ * how many samples fit legibly in an open-topped box, and how many armfuls a
+ * person can keep hold of at once — and the day one of them wants to be a
+ * different number, a shared constant is the thing that has to be untangled
+ * first. Neither is authored content for the reason `CRATE_UNITS` is not: what
+ * a container holds is what a pad's size means.
+ */
+const CRATE_KINDS = LOT_KINDS;
+const CARRY_KINDS = LOT_KINDS;
 
 /**
  * How many finished days the save remembers, and how many of them go on the wire.
@@ -476,6 +497,60 @@ const basketGoods = (lines) => {
 };
 
 /**
+ * A stable 0..1 from a string.
+ *
+ * Here rather than off `this.rng` on purpose, and it is the one non-obvious
+ * thing about kits. Every balance number in the game is downstream of how many
+ * times the sim's rng has been called — that is why `Game.namer` is a stream of
+ * its own — so drawing a shopper's bag out of the measured stream would move
+ * every basket, crop and spawn roll after it, and two `simulate` runs either
+ * side of authoring a *paper bag* would diverge with nothing to say why.
+ *
+ * A hash of who they are costs no draw at all, which is better than either
+ * stream: the same shopper always carries the same bag, a reload gives them it
+ * back, and the balance is provably untouched because nothing random happened.
+ * The client already does exactly this for a hire's breathing phase.
+ */
+const hash01 = (str) => {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
+};
+
+/**
+ * Which kit this shopper has on them at this moment, or null for none authored.
+ *
+ * The same shape `choosePastime` uses — filter by the moment, drop anything
+ * weighted to zero, keep what their tags allow, then draw by weight — because
+ * two spellings of "pick an authored thing for this person" is two things that
+ * drift apart. The draw is the hash above rather than an rng.
+ *
+ * Asked per snapshot rather than stored on the shopper. It is a filter over a
+ * handful of rows, and it buys the thing skins already promise: a bag authored
+ * or edited over MCP reaches the people already walking round the shop, instead
+ * of only the ones who arrive after it.
+ */
+const pickKit = (cust, arch, use) => {
+  const mine = new Set(arch?.tags ?? []);
+  const options = (content().kits ?? [])
+    .filter((k) => k.use === use)
+    .filter((k) => (k.weight ?? 1) > 0)
+    .filter((k) => !k.tags?.length || k.tags.some((t) => mine.has(t)));
+  if (!options.length) return null;
+
+  const total = options.reduce((n, k) => n + (k.weight ?? 1), 0);
+  let r = hash01(`${cust.id}:${use}`) * total;
+  for (const k of options) {
+    r -= k.weight ?? 1;
+    if (r <= 0) return k;
+  }
+  return options[options.length - 1];
+};
+
+/**
  * How long each held action takes. Everything used to cost a flat second, which
  * made turning soil feel identical to picking a tomato up. Destructive things
  * are deliberately slower — a long ring is the confirmation dialog.
@@ -509,6 +584,35 @@ const ACTION_TIMES = {
   // climbing; naming it is what lets `serveSeconds` divide it.
   serve: 1.0,
 };
+
+/**
+ * How long it takes to pull a board into a crate — the WHOLE board, whatever
+ * is on it.
+ *
+ * A duration, not a rate, and that is the entire design. The hold used to be
+ * one ring and then a crate, which is a second of nothing followed by a result;
+ * now the goods cross one at a time across the same second, so what you are
+ * watching is the box filling and letting go at half of it leaves you with half
+ * the board. That only reads as one gesture if the *time* is the constant: a
+ * per-item timer makes a board of twenty take four times as long as a board of
+ * five, and then the hold is a chore rather than a decision.
+ *
+ * So the interval between units is `PULL_SECONDS / n`, worked out once at the
+ * start of the pull (see `pullEvery`) and never re-derived — a board that is
+ * draining answers a smaller `n` every tick, and a pull that re-read it would
+ * accelerate to nothing.
+ */
+const PULL_SECONDS = 1.0;
+
+/**
+ * ...and the floor under that interval, which is one simulation tick.
+ *
+ * Nothing can be handed over faster than the sim can say it happened. A crate
+ * caps the pull at `crateCapacity` units, so at any sane `CRATE_UNITS` this
+ * never binds — it is here so that authoring a huge crate makes the pull take
+ * longer than a second rather than silently dropping units on the floor.
+ */
+const PULL_STEP_MIN = 0.05;
 
 /**
  * The same sale with the balance bot standing in for you (`autoServe`).
@@ -1351,6 +1455,36 @@ export class Game {
     });
   }
 
+  /**
+   * What one shopper has on them, and how full it is.
+   *
+   * Two questions, and only the second one is arithmetic. WHICH kit is
+   * `pickKit`; how full it is is the 0..1 every staged model in the game takes
+   * — growth for a crop, tier for a fixture, how far through the break for a
+   * pastime, load for a van, and this. So a bag that starts flat and bulges as
+   * somebody shops is authored art, and nothing here knows what a bag is.
+   *
+   * Full is measured against `basket_max`, which is what this shopper was ever
+   * going to take, rather than against a literal: it is the number the sim
+   * already uses to mean "a full shop for them", so a pensioner buying three
+   * things carries a full bag and it reads as one. Clamped, because a driver
+   * takes home more than they otherwise would and a stage past the last one is
+   * an authoring error nobody made.
+   *
+   * The moment is which side of the till they are on, told the same way the
+   * lines above are: `bought` is only ever set by `completeSale`.
+   */
+  kitOf(cust) {
+    const paid = !cust.basket.length && !!cust.bought?.length;
+    const arch = content().byId.archetypes[cust.archetype_id];
+    const row = pickKit(cust, arch, paid ? 'leaving' : 'shopping');
+    if (!row) return null;
+
+    const units = (paid ? cust.bought : cust.basket)?.length ?? 0;
+    const cap = Math.max(1, arch?.basket_max ?? 4);
+    return { id: row.id, fill: r2(clamp(units / cap, 0, 1)) };
+  }
+
   // -------------------------------------------------------------------------
   // Dynamic snapshot — what actually goes over the wire each tick.
   // The layout is big and changes rarely, so it's sent separately.
@@ -1466,8 +1600,13 @@ export class Game {
         // seventeen units wanted them, on the one occasion you are carrying the
         // most stock. `stockShelf` takes from the shoulder now, so the chevrons
         // are a promise it can keep.
+        // `lotMain` because the chevrons are a marker on a shelf and a shelf
+        // either wants a thing or does not — pointing at every unit that would
+        // take any of three kinds is a shop with a light on every fixture, which
+        // is the same as no marker at all. The biggest pile is the one the trip
+        // is really about.
         takers: !p.staff && (p.carry ?? p.haul)
-          ? this.stockTargets((p.carry ?? p.haul).item_id) : null,
+          ? this.stockTargets(lotMain(p.carry ?? p.haul)?.item_id) : null,
         // Which roster row this body belongs to, and which rung it is on. The
         // roster says who works here and this says what they are up to; without
         // a key the UI can only join them by reconstructing `staff-${id}`,
@@ -1526,6 +1665,14 @@ export class Game {
         // frame in which a shop looks like it worked. A basket abandoned on the
         // way out leaves both empty, because they put it all back.
         basket: basketGoods(c.basket.length ? c.basket : (c.bought ?? [])),
+        // ...and what they are carrying it IN, if anybody has drawn one. The
+        // lines above cannot say it: `bought` IS the basket, moved across at
+        // the counter, so somebody mid-aisle holding five jars and somebody
+        // walking out having paid for five jars sent byte-identical pictures.
+        // What changed at the till is not the goods, it is who owns them, and
+        // a bag is how that reads from across the shop. Drawn INSTEAD of the
+        // armful, so a shop with no kits authored looks exactly as it did.
+        kit: this.kitOf(c),
         mood: r2(c.mood), anger: r2(angerOf(c)), want: c.wantHint ?? null,
       })),
       shelves: this.layout.shelves.map((s) => ({
@@ -1597,8 +1744,13 @@ export class Game {
       cashDrops: this.cashDrops.map((d) => ({
         id: d.id, x: r2(d.x), z: r2(d.z), amount: d.amount,
       })),
+      // What is on the floor, as a list of piles per box. The renderer stands a
+      // sample of each in the crate and the HUD counts them, which is why the
+      // old `item_id`/`qty` pair could not simply stay alongside: a client
+      // reading the pair would draw a mixed box as whichever kind went in first
+      // and count the rest as missing.
       deliveries: this.deliveries.map((d) => ({
-        id: d.id, x: r2(d.x), z: r2(d.z), item_id: d.item_id, qty: d.qty,
+        id: d.id, x: r2(d.x), z: r2(d.z), stacks: lotStacks(d),
       })),
       /**
        * How many a crate holds, so the renderer can draw one as full when it
@@ -2126,20 +2278,31 @@ export class Game {
      * line that learns about it.
      */
     for (const crate of [...this.deliveries]) {
-      const item = items[crate.item_id];
-      if (!item || !(crate.qty > 0)) continue;
-      const rate = spoilRate(item);
-      if (rate <= 0) continue;
-      const effLife = item.shelf_life_days / rate;
-      // A crate written before this has no stamp and is treated as fresh rather
-      // than as infinitely old — a save that binned the whole yard on the first
-      // morning after an update is a worse bug than the one being fixed.
-      const age = this.day - (crate.day ?? this.day);
-      if (age > effLife) {
-        const lost = crate.qty;
-        this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+      // Pile by pile, not box by box. A mixed crate is three clocks in one
+      // container and they run at three different speeds — binning the box
+      // because the lettuce in it went off would take the flour with it, which
+      // is a conservation hole dressed as a feature working.
+      for (const pile of lotStacks(crate)) {
+        const item = items[pile.item_id];
+        if (!item || !(pile.qty > 0)) continue;
+        const rate = spoilRate(item);
+        if (rate <= 0) continue;
+        const effLife = item.shelf_life_days / rate;
+        // A pile written before this has no stamp of its own and falls back to
+        // the box's, which is where the clock used to live; a crate with
+        // neither is treated as fresh rather than as infinitely old — a save
+        // that binned the whole yard on the first morning after an update is a
+        // worse bug than the one being fixed.
+        const age = this.day - (pile.day ?? crate.day ?? this.day);
+        if (age <= effLife) continue;
+        const lost = pile.qty;
+        crate.stacks = lotTake(crate, pile.item_id, lost).lot?.stacks ?? [];
         bin(item, lost);
         this.pushLog(`${lost}x ${item.name} spoiled in the yard and was binned.`);
+      }
+      // A box with nothing left in it goes, the same way `unload` leaves it.
+      if (lotTotal(crate) <= 0) {
+        this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
       }
     }
   }
@@ -2257,14 +2420,25 @@ export class Game {
       //
       // Read after `stepPlayers` has moved everyone this tick, or arriving would
       // spend a tick still looking like walking.
-      if (moving(p)) { p.action = null; p.actionBlocked = null; continue; }
+      if (moving(p)) {
+        // A pull you walked away from is finished, and walking away is also the
+        // only thing that ends a REPEATING errand from the outside — it outlives
+        // its own units on purpose (see `errandAction`), so without this it
+        // would still be armed when you came back to that shelf for something
+        // else, and the next press would take goods off it rather than the job
+        // you had in mind. Only once it has actually fired: an errand you are
+        // still walking towards is the ordinary case and must survive the walk.
+        if (p.action?.took) p.errand = null;
+        this.endPull(p);
+        p.action = null; p.actionBlocked = null; continue;
+      }
 
       const candidate = this.actionFor(p);
 
       // Nothing in range, or the target changed out from under us. Either way
       // the charge starts again from zero next time — walking off mid-ring is
       // how you decline, so it must never bank.
-      if (!candidate) { p.action = null; continue; }
+      if (!candidate) { this.endPull(p); p.action = null; continue; }
 
       // A refusal that nothing has changed since must not wind another ring.
       //
@@ -2281,14 +2455,20 @@ export class Game {
       // that again", the same gesture that already declines a ring in progress.
       // Your hands are in the key because they are the other half of most
       // refusals, so putting something down re-offers it without a walk.
-      const held = p.carry ? `${p.carry.item_id}:${p.carry.qty}` : '';
+      // Every pile, not the first one. The latch exists so a refusal that will
+      // keep refusing stops re-arming, and it lifts when your hands change —
+      // so a key naming one kind would leave the ring winding and failing after
+      // you had put down the very thing it was refusing you for.
+      const held = lotStacks(p.carry).map((s) => `${s.item_id}:${s.qty}`).sort().join(',');
       const stop = p.actionBlocked;
       if (stop && stop.kind === candidate.kind
           && stop.target === candidate.target && stop.held === held) {
+        this.endPull(p);
         p.action = null;
         continue;
       }
       if (!p.action || p.action.kind !== candidate.kind || p.action.target !== candidate.target) {
+        this.endPull(p);
         p.action = { ...candidate, elapsed: 0 };
       }
 
@@ -2311,12 +2491,34 @@ export class Game {
       // It also makes the two ends of a crate one gesture said twice — press to
       // lift, press to set down — where before both fired themselves and the
       // player never pressed anything at all.
-      if (!p.pressing) { p.action.elapsed = 0; continue; }
+      if (!p.pressing) { this.endPull(p); p.action.elapsed = 0; continue; }
 
       p.action.elapsed += dt;
       if (p.action.elapsed < (p.action.time || ACTION_TIME)) continue;
 
       const res = candidate.run();
+      // A verb is allowed to take the action out from under us — selling the
+      // fixture it was aimed at does, and so does a rummage that spends the
+      // errand the press had armed. Nothing to tally and nothing to repeat.
+      if (p.action) p.action.took = (p.action.took ?? 0) + (res?.took ?? 0);
+      // A repeating job goes round again rather than ending: the charge starts
+      // from zero, the button is still down, and the next turn of it is the
+      // next unit. It stops when the thing it is pulling from says there is no
+      // more to have (`more`), when it refuses, or when you let go — which is
+      // the one that makes it a decision instead of a duration.
+      //
+      // Only the CLOCK is reset. `p.action` is the pull — it was spread from
+      // the candidate on the tick this armed and it stays that object for the
+      // life of the gesture — so its `time` is the interval worked out against
+      // the board as it stood at the start (`pullEvery`). Taking the fresh
+      // candidate's instead would re-derive it against a board that is draining
+      // and the crate would fill faster and faster as it went.
+      if (p.action && candidate.repeat && res?.ok && res.more) {
+        p.actionBlocked = null;
+        p.action.elapsed = 0;
+        continue;
+      }
+      this.endPull(p);
       p.action = null;
       if (!res?.ok) {
         p.actionBlocked = { kind: candidate.kind, target: candidate.target, held, why: res?.error ?? null };
@@ -2329,6 +2531,45 @@ export class Game {
         p.actionBlocked = null;
       }
     }
+  }
+
+  /**
+   * Say what a repeating action came to, once, and forget the tally.
+   *
+   * A pull is ONE thing you did however many times the ring went round, and the
+   * log is a feed of things that happened in the shop — "Took 1x Bread off the
+   * shelf" six times over is the same event told six times, and it would push
+   * everything else off the end. So the units are silent (`say: false`) and the
+   * total is said here, at whichever of the four ends the gesture found: the
+   * board ran out, your hands filled, you let go, or you walked off.
+   *
+   * A no-op for everything else, because `took` is only ever set by the repeat
+   * branch above — which is why it can be called flatly at every place the
+   * action is dropped rather than only at the ones that could be a pull.
+   */
+  endPull(p) {
+    const a = p.action;
+    if (!a?.took) return;
+    a.done?.(a.took);
+    a.took = 0;
+  }
+
+  /**
+   * Is a repeating action part-way through?
+   *
+   * Both halves matter. `repeat` alone is any board you are stood at with the
+   * offer showing, which the pointer is still entitled to change its mind
+   * about; `took` is what says the gesture has *started* — goods have moved,
+   * and the thing that moved them is a button somebody is still holding down.
+   *
+   * It exists because a pull is the first job in the game that spans ticks
+   * while your hands change, and two verbs driven by the POINTER (`aimAt`,
+   * `clearAim`) were written on the assumption that nothing does: they say
+   * where an armful should GO, which becomes a live question the moment the
+   * first unit lands. Cleared by `endPull`, so letting go hands the offer back.
+   */
+  pulling(p) {
+    return !!p.action?.repeat && !!p.action.took;
   }
 
   /**
@@ -2402,14 +2643,48 @@ export class Game {
    * are owed. Guessing silently is what proximity did.
    */
   actionAt(p, f, itemId = null) {
-    const at = workSpot(f);
+    // The side of it you are NEAREST, which is the marker's position — and with
+    // somebody stood at one, the tile under their own feet.
+    //
+    // It used to be `workSpot(f)` flat: the one anchor, so a shopkeeper standing
+    // at the end of a display table got a frame painted on the tile in front of
+    // it. That reads as an instruction — go and stand there — and it was never
+    // true even before this, because `REACH` reaches round a corner. A marker
+    // that tells you to move while the thing is already working is the shop
+    // arguing with itself.
+    const at = this.spotNearest(p, f);
 
     if (f.kind === 'shelf' || f.kind === 'freezer') {
       // A board named by item is a Take — that is the shelf menu's button, and
       // it outranks stocking so that topping your hands up off a board still
       // works while you are holding some of the same thing.
       if (itemId) {
-        return { kind: 'take', target: f.id, label: 'Take it', at, run: () => this.unshelve(p.id, f.id, itemId) };
+        const said = content().byId.items[itemId]?.name ?? itemId;
+        // A HOLD pulls the whole board into a crate on your shoulder, and you
+        // watch it fill — see `crateBoard` and `PULL_SECONDS`.
+        //
+        // Two things it is answering, and they are one thing really. A board
+        // holds more than a pair of hands, so "take it all" only means anything
+        // if what it fills is a box — and the box was already the ending, it
+        // just arrived all at once at the end of a ring. Metering it (`repeat`)
+        // is what turns a duration into a decision: the ring winds again from
+        // zero, the errand survives, and letting go halfway is half the board.
+        // Nothing got slower — the whole pull is the second the single ring
+        // already cost.
+        //
+        // The count is said ONCE, by `done`: twelve lines of "Took 1x Bread" is
+        // one event told twelve times, and it would push the rest of the log
+        // off the end.
+        return {
+          kind: 'take',
+          target: f.id,
+          label: `Crate the ${said}`,
+          time: this.pullEvery(p, f, itemId),
+          repeat: true,
+          at,
+          run: () => this.crateBoard(p.id, f.id, itemId),
+          done: (n) => this.pushLog(`Crated ${n}x ${said} off the ${this.fixtureSaid(f)}.`),
+        };
       }
       if (p.carry) {
         return { kind: 'stock', target: f.id, label: 'Stock', at, run: () => this.stockShelf(p.id, f.id) };
@@ -2429,7 +2704,11 @@ export class Game {
     }
 
     if (f.kind === 'station') {
-      if (f.output && (!p.carry || p.carry.item_id === f.output.item_id)) {
+      // Collecting when there is anywhere in your hands for what is in the
+      // tray. `lotRoom` rather than "am I holding this already", because with
+      // three kinds those stopped being the same question: hands holding
+      // tomatoes have room for a loaf, and the old test armed nothing.
+      if (f.output && lotRoom(p.carry, f.output.item_id, this.carryLot(p)) > 0) {
         return { kind: 'collect', target: f.id, label: 'Collect', at, run: () => this.collectStation(p.id, f.id) };
       }
       if (p.carry) {
@@ -2571,9 +2850,16 @@ export class Game {
         };
       }
       if (p.haul) { p.errand = null; return null; }
+      // `e.itemId` is the pile you pointed at, and it is the same field a tap on
+      // one board of a shelf already fills in. Naming one takes only that;
+      // naming none sweeps the box, which is the trip mixed crates exist for —
+      // a reach into three kinds comes out with an armful of all three rather
+      // than an armful of whichever the box called itself.
+      const only = e.itemId && lotHas(crate, e.itemId) ? e.itemId : null;
+      const said = only ? content().byId.items[only]?.name : null;
       return {
-        kind: 'unload', target: crate.id, label: 'Take it', at: crate,
-        run: () => spend(() => this.unload(p.id, crate.id)),
+        kind: 'unload', target: crate.id, label: said ? `Take ${said}` : 'Take it', at: crate,
+        run: () => spend(() => this.unload(p.id, crate.id, Infinity, only)),
       };
     }
 
@@ -2581,12 +2867,35 @@ export class Game {
     // Somebody else got there first, a stocker tidied the crate away, or the
     // shelf was sold back. There is nothing left to walk to, so stop pointing.
     if (!f) { p.errand = null; return null; }
-    if (!near(p, workSpot(f))) return null;
+    // Any side you could work it from, not the one tile the walk aims at —
+    // see `atFixture`. Arriving still lands you on the anchor; standing at the
+    // end of a unit is now equally a place the errand fires from.
+    if (!this.atFixture(p, f)) return null;
 
     const act = this.actionAt(p, f, e.itemId);
     // It offered something when you set off and offers nothing now — the bed
     // was picked, the tray was collected. Not a refusal, just gone.
     if (!act) { p.errand = null; return null; }
+    // A repeating job keeps its errand for as long as it is repeating. Spent on
+    // the first unit the way every other job spends it, the second one would
+    // have nothing left to arm from and a hold would take exactly one — which
+    // is the old single-armful gesture wearing a longer ring.
+    //
+    // "An errand is spent when it fires and nothing re-arms" still holds, and
+    // this is the one shape allowed to fire more than once: it only ever fires
+    // under a button that is still down, and `stepActions` spends it the moment
+    // you walk away from it. Standing there with the button up and pressing
+    // again continues the same pull, which is what pressing again means.
+    if (act.repeat) {
+      return {
+        ...act,
+        run: () => {
+          const res = act.run();
+          if (!res?.ok || !res.more) p.errand = null;
+          return res;
+        },
+      };
+    }
     return { ...act, run: () => spend(act.run) };
   }
 
@@ -2840,14 +3149,21 @@ export class Game {
     if (!itemId) return 0;
     const crops = content().byId.crops;
     let n = 0;
-    for (const d of this.deliveries) if (d.item_id === itemId) n += d.qty ?? 0;
+    // `lotQty` rather than "is this crate's item the one" — and that swap is
+    // the single most dangerous line in the whole mixed-crate change. Read the
+    // old way, a box whose SECOND pile is milk answers no, the shop concludes
+    // it owns none, and it buys milk it already has, every tick, until the
+    // board fills from two directions. Nothing logs it and the sim looks
+    // healthy; what you see is the money going. Every counting loop over a
+    // container in this file goes through `lotQty` for that reason.
+    for (const d of this.deliveries) n += lotQty(d, itemId);
     for (const o of this.orders.pending) if (o.item_id === itemId) n += o.qty ?? 0;
     for (const p of Object.values(this.players)) {
-      if (p.carry?.item_id === itemId) n += p.carry.qty ?? 0;
+      n += lotQty(p.carry, itemId);
       // A crate on somebody's shoulder is stock the shop already owns, exactly
       // as an armful is. Missing it here would have the supplier order twelve
       // more of whatever a hire is halfway across the yard with.
-      if (p.haul?.item_id === itemId) n += p.haul.qty ?? 0;
+      n += lotQty(p.haul, itemId);
     }
     for (const plot of this.layout.plots) {
       if (!plot.crop_id) continue;
@@ -3382,13 +3698,13 @@ export class Game {
    */
   removePlayer(id) {
     const p = this.players[id];
-    if (p?.carry?.qty > 0) this.dropGoods(p.carry.item_id, p.carry.qty, { x: p.x, z: p.z });
+    if (p?.carry) this.dropLot(p.carry, { x: p.x, z: p.z });
     // ...and the crate on their shoulder, for exactly the same reason and by
     // exactly the same route. A hauled crate is the biggest single thing a
     // disconnect could ever have destroyed — twelve of something rather than
     // six — and it was one `if` away from being the bug this function was
     // written to fix, wearing a new field's name.
-    if (p?.haul?.qty > 0) this.dropGoods(p.haul.item_id, p.haul.qty, { x: p.x, z: p.z });
+    if (p?.haul) this.dropLot(p.haul, { x: p.x, z: p.z });
     delete this.players[id];
   }
 
@@ -3578,6 +3894,163 @@ export class Game {
     if (!walk.ok) return walk;
     this.players[id].errand = { at: fixtureId, itemId: null };
     return walk;
+  }
+
+  /**
+   * Every side of a fixture somebody can work it from.
+   *
+   * The stored anchor first — that is the spot the generator reserved and the
+   * one a walk routes to — then the ends, and the back if the piece is open all
+   * round. Resolved here rather than stamped on the record because
+   * `server/layout.js` deliberately never resolves a piece: the generator knows
+   * a kind and a piece id and nothing about the catalog, which is what keeps it
+   * a pure function of the shell and the placements.
+   */
+  fixtureSpots(f) {
+    return spotsOf(f, {
+      layout: this.layout,
+      open: pieceFor(content().fixtures ?? [], f)?.open === true,
+    });
+  }
+
+  /**
+   * Are you standing somewhere you could work this thing?
+   *
+   * Replaces `near(p, workSpot(f))` everywhere a *person* is being asked. The
+   * old test was one tile, which is right for the walk (a route needs one goal)
+   * and wrong for the question "can I reach this from here" — you can put a loaf
+   * on the end of a display table, and a shop that says otherwise is wrong about
+   * its own furniture.
+   */
+  atFixture(p, f, radius = REACH) {
+    return this.reachSpots(f).some((s) => near(p, s, radius));
+  }
+
+  /**
+   * The spots for REACHING, which is not quite the list for marking.
+   *
+   * A bed and a decoration have no working spot at all — `spotsOf` returns
+   * nothing for them on purpose, because you stand *on* a plot rather than
+   * beside it and a lamp is not somewhere anybody works. The old one-tile test
+   * said this by falling through to the fixture itself (`workSpotOf`'s last
+   * `?? f`), and dropping that quietly stopped every bed in the game arming a
+   * harvest — caught by `verify:build`, invisible in a screenshot, and exactly
+   * the kind of thing a fallback nobody names gets you.
+   *
+   * Kept out of `fixtureSpots` so the marker list stays honest: a ring painted
+   * on a bed would be telling you to go and stand where you already are.
+   */
+  reachSpots(f) {
+    const spots = this.fixtureSpots(f);
+    return spots.length ? spots : [workSpot(f)];
+  }
+
+  /**
+   * ...and WHICH side you are at, for the marker to sit on.
+   *
+   * The nearest one, which with a person standing in it is the one under their
+   * feet. This is what stops the shop pointing at a tile beside you while you
+   * are already stood somewhere it will accept — an instruction to move that
+   * was never true, and the whole of what reads as the game being fussy.
+   */
+  spotNearest(p, f) {
+    let best = null;
+    let bestD = Infinity;
+    for (const s of this.reachSpots(f)) {
+      const d = Math.hypot(s.x - p.x, s.z - p.z);
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    return best ?? workSpot(f);
+  }
+
+  /**
+   * Name a fixture from where you stand — the same sentence `placeAt` says about
+   * a square, said about a thing.
+   *
+   * `p.pressing` is one bit. It says a button is down and nothing whatever about
+   * where the pointer was when it went down, so the ring winds on whatever
+   * `p.errand` happens to still hold — and an errand outlives the walk that set
+   * it. Stand between two shelves with an armful and hold, and the goods went
+   * onto the one you tapped some time ago rather than the one you were pointing
+   * at: proximity's bug, arrived by a different road, since the aim that decided
+   * it was not the aim you were making. Every other target re-aims on the way
+   * down (`take` for a crate or a board, `placeAt` for a square); a unit had no
+   * way to.
+   *
+   * Its own verb rather than `walkToFixture` with the walk skipped, for exactly
+   * the reason `placeAt` is not `walkTo` with a flag: **a press must not move
+   * you.** Routing to the working spot is right for a tap, which is a decision to
+   * go — and wrong for the press that arms a hold, which would shuffle you one
+   * square sideways as the ring starts winding, on a gesture whose whole promise
+   * is that it happens where you are standing.
+   *
+   * Refuses out of reach rather than widening, and the reach is `workSpot`'s,
+   * because that is the one `errandAction` re-measures on the other end — a
+   * different test here would arm a ring that could never complete.
+   */
+  aimAt(id, fixtureId) {
+    const p = this.players[id];
+    if (!p) return err('no such player');
+    const f = this.findFixture(fixtureId);
+    if (!f) return err('no such fixture');
+    // Out of reach arms nothing and says nothing. This is driven by the POINTER
+    // (`syncStockAim`), not by a press, so a refusal here would be a red toast
+    // for moving the mouse — and the two ends measure the same distance against
+    // a position that is a snapshot old, so they will disagree at the edge of it
+    // every time somebody stocks a shelf on the move.
+    if (!this.atFixture(p, f)) return ok({ at: null });
+    // Turn to it, the way `placeAt` does: the goods leave your hands towards the
+    // thing you named, and standing square to the shop while they do reads as the
+    // aim having been ignored.
+    if (Math.round(f.x) !== Math.round(p.x) || Math.round(f.z) !== Math.round(p.z)) {
+      p.facing = Math.atan2(f.x - p.x, f.z - p.z);
+    }
+    // `itemId` null: this names the UNIT. A board is `take`'s job, and the two
+    // used to be unable to race — a board was only ever named with empty hands
+    // and this only ever with full ones. A held take broke that: it spans ticks
+    // and its first unit lands in your arms, so from that tick on the pointer
+    // has an opinion about where the armful should GO while the pull it came
+    // from is still running. See `pulling`.
+    if (this.pulling(p)) return ok({ at: p.errand?.at ?? null });
+    p.errand = { at: fixtureId, itemId: null };
+    return ok({ at: fixtureId });
+  }
+
+  /**
+   * Stop offering a unit you are stood at and no longer pointing at.
+   *
+   * The other half of `aimAt`, and the half that fixes the *prompt* rather than
+   * the target. `p.action` is republished every tick from whatever `p.errand`
+   * still says, at zero progress, so a shelf named by a tap went on saying
+   * "Stock…" for as long as you stood beside it — an offer nobody had made, on
+   * the one label that says what the hold is about to do.
+   *
+   * Two clauses, and both are load-bearing.
+   *
+   * **Only a fixture.** A square (`placeAt`), the pad, and a crate (`take`) are
+   * each named by a gesture somebody finished on purpose; the pointer owns which
+   * *unit* an armful is for and owns nothing else, so those are left alone.
+   *
+   * **Only within reach**, which is what keeps the main stocking gesture alive.
+   * Tapping a shelf across the shop walks you to it and names it, and your
+   * pointer is nowhere near it for the whole of that walk — pointing elsewhere
+   * while you are too far away to act is not a decision about anything. It
+   * becomes one the moment you arrive, which is exactly when the offer appears.
+   */
+  clearAim(id) {
+    const p = this.players[id];
+    if (!p) return err('no such player');
+    // ...and the same yield, which matters more on this end: this one is sent
+    // when the pointer wants NOTHING, so a mouse that drifted off the shelf
+    // would take the errand out from under a pull that is mid-armful, and the
+    // hold would go dead in your hand. See `pulling`.
+    if (this.pulling(p)) return ok({ cleared: false });
+    const e = p.errand;
+    if (!e || e.at === 'pad' || e.at === 'ground') return ok({ cleared: false });
+    const f = this.findFixture(e.at);
+    if (!f || !this.atFixture(p, f)) return ok({ cleared: false });
+    p.errand = null;
+    return ok({ cleared: true });
   }
 
   /** Which seed this player plants when they stand on a bare plot. */
@@ -3810,11 +4283,11 @@ export class Game {
 
     const body = this.players[`staff-${gone.id}`];
     if (body?.carry) {
-      this.dropGoods(body.carry.item_id, body.carry.qty, this.dropPad());
+      this.dropLot(body.carry, this.dropPad());
       body.carry = null;
     }
     if (body?.haul) {
-      this.dropGoods(body.haul.item_id, body.haul.qty, this.dropPad());
+      this.dropLot(body.haul, this.dropPad());
       body.haul = null;
     }
     delete this.players[`staff-${gone.id}`];
@@ -3954,16 +4427,22 @@ export class Game {
     // plants the whole time it grew, and picking has to hand over what it
     // showed. A plot from before yields were stored has none, so roll one.
     const yieldQty = plot.yield || this.rng.int(crop.yield_min, crop.yield_max);
-    const cap = this.carryCapacity(p);
 
-    if (p.carry && p.carry.item_id !== crop.item_id) {
-      return err(`hands full of ${p.carry.item_id} — stock it first`);
+    // An armful of tomatoes no longer stops you picking the carrots next to it,
+    // which is most of what mixed hands are worth on the farm: a row of four
+    // beds used to be four walks to the yard, and the walk was the crop.
+    const taken = Math.min(yieldQty, lotRoom(p.carry, crop.item_id, this.carryLot(p)));
+    if (taken <= 0) {
+      // Still two different noes, and they want different things from you. Out
+      // of units is "go and put some down"; out of hands is "you are already
+      // carrying three things", which no amount of shelving one of them fixes
+      // unless you shelve the right one.
+      return lotTotal(p.carry) >= this.carryCapacity(p)
+        ? err('hands full')
+        : err(`no free hand for ${crop.name ?? crop.item_id} — stock something first`);
     }
-    const have = p.carry?.qty ?? 0;
-    const taken = Math.min(yieldQty, cap - have);
-    if (taken <= 0) return err('hands full');
 
-    p.carry = { item_id: crop.item_id, qty: have + taken };
+    p.carry = lotAdd(p.carry, crop.item_id, taken, this.carryLot(p)).lot;
     this.stats.harvested += taken;
 
     // The same crop goes straight back into the bed you just picked it from.
@@ -4203,7 +4682,7 @@ export class Game {
     if (!bay?.cells?.length) return 0;
     let used = 0;
     for (const d of this.deliveries) {
-      if (bay.cells.some((c) => c.x === d.x && c.z === d.z)) used += d.qty ?? 0;
+      if (bay.cells.some((c) => c.x === d.x && c.z === d.z)) used += lotTotal(d);
     }
     for (const o of this.orders.pending) used += o.qty ?? 0;
     return Math.max(0, bay.cells.length * this.crateCapacity() - used);
@@ -4235,7 +4714,7 @@ export class Game {
     if (!pad?.cells?.length) return 0;
     let used = 0;
     for (const d of this.deliveries) {
-      if (pad.cells.some((c) => c.x === d.x && c.z === d.z)) used += d.qty ?? 0;
+      if (pad.cells.some((c) => c.x === d.x && c.z === d.z)) used += lotTotal(d);
     }
     return Math.max(0, pad.cells.length * this.crateCapacity() - used);
   }
@@ -4301,6 +4780,75 @@ export class Game {
   }
 
   /**
+   * Where a van of *this shape* has to halt so its nose ends at the edge of the
+   * pad rather than on top of it.
+   *
+   * **It backs in**, which is the half that decides everything else. A vehicle
+   * is authored nose-east, so the load bed is the `-x` end of it — the cab and
+   * the windscreen are at `+x`. Driving in nose-first therefore presents the
+   * cab to the pad and unloads the shopping out of the *bonnet*: the crates
+   * appear behind the one part of the lorry they cannot have come out of. So
+   * the last leg is reversed, which is what a lorry at a loading bay actually
+   * does, and it costs no manoeuvre at all — the corner is still a 90° turn off
+   * the ring, just the other way round, and pulling out afterwards is a straight
+   * drive forward with no turn on the spot at either end.
+   *
+   * `vanRoute` stops one cell short of the bay, and the reason is in its own
+   * comment: goods land on the pad, and a van parked on the crates it has just
+   * put down is a picture of the wrong thing. One cell was the whole of that
+   * promise for as long as a lorry was 1.56 tiles long — it overhung the pad by
+   * a fifth of a tile and nobody could see it. The models are vehicle-sized now
+   * (2.73 × 1.29), the anchor is nowhere near the middle, and the same lane
+   * parks the thing three quarters of the way across the crates.
+   *
+   * So the setback is **measured off the art** (`modelExtent`, over every stage
+   * so a full van and an empty one stop in the same place) rather than being a
+   * second constant somebody has to remember to move. It is measured off the end
+   * that arrives — the tail, since it reverses — and a vehicle drawn shorter
+   * than half a tile of it gets no setback at all and stops exactly where it
+   * always did.
+   *
+   * It is here rather than in `vanRoute` because a lane is a property of the
+   * *shop* — whole tiles, computed once per re-flow, and asserted as whole tiles
+   * by `verify:park` — while how long the lorry is is a property of the
+   * **vehicle**, which is content and is not known until one is sent out.
+   *
+   * And none of it applies when the last leg does not drive *into* the pad. A
+   * bay hard against the border ring collapses the lane's turn (see `laneVia`):
+   * the van comes along the ring and halts beside the pad rather than end-on to
+   * it, so there is nothing to reverse into and backing it off would only stop
+   * it short of the crates it came for.
+   *
+   * @returns {{x, z, back: number|null}} where to halt, and the heading to hold
+   *   on the final leg — null for "whatever driving there leaves you pointing".
+   */
+  vanStop(lane, row, pad) {
+    const dock = lane.dock;
+    const prev = lane.in[lane.in.length - 2];
+    if (!prev) return { ...dock, back: null };
+    // The direction of travel on the final leg. Every leg is axis-aligned, so
+    // this is a unit axis vector and one of the two is always zero.
+    const dx = Math.sign(dock.x - prev.x);
+    const dz = Math.sign(dock.z - prev.z);
+    const ahead = { x: dock.x + dx, z: dock.z + dz };
+    if (!pad?.cells?.some((c) => c.x === ahead.x && c.z === ahead.z)) {
+      return { ...dock, back: null };
+    }
+    // How far the bed sticks out behind the anchor. Half a tile of the setback
+    // is the cell the van is standing on; everything past that is over the pad.
+    const tail = -modelExtent(row.model).minX;
+    const off = Math.max(0, tail - 0.5);
+    return {
+      x: dock.x - dx * off,
+      z: dock.z - dz * off,
+      // Facing AWAY from the pad, in `followPath`'s spelling — the same
+      // `atan2(dx, dz)` a walker's heading is, so the renderer's easing turns
+      // this lorry the way it turns everything else.
+      back: Math.atan2(-dx, -dz),
+    };
+  }
+
+  /**
    * Send a van out for everything the run is carrying.
    *
    * One van at a time, and it is not a limit so much as what a run *is*:
@@ -4354,6 +4902,9 @@ export class Game {
     }
 
     const start = lane.in[0];
+    // Where it actually halts, and which way round it does it — see `vanStop`.
+    // Both directions get the position: the way out begins where it stood.
+    const { back, ...stop } = this.vanStop(lane, row, pad);
     this.van = {
       vehicle: row.id,
       x: start.x,
@@ -4362,14 +4913,23 @@ export class Game {
       // `followPath` eats this array from the front, so it is a copy of the
       // lane rather than the lane itself — the layout's route is read by every
       // van that ever comes.
-      path: lane.in.slice(1).map((p) => ({ ...p })),
+      path: [...lane.in.slice(1, -1), stop].map((p) => ({ ...p })),
       // ...and its way home is taken now rather than looked up on the way out:
       // a re-flow between arriving and leaving would otherwise hand the van a
       // route computed for a shop it is standing in the wrong version of.
-      out: lane.out.map((p) => ({ ...p })),
-      // Where it is headed, kept so a re-flow can ask whether the lane it set
-      // out on is still the lane. See the tail of `regenerateLayout`.
+      out: [stop, ...lane.out.slice(1)].map((p) => ({ ...p })),
+      // Which lane it is on, kept so a re-flow can ask whether that lane is
+      // still the lane. See the tail of `regenerateLayout`. It is the lane's
+      // own whole-tile dock rather than `stop`, and deliberately: this is an
+      // identity, not a position, and comparing a setback measured off the art
+      // against a cell the generator picked would make every re-flow look like
+      // a lane that had moved.
       dock: { ...lane.dock },
+      // The heading it holds down the last leg, or null. A field rather than a
+      // flag `followPath` reads, because `followPath` is what people walk with
+      // and a pedestrian who reverses is nothing anybody wants — see `driveVan`
+      // for the one line that applies it.
+      back,
       phase: 'in',
       orders: aboard.map((o) => o.id),
       // How full it looks, 0..1, which is what drives the stages of its model —
@@ -4412,7 +4972,15 @@ export class Game {
     const speed = content().byId.vehicles?.[v.vehicle]?.speed || VAN_SPEED;
 
     if (v.phase === 'in') {
-      if (!followPath(v, speed, dt)) return;
+      const arrived = followPath(v, speed, dt);
+      // Reversing down the drive. `followPath` faces everything the way it is
+      // travelling, which is right for the ring leg and exactly wrong for the
+      // last one — a lorry that noses into a loading bay unloads out of its
+      // bonnet. Applied after the step rather than instead of it, so the corner
+      // is an ordinary 90° turn the renderer eases through and the arrival tick
+      // (which sets no heading at all) keeps what it had. See `vanStop`.
+      if (v.back != null && v.path.length <= 1) v.facing = v.back;
+      if (!arrived) return;
       v.phase = 'unload';
       // The goods land as the doors open rather than as they shut, so the pile
       // growing on the pad and the van emptying are the same event. `load` runs
@@ -4487,6 +5055,16 @@ export class Game {
    * cap is what makes the pile mean something: how tall it stands is how much
    * is there, three crates is three trips, and taking one is exactly one
    * armful with nothing left behind in it.
+   *
+   * **...and it holds up to `CRATE_KINDS` of them.** Which is the half that
+   * was missing for as long as a crate was `{ item_id, qty }`: a four-crop
+   * harvest was four boxes on four cells, none of them a third full, and four
+   * separate journeys to shift what one box would hold. A crate is a `lot` now
+   * — a shelf's `stacks` said about a thing you can pick up — so the merge
+   * below looks for a box with room *and* either a stack of this or a board
+   * free for one. The kinds cap is what stops the merge going all the way: one
+   * crate absorbing the whole yard is the same bug as one crate swallowing a
+   * delivery, and it would take the pad's size with it.
    */
   dropGoods(itemId, qty, at) {
     if (!(qty > 0) || !at) return null;
@@ -4508,28 +5086,37 @@ export class Game {
       ? at.cells
       : [{ x: Math.round(at.x), z: Math.round(at.z) }];
 
-    // Top up crates of the same thing already standing in this area rather than
-    // building a little forest of one-unit pallets — but only to the brim, which
-    // is what stops the merge going the other way and swallowing a whole
-    // delivery into one box. Membership rather than a radius, because a radius
-    // around one point is the wrong shape for a room — the far end of a big
-    // stockroom is still the stockroom.
+    // Top up crates already standing in this area rather than building a little
+    // forest of one-unit pallets — but only to the brim, which is what stops the
+    // merge going the other way and swallowing a whole delivery into one box.
+    // Membership rather than a radius, because a radius around one point is the
+    // wrong shape for a room — the far end of a big stockroom is still the
+    // stockroom.
     const here = (d) => slots.some((s) => s.x === d.x && s.z === d.z)
       || Math.hypot(d.x - at.x, d.z - at.z) <= 2.2;
 
-    const cap = this.crateCapacity();
+    const opts = this.crateLot();
     let left = Math.round(qty);
     let first = null;
 
-    for (const d of this.deliveries) {
-      if (left <= 0) break;
-      if (d.item_id !== itemId || !here(d)) continue;
-      const room = cap - d.qty;
-      if (room <= 0) continue;
-      const add = Math.min(room, left);
-      d.qty += add;
-      left -= add;
-      first = first ?? d;
+    // A box already holding some of this beats an empty board in another box,
+    // and both beat opening a new crate. Two passes rather than one sort: the
+    // ordering is the point — filling the tomato box you already have is what
+    // keeps a crate readable, while spending a free board is what makes mixing
+    // worth having, and doing them in the other order scatters one kind across
+    // every box on the pad.
+    for (const pass of [true, false]) {
+      for (const d of this.deliveries) {
+        if (left <= 0) break;
+        if (!here(d)) continue;
+        if (lotHas(d, itemId) !== pass) continue;
+        const res = lotAdd(d, itemId, left, opts);
+        if (!res.added) continue;
+        d.stacks = res.lot.stacks;
+        this.stampPile(d, itemId);
+        left -= res.added;
+        first = first ?? d;
+      }
     }
 
     // Whatever is still in your arms becomes crates of its own, ONE CELL for
@@ -4546,20 +5133,70 @@ export class Game {
 
     while (left > 0) {
       const n = this.nextDeliveryId++;
-      const take = Math.min(cap, left);
+      const take = Math.min(opts.cap, left);
       const del = {
         id: `del-${n}`,
-        item_id: itemId,
-        qty: take,
+        // The lot, in the shape a shelf spells it. `item_id`/`qty` are gone
+        // rather than kept alongside as a convenience for the single-kind case:
+        // a mirror field is right until the day a box holds two things, and then
+        // every reader that never learned about the second one goes quietly
+        // wrong — which for a counting loop is a shop that re-orders stock it
+        // already owns. See the note on `countOnFloor`.
+        stacks: lotOf(itemId, take).stacks,
         x: r2(spot.x),
         z: r2(spot.z),
-        day: this.day,
       };
+      this.stampPile(del, itemId);
       this.deliveries.push(del);
       left -= take;
       first = first ?? del;
     }
 
+    return first;
+  }
+
+  /**
+   * When this pile of goods was put in the box.
+   *
+   * The spoilage clock, and it lives on the PILE rather than on the crate. It
+   * had to move the day a crate could hold two things: a mixed box stands
+   * yesterday's lettuce beside a fortnight of flour, and one stamp on the box
+   * has to answer for both — round one way the flour rots in three days, round
+   * the other the lettuce never does.
+   *
+   * The older stamp always wins a merge, which is the direction that cannot be
+   * gamed. Topping a three-day-old pile up with one fresh unit must not restart
+   * it, or the way to beat spoilage is to walk one lettuce to the yard every
+   * morning — and the yard was brought under spoilage precisely because
+   * "leave it in a crate" was the dodge.
+   */
+  stampPile(lot, itemId) {
+    const pile = (lot.stacks ?? []).find((s) => s.item_id === itemId);
+    if (!pile) return;
+    pile.day = Math.min(pile.day ?? this.day, this.day);
+  }
+
+  /**
+   * Put a whole LOT down — every pile in it, at one spot.
+   *
+   * `dropGoods` takes one item and one number, which was the whole of what a
+   * pair of hands could ever be. Now that hands hold three kinds, every caller
+   * that used to write `dropGoods(p.carry.item_id, p.carry.qty, at)` would drop
+   * whichever pile that pair of fields happened to name and bin the other two —
+   * and every one of those callers is a conservation hole by construction:
+   * leaving the game, being fired, a save being restored, an armful put down.
+   * CLAUDE.md lists them for exactly this reason, and each is invisible except
+   * as a shop that is quietly poorer.
+   *
+   * So it is a verb of its own rather than a loop written out four times, and
+   * `dropGoods` stays the single place a crate is made.
+   */
+  dropLot(lot, at) {
+    let first = null;
+    for (const s of lotStacks(lot)) {
+      const made = this.dropGoods(s.item_id, s.qty, at);
+      first = first ?? made;
+    }
     return first;
   }
 
@@ -4590,6 +5227,23 @@ export class Game {
   }
 
   /**
+   * The two caps a crate is bound by, in the shape `shared/lot.js` asks for.
+   *
+   * One function rather than two numbers at every call site, because room for
+   * four units and no free board is room for zero — a caller that checked only
+   * the units would promise a merge the crate then refuses, which is the green
+   * ghost bug wearing a cardboard box.
+   */
+  crateLot() {
+    return { cap: this.crateCapacity(), kinds: CRATE_KINDS };
+  }
+
+  /** ...and the same pair for a pair of hands, which a rucksack still moves. */
+  carryLot(p = null) {
+    return { cap: this.carryCapacity(p), kinds: CARRY_KINDS };
+  }
+
+  /**
    * Clear your hands at the drop-off pad.
    *
    * Stocking a shelf used to be the only way to let go of anything, so one
@@ -4611,16 +5265,59 @@ export class Game {
   stow(playerId) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
-    if (!p.carry || p.carry.qty <= 0) return err('nothing in hand');
+    if (!p.carry) return err('nothing in hand');
     if (!this.dropPad()) return err('nowhere to put it down — lay some storage first');
     if (!this.onPad(p, this.dropPadKind())) return err('take it round to the drop-off');
 
-    const { item_id: itemId, qty } = p.carry;
-    this.dropGoods(itemId, qty, this.dropPad());
+    const qty = lotTotal(p.carry);
+    const itemId = lotMain(p.carry).item_id;
+    // The whole armful, every pile of it. `dropGoods` still decides which cells
+    // the crates stand on — the pad goes in as a REGION, which is the ordering
+    // that makes a stow fill the yard rather than one tile.
+    this.dropLot(p.carry, this.dropPad());
     p.carry = null;
-    const name = content().byId.items[itemId]?.name ?? itemId;
-    this.pushLog(`${qty}x ${name} put back in a crate at the drop-off.`);
+    // No log line. Staff `putDown` comes through here for every armful it
+    // crates up, so the feed filled with a shop working normally — and the
+    // crate appearing on the pad already says it, for a hire and for you.
+    // The feed is for what you would otherwise miss.
     return ok({ stowed: qty, item_id: itemId });
+  }
+
+  /**
+   * One unit off one board, into your hands, on a quick tap.
+   *
+   * The shelf's `tapCrate`, and it draws the same line a lone crate does: **a
+   * tap is one, a hold is the box.** A board only had the box, so the finest
+   * thing anybody could ask a shelf for was an armful, and "one loaf" meant
+   * taking six and putting five back.
+   *
+   * It has to spend the errand for the reason `tapCrate` spells out at length:
+   * the press that opened this gesture armed a *pull* on the way down — that is
+   * what lets one press be either — so a tap that left it standing would empty
+   * the next board you held anything near into a crate.
+   *
+   * **And a release that ends a pull is not a tap**, which is the one thing
+   * here that is not obvious. The client rules a press a hold at 420ms, and a
+   * pull of a nearly-empty board hands over its first unit before that — so a
+   * short hold on a board of three sends this as well, and you would get the
+   * board in a crate AND a loaf in your hand from one press. `pulling` is the
+   * test the client cannot make: it knows whether goods have actually crossed
+   * under this button. Swallowed rather than refused — nothing went wrong, the
+   * press simply already meant something.
+   *
+   * `say: false` for the same reason a rummage says nothing: the unit landing
+   * in your hands is the message, and a tap is a thing you do six times.
+   */
+  tapBoard(playerId, shelfId, itemId) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if (this.pulling(p)) return ok({ took: 0, item_id: itemId, pulled: true });
+    const res = this.unshelve(playerId, shelfId, itemId, { max: 1, say: false });
+    if (!res.ok) return res;
+    this.endPull(p);
+    p.errand = null;
+    p.action = null;
+    return res;
   }
 
   /**
@@ -4646,7 +5343,7 @@ export class Game {
    * see `crateStacked` — so this refuses, and the gesture that used to send it
    * takes the top box off instead.
    */
-  tapCrate(playerId, crateId, put = false) {
+  tapCrate(playerId, crateId, put = false, itemId = null) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
     if (p.haul) return err('put the crate down first');
@@ -4662,7 +5359,7 @@ export class Game {
     // than sending this at all.
     if (this.crateStacked(crate)) return err('it is in a stack — take the top crate off first');
 
-    const name = content().byId.items[crate.item_id]?.name ?? crate.item_id;
+    const items = content().byId.items;
 
     // Rummaging replaces whatever you had named. The press that opened this
     // gesture armed a lift on the way down — that is what lets one press be
@@ -4671,35 +5368,56 @@ export class Game {
     p.errand = null;
     p.action = null;
 
-    // Putting one back. Same item only — a crate holds one kind, which is the
-    // rule the whole pile display rests on.
+    /**
+     * Which pile in the box this is about.
+     *
+     * Named by the pointer wherever there is one — a crate holding three things
+     * is three piles at one address, exactly as a shelf is, and `pickAim`
+     * answers it for both the same way. Unnamed falls back to the biggest
+     * stack, which is what a gesture that did not say means and what a glance
+     * would have picked anyway.
+     *
+     * Putting one back reads the pile off your HANDS instead, because that is
+     * the end the unit is leaving from and a rummage cannot mean "convert".
+     */
     if (put) {
       if (!p.carry) return err('nothing in hand to put back');
-      if (p.carry.item_id !== crate.item_id) {
-        const mine = content().byId.items[p.carry.item_id]?.name ?? p.carry.item_id;
-        return err(`that crate is for ${name}, not ${mine}`);
+      const give = itemId && lotHas(p.carry, itemId) ? itemId : lotMain(p.carry).item_id;
+      const name = items[give]?.name ?? give;
+      if (lotRoom(crate, give, this.crateLot()) <= 0) {
+        // Two different noes, and saying which is the whole use of the message:
+        // a full box is "come back later", a box with no board left for this is
+        // "that one is spoken for", and they want opposite things from you.
+        return lotTotal(crate) >= this.crateCapacity()
+          ? err('that crate is full')
+          : err(`that crate has no room left for ${name}`);
       }
-      if (crate.qty >= this.crateCapacity()) return err(`that crate is full of ${name}`);
-      crate.qty += 1;
-      p.carry.qty -= 1;
-      if (p.carry.qty <= 0) p.carry = null;
-      return ok({ put: 1, item_id: crate.item_id, left: p.carry?.qty ?? 0 });
+      crate.stacks = lotAdd(crate, give, 1, this.crateLot()).lot.stacks;
+      p.carry = lotTake(p.carry, give, 1).lot;
+      return ok({ put: 1, item_id: give, left: lotTotal(p.carry) });
     }
 
     // ...and taking one out.
-    if (p.carry && p.carry.item_id !== crate.item_id) {
-      const mine = content().byId.items[p.carry.item_id]?.name ?? p.carry.item_id;
-      return err(`hands full of ${mine} \u2014 put it down first`);
+    if (lotTotal(crate) <= 0) return err('that crate is empty');
+    const take = itemId && lotHas(crate, itemId) ? itemId : lotMain(crate).item_id;
+    if (lotRoom(p.carry, take, this.carryLot(p)) <= 0) {
+      const name = items[take]?.name ?? take;
+      // The old refusal here was "hands full of X, put it down first", which
+      // said the only thing single-kind hands could mean. Mixed hands have the
+      // other no as well \u2014 room for four more units and no free hand for a
+      // fourth KIND \u2014 and they are not the same instruction.
+      return lotTotal(p.carry) >= this.carryCapacity(p)
+        ? err('hands full')
+        : err(`no free hand for ${name} \u2014 put something down first`);
     }
-    if (crate.qty <= 0) return err('that crate is empty');
-    if ((p.carry?.qty ?? 0) >= this.carryCapacity(p)) return err('hands full');
-    crate.qty -= 1;
-    p.carry = { item_id: crate.item_id, qty: (p.carry?.qty ?? 0) + 1 };
+    const out = lotTake(crate, take, 1);
+    crate.stacks = out.lot?.stacks ?? [];
+    p.carry = lotAdd(p.carry, take, out.took, this.carryLot(p)).lot;
     // A crate emptied to nothing stops existing, exactly as `unload` leaves it.
     // Two spellings of "the box is gone" would be a pile that keeps a ghost in
     // it, and the renderer stacks by what is in `deliveries`.
-    if (crate.qty <= 0) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
-    return ok({ took: 1, item_id: crate.item_id, left: crate.qty });
+    if (lotTotal(crate) <= 0) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+    return ok({ took: 1, item_id: take, left: lotTotal(crate) });
   }
 
   /**
@@ -4785,8 +5503,12 @@ export class Game {
     // that needs no aim.
 
     this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
-    p.haul = { item_id: crate.item_id, qty: crate.qty };
-    const name = content().byId.items[crate.item_id]?.name ?? crate.item_id;
+    // The box goes onto the shoulder exactly as it stood — every pile, and the
+    // spoilage stamp on each. Rebuilding it from one item and one number is how
+    // a mixed crate would arrive at the shelves as whichever pile was biggest,
+    // with the other two gone and nothing to say where.
+    p.haul = { stacks: lotStacks(crate) };
+    const lifted = lotTotal(p.haul);
 
     // Rummaging replaces whatever you had named. The press that opened this
     // gesture armed a lift on the way down — that is what lets one press be
@@ -4794,8 +5516,7 @@ export class Game {
     // next time you hold anything near this crate you shoulder it instead.
     p.errand = null;
     p.action = null;
-    this.pushLog(`Picked up a crate of ${crate.qty}x ${name}.`);
-    return ok({ lifted: crate.qty, item_id: crate.item_id });
+    return ok({ lifted, item_id: lotMain(p.haul)?.item_id ?? null, items: lotStacks(p.haul) });
   }
 
   /**
@@ -4828,11 +5549,10 @@ export class Game {
     }
     if (Math.hypot(at.x - p.x, at.z - p.z) > UNLOAD_REACH) return err('too far to reach');
 
-    const { item_id: itemId, qty } = p.haul;
-    this.dropGoods(itemId, qty, at);
+    const qty = lotTotal(p.haul);
+    const itemId = lotMain(p.haul).item_id;
+    this.dropLot(p.haul, at);
     p.haul = null;
-    const name = content().byId.items[itemId]?.name ?? itemId;
-    this.pushLog(`Set down a crate of ${qty}x ${name}.`);
     return ok({ dropped: qty, item_id: itemId, at });
   }
 
@@ -4861,7 +5581,7 @@ export class Game {
   dropCarry(playerId, x = null, z = null) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
-    if (!p.carry || p.carry.qty <= 0) return err('nothing in hand');
+    if (!p.carry) return err('nothing in hand');
 
     const at = { x: Math.round(x ?? p.x), z: Math.round(z ?? p.z) };
     if (!isWalkable(this.walk, this.layout, at.x, at.z)) {
@@ -4869,11 +5589,13 @@ export class Game {
     }
     if (Math.hypot(at.x - p.x, at.z - p.z) > UNLOAD_REACH) return err('too far to reach');
 
-    const { item_id: itemId, qty } = p.carry;
-    this.dropGoods(itemId, qty, at);
+    const qty = lotTotal(p.carry);
+    const itemId = lotMain(p.carry).item_id;
+    // One tile, so `dropGoods` gets a point rather than a region — three piles
+    // put down together share the cell and stack, which is what a pile of boxes
+    // on one square already means and what `pickPallet` picks apart by height.
+    this.dropLot(p.carry, at);
     p.carry = null;
-    const name = content().byId.items[itemId]?.name ?? itemId;
-    this.pushLog(`Put ${qty}x ${name} down in a crate.`);
     return ok({ dropped: qty, item_id: itemId, at });
   }
 
@@ -5065,7 +5787,7 @@ export class Game {
     const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
     if (!p || !st) return err('no such appliance');
     if (!near(p, st.useAt, REACH) && !near(p, st, REACH)) return err('too far from it');
-    if (!p.carry || p.carry.qty <= 0) return err('nothing in hand');
+    if (!p.carry) return err('nothing in hand');
 
     // Only accept things the recipe it is SET TO wants — otherwise the hopper
     // fills with ingredients for a recipe it isn't making, which can never come
@@ -5074,25 +5796,39 @@ export class Game {
     // the machine telling you it is set to the other thing.
     const recipe = this.stationRecipe(st);
     if (!recipe) return err(`no recipes for the ${st.station} yet`);
-    if (!recipe.inputs.some((i) => i.item_id === p.carry.item_id)) {
-      const name = content().byId.items[p.carry.item_id]?.name ?? p.carry.item_id;
+
+    /**
+     * Every pile the recipe wants, in one press — which is the thing mixed
+     * hands are for on this end of the shop. A soup needs three ingredients,
+     * and a pair of hands that could only hold one of them meant three walks
+     * from the yard to the same machine, so the hopper filled at a third of the
+     * speed a person can actually work at.
+     *
+     * The piles it has no use for stay in your hands rather than refusing the
+     * lot. That is the same call the partial load below already made about a
+     * hopper with room for three when you are holding four — a refusal you
+     * have to do arithmetic to avoid is a refusal that reads as broken.
+     */
+    const wanted = lotStacks(p.carry).filter((s) => recipe.inputs.some((i) => i.item_id === s.item_id));
+    if (!wanted.length) {
+      const name = lotLabel(p.carry, content().byId.items);
       return err(`the ${st.station} is making ${recipe.name} — no use for ${name}`);
     }
 
-    // As much as fits, and the rest stays in your hands. A partial load rather
-    // than a refusal, because the alternative is a machine that takes an armful
-    // of four when it has room for three and one that takes none of it — and
-    // the second is the version you have to do arithmetic to use.
-    const itemId = p.carry.item_id;
-    const room = this.stationHopperRoom(st, itemId);
-    if (room <= 0) {
-      const name = content().byId.items[itemId]?.name ?? itemId;
+    let moved = 0;
+    let full = null;
+    for (const s of wanted) {
+      const room = this.stationHopperRoom(st, s.item_id);
+      if (room <= 0) { full = full ?? s.item_id; continue; }
+      const take = Math.min(s.qty, room);
+      st.contents[s.item_id] = (st.contents[s.item_id] ?? 0) + take;
+      p.carry = lotTake(p.carry, s.item_id, take).lot;
+      moved += take;
+    }
+    if (!moved) {
+      const name = content().byId.items[full]?.name ?? full;
       return err(`the ${st.station} is full of ${name}`);
     }
-    const moved = Math.min(p.carry.qty, room);
-    st.contents[itemId] = (st.contents[itemId] ?? 0) + moved;
-    p.carry.qty -= moved;
-    if (p.carry.qty <= 0) p.carry = null;
     return ok({ loaded: moved, station: st.id, contents: { ...st.contents } });
   }
 
@@ -5102,16 +5838,16 @@ export class Game {
     const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
     if (!p || !st) return err('no such appliance');
     if (!st.output) return err('nothing ready');
-    if (p.carry && p.carry.item_id !== st.output.item_id) {
-      return err(`hands full of ${p.carry.item_id}`);
+    const madeId = st.output.item_id;
+    const take = Math.min(st.output.qty, lotRoom(p.carry, madeId, this.carryLot(p)));
+    if (take <= 0) {
+      return lotTotal(p.carry) >= this.carryCapacity(p)
+        ? err('hands full')
+        : err(`no free hand for ${content().byId.items[madeId]?.name ?? madeId}`);
     }
-    const have = p.carry?.qty ?? 0;
-    const take = Math.min(st.output.qty, this.carryCapacity(p) - have);
-    if (take <= 0) return err('hands full');
 
     st.output.qty -= take;
-    p.carry = { item_id: st.output.item_id, qty: have + take };
-    const madeId = st.output.item_id;
+    p.carry = lotAdd(p.carry, madeId, take, this.carryLot(p)).lot;
     if (st.output.qty <= 0) st.output = null;
     return ok({ collected: take, item_id: madeId });
   }
@@ -5191,7 +5927,7 @@ export class Game {
    * onto a half-empty board is a good trip. It is only the surplus that has
    * nowhere to be.
    */
-  unload(playerId, deliveryId, cap = Infinity) {
+  unload(playerId, deliveryId, cap = Infinity, itemId = null) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
 
@@ -5201,17 +5937,52 @@ export class Game {
     if (!del) return err('no delivery here');
     if (!near(p, del, UNLOAD_REACH)) return err('too far from the pallet');
 
-    if (p.carry && p.carry.item_id !== del.item_id) {
-      return err(`hands full of ${p.carry.item_id} — shelve it first`);
-    }
-    const have = p.carry?.qty ?? 0;
-    const take = Math.min(del.qty, this.carryCapacity(p) - have, Math.max(0, cap));
-    if (take <= 0) return err('hands full');
+    const want = Math.min(this.carryCapacity(p) - lotTotal(p.carry), Math.max(0, cap));
+    if (want <= 0) return err('hands full');
 
-    del.qty -= take;
-    p.carry = { item_id: del.item_id, qty: have + take };
-    if (del.qty <= 0) this.deliveries = this.deliveries.filter((d) => d.id !== del.id);
-    return ok({ unloaded: take, item_id: del.item_id, left: del.qty });
+    /**
+     * Named or not, and the two are different acts.
+     *
+     * Naming a kind is what the pointer does — a press picks the pile it landed
+     * on, the way it already picks a board off a shelf — so an armful of
+     * tomatoes off a mixed box is one gesture and takes only tomatoes.
+     *
+     * Unnamed is the sweep, and it is the whole reason mixing pays: one reach
+     * into a box of three things comes out with an armful of all three, so
+     * emptying it is one walk to the shelves instead of three. `lotSweep` is
+     * bounded by the HANDS' caps, not the crate's — a box of five kinds into
+     * three-kind hands fills three and leaves the rest in the box, rather than
+     * taking five and dropping two on the floor.
+     */
+    const before = lotTotal(p.carry);
+    if (itemId) {
+      if (!lotHas(del, itemId)) {
+        const name = content().byId.items[itemId]?.name ?? itemId;
+        return err(`no ${name} in that crate`);
+      }
+      const room = lotRoom(p.carry, itemId, this.carryLot(p));
+      if (room <= 0) return err('no room in your hands for that');
+      const out = lotTake(del, itemId, Math.min(want, room));
+      del.stacks = out.lot?.stacks ?? [];
+      p.carry = lotAdd(p.carry, itemId, out.took, this.carryLot(p)).lot;
+    } else {
+      const swept = lotSweep(del, p.carry, want, this.carryLot(p));
+      del.stacks = swept.from?.stacks ?? [];
+      p.carry = swept.into;
+    }
+    const took = lotTotal(p.carry) - before;
+    if (took <= 0) return err('hands full');
+
+    if (lotTotal(del) <= 0) this.deliveries = this.deliveries.filter((d) => d.id !== del.id);
+    // `item_id` is still here and still means "the one thing this was about",
+    // because a sweep of three kinds has no single answer and every caller that
+    // reads it wants a label. `items` is the honest list beside it.
+    return ok({
+      unloaded: took,
+      item_id: itemId ?? lotMain(p.carry)?.item_id ?? null,
+      items: lotStacks(p.carry),
+      left: lotTotal(del),
+    });
   }
 
   /**
@@ -5232,8 +6003,15 @@ export class Game {
    * cannot — so clearing it here would quietly hand a reserved board back to
    * whatever the next delivery happened to be. Taking the labels off is its own
    * row in the menu.
+   *
+   * `max` is how much of it this pull may have, and it exists for the hold: a
+   * player takes ONE and holds the ring for the next, so the armful is a
+   * gesture with a length rather than a single yes/no. A job loop has no button
+   * to let go of, so the staff callers leave it alone and still sweep the board
+   * in one step. `say` is off for the drip for the same reason — a pull is one
+   * event, and `stepActions` says it once at the end with the total.
    */
-  unshelve(playerId, shelfId, itemId) {
+  unshelve(playerId, shelfId, itemId, { max = Infinity, say = true } = {}) {
     const p = this.players[playerId];
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
@@ -5248,18 +6026,80 @@ export class Game {
     if (!stack || stack.qty <= 0) return err('nothing on that board');
 
     const item = content().byId.items[itemId];
-    if (p.carry && p.carry.item_id !== itemId) {
-      const held = content().byId.items[p.carry.item_id]?.name ?? p.carry.item_id;
-      return err(`hands full of ${held} — put it down first`);
+    const take = Math.min(stack.qty, lotRoom(p.carry, itemId, this.carryLot(p)), max);
+    if (take <= 0) {
+      return lotTotal(p.carry) >= this.carryCapacity(p)
+        ? err('hands full')
+        : err(`no free hand for ${item?.name ?? itemId} — put something down first`);
     }
-    const have = p.carry?.qty ?? 0;
-    const take = Math.min(stack.qty, this.carryCapacity(p) - have);
-    if (take <= 0) return err('hands full');
 
     stack.qty -= take;
-    p.carry = { item_id: itemId, qty: have + take };
-    this.pushLog(`Took ${take}x ${item?.name ?? itemId} off the ${this.fixtureSaid(shelf)}.`);
-    return ok({ took: take, item_id: itemId, left: stack.qty });
+    p.carry = lotAdd(p.carry, itemId, take, this.carryLot(p)).lot;
+    if (say) this.pushLog(`Took ${take}x ${item?.name ?? itemId} off the ${this.fixtureSaid(shelf)}.`);
+    // Whether the same pull could have another one. Measured after the take, so
+    // it answers the two ways a hold ends by itself — the board ran out, or your
+    // hands did — and never the one it must not end on, which is you letting go.
+    const more = stack.qty > 0 && lotRoom(p.carry, itemId, this.carryLot(p)) > 0;
+    return ok({ took: take, item_id: itemId, left: stack.qty, more });
+  }
+
+  /**
+   * Move one unit off a board into the crate on your shoulder.
+   *
+   * What a HOLD on a board does, one turn of the ring at a time. It is a crate
+   * and not an armful because the thing being asked for is the *board*, and a
+   * board holds more than a pair of hands — a hold that filled your arms would
+   * stop a third of the way through the job and leave the rest as three more
+   * trips. The crate was always the ending; metering it is what lets you stop
+   * halfway through and keep what has crossed.
+   *
+   * Straight onto the shoulder (`p.haul`) rather than onto the floor, because
+   * the point of it is walking off with the lot: a crate at your feet is a
+   * second gesture to pick up, and it needs empty hands to pick up with anyway.
+   * Which is why loose goods in your hands refuse the whole pull rather than
+   * being tipped somewhere — nobody shoulders a box while holding six loaves.
+   *
+   * The board keeps its label at zero, exactly as `unshelve` leaves it: a stack
+   * at zero is what a shelf REMEMBERS, and clearing it here would hand a
+   * reserved board to whatever the next van brings.
+   */
+  crateBoard(playerId, shelfId, itemId) {
+    const p = this.players[playerId];
+    const shelf = this.layout.shelves.find((s) => s.id === shelfId);
+    if (!p || !shelf) return err('no such shelf');
+    if (!near(p, shelf)) return err('too far from that shelf');
+    if (p.carry) return err('put what you are holding down first');
+
+    const stack = this.shelfStack(shelf, itemId);
+    if (!stack || stack.qty <= 0) return err('nothing on that board');
+    if (lotRoom(p.haul ?? null, itemId, this.crateLot()) <= 0) return err('that crate is full');
+
+    stack.qty -= 1;
+    p.haul = lotAdd(p.haul ?? null, itemId, 1, this.crateLot()).lot;
+    const more = stack.qty > 0 && lotRoom(p.haul, itemId, this.crateLot()) > 0;
+    return ok({ took: 1, item_id: itemId, left: stack.qty, more });
+  }
+
+  /**
+   * How often a unit crosses, so the whole pull lands in `PULL_SECONDS`.
+   *
+   * The board and the crate both bound it — you cannot take twenty off a board
+   * of five, and you cannot put twenty into a box that holds twelve — so `n` is
+   * the smaller, and the interval is a second divided by it. A board of twelve
+   * ticks every 83ms and a board of three every third of a second, and both
+   * finish at the same moment, which is the whole claim: how long a hold takes
+   * is a property of the GESTURE, not of how full the shelf happens to be.
+   *
+   * Asked once, at the tick the pull arms, because `stepActions` keeps
+   * `p.action` for the life of the pull and only ever resets its clock. Asked
+   * every tick it would answer a smaller `n` each time and the box would fill
+   * faster and faster as the board emptied.
+   */
+  pullEvery(p, shelf, itemId) {
+    const on = this.shelfStack(shelf, itemId)?.qty ?? 0;
+    const room = lotRoom(p.haul ?? null, itemId, this.crateLot());
+    const n = Math.max(1, Math.min(on, room));
+    return Math.max(PULL_STEP_MIN, PULL_SECONDS / n);
   }
 
   /**
@@ -5328,22 +6168,71 @@ export class Game {
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
     if (!near(p, shelf)) return err('too far from that shelf');
-    if (!p.haul || p.haul.qty <= 0) return err('no crate to empty');
+    if (!p.haul) return err('no crate to empty');
 
-    const item = content().byId.items[p.haul.item_id];
-    const board = this.boardFor(shelf, item);
-    if (!board.ok) return board;
+    const res = this.pourInto(shelf, p.haul);
+    if (!res.moved) return res.refusal;
+    p.haul = res.left;
+    return ok({ stocked: res.moved, item_id: res.item_id, left: lotTotal(p.haul) });
+  }
 
-    const moved = Math.min(board.room, p.haul.qty);
-    const wasEmpty = board.stack.qty === 0;
-    board.stack.qty += moved;
-    if (wasEmpty) {
-      board.stack.stockedDay = this.day;
-      board.stack.price = suggestedPrice(item, this.folded(), this.season);
+  /**
+   * Empty as much of a lot onto one unit as it will take, pile by pile.
+   *
+   * The one place a mixed container meets a mixed fixture, and it is shared by
+   * the two verbs that fill a shelf — an armful and a crate poured straight in
+   * — for the same reason `boardFor` is: written twice they would drift, and
+   * the drift is invisible, because a shelf that quietly took only the first
+   * pile still looks like a shelf being stocked.
+   *
+   * Every pile that has a board goes; the ones that don't stay where they were.
+   * That partial answer is the whole point — a unit with room for the tomatoes
+   * and not the milk should take the tomatoes, because the alternative is a
+   * refusal you avoid by putting things down one at a time, and that is the
+   * shape mixed hands were meant to delete.
+   *
+   * Returns the refusal from the FIRST pile that had nowhere to go, and only
+   * when nothing at all moved. `boardFor`'s messages are about a kind — needs a
+   * freezer, board is spoken for, unit is out of boards — so the first is the
+   * honest answer to "why did this unit refuse me", and a caller that reported
+   * the last would name whichever pile happened to sort last.
+   */
+  pourInto(shelf, lot) {
+    let left = lot;
+    let moved = 0;
+    let first = null;
+    let refusal = null;
+
+    for (const pile of lotStacks(lot)) {
+      const item = content().byId.items[pile.item_id];
+      if (!item) continue;
+      const board = this.boardFor(shelf, item);
+      if (!board.ok) { refusal = refusal ?? board; continue; }
+      const take = Math.min(board.room, pile.qty);
+      if (take <= 0) { refusal = refusal ?? board; continue; }
+
+      const wasEmpty = board.stack.qty === 0;
+      board.stack.qty += take;
+      // The clock and the price belong to the board, and both are set when it
+      // starts rather than every time it is topped up: restocking the milk must
+      // not reset how long the milk has already been out, let alone the
+      // cheese's.
+      if (wasEmpty) {
+        board.stack.stockedDay = this.day;
+        board.stack.price = suggestedPrice(item, this.folded(), this.season);
+      }
+      left = lotTake(left, pile.item_id, take).lot;
+      moved += take;
+      first = first ?? { item_id: pile.item_id, price: board.stack.price };
     }
-    p.haul.qty -= moved;
-    if (p.haul.qty <= 0) p.haul = null;
-    return ok({ stocked: moved, item_id: item.id, left: p.haul?.qty ?? 0 });
+
+    return {
+      moved,
+      left,
+      item_id: first?.item_id ?? null,
+      price: first?.price ?? null,
+      refusal: refusal ?? err('nothing in hand'),
+    };
   }
 
   stockShelf(playerId, shelfId) {
@@ -5351,27 +6240,16 @@ export class Game {
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
     if (!near(p, shelf)) return err('too far from that shelf');
-    if (!p.carry || p.carry.qty <= 0) return err('nothing in hand');
+    if (!p.carry) return err('nothing in hand');
 
-    const item = content().byId.items[p.carry.item_id];
-    const board = this.boardFor(shelf, item);
-    if (!board.ok) return board;
-    const { stack, room } = board;
-
-    const moved = Math.min(room, p.carry.qty);
-    const wasEmpty = stack.qty === 0;
-    stack.qty += moved;
-    // The clock and the price belong to the board, and both are set when it
-    // starts rather than every time it is topped up: restocking the milk must
-    // not reset how long the milk has already been out, let alone the cheese's.
-    if (wasEmpty) {
-      stack.stockedDay = this.day;
-      stack.price = suggestedPrice(item, this.folded(), this.season);
-    }
-
-    p.carry.qty -= moved;
-    if (p.carry.qty <= 0) p.carry = null;
-    return ok({ stocked: moved, price: stack.price });
+    // A unit holds three kinds and hands now hold three kinds, so one press
+    // fills every board that will have what you are carrying. This is the trip
+    // mixed hands were bought for: the walk from the yard was always the
+    // expensive part, and it used to be one walk per kind at BOTH ends.
+    const res = this.pourInto(shelf, p.carry);
+    if (!res.moved) return res.refusal;
+    p.carry = res.left;
+    return ok({ stocked: res.moved, item_id: res.item_id, price: res.price });
   }
 
   /**
@@ -8909,7 +9787,10 @@ export class Game {
     //    Checked before shelves because the bay sits outside, where there's
     //    nothing else to interact with.
     const pallet = this.nearest(this.deliveries, p, UNLOAD_REACH);
-    if (pallet && (!p.carry || p.carry.item_id === pallet.item_id)) {
+    // Any pile in the box your hands have room for. The old test asked whether
+    // the crate held the one thing you were carrying, which with mixed
+    // containers on both ends is neither necessary nor sufficient.
+    if (pallet && lotStacks(pallet).some((s) => lotRoom(p.carry, s.item_id, this.carryLot(p)) > 0)) {
       return this.unload(playerId, pallet.id);
     }
     if (p.carry && this.onPad(p, this.dropPadKind())) return this.stow(playerId);
@@ -9137,7 +10018,11 @@ const near = (a, b, radius = REACH) => Math.hypot(a.x - b.x, a.z - b.z) <= radiu
  * would show up as a tap that walks you somewhere and then does nothing, which
  * reads as the tap having been ignored.
  */
-const workSpot = (f) => f.browseAt ?? f.serveAt ?? f.useAt ?? f;
+// Moved to `shared/build.js` when the client had to ask it too — the press that
+// names a unit is refused out of reach, so the client decides whether to send
+// and this decides whether it lands. Re-exported under the name this file has
+// always called it, so nothing below had to learn a new one.
+const workSpot = workSpotOf;
 
 /**
  * Is this player going somewhere — under their own steering or on a route?

@@ -7,7 +7,9 @@
  */
 
 import { variantsOf } from '../shared/model.js';
-import { fixtureLabel } from '../shared/pieces.js';
+import { fixtureLabel, pieceFor } from '../shared/pieces.js';
+import { spotsOf } from '../shared/build.js';
+import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups, upgradeGroups,
 } from './sections.js';
@@ -19,8 +21,9 @@ import { tip } from './tip.js';
 import { ICONS } from './icons.js';
 import { showFixture } from './fixture-menu.js';
 import { wireDrag, restorePos } from './panel-drag.js';
-import { artForVariant } from './thumb.js';
+import { artForVariant, artForModel } from './thumb.js';
 import { rciHtml, cashflowHtml } from './hud-meters.js';
+import { money } from './money.js';
 
 /**
  * Tag and label text reaches these panels from the database, which anyone can
@@ -180,13 +183,13 @@ export class UI {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
       clock: document.getElementById('clock'),
-      btnOpen: document.getElementById('btn-open'),
-      btnPause: document.getElementById('btn-pause'),
+      shutter: document.getElementById('shutter'),
       rep: document.getElementById('rep'),
       mood: document.getElementById('mood'),
       full: document.getElementById('full'),
       season: document.getElementById('season'),
       toast: document.getElementById('toast'),
+      boardtip: document.getElementById('boardtip'),
       log: document.getElementById('log'),
       rci: document.getElementById('rci'),
       flow: document.getElementById('flow'),
@@ -216,13 +219,8 @@ export class UI {
     tip.install();
 
     this.rail = new Rail(this, this.el.rail);
-    this.el.btnOpen.onclick = () => this.setOpen(!this.shopOpen);
-    this.el.btnPause.onclick = () => this.setPaused(!this.paused);
-    // Something in them before the first snapshot lands. `setClock` writes the
-    // right pair a tenth of a second later; two empty squares in the meantime
-    // read as icons that failed to load rather than as a HUD still filling in.
-    this.el.btnOpen.innerHTML = ICONS.open;
-    this.el.btnPause.innerHTML = ICONS.pause;
+    this.el.shutter.onclick = () => this.setOpen(!this.shopOpen);
+    this.el.clock.onclick = () => this.setPaused(!this.paused);
     document.getElementById('search-icon').innerHTML = ICONS.search;
     this.el.search.oninput = () => { this.query = this.el.search.value; this.repaint(); };
 
@@ -320,6 +318,12 @@ export class UI {
     this.rail.setBar(this.bar);
     document.body.classList.toggle('building', on);
     if (!on && this.openPanel === 'fixture') this.closePanel();
+    // The working-spot rings belong to the mode (see `markerSpots`), and the
+    // mode can change with something already selected — so the marker has to be
+    // re-asked here. Keyed on the spots it was built with, so this is a no-op
+    // whenever the answer has not moved, and there is nothing selected most of
+    // the time anyway.
+    if (this.fixtureRef) this.scene?.setSelectedTarget(this.fixtureRef, this.markerSpots(this.fixtureRef));
     // Only a fixture kind means anything to the server (see `selectBuildTool`).
     // Leaving it out keeps whatever it already had, which is the right answer
     // for a mode toggle made with a wall in your hand.
@@ -791,7 +795,15 @@ export class UI {
   }
 
   /**
-   * The fixture this menu is open on, live off the layout.
+   * The fixture that is SELECTED, live off the layout.
+   *
+   * Deliberately no longer "the one this menu is open on". Selection and the
+   * menu used to be one fact, because the only way to point at something was to
+   * open it — a tap on a shelf was a tap on its settings, which is a lot of
+   * panel for a question you often did not have. They are two facts now: the
+   * first tap picks the thing (teal ring, working spots, and R and M have
+   * something to act on), and the second asks it to open. So the menu implies a
+   * selection and a selection no longer implies the menu.
    *
    * By id first and by tile second, because a rotation re-mints the placement:
    * the id is right until the snapshot lands and the tile is right afterwards,
@@ -801,14 +813,49 @@ export class UI {
    * the shop, and what you are carrying is not standing anywhere.
    */
   selectedFixture() {
-    if (this.openPanel !== 'fixture' || !this.fixtureRef || this.holding) return null;
+    if (!this.fixtureRef || this.holding) return null;
     return this.scene?.fixtureById(this.fixtureRef.id)
       ?? this.scene?.fixtureAt(this.fixtureRef.x, this.fixtureRef.z)
       ?? null;
   }
 
-  rotateBuild() {
-    this.buildRot = (this.buildRot + 1) % 4;
+  /**
+   * Pick a thing without opening it — the first press of the two.
+   *
+   * Closes a fixture menu already up on something ELSE first, and the order is
+   * the whole of why this is a method rather than two lines at each call site:
+   * `closePanel` clears the ref, so setting the new one first would leave the
+   * ring pointing at nothing while the panel it belonged to was being torn down.
+   */
+  selectFixture(f) {
+    if (this.openPanel === 'fixture') this.closePanel();
+    this.setFixtureRef(f);
+  }
+
+  /**
+   * Is this the thing already picked?
+   *
+   * Id OR tile-and-kind, and it needs both halves. The id goes stale the moment
+   * anything re-mints the placement (rotating, a re-flow), which is the reason
+   * every other comparison in here is by tile — and the tile alone is not enough
+   * now that a decoration shares one, or pointing at a lamp would read as
+   * pointing at the shelf under it and open the wrong menu on the second press.
+   */
+  isSelected(f) {
+    const r = this.fixtureRef;
+    if (!r || !f) return false;
+    return r.id === f.id || (r.x === f.x && r.z === f.z && r.kind === f.kind);
+  }
+
+  /**
+   * Turn the ghost a quarter, either way.
+   *
+   * R only ever went one way, which is fine for a key you tap four times and
+   * wrong for a wheel: a wheel has two directions and a control that ignores
+   * one of them reads as broken rather than as opinionated.
+   */
+  rotateBuild(dir = 1) {
+    this.buildRot = (this.buildRot + (dir < 0 ? 3 : 1)) % 4;
     // Turning it by hand is the whole signal that you want to choose. Without
     // this the auto-facing would put the ghost straight back the way it was on
     // the very next frame, and R would read as a key that does nothing.
@@ -1151,7 +1198,7 @@ export class UI {
         : { text: 'Nobody has authored a kind of worker — there is no one to hire' };
     }
     if (this.holding) {
-      return { text: `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R turns it · Esc puts it back` };
+      return { text: `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R or the wheel turns it · Esc puts it back` };
     }
     // Aiming a bulldozer at something is not looking at it, and the line that
     // says "tap to open it" over a thing a tap would delete is the one piece of
@@ -1163,9 +1210,13 @@ export class UI {
     // up, and a gesture nothing on screen mentions is a gesture nobody finds.
     // Only with the bar up, which is the one place the hold does anything —
     // this same line is what a shopper sees pointing at a shelf.
+    // ...and which of the two presses you are on, because a tap that lights
+    // something up instead of opening it reads as a tap that missed. The line
+    // has to change between them or the first press looks like a failure of the
+    // second.
     if (this.aimed) {
       return {
-        text: `${this.fixtureName(this.aimed)} — tap to open it`
+        text: `${this.fixtureName(this.aimed)} — tap to ${this.isSelected(this.aimed) ? 'open it' : 'pick it'}`
           + `${this.paletteArmed ? ' · drag it to move it' : ''}`,
       };
     }
@@ -1271,7 +1322,13 @@ export class UI {
    */
   setFixtureRef(f) {
     this.fixtureRef = f;
-    this.scene?.setSelectedTarget(f);
+    this.scene?.setSelectedTarget(f, f ? this.markerSpots(f) : null);
+    // The standing hint names which of the two presses you are on, and picking
+    // something changes that answer without the pointer moving — which is
+    // exactly what `setAim` cannot see, since it early-returns on the same id.
+    // Without this the line under a shelf you just picked still says "tap to
+    // pick it", over a ring saying you already have.
+    if (this.buildOn) this.renderBuildHint();
   }
 
   /**
@@ -1693,13 +1750,54 @@ export class UI {
     return (this.state?.players ?? []).find((p) => p.id === this.net.myId) ?? null;
   }
 
+  /**
+   * Every side of a fixture somebody can work it from — the client's half of
+   * `Game.fixtureSpots`.
+   *
+   * Both ends call the same `spotsOf` with the same two inputs, which is the
+   * only reason a marker and a reach test can agree: this decides what lights
+   * up and the sim decides what happens, and a spot drawn here that the shop
+   * then refuses you at is the green-ghost bug wearing a different hat.
+   *
+   * Lives on UI rather than in `main.js` because both things it needs are here
+   * — the catalog row that says whether the piece is open all round, and the
+   * layout to test each side against.
+   */
+  spotsFor(f) {
+    if (!f) return [];
+    return spotsOf(f, {
+      layout: this.scene?.storeLayout ?? null,
+      open: pieceFor(this.catalog?.fixtures ?? [], f)?.open === true,
+    });
+  }
+
+  /**
+   * ...and which of those the world should actually PAINT.
+   *
+   * Only while building. The rings answer a question you have when you are
+   * placing something — can people get at this, which side does the queue form
+   * on — and shopkeeping never asks it: you walk up to a shelf and use it, and
+   * two circles on the floor beside the thing you are already using are a
+   * diagram of a decision that was made when it was built. Every marker in this
+   * game is a promise that a press does something, and these promise nothing.
+   *
+   * A separate question from `spotsFor` rather than a flag inside it, because
+   * reach still has to know about every side while the rings are hidden — what
+   * changed is what is drawn, not what is true.
+   */
+  markerSpots(f) {
+    return this.buildOn ? this.spotsFor(f) : [];
+  }
+
   spareOf(itemId) {
     let n = 0;
-    for (const d of this.state?.deliveries ?? []) if (d.item_id === itemId) n += d.qty ?? 0;
+    // Every pile in every box and every pair of hands. Asked the old way — is
+    // this container's one item the one I want — a mixed crate hides everything
+    // but its first pile, and the shelf menu's "you already have N spare" would
+    // quietly under-count the shop's own stock.
+    for (const d of this.state?.deliveries ?? []) n += lotQty(d, itemId);
     for (const p of this.state?.players ?? []) {
-      for (const hands of [p.carry, p.haul]) {
-        if (hands?.item_id === itemId) n += hands.qty ?? 0;
-      }
+      n += lotQty(p.carry, itemId) + lotQty(p.haul, itemId);
     }
     return n;
   }
@@ -1835,19 +1933,21 @@ export class UI {
   setPaused(paused) { this.net.send('pause', { paused: !!paused }); }
 
   /**
-   * The hour, and the two buttons that are now attached to it.
+   * The hour, and the two states that are now worn by things already on screen.
    *
-   * Each button shows what it DOES rather than what is true — a shut door when
-   * pressing it would shut the shop — which is the way round every play/pause
-   * control in the world already works, and the way round the state is *not*
-   * said, since the state is already said twice beside it (the clock struck
-   * through, the button gone green). The words are in `title`, so the one place
-   * this is ambiguous is the place a tooltip resolves it.
+   * Both switches used to be pips beside the clock. They are the clock itself
+   * and the panel's left edge now — see the notes in `index.html` for why — and
+   * the thing that made that possible is that neither pip was ever carrying the
+   * state anyway: a struck-through clock and a hot chip in #hq both already said
+   * SHUT, and the accent blink already said HELD. So each element wears the
+   * state it was wearing and the press is the way out of it, which leaves the
+   * verb — the one half a glyph never told anybody — in `title`, where it was.
    *
-   * The icons are diffed before they are written. `textContent` was safe to set
-   * ten times a second; `innerHTML` re-parses an SVG and throws the old node
-   * away, and a button whose contents are replaced under the pointer can drop
-   * its own `:hover`.
+   * The pair are read from different fields on purpose and that has not changed:
+   * `shutters` is yours and `isOpen` is that AND the trading day, so at 22:00
+   * with the shutters up the clock is struck through while the edge stays lit.
+   * Reading one for both would have the edge go out every night, on a shop you
+   * had not closed.
    */
   setClock(state) {
     const hour = state.time * 24;
@@ -1855,12 +1955,6 @@ export class UI {
     const m = Math.floor((hour - h) * 60);
     this.el.clock.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-    // The BUTTON is about the shutters and the CLOCK is about whether anybody
-    // is being served, and those come apart every night: at 22:00 with the
-    // shutters up the clock is struck through and the button still offers to
-    // close, because there is nothing for you to do about the hour. Reading one
-    // value for both would have the button offer to open a shop that is already
-    // open, twelve hours a day.
     this.shopOpen = state.shutters ?? state.isOpen ?? true;
     this.paused = !!state.paused;
 
@@ -1870,14 +1964,10 @@ export class UI {
 
     this.el.clock.classList.toggle('shut', !state.isOpen);
     this.el.clock.classList.toggle('paused', this.paused);
+    this.el.clock.title = this.paused ? 'Start the clock (P)' : 'Stop the clock (P)';
 
-    this.el.btnOpen.innerHTML = this.shopOpen ? ICONS.shut : ICONS.open;
-    this.el.btnOpen.title = this.shopOpen ? 'Close the shop (O)' : 'Open the shop (O)';
-    this.el.btnOpen.classList.toggle('go', !this.shopOpen);
-
-    this.el.btnPause.innerHTML = this.paused ? ICONS.play : ICONS.pause;
-    this.el.btnPause.title = this.paused ? 'Start the clock (P)' : 'Stop the clock (P)';
-    this.el.btnPause.classList.toggle('on', this.paused);
+    this.el.shutter.classList.toggle('shut', !this.shopOpen);
+    this.el.shutter.title = this.shopOpen ? 'Close the shop (O)' : 'Open the shop (O)';
   }
 
   /**
@@ -1915,7 +2005,7 @@ export class UI {
     // falls back to you on its own, but the flag has to go too or the menu of
     // the next hire you open says Unfollow.
     if (this.follow && !(state.roster ?? []).some((e) => e.id === this.follow)) this.setFollow(null);
-    this.el.cash.textContent = `$${state.cash.toFixed(2)}`;
+    this.el.cash.textContent = money(state.cash);
     this.el.day.textContent = `Day ${state.day}`;
     this.el.season.textContent = state.season;
     this.el.rep.style.width = `${Math.round(state.reputation * 100)}%`;
@@ -1941,11 +2031,17 @@ export class UI {
     // A crate says the same sentence an armful does now: the chevrons are up for
     // it (`takers` reads both hands and shoulder) and a shelf pours it straight
     // off the box, so "the only move is to put it down" stopped being true.
+    // What is in your hands, said pile by pile. One kind reads exactly as it
+    // always did; more than one lists them, because "carrying 11 things" is a
+    // number you cannot act on and the whole point of a mixed armful is knowing
+    // which shelf clears which part of it.
+    const said = (lot) => lotStacks(lot)
+      .map((k) => `${k.qty}x ${this.itemName(k.item_id)}`).join(', ');
     this.el.carry.textContent = me?.haul
-      ? `carrying a crate of ${me.haul.qty}x ${this.itemName(me.haul.item_id)} `
+      ? `carrying a crate of ${said(me.haul)} `
         + '— tap where it goes, or hold a square to set it down'
       : me?.carry
-        ? `carrying ${me.carry.qty}x ${this.itemName(me.carry.item_id)} `
+        ? `carrying ${said(me.carry)} `
           + '— tap where it goes, or hold a square to put it down'
         : '';
     this.updatePrompt(me?.action ?? null);
@@ -1985,7 +2081,11 @@ export class UI {
     if (this.bar === 'staff') {
       const who = JSON.stringify([
         (state.roster ?? []).map((e) => [e.id, e.name, e.kind]),
-        (state.players ?? []).filter((p) => p.staff).map((p) => [p.hire, p.job, p.carry?.qty, p.pastime]),
+        // `lotTotal` rather than one pile's number: a hire who swapped a pile
+        // for another of the same size would keep a stale roster line, and the
+        // line prints what they are carrying.
+        (state.players ?? []).filter((p) => p.staff)
+          .map((p) => [p.hire, p.job, lotTotal(p.carry), p.pastime]),
         // Who you can afford to take on, on the same terms as the palette.
         this.affordStep(state.cash ?? 0),
       ]);
@@ -2137,6 +2237,92 @@ export class UI {
     this._toastTimer = setTimeout(() => { this.el.toast.className = 'hud'; }, 2600);
   }
 
+  /**
+   * Name the pile under the pointer, and say how much of it is there.
+   *
+   * The gold cage answers "which one of these three heaps am I on" and can
+   * never answer "and what is it": goods are drawn as themselves at about a
+   * dozen pixels from this camera, so four loaves and four buns are the same
+   * little pile, and the count was a number you had to open the unit to read.
+   * The unit's menu still has all of it — this is the glance.
+   *
+   * Read off the SNAPSHOT rather than off anything the pointer remembered, so
+   * the number ticks down as the shop sells out from under your cursor. A card
+   * that froze the moment it appeared would be worse than none, because it
+   * looks live.
+   *
+   * `left`/`top` are set every call because it follows the pointer, and the
+   * card is nudged clear of the cursor and flipped when it would run off the
+   * right or bottom edge — a tooltip that pushes the window's scrollbars out is
+   * the one bug every hand-rolled tooltip ships with.
+   */
+  setBoardTip(shelf, itemId, px = 0, py = 0) {
+    const el = this.el.boardtip;
+    if (!el) return;
+    const stack = itemId
+      ? (shelf?.stacks ?? []).find((k) => k.item_id === itemId)
+      : null;
+    if (!stack) {
+      // `classList` and never `className`: the string form drops `hud`, and
+      // with it `position: fixed` — see `toast` for the four years that cost.
+      el.classList.remove('show');
+      return;
+    }
+
+    // Built once and then written into, rather than re-parsed. This runs off
+    // pointermove, which is sixty times a second while you sweep along a
+    // shelf — an `innerHTML` here throws a card's worth of DOM away every
+    // frame, and text nodes mean nothing has to be escaped on the way in.
+    if (!this._tip) {
+      const ico = document.createElement('span');
+      ico.className = 'bt-ico';
+      const name = document.createElement('div');
+      name.className = 'bt-name';
+      const sub = document.createElement('div');
+      sub.className = 'bt-sub';
+      const count = document.createElement('span');
+      const dot = document.createElement('span');
+      dot.className = 'bt-dot';
+      dot.textContent = '·';
+      const price = document.createElement('span');
+      sub.append(count, dot, price);
+      const words = document.createElement('div');
+      words.append(name, sub);
+      el.replaceChildren(ico, words);
+      this._tip = { ico, name, count, price, item: null };
+    }
+
+    // The item, drawn from its own model — the same art the heap on the shelf
+    // is built from, so the card cannot show one thing while the board shows
+    // another. Written only when the ITEM changes, not when its count does:
+    // this is the one line in here that parses HTML, and the pointer crossing a
+    // shelf calls the rest of it sixty times a second.
+    if (this._tip.item !== stack.item_id) {
+      this._tip.item = stack.item_id;
+      this._tip.ico.innerHTML = artForModel(this.itemById(stack.item_id)?.model) ?? '';
+    }
+
+    // `cap` rides on the stack itself — the fixture menu's board rows read the
+    // same field, so "8/8" here and there can never disagree about what a tier
+    // holds.
+    const cap = stack.cap ?? 0;
+    this._tip.name.textContent = this.itemName(stack.item_id);
+    this._tip.count.textContent = cap > 0 ? `${stack.qty}/${cap}` : `${stack.qty}`;
+    this._tip.count.className = cap > 0 && stack.qty >= cap ? 'full' : '';
+    this._tip.price.textContent = money(stack.price ?? 0);
+
+    // Below and right of the cursor by default, which is where a pointer is
+    // not. Measured rather than assumed, because the name is as long as the
+    // longest item anybody authors.
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const x = px + 16 + w > innerWidth ? px - 16 - w : px + 16;
+    const y = py + 14 + h > innerHeight ? py - 14 - h : py + 14;
+    el.style.left = `${Math.max(6, x)}px`;
+    el.style.top = `${Math.max(6, y)}px`;
+    el.classList.add('show');
+  }
+
   // ---- panels --------------------------------------------------------------
 
   closePanel() {
@@ -2167,6 +2353,12 @@ export class UI {
     if (this.shapesOn) { this.toggleShapes(false); return; }
     if (this.openPanel && this.query) { this.clearFilter(); this.repaint(); return; }
     if (this.openPanel) { this.closePanel(); return; }
+    // A selection with no menu over it is its own rung, and it has to be one:
+    // it is the only thing on screen at this point, and a teal ring nothing can
+    // dismiss is a ring that follows you round the shop. Below the panel rung
+    // rather than beside it, because `closePanel` already clears the ref — with
+    // a fixture menu up these two are one press, which is what it looks like.
+    if (this.fixtureRef) { this.setFixtureRef(null); return; }
     // The roster bar is a rung of its own. It arms nothing and owns no world
     // state, so it comes off before anything that does — and it is the only
     // thing on screen at this point, which is what makes it the next thing out.

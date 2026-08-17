@@ -1,4 +1,5 @@
 import { ICONS, icon } from './icons.js';
+import { money, signed } from './money.js';
 import { pinLast, KEYED } from './bar.js';
 import { FIXTURES, isProp, isGround, FLOOR_KIND } from '../shared/build.js';
 import { kindOf, countKey } from '../shared/pieces.js';
@@ -557,13 +558,13 @@ export function buildGroups(ui) {
     const poor = cost != null && cost > cash;
     return {
       ...t,
-      note: cost == null ? '' : `$${cost.toFixed(0)}`,
+      note: cost == null ? '' : money(cost),
       poor,
       badge: have ? String(have) : '',
       // The shortfall goes in the tip, because the tile has room for the price
       // and not for the arithmetic — and greyed-out with no reason given is the
       // one state where somebody would otherwise think the button was broken.
-      title: `${t.name} — ${t.blurb}${poor ? ` · $${cost.toFixed(0)} and you have $${cash.toFixed(0)}` : ''}`,
+      title: `${t.name} — ${t.blurb}${poor ? ` · ${money(cost)} and you have ${money(cash)}` : ''}`,
       // Whether this one comes in shapes, which is what earns the tile its
       // chevron and makes a hold on it mean something. Asked of the PIECE, since
       // that is what `variantsOf` reads and what the popover will offer — a tool
@@ -694,10 +695,10 @@ export function staffGroups(ui) {
     art: artForWorker(w, 1, null),
     icon: icon(w.id, ICONS.staff),
     name: w.name,
-    note: `$${w.cost.toFixed(0)}`,
+    note: money(w.cost),
     badge: roster.filter((e) => e.kind === w.id).length || null,
     title: `${w.name} — ${kindSummary(w)}${
-      w.cost > cash ? ` · $${w.cost.toFixed(0)} and you have $${cash.toFixed(0)}` : ''}`,
+      w.cost > cash ? ` · ${money(w.cost)} and you have ${money(cash)}` : ''}`,
   }));
 
   const seen = [...new Set(roster.map((e) => e.kind))];
@@ -803,7 +804,7 @@ export function upgradeGroups(ui) {
       kind: u.kind,
       icon: ICONS.upgrades,
       name: u.name,
-      note: have ? 'owned' : `$${u.cost.toFixed(0)}`,
+      note: have ? 'owned' : money(u.cost),
       badge: have ? '✓' : '',
       // Dim is not a thing the bar draws, so an entry you cannot act on says so
       // in the one line it has. A locked row still shows: what it needs first is
@@ -824,9 +825,6 @@ export function upgradeGroups(ui) {
 /** Shelves at or under this fraction of a stack are worth restocking. */
 const LOW_STOCK = 0.2;
 
-const money = (n) => `$${n.toFixed(2)}`;
-/** A delta, where the sign is most of what is being read. */
-const signed = (n) => `${n < 0 ? '−' : '+'}$${Math.abs(n).toFixed(2)}`;
 /**
  * Profit for each finished day the snapshot carries, oldest first.
  *
@@ -847,7 +845,7 @@ const dayProfits = (state) => (state?.ledger ?? []).map((d) => (d.revenue ?? 0) 
  * would then have to argue with.
  */
 const ORDER_CAPS = [null, 25, 50, 100, 250, 500, 1000];
-const capLabel = (n) => (n > 0 ? `$${n}` : 'No cap');
+const capLabel = (n) => (n > 0 ? money(n) : 'No cap');
 
 /**
  * Every item, as a row that says what to do about it.
@@ -1432,8 +1430,9 @@ export const SECTIONS = [
         stat('Spent', money(st.spent ?? 0), 'stock, seed and building'),
         stat('Profit', money(profit), 'what is actually left'),
         // Signed, because a delta is the one number here where the direction is
-        // the whole of the reading — `money()` alone would print "$40" for a day
-        // that is forty dollars *worse* than yesterday.
+        // the whole of the reading — `money()` marks a loss and says nothing at
+        // all about a gain, so "$40" would leave you to work out which of the
+        // two days it belonged to.
         yesterday === undefined
           ? null
           : stat('vs yesterday', signed(profit - yesterday), `yesterday made ${money(yesterday)}`),

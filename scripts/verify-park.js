@@ -55,6 +55,16 @@
  *   since the van first drove, so pavement painted over a lane is drivable and
  *   preferred by feet at once — which is exactly what a crossing is.
  *
+ * - **A van backs onto the pad, and stops short of it by however long a van it
+ *   is.** "One cell short" was the whole of that promise while a lorry was 1.56
+ *   tiles long; at vehicle scale the same lane parks it three quarters of the
+ *   way across the crates it has just set down — nose-first, which is the shop
+ *   taking delivery out of the bonnet, since a model is authored nose-east and
+ *   the load bed is its `-x` end. Both are measured off the art, so this is the
+ *   one claim in here that a bigger model must not be able to break — and the
+ *   lane underneath it still has to end on a whole tile, because a re-flow
+ *   compares that cell to ask whether the lane has moved.
+ *
  * Writes five ground rows into whatever content database it is pointed at —
  * usually the live shared one — and removes them on exit, exactly the way
  * verify:yard, verify:break, verify:catalog, verify:economy and verify:floor do.
@@ -63,11 +73,12 @@
  */
 
 import { Game } from '../server/sim/index.js';
-import { writeContent } from '../server/content.js';
+import { writeContent, content } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { padCells, isPad, isGround, GROUND_KINDS } from '../shared/build.js';
 import { findPath } from '../server/sim/pathing.js';
 import { T } from '../shared/tiles.js';
+import { modelExtent } from '../shared/model.js';
 
 const failures = [];
 let checks = 0;
@@ -566,6 +577,103 @@ const freeAt = (g, c) => {
   check(laneAfter != null, 'the van still has a lane');
   eq(laneAfter.dock.z, bayRow, 'and still comes down that drive — a crossing is drivable');
   eq(laneAfter.dock.x, laneBefore.dock.x, 'stopping exactly where it did');
+}
+
+// ---------------------------------------------------------------------------
+// 10. A van stops short of the pad by however long a van it is.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = g.deliveryVan();
+  const lane = g.layout.vanRoute;
+  check(row != null, 'there is a delivery vehicle authored');
+  check(lane != null, 'and a lane for it');
+
+  if (row && lane) {
+    const pad = g.layout.bay;
+    const stop = g.vanStop(lane, row, pad);
+    const prev = lane.in[lane.in.length - 2];
+    // Which way the last leg runs, and where the pad begins. Every leg is
+    // axis-aligned, so one of these two is always zero and `along` reduces
+    // whichever axis is live to a single signed distance.
+    const dx = Math.sign(lane.dock.x - prev.x);
+    const dz = Math.sign(lane.dock.z - prev.z);
+    const edge = { x: lane.dock.x + dx * 0.5, z: lane.dock.z + dz * 0.5 };
+    const along = (p) => (dx !== 0 ? (p.x - edge.x) * dx : (p.z - edge.z) * dz);
+    const box = modelExtent(row.model);
+
+    /**
+     * A vehicle is authored nose-east, so the load bed is its `-x` end — which
+     * is why a lorry that drives in forwards unloads out of its bonnet. It
+     * reverses, and the two claims that come out of that are the whole section.
+     */
+    eq(stop.back, Math.atan2(-dx, -dz), 'it holds the last leg facing away from the pad');
+
+    // The bed ends AT the edge of the pad, never on it. Arithmetic on the art
+    // rather than on a constant, over every stage — so a van that arrives full
+    // and leaves empty stops in the same place, and a longer one somebody draws
+    // next week backs off further rather than parking on the crates.
+    const bed = { x: stop.x - dx * box.minX, z: stop.z - dz * box.minX };
+    check(along(bed) <= 1e-9, 'the bed ends at the edge of the pad, never on it',
+      `over by ${along(bed).toFixed(3)} tiles`);
+
+    // ...and it may not stop somewhere else either. A setback that overshot
+    // would be a lorry unloading from the far side of the yard, which reads as
+    // a broken lane rather than as a number being too big.
+    const back = -along(stop) - 0.5;
+    check(back >= 0, 'and it never creeps PAST the cell the lane ends on', `${back}`);
+    check(back < 1.5, 'nor halts a lorry-and-a-half back from the yard', `${back}`);
+
+    // The cab is at the other end, which is the half a screenshot would show
+    // and the reason any of this was worth doing.
+    const nose = { x: stop.x - dx * box.maxX, z: stop.z - dz * box.maxX };
+    check(along(nose) < along(bed), 'with the cab further from the pad than the bed is');
+
+    // A vehicle small enough not to need it is the shop that was here before —
+    // the same promise section 1 makes about a shop with no car park, said
+    // about a lorry nobody has re-drawn.
+    const stubby = { ...row, model: { parts: [{ shape: 'box', pos: [0, 0.2, 0], scale: [0.6, 0.4, 0.5] }] } };
+    const same = g.vanStop(lane, stubby, pad);
+    eq(same.x, lane.dock.x, 'a short van stops exactly on the dock (x)');
+    eq(same.z, lane.dock.z, 'a short van stops exactly on the dock (z)');
+
+    // And the lane itself is untouched by any of it. The setback belongs to the
+    // vehicle; whole tiles belong to the shop, and `regenerateLayout` compares
+    // `van.dock` against this cell to ask whether the lane it set out on is
+    // still the lane.
+    eq(lane.dock.x, Math.round(lane.dock.x), 'the lane still ends on a whole tile (x)');
+    eq(lane.dock.z, Math.round(lane.dock.z), 'the lane still ends on a whole tile (z)');
+
+    // End to end: send a real run and let it drive. The van that arrives has to
+    // be standing where `vanStop` said and pointing the way it said, or both are
+    // functions nothing calls.
+    g.orders.pending.push({
+      id: 'verify-park-run', item_id: content().items[0]?.id, qty: 1, arrivesAt: 0, cost: 0,
+    });
+    g.loadVan();
+    check(g.van != null, 'a van is sent out');
+    if (g.van) {
+      const parked = until(g, () => g.van == null || g.van.phase !== 'in', 2000);
+      check(parked != null && g.van, 'it reaches the dock', 'never arrived');
+      if (g.van) {
+        eq(g.van.x, stop.x, 'and halts where its own art says it must (x)');
+        eq(g.van.z, stop.z, 'and halts where its own art says it must (z)');
+        eq(g.van.facing, stop.back, 'backed in, rather than pointing the way it drove');
+        // The way home starts where it is standing. Left as the lane's own
+        // dock, pulling away would begin with the lorry lurching FORWARD over
+        // the crates it has just set down.
+        eq(g.van.out[0].x, stop.x, 'and pulls away from there rather than from the pad (x)');
+        eq(g.van.out[0].z, stop.z, 'and pulls away from there rather than from the pad (z)');
+      }
+
+      // ...and it leaves nose-first, which is what makes reversing in free: the
+      // heading it is already holding IS the way out, so there is no turn on the
+      // spot at either end of the stop.
+      const away = until(g, () => g.van == null || g.van.phase === 'out', 4000);
+      check(away != null, 'it pulls away', 'never did');
+      if (g.van) eq(g.van.facing, stop.back, 'without turning round to do it');
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

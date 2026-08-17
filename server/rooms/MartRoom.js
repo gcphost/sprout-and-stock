@@ -152,6 +152,23 @@ export class MartRoom extends Room {
         client.sessionId,
         m?.palletId ? String(m.palletId) : null,
         !!m?.put,
+        // Which pile in the box, for a crate holding more than one thing. The
+        // same optional address `take` carries for one board of a shelf, and
+        // omitted it means what it always meant: the biggest pile in there.
+        m?.itemId ? String(m.itemId) : null,
+      );
+      if (!res.ok) client.send('action-result', res);
+    });
+
+    // ...and the same tap on one board of a shelf you are already stood at.
+    // Its own message rather than a mode on `take` for the reason `crate-one`
+    // is: the tap and the hold share a pointer press, and they mean different
+    // amounts. See `Game.tapBoard`.
+    this.onMessage('shelf-one', (client, m) => {
+      const res = this.game.tapBoard(
+        client.sessionId,
+        m?.shelfId ? String(m.shelfId) : null,
+        m?.itemId ? String(m.itemId) : null,
       );
       if (!res.ok) client.send('action-result', res);
     });
@@ -178,8 +195,17 @@ export class MartRoom extends Room {
     // Silent on refusal like `walk-to` is — the client only sends it for a square
     // it has drawn as green, so a no here is a disagreement to fix, not news for
     // the player. See `Game.placeAt`.
+    // A square or a thing, the same pair `walk-to` above takes and for the same
+    // reason: the two are one sentence ("this is where what I am holding goes")
+    // with two kinds of address, and splitting them into two messages would let
+    // the press aim at one and not the other — which is exactly the state this
+    // fixed. See `Game.aimAt`.
     this.onMessage('place', (client, m) => {
-      const res = this.game.placeAt(client.sessionId, Number(m?.x), Number(m?.z));
+      const res = m?.clear
+        ? this.game.clearAim(client.sessionId)
+        : m?.fixture
+          ? this.game.aimAt(client.sessionId, String(m.fixture))
+          : this.game.placeAt(client.sessionId, Number(m?.x), Number(m?.z));
       if (!res.ok) client.send('action-result', res);
     });
 
@@ -558,6 +584,12 @@ export class MartRoom extends Room {
       // it does that by riding the catalog rebroadcast rather than by anyone
       // baking a van into `props.js`.
       vehicles: c.vehicles,
+      // What a shopper is carrying their shopping in. Sent whole and for the
+      // same reason skins are: the renderer resolves one per person out of its
+      // authored model, so a bag drawn over MCP has to reach the shoppers
+      // already walking round the shop, and it does that by riding the catalog
+      // rebroadcast rather than by anyone baking a bag into `props.js`.
+      kits: c.kits,
       // What one more of each fixture costs in build mode. Derived from the
       // upgrades that sell them, so adding a cheaper shelf upgrade via MCP
       // reprices the build palette with no code change.

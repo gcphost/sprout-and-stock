@@ -31,6 +31,10 @@ const FILES = [
   // every kind. The order here is only so the file list reads in the order the
   // things were built.
   ['skins.json', 'skin'],
+  // Last, and like skins the order is only how it reads: a kit names no
+  // archetype and an archetype names no kit — they meet through tags, which is
+  // exactly what stops either one having to exist before the other.
+  ['kits.json', 'kit'],
 ];
 
 let ok = 0;

@@ -152,7 +152,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "aisle-sign",
@@ -286,7 +287,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "asphalt",
@@ -314,7 +316,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "awning",
@@ -505,7 +508,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "bakery-case",
@@ -705,7 +709,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "basket-stack",
@@ -845,7 +850,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "bollard-light",
@@ -962,7 +968,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "break-room",
@@ -989,7 +996,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "brick-paving",
@@ -1017,7 +1025,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "car-park",
@@ -1045,7 +1054,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "ceiling-fan",
@@ -1212,7 +1222,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "chandelier",
@@ -1476,7 +1487,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "checkout",
@@ -2389,7 +2401,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "chequer-tile",
@@ -2416,7 +2429,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "cobblestone",
@@ -2444,7 +2458,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "cooler",
@@ -3490,7 +3505,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "deli-counter",
@@ -3650,7 +3666,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "floor-lamp",
@@ -3767,7 +3784,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "freezer",
@@ -5260,7 +5278,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "gravel-track",
@@ -5288,7 +5307,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "lamp-post",
@@ -5426,7 +5446,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "loading-bay",
@@ -5453,7 +5474,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "money-tree",
@@ -5653,7 +5675,8 @@
       "every": 180
     },
     "charm": 4,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "open-chiller",
@@ -6720,7 +6743,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "panel-light",
@@ -6743,7 +6767,8 @@
           "rot": 0,
           "surface": false,
           "seam": false,
-          "alpha": 1,
+          "alpha": 0.12,
+          "shadow": true,
           "drift": false,
           "motion": null,
           "tint": null
@@ -6764,7 +6789,8 @@
           "rot": 0,
           "surface": false,
           "seam": false,
-          "alpha": 1,
+          "alpha": 0.3,
+          "shadow": true,
           "drift": false,
           "motion": null,
           "tint": null
@@ -6795,7 +6821,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "paper-lantern",
@@ -6891,7 +6918,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "paving-path",
@@ -6919,7 +6947,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "paving-slabs",
@@ -6947,7 +6976,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "pendant-lamp",
@@ -7043,7 +7073,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "pine-boards",
@@ -7070,7 +7101,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "plot",
@@ -7459,7 +7491,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "poured-concrete",
@@ -7486,7 +7519,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "produce-table",
@@ -7514,7 +7548,9 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7533,7 +7569,9 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7552,7 +7590,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7571,7 +7611,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -7596,7 +7638,9 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7615,7 +7659,9 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7634,7 +7680,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7653,7 +7701,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7672,7 +7722,9 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7691,7 +7743,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7710,7 +7764,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -7735,7 +7791,9 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7754,7 +7812,9 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7773,7 +7833,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7792,7 +7854,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7811,7 +7875,9 @@
               "surface": true,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7830,7 +7896,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7849,7 +7917,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "box",
@@ -7868,7 +7938,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
-              "drift": false
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         }
@@ -7880,21 +7952,24 @@
         "cost": 0,
         "capacity_mult": 1,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0
       },
       {
         "name": "Tiered display",
         "cost": 90,
         "capacity_mult": 1.4,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0
       },
       {
         "name": "Covered stall",
         "cost": 220,
         "capacity_mult": 1.8,
         "keeps_mult": 1.3,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0
       }
     ],
     "variants": [],
@@ -7905,7 +7980,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": true
   },
   {
     "id": "shelf",
@@ -9281,7 +9357,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "shop-floor",
@@ -9305,7 +9382,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "slate-flags",
@@ -9332,7 +9410,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "station",
@@ -14024,7 +14103,8 @@
           ]
         }
       ]
-    }
+    },
+    "open": false
   },
   {
     "id": "stockroom-floor",
@@ -14051,7 +14131,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "string-lights",
@@ -14189,7 +14270,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "tarmac-road",
@@ -14217,7 +14299,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "terracotta-planter",
@@ -14351,7 +14434,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "terracotta-tile",
@@ -14378,7 +14462,8 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "tube-light",
@@ -14495,7 +14580,8 @@
     "surface": null,
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   },
   {
     "id": "zebra-crossing",
@@ -14523,6 +14609,7 @@
     },
     "yields": null,
     "charm": 0,
-    "work": null
+    "work": null,
+    "open": false
   }
 ]

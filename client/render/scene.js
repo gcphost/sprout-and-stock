@@ -26,7 +26,7 @@ import {
   FIXTURES, workSpots, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
-import { Lights, emittersIn } from './lights.js';
+import { Lights, emittersIn, BAKED_LAYER } from './lights.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
   variantModel, variantWork, skinKey,
@@ -44,6 +44,26 @@ const FRUSTUM = 17;
  * pickTile and pickFixture keep working at any zoom without knowing it exists.
  */
 const RING_Y = 1.2;           // charge ring height — just clear of a head at 0.96
+/**
+ * How close to a pile of goods counts as pointing at it (`nearestBoard`).
+ *
+ * Pixels, not tiles: the thing being fixed is how hard a small target is to hit
+ * with a mouse, which is a distance on the screen, and a distance in the world
+ * is a different number at every zoom.
+ *
+ * The ceiling on it is the OTHER answer, not fairness between the piles. A
+ * board's stock stands on a shelf about a tile deep, and the frame, base and
+ * end panels around it are what still open the unit's own menu — so a radius
+ * wide enough to swallow those has taken the menu away on any stocked shelf.
+ * 14 was tried and was too much: a stocked unit is three piles a few pixels
+ * apart, so three 14px haloes cover the whole top of it and there is nowhere
+ * left to press for the menu — the fix for one target being small ate the other
+ * one whole. 4 is a forgiving edge on a pile rather than a claim on the
+ * furniture around it — about a loaf's width of slack, settled by hand against
+ * a stocked unit. Anything that raises this has to check the same thing: can
+ * you still open a FULL shelf.
+ */
+const BOARD_SNAP_PX = 4;
 /** Where a pile of takings sits: on the counter, not inside it. Its label
  *  hangs a fixed distance over the same spot, so the two cannot drift apart. */
 const CASH_Y = 0.95;
@@ -172,6 +192,30 @@ const SHADOW_EVERY = 3;
 
 /** Scratch for `pickPropBox`, which runs per prop per pointer move. */
 const BOX_HIT = new THREE.Vector3();
+
+/** Scratch for `sealedPile`, which fires rays from a pile back at the viewer. */
+const SEAL_RAY = new THREE.Raycaster();
+// Same reason as `pointerRay`: a raycaster only sees layer 0 out of the box, and
+// walls now sit on `BAKED_LAYER`. A ray that could not see a wall would call
+// every pile in the shop visible.
+SEAL_RAY.layers.enableAll();
+const SEAL_DIR = new THREE.Vector3();
+const SEAL_FROM = new THREE.Vector3();
+
+/**
+ * Where on a pile `sealedPile` looks from, as fractions of its own box.
+ *
+ * The top face and the two upper corners facing the camera, plus the middle.
+ * The top is what matters: a unit with no lid is one whose stock clears its own
+ * back panel, and that is the difference the test exists to find. The middle is
+ * in so a pile short enough to hide behind its own board still answers.
+ */
+const SEAL_SAMPLES = [
+  [0.5, 0.5, 0.5],
+  [0.5, 0.98, 0.5], [0.08, 0.98, 0.08], [0.92, 0.98, 0.08],
+  [0.08, 0.98, 0.92], [0.92, 0.98, 0.92],
+  [0.92, 0.6, 0.5], [0.5, 0.6, 0.92],
+];
 
 /** The camera's home corner. Rotation swings this around Y in quarter turns. */
 const BASE_CAM_OFFSET = new THREE.Vector3(20, 24, 20);
@@ -498,6 +542,14 @@ export class Scene {
     const bounce = new THREE.DirectionalLight(0xbcd8ff, 0.32);
     bounce.position.set(-18, 12, -14);
     this.scene.add(bounce);
+
+    // The ground is lit by lamps that were added up on the CPU (`bakeInto`), so
+    // it sits on a layer the point lights cannot see or it would be lit twice.
+    // The sky is not a lamp and has to be let back in by hand — a layer is a
+    // filter on EVERY light, so leaving these three out drops the floor to
+    // black. The camera needs it too, or it simply stops drawing the shop.
+    for (const l of [this.ambient, sun, bounce]) l.layers.enable(BAKED_LAYER);
+    this.camera.layers.enable(BAKED_LAYER);
 
     // Whatever the player has wired up. Everything above is the sky; this is the
     // only light in the scene that anybody had to buy.
@@ -847,6 +899,10 @@ export class Scene {
       // What a hire is wearing, keyed the same way, and cleared by the same
       // sweep below — a skin recoloured over MCP repaints whoever has it on.
       skins: Object.fromEntries((catalog.skins ?? []).map((s) => [s.id, s])),
+      // ...and what a shopper is carrying their shopping in, keyed the same way
+      // and for the same reason. The snapshot sends the id and how full it is;
+      // which bag that is stays a row somebody can redraw.
+      kits: Object.fromEntries((catalog.kits ?? []).map((k) => [k.id, k])),
       // A van and a car are drawn from their own rows too, and looked up by the
       // id the snapshot sends rather than by `use` — which vehicle turns up is
       // the sim's decision (`vehicleFor`), and the renderer draws whichever one
@@ -917,6 +973,11 @@ export class Scene {
     );
     bars.castShadow = false;
     bars.receiveShadow = true;
+    // Painted onto ground that is baked, so these are too — a crossing under a
+    // lamp post with unlit stripes is a hole in the pool the shape of the paint.
+    bars.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(bars.count * 3), 3);
+    const bare = new Float32Array(bars.count * 3).fill(1);
+    const at = new Float32Array(bars.count * 3);
     const n0 = stripeBars(surface);
     const duty = stripeDuty(surface);
     let n = 0;
@@ -929,11 +990,46 @@ export class Scene {
         dummy.scale.set(alongZ ? duty : 1, 0.02, alongZ ? 1 : duty);
         dummy.rotation.set(0, 0, 0);
         dummy.updateMatrix();
+        at[n * 3] = dummy.position.x;
+        at[n * 3 + 1] = dummy.position.y;
+        at[n * 3 + 2] = dummy.position.z;
+        bars.setColorAt(n, this.lights.bakeInto(
+          new THREE.Color(1, 1, 1), dummy.position.x, dummy.position.y, dummy.position.z,
+        ));
         bars.setMatrixAt(n++, dummy.matrix);
       }
     }
     bars.instanceMatrix.needsUpdate = true;
+    if (bars.instanceColor) bars.instanceColor.needsUpdate = true;
+    bars.layers.set(BAKED_LAYER);
+    this.bakedGround.push({ mesh: bars, bare, at });
     this.staticRoot.add(bars);
+  }
+
+  /**
+   * Re-do the lamp bake over ground that has not moved.
+   *
+   * Called when the hour turns, and that is the whole of what a bake costs: the
+   * sum is only right for one value of `lit`, so a floor baked at midnight stays
+   * midnight-bright through the morning unless somebody redoes it. Once an hour
+   * rather than every frame because that is the rate the sun visibly moves at,
+   * and this is a pass over every cell in the shop times every lamp in it —
+   * nothing at 900 × 20, silly at 60fps.
+   *
+   * Straight over the stored unlit colours, so it can run any number of times
+   * without the light compounding. That is what `bare` is for.
+   */
+  rebakeGround() {
+    const c = new THREE.Color();
+    for (const { mesh, bare, at } of this.bakedGround ?? []) {
+      if (!mesh.instanceColor) continue;
+      for (let i = 0; i < mesh.count; i++) {
+        c.setRGB(bare[i * 3], bare[i * 3 + 1], bare[i * 3 + 2]);
+        this.lights.bakeInto(c, at[i * 3], at[i * 3 + 1], at[i * 3 + 2]);
+        mesh.setColorAt(i, c);
+      }
+      mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   /** Redraw the world we already have — for when the art changed, not the shop. */
@@ -965,6 +1061,13 @@ export class Scene {
     // the records out without taking the MESHES out orphans a full set of stock
     // at the old positions. See `refreshFixtureProps` for both.
     this.refreshFixtureProps(L);
+
+    // Lamps first, because the floor is about to be BAKED with them — every
+    // emitter in the shop folded into the per-cell colour the tile mesh was
+    // going to carry anyway. It used to be the last line in this method, back
+    // when nothing here needed to know where the light was.
+    this.lights.setEmitters(emittersIn(fixturesIn(L), (f) => this.pieceOf(f), CEILING_Y));
+    this.bakedGround = [];
 
     // Ground: one big plane rather than 1500 grass tiles. It runs well past the
     // last tile — see GROUND_MARGIN — so the world never visibly ends, and so
@@ -1018,6 +1121,11 @@ export class Scene {
       mesh.castShadow = height > 0.2;
       mesh.receiveShadow = true;
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cells.length * 3), 3);
+      // The unlit colour of every cell, and where that cell is. Kept so the hour
+      // can be re-baked without re-deriving the pattern: `patternColor` and the
+      // jitter hash are per cell, and the sun coming up does not move either.
+      const bare = new Float32Array(cells.length * 3);
+      const at = new Float32Array(cells.length * 3);
 
       cells.forEach(([x, z], i) => {
         dummy.position.set(x, height / 2, z);
@@ -1034,10 +1142,26 @@ export class Scene {
         // survives anyway, and it costs one lookup in a loop that already sets
         // a colour per instance to jitter it.
         const c = new THREE.Color(surface ? patternColor(surface, x, z) : jitter(style.color, 0.05, x * 31 + z * 17));
-        mesh.setColorAt(i, c);
+        // ...and the lamps are the same kind of thing: a number per cell, worked
+        // out once. This is what buys unlimited fittings — see `bakeInto`. The
+        // unlit colour is kept beside it because the hour moves and the pattern
+        // does not: re-deriving it would mean re-running `patternColor` and the
+        // jitter hash for every cell in the shop at every rebake.
+        bare[i * 3] = c.r;
+        bare[i * 3 + 1] = c.g;
+        bare[i * 3 + 2] = c.b;
+        at[i * 3] = x;
+        at[i * 3 + 1] = height;
+        at[i * 3 + 2] = z;
+        mesh.setColorAt(i, this.lights.bakeInto(c, x, height, z));
       });
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      // Off layer 0, where the point lights are. Baked ground lit a second time
+      // by the pool would pool visibly harder under the eight fittings that got
+      // a real light, which is the cap back on screen. See `BAKED_LAYER`.
+      mesh.layers.set(BAKED_LAYER);
+      this.bakedGround.push({ mesh, bare, at });
       this.staticRoot.add(mesh);
 
       // ...and the one pattern that is not a colour. See `STRIPE_BARS`.
@@ -1051,14 +1175,27 @@ export class Scene {
         const top = new THREE.InstancedMesh(box, material(TOPS[kind]), cells.length);
         top.castShadow = false;
         top.receiveShadow = true;
+        // Baked with the slab it caps, or a wall under a lamp is a lit wall with
+        // an unlit lid. Its instance colour is plain white before the lamps get
+        // to it: the colour it is meant to be is already on the material.
+        top.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cells.length * 3), 3);
+        const topBare = new Float32Array(cells.length * 3).fill(1);
+        const topAt = new Float32Array(cells.length * 3);
         cells.forEach(([x, z], i) => {
           dummy.position.set(x, height + 0.045, z);
           dummy.scale.set(1.04, 0.09, 1.04);
           dummy.rotation.set(0, 0, 0);
           dummy.updateMatrix();
           top.setMatrixAt(i, dummy.matrix);
+          topAt[i * 3] = x;
+          topAt[i * 3 + 1] = height + 0.045;
+          topAt[i * 3 + 2] = z;
+          top.setColorAt(i, this.lights.bakeInto(new THREE.Color(1, 1, 1), x, height + 0.045, z));
         });
         top.instanceMatrix.needsUpdate = true;
+        if (top.instanceColor) top.instanceColor.needsUpdate = true;
+        top.layers.set(BAKED_LAYER);
+        this.bakedGround.push({ mesh: top, bare: topBare, at: topAt });
         this.staticRoot.add(top);
       }
     }
@@ -1282,10 +1419,9 @@ export class Scene {
       }
     }
 
-    // Lamps. Rebuilt with the world because a light is a position, and the
-    // positions just changed; the pool of actual THREE lights outlives this and
-    // is only ever re-aimed. See lights.js for why that split is load-bearing.
-    this.lights.setEmitters(emittersIn(fixturesIn(L), (f) => this.pieceOf(f), CEILING_Y));
+    // Lamps are set at the TOP of `buildWorld` now, not here, because the floor
+    // is baked with them on the way past — this method runs after the tiles are
+    // already coloured. It is the same call against the same layout either way.
   }
 
   /**
@@ -1512,11 +1648,24 @@ export class Scene {
     this.sun.color.copy(SUN_DUSK).lerp(SUN_HIGH, daylight);
 
     // `spill` is every lamp too far away to be given a real light, folded into
-    // one number — so panning the camera sharpens the near end of the shop
-    // rather than switching the far end off. See lights.js.
+    // one number — so panning sharpens the near end of the shop rather than
+    // switching the far end off. It only ever lifts the things the bake cannot
+    // reach now; the floor already has every one of those lamps in it.
     this.lights.setDaylight(daylight);
     this.ambient.intensity = 0.38 + daylight * 0.52 + this.lights.spill;
     this.ambient.color.copy(FILL_DUSK).lerp(FILL_HIGH, daylight);
+
+    // The baked half of the same sunset, on the hour. Every lamp in the shop is
+    // already in the floor's colours (`bakeInto`), and that sum is only right
+    // for one value of `lit` — so the ground has to be told the sun moved, the
+    // same way the sky just was. By hour rather than continuously because it is
+    // a pass over every cell times every lamp, and because a floor that eased
+    // from night to noon over twelve steps is a floor nobody can see stepping.
+    const hour = Math.floor(t * 24);
+    if (hour !== this.bakedHour) {
+      this.bakedHour = hour;
+      this.rebakeGround();
+    }
 
     // The sky is the largest single block of colour on screen, so it carries
     // most of the read. Mutated in place — `background` owns this Color.
@@ -1546,7 +1695,7 @@ export class Scene {
         this.actorRoot.add(obj);
         rec = {
           obj, key, bubble: null, bubbleKey: null, carry: null, carryKey: null,
-          haul: null, haulKey: null,
+          haul: null, haulKey: null, kit: null, kitKey: null,
           // The break: the prop, which stage of it is built, whether they are
           // on one, and how far the body has eased into the slump. `phase` is
           // per-person and stable, so two hires sat on the same step don't
@@ -1571,12 +1720,19 @@ export class Scene {
       // A want is a thought; a carry is a thing in your hands. Showing both
       // through one bubble meant you could never tell which you were looking at.
       this.syncBubble(rec, a.want ?? null);
-      // Two spellings of one fact. A player or a hire has `carry` — one kind at
-      // a time, because your hands refuse anything else — and a shopper has a
-      // `basket`, which is several. Both are goods someone is holding, so both
-      // go through one sync as a list of lines rather than growing a second
-      // renderer that would drift from this one.
-      this.syncCarry(rec, a.carry ? [a.carry] : (a.basket ?? null));
+      // Two spellings of one fact, and they are now the SAME shape. A player or
+      // a hire has `carry` and a shopper has a `basket`; both are a list of
+      // piles somebody is holding, so both go through one sync as a list of
+      // lines rather than growing a second renderer that would drift from this
+      // one. `carry` used to be one pile and was wrapped in an array here to
+      // fit — mixed hands simply deleted the wrapper, which is the tell that
+      // the list was the right shape all along.
+      // ...and a kit is the CONTAINER those goods are in, so it replaces them
+      // rather than being hung on top: a shopper walking out with a bag is not
+      // also walking out with five jars in mid-air. Nobody has to author one —
+      // no kit is the loose armful, which is what every shopper had before.
+      this.syncCarry(rec, a.kit ? null : (a.carry?.stacks ?? a.basket ?? null));
+      this.syncKit(rec, a.kit ?? null);
       // ...and the box, which is the third spelling and deliberately not part
       // of that one. A crate is not "some goods held in a different pose" — it
       // is the container itself, drawn from the same `buildPallet` that draws
@@ -1741,15 +1897,23 @@ export class Scene {
       // `cap` is part of the key for the same reason `qty` is: buying a
       // rucksack moves what a crate holds, so every crate standing in the yard
       // is suddenly a different share of full and owes you a redraw.
-      const key = `${d.item_id}:${d.qty}/${cap}:${at}:${covered ? 'c' : 'o'}`;
+      // Every pile is in the key, not just the first. A box whose second pile
+      // changed while its first stayed put would otherwise keep the mesh it was
+      // built with — so shelving the tomatoes out of a mixed crate would leave
+      // the tomatoes drawn in it, which reads as stock that will not shift.
+      const piles = (d.stacks ?? []).map((s) => ({
+        ...s,
+        model: this.catalog.items[s.item_id]?.model ?? null,
+        name: this.catalog.items[s.item_id]?.name ?? '',
+      }));
+      const key = `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}:${at}:${covered ? 'c' : 'o'}`;
       const existing = this.deliveryProps.get(d.id);
       if (existing && existing.userData.key === key) continue;
       if (existing) {
         this.actorRoot.remove(existing);
         disposeGroup(existing);
       }
-      const item = this.catalog.items[d.item_id];
-      const obj = buildPallet(item?.model ?? null, d.qty, { covered, name: item?.name ?? '', cap });
+      const obj = buildPallet(piles, { covered, cap });
       obj.position.set(d.x, at * CRATE_STEP, d.z);
       // A hand's turn per crate, so a tower reads as boxes somebody put there
       // rather than as one extruded box, and each one's edges stay findable to
@@ -2151,7 +2315,13 @@ export class Scene {
    */
   pointerRay(clientX, clientY) {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    this._ray ??= new THREE.Raycaster();
+    if (!this._ray) {
+      this._ray = new THREE.Raycaster();
+      // A raycaster ships enabled on layer 0 only, and the ground now sits on
+      // `BAKED_LAYER` so the lamps cannot reach it twice. Pointing is not
+      // lighting: everything drawn is something you can aim at.
+      this._ray.layers.enableAll();
+    }
     this._ndc ??= new THREE.Vector2();
     this._ndc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
@@ -2307,6 +2477,10 @@ export class Scene {
   pickFixtureHit(clientX, clientY, keep = null) {
     if (!this.storeLayout) return null;
     const hits = this.pointerRay(clientX, clientY).intersectObjects(this.pickTargets(), true);
+    // The first thing the ray met, held back rather than answered with, so a
+    // pile of goods further down the same ray gets a chance at the question.
+    // See the two branches below for when it wins and when this is given back.
+    let front = null;
     for (const hit of hits) {
       // Up to whichever group was tagged as one pickable thing — the hit
       // itself is one board of a shelf or one apple on it.
@@ -2331,9 +2505,211 @@ export class Scene {
       // does still answer for.
       const f = (o.userData.fixture ? this.fixtureById(o.userData.fixture) : null)
         ?? this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
-      if (f && (!keep || keep(f))) return { f, dist: hit.distance, board };
+      if (!f || (keep && !keep(f))) continue;
+      const answer = { f, dist: hit.distance, board };
+      // Nothing in front of it: the plain old answer, and the one every stocked
+      // shelf in the game still gets. Only a pile that is BEHIND something has
+      // anything to decide, so the first hit is held and the ray carries on.
+      if (!front) {
+        front = { ...answer, transparent: !!hit.object.material?.transparent };
+        continue;
+      }
+      // A pile the unit's own art is standing in front of.
+      //
+      // The unit is still what you are pointing at everywhere its stock is not —
+      // a tap on the frame, the base or an end panel has to go on opening the
+      // menu, or pricing and assignment stop being one press away. So reaching
+      // through is not a general rule about fixtures; it is these two cases, and
+      // both are "the pile is *there* and you cannot get at it":
+      //
+      // - **glass**, which is drawn so you can see through it (`material`,
+      //   `depthWrite: false`) and would otherwise be the one part of a unit
+      //   that shows you goods and refuses to name them.
+      // - **a pile sealed in** (`sealedPile`) — a wall unit is a box with a lid,
+      //   and on a fixed camera two of its four rotations put the back of that
+      //   box to you. What the shelves get away with is having no top: you look
+      //   down over the back panel onto the boards, which is why a shelf turned
+      //   away still answers and a freezer turned away answers with nothing at
+      //   all, at every pixel, for ever. The stock is *rendered*, it is simply
+      //   somewhere no ray of this camera reaches.
+      //
+      // Asked of the pile rather than of the piece, because it is a fact about
+      // where the unit is standing rather than about how it was drawn — the same
+      // freezer answers differently at rot 1 and rot 3, and a rule written
+      // against the model could only ever be wrong at two of them.
+      //
+      // The marker can say so, which is what makes this honest rather than a
+      // pointer that names what you cannot see: `buildCageMarker` draws with
+      // `depthTest: false`, so the cage round a pile inside a sealed box is
+      // drawn *over* the box. You point at the freezer and see which pile you
+      // would take.
+      // `!front.board` because a pile in the open is already the answer: without
+      // it, a unit holding one visible kind and one sealed one would hand you
+      // the sealed one for every pixel of the pile you can actually see.
+      // By id, never by identity: `allFixtures` rebuilds its records on every
+      // call (`fixturesIn` spreads them), so the same fixture met twice down one
+      // ray is two objects and `===` is false for every unit in the shop. It
+      // fails silently as "the reach-through never fires", which is exactly the
+      // bug it was written to fix.
+      if (board && !front.board && front.f.id === f.id
+        && (front.transparent || this.sealedPile(f, board))) {
+        // At the FRONT's distance. That is where this fixture really starts, and
+        // `pickAim` weighs the number against a crate standing in front of it.
+        return { ...answer, dist: front.dist };
+      }
+      // Anything else — a different fixture, a second panel of this one — means
+      // the ray has finished with whatever was in front, and that is the answer.
+      if (front.f.id !== f.id) return front;
     }
-    return this.pickPropBox(clientX, clientY, keep);
+    const got = front ?? this.pickPropBox(clientX, clientY, keep);
+    // Near enough a pile IS on it.
+    //
+    // Everything above answers off the art, which is right and is also why
+    // aiming at goods was fiddly: a board's worth of stock is a handful of
+    // little boxes a dozen pixels tall, and between them and around them is
+    // the unit's own shelf, which the ray hits instead. So you had to be
+    // exactly on a loaf, and being one pixel off did not miss — it silently
+    // answered "the whole unit", which is a different job.
+    //
+    // A radius rather than a bigger hit volume, because the thing that needs
+    // to keep working is the OTHER answer: a tap on the frame, the base or an
+    // end panel is still the unit and still opens its menu (see `boardTakes`).
+    // Padding the piles out until they touch would eat the gaps between them
+    // and there would be nowhere left on a full shelf to press for the menu.
+    // Measured in pixels for the same reason: what is hard here is a distance
+    // on the screen, and a distance in the world is a different number at
+    // every zoom.
+    if (got?.f && !got.board) {
+      const near = this.nearestBoard(got.f, clientX, clientY);
+      if (near) return { ...got, board: near };
+    }
+    return got;
+  }
+
+  /**
+   * Which pile on this unit the pointer is nearest, if it is near one at all.
+   *
+   * Distance to the pile's projected BOX rather than to its middle: a board of
+   * twelve loaves is wide and a board of one is a dot, and measuring to centres
+   * would make the wide one harder to hit the more of it there is — which is
+   * exactly backwards.
+   *
+   * Boxes measured off the meshes, the same way `boardBox` measures the cage
+   * that gets drawn round the answer. One function would be nicer and they want
+   * different things: that one wants a world box to build a cage from, and this
+   * wants every pile's screen rect at once.
+   */
+  nearestBoard(f, clientX, clientY, within = BOARD_SNAP_PX) {
+    const rec = this.shelfProps.get(f.id);
+    if (!rec?.group?.children?.length) return null;
+    const canvas = this.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+
+    rec.group.updateMatrixWorld(true);
+    let best = null;
+    let bestAt = within;
+    const box = new THREE.Box3();
+    const v = new THREE.Vector3();
+    for (const pile of rec.group.children) {
+      if (!pile.userData.item) continue;
+      box.setFromObject(pile);
+      if (box.isEmpty()) continue;
+      // The eight corners, projected. A box in the world is not a box on the
+      // screen at this camera — it is a hexagon — so its screen rect is the
+      // bounds of the corners rather than of two of them.
+      let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+      for (let i = 0; i < 8; i += 1) {
+        v.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
+        v.project(this.camera);
+        const sx = (v.x + 1) / 2 * rect.width;
+        const sy = (1 - v.y) / 2 * rect.height;
+        if (sx < x0) x0 = sx;
+        if (sx > x1) x1 = sx;
+        if (sy < y0) y0 = sy;
+        if (sy > y1) y1 = sy;
+      }
+      const dx = Math.max(x0 - px, 0, px - x1);
+      const dy = Math.max(y0 - py, 0, py - y1);
+      const d = Math.hypot(dx, dy);
+      if (d < bestAt) { bestAt = d; best = pile.userData.item; }
+    }
+    return best;
+  }
+
+  /**
+   * Is this pile of goods walled in by the unit it is standing in?
+   *
+   * Rays from all over the pile, back along the way the camera looks. If the
+   * unit's own art stops every one of them, nothing the pointer can do reaches
+   * that pile the ordinary way, and `pickFixtureHit` may reach through the body.
+   *
+   * All over it rather than from the middle, and that is the whole difference
+   * between this and a rule that quietly eats the fixture menu. A shelf's back
+   * panel stands right behind its stock, so the centre of a pile on a
+   * turned-away shelf is blocked exactly as a freezer's is — measured from the
+   * middle alone, half the shelving in the shop read as sealed and a press on
+   * the frame started handing back a board. What a shelf has and a freezer has
+   * not is a way OUT: no lid, so the top of the pile clears the panel. One
+   * escaping sample is enough, which is the same "best of several points" call
+   * `shownOn` makes, and for the same reason.
+   *
+   * Measured off the meshes and off the camera rather than authored on the
+   * piece, for the reason the caller gives: sealed-ness is about which way the
+   * thing is turned. It also means a model nobody has drawn yet gets the right
+   * answer on the day it is drawn — the same bet `boardBox` and `pickFixtureHit`
+   * already make by raycasting the art instead of reasoning about it.
+   *
+   * Glass does not seal, exactly as it does not cover in `shownOn`. If it did,
+   * every glazed unit would take the reach-through path and the pane branch
+   * above would be dead code that looked alive.
+   *
+   * Cached per pile, because a hover asks this on every pointer move and the
+   * answer only changes when the unit moves, turns or is restocked — which is
+   * what `rec.key` and the placement already spell out between them.
+   */
+  sealedPile(f, itemId) {
+    const rec = this.shelfProps.get(f.id);
+    if (!rec) return false;
+    const memo = (rec.sealed ??= new Map());
+    const key = `${itemId}:${rec.key}:${f.rot ?? 0}:${f.x}:${f.z}`;
+    if (memo.has(key)) return memo.get(key);
+    if (memo.size > 16) memo.clear();
+
+    let out = false;
+    const box = this.boardBox(f, itemId);
+    const body = this.staticRoot.children.find((o) => o.userData.fixture === f.id);
+    if (box && body) {
+      // Towards the viewer, which for this camera is one fixed direction — the
+      // scene is orthographic, so every point of the pile looks the same way and
+      // the samples differ only in where they start.
+      const back = this.camera.getWorldDirection(SEAL_DIR).negate();
+      // Pulled in off the faces, or a sample sitting exactly on the top of the
+      // pile answers about the air beside it rather than about the goods.
+      const lo = box.min, hi = box.max;
+      const at = (t) => SEAL_FROM.set(
+        lo.x + (hi.x - lo.x) * t[0],
+        lo.y + (hi.y - lo.y) * t[1],
+        lo.z + (hi.z - lo.z) * t[2],
+      );
+      // The unit's own art first, because it is one small group and it is what
+      // stops nearly every sample. Only a sample that gets OUT costs the wider
+      // question — which is the expensive one, and the one that has to be asked:
+      // a run of freezers stands shoulder to shoulder, so the sample that clears
+      // your own lid is the sample that walks straight into the unit next door.
+      // Own-body-only left two units in a row of ten unreachable, on one escaping
+      // corner each, which reads as the fix having half worked.
+      const others = this.pickTargets().filter((g) => g !== rec.group);
+      out = SEAL_SAMPLES.every((t) => {
+        SEAL_RAY.set(at(t), back);
+        const stopped = (hits) => hits.some((h) => !h.object.material?.transparent);
+        return stopped(SEAL_RAY.intersectObject(body, true))
+          || stopped(SEAL_RAY.intersectObjects(others, true));
+      });
+    }
+    memo.set(key, out);
+    return out;
   }
 
   /**
@@ -2634,13 +3010,24 @@ export class Scene {
    * re-flow is `showFixture`'s existing tile lookup rather than a second one
    * in here.
    */
-  setSelectedTarget(f) {
+  setSelectedTarget(f, spots = null) {
+    // Handed in rather than worked out here, because *how many* sides a unit has
+    // depends on its catalog row (`open`) and on the shop around it (an end
+    // inside a wall is not an end) — and the renderer holds neither question.
+    // `UI.spotsFor` is the one answer, so what lights up and what the sim will
+    // accept you at cannot drift apart. Null is the old behaviour: the anchor,
+    // and a till's other side.
+    const at = spots ?? spotsOf(f);
     // `rot` is in the key, and it has to be: the menu is where the Rotate
     // button lives, so the one thing you do to a selected fixture is the one
     // thing that moves no tile. Keyed on position alone, turning a till redrew
     // nothing and its working spots stayed pointing the old way — a preview
     // that lies specifically while you are watching it.
-    const key = f ? `${f.x},${f.z},${f.rot ?? 0}` : null;
+    //
+    // ...and so are the spots, for the same reason one step further out: a wall
+    // drawn beside a shelf takes an end away without moving the shelf, and a key
+    // blind to that would leave a marker on a tile nobody can stand in.
+    const key = f ? `${f.x},${f.z},${f.rot ?? 0}|${at.map((s) => `${s.x},${s.z}`).join(';')}` : null;
     if (this.selectedKey === key) return;
     this.selectedKey = key;
     if (this.selectedMarker) {
@@ -2665,7 +3052,7 @@ export class Scene {
     // Read off the record rather than recomputed from `rot`: `serveAt` is what
     // the shop was actually laid with, and a facing the generator refused would
     // otherwise be drawn as though it had been honoured.
-    for (const s of spotsOf(f)) {
+    for (const s of at) {
       this.selectedMarker.add(buildWorkSpot(
         s.role, { x: s.x - f.x, z: s.z - f.z }, this.selectedMarker.userData.color,
       ));
@@ -3142,6 +3529,42 @@ export class Scene {
   }
 
   /**
+   * The bag, basket or trolley a shopper has on them.
+   *
+   * A child of the body like the bubble, the armful and the break prop, so it
+   * follows them out of the door and leaves with them, rather than being a
+   * second thing to remember to move.
+   *
+   * Two things here are the pastime's lessons rather than new ones. **The
+   * rebuild key is the stage index, never the raw fullness** — a basket filling
+   * up moves that number on most snapshots, and a key that moved with it would
+   * tear the geometry down and build it again for a fraction of a bag. And
+   * **the model authors where it hangs**: this sets no position, because a bag
+   * held at the side and a basket held in front are the same code and a
+   * different drawing.
+   *
+   * No shadow, for the reason nothing on a person casts one: the body already
+   * does, and a bag laying its own across the floor reads as litter.
+   */
+  syncKit(rec, kit) {
+    const model = kit ? (this.catalog.kits?.[kit.id]?.model ?? null) : null;
+    const fill = kit?.fill ?? 0;
+    const key = model ? `${kit.id}:${stageIndexAt(model, fill)}` : null;
+    if (rec.kitKey === key) return;
+    rec.kitKey = key;
+
+    if (rec.kit) {
+      rec.obj.remove(rec.kit);
+      disposeGroup(rec.kit);
+      rec.kit = null;
+    }
+    if (!key) return;
+
+    rec.kit = buildModel(model, { castShadow: false, t: fill });
+    rec.obj.add(rec.kit);
+  }
+
+  /**
    * The crate somebody is carrying, drawn as the crate it is.
    *
    * `buildPallet` rather than a box of its own, for the reason `client/thumb.js`
@@ -3158,7 +3581,13 @@ export class Scene {
    * person under it.
    */
   syncHaul(rec, haul, cap) {
-    const key = haul ? `${haul.item_id}:${haul.qty}/${cap}` : null;
+    const piles = (haul?.stacks ?? []).map((s) => ({
+      ...s,
+      model: this.catalog.items[s.item_id]?.model ?? null,
+      name: this.catalog.items[s.item_id]?.name ?? '',
+    }));
+    const key = piles.length
+      ? `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}` : null;
     if (rec.haulKey === key) return;
     rec.haulKey = key;
 
@@ -3169,12 +3598,10 @@ export class Scene {
     }
     if (!key) return;
 
-    const item = this.catalog.items[haul.item_id];
     // `covered: false` so you can see into it — what is in the box is the whole
-    // question when somebody walks past you with one.
-    const box = buildPallet(item?.model ?? null, haul.qty, {
-      covered: false, name: item?.name ?? '', cap,
-    });
+    // question when somebody walks past you with one, and with a mixed crate it
+    // is the only way to tell that the box is doing three jobs at once.
+    const box = buildPallet(piles, { covered: false, cap });
     box.scale.setScalar(0.72);
     box.position.set(0, 0.52, 0.3);
     rec.obj.add(box);
@@ -3676,7 +4103,9 @@ export class Scene {
     this.camLook.lerp(this.camAim.copy(this.camTarget).add(this.camPan), 0.08);
     // Which lamps get a real light follows the camera, so it belongs here rather
     // than in the layout build. Cheap: it returns immediately until the view has
-    // actually gone somewhere.
+    // actually gone somewhere. What it lights is only ever the things that MOVE
+    // — the ground is baked and sits on a layer these cannot reach, which is
+    // what makes a pool that follows you acceptable again. See lights.js.
     this.lights.update(this.camLook);
     this.camera.position.copy(this.camLook).add(this.camOffset);
     this.camera.lookAt(this.camLook);

@@ -23,6 +23,7 @@ import {
 } from '../shared/build.js';
 import { SOLID, edgeBetween } from '../shared/edges.js';
 import { kindOf } from '../shared/pieces.js';
+import { LOT_KINDS, lotStacks, lotTotal, lotQty, lotHas } from '../shared/lot.js';
 import { WALKABLE } from '../shared/tiles.js';
 import {
   partsAt, stageIndexAt, isStaged, modelHeight, tierProgress,
@@ -109,8 +110,7 @@ const stand = (g, at) => Object.assign(g.players.me, {
   x: at.x, z: at.z, path: null, input: { dx: 0, dz: 0 },
 });
 const totalOnFloor = (g, itemId) => g.deliveries
-  .filter((d) => !itemId || d.item_id === itemId)
-  .reduce((s, d) => s + d.qty, 0);
+  .reduce((s, d) => s + (itemId ? lotQty(d, itemId) : lotTotal(d)), 0);
 
 // ---- arranging and reading a unit's boards --------------------------------
 //
@@ -144,6 +144,18 @@ const anyItem = c.items.find((i) => !c.recipes.some((r) => r.output_id === i.id)
 const warm = c.items.filter((i) => requiredFixture(i) !== 'freezer');
 const plainItem = warm[0];
 const otherItem = warm[1] ?? warm[0];
+/**
+ * A pair of hands filled to the KINDS cap with things that are not `plainItem`.
+ *
+ * The sweep needs it because "hands full" stopped being one sentence. Hands
+ * hold `LOT_KINDS` different things, so being out of UNITS and being out of
+ * HANDS are two different refusals with two different fixes, and a test that
+ * only ever filled the units would never reach the second one at all.
+ */
+const otherKinds = (n = LOT_KINDS) => ({
+  stacks: warm.filter((i) => i.id !== plainItem.id).slice(0, n)
+    .map((i) => ({ item_id: i.id, qty: 1 })),
+});
 const frozenItem = c.items.find((i) => requiredFixture(i) === 'freezer') ?? null;
 /** A crop that will actually grow in whatever season the world is in. */
 const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.includes(g.season))
@@ -373,8 +385,8 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   g.stow('me');
   eq(totalOnFloor(g, anyItem.id), 7, 'stowing twice keeps the total');
   eq(g.deliveries.length, 7 > cap ? 2 : 1, 'and tops up the crate rather than starting a forest');
-  check(g.deliveries.every((d) => d.qty <= cap), 'no crate holds more than a crate');
-  if (7 > cap) eq(g.deliveries[0].qty, cap, 'the first crate is filled to the brim before the next is opened');
+  check(g.deliveries.every((d) => lotTotal(d) <= cap), 'no crate holds more than a crate');
+  if (7 > cap) eq(lotTotal(g.deliveries[0]), cap, 'the first crate is filled to the brim before the next is opened');
 
   // An armful stows as one crate and comes back out in armfuls. It used to come
   // back in ONE armful, because a crate held exactly what hands held; a crate
@@ -390,14 +402,14 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     eq(one.deliveries.length, 1, 'an armful stows as exactly one crate');
     eq(totalOnFloor(one, anyItem.id), hands, 'holding exactly what was put in it');
     check(one.unload('me', one.deliveries[0].id).ok, 'which can be picked up again');
-    eq(one.players.me.carry?.qty, hands, 'filling the same pair of hands');
+    eq(lotTotal(one.players.me.carry), hands, 'filling the same pair of hands');
     eq(one.deliveries.length, 0, 'and nothing is left standing there');
   }
 
   // ...and it can be picked straight back up.
   const back = g.unload('me', g.deliveries[0].id);
   check(back.ok, 'a stowed crate can be picked back up');
-  check(g.players.me.carry?.qty > 0, 'picking it back up fills your hands');
+  check(lotTotal(g.players.me.carry) > 0, 'picking it back up fills your hands');
 
   // Putting down is named too now, and the drop-off is the one target in the
   // shop that has no id to name it by — it is painted ground rather than an
@@ -444,7 +456,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     'nor after walking out of reach of it and back');
 
   // Naming it is the only thing that arms it.
-  const crate = g.deliveries.find((d) => d.item_id === anyItem.id);
+  const crate = g.deliveries.find((d) => lotHas(d, anyItem.id));
   const named = g.take('me', { palletId: crate.id });
   check(named.ok, `naming a crate sets off to get it (${named.error ?? ''})`);
   // "Sets off" is literal — `take` plans the walk — so the walk has to end
@@ -459,7 +471,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // One errand, one action. Firing it spends it, or a crate you tapped once
   // would refill your hands every time you walked past for the rest of the day.
   g.stepActions(5);
-  check(g.players.me.haul?.qty > 0, 'the charge shoulders the whole crate');
+  check(lotTotal(g.players.me.haul) > 0, 'the charge shoulders the whole crate');
   eq(g.players.me.carry, null, 'and leaves your hands empty, because a box is not stock');
   eq(g.players.me.errand, null, 'and the errand is spent');
   check(g.actionFor(g.players.me)?.kind !== 'lift', 'so it does not arm again');
@@ -467,13 +479,13 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // Put it back down and do it again with an armful already held, which is the
   // other branch of the same address.
   check(g.dropCrate('me').ok, 'and it can be set straight back down');
-  const again = g.deliveries.find((d) => d.item_id === anyItem.id);
+  const again = g.deliveries.find((d) => lotHas(d, anyItem.id));
   g.players.me.carry = { item_id: anyItem.id, qty: 1 };
   check(g.take('me', { palletId: again.id }).ok, 'naming it again with a hand full is accepted');
   stand(g, again);
   eq(g.actionFor(g.players.me)?.kind, 'unload', 'which arms the armful instead');
   g.stepActions(5);
-  check(g.players.me.carry?.qty > 1, 'the charge fills your hands');
+  check(lotTotal(g.players.me.carry) > 1, 'the charge fills your hands');
   eq(g.players.me.errand, null, 'and the errand is spent');
   check(g.actionFor(g.players.me)?.kind !== 'unload', 'so it does not arm again');
   // A crate parked at the drop-off is a crate you are stood *on*, so the pad
@@ -545,7 +557,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 
   const took = g.unshelve('me', shelf.id, plainItem.id);
   check(took.ok, `taking off a board works (${took.error ?? ''})`);
-  const inHand = g.players.me.carry?.qty ?? 0;
+  const inHand = lotTotal(g.players.me.carry);
   check(inHand > 0, 'and fills your hands');
   eq(qtyOn(shelf, plainItem.id) + inHand, 9, 'nothing is created or destroyed taking it');
 
@@ -560,12 +572,26 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   eq(held(shelf), plainItem.id, 'a board emptied by hand keeps its label');
   check(!g.unshelve('me', shelf.id, plainItem.id).ok, 'and a bare board gives nothing');
 
-  // Hands full of something else is a refusal, not a swap.
+  // Hands full of something else USED to be a refusal, and is not one any more:
+  // hands hold `LOT_KINDS` kinds, so an armful of tomatoes leaves a hand free
+  // for the bread. What replaced it is out of HANDS rather than out of units —
+  // a fourth kind has nowhere to go, and that refusal is the one this asserts,
+  // because it is the one nothing else in the sweep would ever reach.
   put(shelf, plainItem, 5);
-  g.players.me.carry = { item_id: otherItem.id, qty: 1 };
+  g.players.me.carry = otherKinds();
   const clash = g.unshelve('me', shelf.id, plainItem.id);
-  check(!clash.ok, 'you cannot take with your hands full of something else');
+  check(!clash.ok, 'a fourth kind has nowhere to go');
   eq(qtyOn(shelf, plainItem.id), 5, 'and the refused board keeps all of it');
+  eq(lotStacks(g.players.me.carry).length, LOT_KINDS, 'and the refusal costs you no hands');
+
+  // ...and one hand short of the cap it simply works, which is the whole point
+  // of the change: an armful of one thing no longer strands you in front of a
+  // board of another.
+  g.players.me.carry = otherKinds(LOT_KINDS - 1);
+  check(g.unshelve('me', shelf.id, plainItem.id).ok,
+    'an armful of something else leaves a hand free');
+  check(lotQty(g.players.me.carry, plainItem.id) > 0, 'and the board fills it');
+  put(shelf, plainItem, 5);
 
   // Reach is real, and it is what the walk in `take` exists to satisfy — a menu
   // button that filled your arms from across the shop would make the floor
@@ -580,22 +606,98 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   eq(g.players.me.carry, null, 'and takes nothing on its own');
   stand(g, shelf.browseAt);
   eq(g.actionFor(g.players.me)?.kind, 'take', 'arriving is what arms it');
-  g.stepActions(5);
-  check((g.players.me.carry?.qty ?? 0) > 0, 'and the charge fills your hands');
-  eq(g.players.me.errand, null, 'one errand, one armful');
 
-  // ...and the unit does not take it straight back. This used to need a latch
-  // (`tookFrom`): stocking armed on full hands beside a shelf that would have
-  // them — which is exactly the state a pickup leaves you in — so a board
-  // emptied by hand refilled itself on the very next tick. Same shape the
-  // retired `stowLock` was guarding, pointing the other way. Both latches are
-  // gone, because there is no loop left to break: an errand is spent when it
-  // fires and nothing arms on its own.
-  const inHandNow = g.players.me.carry.qty;
-  eq(g.actionFor(g.players.me), null,
-    'the shelf you just took from does not immediately restock itself');
+  // One unit per turn of the ring, and the ring goes round again while the
+  // button is down — into a CRATE on your shoulder, because a board holds more
+  // than a pair of hands and "take it all" is the thing anybody wants off a
+  // shelf. `stepActions` is one turn however long its `dt` is, so counting
+  // calls is counting units.
+  const onBoard = qtyOn(shelf, plainItem.id);
   g.stepActions(5);
-  eq(g.players.me.carry?.qty, inHandNow, 'so standing there keeps it in your hands');
+  eq(lotTotal(g.players.me.haul), 1, 'one turn of the ring is one unit');
+  eq(g.players.me.carry, null, 'onto your shoulder, leaving your hands free');
+  check(g.players.me.errand !== null, 'the errand outlives its first unit, or a hold takes one');
+  g.stepActions(5);
+  g.stepActions(5);
+  eq(lotTotal(g.players.me.haul), 3, 'holding on takes another, and another');
+  eq(qtyOn(shelf, plainItem.id) + 3, onBoard, 'and nothing is created on the way off');
+
+  // ...and it takes them off the SHELF rather than putting them back on it.
+  // This used to need a latch (`tookFrom`): stocking armed on full hands beside
+  // a shelf that would have them — exactly the state a pickup leaves you in —
+  // so a board emptied by hand refilled itself on the very next tick. What
+  // keeps it honest now is that a named board outranks stocking, and the pull
+  // owns its errand until it ends.
+  eq(g.actionFor(g.players.me)?.kind, 'take',
+    'the shelf you are pulling from does not offer to take it back');
+
+  // Letting go stops it where it is. There is no partial charge anywhere in
+  // this game, and a pull is the first thing that could have banked one.
+  g.players.me.pressing = false;
+  const crated = lotTotal(g.players.me.haul);
+  g.stepActions(5);
+  g.stepActions(5);
+  eq(lotTotal(g.players.me.haul), crated, 'and letting go is how much you wanted');
+  g.players.me.pressing = true;
+
+  // A full crate ends it by itself and spends the errand with it. The board is
+  // topped up past a crate's worth first, or this measures the board running
+  // out instead — which is the same assertion pointed at the other end.
+  put(shelf, plainItem, g.crateCapacity() + 8, { price: 3 });
+  for (let i = 0; i < g.crateCapacity() + 8; i += 1) g.stepActions(5);
+  eq(lotTotal(g.players.me.haul), g.crateCapacity(), 'a hold fills the crate and stops');
+  check(g.crateCapacity() > g.carryCapacity(),
+    'which is more than a pair of hands, or the crate has bought nothing');
+  eq(g.players.me.errand, null, 'and a pull that ran out spends its errand');
+
+  // A TAP is the fine end of the same grade — exactly one, into your HANDS. A
+  // lone crate has drawn this line since it became rummageable: a tap is one, a
+  // hold is the box.
+  g.players.me.haul = null;
+  g.players.me.carry = null;
+  g.players.me.action = null;
+  const before = qtyOn(shelf, plainItem.id);
+  const tapped = g.tapBoard('me', shelf.id, plainItem.id);
+  check(tapped.ok, `a tap takes one (${tapped.error ?? ''})`);
+  eq(lotTotal(g.players.me.carry), 1, 'one unit, into your hands');
+  eq(g.players.me.haul, null, 'and not into a crate');
+  eq(qtyOn(shelf, plainItem.id), before - 1, 'one off the board, no more');
+  eq(g.players.me.errand, null, 'and it spends whatever the press had armed');
+
+  // ...and the release that ENDS a hold is not also a tap. A board with little
+  // on it hands its first unit over before the client rules the press a hold,
+  // so the same press sends both — and without this you would walk away with
+  // the board in a crate and a loaf in your hand you never asked for.
+  g.players.me.carry = null;
+  g.players.me.action = { kind: 'take', target: shelf.id, repeat: true, took: 4, elapsed: 0 };
+  const tail = g.tapBoard('me', shelf.id, plainItem.id);
+  check(tail.ok && !tail.took, 'a tap that is really the end of a hold is swallowed');
+  eq(g.players.me.carry, null, 'and costs the board nothing twice');
+
+  // How long a hold takes is a property of the GESTURE, not of how full the
+  // shelf happens to be. The interval is one pull's worth of time divided by
+  // how much is coming, so a bare board and a brimming one finish at the same
+  // moment — which is what makes "let go at half and you have half of it" true
+  // of every board rather than of one.
+  //
+  // Two pulls compared against each other rather than either against a number:
+  // a literal here would be re-asserting `PULL_SECONDS`, which passes whatever
+  // that constant happens to say. What is being claimed is the division.
+  const wholePull = (qty) => {
+    Object.assign(g.players.me, { haul: null, carry: null, action: null, errand: null });
+    put(shelf, plainItem, qty, { price: 3 });
+    g.take('me', { shelfId: shelf.id, itemId: plainItem.id });
+    stand(g, shelf.browseAt);
+    return g.actionFor(g.players.me).time * Math.min(qty, g.crateCapacity());
+  };
+  const bare = wholePull(3);
+  const full = wholePull(g.crateCapacity() + 5);
+  check(Math.abs(bare - full) < 1e-9,
+    `a board of three and a full one take the same hold (${bare} vs ${full})`);
+  check(bare > 0, 'and a hold is not instant');
+
+  Object.assign(g.players.me, { haul: null, carry: null, action: null, errand: null });
+  g.unshelve('me', shelf.id, plainItem.id);
 
   // Putting it back on the very same unit is one tap and needs no walk away
   // first, which is what makes this a rule rather than a pause: the latch had
@@ -1139,7 +1241,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   g.players.me.carry = { item_id: plainItem.id, qty: 3 };
   stand(g, shelf.browseAt);
   for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  eq(g.players.me.carry?.qty, 3, 'six seconds beside a shelf with an armful shelves nothing');
+  eq(lotTotal(g.players.me.carry), 3, 'six seconds beside a shelf with an armful shelves nothing');
   eq(qtyOn(shelf, plainItem.id), before, 'and the board is exactly as it was');
 
   // ...and naming that same shelf is what does it, from where you already are.
@@ -1162,7 +1264,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   check(g.walkToFixture('me', plot.id).ok, 'pointing at the bed is accepted');
   eq(g.actionFor(g.players.me)?.kind, 'harvest', 'and that arms the harvest');
   g.stepActions(5);
-  check((g.players.me.carry?.qty ?? 0) > 0, 'which fills your hands');
+  check((lotTotal(g.players.me.carry)) > 0, 'which fills your hands');
 }
 
 // ---------------------------------------------------------------------------
@@ -1198,7 +1300,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   }
   eq(me.carry, null, 'and stayed down — nothing filled your hands again');
   eq(g.deliveries.length, 1, 'as exactly one pallet');
-  eq(g.deliveries[0].qty, 4, 'holding all of it');
+  eq(lotTotal(g.deliveries[0]), 4, 'holding all of it');
 }
 
 // ---------------------------------------------------------------------------
@@ -1553,7 +1655,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   const pushed = g.stockShelf('me', shelf.id);
   check(!pushed.ok, 'stocking it by hand with something else is refused');
   check(/menu/.test(pushed.error ?? ''), 'and says where to change it', pushed.error);
-  eq(g.players.me.carry?.qty, 3, 'a refused stocking leaves your hands alone');
+  eq(lotTotal(g.players.me.carry), 3, 'a refused stocking leaves your hands alone');
 
   g.players.me.carry = { item_id: plainItem.id, qty: 3 };
   check(g.stockShelf('me', shelf.id).ok, 'what it is kept for goes straight on');
@@ -2044,14 +2146,14 @@ function canPlaceHere(g, spec, ignoreId = null) {
   g.deliveries = [];
   g.dropGoods(anyItem.id, cap, g.dropPad());
   const crate = g.deliveries[0];
-  eq(crate?.qty, cap, 'a full crate is standing at the drop-off');
+  eq(lotTotal(crate), cap, 'a full crate is standing at the drop-off');
 
   // Lifting takes the crate OUT of the world and puts it on a person. Both
   // halves matter: a lift that left the crate behind would duplicate the stock,
   // which is the more expensive direction of the same bug.
   stand(g, crate);
   check(g.liftCrate('me', crate.id).ok, 'the whole crate can be picked up');
-  eq(g.players.me.haul?.qty, cap, 'and all of it is on your shoulder');
+  eq(lotTotal(g.players.me.haul), cap, 'and all of it is on your shoulder');
   eq(g.players.me.carry, null, 'with your hands still empty');
   eq(totalOnFloor(g, anyItem.id), 0, 'and nothing left standing where it was');
 
@@ -2062,7 +2164,7 @@ function canPlaceHere(g, spec, ignoreId = null) {
   const sh = g.layout.shelves.find((x) => x.kind !== 'freezer');
   stand(g, sh.browseAt);
   check(!g.stockShelf('me', sh.id).ok, 'and you cannot stock a shelf off your shoulder');
-  eq(g.players.me.haul?.qty, cap, 'the refusal costs you nothing');
+  eq(lotTotal(g.players.me.haul), cap, 'the refusal costs you nothing');
 
   // Setting down is the same object arriving on the floor, at the tile you are
   // standing on — anywhere walkable, not the drop-off. A crate is already a
@@ -2101,7 +2203,7 @@ function canPlaceHere(g, spec, ignoreId = null) {
     if (body) {
       body.haul = { item_id: anyItem.id, qty: cap };
       const row = (saved.saveState().staffAt ?? []).find((r) => r.id === body.id);
-      eq(row?.haul?.qty, cap, 'the save carries the crate on their shoulder');
+      eq(lotTotal(row?.haul), cap, 'the save carries the crate on their shoulder');
 
       const back = fresh();
       back.cash = 50000;
@@ -2109,7 +2211,7 @@ function canPlaceHere(g, spec, ignoreId = null) {
       back.step(0.1);
       const there = Object.values(back.players).find((p) => p.staff);
       back.restoreStaff([{ ...row, id: there?.id }]);
-      eq(there?.haul?.qty, cap, 'and a shop read back off it is still carrying it');
+      eq(lotTotal(there?.haul), cap, 'and a shop read back off it is still carrying it');
     }
   }
 }
@@ -2181,33 +2283,58 @@ function canPlaceHere(g, spec, ignoreId = null) {
   stand(g, crate);
 
   check(g.tapCrate('me', crate.id).ok, 'a tap takes one out');
-  eq(g.players.me.carry?.qty, 1, 'exactly one, not an armful');
-  eq(crate.qty, 4, 'and the crate is one lighter');
+  eq(lotTotal(g.players.me.carry), 1, 'exactly one, not an armful');
+  eq(lotTotal(crate), 4, 'and the crate is one lighter');
 
   check(g.tapCrate('me', crate.id).ok, 'tapping again takes another');
-  eq(g.players.me.carry?.qty, 2, 'onto the same pile in your hands');
+  eq(lotTotal(g.players.me.carry), 2, 'onto the same pile in your hands');
 
   // Direction is SAID. Inferring it from your hands makes the same press mean
   // opposite things depending on state you are not looking at — so rummaging
   // through a crate of what you are already carrying would quietly unload you
   // into it, which is the bug this signature exists to make impossible.
   check(g.tapCrate('me', crate.id, true).ok, 'right puts one back');
-  eq(g.players.me.carry?.qty, 1, 'out of your hands');
-  eq(crate.qty, 4, 'and into the crate');
+  eq(lotTotal(g.players.me.carry), 1, 'out of your hands');
+  eq(lotTotal(crate), 4, 'and into the crate');
 
   // Conservation over the whole exchange, which is the claim under all of it.
-  eq(totalOnFloor(g, anyItem.id) + (g.players.me.carry?.qty ?? 0), 5,
+  eq(totalOnFloor(g, anyItem.id) + (lotTotal(g.players.me.carry)), 5,
     'nothing is created or lost rummaging');
 
-  // The refusals. A crate holds one kind, so the wrong thing bounces rather
-  // than mixing — and it bounces without costing you what you are holding.
+  // The refusals, and they moved. A crate used to hold one kind, so anything
+  // else bounced; a crate holds `LOT_KINDS` now, so the wrong thing goes IN —
+  // which is the feature — and what bounces is the (kinds + 1)th. Asserting
+  // the old rule here would have passed for as long as nobody authored a
+  // second kind into a box, which is exactly the trap `verify:catalog` was
+  // written about for pieces.
   const other = warm.find((i) => i.id !== anyItem.id);
   if (other) {
     g.players.me.carry = { item_id: other.id, qty: 2 };
-    check(!g.tapCrate('me', crate.id, true).ok, 'you cannot put the wrong thing in');
-    check(!g.tapCrate('me', crate.id).ok, 'nor take one out with your hands full of something else');
-    eq(g.players.me.carry?.qty, 2, 'and a refusal costs you nothing');
-    eq(crate.qty, 4, 'either way');
+    check(g.tapCrate('me', crate.id, true).ok, 'a second kind goes into the box');
+    eq(lotStacks(crate).length, 2, 'and the box is holding both');
+    eq(lotQty(g.players.me.carry, other.id), 1, 'one unit out of your hands');
+
+    // ...and the cap is real. Fill the box to its kinds and the next one has
+    // nowhere to go — without this, one crate absorbs the whole yard and how
+    // big you painted the pad stops meaning anything.
+    const spare = warm.filter((i) => i.id !== anyItem.id && i.id !== other.id);
+    for (const it of spare.slice(0, LOT_KINDS)) {
+      g.players.me.carry = { item_id: it.id, qty: 1 };
+      g.tapCrate('me', crate.id, true);
+    }
+    eq(lotStacks(crate).length, Math.min(LOT_KINDS, 2 + spare.length),
+      'a crate never holds more kinds than it has room for');
+
+    // A kind the full box has never seen bounces, and bounces without costing
+    // you what you are holding. That last half is the one worth asserting: a
+    // refusal that took the unit anyway is a conservation hole, and it looks
+    // exactly like a refusal that worked.
+    const late = warm.find((i) => !lotHas(crate, i.id));
+    if (late) {
+      g.players.me.carry = { item_id: late.id, qty: 2 };
+      check(!g.tapCrate('me', crate.id, true).ok, 'a kind too many bounces');
+      eq(lotQty(g.players.me.carry, late.id), 2, 'and a refusal costs you nothing');
+    }
   }
 
   // A tap SPENDS the lift the press armed on the way down. Without this, the

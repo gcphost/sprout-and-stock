@@ -187,7 +187,7 @@ server.registerTool('list_content', {
   title: 'List existing content',
   description: 'List all items, crops, customer archetypes, events, upgrades or recipes currently in the game. Check here before creating something to avoid duplicating an id.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin', 'vehicle']).describe('Which kind of content to list.'),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin', 'vehicle', 'kit']).describe('Which kind of content to list.'),
   },
 }, async ({ kind }) => text(await call('GET', `/content/${kind}`)));
 
@@ -287,6 +287,8 @@ server.registerTool('create_fixture', {
     }).optional().describe('Makes this piece EARN. It pays into a pile of cash on the floor that somebody has to walk over and collect \u2014 the same entity a till drops, so it renders, is picked up and is tidied away by code that already exists. Money you have to fetch is a decision; money that appears in the bank is a trickle nobody sees. Run `simulate` after authoring one: this is the only field on a fixture that prints money.'),
     charm: z.number().min(0).max(20).optional()
       .describe('How much nicer this makes the shop look, which is how far word of it travels. It raises CATCHMENT \u2014 how much of the town is within reach at all \u2014 rather than reputation, because reputation is what the people who already came in think of you. Saturating: about half the maximum at 10 total charm across the whole shop, so a room full of pot plants is worth about as much as one nice centrepiece. 1 is a pleasant pot plant, 5 is a centrepiece.'),
+    open: z.boolean().optional()
+      .describe('Can you walk all the way round it? A shelf-like unit (shelf, freezer, appliance) is always workable from its FRONT and both ENDS — that is the kind, not the piece. This says this particular design has no back panel either, so all four sides work: true for a display table or an island unit, false (the default) for anything with a solid back. Reach and the working-spot markers only — where the generator reserves a spot, where a tap walks you and where one may be built are all unchanged. It is the one field on a piece that is not a look: a unit two people can work at once changes how the shop flows, so run `simulate` after setting it.'),
     variants: z.any().optional().describe('Optional other shapes of this kind: [{id, name, model, work}]. Looks only — no costs, no multipliers, and the kind\'s own model is always offered alongside them as "Standard". `work` is optional and falls back to the piece\'s, which is how one generic "steam and a light" covers every appliance nobody has drawn a specific one for.'),
     tiers: z.array(z.object({
       name: z.string().describe('What this rung is called, e.g. "Chilled" or "Deep Freeze".'),
@@ -447,6 +449,30 @@ server.registerTool('create_vehicle', {
   },
 }, async (args) => text(await call('POST', '/content/vehicle', args)));
 
+server.registerTool('create_kit', {
+  title: 'Design something somebody carries',
+  description:
+    'Create or update a kit — a prop a shopper has on them. A paper bag they walk out with, a basket they fill as they go, a trolley, a thief\'s swag sack. Live in the running shop within about a second.\n\n'
+    + 'A KIT IS AN OBJECT, NOT AN ACTIVITY, and that is the line between this and `create_pastime`. A pastime has a clock, a spot to stand and an amount of energy it puts back; the prop is a detail of it. A kit has none of those — it is only the thing in their hands. If what you are authoring has a duration, it is a pastime.\n\n'
+    + 'IT REPLACES THE LOOSE ARMFUL. Without a kit a shopper carries their shopping as individual little models at chest height, which is right while they are choosing — "they picked up a cheese" is worth seeing — and wrong once they have paid, when it is five jars floating in front of every customer heading for the door. Author no kits and the game looks exactly as it did.\n\n'
+    + 'USE says the moment it is carried in, and it is a closed set because each entry is a moment the sim knows it is in and can hand a fullness to:\n'
+    + '  shopping  in the shop, filling a basket\n'
+    + '  leaving   paid, on the way out with what they bought\n\n'
+    + 'TAGS ARE WHO GETS IT, matched against the archetype\'s own `tags` — never an archetype id. Leave them off and anybody may carry it. Two rows for the same `use` are drawn between by `weight`, so a shop can have a mix of carrier bags.\n\n'
+    + 'MOVES NO NUMBER. A kit is a look: it changes nothing about how much somebody buys, how fast they shop or what they will pay, so there is never a reason to run `simulate` after authoring one. If you want a trolley that makes people buy MORE, that is a mechanic and it needs code — say so rather than authoring a big model and hoping.\n\n'
+    + 'MODEL is staged by HOW FULL IT IS: the 0..1 that picks between stages is how much is in it, so a bag that starts flat and bulges, or a basket that fills up, is authored art and no code knows what a bag is.\n\n'
+    + 'Author it HANGING WHERE A HAND IS, in the person\'s own space: they are about 0.68 across and 0.8 tall, so a bag sits around y 0.2–0.5 and about x 0.26 out to one side. Keep it under about 0.35 across or it reads as luggage. Front is +z.\n\n'
+    + STAGE_HELP,
+  inputSchema: {
+    id: z.string().describe('Slug, e.g. "paper-bag". Reuse one to update it.'),
+    name: z.string().describe('Display name, e.g. "Paper bag".'),
+    use: z.enum(['shopping', 'leaving']).describe('The moment it is carried in. Closed set — this is not a way to invent moments.'),
+    model: z.any().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. The 0..1 driving the stages is how full it is. ' + STAGE_HELP),
+    tags: z.array(z.string()).optional().describe('Which shoppers get it, matched against the archetype\'s tags. Omit for anyone. Never an archetype id.'),
+    weight: z.number().min(0).max(100).optional().describe('Relative likelihood against other kits for the same `use`. 0 retires a row without deleting it.'),
+  },
+}, async (args) => text(await call('POST', '/content/kit', args)));
+
 server.registerTool('set_worker_skin', {
   title: 'Put a look on one hire',
   description:
@@ -587,7 +613,7 @@ server.registerTool('delete_content', {
   title: 'Delete content',
   description: 'Remove an item, crop, archetype, event, upgrade or recipe from the live game. Deleting an item also deletes crops that produce it.',
   inputSchema: {
-    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin', 'vehicle']),
+    kind: z.enum(['item', 'crop', 'archetype', 'event', 'upgrade', 'recipe', 'fixture', 'worker', 'pastime', 'skin', 'vehicle', 'kit']),
     id: z.string(),
   },
 }, async ({ kind, id }) => text(await call('DELETE', `/content/${kind}/${id}`)));

@@ -48,6 +48,7 @@ import { remove } from '../server/db.js';
 import { padCells, groundIndex } from '../shared/build.js';
 import { T } from '../shared/tiles.js';
 import { E } from '../shared/edges.js';
+import { LOT_KINDS, lotStacks, lotTotal, lotQty, lotHas } from '../shared/lot.js';
 
 const failures = [];
 let checks = 0;
@@ -281,16 +282,33 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
   const items = orderable();
   check(items.length >= 6, 'there are enough orderable items to fill a pad', `${items.length}`);
 
+  /**
+   * In UNITS, not in crates — and that distinction is the whole of what a
+   * mixed crate changed here.
+   *
+   * This used to count boxes: `seeded` kinds bought meant `seeded` crates, one
+   * per cell, and the count stood in for "how big you paint it is how much it
+   * holds". A crate holds `LOT_KINDS` kinds now, so four kinds arrive as two
+   * boxes and the proxy reads as the pad having shrunk — which it has not.
+   * What the pad promises has always been a number of units (`bayRoom` is
+   * cells × `crateCapacity`), so the sweep asks about that instead. The old
+   * shape passed for as long as one box meant one kind, which is exactly the
+   * sort of claim that goes quietly wrong under a feature three files away.
+   */
   const seeded = g.layout.bay.cells.length;
+  const cap = g.crateCapacity();
+  eq(g.bayRoom(), seeded * cap, 'a seeded bay holds one crate per cell');
+
   for (const id of items.slice(0, seeded)) g.buyStock('me', id, 2);
   vanArrives(g);
-  eq(g.deliveries.length, seeded, 'a seeded bay holds one crate per cell');
-  eq(new Set(g.deliveries.map((d) => `${d.x},${d.z}`)).size, seeded,
-    'each on a cell of its own');
+  eq(g.deliveries.reduce((n, d) => n + lotTotal(d), 0), seeded * 2,
+    'and every unit ordered lands in it');
   check(g.deliveries.every((d) => padCells(g.layout, 'bay')
     .some((c) => c.x === d.x && c.z === d.z)), 'and every crate stands on the bay');
+  check(g.deliveries.every((d) => lotTotal(d) <= cap && lotStacks(d).length <= LOT_KINDS),
+    'with no box over either of its caps');
 
-  // Grow it by two cells, and two more kinds of goods fit.
+  // Grow it by two cells, and it takes two crates more.
   const row = g.layout.bay.cells[0].z;
   const west = g.layout.bay.cells[0].x - 2;
   const grow = g.buildGround('me', { x: west, z: row, piece: 'verify-yard-bay', to: { x: west + 1, z: row } });
@@ -298,10 +316,7 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
   eq(g.layout.bay.cells.length, seeded + 2, 'and is two cells larger');
 
   g.deliveries = [];
-  for (const id of items.slice(0, seeded + 2)) g.buyStock('me', id, 2);
-  vanArrives(g);
-  eq(new Set(g.deliveries.map((d) => `${d.x},${d.z}`)).size, seeded + 2,
-    'which is two more crates than it used to take');
+  eq(g.bayRoom(), (seeded + 2) * cap, 'which is two more crates than it used to take');
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +345,7 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
   // ...and it is genuinely the drop-off, so hands get cleared in it.
   g.players.me.x = spot.x;
   g.players.me.z = spot.z;
-  g.players.me.carry = { item_id: orderable()[0], qty: 2 };
+  g.players.me.carry = { stacks: [{ item_id: orderable()[0], qty: 2 }] };
   const put = g.stow('me');
   check(put.ok, 'and standing in it is standing at the drop-off', put.error ?? '');
 
@@ -370,10 +385,10 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
   eq(g.cash, cashWas, 'and nothing was charged for it');
   eq(g.deliveries.length, 0, 'and no crate appeared in a field somewhere');
 
-  g.players.me.carry = { item_id: orderable()[0], qty: 2 };
+  g.players.me.carry = { stacks: [{ item_id: orderable()[0], qty: 2 }] };
   const put = g.stow('me');
   check(!put.ok, 'and clearing your hands is refused too');
-  check(g.players.me.carry?.qty === 2, 'so you are still holding it');
+  check(lotTotal(g.players.me.carry) === 2, 'so you are still holding it');
 }
 
 // ---------------------------------------------------------------------------
@@ -474,9 +489,9 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
 /** Every spud in the shop — in a crate, on a board, or in somebody's hands. */
 function picked(g) {
   let n = 0;
-  for (const d of g.deliveries) if (d.item_id === TEST_SPUD.id) n += d.qty ?? 0;
+  for (const d of g.deliveries) n += lotQty(d, TEST_SPUD.id);
   for (const p of Object.values(g.players)) {
-    if (p.carry?.item_id === TEST_SPUD.id) n += p.carry.qty ?? 0;
+    n += lotQty(p.carry, TEST_SPUD.id);
   }
   for (const sh of g.layout.shelves) n += g.shelfStack(sh, TEST_SPUD.id)?.qty ?? 0;
   return n;
@@ -522,7 +537,7 @@ function picked(g) {
   const onPad = (d) => padCells(g.layout, 'drop').some((c) => c.x === d.x && c.z === d.z)
     || padCells(g.layout, 'bay').some((c) => c.x === d.x && c.z === d.z);
   const strays = g.deliveries.filter((d) => !onPad(d));
-  const carried = Object.values(g.players).some((p) => p.haul?.item_id === TEST_SPUD.id);
+  const carried = Object.values(g.players).some((p) => lotHas(p.haul, TEST_SPUD.id));
   check(!strays.length || carried,
     'a crate nothing has room for is taken back to the yard rather than left in the aisle',
     `${strays.length} still on the floor`);
@@ -534,14 +549,14 @@ function picked(g) {
 function heldOf(g, itemId) {
   let n = 0;
   for (const p of Object.values(g.players)) {
-    for (const lot of [p.carry, p.haul]) if (lot?.item_id === itemId) n += lot.qty ?? 0;
+    for (const lot of [p.carry, p.haul]) n += lotQty(lot, itemId);
   }
   return n;
 }
 
 /** Every unit of this standing in a crate anywhere. */
 function totalOnFloor(g, itemId) {
-  return g.deliveries.filter((d) => d.item_id === itemId).reduce((n, d) => n + (d.qty ?? 0), 0);
+  return g.deliveries.reduce((n, d) => n + lotQty(d, itemId), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -595,7 +610,7 @@ function totalOnFloor(g, itemId) {
   const porters = Object.values(g.players).filter((p) => p.staff);
   eq(porters.length, 3, 'three of them turned up');
   for (const p of porters) {
-    p.haul = { item_id: TEST_SPUD.id, qty: g.crateCapacity() };
+    p.haul = { stacks: [{ item_id: TEST_SPUD.id, qty: g.crateCapacity() }] };
     p.claim = null;
     p.path = null;
     p.cooldown = 0;

@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { partsAt, seamStep, skinnedParts, FRONT_LIP } from '../../shared/model.js';
 import { FACE_CALM, VEHICLE_LOOK } from './palette.js';
+import { signed } from '../money.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
 const GEO = {
@@ -104,7 +105,13 @@ export function buildModel(model, {
     mesh.rotation.y = ((part.rot ?? 0) * Math.PI) / 180;
     // Glass casts no shadow. A door you can see through laying down a solid
     // black rectangle is the giveaway that it isn't really glass.
-    mesh.castShadow = castShadow && alpha >= 1;
+    //
+    // ...unless it asks to. `shadow` is the opt-in, and it exists because a
+    // ceiling panel faded down to see the floor through takes its shadow with
+    // it and stops being in the room. The shadow is full strength either way —
+    // a depth pass has no opacity — so this is a choice between two wrong
+    // answers rather than a dimmer. See the note in `shared/schemas.js`.
+    mesh.castShadow = castShadow && (alpha >= 1 || part.shadow === true);
     mesh.receiveShadow = false;
     group.add(mesh);
     if (part.motion) {
@@ -454,8 +461,9 @@ export const CRATE_STEP = CRATE_DECK + CRATE_H;
  * crate says what is in it in words instead: the one place in the game a crate
  * has ever needed to name itself is when you cannot see into it.
  */
-export function buildPallet(model, qty, { covered = false, name = '', cap = 6 } = {}) {
+export function buildPallet(piles, { covered = false, cap = 6 } = {}) {
   const g = new THREE.Group();
+  const qty = piles.reduce((n, p) => n + p.qty, 0);
 
   // Pallet boards.
   for (let i = 0; i < 3; i++) {
@@ -481,36 +489,55 @@ export function buildPallet(model, qty, { covered = false, name = '', cap = 6 } 
   wall(CRATE_WALL, CRATE, -rim, 0);
   wall(CRATE_WALL, CRATE, rim, 0);
 
-  if (model && !covered) {
-    // How full it LOOKS is how full it IS — a share of the crate's own
-    // capacity, not a count against a literal.
-    //
-    // This was `ceil(qty / 6)`, capped at three rows, and the 6 was a number
-    // nothing else in the game used: a crate holds `crateCapacity()`, which is
-    // six, so it needed thirteen to draw three rows and every crate that can
-    // exist drew exactly one. A full crate looked a quarter full, which reads
-    // as a stocker who cannot pack rather than as art measured against the
-    // wrong number — and it would have stayed wrong at any cap, because the
-    // ramp was never asking what the box holds.
-    const rows = Math.max(1, Math.min(3, Math.round((qty / Math.max(1, cap)) * 3)));
+  if (!covered) {
+    /**
+     * How full it LOOKS is how full it IS — a share of the crate's own
+     * capacity, not a count against a literal.
+     *
+     * This was `ceil(qty / 6)`, capped at three rows, and the 6 was a number
+     * nothing else in the game used: a crate holds `crateCapacity()`, so it
+     * needed thirteen to draw three rows and every crate that could exist drew
+     * exactly one. A full crate looked a quarter full, which reads as a stocker
+     * who cannot pack rather than as art measured against the wrong number.
+     *
+     * With more than one pile in the box the rows are SHARED OUT between them,
+     * biggest first, and every pile gets at least one — a box you cannot tell
+     * holds three things is a box that has not said the thing worth saying.
+     * Three rows against three kinds is why `LOT_KINDS` is what it is: a fourth
+     * pile would have nowhere to stand that anyone could see from this camera.
+     */
+    const shown = piles.filter((p) => p.model).slice(0, 3);
+    const full = Math.round((qty / Math.max(1, cap)) * 3);
+    // At least one row per pile, so what is in the box is legible, and never
+    // more than three, so it stays inside the walls. The floor at `shown.length`
+    // is why a nearly-empty mixed box looks fuller than a nearly-empty plain
+    // one: how many KINDS is the fact worth reading at a glance, and how much
+    // there is is on the label right above it.
+    const rows = Math.max(shown.length, Math.min(3, full));
+    const each = shown.map((_, i) => Math.floor(rows / shown.length)
+      + (i < rows % shown.length ? 1 : 0));
+
     // Sized and spread off the crate's *inside*, not off literals: an item is
     // at most 0.36 across and the shortest wall stands the goods off centre, so
     // one that fits the box at this size still fits it at another.
     const inner = CRATE - CRATE_WALL * 2;
     const scale = Math.min(0.55, inner / 0.9);
-    for (let i = 0; i < rows; i++) {
-      const one = buildModel(model, { castShadow: false });
-      one.scale.setScalar(scale);
-      one.position.set(
-        ((i % 2) - 0.5) * inner * 0.4,
-        // Standing on the deck rather than floating above it, and stacked in
-        // steps short enough that the second row clears the rim — the point of
-        // an open-topped crate is that you can see what is in it.
-        CRATE_DECK + i * CRATE_H * 0.55,
-        ((i % 3) - 1) * inner * 0.26,
-      );
-      g.add(one);
-    }
+    let i = 0;
+    shown.forEach((pile, k) => {
+      for (let n = 0; n < each[k]; n++, i++) {
+        const one = buildModel(pile.model, { castShadow: false });
+        one.scale.setScalar(scale);
+        one.position.set(
+          ((i % 2) - 0.5) * inner * 0.4,
+          // Standing on the deck rather than floating above it, and stacked in
+          // steps short enough that the second row clears the rim — the point
+          // of an open-topped crate is that you can see what is in it.
+          CRATE_DECK + i * CRATE_H * 0.55,
+          ((i % 3) - 1) * inner * 0.26,
+        );
+        g.add(one);
+      }
+    });
   }
 
   // A lone crate hangs its count in the air above itself, where there is
@@ -519,8 +546,15 @@ export function buildPallet(model, qty, { covered = false, name = '', cap = 6 } 
   // crate above, which reads as that crate's number rather than as this one's.
   // Sprites already ignore depth, so a buried crate's label stays legible
   // through everything standing on it — which is the whole point of it.
+  // A covered crate has to NAME what is in it, because the box on top is a lid
+  // in every sense but the word and the sample below is invisible. With more
+  // than one pile there is no single name, so it says how many kinds instead —
+  // which is the fact the samples would have carried.
+  const said = piles.length > 1
+    ? `${qty}x, ${piles.length} kinds`
+    : (piles[0]?.name ? `${qty}x ${piles[0].name}` : `x${qty}`);
   const label = covered
-    ? buildTextSprite(name ? `${qty}x ${name}` : `x${qty}`, { fill: '#ffe9b8', scale: 0.62 })
+    ? buildTextSprite(said, { fill: '#ffe9b8', scale: 0.62 })
     : buildTextSprite(`x${qty}`, { fill: '#ffe9b8', scale: 0.7 });
   label.position.y = covered ? CRATE_DECK + CRATE_H / 2 : 0.78;
   g.add(label);
@@ -541,8 +575,8 @@ export function buildMoneyLabel(amount) {
   return buildTextSprite(moneySaid(amount), { fill: '#eafbe2', scale: 0.55 });
 }
 
-/** What a pile says. Its own function so the sprite and its rewrite agree. */
-export const moneySaid = (amount) => `+$${Number(amount).toFixed(2)}`;
+/** What a pile says. Its own name so the sprite and its rewrite agree. */
+export const moneySaid = signed;
 
 let ghostMat = null;
 /**
@@ -1410,6 +1444,10 @@ export function weld(group, keep = null) {
       // grouped here shares a material, and a material is a colour and an
       // alpha — so glass, which casts no shadow, is always in a group of its
       // own and can never be welded into something that does.
+      // The one seam in that, since `shadow` made casting a per-part choice: two
+      // parts of the SAME colour and alpha that disagree about it weld together
+      // and take the first one's answer. Give one of them its own shade if that
+      // ever matters — a material is the only thing a merge can tell apart.
       if (rec) rec.parts.push(g);
       else byMaterial.set(o.material, { parts: [g], cast: o.castShadow, receive: o.receiveShadow });
     } else if (o.isSprite) {

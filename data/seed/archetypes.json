@@ -22,7 +22,8 @@
     "color": "#7fb3d9",
     "staple_tags": [
       "dairy"
-    ]
+    ],
+    "tags": []
   },
   {
     "id": "bulk-shopper",
@@ -44,7 +45,8 @@
     "basket_max": 10,
     "spawn_weight": 1,
     "color": "#d98a5a",
-    "staple_tags": []
+    "staple_tags": [],
+    "tags": []
   },
   {
     "id": "family-cook",
@@ -68,7 +70,8 @@
     "basket_max": 7,
     "spawn_weight": 1.5,
     "color": "#c98a5a",
-    "staple_tags": []
+    "staple_tags": [],
+    "tags": []
   },
   {
     "id": "foodie",
@@ -91,7 +94,8 @@
     "basket_max": 5,
     "spawn_weight": 1.2,
     "color": "#c98ad9",
-    "staple_tags": []
+    "staple_tags": [],
+    "tags": []
   },
   {
     "id": "gift-hunter",
@@ -115,7 +119,8 @@
     "color": "#e07ab0",
     "staple_tags": [
       "gift"
-    ]
+    ],
+    "tags": []
   },
   {
     "id": "health-nut",
@@ -139,7 +144,8 @@
     "color": "#7cc46a",
     "staple_tags": [
       "produce"
-    ]
+    ],
+    "tags": []
   },
   {
     "id": "morning-regular",
@@ -166,7 +172,8 @@
     "color": "#e8b04b",
     "staple_tags": [
       "breakfast"
-    ]
+    ],
+    "tags": []
   },
   {
     "id": "snack-kid",
@@ -191,6 +198,7 @@
     "color": "#e8b23c",
     "staple_tags": [
       "kids"
-    ]
+    ],
+    "tags": []
   }
 ]

@@ -38,6 +38,33 @@ import { E, SOLID, edgeBetween, reachable, withEdge, computeIndoor } from './edg
  * counter is used from both sides at once, by two different people, and the
  * shop only works when both of them can stand where they need to.
  *
+ * `ends` is a *softer* claim than either, and the difference is what it is FOR.
+ * `anchor` is the spot the generator reserves, floods for reachability and
+ * routes a walk to — one tile, chosen when the thing was laid, and everything
+ * that has to agree on a single answer reads it. `ends` says you can also work
+ * the unit from either END of it, which is simply true of a shelf and of a
+ * machine and is nobody's decision: you walk up to the side of a display unit
+ * and put a loaf on it, and the shop refusing that is the shop being wrong
+ * about its own furniture.
+ *
+ * So it deliberately changes only *reach* and what the markers draw. Widening
+ * `anchor` would mean the generator reserving three tiles per shelf and
+ * `canPlace` accepting a unit whose front is walled in, which is a different
+ * and much larger change to what a shop is allowed to look like.
+ *
+ * A till has no `ends` on purpose. Its two spots are ROLES — one for the person
+ * being served and one for the person serving — and a third tile at the end of
+ * the counter is neither of those; it is somebody standing at the side of a
+ * till, which is not a thing anybody does.
+ *
+ * The BACK is a fact about the piece rather than the kind, and it is the one
+ * piece of this that content owns: `open` on a `fixtures` row (see
+ * `shared/pieces.js`). A shelving unit has a back panel and a produce table has
+ * four legs, and those are the same kind wearing two shapes — so which of them
+ * you can walk all the way round cannot be answered here. It is deliberately
+ * NOT a variant: a variant is a look and may never move a number, and how many
+ * sides a unit can be worked from moves how a shop flows. See `spotsOf`.
+ *
  * It was hardcoded as `{ x: till.x, z: till.z - 1 }` in `server/sim/staff.js`
  * before it was a field — "one tile north", which is right for exactly the
  * facing the generator happens to use and wrong for the other three. Turning a
@@ -47,13 +74,13 @@ import { E, SOLID, edgeBetween, reachable, withEdge, computeIndoor } from './edg
  * reachability; this one was a literal in a job function.
  */
 export const FIXTURES = {
-  shelf: { label: 'Shelf', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt' },
-  freezer: { label: 'Freezer', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt' },
+  shelf: { label: 'Shelf', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true },
+  freezer: { label: 'Freezer', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true },
   checkout: {
     label: 'Till', blocks: true, where: 'indoor', rotates: true,
     anchor: 'serveAt', behind: 'tendAt',
   },
-  station: { label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt' },
+  station: { label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt', ends: true },
   plot: { label: 'Plot', blocks: false, ground: T.PLOT, where: 'outdoor', rotates: false, anchor: null },
   /**
    * Decorations. Both stand in a cell and neither blocks it.
@@ -350,6 +377,38 @@ export function workSpots(kind, x, z, rot = 0) {
 }
 
 /**
+ * Where you stand to work a fixture that has already been placed.
+ *
+ * `workSpots` above answers it from a *spec* — kind, tile, rotation — which is
+ * what the ghost and the generator have. This answers it from the placed record,
+ * which is what everything downstream has: the spot the layout actually stamped,
+ * read back rather than re-derived, so a facing the generator refused is not
+ * quietly drawn as though it had been honoured.
+ *
+ * In `shared/` because the client has to ask it too. A press names the unit you
+ * are pointing at (`Game.aimAt`) and is refused out of reach, so the client has
+ * to decide whether to send — and reach measured to the fixture on one side and
+ * to its working spot on the other is the green-ghost bug: a press that looks
+ * legal and comes back as a red toast. One spelling, two callers.
+ *
+ * Falls back to the fixture itself, which is right for everything that has no
+ * side — a decoration, a pad, anything a person stands *on* rather than beside.
+ */
+export function workSpotOf(f) {
+  return f.browseAt ?? f.serveAt ?? f.useAt ?? f;
+}
+
+/**
+ * How close is close enough to work something without walking.
+ *
+ * The sim's own number, spelled here for the same reason `workSpotOf` is: the
+ * client decides whether a press is worth sending and the server decides whether
+ * it lands, and two constants would disagree exactly at the edge — where every
+ * complaint about reach comes from.
+ */
+export const REACH = 1.6;
+
+/**
  * Which way a thing put down HERE should face, given how it is facing now.
  *
  * Aim assist, not a rule. It answers the thing anybody building a row of
@@ -433,14 +492,55 @@ export function faceAlong(L, spec, { ignoreId = null, keep = false } = {}) {
  * its own spots — `serveAt` is stored, not derived, because a till that was
  * turned mid-compose would otherwise report the facing it used to have.
  */
-export function spotsOf(f) {
+export function spotsOf(f, { layout = null, open = false } = {}) {
   const def = FIXTURES[f?.kind];
   if (!def) return [];
   const out = [];
   const use = f.browseAt ?? f.serveAt ?? f.useAt;
   if (use) out.push({ ...use, role: 'use' });
   if (def.behind && f[def.behind]) out.push({ ...f[def.behind], role: 'tend' });
+  if (!def.ends || !use) return out;
+
+  // The ends, and — if the piece says it is open all round — the back. Derived
+  // rather than stored, which is the opposite call to `browseAt` and the right
+  // one for the same reason: the anchor is a DECISION made when the thing was
+  // laid and has to survive being read back, while these are a fact about a box
+  // standing on a tile and are true again every time you ask.
+  //
+  // Filtered against the shop, or the picture lies: an end that is inside a
+  // wall, under another shelf or across a wall line is not a place anybody can
+  // stand, and marking it would be advertising a spot the game will not accept
+  // you at. Without a layout there is nothing to filter against, which is what
+  // an unplaced ghost is — see `workSpots`, which answers the same question for
+  // a placement being judged.
+  const rot = rot4(f.rot ?? 0);
+  const more = open ? [rot + 1, rot + 3, rot + 2] : [rot + 1, rot + 3];
+  const seen = new Set(out.map((s) => `${s.x},${s.z}`));
+  for (const r of more) {
+    const t = anchorTile(f.x, f.z, r);
+    if (seen.has(`${t.x},${t.z}`)) continue;
+    if (!standableSide(layout, f, t)) continue;
+    seen.add(`${t.x},${t.z}`);
+    out.push({ ...t, role: 'side' });
+  }
   return out;
+}
+
+/**
+ * Can somebody actually stand HERE and work the thing next to them?
+ *
+ * Two tests, and the second is the one a tile lookup cannot make: the ground
+ * has to take a person and hold nothing (`isWalkableTile`, which is what the
+ * walk grid itself is built from), and the line between that tile and the unit
+ * has to not be a wall. Leaving the edge test out works perfectly against every
+ * generated shop and fails the day somebody draws a divider — the same trap
+ * `faceAlong` documents, where the far side of your own shop wall is ordinary
+ * walkable grass.
+ */
+function standableSide(L, f, t) {
+  if (!L) return true;
+  if (!isWalkableTile(L, t.x, t.z)) return false;
+  return !SOLID.has(edgeBetween(L, t.x, t.z, f.x, f.z));
 }
 
 /**

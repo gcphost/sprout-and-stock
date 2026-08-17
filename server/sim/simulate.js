@@ -20,6 +20,7 @@ import { wholesalePrice, suggestedPrice, departmentMeter } from './economy.js';
 import { requiredFixture } from '../../shared/tags.js';
 import { canPlaceCleanly } from '../../shared/build.js';
 import { WALKABLE } from '../../shared/tiles.js';
+import { lotStacks, lotTotal, lotMain } from '../../shared/lot.js';
 
 /**
  * @param {object} opts
@@ -433,7 +434,10 @@ function runBot(game, bot, priceMult) {
   for (const crate of [...game.deliveries]) {
     if (bot.carry) dumpCarryToShelf(game, bot, priceMult, reserved);
     if (bot.carry) break;
-    if (!shelfFor(game, crate.item_id, reserved)) continue;
+    // Any pile in the box that has somewhere to go. Asked of one kind, a mixed
+    // crate whose first pile is homeless would be skipped for ever with two
+    // shelvable piles in it.
+    if (!lotStacks(crate).some((k) => shelfFor(game, k.item_id, reserved))) continue;
     teleport(bot, crate);
     if (!game.unload('bot', crate.id).ok) continue;
     dumpCarryToShelf(game, bot, priceMult, reserved);
@@ -750,9 +754,9 @@ function dumpCarryToShelf(game, bot, priceMult, reserved = new Set()) {
   // something: "nowhere left that will take this" has to end the loop, and it
   // is not the same answer as "hands empty".
   for (let guard = game.layout.shelves.length + 1; guard > 0 && bot.carry; guard--) {
-    const before = bot.carry.qty;
+    const before = lotTotal(bot.carry);
     dumpArmfulOnce(game, bot, priceMult, reserved);
-    if (bot.carry && bot.carry.qty >= before) break;
+    if (bot.carry && lotTotal(bot.carry) >= before) break;
   }
 }
 
@@ -798,7 +802,12 @@ function shelfFor(game, itemId, reserved = new Set()) {
 function dumpArmfulOnce(game, bot, priceMult, reserved) {
   if (!bot.carry) return;
   const c = content();
-  const item = c.byId.items[bot.carry.item_id];
+  // The biggest pile decides where to walk, and `stockShelf` then pours every
+  // pile that unit has a board for. Hands hold `LOT_KINDS` kinds now, so a bot
+  // that shelved only the item it happened to read first would bin the rest on
+  // the next pass — and a balance run that quietly destroys a third of every
+  // delivery reports as an economy that does not work.
+  const item = c.byId.items[lotMain(bot.carry)?.item_id];
   if (!item) { bot.carry = null; return; }
 
   const target = shelfFor(game, item.id, reserved);

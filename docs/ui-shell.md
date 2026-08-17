@@ -23,7 +23,7 @@ Three zones, three jobs, no overlap:
 
 | Zone | Contains | Interactive? |
 |---|---|---|
-| **Top-left column** | cash, cashflow, day, season, clock, the three gauges, then the demand meter | no — passive readout |
+| **Top-left column** | the date over the balance, cashflow, clock, the three gauges, then the demand meter | almost — two switches ride on it (the clock pauses, the left edge is the shutters), and nothing else in it is pressable |
 | **Bottom nav** | one icon per menu, each with a live badge — plus Build, which is a mode | yes — this is the menu |
 | **Bottom bar** | the build palette, or the roster — one at a time, never both | yes — one tap or number key each |
 
@@ -416,8 +416,8 @@ moment it exists — including the ones that are a bar rather than a panel.
 | `1`–`9` | the open tab of whichever bar is up, seeds when neither is |
 | `Tab` | next tab of the bar that is up, sub-tabs counting as their own stops (`shift` for back). Prevented hard, or focus lands in the search box |
 | `R` | turn what you're placing |
-| `O` | raise or drop the shutters — the same press as the button on the clock |
-| `P` | stop or start the clock |
+| `O` | raise or drop the shutters — the same press as the panel's left edge |
+| `P` | stop or start the clock — the same press as the clock itself |
 | hold `E` / `Space` | use what you're stood by |
 | hold `Q` | seed wheel |
 | `Esc` | clear the search box → close the menu → close the roster bar → put down what you're carrying → leave build mode |
@@ -1051,14 +1051,15 @@ something that happened to you: `isOpen()` was `08:00 ≤ hour < 20:00` and
 nothing else. A struck-through clock said what had happened and never that
 anything could be done about it.
 
-Two buttons under it now — a door and a play/pause — because both are decisions
-you make while looking at the hour. What matters is which value each half reads,
-and they are **not the same value**:
+Both switches live on it now — or rather, on the panel it sits in — because
+both are decisions you make while looking at the hour. **The clock is the
+play/pause** and **the panel's left edge is the shutters**. What matters is
+which value each half reads, and they are **not the same value**:
 
 | Reads | Is | Because |
 |---|---|---|
 | the clock's strike-through | `state.isOpen` — the shutters **and** the hours | whether anybody is actually being served |
-| the Open/Close button | `state.shutters` — your switch alone | at 22:00 with the shutters up there is nothing for you to do about the hour, and a button offering to "open up" an open shop twelve hours a day is a button that is wrong twelve hours a day |
+| the panel's left edge | `state.shutters` — your switch alone | at 22:00 with the shutters up there is nothing for you to do about the hour, so the edge stays lit while the clock is struck through. Reading one value for both would put the open sign out every night, on a shop you had not closed |
 | the to-do chip | `state.shutters` | same reason, louder: read `isOpen` and it nags every single night about four in the morning |
 
 The switch can only ever take hours **away** — `isOpen()` is `open && trading()`
@@ -1066,22 +1067,53 @@ The switch can only ever take hours **away** — `isOpen()` is `open && trading(
 would make "never close" simply correct, and a button whose right answer is
 always the same is not a decision.
 
-Each button shows what it **does** rather than what is true — a shut door when
-pressing it would shut the shop, the way every play/pause control already works
-— because the state is already said twice beside it (struck through, gone
-green). The words live in `title`, which is where the one ambiguity in that gets
-resolved.
+**They were word buttons, then square icons, then round pips, and the whole
+run was the wrong shape.** `Open up` and `Close up` are different lengths, so
+the panel changed width every time the shop did and everything to the right of
+it slid; two labels came to ~110px in a readout that is otherwise five numbers;
+square icon buttons read as a settings toolbar, which is the wrong genre for a
+HUD you play through; and the 18px pips that fixed all of that still cost ~45px
+of a row whose whole job is five figures you glance at.
 
-**They started as word buttons and that was the wrong shape three times over.**
-`Open up` and `Close up` are different lengths, so the panel changed width every
-time the shop did and everything to the right of it slid; two labels came to
-~110px in a readout that is otherwise five numbers; and the square icon buttons
-that replaced them read as a settings toolbar, which is the wrong genre for a
-HUD you play through. They are round pips now, 18px, sat beside the clock rather
-than under it — a solid fill and a hard bottom edge that goes away on `:active`,
-which is most of what makes a button feel like a thing rather than a rectangle
-that changed colour. Coloured only when they have something to say: green while
-the shop is shut, red while time is stopped.
+What made them removable is that **neither pip was ever carrying the state**. A
+struck-through clock already said SHUT, an accent-coloured blink already said
+HELD, and #hq puts up a hot chip naming the key the moment the shutters go down.
+So the pair of *controls* went and the pair of *states* did not: each element
+wears the state it was already wearing, and pressing the thing wearing it is the
+way out of it. The verb — the one half a glyph never told anybody either — is in
+`title`, exactly where it was.
+
+Which flips the old rule. The pips showed what pressing them would **do**, the
+way every play/pause control does, because the state was said beside them. These
+show what is **true**, because a coloured stripe with no glyph on it cannot mean
+"shut" and "shutting" at once — and it is only allowed to be this quiet because
+being shut is already shouted twice.
+
+The edge is `#shutter`, a button that is 13px of reach around 5px of paint, bled
+into padding `#stats` was already spending: it costs the row no width worth the
+name and is a *bigger* target than the pip it replaces, because it is as tall as
+the panel. Lit (`--good`) while trading, dull ink at 17% while shut. Its left
+margin stops 3px short of the card, or the stripe pokes out through the 11px
+corner radius. An open sign belongs on the door rather than in a toolbar, which
+is the whole of why it reads.
+
+**The date is a caption over the balance, not a column beside it.** Day and
+season were their own two-line cell, wedged between the balance and the rate —
+a stack of small type holding apart the two numbers you actually watch, for
+about 60px of a row whose whole job is five figures at a glance. Over the money
+it is the same two lines in the same panel height, one column fewer, and the
+order a game HUD usually reads in: what day it is, then what you have. It goes
+with the money rather than with the clock because a balance is a thing measured
+over days and seasons — the date is its unit, where the clock is the hour, the
+one readout up here that is not about the ledger. Splitting the pair (season by
+the time, day by the cash) would break one date across two cells.
+
+**`#flow`'s width floor and `SPARK_W` have to be the same number.** A floor of
+70 over a 38px sparkline is 32px of empty, left-aligned column, so all of it
+pooled on the right — and what that looks like is the clock adrift, half a panel
+from the readout it is nearest. Neither value was wrong; they had simply never
+been told about each other. Matched at 56, the widget *is* the floor and there
+is no slack for a gap to be made of.
 
 The whole of `#stats` came down about a fifth at the same time, and everything in
 it scales together — type, gauge bars, `SPARK_W`/`SPARK_H` in `hud-meters.js`,
@@ -1168,7 +1200,9 @@ most of the game got the two-line treatment without a single call site changing,
 and a `title` written tomorrow is drawn in the shop's handwriting without anyone
 knowing this module exists. A live `title` always beats what was harvested last
 time, or the shop's open and pause buttons would freeze on whatever they said
-the first time you pointed at them.
+the first time you pointed at them — which is exactly what the clock and the
+shutter edge would do, since a `title` is now the only place either one says
+what pressing it does.
 
 Three things are less obvious than they look:
 

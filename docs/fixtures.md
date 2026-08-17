@@ -19,7 +19,7 @@ Things you own, that stand in a cell, that the generator has a budget for.
 
 ### `shelf`
 
-Indoors only, owns its cell (people walk around it), worked from the side it faces (`browseAt`), rotates.
+Indoors only, owns its cell (people walk around it), worked from the side it faces (`browseAt`), and reachable from either end, rotates.
 
 #### Shelving
 
@@ -49,13 +49,15 @@ Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other
 
 8 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn)
 
+🔄 **Open all round** — no back panel, so it is worked from all four sides rather than three. Reach and the working-spot markers only: where it may be built and where a tap walks you go by the one anchor either way.
+
 1. **Trestle table** — free, as built
 2. **Tiered display** — $90, holds ×1.4
 3. **Covered stall** — $220, holds ×1.8, keeps ×1.3
 
 ### `freezer`
 
-Indoors only, owns its cell (people walk around it), worked from the side it faces (`browseAt`), rotates.
+Indoors only, owns its cell (people walk around it), worked from the side it faces (`browseAt`), and reachable from either end, rotates.
 
 #### Freezer
 
@@ -122,7 +124,7 @@ Shapes: Standard, Express Kiosk, Corner Counter — looks only, same price and s
 
 ### `station`
 
-Indoors only, owns its cell (people walk around it), worked from the side it faces (`useAt`), rotates.
+Indoors only, owns its cell (people walk around it), worked from the side it faces (`useAt`), and reachable from either end, rotates.
 
 #### Appliance
 

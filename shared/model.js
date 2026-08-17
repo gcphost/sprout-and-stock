@@ -112,6 +112,33 @@ export function modelBounds(parts) {
 }
 
 /**
+ * ...and the same box over every stage a model has, rather than one of them.
+ *
+ * `modelBounds` answers about a set of parts, which is what a caller standing
+ * something ON a fixture wants: it is asking about the shape in front of it
+ * right now. This is the other question — **how much room does this thing need**
+ * — and the answer has to hold for every look it will ever wear, because a van
+ * that fits its lane empty and clips the shop full is a bug that only appears
+ * on the days you are busy.
+ *
+ * An unstaged model is one stage of one, so both cases fall out of the same
+ * loop and no caller has to ask `isStaged` first.
+ */
+export function modelExtent(model) {
+  const stages = model?.stages?.length ? model.stages : [model];
+  const out = { minX: 0, maxX: 0, minZ: 0, maxZ: 0, top: 0 };
+  for (const s of stages) {
+    const b = modelBounds(s?.parts);
+    out.minX = Math.min(out.minX, b.minX);
+    out.maxX = Math.max(out.maxX, b.maxX);
+    out.minZ = Math.min(out.minZ, b.minZ);
+    out.maxZ = Math.max(out.maxZ, b.maxZ);
+    out.top = Math.max(out.top, b.top);
+  }
+  return out;
+}
+
+/**
  * The shelves *within* a model: every part flagged `surface`, as the plane its
  * top face sits on, lowest first.
  *

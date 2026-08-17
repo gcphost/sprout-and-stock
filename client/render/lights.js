@@ -10,12 +10,29 @@
  * every material, so lights are not "a bit more expensive each" — they are a
  * multiplier on the whole scene, and a shop with fifty sconces in it does not
  * look fifty times better, it just stops. So there is a fixed pool of real
- * lights, the nearest emitters get to use them, and everything further away
- * folds into a single ambient lift.
+ * lights, some of the emitters get to use them, and the rest fold into a single
+ * ambient lift.
  *
  * Deciding the cap before there is a catalogue of lamps to trip over is the
  * point. Finding it afterwards means finding it as "the game got slow", which
  * reads as the renderer being bad rather than as one purchase being a mistake.
+ *
+ * THE ROOM IS BAKED; THE POOL IS A SHARPENER. That split is the whole of this
+ * file now, and it is what makes the cap survivable.
+ *
+ * `bakeInto` folds EVERY lamp in the shop into the ground's own per-cell colour
+ * once, on the CPU — so the lit shape of the building is fixed, costs nothing
+ * per frame, and does not care how many fittings you own. Stacking lamps works.
+ * The floor was the whole complaint about the pool following the camera: a shop
+ * that re-lights itself as you walk through it has nothing in the world to
+ * explain why, so it reads as broken.
+ *
+ * What the baked floor cannot light is anything that MOVES — people, crates,
+ * fixtures — because their colours are not in it. So the eight real lights are
+ * still aimed at the nearest emitters and still re-aimed as the view moves,
+ * which is the right rule for them: nearest is where the movers are, and a
+ * shelf sharpening as you walk up to it reads as light rather than as a fault,
+ * because the room around it stays put.
  */
 
 import * as THREE from 'three';
@@ -34,10 +51,12 @@ const MAX_LIGHTS = 8;
 /**
  * What a dropped emitter is worth as flat ambient instead.
  *
- * Small on purpose. The failure this avoids is the one where panning the camera
- * visibly *dims* the far end of the shop as its lamps fall out of the pool —
- * the spill keeps the total roughly steady so what you see is the near lamps
- * getting sharper, not the distant ones being switched off.
+ * Small on purpose, and it no longer has anything to hide: a lamp outside the
+ * pool is outside it for as long as the shop stands, so this is the difference
+ * between a fitting that lights its own corner and one that lifts the room a
+ * little. It used to be the thing that stopped panning from visibly switching
+ * the far end of the shop off, which is a job it no longer has, because nothing
+ * about the pool moves any more.
  */
 const SPILL_PER_LIGHT = 0.05;
 
@@ -58,12 +77,42 @@ const RESORT_DISTANCE = 1.5;
  */
 const DAY_FLOOR = 0.25;
 
+/**
+ * The layer the real lamps cannot reach.
+ *
+ * Ground is *baked* — every lamp in the shop, however many, folded into the
+ * per-cell colour the tile mesh was going to carry anyway (`bakeInto`). The pool
+ * of eight would otherwise light that same floor a second time, so the eight
+ * lucky fittings would pool visibly harder than the rest and the cap would be
+ * back on screen wearing a different hat.
+ *
+ * three.js tests `light.layers` against `object.layers`, so moving the tiles off
+ * layer 0 takes them out of every point light's reach in one line. The sky has
+ * to be let back in by hand — see `setupLights` — because sun, fill and bounce
+ * are ordinary lights and would drop the floor too.
+ */
+export const BAKED_LAYER = 2;
+
+/**
+ * How bright a baked lamp pool is at its centre, before falloff.
+ *
+ * The baked half and the real half are two different approximations of one
+ * thing and will never agree exactly — this is the knob that gets them close
+ * enough that a lit fixture standing on lit ground looks like one lamp.
+ */
+const BAKE_GAIN = 0.9;
+
+/** Ceiling. Vertex colour multiplies, so nothing stops it going to white. */
+const BAKE_MAX = 0.75;
+
 export class Lights {
   constructor(scene) {
     this.scene = scene;
     this.emitters = [];
+    this.chosen = [];
     this.daylight = 1;
     this.spill = 0;
+    this.lit = DAY_FLOOR;
     this._at = new THREE.Vector3(Infinity, 0, Infinity);
 
     // Built once and re-aimed, never created per frame. A THREE.PointLight added
@@ -91,13 +140,14 @@ export class Lights {
   setEmitters(list) {
     this.emitters = list ?? [];
     this._at.set(Infinity, 0, Infinity);   // force a re-sort on the next frame
+    this.apply();
   }
 
   /** 0 at night, 1 at midday. Drives how much the lamps are worth. */
   setDaylight(d) {
     if (Math.abs(d - this.daylight) < 0.01) return;
     this.daylight = d;
-    this._at.set(Infinity, 0, Infinity);
+    this.apply();
   }
 
   /**
@@ -107,19 +157,31 @@ export class Lights {
    * once the camera has actually gone somewhere. Sorting the full list every
    * frame would be fine at ten lamps and silly at two hundred, and two hundred
    * is exactly what an authorable catalogue eventually produces.
+   *
+   * Nearest is the right rule again *because the floor no longer moves with it*
+   * — see the note at the top. What this pool is for now is the things the bake
+   * cannot reach, and those are the things walking about in front of you.
    */
   update(camLook) {
     if (camLook.distanceToSquared(this._at) < RESORT_DISTANCE * RESORT_DISTANCE) return;
     this._at.copy(camLook);
-
-    const lit = DAY_FLOOR + (1 - DAY_FLOOR) * (1 - this.daylight);
-    const near = [...this.emitters].sort((a, b) => (
+    this.chosen = [...this.emitters].sort((a, b) => (
       (a.x - camLook.x) ** 2 + (a.z - camLook.z) ** 2
       - ((b.x - camLook.x) ** 2 + (b.z - camLook.z) ** 2)
-    ));
+    )).slice(0, MAX_LIGHTS);
+    this.apply();
+  }
+
+  /** Point the pool at the chosen lamps and work out the ambient lift. */
+  apply() {
+    // What a lamp is worth at this hour. Kept, because the bake has to use the
+    // same number — two curves for one sunset is a floor that brightens while
+    // the fitting over it dims.
+    const lit = DAY_FLOOR + (1 - DAY_FLOOR) * (1 - this.daylight);
+    this.lit = lit;
 
     this.pool.forEach((light, i) => {
-      const e = near[i];
+      const e = this.chosen[i];
       if (!e) { light.visible = false; light.intensity = 0; return; }
       light.visible = true;
       light.color.set(e.color);
@@ -132,9 +194,60 @@ export class Lights {
       light.intensity = e.intensity * lit * e.range * e.range * 0.12;
     });
 
-    const dropped = Math.max(0, near.length - MAX_LIGHTS);
+    const dropped = Math.max(0, this.emitters.length - this.chosen.length);
     this.spill = dropped * SPILL_PER_LIGHT * lit;
   }
+
+  /**
+   * Brighten one colour by every lamp in the shop, wherever it is standing.
+   *
+   * This is the bake, and it is the answer to the cap rather than a way round
+   * it: a lamp costs the GPU nothing here, because the sum happens once on the
+   * CPU and lands in a colour the mesh was going to carry anyway. Fifty
+   * fittings and eight cost the same to draw.
+   *
+   * Additive on top of the tile's own colour, and clamped: this multiplies at
+   * draw time, so an unclamped stack of overlapping pools is a white square.
+   *
+   * Falloff is linear-squared rather than three's inverse square, and that is
+   * deliberate. What matters is that a pool ENDS — an inverse square never
+   * quite does, so a shop with twenty lamps in it bakes a uniform lift over
+   * every tile in the building and reads as somebody having turned the ambient
+   * up rather than as lamps.
+   */
+  bakeInto(color, x, y, z) {
+    if (!this.emitters.length) return color;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (const e of this.emitters) {
+      const d2 = (e.x - x) ** 2 + (e.y - y) ** 2 + (e.z - z) ** 2;
+      if (d2 >= e.range * e.range) continue;
+      const fall = (1 - Math.sqrt(d2) / e.range) ** 2;
+      const amount = fall * e.intensity * this.lit * BAKE_GAIN;
+      const c = tint(e.color);
+      r += amount * c.r;
+      g += amount * c.g;
+      b += amount * c.b;
+    }
+    color.r *= 1 + Math.min(r, BAKE_MAX);
+    color.g *= 1 + Math.min(g, BAKE_MAX);
+    color.b *= 1 + Math.min(b, BAKE_MAX);
+    return color;
+  }
+}
+
+/**
+ * A lamp's colour, cached.
+ *
+ * `new THREE.Color(hex)` parses a string, and the bake asks per cell per lamp —
+ * a shop of thirty lamps on a 40×40 floor is 48,000 of them per rebake.
+ */
+const tints = new Map();
+function tint(hex) {
+  let c = tints.get(hex);
+  if (!c) { c = new THREE.Color(hex); tints.set(hex, c); }
+  return c;
 }
 
 /**

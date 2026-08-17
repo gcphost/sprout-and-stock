@@ -75,6 +75,23 @@ const PART = z.object({
    */
   alpha: z.number().min(0.05).max(1).default(1),
   /**
+   * "Cast a shadow anyway." Only means anything on glass, because everything
+   * solid already does.
+   *
+   * Glass casting no shadow is right for the thing glass usually is — a door
+   * you look through, a bottle — and wrong for the thing a *pane* usually is,
+   * which is a big flat panel hanging over the shop floor. Fade one down far
+   * enough to see the aisle through it and the shadow it was laying on that
+   * aisle goes with it, so the fitting stops sitting in the room at all: it
+   * reads as a decal on the camera rather than a thing at ceiling height.
+   *
+   * three.js has no half-shadow — the shadow map is a depth pass, so a part
+   * either casts fully or not at all, whatever its opacity. This is therefore
+   * a choice between two wrong answers, and which is less wrong depends on how
+   * big the part is: leave it off for a door and turn it on for a ceiling.
+   */
+  shadow: z.boolean().default(false),
+  /**
    * "This part leaves whoever is holding it." It rises from where it was
    * authored, spreads, fades out and starts again — vapour, steam, the glow off
    * a phone screen.
@@ -238,6 +255,18 @@ export const ArchetypeSchema = z.object({
    * before this column existed.
    */
   staple_tags: z.array(z.string()).max(8).default([]),
+  /**
+   * What KIND of shopper this is — not what they want, which is `affinities`,
+   * and not what they came in for, which is `staple_tags`. This is the handle
+   * anything authored can match them on, and until it existed there was none:
+   * a row that wanted to say "this is for the tight-fisted ones" had no choice
+   * but to name an archetype id, which is the one thing `if (item.id ===
+   * 'tomato')` exists to keep out of the database.
+   *
+   * Read by `KitSchema` today. Empty is every archetype written before it, and
+   * a kit with no tags of its own will still go to them.
+   */
+  tags: z.array(slug).max(12).default([]),
   /** 0 = doesn't look at price tags. 1 = extremely price-driven. */
   price_sensitivity: z.number().min(0).max(1).default(0.5),
   /** Seconds they'll wait in a queue before abandoning their basket. */
@@ -500,6 +529,27 @@ export const FixtureSchema = z.object({
    * Unitless and small: 1 is a nice pot plant, 5 is a centrepiece.
    */
   charm: z.number().min(0).max(20).default(0),
+  /**
+   * Can you walk all the way round it and work it from the back?
+   *
+   * A display table can be reached from four sides and a shelving unit from
+   * three — front and both ends, never through the back panel — and those are
+   * the SAME KIND wearing two shapes, so the difference cannot live in
+   * `FIXTURES`. `ends` there says every shelf-like unit is workable from its
+   * ends; this says this particular design has no back to speak of.
+   *
+   * Deliberately not a variant, and this is the one field on a piece that has
+   * to justify that. A variant carries a model and only a model, precisely so
+   * that no shape anybody draws can move a number or need `simulate` re-running
+   * — and a unit you can stand on any side of is a unit two people can work at
+   * once and a shopper can reach past a queue, which is flow, which is money.
+   * A thing that changes how the shop *runs* is not a look.
+   *
+   * It changes reach and what the markers draw, and deliberately nothing else:
+   * where the generator reserves a spot, where a tap walks you and what
+   * `canPlace` demands all still go by the one stored anchor. See `spotsOf`.
+   */
+  open: z.boolean().default(false),
   /**
    * What a floor is made of. The `model` of a piece that hasn't got one.
    *
@@ -838,6 +888,74 @@ export const VehicleSchema = z.object({
   color: hexColor.default('#c9d1d9'),
 });
 
+/**
+ * WHEN somebody has a kit on them.
+ *
+ * A closed set in code, for the reason `BUILD_KINDS` and `JOBS` are closed:
+ * each entry is a moment the sim actually knows it is in and can hand a
+ * fullness to. A row naming a moment nothing reaches is a prop that never
+ * appears, which is the "tier that changes no number" trap wearing a bag.
+ *
+ * So this list grows by one string when a mechanic that needs it lands, and
+ * never in advance — `stealing` belongs here the day theft does, and not a
+ * step before.
+ *
+ * Spelled `use` on the row rather than `when`, which is what it means and what
+ * this constant is named for: `when` is a SQLite keyword, and `upsert` builds
+ * its column list unquoted out of the object's own keys. `vehicles` already
+ * calls the same idea `use`.
+ */
+export const KIT_USES = [
+  'shopping',  // in the shop, filling a basket
+  'leaving',   // paid, on the way out with what they bought
+];
+
+/**
+ * Something somebody has on them: a shopping bag, a basket, a trolley.
+ *
+ * The third authored thing that hangs off a person, and deliberately not the
+ * second one wearing a hat. A **pastime** is an activity — it has a clock, a
+ * spot to be at and an amount of energy it puts back, and the prop is a detail
+ * of it. A kit is only the object: no duration, nowhere to be, nothing
+ * restored. Pointed at `pastimes` it would be a row whose `seconds`, `spot`,
+ * `restores` and `buys` are all dead, and a dead column is a button that takes
+ * money and does nothing.
+ *
+ * What it replaces is the loose armful. Before this, a shopper carried their
+ * shopping as individual models at chest height all the way out of the shop —
+ * right while they are choosing, because "they picked up a cheese" is the fact
+ * worth showing, and wrong the moment they have paid: the sale is done, the
+ * goods are theirs, and five jars still floating in front of them is a readout
+ * nobody can act on, drawn on every shopper heading for the door at the busiest
+ * moment of the day. A kit is the container that answer needed.
+ *
+ * Who gets one is `tags` against the archetype's, exactly how `choosePastime`
+ * filters by a worker kind's — so a swag bag is a row tagged `thief` and no
+ * code in the game knows what a swag bag is.
+ */
+export const KitSchema = z.object({
+  id: slug,
+  name: z.string().min(1).max(48),
+  /** The moment it is carried in. See KIT_USES. */
+  use: z.enum(KIT_USES),
+  /** Shoppers carrying any of these get it. Empty = anyone. */
+  tags: z.array(slug).max(12).default([]),
+  /** Relative likelihood against the other kits for the same moment. */
+  weight: z.number().min(0).max(100).default(1),
+  /**
+   * What it looks like. Staged, and **the 0..1 that picks the stage is how full
+   * it is** — a crop feeds that number from growth, a fixture from its tier, a
+   * pastime from how far through the break they are, a van from its load, and
+   * this from how much is in it. So a bag that fills as somebody shops, or a
+   * sack that bulges, is authored art and no new machinery.
+   *
+   * Required, for the reason a vehicle's is and a pastime's is not: a break
+   * with no prop is still a worker slumping against a shelf, and a kit with no
+   * model is a container nobody can see holding goods nobody can see either.
+   */
+  model: ModelSchema,
+});
+
 export const SCHEMAS = {
   item: ItemSchema,
   crop: CropSchema,
@@ -850,4 +968,5 @@ export const SCHEMAS = {
   pastime: PastimeSchema,
   skin: SkinSchema,
   vehicle: VehicleSchema,
+  kit: KitSchema,
 };

@@ -13,8 +13,10 @@
 import { FIXTURES, FIXTURE_REFUND } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
 import { requiredFixture } from '../shared/tags.js';
+import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
+import { money, signed } from './money.js';
 import { artForVariant } from './thumb.js';
 // What is on a van, shared with the supplier so the two cannot disagree about
 // how many eggs are coming — see client/orders.js.
@@ -327,7 +329,7 @@ export function showFixture(ui, f) {
       afford ? blurb : `${blurb} You cannot afford it yet.`, 'Upgrade',
       // A tier that is purely cosmetic still costs nothing, and `$0` in the
       // price column reads as a broken number rather than as good news.
-      { off: !afford, right: next.cost > 0 ? `$${next.cost.toFixed(0)}` : 'free' }));
+      { off: !afford, right: next.cost > 0 ? money(next.cost) : 'free' }));
   }
 
   // Straight under Upgrade, because it is the same ladder and the pair reads as
@@ -338,7 +340,7 @@ export function showFixture(ui, f) {
   if (back) {
     foot.push(actIcon('downgrade', ICONS.tierdown, 'Downgrade',
       `Back to ${back.name} — ${tierBlurb(back)} Half of that rung back, and it keeps its stock.`,
-      'Downgrade', { right: back.refund > 0 ? `+$${back.refund.toFixed(0)}` : '' }));
+      'Downgrade', { right: back.refund > 0 ? signed(back.refund) : '' }));
   }
 
   const holds = contentsOf(ui, f, live);
@@ -364,7 +366,7 @@ export function showFixture(ui, f) {
   foot.push(actIcon('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
     blocked ?? 'Half of what it cost back.',
     kind === 'station' ? 'Sell' : 'Remove',
-    { danger: true, off: !!blocked, right: blocked ? '' : `+$${refund.toFixed(0)}` }));
+    { danger: true, off: !!blocked, right: blocked ? '' : signed(refund) }));
 
   parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
 
@@ -685,7 +687,7 @@ function quickRows(ui, rows) {
         : r.spare > 0 ? `${r.stock} in the shop, ${r.spare} of it in crates`
           : r.stock > 0 ? `${r.stock} on the shelves already`
             : ui.heatFor(item) >= 1.25 ? 'in demand right now'
-              : `$${(item.base_price ?? 0).toFixed(2)} each`);
+              : `${money(item.base_price ?? 0)} each`);
     // The heat pill only here. It is the one number on the row that is about
     // the world rather than the shop, which is worth 40px on a shortlist and
     // is noise repeated down forty rows of the full list.
@@ -856,7 +858,7 @@ function seedRows(ui, f, live) {
         : (inSeason
           ? `${Math.round(c.grow_minutes)} min · ${c.seasons?.length ? c.seasons.join(', ') : 'any season'}`
           : `out of season · ${c.seasons.join(', ')}`),
-      right: growing ? '' : `$${c.seed_cost.toFixed(2)}`,
+      right: growing ? '' : money(c.seed_cost),
       // A crop carries no tags of its own — what it grows INTO does, and that is
       // what anybody typing `produce` in here is looking for. The seasons are
       // already in the sub-line and searchable from there.
@@ -937,7 +939,8 @@ export function fixtureSignature(ui, f, live) {
     // point of the number is that a crate turning up changes your mind.
     (ui.state?.shelves ?? []).reduce((n, s) => n
       + (s.stacks ?? []).reduce((m, k) => m + (k.qty ?? 0), 0), 0),
-    (ui.state?.deliveries ?? []).map((d) => `${d.item_id}:${d.qty}`).join(',')]);
+    (ui.state?.deliveries ?? [])
+      .map((d) => lotStacks(d).map((k) => `${k.item_id}:${k.qty}`).join('+')).join(',')]);
 }
 
 /** The read-out at the top: what this particular thing is doing right now. */
@@ -1015,12 +1018,15 @@ function fixtureDetail(ui, f, live) {
       // sim enforces and the renderer now draws against, and three of those is
       // how a shelf starts disagreeing with the menu describing it.
       const cap = k.cap ?? null;
-      const clash = held && held.item_id !== k.item_id;
+      // Out of HANDS, not "holding something else": hands hold three kinds now,
+      // so carrying tomatoes no longer stops you taking an armful of bread.
+      // The old test refused a board the server would happily have filled.
+      const clash = held && !lotHas(held, k.item_id) && lotStacks(held).length >= LOT_KINDS;
       // Always drawn, disabled when there is nothing to take — an empty board
       // is a labelled one waiting on a van, and dropping the button would slide
       // that row's price stepper a button's width out of line with the others.
       const why = k.qty <= 0 ? 'Nothing on this board yet.'
-        : (clash ? `Your hands are full of ${ui.itemName(held.item_id)}.`
+        : (clash ? `Your hands are full — ${lotLabel(held, ui.catalog?.byId?.items ?? {})}.`
           : `Go and take an armful of ${name} off this board.`);
       // A board that is only a promise. Nothing has ever stood on it, so there is
       // no price to change — `setPrice` needs a stack and refuses without one, so
@@ -1062,7 +1068,7 @@ function fixtureDetail(ui, f, live) {
         <span class="fx-price">
           <button ${pending ? 'disabled' : `data-price="-1" data-item="${esc(k.item_id)}"`}
             title="${esc(pending ? `Nothing on this board to price yet — ${name} takes its price when it lands.` : `Charge less for ${name}`)}" aria-label="Charge less">−</button>
-          <b>${pending ? '—' : `$${(k.price ?? 0).toFixed(2)}`}</b>
+          <b>${pending ? '—' : money(k.price ?? 0)}</b>
           <button ${pending ? 'disabled' : `data-price="1" data-item="${esc(k.item_id)}"`}
             title="${esc(pending ? `Nothing on this board to price yet — ${name} takes its price when it lands.` : `Charge more for ${name}`)}" aria-label="Charge more">+</button>
         </span>
@@ -1190,7 +1196,7 @@ function moreOfTheseRows(ui, f) {
       icon: ICONS.upgrades,
       name: u.name,
       sub: u.description || 'A better price on every one of these you build from now on.',
-      right: `$${u.cost.toFixed(0)}`,
+      right: money(u.cost),
       dim: cash < u.cost,
       run: cash < u.cost ? null : () => ui.net.send('buy-upgrade', { upgradeId: u.id }),
     }));

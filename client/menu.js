@@ -12,11 +12,11 @@
  * else in the client knows there is more than one shop.
  */
 
+import { money } from './money.js';
+
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
-
-const money = (n) => `$${Number(n ?? 0).toFixed(2)}`;
 
 /** "3 days ago" beats a timestamp when the question is "which one was I in". */
 function ago(ms) {

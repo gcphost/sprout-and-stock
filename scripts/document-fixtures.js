@@ -66,8 +66,13 @@ function rulesFor(kind) {
   const where = { indoor: 'Indoors only', outdoor: 'Outdoors only', any: 'Indoors or out' }[f.where] ?? f.where;
   const bits = [where];
   bits.push(blocksCell(kind) ? 'owns its cell (people walk around it)' : 'blocks nobody');
-  if (f.anchor) bits.push(`worked from the side it faces (\`${f.anchor}\`)`);
-  else bits.push('nobody stands at it');
+  if (f.anchor) {
+    bits.push(`worked from the side it faces (\`${f.anchor}\`)`);
+    // The anchor is the one tile the generator reserves and a walk routes to;
+    // `ends` is the softer claim that you can also reach it from either end.
+    // Both are worth saying, because only the first can refuse a placement.
+    if (f.ends) bits.push('and reachable from either end');
+  } else bits.push('nobody stands at it');
   if (f.rotates) bits.push('rotates');
   if (f.at === 'ceiling') bits.push('hangs, so it needs a room to hang in');
   return `${bits.join(', ')}.`;
@@ -250,6 +255,12 @@ function describe(row) {
   if (row.yields?.cash) {
     out.push(`💰 **Earns ${money(row.yields.cash)} every ${row.yields.every} in-game minutes**, `
       + 'as a pile of cash on its own tile that somebody has to walk over and collect.');
+    out.push('');
+  }
+  if (row.open) {
+    out.push('🔄 **Open all round** — no back panel, so it is worked from all four '
+      + 'sides rather than three. Reach and the working-spot markers only: where it '
+      + 'may be built and where a tap walks you go by the one anchor either way.');
     out.push('');
   }
   if (row.charm) {

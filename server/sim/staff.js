@@ -36,6 +36,7 @@ import { content } from '../content.js';
 import { findPath, followPath } from './pathing.js';
 import { suggestedPrice, wholesalePrice } from './economy.js';
 import { isPadAt } from '../../shared/build.js';
+import { lotStacks, lotTotal, lotQty, lotHas, lotMain } from '../../shared/lot.js';
 
 /** Don't let a hire spend the shop down to nothing restocking. */
 const CASH_FLOOR = 15;
@@ -383,11 +384,18 @@ function inbound(game, s) {
     // so it is the biggest one this map has ever had.
     const lot = o.carry ?? o.haul;
     if (!lot) continue;
+    // What they are MOSTLY carrying. The map's value is one item and one
+    // number, because its readers ask "is somebody already bringing this board
+    // some of this" — and a mixed armful heading for a shelf is still mostly
+    // one thing. Widening it to a list would make every reader ask three
+    // questions to answer one, for a distinction that only bites when a hire is
+    // carrying two kinds to the same unit, which the unit then pours both onto.
+    const main = lotMain(lot);
     const prev = load.get(o.claim);
     // Two people already heading there with the same thing add up; with
     // different things, the more restrictive answer is that the board is taken.
-    if (!prev) load.set(o.claim, { item_id: lot.item_id, qty: lot.qty });
-    else if (prev.item_id === lot.item_id) prev.qty += lot.qty;
+    if (!prev) load.set(o.claim, { item_id: main.item_id, qty: lotTotal(lot) });
+    else if (prev.item_id === main.item_id) prev.qty += lotTotal(lot);
     else prev.item_id = null;
   }
   return load;
@@ -806,9 +814,15 @@ function restock(game, s) {
   // of this" were the same sentence, and they stopped being the same sentence
   // the day the bay could hold a fortnight of different things at once.
 
+  // Every pile in every box, not one kind per box. Read the old way, a crate
+  // whose second pile is milk does not put milk in this set, so the shop buys
+  // milk that is already standing at the bay — which is the very deadlock the
+  // per-item version of this guard was written to fix, arriving again through
+  // the container growing a second kind.
   const atTheBay = new Set(game.deliveries
-    .filter((d) => shelfFor(game, d.item_id, c))
-    .map((d) => d.item_id));
+    .flatMap((d) => lotStacks(d))
+    .filter((s) => shelfFor(game, s.item_id, c))
+    .map((s) => s.item_id));
 
   // Two ceilings, and the lower one wins. `SPEND_FRACTION` of what sits above
   // the float is the shop keeping itself solvent tick by tick; the daily cap is
@@ -936,10 +950,17 @@ function unload(game, s) {
     // what stops three hires converging: a bare unit that holds twenty still
     // has room after a crate of twelve, so `shelvesFor` hands every one of them
     // the same best answer. Same rule `restock` uses on the same collision.
+    // Any board that will take ANY pile in the box. A mixed crate has three
+    // answers to "where does this go" and needs only one of them to be worth
+    // the walk — `stockFromCrate` pours every pile the unit will have and keeps
+    // the rest on the shoulder, so the next tick asks again about a smaller
+    // box. Ranked on the biggest pile, because that is the one the trip is
+    // mostly about and the ranking has to pick a single order.
     const taken = claimed(game, s);
-    const item = c.byId.items[s.haul.item_id];
-    const shelf = shelvesFor(game, s.haul.item_id, c, spoken)
-      .find((sh) => !taken.has(key('shelf', sh.id)) && game.boardFor(sh, item).ok);
+    const piles = lotStacks(s.haul).sort((a, b) => b.qty - a.qty);
+    const shelf = piles.flatMap((pile) => shelvesFor(game, pile.item_id, c, spoken)
+      .filter((sh) => !taken.has(key('shelf', sh.id))
+        && game.boardFor(sh, c.byId.items[pile.item_id]).ok))[0];
 
     // Nothing will have the rest, so it goes home to the pad.
     //
@@ -983,13 +1004,16 @@ function unload(game, s) {
     return true;
   }
   // Carrying already? Then this is a TOP-UP and not a new errand. A crate holds
-  // an armful and hands hold an armful, so the two matched exactly for as long
-  // as a hire's own `carry` was ignored — now a Stocker with big hands takes a
-  // crate and a half in one trip instead of walking back for two units. Only
-  // ever more of the same thing: mixed hands are what `stockShelf` refuses.
-  const item = s.carry?.item_id ?? null;
-  const held = s.carry?.qty ?? 0;
-  if (item && held >= carryOf(s)) return false;
+  // twice an armful, so a Stocker with big hands takes a crate and a half in
+  // one trip instead of walking back for two units.
+  //
+  // It used to be "only ever more of the same thing", because mixed hands were
+  // what `stockShelf` refused. Both halves of that are gone: hands hold
+  // `LOT_KINDS` kinds and a shelf pours every pile that has a board, so a
+  // top-up can now pick up the lettuce as well — which is the whole reason a
+  // bay of small part-crates stopped being a walk each.
+  const held = lotTotal(s.carry);
+  if (held >= carryOf(s)) return false;
 
   // How much of this the shop can actually put away — see `Game.unload`'s `cap`.
   // Asked BEFORE the walk, so a crate nobody has room for is never lifted, and
@@ -1005,10 +1029,36 @@ function unload(game, s) {
     return room.get(id);
   };
 
-  // How much this trip actually moves: the shelves' room, this pair of hands,
-  // and what is in the crate, whichever runs out first.
+  /**
+   * How much this trip actually moves: the shelves' room, this pair of hands,
+   * and what is in the crate, whichever runs out first.
+   *
+   * Summed over the PILES now, and bounded by both of the hands' caps rather
+   * than one. The units cap was always here; the kinds cap is what a mixed
+   * container added, and leaving it out is not a small error — a box of five
+   * kinds would score as a full armful, the hire would walk the shop for it,
+   * and `Game.unload` would hand them three. What you would watch is a stocker
+   * making the right trip and arriving with the wrong amount, for ever.
+   */
   const hands = carryOf(s);
-  const fit = (d) => Math.min(roomFor(d.item_id).room, hands, d.qty + held) - held;
+  const { kinds } = game.carryLot(s);
+  const fit = (d) => {
+    let moves = 0;
+    let slots = kinds - lotStacks(s.carry).length;
+    for (const pile of lotStacks(d).sort((a, b) => b.qty - a.qty)) {
+      if (held + moves >= hands) break;
+      const mine = lotQty(s.carry, pile.item_id);
+      if (!mine && slots <= 0) continue;
+      // The shelves' room for this kind, less what is already in these hands
+      // heading there — the same subtraction the single-kind version made, said
+      // per pile.
+      const take = Math.min(pile.qty, roomFor(pile.item_id).room - mine, hands - held - moves);
+      if (take <= 0) continue;
+      if (!mine) slots -= 1;
+      moves += take;
+    }
+    return moves;
+  };
 
   const busy = claimed(game, s);
   // The BIGGEST trip, not the first one that qualifies. `find` took whichever
@@ -1025,7 +1075,11 @@ function unload(game, s) {
   let fallbackBest = 0;
   let fallbackMoves = 0;
   for (const d of game.deliveries) {
-    if (item && d.item_id !== item) continue;
+    // No "same item only" filter any more, and it is not needed: `fit` already
+    // scores a box your hands have no room for at zero, whether that is out of
+    // units or out of kinds. The filter was the single-kind spelling of a
+    // question `fit` now answers properly, and keeping it would hide every
+    // mixed box behind whatever a hire happened to be holding.
     if (busy.has(key('crate', d.id))) continue;
     const moves = fit(d);
     if (moves < 1) continue;
@@ -1056,7 +1110,13 @@ function unload(game, s) {
     // taken when there is genuinely nothing to do with the stray.
     const stray = onAPad(game, d) ? 0 : 1;
     const score = stray * 1e6 + moves;
-    if (moves >= MIN_TRIP * hands || bare(roomFor(d.item_id)) || stray) {
+    // `bare` of ANY pile in it. The escape hatch exists so a small trip is
+    // never refused when a board is genuinely empty, and a mixed box holding
+    // two of something plentiful beside four of something the shop has none of
+    // is exactly that case — asking it of one kind would put the small trip
+    // back behind the `MIN_TRIP` preference and leave the empty board bare.
+    const anyBare = lotStacks(d).some((k) => bare(roomFor(k.item_id)));
+    if (moves >= MIN_TRIP * hands || anyBare || stray) {
       if (score > best) { best = score; pallet = d; bestMoves = moves; }
     } else if (score > fallbackBest) { fallbackBest = score; fallback = d; fallbackMoves = moves; }
   }
@@ -1107,8 +1167,8 @@ function unload(game, s) {
   //
   // `pallet.qty > hands` is the whole point: at or under an armful the trip is
   // identical and the box is pure ceremony.
-  const wholeCrate = !item
-    && pallet.qty > hands
+  const wholeCrate = !s.carry
+    && lotTotal(pallet) > hands
     // The shop must want MORE than one armful of it. Under that, carrying the
     // box is strictly worse than carrying the goods: same journey, and you
     // arrive with your hands full of crate and a remainder to walk home. The
@@ -1120,7 +1180,13 @@ function unload(game, s) {
     // the remainder is no longer a problem worth guarding against, because
     // `stockFromCrate` keeps it on the shoulder and the same hire walks it to
     // the next board or home.
-    && roomFor(pallet.item_id).room > hands
+    //
+    // Summed across the piles, because a mixed box is worth shouldering when
+    // the shop wants more than an armful of it ALTOGETHER. Asked of one kind, a
+    // box of four things the shop wants three of each of would never be lifted
+    // — twelve units of wanted stock making twelve one-armful trips, which is
+    // the shape mixing was meant to end.
+    && lotStacks(pallet).reduce((n, k) => n + Math.min(k.qty, roomFor(k.item_id).room), 0) > hands
     && onAPad(game, pallet)
     // ...and it has to be the one on TOP. `liftCrate` refuses a buried crate,
     // and a refusal here is not a no-op: the hire keeps choosing the same crate
@@ -1184,12 +1250,27 @@ function fillHands(game, s, from) {
   const c = content();
   const spoken = inbound(game, s);
   const hands = carryOf(s);
-  const { room } = roomAcross(game, from.item_id, c, spoken);
+  // Room across the shop for each kind these hands are now holding — the same
+  // question the single-kind version asked, asked per pile. Memoised, because a
+  // bay is a pile of crates of the same few things.
+  const room = new Map();
+  const roomFor = (id) => {
+    if (!room.has(id)) room.set(id, roomAcross(game, id, c, spoken).room);
+    return room.get(id);
+  };
   for (const d of game.deliveries.slice()) {
-    const held = s.carry?.qty ?? 0;
-    if (held >= hands || held >= room) return;
-    if (d.id === from.id || d.item_id !== from.item_id) continue;
-    game.unload(s.id, d.id, Math.min(hands, room) - held);
+    if (d.id === from.id) continue;
+    if (lotTotal(s.carry) >= hands) return;
+    // Only more of what is ALREADY in these hands, which is what keeps this a
+    // turn on the spot rather than a second errand. It also keeps it out of the
+    // kinds cap entirely: topping up a pile you are holding can never need a
+    // free hand, so a sweep here can never take a slot the walk was counting on.
+    for (const pile of lotStacks(d)) {
+      if (!lotHas(s.carry, pile.item_id)) continue;
+      const want = Math.min(hands, roomFor(pile.item_id)) - lotQty(s.carry, pile.item_id);
+      if (want <= 0) continue;
+      game.unload(s.id, d.id, want, pile.item_id);
+    }
   }
 }
 
@@ -1226,7 +1307,15 @@ function shelve(game, s) {
   // than a latch: `p.errand` is the same idea for a player, and hires cannot
   // use that one because `stepActions` opens with `if (p.staff) continue`.
   if (s.shifting) return false;
-  const shelf = shelfFor(game, s.carry.item_id, content(), inbound(game, s));
+  // The first unit that will take ANY pile in these hands. `stockShelf` pours
+  // every pile that unit has a board for, so one walk can empty three kinds —
+  // and asking about only one of them would send a hire to `tidy` while holding
+  // something a shelf ten feet away was waiting for.
+  const c = content();
+  const spoken = inbound(game, s);
+  const shelf = lotStacks(s.carry).sort((a, b) => b.qty - a.qty)
+    .map((k) => shelfFor(game, k.item_id, c, spoken))
+    .find(Boolean);
   if (!shelf) return false;                        // `tidy` deals with that
   claim(s, 'shelf', shelf.id);
   if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
@@ -1477,8 +1566,12 @@ function craft(game, s) {
   // "does anything want this" walked a chef to a full machine, loaded nothing,
   // and sent them back to do it again, forever.
   if (s.carry) {
-    const needing = stations.find((st) => wants(game, st).has(s.carry.item_id)
-      && game.stationHopperRoom(st, s.carry.item_id) > 0);
+    // Any pile in these hands that a machine wants and has room for.
+    // `loadStation` tips in every ingredient the recipe uses, so a chef holding
+    // tomatoes, stock and basil serves a soup in one walk — which is the whole
+    // reason a hopper with three inputs stopped filling at a third speed.
+    const needing = stations.find((st) => lotStacks(s.carry).some((k) => wants(game, st).has(k.item_id)
+      && game.stationHopperRoom(st, k.item_id) > 0));
     if (!needing) return false;
     claim(s, 'station', needing.id);
     if (!goTo(game, s, needing.useAt)) return true;
@@ -1567,14 +1660,19 @@ function craft(game, s) {
       // put them away, and preferring it would have a chef intercepting the
       // delivery every stocker is trying to unload.
       if (!from) {
-        const crate = game.deliveries.find((d) => d.item_id === input.item_id && d.qty > 0
+        const crate = game.deliveries.find((d) => lotQty(d, input.item_id) > 0
           && !busy.has(key('crate', d.id)));
         if (!crate) continue;
         if ((st.contents[input.item_id] ?? 0) >= game.stationHopperCap(st, input.item_id)) continue;
         claim(s, 'crate', crate.id);
         if (!goTo(game, s, crate, 1.4)) return true;
         const want = Math.min(game.stationHopperRoom(st, input.item_id), carryOf(s));
-        const res = game.unload(s.id, crate.id, want);
+        // NAMED, and that is not optional now a crate can be mixed. Unnamed,
+        // `unload` sweeps every pile in the box — so a chef sent for tomatoes
+        // comes back with tomatoes, soap and cut flowers, fills the hopper with
+        // the one the machine wants and then has to go and put the rest
+        // somewhere. It looks like a chef doing two jobs badly.
+        const res = game.unload(s.id, crate.id, want, input.item_id);
         s.cooldown = res.ok ? paceOf(s) : 1;
         return true;
       }
@@ -1659,7 +1757,7 @@ export function shelfFor(game, itemId, c, spoken = null) {
  */
 function hasHome(game, itemId, c, spoken = null) {
   if (!itemId) return false;
-  if (game.deliveries.some((d) => d.item_id === itemId && (d.qty ?? 0) > 0)) return false;
+  if (game.deliveries.some((d) => lotQty(d, itemId) > 0)) return false;
   return !!shelfFor(game, itemId, c, spoken);
 }
 
@@ -1852,7 +1950,7 @@ function feasibleRecipe(game, st) {
   // fetch in `craft` — and leaving them out here is what made this gate say
   // "cannot be finished" about a fryer with two dozen chips on the pad.
   for (const d of game.deliveries) {
-    if (d.item_id && d.qty > 0) stock.set(d.item_id, (stock.get(d.item_id) ?? 0) + d.qty);
+    for (const k of lotStacks(d)) stock.set(k.item_id, (stock.get(k.item_id) ?? 0) + k.qty);
   }
 
   const r = game.stationRecipe(st);

@@ -14,6 +14,7 @@
  */
 
 import { DEPARTMENTS } from '../shared/tags.js';
+import { money } from './money.js';
 
 /** The plot is 56px wide with the axis down the middle, so a full bar is 28. */
 const HALF = 26;
@@ -33,10 +34,12 @@ const DEADBAND = 0.04;
 // sparkline that kept its old size while the type around it shrank would be the
 // biggest thing in the readout, which is the wrong way round for the least
 // urgent number in it.
-const SPARK_W = 38;
+// Kept in step with `#flow`'s `min-width` in index.html: the widget is what
+// fills the floor, so a sparkline narrower than it leaves a hole the clock sits
+// on the far side of. Wider bars for free, which at seven days is no loss.
+const SPARK_W = 56;
 const SPARK_H = 12;
 
-const money = (v) => `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(v > -10 && v < 10 ? 2 : 0)}`;
 const title = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**

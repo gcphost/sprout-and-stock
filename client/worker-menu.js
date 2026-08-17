@@ -14,12 +14,14 @@
  */
 
 import { ICONS, icon } from './icons.js';
+import { money, signed } from './money.js';
 import { actIcon } from './fixture-menu.js';
 // One sell-back rate for the whole shop, not one per ladder: a rung handed back
 // is worth what a fixture torn out is worth, and two copies of that number would
 // be two different amounts of money — which is the argument the constant itself
 // makes about the button printing it and the server paying it.
 import { FIXTURE_REFUND } from '../shared/build.js';
+import { lotStacks, lotTotal } from '../shared/lot.js';
 // A swatch is drawn from the kind's own art, so this menu resolves a model the
 // same way the renderer does rather than keeping a second idea of one.
 import { partsAt } from '../shared/model.js';
@@ -86,7 +88,12 @@ export function doingNow(ui, entry, body) {
   // A break outranks what is in their hands: "carrying 4× tomato" while they
   // are sat outside vaping is the wrong half of the truth.
   if (body.job === 'break') return onBreakNow(ui, body);
-  if (body.carry) return `carrying ${body.carry.qty}× ${ui.itemName(body.carry.item_id)}`;
+  if (body.carry) {
+    // Pile by pile. A hire with mixed hands is doing a trip that clears three
+    // boards, and "carrying 11" is the one reading that says nothing about it.
+    return `carrying ${lotStacks(body.carry)
+      .map((k) => `${k.qty}× ${ui.itemName(k.item_id)}`).join(', ')}`;
+  }
   return body.job ? infoFor(body.job).doing : 'looking for something to do';
 }
 
@@ -104,13 +111,6 @@ export function kindSummary(kind) {
   const jobs = (kind.jobs ?? []).map((j) => infoFor(j.job).name.toLowerCase()).join(', ');
   return kind.wage > 0 ? `${money(kind.wage)} a day · ${jobs}` : jobs;
 }
-
-/**
- * Wages are authored, so they are not whole numbers. Rounding $3.50 to "$4"
- * over-states what a hire costs by a seventh, which is the same lie as a
- * button promising a different price to the one it charges.
- */
-const money = (n) => `$${Number(n) % 1 === 0 ? n : Number(n).toFixed(2)}`;
 
 /**
  * Open the menu for one hire.
@@ -215,7 +215,7 @@ export function showWorker(ui, workerId) {
     foot.push(actIcon('promote', ICONS.tierup, 'Promote',
       afford ? blurb : `${blurb} You cannot afford it yet.`, 'Promote',
       // A purely cosmetic rung is free, and `$0` reads as a broken number.
-      { off: !afford, right: next.cost > 0 ? `$${next.cost.toFixed(0)}` : 'free' }));
+      { off: !afford, right: next.cost > 0 ? money(next.cost) : 'free' }));
   }
 
   // The way back down, and the only rung on any ladder where going down has an
@@ -227,7 +227,7 @@ export function showWorker(ui, workerId) {
     const saving = back.saves > 0 ? ` Saves ${money(back.saves)} a day in wages.` : '';
     foot.push(actIcon('demote', ICONS.tierdown, 'Demote',
       `Back to ${esc(back.name)} — ${tierBlurb(back)}${saving} Half of that grade back.`,
-      'Demote', { right: back.refund > 0 ? `+$${back.refund.toFixed(0)}` : '' }));
+      'Demote', { right: back.refund > 0 ? signed(back.refund) : '' }));
   }
 
   // The latch has to be visible in a square, and it used to be visible in the
@@ -306,7 +306,7 @@ function detail(ui, entry, kind, body) {
     ${energyLine(body)}
     ${line('Taken on as', esc(kind?.name ?? entry.kind))}
     ${rung ? line('Grade', esc(rung.name)) : ''}
-    ${kind?.wage > 0 ? line('Wage', `$${wageAt(kind, entry.tier).toFixed(2)} a day`) : ''}
+    ${kind?.wage > 0 ? line('Wage', `${money(wageAt(kind, entry.tier))} a day`) : ''}
   </div>`;
 }
 
