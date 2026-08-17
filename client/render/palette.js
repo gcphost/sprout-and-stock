@@ -164,32 +164,51 @@ export const FIXTURE_LOOK = {
 export const VEHICLE_LOOK = { color: PALETTE.vehicle, l: 1.4, w: 0.7, h: 0.6 };
 
 /**
- * Edge kind -> how it renders.
+ * The three things an edge can be made of, once each.
  *
- * `t` is thickness across the boundary, in tiles. A wall is thin because it
- * sits *on* the line between two cells rather than filling one — which is where
- * the two tiles of shop floor per side came back from.
- */
-/**
- * The two ways through, once each.
- *
- * Written down here rather than four times below because a signed doorway is the
- * same doorway — see `WAYS` in shared/edges.js. The only thing the signed ones
- * add is `mark`, and having them spread the base by hand is how you end up with
- * a staff door that stayed white when somebody restyled the wall.
+ * Written down here rather than eight times below, because a signed doorway is
+ * the same doorway and a bay window is the same wall with glass in it — see
+ * `WAYS` and `GLAZING` in shared/edges.js, which is where the difference between
+ * those two lives. Spreading the base by hand is how you end up with a staff door
+ * that stayed white when somebody restyled the wall.
  */
 const EDGE_BASE = {
   // A doorway is a gap you can walk through: a header spanning the opening and
   // a threshold underfoot, with nothing in between.
   door: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, opening: true },
   gate: { color: PALETTE.fence, h: 0.5, t: 0.14, opening: true },
+  // ...and a window is a wall with a hole in the middle of it. `sill` and `head`
+  // are where the glass starts and stops, and they are the WHOLE difference
+  // between the four glazings — see `GLAZING` in shared/edges.js. Anything that
+  // wanted a fifth look should be two numbers here and nothing else.
+  glass: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, glass: true },
 };
 
+/**
+ * Edge kind -> how it renders.
+ *
+ * `t` is thickness across the boundary, in tiles. A wall is thin because it
+ * sits *on* the line between two cells rather than filling one — which is where
+ * the two tiles of shop floor per side came back from.
+ */
 export const EDGE_STYLE = {
   [E.WALL]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17 },
-  [E.WINDOW]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, glass: true },
+  [E.WINDOW]: EDGE_BASE.glass,
   [E.DOOR]: EDGE_BASE.door,
   [E.GATE]: EDGE_BASE.gate,
+  // Glass to the lintel over a kick plate. `shadow` because a pane this size is
+  // the *wall*: glass casts none by default, which is right for a bottle and a
+  // freezer door and wrong for a shopfront — a building whose south face stops
+  // laying a shadow on its own forecourt reads as the wall having gone.
+  [E.WINDOW_FULL]: { ...EDGE_BASE.glass, sill: 0.05, head: 1.02, shadow: true },
+  // Standard glazing, pushed out over a sill. `out` is the one thing here that is
+  // geometry rather than a pair of heights, and the renderer decides WHICH WAY out
+  // is off the enclosure — a bay projects into the street, not into the aisle.
+  [E.WINDOW_BAY]: { ...EDGE_BASE.glass, sill: 0.34, head: 0.95, out: 0.2 },
+  // A strip up under the lintel. Light without a view, which is what you want on
+  // a stockroom and on anything a passer-by should not be able to see the till
+  // through.
+  [E.WINDOW_HIGH]: { ...EDGE_BASE.glass, sill: 0.72, head: 1.02 },
   [E.FENCE]: { color: PALETTE.fence, h: 0.5, t: 0.14 },
   // The same hole in the same wall, with the threshold painted. `mark` is the
   // whole difference, and it is a difference you can SEE — the feature is
@@ -231,12 +250,25 @@ export function edgeBands(style) {
       { y0: 0.02, y1: style.mark ? 0.07 : 0.05, color: style.mark },
     ];
   }
-  // Glazed: sill, header, and a see-through band filling the gap.
+  // Glazed: sill, header, and a see-through band filling the gap. Where that gap
+  // starts and stops is the only difference between a window, a shopfront, a bay
+  // and a strip up under the lintel — so this is four looks in three numbers, and
+  // the defaults ARE the window that has always been here.
   if (style.glass) {
+    const sill = style.sill ?? 0.34;
+    const head = style.head ?? 0.9;
+    const out = style.out ?? 0;
     return [
-      { y0: 0, y1: 0.34 },
-      { y0: 0.9, y1: style.h },
-      { y0: 0.34, y1: 0.9, alpha: GLASS },
+      { y0: 0, y1: sill },
+      { y0: head, y1: style.h },
+      { y0: sill, y1: head, alpha: GLASS, out, shadow: style.shadow },
+      // A bay needs something to stand the glass on and something to cap it, or
+      // the pane floats a hand's width off the front of the building. Only when
+      // it projects: on a flush window these would be two slabs inside the wall.
+      ...(out ? [
+        { y0: Math.max(0, sill - 0.07), y1: sill, out },
+        { y0: head, y1: head + 0.07, out },
+      ] : []),
     ];
   }
   return [{ y0: 0, y1: style.h }];

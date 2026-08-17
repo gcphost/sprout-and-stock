@@ -34,6 +34,18 @@ const WANTED = {
   report: 'game-icons:chart',
   staff: 'game-icons:person',
   help: 'game-icons:help',
+  // The milestone ladder, and the medal the modal wears. Two glyphs rather than
+  // one: the rail wants a small mark that reads at 15px in a column of other
+  // marks, and the award card wants something that fills a 64px gold disc — a
+  // trophy shrunk into the rail is a smudge, and a laurel blown up to 34px is a
+  // wreath around nothing.
+  milestone: 'game-icons:trophy',
+  medal: 'game-icons:laurel-crown',
+  // How many people are in reach of the shop, in the corner HUD. A crowd rather
+  // than `staff`'s single person: the number beside it is the town, and one
+  // figure next to a roster count of one would be two readouts wearing the same
+  // glyph and meaning opposite things.
+  town: 'game-icons:three-friends',
 
   // one per role, so a shift roster reads at a glance
   clerk: 'game-icons:cash',
@@ -44,6 +56,12 @@ const WANTED = {
   // fixtures
   shelf: 'game-icons:bookshelf',
   freezer: 'game-icons:fridge',
+  // The third kind of shelving, and it shipped without one — which is not a
+  // missing picture but a dead client: `KIND_TOOLS` is a module-level literal,
+  // so `ICONS.warmer` throws at import time and the game never boots at all.
+  // A plate under a heat lamp, which is what the fixture is; the fire glyphs
+  // are all a hazard rather than a counter you put a chicken on.
+  warmer: 'game-icons:hot-meal',
   checkout: 'game-icons:cash',
   plot: 'game-icons:field',
   station: 'game-icons:factory',

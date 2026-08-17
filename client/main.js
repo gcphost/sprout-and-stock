@@ -13,8 +13,9 @@ import { UI } from './ui.js';
 import { RAIL_ITEMS } from './sections.js';
 import { showFixture, refreshFixture } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
-import { showWay, isWay, sameWay } from './edge-menu.js';
+import { showEdgeMenu, hasEdgeMenu, sameFamily } from './edge-menu.js';
 import { Menu, preselectedWorld } from './menu.js';
+import { Award } from './award.js';
 
 const canvas = document.getElementById('game');
 const scene = new Scene(canvas);
@@ -22,6 +23,9 @@ const net = new Net();
 const ui = new UI(net);
 // The seed picker pins itself to a plot in world space, so it needs to project.
 ui.scene = scene;
+// The award card. It owns its own element and stops the world while it is up —
+// see client/award.js.
+const award = new Award(ui, document.getElementById('award'));
 
 let latestState = null;
 
@@ -51,6 +55,7 @@ net.on('state', (m) => {
   ui.update(m);
 });
 net.on('news', (m) => ui.toast(`📰 ${m.headline}`));
+net.on('achieved', (m) => award.push(m));
 net.on('content-changed', () => ui.toast('New content added — it is live now'));
 net.on('action', (res) => {
   if (res.ok) return;
@@ -75,6 +80,24 @@ addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
   if (e.repeat) return;
   const k = e.key.toLowerCase();
+
+  /**
+   * The award card owns every key while it is up, and takes none of them with
+   * it.
+   *
+   * It is the one thing in the game that stops the world, so a key that walked
+   * you or opened a menu underneath it would be a press you cannot see the
+   * effect of. `keys` is deliberately not added to first: a held direction is
+   * released to a handler that has already returned, and the shop would be
+   * walking at a key you let go of during the pause — the same trap flying the
+   * camera in build mode had to be written around.
+   */
+  if (award.open) {
+    e.preventDefault();
+    if (k === 'escape' || k === 'enter' || k === ' ') award.dismiss();
+    return;
+  }
+
   keys.add(k);
 
   // Every menu key is read off the same array the rail draws itself from, so a
@@ -201,7 +224,7 @@ function refreshGhost(force = false) {
     // it opens it (see `endPress`). So the bar goes amber, which is the colour
     // everything openable wears under the pointer, and no verdict is printed:
     // green would be promising a purchase that is not going to happen.
-    if (sameWay(scene.storeLayout, seg, edgeKind)) {
+    if (sameFamily(scene.storeLayout, seg, edgeKind)) {
       scene.setEdgeGhost([seg], 'aim');
       ui.setBuildVerdict(null);
       scene.setAimTarget(null);
@@ -502,8 +525,15 @@ canvas.addEventListener('wheel', (e) => {
 // name a destination and the server routes there (`walkTo`, A* on the same
 // grid the customers use). That is not just a different input — it is what
 // makes one tap do a whole errand, because pointing at a thing names it as well
-// as routing to it. Tap a shelf, and you walk to the side you can work from and
-// stock it, with no second input at all.
+// as routing to it. Tap a shelf with an armful, and you walk to the side you can
+// work from and stock it, with no second input at all.
+//
+// Empty-handed it takes two, and the split is `openInTwo`: a press selects, a
+// second opens the menu, and a DOUBLE press is the walk. Carrying something is
+// what makes the walk the obvious reading of a tap — there is nothing to ask a
+// shelf while your arms are full — and with empty hands most of what you point
+// at a unit for (its price, its board, turning it, moving it) is a question you
+// ask from where you are standing.
 //
 // ...and *only* that shelf. The naming is the load-bearing half: with an armful
 // in your hands, walking down an aisle used to stock whichever unit your feet
@@ -1263,8 +1293,8 @@ function endPress(e) {
       // left to get wrong. A single segment only — a drag along a wall is a run,
       // not a question about one door — and only within a family, so the Wall
       // tool still bricks a doorway up and the bulldozer still knocks it through.
-      if (drawn.segs.length === 1 && sameWay(scene.storeLayout, start, kind)) {
-        showWay(ui, start);
+      if (drawn.segs.length === 1 && sameFamily(scene.storeLayout, start, kind)) {
+        showEdgeMenu(ui, start);
         return;
       }
       if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
@@ -1573,7 +1603,7 @@ function pickWay(cx, cy, blocked = false) {
   if (blocked || ui.holding || ui.demolishArmed() || dropping()) return null;
   if (aimCrate(cx, cy)) return null;
   const seg = scene.pickEdge(cx, cy);
-  return seg && isWay(scene.storeLayout, seg) ? seg : null;
+  return seg && hasEdgeMenu(scene.storeLayout, seg) ? seg : null;
 }
 
 /**
@@ -1624,29 +1654,49 @@ const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed()
  * the same four lines with different comments, and the two of them drifting is
  * how "a tap in build mode does something else" starts.
  */
+/**
+ * Three presses on one thing, and which you made is decided by the CLOCK.
+ *
+ * Select, then open, and a double press goes. The walk used to ride on the
+ * first press — "you pointed at that shelf because you are going to it" — and
+ * that is true often enough to have shipped and wrong often enough to be worth
+ * a gesture: pricing a unit, reading a board, picking one out to turn or move
+ * are all questions asked from where you stand, and every one of them sent you
+ * across the shop first. Aiming at something is not agreeing to walk to it.
+ *
+ * There is no deferral in here and there must not be. The second press is both
+ * "open it" and the back half of a double press, so the choice is made at the
+ * moment that press lands, off how long ago the last one was — waiting out
+ * `DOUBLE_MS` to see whether a third is coming would put a visible pause on the
+ * single commonest press in the game.
+ *
+ * Only when `walk` is true, which is the caller's decision. Build mode never
+ * walks you: it flies the view somewhere you cannot stand (`setFreeRoam`), so
+ * going there is exactly what you did not ask for.
+ */
+const DOUBLE_MS = 400;
+let lastFixtureTap = { id: null, at: 0 };
+
 function openInTwo(f, { walk = false } = {}) {
-  if (!ui.isSelected(f)) {
-    ui.selectFixture(f);
-    // ...and shopkeeping spends the same press on the walk. Picking a thing out
-    // and then crossing the floor to it are not two decisions — you pointed at
-    // that shelf because you are going to it — so the press that says WHICH
-    // also says GO, and the menu is what the second press is for. It costs
-    // nothing that was not already spent: a tap on bare floor beside the unit
-    // walked you there and named nothing, so this is that gesture with an
-    // answer attached.
-    //
-    // Deliberately not in build mode, which is the caller's decision and why
-    // this is a flag rather than the default. Building flies the view somewhere
-    // you cannot stand (`setFreeRoam`) — a room you have just sealed, the far
-    // side of the fence — so a select that walked would be sending you off
-    // across the shop every time you looked at what you had built.
-    if (walk) { scene.ripple(f.x, f.z); walkTo({ fixture: f.id }); }
-    else scene.ripple(f.x, f.z, 'miss');
+  const now = performance.now();
+  const quick = lastFixtureTap.id === f.id && now - lastFixtureTap.at < DOUBLE_MS;
+  lastFixtureTap = { id: f.id, at: now };
+
+  // Amber, and it is the only press here that gets it: amber is "you are on
+  // your way", pale is "I heard you". Selection survives the walk — you are
+  // going to the thing you just named, so arriving with it deselected would be
+  // the gesture forgetting its own subject.
+  if (walk && quick) {
+    scene.ripple(f.x, f.z);
+    walkTo({ fixture: f.id });
     return;
   }
-  // Pale from here on, and the two colours are carrying the whole difference
-  // between the presses: amber is "you are on your way", pale is "I heard you".
-  // A press that opens a panel must not flash the going colour.
+
+  if (!ui.isSelected(f)) {
+    ui.selectFixture(f);
+    scene.ripple(f.x, f.z, 'miss');
+    return;
+  }
   scene.ripple(f.x, f.z, 'miss');
   if (ui.openPanel === 'fixture') ui.closePanel();
   else showFixture(ui, f);
@@ -1728,7 +1778,7 @@ function openAtPointer(cx, cy) {
   // asks it the same question and the amber bar it draws has to be a promise
   // about this press.
   const way = pickWay(cx, cy);
-  if (way) { showWay(ui, way); return true; }
+  if (way) { showEdgeMenu(ui, way); return true; }
   return false;
 }
 
@@ -1965,7 +2015,7 @@ function tapAtPointer(cx, cy) {
       // Pale, like every other press that opens a panel rather than going.
       if (spot) scene.ripple(spot.x, spot.z, 'miss');
       if (ui.openPanel === 'way' && sameSpot(ui.wayRef, way)) ui.closePanel();
-      else showWay(ui, way);
+      else showEdgeMenu(ui, way);
       return;
     }
 

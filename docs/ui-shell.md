@@ -410,7 +410,7 @@ moment it exists — including the ones that are a bar rather than a panel.
 
 | Key | Does |
 |---|---|
-| `B` `U` `T` `/` | toggle Supplier · Upgrades · Shop · Controls |
+| `B` `U` `T` `M` `/` | toggle Supplier · Upgrades · Shop · Milestones · Controls |
 | `H` | the roster along the bottom — a bar, not a panel (`STAFF_BAR`, which is not a section at all) |
 | `G` | build mode on and off — the rail's Build button presses this |
 | `1`–`9` | the open tab of whichever bar is up, seeds when neither is |

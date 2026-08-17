@@ -28,6 +28,12 @@
  * - **Giving up is the SHOP's judgement, not a rule about your hands.** Your own
  *   `stockShelf` still works, and ticking a shelf for it lifts the mark — which
  *   the log line promises out loud, so it has to be true.
+ * - **…and a board YOU clear does not come back either.** Same loop, your hands:
+ *   the board you cleared is bare and unlabelled, which is the best shelf in the
+ *   shop as far as `shelvesFor` is concerned, so the next stocker walks the crate
+ *   you just made straight back onto it. It only holds while nothing else is
+ *   holding the item, which is the half that keeps consolidating two boards into
+ *   one from retiring what is on them.
  * - **A merge frees a board and conserves the stock**, and then does not
  *   un-merge. Clear and Merge both only ever reduce occupied boards, and the
  *   reason `merchandise` has no third verb is that a job whose verbs disagree
@@ -45,6 +51,7 @@ import { Game } from '../server/sim/index.js';
 import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { lotStacks, lotTotal, lotQty, lotHas } from '../shared/lot.js';
+import { MILESTONES } from '../server/sim/goals.js';
 
 const failures = [];
 let checks = 0;
@@ -111,6 +118,13 @@ function fresh({ jobs = null } = {}) {
   g.regenerateLayout(null, {}, { want: SHOP });
   g.freezeShell();
   g.freezeYard();
+  // Every milestone marked as already passed, which is a third thing that can
+  // put goods in the shop and the one nothing here switches off. Taking the
+  // hand on is itself what earns "someone else to do it", so the setup for a
+  // section is what triggers the gift — and it arrives as an ordinary van a
+  // couple of shop-minutes later, carrying a crate of the item being counted.
+  // Whether it lands inside a run is a question about how far people walked.
+  for (const m of MILESTONES) g.milestones.done.push(m.id);
   g.orders.auto = false;
   g.orders.assign = false;
   g.orders.items = {};
@@ -387,6 +401,73 @@ const onAShelf = (g, itemId) => g.layout.shelves.some((sh) => (g.shelfStack(sh, 
   check(on.ok, 'and told to look after itself again', on.error ?? '');
   const done = until(g, () => !g.shelfStack(s0, ITEM_A.id));
   check(done !== null, 'the hand clears it once it is allowed to', 'still there');
+}
+
+// ---------------------------------------------------------------------------
+// 8. …and a board YOU cleared does not come straight back either.
+//
+// Section 4's claim, asked of the other pair of hands. Every part of the loop it
+// describes is still standing when the player is the one who pressed Clear: the
+// crate is an ordinary pallet, `unload` lifts it, and the board it came off is
+// bare and unlabelled — which makes it the best shelf going in `shelvesFor` — so
+// the next stocker to walk past undoes the thing you just did. What that reads
+// as is the button not working, and the shop looks BUSY while it happens. It is
+// invisible in a still frame twice over: one frame is a crate beside a shelf,
+// and the next one is a stocked shelf.
+// ---------------------------------------------------------------------------
+{
+  const jobs = [{ job: 'unload', weight: 1 }, { job: 'shelve', weight: 1 }];
+  const g = fresh({ jobs });
+  const shelf = g.layout.shelves[0];
+  // Selling perfectly well and not stale — this is your call, not the shop's,
+  // which is the difference between this section and section 4.
+  board(g, shelf, ITEM_A, 8, { soldAgo: 0 });
+
+  const res = g.clearBoard('me', shelf.id, ITEM_A.id);
+  check(res.ok, 'you can take a board off a unit', res.error ?? '');
+  eq(g.shelfStacks(shelf).length, 0, 'the board is free the moment you press it');
+  check(g.droppedItem(ITEM_A.id), 'and the shop hears it as "we do not stock this any more"');
+
+  run(g, 1200);                                // two full in-game minutes of trying
+  check(!onAShelf(g, ITEM_A.id), 'so nothing walks it back on', 'a stocker undid it');
+  eq(everywhere(g, ITEM_A.id), 8, 'and the goods are all still there, in the crate');
+
+  // …and taking the LABEL off a board with nothing on it is not that sentence.
+  // Nothing moved, so there is nothing for anybody to walk back, and a shop that
+  // retired an item every time you tidied a row of ghosts would be one you could
+  // not tidy.
+  shelf.assigned = [ITEM_B.id];
+  const untick = g.clearBoard('me', shelf.id, ITEM_B.id);
+  check(untick.ok, 'a bare reservation comes off too', untick.error ?? '');
+  check(!g.droppedItem(ITEM_B.id), 'and that alone retires nothing');
+}
+
+// ---------------------------------------------------------------------------
+// 9. …but only while nothing else in the shop is holding it.
+//
+// The mark is on the ITEM, because giving up on one board alone lands the same
+// goods on the unit next door with the next van. Which is right for the hand,
+// whose whole reason for clearing is that nothing is selling — and wrong here,
+// where you may simply be consolidating two boards into one. Marking it then
+// strands the crate on the floor AND quietly stops restocking a shelf you never
+// touched, both of which look like the shop breaking somewhere else.
+// ---------------------------------------------------------------------------
+{
+  const jobs = [{ job: 'unload', weight: 1 }, { job: 'shelve', weight: 1 }];
+  const g = fresh({ jobs });
+  const [s0, s1] = g.layout.shelves;
+  board(g, s0, ITEM_A, 2, { soldAgo: 0 });
+  board(g, s1, ITEM_A, 2, { soldAgo: 0 });
+
+  const res = g.clearBoard('me', s0.id, ITEM_A.id);
+  check(res.ok, 'one of two boards comes off', res.error ?? '');
+  check(!g.droppedItem(ITEM_A.id),
+    'and the shop does not stop stocking it — a shelf you never touched still sells it');
+
+  const done = until(g, () => (g.shelfStack(s1, ITEM_A.id)?.qty ?? 0) === 4);
+  check(done !== null, 'so the crate goes to that shelf rather than back where it came from',
+    `${g.shelfStack(s1, ITEM_A.id)?.qty ?? 0} on it`);
+  eq(g.shelfStacks(s0).length, 0, 'and the board you cleared stays cleared');
 }
 
 // ---------------------------------------------------------------------------

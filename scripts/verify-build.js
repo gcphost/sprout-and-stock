@@ -202,11 +202,23 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 }
 
 // ---------------------------------------------------------------------------
-// 1c. The seed that goes back in is the one you have selected.
+// 1c. A bed replants ITSELF, and switching it costs exactly one seed.
 //
-// Replanting the harvested crop regardless charges for a seed the player was
-// about to replace, so every switch costs two. That is invisible in a single
-// playthrough and was worth about a third of all profit over 60 simulated days.
+// The two halves are one claim and have to be tested together, because each on
+// its own is a bug that has actually shipped.
+//
+// Replanting the globally selected seed converts a farm one bed at a time: `sow`
+// sets that seed as a convenience, so turning ONE bed over from a coop to
+// tomatoes made tomatoes the answer for every other bed, each converting days
+// later at the moment it was picked, with nothing in the log but "Sowed Tomato
+// Vine". Six varieties become six beds of whatever you last touched, and no
+// amount of care with the hotbar avoids it.
+//
+// And replanting the bed's own crop with no way back charges for a seed you were
+// about to replace — a switch buys two, which measured a third of all profit
+// over 60 days and is precisely why the wrong rule was there. `sow` refunds what
+// it pulls up scaled by how little it has grown, so the correction is free at
+// growth 0 and the double charge cannot happen.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -223,19 +235,48 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   g.players.me.carry = null;
 
   if (other) {
+    // The hotbar says something else entirely, which is the whole test: it is
+    // the state a player is in the moment after turning any ONE bed over.
     g.players.me.selectedCrop = other.id;
     const cashBefore = g.cash;
     const picked = g.harvest('me', plot.id);
 
-    eq(picked.item_id, grown.item_id, 'you still pick what was actually growing');
-    eq(picked.replanted, other.id, 'but the bed takes the seed you have selected');
-    eq(plot.crop_id, other.id, 'and that is what is now growing there');
+    eq(picked.item_id, grown.item_id, 'you pick what was actually growing');
+    eq(picked.replanted, grown.id, 'and the bed puts its OWN crop back');
+    eq(plot.crop_id, grown.id, 'whatever seed the hotbar is holding');
+    eq(round2(cashBefore - g.cash), round2(grown.seed_cost),
+      'charged once, for the seed that went in');
+
+    // ...and turning it over on the spot is the same price as if the bed had
+    // replanted the other crop itself. Growth is 0 the tick a replant lands, so
+    // the refund is whole — the correction is free, which is what makes a
+    // per-bed decision affordable.
+    const swap = g.sow('me', plot.id, other.id);
+    check(swap.ok, 'the bed can be turned over straight after picking');
+    eq(plot.crop_id, other.id, 'and it is the new crop growing there');
+    eq(round2(swap.refund), round2(grown.seed_cost), 'the seed just sown comes back whole');
+    // Measured from before the HARVEST, which is the only way to say it: the
+    // replant and the switch are two charges and one refund, and what a player
+    // cares about is what the whole gesture cost.
     eq(round2(cashBefore - g.cash), round2(other.seed_cost),
-      'charged once, for the selected seed — never for both');
+      'so picking and switching buys exactly one seed, never two');
+
+    // The other end of the same rule: a crop that has actually grown is worth
+    // something, and pulling it up throws that away. A flat refund here would
+    // make ripping up an almost-ripe field free.
+    const g3 = fresh();
+    const bed = g3.layout.plots[0];
+    stand(g3, bed);
+    g3.till('me', bed.id);
+    g3.plant('me', bed.id, grown.id);
+    bed.plantedAt = g3.elapsed - grown.grow_minutes * 60 * 0.5;
+    const half = g3.sow('me', bed.id, other.id);
+    check(half.refund < grown.seed_cost * 0.9,
+      'but a half-grown bed does not hand its seed back whole');
   }
 
-  // No seed selected falls back to what was picked, which is the common case:
-  // staff and anything driven headlessly never set one.
+  // Nothing selected changes nothing: the bed was always going to put back what
+  // it grew, which is also what staff and anything headless get.
   const g2 = fresh();
   const plot2 = g2.layout.plots[0];
   const crop2 = cropFor(g2);
@@ -283,7 +324,7 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   g.players.me.carry = null;
   g.players.me.selectedCrop = null;
   const picked = g.harvest('me', plot.id);
-  eq(picked.qty + picked.dropped, promised,
+  eq(picked.qty + picked.spare, promised,
     'you get exactly what the bed was showing, no more and no less');
   check(plot.yield >= crop.yield_min && plot.yield <= crop.yield_max,
     'and the auto-replant rolls the next bed its own yield');
@@ -1250,21 +1291,125 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   g.stepActions(5);
   eq(g.players.me.carry, null, 'which puts the armful on the shelf');
 
-  // The other direction: a ripe bed you are standing on.
+  // The bed is the exception, and it is the only one.
+  //
+  // It went the other way for four steps — "six seconds on a ripe bed picks
+  // nothing" was asserted right here — and both reasons it did have since been
+  // paid off. Picking can no longer strand you (a full pair of hands crates the
+  // surplus rather than binning it, `Game.harvest`), and *which* bed has an
+  // exact answer no aisle of shelves has: the one under your feet. What is left
+  // is a press per bed to do the one thing a farm is for.
+  //
+  // So the three claims are: standing on it picks it with the button UP,
+  // standing NEXT to it does not — the ambiguity guard, and the half that would
+  // silently strip a whole field if the tile test ever became `near()` — and
+  // walking over it does not, which is `moving` still being the other consent.
   const plot = g.layout.plots[0];
   const crop = cropFor(g);
   stand(g, plot);
   g.till('me', plot.id);
   check(g.plant('me', plot.id, crop.id).ok, 'a bed is sown to pick from');
   plot.ready = true;
+  g.players.me.pressing = false;
+
+  // Beside it, not on it. A fraction of a tile away, so it is well inside
+  // `REACH` and the old proximity rule would have picked it — and on a tile no
+  // other bed claims, or the sweep would be measuring the neighbour.
+  const beds = new Set(g.layout.plots.map((q) => `${q.x},${q.z}`));
+  const step = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    .find(([dx, dz]) => !beds.has(`${plot.x + dx},${plot.z + dz}`));
+  check(!!step, 'there is a tile beside the bed that is not another bed');
+  stand(g, { x: plot.x + step[0] * 0.9, z: plot.z + step[1] * 0.9 });
   for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  check(plot.ready, 'six seconds on a ripe bed picks nothing');
+  check(plot.ready, 'six seconds beside a ripe bed picks nothing');
   eq(g.players.me.carry, null, 'so your hands stay empty');
 
-  check(g.walkToFixture('me', plot.id).ok, 'pointing at the bed is accepted');
-  eq(g.actionFor(g.players.me)?.kind, 'harvest', 'and that arms the harvest');
-  g.stepActions(5);
-  check((lotTotal(g.players.me.carry)) > 0, 'which fills your hands');
+  // ...and crossing it does not either: a route with legs left is somebody on
+  // their way somewhere, which is what stops a walk down a row stripping it.
+  stand(g, plot);
+  g.players.me.path = [{ x: plot.x + 3, z: plot.z }];
+  for (let i = 0; i < 60; i++) g.stepActions(0.1);
+  check(plot.ready, 'and walking over it picks nothing either');
+
+  // Standing on it, stopped, with nothing pressed.
+  stand(g, plot);
+  for (let i = 0; i < 60; i++) g.stepActions(0.1);
+  check(!plot.ready, 'but stopping on the bed picks it, with no button held');
+  // Onto the SHOULDER, not into your hands: a crate is `CRATE_UNITS` against
+  // six, and a bed gives up to ten, so an armful was one bed and a walk. Empty
+  // hands is the condition (you cannot shoulder a box holding loose goods) and
+  // the claim is worth pinning because both are legal states to end a harvest
+  // in — a change that quietly put it back in your hands would halve the trip
+  // again with nothing failing.
+  check(lotTotal(g.players.me.haul) > 0, 'straight onto your shoulder as a crate');
+  eq(g.players.me.carry, null, 'with your hands still free');
+
+  // ...and a bed you TAPPED is the same bed. It shipped needing a press:
+  // `errandAction` outranks proximity by design, so a named bed comes back
+  // through `actionAt` rather than through the standing-on-it branch — and
+  // walking to a bed is the ordinary way to end up standing on one, so the
+  // path that fires on its own was the one nobody takes. Both ends of it
+  // decide `auto` the same way now, and this is the claim that says so.
+  const tapped = g.layout.plots[2];
+  stand(g, tapped);
+  g.till('me', tapped.id);
+  check(g.plant('me', tapped.id, crop.id).ok, 'a third bed is sown');
+  tapped.ready = true;
+  check(g.walkToFixture('me', tapped.id).ok, 'pointing at the bed is accepted');
+  check(!!g.players.me.errand, 'which is an errand, not a walk');
+  for (let i = 0; i < 60; i++) g.stepActions(0.1);
+  check(!tapped.ready, 'and naming the bed you are stood on picks it with no press');
+  g.players.me.pressing = true;
+
+  // And a bed picked with no room left still comes out of the ground: the
+  // surplus is a crate at your feet, never nothing. Destroying it is what made
+  // the farm a one-bed-per-trip job, and it is the one thing conservation was
+  // never asserted about — a yield that vanishes leaves no record anywhere.
+  const full = g.layout.plots[1];
+  stand(g, full);
+  g.till('me', full.id);
+  check(g.plant('me', full.id, crop.id).ok, 'a second bed is sown');
+  full.ready = true;
+  full.yield = 4;
+  g.players.me.carry = null;
+  g.players.me.carry = { item_id: plainItem.id, qty: g.carryCapacity(g.players.me) };
+  const held = lotTotal(g.players.me.carry);
+  const inCrates = () => g.deliveries.reduce((n, d) => n + lotQty(d, crop.item_id), 0);
+  const crated0 = inCrates();
+  const out = g.harvest('me', full.id);
+  check(out.ok, 'picking with full hands is not refused');
+  eq(lotTotal(g.players.me.carry), held, 'your hands are exactly as they were');
+  eq(inCrates() - crated0, 4, 'and all four are in a crate on the ground');
+
+  // ...and a FULL SHOULDER spills the same way. The three destinations are
+  // ordered — box, hands, ground — and each one has to hand over what it cannot
+  // take, or the overflow is back to being destroyed one step further along.
+  const over = g.layout.plots[3];
+  stand(g, over);
+  g.till('me', over.id);
+  check(g.plant('me', over.id, crop.id).ok, 'a fourth bed is sown');
+  over.ready = true;
+  over.yield = 5;
+  g.players.me.carry = null;
+  g.players.me.haul = { stacks: [{ item_id: crop.item_id, qty: g.crateCapacity() }] };
+  const box = lotTotal(g.players.me.haul);
+  const before2 = inCrates();
+  check(g.harvest('me', over.id).ok, 'picking with a full crate up is not refused either');
+  eq(lotTotal(g.players.me.haul), box, 'the box on your shoulder is untouched');
+  eq(lotTotal(g.players.me.carry), 5, 'and it falls through to your hands');
+  eq(inCrates() - before2, 0, 'with nothing on the ground while there is a hand free');
+
+  // ...and only when BOTH are full does it go down. Three destinations in order,
+  // each handing on what it cannot take — the last one is the ground, and the
+  // ground is what stops a yield ever being destroyed again.
+  const last = over;                     // the shop has four beds; reuse one
+  stand(g, last);
+  last.ready = true;
+  last.yield = 3;
+  g.players.me.carry = { stacks: [{ item_id: plainItem.id, qty: g.carryCapacity(g.players.me) }] };
+  const before3 = inCrates();
+  check(g.harvest('me', last.id).ok, 'picking with both full is not refused');
+  eq(inCrates() - before3, 3, 'and all three are on the ground beside you');
 }
 
 // ---------------------------------------------------------------------------
@@ -1301,6 +1446,91 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   eq(me.carry, null, 'and stayed down — nothing filled your hands again');
   eq(g.deliveries.length, 1, 'as exactly one pallet');
   eq(lotTotal(g.deliveries[0]), 4, 'holding all of it');
+}
+
+// ---------------------------------------------------------------------------
+// 7c. A tap is a walk, and holding something does not change that.
+//
+//     For four steps it did: with goods in hand, `walkTo` armed a setdown on
+//     the tile it walked you to, on the guess that "over there" meant "put it
+//     down over there". An errand outranks everything proximity offers — that
+//     is the whole scheme — so the guess suppressed every job that fires on its
+//     own for as long as your hands were full. What that reads as in play is a
+//     till you cannot serve while carrying a crate: the shopper stands there,
+//     the shop offers to set the box down, and you put it down first for no
+//     reason anybody could name.
+//
+//     None of it is visible in a screenshot — an armed errand is a label — and
+//     the two halves have to be asserted together, because "the tap arms
+//     nothing" is only safe while the square still has its own gesture.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const me = g.players.me;
+  const till = g.layout.checkouts[0];
+  const spot = g.reachSpots(till)[0];
+
+  // Somebody at the front of the queue, and nothing further: this only ever
+  // asks what the shop OFFERS, never fires it, so a customer with a basket and
+  // a state is the whole of what `actionFor` reads.
+  g.customers.c1 = { id: 'c1', state: 'QUEUE', basket: [], mood: 1, till: till.id, x: till.x, z: till.z };
+  till.queue = ['c1'];
+
+  stand(g, spot);
+  eq(g.actionFor(me)?.kind, 'serve', 'a shopper at the till is a serve');
+
+  me.haul = { stacks: [{ item_id: anyItem.id, qty: 4 }] };
+  g.walkTo('me', spot.x, spot.z);
+  eq(me.errand, null, 'tapping an ordinary tile with a crate up arms nothing');
+  stand(g, spot);
+  eq(g.actionFor(me)?.kind, 'serve', '...so the shopper is still served, box and all');
+
+  me.haul = null;
+  me.carry = { stacks: [{ item_id: anyItem.id, qty: 4 }] };
+  g.walkTo('me', spot.x, spot.z);
+  eq(g.actionFor(me)?.kind, 'serve', 'and the same with an armful');
+
+  // ...and build mode is the same claim said the other way. It suspends every
+  // other job because every one of them is a question about the pointer, and a
+  // shopper at the counter is not: leaving it out is a customer stood there
+  // while you put up a wall, waiting for you to find the button that turns
+  // building off. Nothing else comes back with it — a shelf in reach still
+  // offers nothing, or the mode has stopped being a mode.
+  me.carry = null;
+  me.errand = null;
+  me.build = { on: true, tool: 'shelf' };
+  stand(g, spot);
+  eq(g.actionFor(me)?.kind, 'serve', 'build mode still takes the payment');
+  me.haul = { stacks: [{ item_id: anyItem.id, qty: 4 }] };
+  eq(g.actionFor(me)?.kind, 'serve', '...crate and all');
+  till.queue = [];
+  eq(g.actionFor(me), null, 'and with nobody waiting it offers nothing at all');
+  till.queue = ['c1'];
+  me.build = { on: false, tool: null };
+  me.haul = null;
+  me.carry = { stacks: [{ item_id: anyItem.id, qty: 4 }] };
+
+  // ...while the drop-off keeps the meaning it has to keep: it is painted
+  // ground with no id, so the tap IS the naming, and there is no other way to
+  // say it. Both hands and shoulder, because they answer with different verbs.
+  const pad = g.dropPad();
+  stand(g, pad);
+  g.walkTo('me', pad.x, pad.z);
+  eq(g.actionFor(me)?.kind, 'stow', 'tapping the drop-off with full hands still stows');
+  me.carry = null;
+  me.haul = { stacks: [{ item_id: anyItem.id, qty: 4 }] };
+  g.walkTo('me', pad.x, pad.z);
+  eq(g.actionFor(me)?.kind, 'setdown', '...and a crate is set down on it');
+
+  // The other half of the tap losing its second meaning: the square is named by
+  // a HOLD, which is what the green ghost is drawn on.
+  const dropped = g.deliveries.length;
+  stand(g, spot);
+  check(g.placeAt('me', spot.x, spot.z).ok, 'a square in reach can still be named');
+  eq(g.actionFor(me)?.kind, 'setdown', 'and naming it is what offers the setdown');
+  g.stepActions(5);
+  eq(me.haul, null, 'the crate went down');
+  eq(g.deliveries.length - dropped, 1, 'as one pallet on that square');
 }
 
 // ---------------------------------------------------------------------------

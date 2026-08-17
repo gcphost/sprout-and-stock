@@ -1,6 +1,7 @@
 # Building — design
 
-Status: **steps 1–9, 11 and 13 built. 10 is cancelled. 12 is what step 9 left.**
+Status: **steps 1–9, 11, 13, 14 and 15 built. 10 is cancelled. 12 is what step 9
+left.**
 There is also a working interactive mockup —
 [turn the shop around here](https://claude.ai/code/artifact/1aac9d71-46fc-4e78-9f93-d54a6e6d2467).
 
@@ -685,6 +686,47 @@ doorway up and the bulldozer still knocks it through.
 The last of the affordance is the tool's own blurb, and it has to be: there is no
 palette button for a staff doorway, so nothing else on screen could say that a
 door has a setting at all.
+
+#### The same machinery reglazes a window, and that is the family line
+
+Windows came next and cost almost nothing, because the shape was already here.
+`GLAZING` is `WAYS`'s sibling — four kinds of one `base`, differing in **where the
+glass starts and stops**: the plain one (waist to lintel), a **shopfront** (floor
+to lintel over a kick plate), a **bay** (standard glazing stepped out over a sill)
+and a **high** strip up under the lintel, which is light with nothing to see
+through it.
+
+The distinction between the two tables is the thing to keep. An opening's kinds
+differ in *who may cross*, which is behaviour the sim reads and the reason step 15
+was a step at all. A glazing's differ in nothing the sim reads at all — so they are
+**variants**, and the codebase's own rule about variants applies: a look must never
+move a number. Hence one price for all four, hence swapping between them is free,
+hence no `simulate` run over a picture. If a window ever *does* something —
+daylight a lamp does not have to pay for, charm, a shoplifter who can see the till
+— that is a number, and it stops being a variant on the day it arrives.
+
+What they share is `edgeFamily`, which is now what the refit is charged against
+and what the menu lists: within a family you keep the door, or you keep the wall.
+So the window menu is the door menu with a different table behind it, and the four
+looks are on the bar as well — a shopfront along the front of the shop is a thing
+you decide while drawing it, and the menu is how you change your mind about the one
+already standing there.
+
+Three things in the geometry are worth knowing before adding a fifth look:
+
+- **A look should be two numbers in `EDGE_BASE.glass`**, `sill` and `head`, and
+  nothing else. The defaults ARE the window that has always been here, which is
+  what makes the existing one provably unmoved.
+- **A bay projects toward the OUTDOOR side**, read off the `indoor` mask the same
+  way `shopperCanCross` reads "in" — a bay that bulged into the aisle would be a
+  look that eats shop floor. With nothing to go on it falls to the positive axis,
+  which has to be a decision rather than a guess: it must be the same answer every
+  re-flow, or building a shelf flips your bay to the other side of the wall.
+- **A wall-sized pane asks for its shadow back.** `castShadow` is off for glass,
+  which is right for a bottle and a freezer door and wrong for a shopfront: a
+  building whose whole south face stops laying a shadow on its own forecourt reads
+  as the wall having been demolished. `shadow: true` on the band is the ask, and it
+  is the same flag, in the same words, that a model part already has.
 
 **The hold does nothing here, and that is `HOLD_OPENS`.** The ladder in
 `openAtPointer` ends in this menu too and is wired end to end, but the flag is off

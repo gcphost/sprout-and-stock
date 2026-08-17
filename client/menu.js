@@ -13,10 +13,28 @@
  */
 
 import { money } from './money.js';
+import { START_TIERS, DEFAULT_TIER, startTier } from '../shared/start.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
+
+/** `2 shelves`, `1 freezer` — a count and the word for it, agreeing. */
+const some = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * What a tier comes with, in shop words rather than field names.
+ *
+ * Derived from the same `fixtures` the server furnishes from, so the button
+ * cannot promise a cooler the shop opens without — the rule `client/thumb.js`
+ * follows about drawing a fixture from its own catalog row, said about a list.
+ */
+const kitLine = (t) => [
+  some(t.fixtures.shelf, 'shelf', 'shelves'),
+  some(t.fixtures.freezer, 'freezer'),
+  some(t.fixtures.checkout, 'till'),
+  some(t.fixtures.plot, 'bed'),
+].join(' · ');
 
 /** "3 days ago" beats a timestamp when the question is "which one was I in". */
 function ago(ms) {
@@ -70,6 +88,11 @@ export class Menu {
     this.notice = notice;
     this.error = null;
     this.creating = false;
+    // Which size of shop the new-shop form is offering. Held on the menu rather
+    // than read off the DOM at submit time because `render` rebuilds the box
+    // from `innerHTML` on every keystroke that matters — see `create`, which
+    // learnt the same lesson about the text fields the hard way.
+    this.tier = DEFAULT_TIER;
     // `{ id, at }` for the one shop whose Delete is armed. By id, not by index:
     // a refresh re-sorts the list, and an armed row number would end up over
     // somebody else's shop.
@@ -152,6 +175,29 @@ export class Menu {
   }
 
   /**
+   * Switch which size of shop the form is offering.
+   *
+   * In place rather than by redrawing, and both halves of that are the point.
+   * `render` rebuilds the box from `innerHTML`, so a redraw would throw away
+   * whatever cash you had typed — the trap `create` documents at length — and
+   * it would move the caret to the name field, three rows above the thing you
+   * just clicked. Only three things depend on the choice, so all three are
+   * moved by hand: which button is lit, what the shop comes with, and what the
+   * empty cash box is promising.
+   */
+  pickTier(id) {
+    this.tier = id;
+    const t = startTier(id);
+    this.root.querySelectorAll('[data-tier]').forEach((el) => {
+      el.classList.toggle('on', el.dataset.tier === id);
+    });
+    const detail = this.root.querySelector('.tdetail');
+    if (detail) detail.innerHTML = `<b>${esc(kitLine(t))}</b> ${esc(t.blurb)}`;
+    const cash = this.root.querySelector('#menu-new-cash');
+    if (cash) cash.placeholder = t.cash;
+  }
+
+  /**
    * Making a shop drops you straight into it.
    *
    * The alternative — create, then find it in the list, then press Play — is
@@ -172,10 +218,8 @@ export class Menu {
     // about what "" means, and the placeholders would only be right by luck.
     const asked = {
       name: field('#menu-new-name'),
-      seed: field('#menu-new-seed'),
+      tier: this.tier,
       cash: field('#menu-new-cash'),
-      shelves: field('#menu-new-shelves'),
-      plots: field('#menu-new-plots'),
     };
     await this.act(async () => {
       const { world } = await api('POST', '/worlds', asked);
@@ -263,50 +307,63 @@ export class Menu {
         ${this.notice ? `<div class="menu-err soft">${esc(this.notice)}</div>` : ''}
         ${this.error ? `<div class="menu-err">${esc(this.error)}</div>` : ''}
 
-        <div class="menu-list">
-          ${this.worlds.length
-            ? this.worlds.map((w, i) => this.card(w, i)).join('')
-            : '<div class="menu-empty">No shops yet. Start one below.</div>'}
-        </div>
-
+        <!-- Starting one comes BEFORE the list of them, and the form takes the
+             button's place rather than opening under it. Both are the same
+             point: what you came here to do is at the top either way, and a
+             list that grows by one every time you play does not push it further
+             down the page each time. -->
         ${this.creating
           ? `<div class="menu-new">
               <label class="menu-field">
                 <span>Called</span>
                 <input id="menu-new-name" maxlength="32" placeholder="Corner Shop" />
               </label>
-              <label class="menu-field">
-                <span>Seed</span>
-                <input id="menu-new-seed" maxlength="24" placeholder="leave blank for a surprise" />
-              </label>
-              <div class="menu-row">
-                <label class="menu-field">
-                  <span>Cash</span>
-                  <input id="menu-new-cash" type="number" min="0" max="1000000" placeholder="250" />
-                </label>
-                <label class="menu-field">
-                  <span>Shelves</span>
-                  <input id="menu-new-shelves" type="number" min="1" max="25" placeholder="6" />
-                </label>
-                <label class="menu-field">
-                  <span>Plots</span>
-                  <input id="menu-new-plots" type="number" min="1" max="32" placeholder="4" />
-                </label>
+              <!-- No seed box. It was a field whose honest label is "type
+                   something and the building will be different", which is a
+                   question nobody starting a shop has an answer to — and the
+                   only way to use it well is to have played the seed already.
+                   The API still takes one, because a balance run comparing two
+                   worlds needs to name the same building twice; a person gets a
+                   random one. -->
+              <!-- How much shop, rather than how many shelves. The three
+                   numbers that were here asked you to size a building before
+                   you had seen one — and the middle one silently sized the
+                   *building*, because the generator grows the shop until its
+                   contents fit. So the sizes are named, and each says what it
+                   comes with. See shared/start.js. -->
+              <div class="tiers">
+                ${START_TIERS.map((t) => `
+                  <button class="tier${t.id === this.tier ? ' on' : ''}" data-tier="${t.id}">
+                    <b>${esc(t.name)}</b><span>${money(t.cash)}</span>
+                  </button>`).join('')}
               </div>
-              <!-- Everything cut from here is said better by the thing it was
-                   describing: each box's placeholder is its own default, and a
-                   silly number is clamped rather than refused, so printing the
-                   ranges was three limits nobody was going to hit. What is left
-                   is the one fact no field can tell you — that these two are
-                   asked once, because the building is stamped when you walk in. -->
-              <p class="menu-note">Blank takes the number shown. Shelves and plots can only
-                be chosen now — after that you build them yourself.</p>
+              <p class="tdetail">
+                <b>${esc(kitLine(startTier(this.tier)))}</b>
+                ${esc(startTier(this.tier).blurb)}
+              </p>
+              <label class="menu-field">
+                <span>Cash</span>
+                <input id="menu-new-cash" type="number" min="0" max="1000000"
+                  placeholder="${startTier(this.tier).cash}" />
+              </label>
+              <!-- ...and no paragraph under it either. Everything it said is
+                   said by the thing it was describing: the cash box's
+                   placeholder is its own default, a silly number is clamped
+                   rather than refused, and the sizes above already name what
+                   they come with. "You can only choose this now" is a rule
+                   about a form you are looking at once. -->
               <div class="wacts">
                 <button class="wplay" id="menu-create">Start it</button>
                 <button class="wghost" id="menu-cancel">Cancel</button>
               </div>
             </div>`
           : '<button class="menu-add" id="menu-open-new">+ New shop</button>'}
+
+        <div class="menu-list">
+          ${this.worlds.length
+            ? this.worlds.map((w, i) => this.card(w, i)).join('')
+            : '<div class="menu-empty">No shops yet. Start one above.</div>'}
+        </div>
 
         <p class="menu-foot">${this.busy ? 'Working…' : '&nbsp;'}</p>
       </div>`;
@@ -323,10 +380,14 @@ export class Menu {
     q('#menu-create')?.addEventListener('click', () => this.create());
 
     // Enter anywhere in the new-shop form starts it. A form with a button you
-    // have to aim at is a form people abandon — more so now it is five fields
-    // deep and four of them are ones you were always going to skip.
+    // have to aim at is a form people abandon — more so now it is four fields
+    // deep and three of them are ones you were always going to skip.
     this.root.querySelectorAll('.menu-new input').forEach((el) => {
       el.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.create(); });
+    });
+
+    this.root.querySelectorAll('[data-tier]').forEach((el) => {
+      el.addEventListener('click', () => this.pickTier(el.dataset.tier));
     });
 
     this.root.querySelectorAll('[data-play]').forEach((el) => {

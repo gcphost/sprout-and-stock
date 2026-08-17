@@ -21,6 +21,21 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
+import { START_TIERS, DEFAULT_TIER } from '../shared/start.js';
+
+/**
+ * The tiers, spelled out for whoever is reading the tool schema.
+ *
+ * Built from the table rather than written twice, for the reason every other
+ * derived-not-matched thing in this codebase is: a description that has drifted
+ * from the numbers is worse than none, because it is the only thing an agent
+ * choosing a tier has to go on.
+ */
+const TIER_HELP = START_TIERS
+  .map((t) => `"${t.id}" ${t.name}: $${t.cash}, ${t.fixtures.shelf} shelves, `
+    + `${t.fixtures.freezer} freezer, ${t.fixtures.checkout} till, ${t.fixtures.plot} beds`)
+  .join('. ');
+
 const API = (process.env.SNS_API ?? 'http://localhost:2567/api').replace(/\/$/, '');
 const TOKEN = process.env.SNS_TOKEN;
 
@@ -98,12 +113,17 @@ server.registerTool('create_world', {
   inputSchema: {
     name: z.string().optional().describe('What to call it, e.g. "Balance testing". Defaults to "Shop N".'),
     seed: z.string().optional().describe('Decides the shape of the building and fields. Omit for a random one.'),
-    cash: z.number().optional().describe('Starting money. Defaults to 250. Clamped to 0–1,000,000.'),
+    tier: z.enum(START_TIERS.map((t) => t.id)).optional()
+      .describe('How much shop it opens with — the money AND the size of the building, because the '
+        + 'generator grows the shop until its contents fit, so fewer shelves is a shorter walk. '
+        + `Defaults to "${DEFAULT_TIER}". ${TIER_HELP}`),
+    cash: z.number().optional()
+      .describe("Starting money, overriding the tier's. Clamped to 0–1,000,000."),
     shelves: z.number().optional()
-      .describe('Shelf units the shop opens with. Defaults to 6, clamped to 1–25. Set only at creation: '
+      .describe("Shelf units the shop opens with, overriding the tier's. Clamped to 1–25. Set only at creation: "
         + 'the building is stamped the first time the world opens, and after that the shop is what is standing in it.'),
     plots: z.number().optional()
-      .describe('Farm plots the shop opens with. Defaults to 4, clamped to 1–32. Creation-only, same as shelves.'),
+      .describe("Farm plots the shop opens with, overriding the tier's. Clamped to 1–32. Creation-only, same as shelves."),
   },
 }, async (args) => text(await call('POST', '/worlds', args)));
 

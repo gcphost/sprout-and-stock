@@ -351,7 +351,39 @@ export const BUILD_TOOLS = [
     sub: 'walls',
     icon: ICONS.ambient,
     name: 'Window',
-    blurb: 'A wall you can see through. Still encloses.',
+    blurb: 'A wall you can see through. Still encloses. Tap one you have already built to reglaze it.',
+  },
+  // Three more glazings, and they are LOOKS rather than kinds — same price, same
+  // enclosure, same wall, glass in a different part of it (`GLAZING`,
+  // shared/edges.js). On the bar as well as in the window's own menu, because the
+  // menu can only reglaze a window that already exists and the commonest thing
+  // anybody wants is to draw a shopfront along the front of the shop.
+  {
+    id: 'window-full',
+    edge: 10,
+    group: 'shell',
+    sub: 'walls',
+    icon: ICONS.ambient,
+    name: 'Shopfront',
+    blurb: 'Glass from the floor to the lintel. Costs what a window costs — it is the same wall.',
+  },
+  {
+    id: 'window-bay',
+    edge: 11,
+    group: 'shell',
+    sub: 'walls',
+    icon: ICONS.ambient,
+    name: 'Bay window',
+    blurb: 'Glazing that steps out over a sill. It projects into the street, never into the aisle.',
+  },
+  {
+    id: 'window-high',
+    edge: 12,
+    group: 'shell',
+    sub: 'walls',
+    icon: ICONS.ambient,
+    name: 'High window',
+    blurb: 'A strip up under the lintel: light, no view. What a stockroom wants.',
   },
   {
     id: 'door',
@@ -1329,6 +1361,31 @@ export const STAFF_BAR = {
   },
 };
 
+/**
+ * A milestone's number, in the units it is actually about.
+ *
+ * `$100` and `100 sold` are the same integer and only one of them takes a
+ * dollar sign, so the row is told which by the server (`unit`) rather than
+ * guessing from the id. Reputation is the odd one out and has to be: it is a
+ * 0..1 the HUD already draws as a bar, and "0.75 / 0.75" is a number nobody
+ * reading a shop has ever thought in.
+ */
+function amount(n, unit) {
+  if (unit === 'money') return money(n);
+  if (unit === 'percent') return `${Math.round(n * 100)}%`;
+  if (unit === 'day') return `day ${Math.round(n)}`;
+  return String(Math.round(n));
+}
+
+/** What a rung pays, short enough to sit in a caption under the name. */
+function rewardWords(reward = {}) {
+  const bits = [];
+  if (reward.cash > 0) bits.push(money(reward.cash));
+  if (reward.supplies > 0) bits.push(`${reward.supplies} free units`);
+  if (reward.town > 0) bits.push(`+${reward.town} town`);
+  return bits.length ? `→ ${bits.join(' · ')}` : '';
+}
+
 export const SECTIONS = [
   {
     id: 'stock',
@@ -1476,6 +1533,74 @@ export const SECTIONS = [
           `across ${(s.queues ?? []).length} till${(s.queues ?? []).length === 1 ? '' : 's'}`),
         stat('Harvested', String(st.harvested ?? 0), 'picked today'),
       ].filter(Boolean);
+    },
+  },
+
+  {
+    id: 'goals',
+    icon: ICONS.milestone,
+    name: 'Milestones',
+    key: 'm',
+    title: 'Milestones',
+    /**
+     * How many are nearly there, rather than how many are left.
+     *
+     * "12 to go" is a permanent number that never means anything twice, which
+     * is the badge equivalent of the demand meter's 1px stub — every other
+     * badge on this rail counts something you could act on today. Something
+     * four fifths of the way to a reward is exactly that: it is why you keep
+     * the doors open for another ten minutes.
+     */
+    badge: (ui) => {
+      const close = (ui.state?.milestones ?? [])
+        .filter((m) => !m.done && m.need > 0 && m.have / m.need >= 0.8).length;
+      return close ? String(close) : null;
+    },
+    // The bars, and nothing else. `have` is rounded to the penny by the server
+    // and only moves when a sale, a harvest or a day does — so this settles
+    // between events rather than never, which is what a signature has to do.
+    live: (ui) => (ui.state?.milestones ?? [])
+      .map((m) => `${m.id}${m.have}${m.done ? '!' : ''}`).join(','),
+    rows: (ui) => {
+      const all = ui.state?.milestones ?? [];
+      if (!all.length) return [];
+      const todo = all.filter((m) => !m.done);
+      const done = all.filter((m) => m.done);
+      return [
+        ...(todo.length ? [{ sep: 'To go', icon: ICONS.milestone }] : []),
+        ...todo.map((m) => ({
+          icon: ICONS.milestone,
+          name: m.name,
+          sub: `${m.blurb} ${rewardWords(m.reward)}`,
+          right: `${amount(m.have, m.unit)} / ${amount(m.need, m.unit)}`,
+          bar: m.need > 0 ? m.have / m.need : 0,
+          plain: false,
+        })),
+        ...(done.length ? [{ sep: 'Done', icon: ICONS.medal }] : []),
+        ...done.map((m) => ({
+          icon: ICONS.medal,
+          name: m.name,
+          sub: rewardWords(m.reward),
+          right: '✓',
+          // Dimmed the way an owned upgrade is: still listed, because the
+          // ladder is the point and a list that deleted its top half would get
+          // shorter the better you did.
+          dim: true,
+        })),
+      ];
+    },
+    /**
+     * The town, which is the whole reason this panel is worth having open.
+     *
+     * `catchment` has been on the wire since the shop had customers and has
+     * never once been drawn — so the one term shopkeeping cannot move was also
+     * the one number nobody could see. It belongs here rather than in the
+     * corner HUD because this is the only place anything changes it.
+     */
+    foot: (ui) => {
+      const n = ui.state?.catchment;
+      if (n == null) return 'Milestones grow the town.';
+      return `<b>${Math.round(n)}</b> people within reach of the shop. Milestones grow the town — so do parking, charm and a better address.`;
     },
   },
 

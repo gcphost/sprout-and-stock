@@ -1,0 +1,384 @@
+# Sound
+
+Status: **proposed, nothing built.** There is no audio anywhere in the repo —
+no files, no library, no `AudioContext`, no dependency. This is what it should
+be before the first byte of it exists.
+
+---
+
+## Why it exists
+
+The shop is silent. Everything it does is *visible* and nothing it does is
+audible, which is fine right up until you look away from the screen — and you
+look away constantly, because half of shopkeeping is reading a panel. A
+delivery arrives, a shelf empties, somebody walks out angry, and the only
+report is a line in the corner feed that ages out after seven seconds.
+
+Sound is the channel that works while you are looking somewhere else. That is
+the whole argument, and it is what decides which sounds are worth having: a
+noise for a thing you were already watching is decoration, and a noise for a
+thing that happened behind you is information.
+
+The second argument is that a shop with people in it should *feel* like a shop
+with people in it. `occupancy` has been on the wire since the shop had
+customers and the only thing that ever reads it is a meter. A busy shop and an
+empty one currently differ by some dots moving.
+
+## The shape
+
+Nothing here exists yet. This is where it should go.
+
+| Piece | Lives in |
+|---|---|
+| the mixer — context, buses, master volume | `client/audio/mix.js` |
+| the ambience beds and the crowd swell | `client/audio/room.js` |
+| the music bus and its playlist | `client/audio/music.js` |
+| one-shots, the voice pool and the caps | `client/audio/sfx.js` |
+| what file every sound id means, and who made it | `client/audio/manifest.js` |
+| the files | `client/audio/*.opus` (bundled by vite, not fetched) |
+| which sound a fixture makes | the `sfx` column on a `fixtures` row |
+| the sliders and the mute | a Sound tab in the `help` section, `client/sections.js` |
+| the credits | a `passive` tab beside it, generated from the manifest |
+| where the volumes are kept | `localStorage`, never the save |
+| the guard | `scripts/verify-audio.js` |
+
+Client-only. The server has no ears the way it has no renderer, and nothing
+about sound should ever reach `server/` — a sim that decides what you hear is a
+sim whose balance depends on your speakers.
+
+---
+
+## Three buses, and only three
+
+**Ambience** — one room-tone loop per place you can be, always on, quiet, never
+changing. It is the floor the other two stand on and it should be the thing
+nobody ever notices.
+
+**Crowd** — a murmur loop whose *gain* is a function of how many people are in
+the shop. This is the ebb and flow, and the important thing about it is that it
+is a **volume, not a trigger**: no event fires it, nothing schedules it, it just
+tracks a number. An empty shop is silent, a busy one swells, and the transition
+is a smoothed follow rather than a step — a gain that jumps on the tick a
+shopper spawns pumps audibly, and reads as the audio glitching.
+
+**Music** — its own bus, its own slider, and off by default until somebody
+decides otherwise. Lofi loops, crossfaded, with a real gap between tracks.
+
+Everything else — a till, a door, a crate landing, a crop picked — is a one-shot
+on the SFX bus, which is not a fourth bus so much as the master with a cap on it.
+
+The buses are separate because the sliders are. A player who wants the shop
+noise and not the music has asked a question the mixer has to be able to answer,
+and one gain node cannot.
+
+---
+
+## The rules
+
+### A sound is content, not code
+
+Which noise a fixture makes belongs on its catalog row, next to `emits` and
+`model`, for exactly the reason those are there: somebody authors a new
+appliance over MCP and it should make a noise without a file edit. The column
+is `sfx` and it is a small JSON object, the same shape `emits` is:
+
+```
+sfx: {
+  loop:  'fridge-hum',   // while it exists, or while it is working
+  use:   'till-beep',    // when somebody uses it
+  done:  'oven-ding',    // when a batch finishes
+}
+```
+
+Every field nullable, the whole column nullable, `'null'` the default — which
+is what every row written before sound existed means, and is why nothing in a
+live shop changes on the day this lands. It goes in `ADDED_COLUMNS`
+(`server/db.js`) and in the JSON-column list beside `emits`, and `sfxShape` in
+`shared/schemas.js` mirrors `emitsShape` line for line.
+
+`loop` is the one that needs care, and it takes its cue from the `motion` flag
+in [docs/fixtures.md](fixtures.md): **a thing that knows what working means
+loops while it works, and a thing that does not loops always.** A fridge hums
+forever; a blender only while it is running. Without that second clause the
+field silently does nothing on every kind except `station`, which is the "tier
+that changes no number" trap wearing headphones.
+
+What stays in code is the *rules*: how many can play at once, how far away is
+too far, what ducks what. Same line `BUILD_KINDS` draws.
+
+### Ambience is a gain, and the number is already on the wire
+
+`state.customers` is the crowd, and it is honest: `snapshot()` filters
+`!inACar(c)`, so people still driving up the road are not in that array. That
+filter is doing real work here — without it, the murmur in an empty shop would
+be driven by somebody two hundred tiles away on the approach road, which is the
+same bug `stepMood` had and is invisible until you notice the shop sounds busy
+at 8am.
+
+Three other snapshot fields matter:
+
+- `occupancy` and `turnAwayAt` — the crush, which is a better input than the
+  raw count for how *stressed* the murmur sounds, because it is already scaled
+  against the shop's own size.
+- `isOpen` — shutters down means no crowd bed at all, whatever is standing
+  inside.
+- `paused` — the renderer already has to be told (`scene.paused`, because
+  `animateStations` runs on the page's clock rather than the shop's). Sound has
+  the same problem and worse: a room tone continuing under a paused shop reads
+  as the pause not working, which is precisely what a blade still turning read
+  as.
+
+And one trap that is not a field. The night is **compressed at 6×** in `step`,
+so between 20:00 and 08:00 the clock runs at six times speed. Anything that
+schedules audio off world time — a chime on the hour, a shift change — fires six
+times as often overnight. Ambience is safe because it is a gain rather than a
+schedule; that is a third reason for the rule, not a coincidence.
+
+### The budget is what stops it being a slot machine
+
+A shop with twenty shoppers, four staff, three appliances and a delivery
+arriving generates far more events than anybody wants to hear. Four caps, and
+they are cheap:
+
+- **Six voices.** A seventh one-shot steals the oldest. Not "queue it" — a
+  sound played late is worse than a sound not played, because it is attached to
+  the wrong moment.
+- **Dedupe by id within 80ms.** Four sales in one tick is one till noise.
+- **Offscreen is silent.** If it is outside the camera frustum it makes no
+  sound, however loud it would have been. This is the single biggest one: a
+  farm at the far end of the map should not be audible.
+- **Pan by screen x, attenuate by screen distance.** Not three.js
+  `PositionalAudio` — that wants a listener graph and an orientation, and the
+  camera here is a fixed isometric on a leash. Two numbers off the projected
+  position do the whole job.
+
+The rule underneath all four: **a sound is a report about something, so two
+sounds that report the same thing is one sound.**
+
+### The events do not come from the log
+
+`snapshot()` sends `log: this.log.slice(-8)`, and it is tempting, because the
+lines are already written and already say what happened. It is the wrong source
+and would fail in two ways that are hard to see.
+
+It is a **rolling window inside a snapshot**, so it is a picture rather than a
+stream: `ui.js` reads only the newest line and only when its text differs from
+the last one it saw (`last.msg !== this._lastLog`). Three sales in one tick
+surface one line, and two identical lines in a row surface one — which is
+exactly right for a corner feed nobody should have to read, and exactly wrong
+for a till that should click three times. Driving sound off it means every busy
+moment, the moment you most want to hear, is the moment that under-reports.
+
+And it is **prose**. Matching `/^Sold (\d+)x/` against a message somebody may
+reword is a sound effect that stops working because a log line got clearer.
+
+So sound rides on two things instead. Most of it is a **diff of the snapshot** —
+cash went up, a crate appeared, a plot became ripe, the van reached the dock —
+which the client is already doing for the renderer and which is robust to a
+dropped frame, because a snapshot is a picture of *now* and two pictures always
+differ correctly. The handful that a picture genuinely cannot carry gets its own
+message, the way `achieved` does, and `net.js` already spells out why: an event
+is not a state, and asking the client to find it by diffing means a dropped
+frame at the wrong moment is a thing nobody was ever told about.
+
+---
+
+## Where the sound comes from
+
+Licence first, because it is the constraint that actually narrows the field, and
+because [docs/shipping.md](shipping.md) wants a standalone binary somebody can
+hand to a friend.
+
+| For | Source | Licence |
+|---|---|---|
+| Store ambience, tills, doors, fridges, trolleys | Sonniss GDC Game Audio Bundle | royalty-free, no attribution |
+| Lofi background music | Pixabay Audio | Pixabay licence, commercial, no credit |
+| UI blips, coins, pops | Kenney.nl | CC0 |
+| One specific noise you cannot find elsewhere | Freesound.org, **filtered to CC0** | CC0 |
+| Music, if the credits screen is worth it | Incompetech, FreePD, OpenGameArt | CC-BY, credit required |
+
+The first four need no credit at all. The fifth does, and we are taking it —
+which is the point of the credits screen below, and means Incompetech's back
+catalogue is on the table rather than off it.
+
+What is **not** on the table: anything with a non-commercial clause, anything
+sample-pack-licensed (those forbid redistribution in a form somebody could
+extract, which is what shipping a game is), and anything where the licence has
+to be worked out from a forum post.
+
+### Sizes
+
+Mono Opus at ~64kbps for one-shots, stereo at ~96kbps for beds and music. A
+two-minute lofi loop lands around 1.4MB, a till click around 3KB. Thirty
+one-shots, four beds and six tracks is roughly **10MB**, which is fine bundled
+and would not be fine as thirty separate fetches on a cold load.
+
+They go in `client/audio/` and are imported, not fetched — vite fingerprints and
+bundles them, so the tunnel and the binary both get them without a manifest of
+URLs that can rot.
+
+---
+
+## The settings, and the credits
+
+Both go in the `?` menu — the `help` section in `client/sections.js`, which is
+already tabbed and already has a shape that takes them. `tabGroups` in `ui.js`
+turns any `sep` row with an icon into a tab, so each is one more heading:
+
+```js
+{ sep: 'Sound',   icon: ICONS.speaker },
+{ sep: 'Credits', icon: ICONS.music, passive: true },
+```
+
+They are two tabs rather than one because `passive` means something. It marks a
+tab that *reports* rather than offers work, and all it forfeits is being the one
+the menu opens on — so credits is passive and the sliders are not. Pressing `/`
+should still land you on This shop either way; what passive stops is a licence
+list ever becoming the thing the menu opens on by default.
+
+### The controls are rows, not widgets
+
+There is no slider in this game and there does not need to be one. Two shapes
+already in `sections.js` do the whole job, and both are already styled, already
+keyboard-reachable and already redraw off `live`:
+
+- **Mute is a switch** — the `picked` / `tail` / `run` shape the supplier
+  settings use (`orderRows`). On/Off, with a sentence under it.
+- **A volume is a stepper** — the `stp` widget from `ruleFor`, `− 60% +`, in
+  steps of ten. A row per bus: Shop, Music, Effects.
+
+Both tabs need a glyph, and icons are **baked** rather than imported —
+`scripts/build-icons.js` lifts named icons into `client/icons.js` at build time
+and the output is committed, so a tab whose `sep` names an icon nobody added is
+a `undefined` in the tab strip. Two entries in `WANTED` and one `npm run icons`.
+They are interface chrome rather than things in the world, so they come from
+remix-icon, which is the split that build script exists to keep: *the world
+never looks like a settings screen and the settings screen never looks like a
+dungeon crawler.*
+
+A stepper rather than an `<input type=range>` is not a compromise. A drag inside
+a panel fights the panel's own drag (`panel-drag.js`) and needs a pointer, and
+this game is played with a pointer that means something everywhere else. Ten
+steps is finer than anybody adjusts a game volume anyway.
+
+**They belong in the same menu as the controls list because they are the same
+kind of thing.** Everything else in the rail is about the shop — what it owns,
+what it sells, how it is doing. This is the only menu about the *game*, which is
+also why "leave to menu" is in it. `orderRows` already made this call in the
+supplier — "they are settings, and settings are somewhere you go."
+
+### The volumes live in `localStorage`
+
+Not on the save. A volume is about the person and the room they are sitting in,
+not about the shop, and two people playing one world down the tunnel must not
+share a knob — one of them turning the music down would turn it down for the
+other, in a different house. `panel-drag.js` is the precedent for a per-browser
+preference that never touches the world, and it stores through one try/catch for
+the same reason: a browser with storage blocked should lose the preference, not
+the audio.
+
+### The credits rows are generated, never typed
+
+This is the same rule `client/thumb.js` is built on — a picture of a thing has to come from the thing,
+because a hand-drawn second version of something is wrong the moment the first
+one changes and nobody ever checks. A hand-typed credits list is worse than a
+wrong thumbnail: it is a licence condition that quietly stops being met. Every
+entry in `manifest.js` carries `by`, `from` and `licence` beside its file, the
+tab renders whatever is in there, and a track added without them fails the
+verify below rather than shipping uncredited.
+
+That panel needs a better layout at some point regardless — five tabs of
+one-line rows is already tight, two more makes seven, and a licence list is
+longer than anything else in there. Neither tab is what breaks it and neither
+should wait for the refit. What the refit should probably do is admit what the
+menu has become: Controls is a reference, Sound is a setting, Credits is a
+notice, and the shop you are in and the way out of it are neither. That is a
+split by *kind*, and the tab strip is currently a split by topic.
+
+---
+
+## Steps
+
+**1. The mixer and the crowd.** `mix.js` plus `room.js`: three buses, a master
+slider, one ambience bed, one murmur loop tracking `customers`/`occupancy`.
+No content, no manifest, no per-fixture sound. This is the half that is worth
+play-testing on its own, because whether the swell *feels* right is not a thing
+anybody can reason about — it is a curve, and the curve is wrong the first time.
+
+**2. Music.** The bus, a playlist, crossfade, a real gap, its own slider,
+default off. Independent of step 1 and can land either side of it.
+
+**3. The one-shots the shop already justifies.** A fixed table in `sfx.js`, the
+voice pool and all four caps. About a dozen sounds — a sale, a delivery
+arriving, a crate down, a crop picked, a shelf emptied, a door, a milestone.
+Driven off the snapshot diff, plus one new server message for anything a picture
+cannot carry. No content column yet: getting the caps right matters more than
+getting them authorable, and a dozen hardcoded sounds is the cheapest way to
+find out whether six voices is the right number.
+
+**4. The `sfx` column.** `sfxShape` in `shared/schemas.js`, the column in
+`ADDED_COLUMNS`, the JSON list beside `emits`, and the loop rule (works-while-
+working, or always for a thing with no idea what working means). Now a new
+appliance authored over MCP makes a noise. The fixed table from step 3 becomes
+the fallback for a piece that names nothing.
+
+**5. The Sound tab and the Credits tab.** Mute as a switch, three volumes as
+steppers, kept in `localStorage`; credits generated from the manifest and marked
+`passive`. Both reuse row shapes that exist, so this step is content in
+`sections.js` and a handful of lines in `mix.js`, not new UI.
+
+There is an argument for pulling the Sound tab forward to step 1, and it is
+worth taking seriously: the first thing anybody does with new game audio is turn
+it down. Step 1 should at minimum ship a master mute — a bus with no way to
+silence it is a feature you cannot play-test twice.
+
+**6. `verify:audio`.** Small and worth having, because every failure in this
+system is *silence*, and silence is indistinguishable from a quiet moment.
+Four claims:
+
+- every `sfx` id any authored piece names resolves to a file in the manifest —
+  a typo is a fixture that is simply mute, and nothing renders it, nothing logs
+  it, and it looks exactly like a fixture that is meant to be quiet
+- every file in the manifest carries `by`, `from` and `licence`, or the credits
+  tab is a licence condition met by accident
+- nothing in the manifest is orphaned — a file nothing plays is a megabyte in
+  the binary
+- the caps are the caps: feed the pool fifty one-shots in one frame and assert
+  six voices, not fifty
+
+It cannot assert anything about how it *sounds*, the same way `verify:motion`
+cannot — which is exactly why `verify:motion` exists, and it is the closest
+sibling this would have.
+
+---
+
+## Gotchas, ahead of time
+
+- **A browser will not start an `AudioContext` until the user has clicked.**
+  It has to arm on the first real input, not on load. Miss this and it works
+  perfectly in the dev tab — where you have clicked a hundred times — and is
+  silent for every fresh player, which reads as the sound being broken rather
+  than as being asleep.
+- **A gain of exactly 0 is not the same as a stopped loop.** A silent oscillator
+  still costs a node and still gets scheduled; four beds at zero gain is four
+  decoders running for nothing. The crowd loop should stop below a threshold and
+  start again above one, with hysteresis, or it stutters at the boundary every
+  time somebody walks in and out of the door.
+- **`disposeGroup` does not free audio.** It looks for `isMesh`, and it already
+  did not free sprites until that was fixed. Anything holding a buffer source
+  has to be torn down where it was created — `movingFixtures` is the pattern:
+  filled and cleared in the one place that builds them.
+- **A layout re-flow must not restart the ambience.** Building re-flows on every
+  wall segment, and a bed that faded back in on each one is the car-that-never-
+  arrives bug said with sound: a player who is extending the shop would hear it
+  stutter continuously, precisely while doing the thing that makes the shop
+  worth listening to.
+- **A mute has to survive the arming gesture.** The context starts suspended
+  until the first click, and the volume comes back from `localStorage` — so a
+  player who muted last session, then clicked to arm, must not get one frame of
+  full-volume audio between the two. Read the preference *before* resuming, not
+  in whatever runs next.
+- **A tier that changes no number, said about sound.** A `sfx` field nothing
+  ever plays is the same trap as `capacity_mult` on a kind that never reads it —
+  it authors fine, validates fine, costs money if it is on an upgrade, and does
+  nothing. Which is what step 6's first claim is for.

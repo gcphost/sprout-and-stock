@@ -27,6 +27,7 @@ import {
 } from './db.js';
 import { world as loadWorld, saveWorld, DEFAULT_WORLD } from './content.js';
 import { rooms, primaryRoom } from './rooms/MartRoom.js';
+import { startTier, tierFixtures } from '../shared/start.js';
 
 // ---------------------------------------------------------------------------
 // Naming
@@ -103,11 +104,17 @@ export function getWorldSummary(id) {
 /**
  * What a new shop may be started with, and how silly an ask may get.
  *
- * All three are *starting* state, and two of them can only ever be set here.
- * Cash is spent from the first minute; the counts are read exactly once, by
+ * All of it is *starting* state, and the counts can only ever be set here. Cash
+ * is spent from the first minute; the counts are read exactly once, by
  * `starterShop`, before `freezeShell` stamps the building and the shop becomes
  * its placements. After that the shop is what is standing in it, and asking for
  * "twelve shelves" has nowhere to land.
+ *
+ * The counts are a **tier** now (`shared/start.js`) rather than three numbers
+ * somebody types, and `shelves`/`plots` survive as an override on top of one —
+ * they are how a balance run asks for a shop no tier describes, and they are
+ * not in the menu any more, because a shelf count chosen before you have seen a
+ * shelf is a decision with nothing behind it.
  *
  * The ceilings are what `verify:layout` actually sweeps — 25 shelves, 32 plots —
  * rather than a guess at what the generator will take. Past the sweep the
@@ -142,22 +149,34 @@ function startingNumber(v, { min, max, cents = false }) {
   return cents ? Math.round(clamped * 100) / 100 : Math.round(clamped);
 }
 
-/** The save patch for whatever was asked for. Empty when nothing was. */
-function startingState({ cash, shelves, plots }) {
-  const state = {};
-  if (cash !== undefined) state.cash = cash;
-  if (shelves === undefined && plots === undefined) return state;
+/**
+ * The save patch a new shop starts from: money, and the shop around it.
+ *
+ * The tier is always written, even when nobody chose one, and that is the one
+ * decision in here worth stating. It could default at read time instead —
+ * `starterShop` merges over `BASE_FIXTURES`, so a save with no `fixtures` at all
+ * furnishes perfectly well — but then what a shop opened with would depend on
+ * which build was running the day somebody walked into it, and a save minted in
+ * the menu and opened next week would be a different shop from the one the
+ * buttons described. Writing it at creation is what makes the choice a *fact
+ * about that save*.
+ */
+function startingState({ cash, tier, shelves, plots }) {
+  const state = { cash: cash ?? startTier(tier).cash };
 
   // `fixtures` here is the one-shot budget `starterShop` reads to furnish a shop
   // nobody has opened yet, not the stored ledger step 9 retired: it is merged
-  // over the base shop, so naming only `shelf` still gets you your till, and
-  // the first `persist()` overwrites it with the ledger derived from what
-  // actually got placed. `shelves`/`plots` beside it are the compat mirror
-  // `persist()` writes for older builds — set them here too, or a save reads
-  // one way for one day and the other way forever after.
-  state.fixtures = {};
-  if (shelves !== undefined) { state.fixtures.shelf = shelves; state.shelves = shelves; }
-  if (plots !== undefined) { state.fixtures.plot = plots; state.plots = plots; }
+  // over the base shop, so a tier naming only `shelf` would still get you your
+  // till, and the first `persist()` overwrites it with the ledger derived from
+  // what actually got placed.
+  state.fixtures = tierFixtures(tier);
+  if (shelves !== undefined) state.fixtures.shelf = shelves;
+  if (plots !== undefined) state.fixtures.plot = plots;
+
+  // The compat mirror `persist()` writes for older builds — set here too, or a
+  // save reads one way for one day and the other way forever after.
+  state.shelves = state.fixtures.shelf;
+  state.plots = state.fixtures.plot;
   return state;
 }
 
@@ -171,12 +190,13 @@ function startingState({ cash, shelves, plots }) {
  * the first `Game.create` reads it, because that is the read that stamps them
  * into a building.
  */
-export function createWorld({ name, seed, cash, shelves, plots } = {}) {
+export function createWorld({ name, seed, cash, tier, shelves, plots } = {}) {
   const label = String(name ?? '').trim().slice(0, 32) || `Shop ${listWorldRows().length + 1}`;
   const id = mintId(label);
   const useSeed = String(seed ?? '').trim() || randomSeed();
   const start = startingState({
     cash: startingNumber(cash, START_LIMITS.cash),
+    tier,
     shelves: startingNumber(shelves, START_LIMITS.shelves),
     plots: startingNumber(plots, START_LIMITS.plots),
   });
@@ -198,8 +218,8 @@ export function createWorld({ name, seed, cash, shelves, plots } = {}) {
    * opens, which reports as zero revenue with nothing in the output to say why.
    */
   saveWorld(id, { ...DEFAULT_WORLD, seed: useSeed, open: false, ...start });
-  const extras = Object.keys(start).length ? ` started with ${JSON.stringify(start)}` : '';
-  console.log(`[worlds] created "${label}" (${id}, seed ${useSeed})${extras}`);
+  console.log(`[worlds] created "${label}" (${id}, seed ${useSeed}) `
+    + `as a ${startTier(tier).name.toLowerCase()}: ${JSON.stringify(start)}`);
   return summarise(row);
 }
 

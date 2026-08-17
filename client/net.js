@@ -54,6 +54,11 @@ export class Net {
     this.room.onMessage('state', (m) => this.emit('state', m));
     this.room.onMessage('action-result', (m) => this.emit('action', m));
     this.room.onMessage('news', (m) => this.emit('news', m));
+    // A milestone the shop has just passed. Its own message rather than a field
+    // on the snapshot: it is an *event*, and a snapshot is a picture of now —
+    // the client would have to diff two pictures to find it, and a dropped
+    // frame at the wrong moment would be an award nobody was ever told about.
+    this.room.onMessage('achieved', (m) => this.emit('achieved', m));
     this.room.onMessage('content-changed', (m) => this.emit('content-changed', m));
 
     // The server has no renderer, so when an agent asks "what does it look

@@ -1538,23 +1538,42 @@ export class Scene {
     // What an edge is made of comes from `edgeBands`, beside the style it reads,
     // because the palette button offering to sell you one draws from it too —
     // see client/thumb.js.
-    const emit = (kind, vertical, cx, cz) => {
+    // Which way is OUT, for the one band that projects. A bay window belongs on the
+    // street side, and an edge does not know its own sides — so it is read off the
+    // enclosure the same way `shopperCanCross` reads "in": the outdoor cell wins.
+    // With nothing to go on (both sides indoors, both out, or a shop whose walls
+    // have come down and has no inside at all) it falls to the positive axis,
+    // which is a decision rather than a guess: it has to be the same answer every
+    // re-flow, or a bay would flip sides when you built a shelf.
+    const outward = (vertical, x, z) => {
+      const m = L.indoor;
+      if (!m) return 1;
+      const at = (cx, cz) => (cx < 0 || cz < 0 || cx >= L.w || cz >= L.h
+        ? 0 : m[cz * L.w + cx]);
+      const a = vertical ? at(x - 1, z) : at(x, z - 1);
+      const b = vertical ? at(x, z) : at(x, z);
+      if (a === b) return 1;
+      return a ? 1 : -1;
+    };
+
+    const emit = (kind, vertical, cx, cz, x, z) => {
       const style = EDGE_STYLE[kind];
       if (!style) return;
-      for (const band of edgeBands(style)) push(kind, vertical, { cx, cz, ...band });
+      const dir = style.out ? outward(vertical, x, z) : 1;
+      for (const band of edgeBands(style)) push(kind, vertical, { cx, cz, dir, ...band });
     };
 
     for (let z = 0; z < L.h; z++) {
       for (let x = 0; x <= L.w; x++) {
         const kind = L.edgesV?.[z * (L.w + 1) + x] ?? 0;
         // Centre of a vertical edge: on the lattice line in x, mid-cell in z.
-        if (kind) emit(kind, true, x - 0.5, z);
+        if (kind) emit(kind, true, x - 0.5, z, x, z);
       }
     }
     for (let z = 0; z <= L.h; z++) {
       for (let x = 0; x < L.w; x++) {
         const kind = L.edgesH?.[z * L.w + x] ?? 0;
-        if (kind) emit(kind, false, x, z - 0.5);
+        if (kind) emit(kind, false, x, z - 0.5, x, z);
       }
     }
 
@@ -1566,14 +1585,31 @@ export class Scene {
         if (!set.length) continue;
         const mesh = new THREE.InstancedMesh(box,
           material(set[0].color ?? style.color, alpha), set.length);
-        mesh.castShadow = alpha === 1;
+        // Glass casts nothing, unless the band asks to. Which only a pane the size
+        // of the wall does: the default is right for a bottle and a freezer door,
+        // and wrong for a shopfront, because a building whose whole south face
+        // stops laying a shadow reads as the wall having been demolished. Off
+        // `set[0]`, and safely: a run is uniform in kind, orientation and colour,
+        // so it is uniform in this too.
+        mesh.castShadow = alpha === 1 || !!set[0].shadow;
         mesh.receiveShadow = true;
         set.forEach((b, i) => {
-          dummy.position.set(b.cx, (b.y0 + b.y1) / 2, b.cz);
+          // A band may project across the line — that is a bay window, and it is
+          // the one thing here that is geometry rather than a stack of heights.
+          // Thickness grows on ONE side and the centre shifts by half of it, or a
+          // bay would bulge into the aisle as much as into the street.
+          const out = b.out ?? 0;
+          const t = style.t + out;
+          const shift = ((b.dir ?? 1) * out) / 2;
+          dummy.position.set(
+            b.cx + (vertical ? shift : 0),
+            (b.y0 + b.y1) / 2,
+            b.cz + (vertical ? 0 : shift),
+          );
           dummy.scale.set(
-            vertical ? style.t : 1,
+            vertical ? t : 1,
             Math.max(0.02, b.y1 - b.y0),
-            vertical ? 1 : style.t,
+            vertical ? 1 : t,
           );
           dummy.rotation.set(0, 0, 0);
           dummy.updateMatrix();

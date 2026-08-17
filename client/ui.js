@@ -188,6 +188,7 @@ export class UI {
       mood: document.getElementById('mood'),
       full: document.getElementById('full'),
       season: document.getElementById('season'),
+      town: document.getElementById('town'),
       toast: document.getElementById('toast'),
       boardtip: document.getElementById('boardtip'),
       log: document.getElementById('log'),
@@ -222,6 +223,7 @@ export class UI {
     this.el.shutter.onclick = () => this.setOpen(!this.shopOpen);
     this.el.clock.onclick = () => this.setPaused(!this.paused);
     document.getElementById('search-icon').innerHTML = ICONS.search;
+    this.el.town.querySelector('.ico').innerHTML = ICONS.town;
     this.el.search.oninput = () => { this.query = this.el.search.value; this.repaint(); };
 
     const close = document.getElementById('panel-close');
@@ -1676,7 +1678,12 @@ export class UI {
       </div>` : ''}
       <div class="name"><span class="t">${r.name}</span>${
   r.heat || r.sub ? `<span class="meta">${r.heat ?? ''}${
-    r.sub ? `<span class="tags${r.subWarn ? ' warn' : ''}">${r.sub}</span>` : ''}</span>` : ''}</div>
+    r.sub ? `<span class="tags${r.subWarn ? ' warn' : ''}">${r.sub}</span>` : ''}</span>` : ''}${
+  // How far along something is, 0..1. Inside the name's column rather than
+  // beside it, because that column is the only elastic thing in the row — a bar
+  // in the row itself would compete with the name for width and lose, and a
+  // 30px bar says nothing a number does not say better.
+  r.bar != null ? `<span class="rbar"><i style="width:${Math.round(Math.max(0, Math.min(1, r.bar)) * 100)}%"></i></span>` : ''}</div>
       ${!stacked && r.right ? `<div class="price">${r.right}</div>` : ''}
       ${r.count ? `<span class="held ${r.countClass ?? ''}">${r.count}</span>` : ''}
       ${r.rule ?? ''}
@@ -2010,6 +2017,17 @@ export class UI {
     this.el.day.textContent = `Day ${state.day}`;
     this.el.season.textContent = state.season;
     this.el.rep.style.width = `${Math.round(state.reputation * 100)}%`;
+    // The town. Written only when it changes: this runs at 10Hz over a live
+    // canvas and the number moves a handful of times in a whole game, so a
+    // blind write here is the one in this function that buys nothing at all.
+    const town = Math.round(state.catchment ?? 0);
+    if (town !== this._town) {
+      this._town = town;
+      this.el.town.querySelector('b').textContent = String(town);
+      // On the element rather than in the markup, because the sentence names
+      // the number — see `tip.js`, which adopts any `title` in the HUD.
+      this.el.town.title = `${town} people within reach of the shop — milestones, parking, charm and a better address all grow it`;
+    }
     this.setGauges(state);
 
     this.setClock(state);

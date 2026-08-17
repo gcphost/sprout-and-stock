@@ -89,6 +89,20 @@ export function simulate({
       cells: game.layout.bay?.cells?.length ?? 0,
       holds: game.bayRoom(),
     },
+    // ...and the ladder, because a milestone is a permanent term in
+    // `catchment` — a shop that has earned six of them has a bigger town than
+    // one that has earned none, on the same seed, and every number below moves
+    // with it. The count and the reach rather than the ids: what matters to a
+    // comparison is that the two runs started level.
+    //
+    // The lifetime tallies are the other half and are deliberately NOT forced
+    // to zero. A run against a real shop should earn what that shop is next in
+    // line to earn — the alternative is a balance run in which the ladder never
+    // fires, which is the "broken instrument reads as a broken feature" trap.
+    milestones: {
+      done: game.milestones.done.length,
+      reach: round2(game.catchment()),
+    },
   };
 
   game.cash = startCash;
@@ -405,15 +419,31 @@ function runBot(game, bot, priceMult) {
     if (!plot.ready) continue;
     teleport(bot, plot);
 
-    // Say what should go back in BEFORE picking, the same way a player does by
-    // holding a seed. Harvesting then replants that. Letting it replant the
-    // old crop and correcting afterwards buys two seeds per switch, which is
-    // not what a player does and would price the feature far worse than it is.
+    // Pick first, then turn the bed over AFTER — which is the gesture a player
+    // makes now, and it is the same price.
+    //
+    // It used to say what should go back in before picking, by setting the
+    // hotbar seed, because harvesting replanted that. Doing it that way is what
+    // converted a player's whole farm one bed at a time (see `Game.harvest`), so
+    // a bed replants itself and switching is `sow` — which refunds what it pulls
+    // up in proportion to how little has grown. Growth is exactly 0 the tick the
+    // replant goes in, so the refund is whole and a switch still buys exactly
+    // one seed. Correcting afterwards is no longer the expensive way round.
+    //
+    // `chooseCrop` is still called once per ripe bed, in the same place: every
+    // balance number in a run is downstream of how many times `this.rng` has
+    // been called, and moving a draw would make this change unmeasurable
+    // against the run before it.
     const pick = chooseCrop();
-    bot.selectedCrop = pick ? pick.cr.id : null;
 
     game.harvest('bot', plot.id);
+    if (pick && pick.cr.id !== plot.crop_id) game.sow('bot', plot.id, pick.cr.id);
     if (bot.carry) dumpCarryToShelf(game, bot, priceMult, reserved);
+    // A picked bed lands on the SHOULDER now, not in the hands, so a bot that
+    // only ever emptied its hands would report a farm that produces nothing —
+    // the "broken instrument reads as a broken feature" trap, and the farm is
+    // where this tool has fallen into it before.
+    dumpHaulToShelf(game, bot, priceMult, reserved);
   }
 
   // 3. Put away whatever the van brought.
@@ -794,6 +824,36 @@ function shelfFor(game, itemId, reserved = new Set()) {
       : usable.find((s) => !reserved.has(s.id) && spare(s)))
     ?? usable.find((s) => spare(s))
     ?? null;
+}
+
+/**
+ * ...and the same job for the box on its shoulder.
+ *
+ * `stockFromCrate` is the verb a player uses on a crate they are carrying, and
+ * it pours every pile the unit has a board for — so this is a walk per unit
+ * rather than a walk per pile. Whatever the shop has nowhere for is set down
+ * rather than binned: a crate is `CRATE_UNITS`, so quietly dropping the
+ * remainder would destroy twice what an armful ever could, and the farm's own
+ * produce is the stock most likely to have nowhere to go.
+ */
+function dumpHaulToShelf(game, bot, priceMult, reserved = new Set()) {
+  const c = content();
+  for (let guard = game.layout.shelves.length + 1; guard > 0 && bot.haul; guard--) {
+    const before = lotTotal(bot.haul);
+    const item = c.byId.items[lotMain(bot.haul)?.item_id];
+    const target = item ? shelfFor(game, item.id, reserved) : null;
+    if (!target) break;
+
+    teleport(bot, target.browseAt);
+    const res = game.stockFromCrate('bot', target.id);
+    if (res.ok) {
+      game.setPrice(target.id, suggestedPrice(item, game.folded(), game.season) * priceMult, item.id);
+    }
+    if (!bot.haul || lotTotal(bot.haul) >= before) break;
+  }
+  // Nowhere left for it. It goes on the ground as a crate, which is what a
+  // player's hands do with the same problem, and it stays countable.
+  if (bot.haul) game.dropCrate('bot', Math.round(bot.x), Math.round(bot.z));
 }
 
 function dumpArmfulOnce(game, bot, priceMult, reserved) {

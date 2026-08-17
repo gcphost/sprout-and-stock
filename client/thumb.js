@@ -436,8 +436,13 @@ function edgeRun(style, x, w) {
     // threshold — and the picture has to come from the thing.
     color: b.color ?? style.color,
     alpha: b.alpha,
-    pos: [x, (b.y0 + b.y1) / 2, 0],
-    scale: [w, Math.max(0.02, b.y1 - b.y0), style.t],
+    // ...and it may project, which is a bay window. Toward +z, which at this
+    // camera is toward the viewer: a bay drawn projecting *away* is a picture of
+    // a flush window with a thicker frame, and the projection is the whole point
+    // of the button. The wall either side stays on the line, so the button shows
+    // the step out rather than a fatter wall.
+    pos: [x, (b.y0 + b.y1) / 2, (b.out ?? 0) / 2],
+    scale: [w, Math.max(0.02, b.y1 - b.y0), style.t + (b.out ?? 0)],
   }));
 }
 

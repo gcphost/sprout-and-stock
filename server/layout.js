@@ -40,12 +40,28 @@ export const WORLD_H = 22;
 
 /**
  * Smallest a shop can be, measured in usable floor. Everything grows up from
- * here. This was 11 when the rect included a wall ring that ate a tile a side;
- * every cell is floor now, so 9 keeps the starting shop exactly the size it was
- * and leaves the balance alone.
+ * here, and the search above grows it until what was asked for genuinely fits —
+ * so this is a *floor*, never a size, and lowering it makes small shops small
+ * rather than making any shop too small to work.
+ *
+ * It was 11 when the rect included a wall ring that ate a tile a side, then 9
+ * to keep the six-shelf starting shop exactly the size it had been. Both of
+ * those were reverse-engineered from a starting shop that no longer exists: the
+ * smallest tier opens with two shelves and a cooler (`shared/start.js`), and at
+ * a floor of 9 that came out as a 9x9 hall with three fixtures in it and the
+ * counter a long walk from the door — which reads as the game being slow, not
+ * as the building being too big for what is in it.
+ *
+ * 7 is where the shelf loop's own arithmetic bottoms out rather than a number
+ * picked to look tidy: `shelfBottom` is `store.z + h - 5` and `shelfTop` is
+ * `store.z + 2`, so a building shorter than 7 has nowhere at all to put a unit
+ * and every size below it is a probe the search throws away. Ask for more than
+ * a couple of shelves and you get more than this — a mini-mart and a
+ * supermarket come out at the sizes they always did, because their contents are
+ * what decides.
  */
-const MIN_STORE_W = 9;
-const MIN_STORE_H = 9;
+const MIN_STORE_W = 7;
+const MIN_STORE_H = 7;
 
 /**
  * What the world is kept wide enough for, in plot columns a side.
@@ -99,9 +115,32 @@ const storeNorth = (shell) => {
   return Math.max(1, Math.trunc(shell.z ?? STORE_NORTH_LEGACY));
 };
 
-/** How far apart shelf columns sit: one unit, then a walkable aisle. */
-const COL_PITCH = 3;
+/**
+ * How far apart the generator spaces things, and it is three numbers now
+ * because they were one number doing three jobs.
+ *
+ * `COL_PITCH` is a unit and the aisle you browse it from: 2, so the floor plan
+ * reads unit / aisle / unit / aisle, the way shelving in a shop actually
+ * stands. It was 3, which laid a whole DEAD column between every aisle and the
+ * next run of units — invisible in a big shop, where there is other stuff in
+ * the way, and the entire complaint in a small one: three fixtures in a
+ * seven-wide building with a corridor of nothing between each of them.
+ *
+ * `ROW_PITCH` is what a unit and the next unit *behind* it need, which is
+ * nothing at all: they share the aisle beside them, so a run of shelving is
+ * solid down the column, which is what a run of shelving is. It stays 2 for the
+ * appliances below, which are worked from the tile at their side and want the
+ * elbow room, and for the world-width reservation the farm makes.
+ *
+ * `PLOT_PITCH` is the farm, and 1 for the same reason: a bed IS the ground, you
+ * stand on the one you are picking, so beds laid touching are a field. At 2
+ * four beds were a dotted diagonal line strung eight tiles down the flank, and
+ * what that reads as is the farm having been scattered rather than planted.
+ */
+const COL_PITCH = 2;
+const SHELF_ROW_PITCH = 1;
 const ROW_PITCH = 2;
+const PLOT_PITCH = 1;
 
 /**
  * Generate the whole world.
@@ -295,11 +334,32 @@ function compose(req, storeW, storeH, allowDrops = true) {
    * outward-then-down and is what keeps the world compact — a column runs beside
    * the shop and then past the forecourt, where there is as much room as the
    * farm ever needs, instead of pushing the map wider for every four beds.
+   *
+   * ...and it grows across only as far as it has to. `farmCols` used to be
+   * however many beds the map was wide enough for, which laid every farm as a
+   * single long row: four beds came out as a line eight tiles down the flank
+   * with a gap between each, so the whole of a starting farm was further from
+   * the back door than the far corner of the shop. Roughly square and packed
+   * (`PLOT_PITCH`), so a field is a field.
+   *
+   * ...and it sits at the BACK of that flank, level with the north wall, which
+   * is where the yard is. It was bottom-aligned with the door for one round, on
+   * the argument that the shop is entered from the south so the shortest walk
+   * to a bed should start at the front — and that is true of the *player* and
+   * wrong about the shop: goods come off a bed and go to the drop-off, which is
+   * behind the building, so a farm by the front door is every armful of crop
+   * carried the length of the shop. It also puts the fields between the street
+   * and the shopfront, which is what moving the farm off the front path fixed.
+   *
+   * One clear tile off the east wall. That column is where an annex hangs off
+   * the building — a bed standing in it is ground you may not build on — so the
+   * farm may come in as far as it likes except for that.
    */
   const farmX0 = store.x + store.w + 2;
-  const farmCols = Math.max(1, Math.floor((worldW - 2 - farmX0) / ROW_PITCH) + 1);
-  const plotTop = store.z;
+  const farmRoom = Math.max(1, Math.floor((worldW - 2 - farmX0) / PLOT_PITCH) + 1);
+  const farmCols = Math.max(1, Math.min(farmRoom, Math.ceil(Math.sqrt(Math.max(1, req.plots)))));
   const plotRows = Math.max(1, Math.ceil(req.plots / farmCols));
+  const plotTop = store.z;
 
   /**
    * How much room the front needs, below the doorway: forecourt, pavement, road.
@@ -312,7 +372,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const worldH = Math.max(
     WORLD_H,
     doorLine + FRONT_DEPTH,
-    plotTop + plotRows * ROW_PITCH + FRONT_DEPTH,
+    plotTop + plotRows * PLOT_PITCH + FRONT_DEPTH,
   );
 
   const tiles = new Uint8Array(worldW * worldH).fill(T.GRASS);
@@ -737,9 +797,10 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const checkoutZ = doorZ - 2;
   const serveRow = checkoutZ + 1;
   // And the row the clerk works from, on the other side. Always interior floor
-  // at any legal store height (MIN_STORE_H is 9 and this is `h - 4` in from the
-  // north wall), so this guard is really about a hand-placed shelf having taken
-  // the tile — the same thing the `serveRow` guard above is about.
+  // at any legal store height (MIN_STORE_H is 7 and this is `h - 4` in from the
+  // north wall, so the tightest legal building still leaves three rows between
+  // it and the back wall), so this guard is really about a hand-placed shelf
+  // having taken the tile — the same thing the `serveRow` guard above is about.
   const tendRow = checkoutZ - 1;
 
   // West of the door first (that's how the shop has always read), then east.
@@ -798,7 +859,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const cells = [];
   for (let sx = store.x + 2; sx < store.x + store.w - 1; sx += COL_PITCH) {
     if (stationsOut.length && sx >= stationX - 1) break;
-    for (let sz = shelfTop; sz <= shelfBottom; sz += ROW_PITCH) {
+    for (let sz = shelfTop; sz <= shelfBottom; sz += SHELF_ROW_PITCH) {
       if (!free(sx, sz)) continue;
       // Nowhere to browse from. Both halves: floor, and nothing standing on it.
       if (at(sx + 1, sz) !== T.FLOOR || blocked[idx(sx + 1, sz)]) continue;
@@ -841,8 +902,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
   let nPlot = 0;
   for (let i = 0; budget.plot > 0; i++) {
     if (i > req.plots * 8 + 64) break;         // belt and braces
-    const px = farmX0 + (i % farmCols) * ROW_PITCH;
-    const pz = plotTop + Math.floor(i / farmCols) * ROW_PITCH;
+    const px = farmX0 + (i % farmCols) * PLOT_PITCH;
+    const pz = plotTop + Math.floor(i / farmCols) * PLOT_PITCH;
     if (pz > farmFloor || px < 1 || px > worldW - 2) continue;
     if (at(px, pz) !== T.GRASS) continue;
     set(px, pz, T.PLOT);
@@ -1402,40 +1463,78 @@ const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
  * re-stamped on every single re-flow, which is why moving one was impossible
  * rather than merely unimplemented. Buying a shelf put it back.
  *
- * Four cells each, at the two ends of the back wall, which is where the
- * generator used to put them — so an existing shop and a brand-new one hold the
- * same number of crates in the same corners of the yard on the day this lands.
+ * Four cells each, which is how many they have always been — a pad's cells are
+ * how many crates it holds (`bayRoom`, `padRoom`), so changing the count is a
+ * balance change wearing a layout change, and orders that stop fitting on the
+ * bay come back as refusals nothing in the yard explains.
  *
- * They run four ALONG the wall rather than as the 2x2 the generator drew, and
- * that is not cosmetic. **The seed must only lay ground the player could lay
- * themselves**, or the pads are not really theirs. The yard is the two rows
- * north of the building and the building starts at z=2, so a 2x2 has half of
- * itself on row 0 — and row 0 is the world's border, which `canPaintGround`
- * refuses to anybody. A pad you can delete three quarters of is worse than one
- * you cannot delete at all, because it looks like it worked.
+ * What did change is the SHAPE and where they sit. They used to run four along
+ * the back wall at its two far corners, which is where the generator drew them
+ * — and on a shop that is not nine wide any more, "the two far corners" is the
+ * two ends of a walk. A 2x2 block either side of the back doorway is the same
+ * four cells with the goods next to the door they come through, which is most
+ * of what carrying stock across a yard costs.
+ *
+ * **The seed may only lay ground the player could lay themselves**, or the pads
+ * are not really theirs, and that is what the fallback below is for rather than
+ * tidiness. A block wants two rows of yard; a shop stamped before `STORE_NORTH`
+ * moved south has one, because row 0 is the world's border and `canPaintGround`
+ * refuses it to everybody. So the cells are *offered in preference order* and
+ * the first four legal ones win: a modern shop gets its block, an old one gets
+ * the strip it always had, and neither gets a pad three quarters of which it is
+ * allowed to delete — which is worse than one it cannot delete at all, because
+ * it looks like it worked.
  *
  * They are laid with no design (`p: null`) on purpose. A pad with no piece
  * renders in the tile's own palette colour — `surfaceOf` falls back — so the
  * seed does not have to reach for the catalog, and a world stamped before
  * anybody authored a bay design still gets a bay.
  */
-export const PAD_SEED_W = 4;
+export const PAD_SEED_CELLS = 4;
 
 export function defaultPads(L) {
-  // The row immediately behind the building, never the border.
-  const z = Math.max(1, L.store.z - 1);
   const out = [];
-  const pad = (px, kind) => {
-    const x0 = clampInt(px, 1, L.w - 1 - PAD_SEED_W);
-    for (let dx = 0; dx < PAD_SEED_W; dx++) {
-      const cx = x0 + dx;
+  const taken = new Set();
+
+  /**
+   * One pad, growing away from the doorway at `x0` in the direction `dir`.
+   *
+   * Nearest the back wall first and nearest the door first, so what gets
+   * dropped when the yard is shallow or the world runs out is always the far
+   * corner of the pad rather than the cell beside the door.
+   */
+  const pad = (x0, dir, kind) => {
+    const cells = [];
+    for (let dx = 0; dx < L.w; dx++) {
+      for (let dz = 1; dz <= 2; dz++) {
+        cells.push({ x: x0 + dir * dx, z: L.store.z - dz, band: dx });
+      }
+    }
+    // Band by band outward, so a 2x2 fills before a third column is touched.
+    cells.sort((a, b) => a.band - b.band);
+
+    let laid = 0;
+    for (const c of cells) {
+      if (laid >= PAD_SEED_CELLS) break;
+      if (c.x < 1 || c.z < 1 || c.x >= L.w - 1) continue;
+      if (taken.has(`${c.x},${c.z}`)) continue;
       // Grass only, the same test the procedural version made: a shop pushed
       // hard against the north edge of the world has less yard than this wants.
-      if (L.tiles[z * L.w + cx] === T.GRASS) out.push({ x: cx, z, k: kind, p: null });
+      if (L.tiles[c.z * L.w + c.x] !== T.GRASS) continue;
+      taken.add(`${c.x},${c.z}`);
+      out.push({ x: c.x, z: c.z, k: kind, p: null });
+      laid++;
     }
   };
-  pad(L.store.x, 'bay');
-  pad(L.store.x + L.store.w - PAD_SEED_W, 'drop');
+
+  // Either side of the service doorway. `L.door` is the *front* door, and this
+  // reads its `x` on purpose: `compose` cuts the back opening at the same two
+  // columns, straight opposite, so that the service route is the corridor
+  // behind the tills rather than a squeeze past an aisle end. Those two columns
+  // stay clear — a pad across your own way out is a crate you walk around on
+  // every single trip.
+  pad(L.door.x - 1, -1, 'bay');
+  pad(L.door.x + 2, +1, 'drop');
   return out;
 }
 

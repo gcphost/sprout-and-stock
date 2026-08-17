@@ -260,6 +260,7 @@ Keep to your side and you'll almost never touch the same file.
 | Tag vocabulary | `shared/tags.js` | Adding a tag is safe. Changing what one *means* affects everything. |
 | Validation rules | `shared/schemas.js` | Loosen carefully — this is what stops bad content reaching the game. |
 | AI director | `server/director.js` | |
+| Milestones | `server/sim/goals.js` | The ladder and what each rung pays. A rung is a *measurement* of state the shop already keeps, so adding one is one row and no migration — see docs/progress.md. Six of them add to `catchment` and three pay cash, so re-run `simulate` if you retune them, and call `silenceMilestones` in any sweep that asserts what the money did. |
 | Control API / MCP surface | `server/api.js`, `mcp/server.js` | Change both together. |
 
 ---
@@ -320,7 +321,9 @@ what the next step was meant to be.
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
+| [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
+| [docs/audio.md](docs/audio.md) | three buses and only three, a crowd that is a gain rather than a trigger, why the sounds cannot come from the log, sound as a column on a catalog row, and the Sound and Credits tabs in the `?` menu | proposed, nothing built |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | proposed, nothing built |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
 
@@ -388,6 +391,16 @@ what the next step was meant to be.
   `isWalkableTile` and `edgeBetween` rather than a second opinion, since a ghost
   the server refuses is the green-ghost bug. A cell that already holds a crate is
   green on purpose: `dropGoods` tops up or stacks, and a pile can be peeled.
+  "`walkTo` untouched" is now literally true and was not for four steps: it went
+  on arming a setdown on whatever tile it walked you to, so with anything in your
+  hands the guess "over there means put it down over there" was live from the
+  moment you picked something up. An errand outranks proximity by design, so that
+  guess suppressed every job that fires on its own — what it read as is a till you
+  cannot serve while carrying a crate, and a ripe bed you walk onto with a box on
+  your shoulder doing nothing. The drop-off is the one tile that keeps its second
+  meaning, because painted ground has no id and the tap is the only way to name
+  it. `verify:build` 7c pins both halves together: a tap arming nothing is only
+  safe while the square still has its hold.
 - **…and `haul` is where goods can be that is not `carry`.** You can pick the
   whole crate up now, which is `p.haul` — a second place stock lives, beside
   hands. Three things about it are worth knowing before touching either.
@@ -424,10 +437,43 @@ what the next step was meant to be.
   the charge away, so you say no by walking off. The snapshot carries the armed
   action from the tick it arms, at zero progress, so the client can light the
   target up and name what is about to happen.
-  Proximity is left with the two jobs that touch no goods: a till with somebody
-  waiting, and turning a rough bed over. Money is not even in that list — it is
+  Proximity is left with the two jobs that touch no goods — a till with somebody
+  waiting, and turning a rough bed over — plus the one that does: the ripe bed
+  **under your own feet**. Money is not even in that list — it is
   scooped up by walking over it (`stepCashPickup`), which is the one thing
   nobody has ever wanted to decline.
+- **…and the bed is the one goods job that came back, on a tile rather than on a
+  radius.** Both reasons it left are paid off, and either one going away again
+  puts it back. "Which one did you mean" is what killed proximity everywhere
+  else, and a plot has an answer no aisle has: a bed IS the ground, so the tile
+  under your feet names exactly one — `Math.round(p.x) === plot.x`, deliberately
+  not `near()`, which reaches the neighbouring bed and would strip a field. And
+  "picking fills your hands, and full hands refuse you everything else" stopped
+  being true when `harvest` started crating the surplus. It is also the one
+  action that charges with **no button down** (`auto` on the candidate, read in
+  `stepActions`): a field is six beds, and the press was six presses to do the
+  one thing a farm is for. The other two consents are untouched — `moving` still
+  throws the charge away, so walking a row strips nothing, and the ring still
+  winds in full view. The trap is that there are TWO ways to the same bed and
+  `auto` has to be decided in both: proximity finds the bed under your feet, but
+  `errandAction` outranks proximity by design, so a bed you *tapped* comes back
+  through `actionAt` — and walking to a bed is the ordinary way to end up
+  standing on one, which made the self-firing path the one nobody takes. It
+  shipped that way for exactly one round of play-testing. `verify:build` pins
+  all four, including the walk-over and the tap.
+- **…and a harvest that does not fit goes in a crate, because it used to go
+  NOWHERE.** Hands hold six and a bed gives two to seven, so the second bed of a
+  row was clipped to whatever room was left and the rest silently ceased to
+  exist — nothing logged, nothing on the floor, a bed drawing four plants
+  handing over one. That is the only place in the game goods were destroyed
+  (`dropGoods` is the answer everywhere else), and what it read as was a farm you
+  could only work one bed per trip. The surplus lands on the tile under YOU
+  rather than on the bed — a box parked on the seedlings you just put back reads
+  as the harvest having failed — and `dropGoods` merges within a couple of tiles,
+  so a block of six beds leaves one readable pile. Two things follow: `harvest`
+  now has no refusal at all, and a crate on the farm is supply the shop counts
+  (`homeSupply`), which a stocker collects because `unload` scores a stray above
+  a bay crate.
 - **…and it was the other way round for four steps, which is worth knowing
   before you put anything back on proximity.** The ring made proximity *safe*
   and never made it *precise*, and that distinction is the whole history here.
@@ -541,8 +587,14 @@ what the next step was meant to be.
   with the board in a crate *and* a loaf you never asked for. `tapBoard`
   swallows it on `pulling`, which is the test the client cannot make: only the
   shop knows whether goods actually crossed under that button.
-- **Build mode is the exception: it arms nothing.** `actionFor` returns null the
-  moment `p.build.on` is set. Proximity picked the nearest fixture *centre*, and
+- **Build mode is the exception: it arms nothing but the till.** `actionFor`
+  answers `serveCandidate` and nothing else the moment `p.build.on` is set — the
+  one job in the game that is not a question about the pointer. A shopper at the
+  counter is one till, one job, no aim and no press, and suspending it means a
+  customer stood there while you put a wall up, waiting for you to find the
+  button that turns building off. Everything else stays suspended, and the split
+  is the test for anything you want to add back: if it needs the pointer or your
+  hands, it belongs to the mode. Proximity picked the nearest fixture *centre*, and
   with seventeen shelves on a three-tile pitch that is not a choice anybody can
   make — you got whichever was closest, never the one you meant. So every build
   verb names its target instead: the client aims with `Scene.pickFixture`, and
@@ -749,6 +801,23 @@ what the next step was meant to be.
   nothing** (`HOLD_OPENS = false`): the gesture is wired end to end and switched
   off, so a new thing you can point at, added only to `openAtPointer`, ships dead
   — the tell is a highlight that works over a press that does nothing.
+- **…and a window's four looks are VARIANTS, on the one axis an edge had left.**
+  `GLAZING` is `WAYS`'s sibling and the line between them is the useful part: an
+  opening's kinds differ in who may cross, which the sim reads, while a glazing's
+  differ only in where the glass starts and stops, which nothing reads but the
+  renderer. So the variant rule applies — one price for all four, swapping between
+  them free, no `simulate` run over a picture — and a fifth look should be two
+  numbers (`sill`, `head`) in `EDGE_BASE.glass` and nothing else. What they share is
+  `edgeFamily`, which is what `buildEdge` charges the refit against and what the
+  edge menu lists: within a family you keep the door, or you keep the wall. Two
+  traps in the geometry, both invisible in the file you would edit. A **bay
+  projects toward the outdoor side**, read off the `indoor` mask — it has to be the
+  same answer every re-flow, or building a shelf flips your bay through the wall.
+  And a **wall-sized pane has to ask for its shadow back** (`shadow` on the band):
+  glass casts none, which is right for a bottle and wrong for a shopfront, because
+  a building whose south face stops laying a shadow reads as the wall having been
+  demolished. The day a window *does* something — daylight, charm, a shoplifter who
+  can see the till — it stops being a variant, and that is a number on a kind.
 - **A floor is a look, and it is what makes a walled room a shop.** Enclosure
   has meant "whatever the walls close in" since step 3 of docs/building.md — so
   you could always draw an annex and it counted as indoors, and it then refused

@@ -437,8 +437,24 @@ const freeAt = (g, c) => {
 
   // A drive out of the west side of the bay. Longer in tiles than the lane the
   // van already takes and cheaper in road, which is the whole mechanic.
-  const bayRow = g.layout.bay.cells[0].z;
-  const drive = g.buildGround('me', { x: 1, z: bayRow, piece: 'verify-park-road-a', to: { x: 7, z: bayRow } });
+  //
+  // Both ends are read off the bay rather than written down. The seed used to
+  // lay the pad against the west corner of the building, so "x 1 to 7" was
+  // touching it; it lays a block behind the back door now, and a run that stops
+  // five tiles short is a road to a field — the van docks on the grass beside
+  // it, which fails as "the cell it stops on is not road" and reads as the
+  // preference being broken rather than as the drive not reaching.
+  //
+  // The row nearest the building, not `cells[0]`. A road stroke is `ROAD_THICK`
+  // cells thick whichever way you drag it, so a drive laid along the OUTER row
+  // of a two-row pad tarmacs the row behind it as well — and the erase below is
+  // a one-cell brush, which then leaves half a road down and the lane on it.
+  // That is the asymmetry between painting a road and rubbing one out, and it
+  // is not what this section is about.
+  const bayRow = Math.max(...g.layout.bay.cells.map((c) => c.z));
+  const bayWest = Math.min(...g.layout.bay.cells.map((c) => c.x));
+  const driveEnd = bayWest - 1;
+  const drive = g.buildGround('me', { x: 1, z: bayRow, piece: 'verify-park-road-a', to: { x: driveEnd, z: bayRow } });
   check(drive.ok, 'a drive can be laid from the border to the bay', drive.error ?? '');
   eq(g.layout.tiles[bayRow * g.layout.w + 4], T.ROAD, 'and the cells are road');
 
@@ -451,14 +467,14 @@ const freeAt = (g, c) => {
   // A LOOK, not a lane: repaint the identical run in a garish, dearer design and
   // nothing with wheels may notice. Same claim `verify:floor` makes about floor.
   const lane = JSON.stringify(g.layout.vanRoute);
-  const repaint = g.buildGround('me', { x: 1, z: bayRow, piece: 'verify-park-road-b', to: { x: 7, z: bayRow } });
+  const repaint = g.buildGround('me', { x: 1, z: bayRow, piece: 'verify-park-road-b', to: { x: driveEnd, z: bayRow } });
   check(repaint.ok, 'it can be repainted in another design', repaint.error ?? '');
   eq(JSON.stringify(g.layout.vanRoute), lane, 'and the lane is byte-identical');
 
   // ...and never a requirement. Take it all up and the van still comes — the
   // failure this guards against is a brush that breaks every shop in the world
   // on the re-flow after it ships.
-  const up = g.buildGround('me', { x: 1, z: bayRow, piece: '', to: { x: 7, z: bayRow } });
+  const up = g.buildGround('me', { x: 1, z: bayRow, piece: '', to: { x: driveEnd, z: bayRow } });
   check(up.ok, 'and taken up again', up.error ?? '');
   check(g.layout.vanRoute != null, 'a shop with the road torn out still gets its deliveries');
   eq(JSON.stringify(g.layout.vanRoute), before, 'by exactly the lane it used before there was one');

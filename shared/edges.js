@@ -49,6 +49,15 @@ export const E = {
   DOOR_OUT: 8,
   /** A gate shoppers do not use — how you keep the shop floor out of a field. */
   GATE_STAFF: 9,
+  // ...and the same wall, glazed four ways. See GLAZING: these differ in nothing
+  // but where the glass starts and stops, which is why they are looks rather than
+  // kinds of wall — every one of them blocks you, encloses, and costs the same.
+  /** Floor-to-lintel glass. A shopfront. */
+  WINDOW_FULL: 10,
+  /** Standard glazing that projects out over a sill. */
+  WINDOW_BAY: 11,
+  /** A strip up under the lintel: light, no view. What a stockroom gets. */
+  WINDOW_HIGH: 12,
 };
 
 /**
@@ -101,8 +110,55 @@ export function wayKind(base, rule) {
   return null;
 }
 
+/**
+ * A WALL WITH GLASS IN IT, and how much.
+ *
+ * `WAYS`'s sibling, and the distinction between the two is worth keeping: an
+ * opening's kinds differ in *who may cross*, which is behaviour the sim reads,
+ * while these differ in **where the glass starts and stops**, which nothing reads
+ * but the renderer. Four looks of one thing.
+ *
+ * So they are priced identically and they are the codebase's own rule about
+ * variants said about an edge: a look must never move a number, or restyling your
+ * frontage is a balance change and `simulate` has to be re-run over a colour. That
+ * also makes the swap between them free — see the refit in `buildEdge`.
+ *
+ * The day a window *does* something — daylight a lamp doesn't have to pay for,
+ * charm, a shoplifter who can see the till — that is a number, and it belongs on
+ * the piece it distinguishes rather than in here. Right now nothing in the game
+ * reads `E.WINDOW` for anything but geometry, which is what makes this cheap.
+ */
+export const GLAZING = new Map([
+  [E.WINDOW, { base: 'window', look: 'standard' }],
+  [E.WINDOW_FULL, { base: 'window', look: 'full' }],
+  [E.WINDOW_BAY, { base: 'window', look: 'bay' }],
+  [E.WINDOW_HIGH, { base: 'window', look: 'high' }],
+]);
+
+/** Which looks a window can be given, in the order a menu lists them. */
+export const GLAZING_LOOKS = ['standard', 'full', 'bay', 'high'];
+
+export const glazingBase = (kind) => GLAZING.get(kind)?.base ?? null;
+export const glazingLook = (kind) => GLAZING.get(kind)?.look ?? null;
+
+export function glazingKind(look) {
+  for (const [kind, g] of GLAZING) if (g.look === look) return kind;
+  return null;
+}
+
+/**
+ * What FAMILY an edge belongs to — the one question both tables answer.
+ *
+ * Two callers, and both of them are about the thing you already own: `buildEdge`
+ * charges a **refit** rather than a swap within a family, because signing a door
+ * or reglazing a window leaves you with the door and the wall; and the edge menu
+ * offers exactly the kinds that share a family with the one under your pointer.
+ * Anything with no family — a wall, a fence — has nothing to choose and no menu.
+ */
+export const edgeFamily = (kind) => wayBase(kind) ?? glazingBase(kind);
+
 /** Edges you cannot walk through. */
-export const SOLID = new Set([E.WALL, E.WINDOW, E.FENCE]);
+export const SOLID = new Set([E.WALL, E.FENCE, ...GLAZING.keys()]);
 
 /**
  * Edges that make an enclosure.
@@ -117,7 +173,8 @@ export const SOLID = new Set([E.WALL, E.WINDOW, E.FENCE]);
  * A FENCE is deliberately absent, and so is every gate. Fencing a field must
  * never roof it.
  */
-export const ENCLOSING = new Set([E.WALL, E.WINDOW,
+export const ENCLOSING = new Set([E.WALL,
+  ...GLAZING.keys(),
   ...[...WAYS].filter(([, w]) => w.base === 'door').map(([kind]) => kind)]);
 
 /**

@@ -1089,7 +1089,11 @@ function fixtureDetail(ui, f, live) {
           aria-label="Stop keeping it">${ICONS.remove}</button>`
     : `<button class="fx-take fx-clear" data-clear="${esc(k.item_id)}"
           title="${esc(k.qty > 0
-      ? `Take ${name} off this shelf — ${k.qty} into a crate beside it, and the board is free.`
+      // Says the consequence, because the consequence is the point of pressing
+      // it: without the mark a stocker walks the crate straight back on, and a
+      // player who cannot see why reads it as the button not working.
+      ? `Take ${name} off this shelf — ${k.qty} into a crate beside it, the board is free, `
+        + 'and the shop stops restocking it unless another shelf keeps it.'
       : `Take ${name} off this shelf and free the board.`)}"
           aria-label="Take it off">${ICONS.remove}</button>`}
       </div>`;

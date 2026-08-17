@@ -157,7 +157,8 @@ export function showWorker(ui, workerId) {
       html: vocabulary.map((j) => jobRow(j, weights.get(j) ?? 0)).join('')
         // With the rows it explains, rather than in the pinned foot: it is read
         // once, and two lines of standing prose is more than the foot now has.
-        + '<div class="foot">A weight is how much of their day a job gets. '
+        + '<div class="foot">A weight is how much of their day a job gets, and '
+        + 'a job with nothing to do only hands its turn to the ones near it. '
         + 'Nothing means never — and everyone needs at least one.</div>',
     },
   ];

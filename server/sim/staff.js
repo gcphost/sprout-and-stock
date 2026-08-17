@@ -56,8 +56,18 @@ const IDLE = 0.6;
  * off for a coffee mid-queue one trip in seven at full energy, forever.
  *
  * Which is why it lives here rather than in `JOBS`, and pre-empts the draw.
+ *
+ * **The full tank is a one-off, and `restores` is the real rhythm.** A hire
+ * spawns at 1 and works `(1 - SPENT) / DRAIN` jobs before their first break —
+ * and never sees that number again, because a break puts back what the pastime
+ * it drew is worth rather than filling them up. So the steady state is
+ * `restores / DRAIN` jobs, which for `lean-on-the-counter` (0.35) was **ten**:
+ * ten actions, then fourteen seconds against a till, forever. That is what "the
+ * workers take too many breaks" is, and it is why `DRAIN` is the only knob that
+ * touches it — `SPENT` sets when the *first* break comes and then drops out of
+ * the arithmetic entirely, and `restores` is content anybody may retune.
  */
-const DRAIN = 0.035;        // per job taken, so ~28 jobs on a full tank
+const DRAIN = 0.015;        // per job taken, so ~50 jobs on a full tank
 const SPENT = 0.25;         // below this they down tools
 /** How much slower a worker on an empty tank is than a fresh one. */
 const TIRED_PACE = 1.8;
@@ -192,8 +202,9 @@ function jobsOf(game, s) {
  *
  * Picking is two steps. A weighted draw chooses which job to *try*, so a worker
  * given serve 7 / harvest 3 spends roughly seven trips in ten on the till. If
- * that job has nothing to do it falls through the rest by descending weight, so
- * an idle till still sends them to the crops instead of standing there.
+ * that job has nothing to do it falls through the rest by descending weight —
+ * but only as far as `FALLTHROUGH`, so an idle till sends them to the crops and
+ * never to the job they were told to spend a tenth of their day on.
  *
  * Which means one number says both things: priority when only one job has work,
  * and a share of the day when several do.
@@ -309,8 +320,34 @@ function tryBreak(game, s, evenCarrying = false) {
 }
 
 /**
- * The order to try jobs in this tick: one weighted draw for the head, then the
- * rest heaviest-first.
+ * How far *down* the list a hire may be pulled when the job they drew has
+ * nothing to do: half the weight of the job they drew, and no further.
+ *
+ * Without a floor the fall-through quietly ate the weights. A weight is a share
+ * of the day, but only the head of the order is drawn by it — everything below
+ * was reached by simply having work, so a job that ALWAYS has something to do
+ * (restock, shelve, tidy) collected every draw that the heavier jobs declined.
+ * A farmhand told `till` 10 and `tidy` 1 spent their day tidying between beds,
+ * and the way that reads is a hire ignoring the one instruction you gave them.
+ * Turned up to a flat list of tens it goes the other way and is the strongest
+ * setting in the menu: everything is drawn evenly AND everything is a fallback,
+ * so one hire does the work of four and never stands still.
+ *
+ * Being pulled *up* is untouched, and it is what stops this being a rota: draw a
+ * job at 1, find it empty, and the whole list is still open above you, heaviest
+ * first. So the floor only ever costs the light jobs the work the heavy ones
+ * turned down — which is what a light weight was asking for.
+ *
+ * A ratio rather than a rung, because weights are ratios: 10-and-1 and 100-and-10
+ * are the same instruction, and a fixed gap would read them differently. Half is
+ * loose enough that an authored list of near-equals (a farmhand's 10/8/8/6) is
+ * one working hire rather than four idle specialists.
+ */
+const FALLTHROUGH = 0.5;
+
+/**
+ * The order to try jobs in this tick: one weighted draw for the head, then
+ * whatever is at least half as important, heaviest-first.
  *
  * Uses the game's seeded rng, never Math.random — two `simulate` runs of one
  * seed have to match, or every balance comparison in the project becomes noise.
@@ -325,7 +362,11 @@ function drawOrder(game, jobs) {
     r -= j.weight;
     if (r <= 0) { head = j; break; }
   }
-  return [head, ...rest.filter((j) => j !== head)];
+  const floor = head.weight * FALLTHROUGH;
+  // An empty tail is a hire who waits `IDLE` and draws again, which is the
+  // point: standing by the beds for half a second beats being three aisles away
+  // with an armful when one comes ripe.
+  return [head, ...rest.filter((j) => j !== head && j.weight >= floor)];
 }
 
 /** One job's worth of wear. */

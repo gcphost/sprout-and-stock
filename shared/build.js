@@ -972,8 +972,17 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
       // till means the clerk's side counts: a wall drawn between the counter
       // and the back of the shop leaves a till the queue can still reach and
       // nobody can ever staff, and that is exactly the wall worth warning about.
+      // `layout` matters, and it is the difference between this warning firing
+      // for a reason and firing always. A unit's ENDS are derived rather than
+      // stored, so unfiltered they include tiles nobody could ever stand on —
+      // and a run of shelving is solid down the column now (`SHELF_ROW_PITCH`),
+      // which means every unit in it has another unit for an end. `every` then
+      // reads that as stranded whatever wall you drew, so a shop with an aisle
+      // in it warned "that cuts 11 fixtures off from the door" about a single
+      // segment in a corner. Filtered against the shop as it stands *before*
+      // the change, which is what makes this a delta.
       const stranded = fixturesOf(L)
-        .map((f) => ({ f, spots: spotsOf(f) }))
+        .map((f) => ({ f, spots: spotsOf(f, { layout: L }) }))
         .filter(({ f, spots }) => spots.length
           && indoors(Math.round(f.x), Math.round(f.z))
           && !spots.every(joined));
@@ -1666,7 +1675,12 @@ function whatThisBlocks(L, spec, def, ignoreId) {
     // Both sides of a counter, and the reason this reads them off the record
     // rather than recomputing from `rot`: a re-flow judges placements against a
     // half-built layout, and `serveAt` is what the till was actually laid with.
-    for (const s of spotsOf(f)) {
+    // ...and the same filter, for the same reason: `L` is the shop before this
+    // placement, so an end that is already another unit is not a spot this is
+    // taking away. Without it, standing a shelf at the end of a run — which is
+    // how a run of shelving gets built — reports "that is where you stand to
+    // use the shelf behind it" about a tile nobody has ever stood on.
+    for (const s of spotsOf(f, { layout: L })) {
       if (s.role === 'tend') {
         // Said differently on purpose. "Where you stand to use it" is wrong for
         // this side — you never do — and a player told that about a tile behind

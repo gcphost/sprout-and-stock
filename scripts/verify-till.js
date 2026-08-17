@@ -42,6 +42,7 @@
  */
 
 import { Game } from '../server/sim/index.js';
+import { silenceMilestones } from '../server/sim/goals.js';
 import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { pieceFor } from '../shared/pieces.js';
@@ -128,6 +129,12 @@ function fresh({ autoServe = false } = {}) {
   g.shell = null;
   g.ownedUpgrades = [];
   g.roster = [];
+  // ...and the milestone ladder, which pays cash and lands crates. Section 3
+  // drives a real queue through a real till and then asserts the takings are on
+  // the counter rather than in the bank — and the first sale in this shop's
+  // life is a rung worth $250. Same shape as `ownedUpgrades` above it: a field
+  // that was not new, but newly mattered. See `silenceMilestones`.
+  silenceMilestones(g);
   g.regenerateLayout(null, {}, { want: SHOP });
   g.freezeShell();
   g.freezeYard();
@@ -195,6 +202,39 @@ const servedOf = (g, ids) => ids.filter((id) => {
 }).length;
 
 const tillOf = (g) => g.layout.checkouts[0];
+
+// ---------------------------------------------------------------------------
+// 0. Standing at the counter serves the queue, with nothing held down.
+//
+// The press bought nothing here: you walked to the till BECAUSE of the queue,
+// and then held a button once per customer to do the thing you walked over to
+// do. It is also the one job in the game with no ambiguity for proximity to get
+// wrong — one till, one queue, one verb — which is why serving never left
+// proximity when the pickups did.
+//
+// `moving` is still the way out, and that is the half worth pinning: an action
+// that fires on its own with no way to decline it is the auto-fire the ring
+// replaced. Both directions, because "it serves" passes on a harness that
+// forgot the customers and "it stops" passes on one where nothing works at all.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const till = tillOf(g);
+  const ids = queueUp(g, till, 3);
+  const me = g.addPlayer('me', 'Tester');
+  Object.assign(me, { x: till.serveAt.x, z: till.serveAt.z, path: null, input: { dx: 0, dz: 0 } });
+  me.pressing = false;
+
+  for (let i = 0; i < 100; i++) g.stepActions(0.1);
+  check(servedOf(g, ids) > 0, 'standing at the till serves the queue with no button held');
+
+  // ...and walking away stops it dead, mid-ring.
+  const more = queueUp(g, till, 3);
+  const servedNow = servedOf(g, more);
+  me.path = [{ x: me.x + 4, z: me.z }];
+  for (let i = 0; i < 100; i++) g.stepActions(0.1);
+  eq(servedOf(g, more), servedNow, 'and stepping away from the counter stops serving');
+}
 
 // ---------------------------------------------------------------------------
 // 1. Every fixture the sim ticks resolves to the same piece build mode shows.

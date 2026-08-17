@@ -626,6 +626,16 @@ export class MartRoom extends Room {
       this._sentCatalogVersion = content().version;
       this.broadcast('catalog', this.catalog());
     }
+    /**
+     * Anything the shop has just achieved, drained rather than pushed.
+     *
+     * The sim has no sockets — this is the same shape the director's headline
+     * uses — and it is a *queue* because two milestones can come due in one
+     * tick. Broadcast rather than sent to one client: a shop two people are
+     * playing achieved it together, and the modal pauses the world for both of
+     * them either way.
+     */
+    for (const won of this.game.milestoneNews.splice(0)) this.broadcast('achieved', won);
     this.broadcast('state', this.game.snapshot());
   }
 

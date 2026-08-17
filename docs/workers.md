@@ -110,7 +110,20 @@ Picking is two steps, and both matter:
    that worker spends roughly 70% of their trips on the till and 30% in the
    field.
 2. **Fall through by descending weight** if the drawn job has nothing to do —
-   so an idle till still sends them to the crops rather than standing there.
+   so an idle till still sends them to the crops rather than standing there —
+   but no further down than half the drawn job's weight (`FALLTHROUGH`).
+
+That floor arrived late, and without it the fall-through quietly ate step 1.
+Only the *head* of the order is drawn by weight; everything under it was reached
+by simply having work, so a job that always has something to do — restock,
+shelve, tidy — collected every draw the heavier jobs declined. A farmhand told
+`till` 10 and `tidy` 1 spent the day tidying between beds, which reads as a hire
+ignoring the one instruction you gave them. Being pulled *up* the list is
+untouched: draw a 1, find it empty, and everything above is still open. So the
+floor only ever costs a light job the work a heavy one turned down, which is
+what a light weight was asking for. A flat list of tens is unchanged and is
+still the strongest setting in the menu — everything drawn evenly, everything a
+fallback, one hire doing four jobs and never standing still.
 
 Which means weight reads as priority when only one job has work, and as a time
 share when several do. That covers both things you'd want to say.
@@ -590,8 +603,13 @@ which jobs it does.
   went into the vocabulary at all: `onBreak` runs *before* `drawOrder` and
   short-circuits it. In the weighted list it would have sent a worker off for a
   coffee mid-queue at full energy, one trip in seven, forever.
-- **Energy on the body.** `DRAIN` 0.035 per job taken, so about 28 jobs on a
-  full tank; below `SPENT` 0.25 they down tools. `speedOf` and `paceOf` both
+- **Energy on the body.** `DRAIN` 0.015 per job taken, so about 50 jobs on a
+  full tank; below `SPENT` 0.25 they down tools. The full tank is a one-off,
+  though: a break restores what the *pastime* is worth rather than filling
+  anybody up, so the steady state is `restores / DRAIN` jobs and `SPENT` only
+  ever decides when the first one comes. At `DRAIN` 0.035 that made
+  `lean-on-the-counter` (restores 0.35) a break every ten actions.
+  `speedOf` and `paceOf` both
   divide/multiply by `tiredness()`, so an empty worker is 1.8× slower before
   they stop — the failure is visible well before it bites. Not persisted, so a
   server restart is a good night's sleep; a dev-world quirk, not a design.

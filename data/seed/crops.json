@@ -3,9 +3,9 @@
     "id": "carrot-row",
     "name": "Carrot Row",
     "item_id": "carrot",
-    "grow_minutes": 1,
-    "yield_min": 3,
-    "yield_max": 5,
+    "grow_minutes": 0.6,
+    "yield_min": 5,
+    "yield_max": 8,
     "seed_cost": 0.6,
     "seasons": [
       "spring",
@@ -30,7 +30,14 @@
                 0.12,
                 0.38
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -45,7 +52,14 @@
                 0.05,
                 0.07
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -60,7 +74,14 @@
                 0.048,
                 0.065
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -75,7 +96,14 @@
                 0.042,
                 0.055
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -96,7 +124,14 @@
                 0.2,
                 0.14
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -117,7 +152,14 @@
                 0.3,
                 0.18
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -138,7 +180,14 @@
                 0.13,
                 0.3
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "cone",
@@ -153,7 +202,14 @@
                 0.38,
                 0.2
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         }
@@ -164,9 +220,9 @@
     "id": "chicken-coop",
     "name": "Chicken Coop",
     "item_id": "egg",
-    "grow_minutes": 2,
-    "yield_min": 3,
-    "yield_max": 6,
+    "grow_minutes": 1.4,
+    "yield_min": 5,
+    "yield_max": 9,
     "seed_cost": 6,
     "seasons": [],
     "model": {
@@ -188,7 +244,14 @@
                 0.08,
                 0.4
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -209,7 +272,14 @@
                 0.08,
                 0.4
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -224,7 +294,14 @@
                 0.24,
                 0.34
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -245,7 +322,14 @@
                 0.08,
                 0.4
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -260,7 +344,14 @@
                 0.28,
                 0.36
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -275,7 +366,14 @@
                 0.16,
                 0.16
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "cone",
@@ -290,7 +388,14 @@
                 0.08,
                 0.08
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "cone",
@@ -305,7 +410,14 @@
                 0.07,
                 0.05
               ],
-              "rot": 90
+              "rot": 90,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -326,7 +438,14 @@
                 0.08,
                 0.42
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -341,7 +460,14 @@
                 0.28,
                 0.36
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -356,7 +482,14 @@
                 0.16,
                 0.16
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "cone",
@@ -371,7 +504,14 @@
                 0.08,
                 0.08
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "cone",
@@ -386,7 +526,14 @@
                 0.07,
                 0.05
               ],
-              "rot": 90
+              "rot": 90,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -401,7 +548,14 @@
                 0.15,
                 0.13
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         }
@@ -412,9 +566,9 @@
     "id": "lettuce-bed",
     "name": "Lettuce Bed",
     "item_id": "lettuce",
-    "grow_minutes": 0.8,
-    "yield_min": 2,
-    "yield_max": 3,
+    "grow_minutes": 0.5,
+    "yield_min": 3,
+    "yield_max": 5,
     "seed_cost": 0.5,
     "seasons": [
       "spring",
@@ -440,7 +594,14 @@
                 0.12,
                 0.38
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -455,7 +616,14 @@
                 0.05,
                 0.07
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -470,7 +638,14 @@
                 0.048,
                 0.065
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -485,7 +660,14 @@
                 0.042,
                 0.055
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -506,7 +688,14 @@
                 0.09,
                 0.16
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -521,7 +710,14 @@
                 0.09,
                 0.15
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -542,7 +738,14 @@
                 0.18,
                 0.27
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -557,7 +760,14 @@
                 0.1,
                 0.17
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -578,7 +788,14 @@
                 0.25,
                 0.36
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -593,7 +810,14 @@
                 0.18,
                 0.27
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -608,7 +832,14 @@
                 0.1,
                 0.15
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         }
@@ -619,9 +850,9 @@
     "id": "tomato-vine",
     "name": "Tomato Vine",
     "item_id": "tomato",
-    "grow_minutes": 1.5,
-    "yield_min": 2,
-    "yield_max": 4,
+    "grow_minutes": 0.9,
+    "yield_min": 4,
+    "yield_max": 6,
     "seed_cost": 1,
     "seasons": [
       "spring",
@@ -646,7 +877,14 @@
                 0.12,
                 0.38
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -661,7 +899,14 @@
                 0.05,
                 0.07
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -676,7 +921,14 @@
                 0.048,
                 0.065
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -691,7 +943,14 @@
                 0.042,
                 0.055
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -712,7 +971,14 @@
                 0.24,
                 0.045
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -727,7 +993,14 @@
                 0.05,
                 0.13
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -742,7 +1015,14 @@
                 0.045,
                 0.11
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -763,7 +1043,14 @@
                 0.52,
                 0.06
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -778,7 +1065,14 @@
                 0.05,
                 0.12
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -793,7 +1087,14 @@
                 0.14,
                 0.14
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -814,7 +1115,14 @@
                 0.52,
                 0.06
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -829,7 +1137,14 @@
                 0.05,
                 0.13
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -844,7 +1159,14 @@
                 0.22,
                 0.22
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         }
@@ -855,9 +1177,9 @@
     "id": "wheat-field",
     "name": "Wheat Field",
     "item_id": "wheat",
-    "grow_minutes": 2.5,
-    "yield_min": 4,
-    "yield_max": 7,
+    "grow_minutes": 1.8,
+    "yield_min": 6,
+    "yield_max": 10,
     "seed_cost": 0.8,
     "seasons": [
       "summer",
@@ -882,7 +1204,14 @@
                 0.12,
                 0.38
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -897,7 +1226,14 @@
                 0.05,
                 0.07
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -912,7 +1248,14 @@
                 0.048,
                 0.065
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -927,7 +1270,14 @@
                 0.042,
                 0.055
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -948,7 +1298,14 @@
                 0.26,
                 0.055
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -963,7 +1320,14 @@
                 0.04,
                 0.07
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -984,7 +1348,14 @@
                 0.42,
                 0.065
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -999,7 +1370,14 @@
                 0.04,
                 0.08
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         },
@@ -1020,7 +1398,14 @@
                 0.5,
                 0.075
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -1035,7 +1420,14 @@
                 0.04,
                 0.08
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             },
             {
               "shape": "sphere",
@@ -1050,7 +1442,14 @@
                 0.2,
                 0.16
               ],
-              "rot": 0
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
             }
           ]
         }

@@ -49,6 +49,7 @@ import { padCells, groundIndex } from '../shared/build.js';
 import { T } from '../shared/tiles.js';
 import { E } from '../shared/edges.js';
 import { LOT_KINDS, lotStacks, lotTotal, lotQty, lotHas } from '../shared/lot.js';
+import { MILESTONES } from '../server/sim/goals.js';
 
 const failures = [];
 let checks = 0;
@@ -174,6 +175,14 @@ function fresh({ stampYard = true } = {}) {
   g.regenerateLayout(null, {}, { want: SHOP });
   g.freezeShell();
   if (stampYard) g.freezeYard();
+  // Every milestone marked as already passed. It is the one way goods arrive in
+  // this shop that nothing here switches off, and it is triggered by the setup
+  // rather than by the code under test: taking a hire on is what earns "someone
+  // else to do it", which lands as an ordinary van a couple of shop-minutes
+  // later carrying a crate of exactly the item a section is counting. Whether
+  // it arrives inside a run is a question about how far people happened to
+  // walk, so the sweep it breaks is whichever one somebody last made faster.
+  for (const m of MILESTONES) g.milestones.done.push(m.id);
   g.cash = 50000;
   g.addPlayer('me', 'Tester');
   g.players.me.build = { on: true };
@@ -228,11 +237,11 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
-  const bay = g.layout.bay.cells;
-  const row = bay[0].z;
-  const res = g.buildGround('me', {
-    x: bay[0].x, z: row, piece: 'verify-yard-floor', to: { x: bay[bay.length - 1].x, z: row },
-  });
+  // The pad's own bounding rect, not a row of it: the seed lays a block where
+  // the yard is deep enough for one (`defaultPads`), so a single-row drag paves
+  // over half a bay and leaves the shop with a bay — which is a pass on every
+  // assertion below and a test of nothing.
+  const res = g.buildGround('me', { ...rectOver(g.layout.bay.cells), piece: 'verify-yard-floor' });
   check(res.ok, 'the whole bay can be paved over', res.error ?? '');
   check(/last delivery bay/.test(res.warn ?? ''), 'and warns that it was the last one', res.warn ?? 'none');
   check(g.layout.bay === null, 'leaving the shop with no delivery bay');
@@ -473,10 +482,15 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
 
   // The other half, and the whole point of the pad being a region: paint more
   // storage and the farm runs again. The bound is one the player drew.
-  const cell = g.dropPad().cells[0];
-  const grow = g.buildGround('me', {
-    x: cell.x, z: cell.z + 1, piece: 'verify-yard-drop', to: { x: cell.x + 1, z: cell.z + 1 },
-  });
+  //
+  // Searched for rather than computed off a cell of the pad. "One row along
+  // from cells[0]" was outside the pad while a pad was a row, and is inside it
+  // now that the seed lays a block — which repaints ground the shop already had
+  // and adds no room at all, so the farm stays stopped and the failure reads as
+  // the drop-off not being what bounds it.
+  const spare = beside(g, g.dropPad().cells);
+  check(!!spare, 'there is grass beside the drop-off to paint');
+  const grow = g.buildGround('me', { x: spare.x, z: spare.z, piece: 'verify-yard-drop' });
   check(grow.ok, 'the drop-off can be painted bigger', grow.error ?? '');
   check(g.padRoom() > 0, 'which is room the shop did not have a moment ago');
 
@@ -484,6 +498,45 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
   check(picked(g) > 0,
     'and the farm picks again, into the storage you just paid for',
     `picked ${picked(g)}, padRoom ${g.padRoom()}`);
+}
+
+/**
+ * A pad's bounding rect, as the two ends `buildGround` takes.
+ *
+ * The brush is an area, and a pad is a shape somebody painted rather than a run
+ * — the seed lays a 2x2 block behind the door, and one that was clipped by a
+ * shallow yard is a strip. Covering "the whole of it" means both.
+ */
+function rectOver(cells) {
+  const xs = cells.map((c) => c.x);
+  const zs = cells.map((c) => c.z);
+  return {
+    x: Math.min(...xs), z: Math.min(...zs),
+    to: { x: Math.max(...xs), z: Math.max(...zs) },
+  };
+}
+
+/**
+ * A cell of grass touching a pad, or null.
+ *
+ * "Somewhere the shop could have more of this pad", asked of the world rather
+ * than assumed from the pad's shape. Grass specifically: a neighbour that is
+ * already pad adds no room, and one that is floor is indoors, which is legal
+ * ground and a different claim from the one being made here.
+ */
+function beside(g, cells) {
+  const L = g.layout;
+  const own = new Set(cells.map((c) => `${c.x},${c.z}`));
+  for (const c of cells) {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = c.x + dx;
+      const z = c.z + dz;
+      if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) continue;
+      if (own.has(`${x},${z}`)) continue;
+      if (L.tiles[z * L.w + x] === T.GRASS) return { x, z };
+    }
+  }
+  return null;
 }
 
 /** Every spud in the shop — in a crate, on a board, or in somebody's hands. */
@@ -582,6 +635,12 @@ function totalOnFloor(g, itemId) {
   // shoppers would quietly falsify by buying four things off a shelf. A sweep
   // that counts stock has to stop the one process whose job is to remove it.
   g.open = false;
+  // ...and the shop buys nothing while it runs, for the same reason. The claim
+  // below is conservation across the hauling code, and an order landing 250
+  // shop-seconds in adds a crate of the very item being counted, which reads as
+  // goods appearing out of nowhere in the code under test. (The other way that
+  // happens — a milestone gift — is headed off in `fresh`.)
+  g.orders.auto = false;
 
   // Three full crates in the yard, and three porters. Every shelf bare, so
   // every one of them is a legal destination and the only thing that can spread
@@ -623,6 +682,17 @@ function totalOnFloor(g, itemId) {
 
   // Now let them get on with it.
   for (const p of porters) p.haul = null;
+
+  /** Every unit of it, wherever it is: on a board, on the floor, in a hand. */
+  const total = () => g.layout.shelves.reduce((n, sh) => n + (g.shelfStack(sh, TEST_SPUD.id)?.qty ?? 0), 0)
+    + totalOnFloor(g, TEST_SPUD.id) + heldOf(g, TEST_SPUD.id);
+  // Taken HERE rather than from `put`, and the difference is one tick. The
+  // crates above are put on shoulders to read a decision and taken away again
+  // — but a porter who happened to start beside a board unloads within that
+  // tick, so what is taken away is not always all of what was handed out. The
+  // claim is conservation across the run below; anchoring it to a count from
+  // before the probe asserts arithmetic about the probe instead.
+  const held = total();
   for (let i = 0; i < 2500; i++) g.step(0.1);
 
   // Nobody set a crate down on top of somebody else's. One box per tile is the
@@ -645,8 +715,7 @@ function totalOnFloor(g, itemId) {
   // strict is three people who each decide there is nothing to do.
   const shelved = g.layout.shelves.reduce((n, sh) => n + (g.shelfStack(sh, TEST_SPUD.id)?.qty ?? 0), 0);
   check(shelved > 0, 'and the stock actually reaches the shelves', `${shelved} shelved`);
-  eq(shelved + totalOnFloor(g, TEST_SPUD.id) + heldOf(g, TEST_SPUD.id), put,
-    'with every unit accounted for');
+  eq(total(), held, 'with every unit accounted for');
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VERIFY: A WAY THROUGH KNOWS WHO IT IS FOR.
+ * VERIFY: A WAY THROUGH KNOWS WHO IT IS FOR, AND A WINDOW IS ONLY A LOOK.
  *
  * Step 15 of docs/building.md, and the first rule in this game whose answer
  * depends on who is standing at it. A staff doorway and a doorway are the same
@@ -54,6 +54,19 @@
  *   it costs half a doorway each way, and a switch that bills you $17 for
  *   changing your mind is not a switch.
  *
+ * And the other family on the same machinery, the glazings, whose claims are
+ * cheaper but include the worst bug in this file if it ever breaks:
+ *
+ * - **A glazing missing from `SOLID` is a window you can walk through**, in a shop
+ *   that looks completely normal. You would have to try to walk into your own
+ *   shopfront to find it, which is why every one of those kinds is derived from
+ *   one table and asserted against it rather than listed.
+ *
+ * - **Four glazings are the same wall.** Same enclosure to the byte, same price,
+ *   and swapping between them free — because a look must never move a number, or
+ *   choosing a shopfront is a balance change. A re-flow leaves it alone too, or
+ *   buying a shelf reglazes your shop.
+ *
  * Writes one floor row into whatever content database it is pointed at — usually
  * the live shared one — and removes it on exit, the way verify:floor does.
  *
@@ -66,8 +79,9 @@ import { remove } from '../server/db.js';
 import { findPath } from '../server/sim/pathing.js';
 import { queueLane, canPlaceEdge, canPlaceEdges } from '../shared/build.js';
 import {
-  E, SOLID, ENCLOSING, RULED, WAYS, computeIndoor, edgeBetween, eviOf, ehiOf,
-  shopperCanCross, wayBase, wayRule, wayKind,
+  E, SOLID, ENCLOSING, RULED, WAYS, GLAZING, GLAZING_LOOKS, computeIndoor,
+  edgeBetween, eviOf, ehiOf, shopperCanCross, wayBase, wayRule, wayKind,
+  glazingKind, glazingLook, edgeFamily,
 } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 
@@ -489,6 +503,85 @@ const routes = (g, ent, goal) => g.pathTo(ent, goal);
 }
 
 // ---------------------------------------------------------------------------
+// 9. A window is a LOOK, and four of them are the same wall.
+//
+// `GLAZING`'s claims are cheaper than the openings' and one of them is the worst
+// bug in this whole file if it ever breaks: a glazing missing from `SOLID` is a
+// window you can walk through, in a shop that looks completely normal. It cannot
+// be caught by eye — you would have to try to walk into your own shopfront — and
+// every one of these kinds is derived from one table for exactly that reason.
+// ---------------------------------------------------------------------------
+{
+  for (const [kind, g] of GLAZING) {
+    check(SOLID.has(kind), `a ${g.look} window is a wall you cannot walk through`);
+    check(ENCLOSING.has(kind), `and it encloses, so a room glazed with it is a room`);
+    eq(edgeFamily(kind), 'window', `${g.look} is in the window family`);
+    eq(glazingKind(g.look), kind, `${g.look} resolves back to itself`);
+  }
+  eq(glazingLook(E.WINDOW), 'standard', 'the window that was always here is the plain one');
+  eq(GLAZING_LOOKS.length, GLAZING.size, 'every glazing is offered by the menu');
+
+  // Every glazing encloses identically — the claim a shopfront has to keep, since
+  // a wall of glass along the front of the shop is still the front of the shop.
+  const glazed = (kind) => {
+    const p = pad(12, 12);
+    ring(p, 2, 2, 4, 4, E.WALL);
+    p.edgesH[ehiOf(p.w, 3, 5)] = kind;
+    return enclosure(p);
+  };
+  const plain = glazed(E.WINDOW);
+  for (const [kind, g] of GLAZING) {
+    eq(glazed(kind), plain, `a ${g.look} window encloses exactly as the plain one does`);
+  }
+
+  // ...and nobody walks through any of them, shopper or staff.
+  const L = settle((() => {
+    const p = pad(12, 12);
+    ring(p, 2, 2, 4, 4, E.WALL);
+    p.edgesH[ehiOf(p.w, 3, 5)] = E.WINDOW_FULL;
+    return p;
+  })());
+  check(!shopperCanCross(L, 3, 5, 3, 4), 'a shopper does not walk in through a shopfront');
+  check(SOLID.has(edgeBetween(L, 3, 5, 3, 4)), 'and neither does anybody else');
+}
+
+// ---------------------------------------------------------------------------
+// 10. Reglazing is a refit: it charges nothing, either way, and you keep the wall.
+//
+// The same claim the sign makes, and it matters more here, because this is the
+// one the player will do repeatedly — trying the four looks along a frontage is
+// how you choose one. Priced as a swap it would cost half a window a press.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const L = g.layout;
+  const at = { o: 'h', x: L.store.x + 2, z: L.store.z };
+  const built = g.buildEdge('me', { ...at, kind: E.WINDOW });
+  check(built.ok, 'a window goes into the back wall', built.error ?? '');
+  const start = g.cash;
+
+  for (const look of GLAZING_LOOKS) {
+    const kind = glazingKind(look);
+    const res = g.buildEdge('me', { ...at, kind });
+    check(res.ok, `it can be reglazed as ${look}`, res.error ?? '');
+    eq(kindAt(g.layout, at), kind, `and the line really is ${look} now`);
+    eq(g.cash, start, `which costs nothing — ${look} is a look, not a purchase`);
+  }
+
+  // Round the four and back to where it started: still the same money, and still
+  // a window rather than a hole.
+  g.buildEdge('me', { ...at, kind: E.WINDOW });
+  eq(g.cash, start, 'a full circuit of the glazings is free');
+  eq(kindAt(g.layout, at), E.WINDOW, 'and leaves the window it began as');
+
+  // A re-flow must leave it alone, or buying a shelf reglazes your shop — the trap
+  // the yard pads were built out of.
+  g.buildEdge('me', { ...at, kind: E.WINDOW_BAY });
+  g.placeFixture('me', { kind: 'shelf', x: L.store.x + 4, z: L.store.z + 2, rot: 0 });
+  eq(kindAt(g.layout, at), E.WINDOW_BAY, 'and buying a shelf does not reglaze it');
+}
+
+// ---------------------------------------------------------------------------
 
 console.log(`\nverify:doors — ${checks} assertions`);
 if (failures.length) {
@@ -496,4 +589,5 @@ if (failures.length) {
   for (const f of failures) console.error(`   - ${f}`);
   process.exit(1);
 }
-console.log('\n  ✅  a signed way through is the same wall, and only shoppers can read the sign.\n');
+console.log('\n  ✅  a signed way through is the same wall, four glazings are the same window,'
+  + '\n      and only shoppers can read the sign.\n');
