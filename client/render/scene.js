@@ -15,7 +15,7 @@ import {
   buildStationBays,
   buildTextSprite, setTextSprite, buildMoneyLabel, moneySaid,
   buildPallet, CRATE_STEP, buildProgressRing, setRingProgress, buildGhost,
-  buildSoil, buildFixtureGhost, buildTargetMarker, buildWorkSpot, disposeGroup, material,
+  buildSoil, buildFixtureGhost, buildTargetMarker, buildCageMarker, buildWorkSpot, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
   buildRipple,
   buildStamp,
@@ -23,7 +23,7 @@ import {
 } from './props.js';
 import { T } from '../../shared/tiles.js';
 import {
-  FIXTURES, workSpots, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile,
+  FIXTURES, workSpots, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { Lights, emittersIn } from './lights.js';
@@ -169,6 +169,9 @@ const SUN_OFFSET = new THREE.Vector3(26, 40, 14);
  * interpolating a body position that has not moved on the server yet.
  */
 const SHADOW_EVERY = 3;
+
+/** Scratch for `pickPropBox`, which runs per prop per pointer move. */
+const BOX_HIT = new THREE.Vector3();
 
 /** The camera's home corner. Rotation swings this around Y in quarter turns. */
 const BASE_CAM_OFFSET = new THREE.Vector3(20, 24, 20);
@@ -446,6 +449,10 @@ export class Scene {
     // Filled by `addFixtureProps` and therefore emptied by it too: the meshes in
     // here belong to groups that a re-flow disposes.
     this.movingFixtures = new Map();
+    // Where each decoration's art actually ended up, by fixture id. Filled and
+    // cleared by `addFixtureProps` for the same reason as the map above: it
+    // describes meshes a re-flow throws away.
+    this.propBoxes = new Map();
     this.shelfProps = new Map();
     this.plotProps = new Map();
     this.cashProps = new Map();
@@ -1151,6 +1158,7 @@ export class Scene {
     // Emptied before the loop rather than in `buildWorld` so that the one place
     // that fills it is the one place that clears it.
     this.movingFixtures.clear();
+    this.propBoxes.clear();
 
     for (const f of fixturesIn(L)) {
       const model = this.fixtureModel(f);
@@ -1184,7 +1192,31 @@ export class Scene {
       // One thing you can point at, whatever it is made of. `pickFixture`
       // raycasts these and walks back up to whichever group wears the flag.
       prop.userData.pick = true;
+      // ...and WHICH fixture this group is, which the tile it stands on can no
+      // longer say. A decoration stamps no tile on purpose, so a lamp hangs
+      // over a shelf and a plant stands at the end of a counter — two fixtures,
+      // one tile, and `fixtureAt` can only ever answer the first of them.
+      // Stamped here rather than looked up later because this is the one place
+      // that knows: the group is built FROM `f`. Safe against the re-minting
+      // `fixtureAt` was chosen to dodge, too — these groups are rebuilt from
+      // the layout in the same call that re-mints, so the id on one is never
+      // older than the mesh.
+      prop.userData.fixture = f.id;
       this.staticRoot.add(prop);
+      // How big it came out, in world space, for anything that has to treat the
+      // thing as an object rather than as a cell. Two callers, and they have to
+      // agree or the game lies: `pickFixtureHit` tests the pointer against this,
+      // and the aim marker draws a cage of exactly it. Only for props — every
+      // other kind owns its tile, and a tile is the better answer for those,
+      // since you point at a shelf to walk to the side of it.
+      //
+      // Measured here because this is the only place the art exists as a whole:
+      // `modelBounds` knows the model and not the tier it resolved to, the
+      // variant it picked, or where it ended up standing.
+      if (isProp(f.kind)) {
+        prop.updateMatrixWorld(true);
+        this.propBoxes.set(f.id, new THREE.Box3().setFromObject(prop));
+      }
       if (landed.has(f.id)) this.land(prop, f.x, f.z);
       // Anything authored with `motion`. Two identical machines side by side
       // would otherwise beat in perfect unison, which reads as one animation
@@ -2218,13 +2250,55 @@ export class Scene {
       let o = hit.object;
       while (o && !o.userData.pick) o = o.parent;
       if (!o) continue;
-      // Every tagged group stands on its fixture's tile, so where it *is* says
-      // which fixture it belongs to. Cheaper than an id to keep honest: ids are
-      // re-minted on a re-flow and this is re-read from the layout every time.
-      const f = this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
+      // The thing the ray HIT, whenever the group can say which it is — and it
+      // has to be asked before the tile, because a tile stopped being one
+      // fixture the day a decoration stopped stamping one. Point at a lamp
+      // hanging over a shelf and the tile answers "shelf", which is how the
+      // pointer ends up naming the thing *underneath* whatever you aimed at.
+      //
+      // The tile is still the fallback, and it is the right one: the groups
+      // with no id on them are a shelf's stock and a bed's crop, which belong
+      // to the fixture they stand on, and that fixture is the one thing a tile
+      // does still answer for.
+      const f = (o.userData.fixture ? this.fixtureById(o.userData.fixture) : null)
+        ?? this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
       if (f && (!keep || keep(f))) return { f, dist: hit.distance };
     }
-    return null;
+    return this.pickPropBox(clientX, clientY, keep);
+  }
+
+  /**
+   * ...and a decoration answers to the box its art is drawn in, not to the art.
+   *
+   * Raycasting the meshes is the right answer for everything that is *shaped*
+   * like a target. A string of lights is a wire: a couple of pixels of black
+   * across the shop, and hitting it is hunting for a magic spot — which is the
+   * bug the plane-picking version had, arriving from the other end. Miss by two
+   * pixels and nothing is under the pointer, so the tap falls through to the
+   * ground and BUYS ANOTHER ONE, which is a near-miss with a price on it.
+   *
+   * So a prop's target is its own bounds. Bigger than the wire, exactly as big
+   * as what is drawn, and it can never steal from anything else: this runs only
+   * after every mesh in the shop has already failed to answer, so an exact hit
+   * on a shelf standing in the same airspace still wins.
+   *
+   * What it costs is that the ground *behind* a hanging prop takes a tap where
+   * the box covers it on screen — the same tile the lamp is drawn over. That is
+   * the same trade the art-exact version made and lost: those pixels are the
+   * lamp, and there is no third answer for a pixel that is both.
+   */
+  pickPropBox(clientX, clientY, keep = null) {
+    if (!this.propBoxes.size) return null;
+    const ray = this.pointerRay(clientX, clientY).ray;
+    let best = null;
+    for (const [id, box] of this.propBoxes) {
+      if (!ray.intersectBox(box, BOX_HIT)) continue;
+      const dist = ray.origin.distanceTo(BOX_HIT);
+      if (best && dist >= best.dist) continue;
+      const f = this.fixtureById(id);
+      if (f && (!keep || keep(f))) best = { f, dist };
+    }
+    return best;
   }
 
   /**
@@ -2323,12 +2397,21 @@ export class Scene {
   /**
    * What's on this tile, if anything.
    *
-   * This is the whole answer to "which shelf did you mean". A tile holds one
-   * fixture, and the pointer names a tile — so there is nothing to disambiguate
-   * and nothing for the game to guess at.
+   * This used to be the whole answer to "which shelf did you mean", on the
+   * grounds that a tile holds one fixture and the pointer names a tile. That
+   * was true until a decoration stopped stamping a tile: a lamp shares the
+   * cell it hangs over, so `props` come last in `fixturesIn` and `find` can
+   * never reach one that is sharing. Still the right answer for a *tile* —
+   * placing, walking, the ghost — and no longer the right answer for "what am
+   * I pointing at", which is `pickFixtureHit`'s job and goes by id.
    */
   fixtureAt(x, z) {
     return this.allFixtures().find((f) => f.x === x && f.z === z) ?? null;
+  }
+
+  /** ...and by id, for a pointer that has already hit the thing itself. */
+  fixtureById(id) {
+    return this.allFixtures().find((f) => f.id === id) ?? null;
   }
 
   /**
@@ -2356,9 +2439,36 @@ export class Scene {
       this.aimMarker = null;
     }
     if (!f) return;
-    this.aimMarker = buildTargetMarker(mode);
-    this.aimMarker.position.set(f.x, f.y ?? 0, f.z);
+    this.aimMarker = this.markerFor(f, mode);
     this.actorRoot.add(this.aimMarker);
+  }
+
+  /**
+   * A frame on the tile, or a cage round the thing.
+   *
+   * Which one is not a style choice, it is what the fixture *is*: everything
+   * that owns a cell is marked as a cell, because that is what you point at one
+   * for — you walk to the side of a shelf, and the frame is where you would be
+   * standing. A decoration owns no cell, so a frame under one marks the floor
+   * beside it and leaves the thing itself unchanged. Worse for a hanging prop,
+   * which is drawn most of a tile up-screen of its own cell: the marker appears
+   * somewhere you are demonstrably not pointing.
+   *
+   * Sized from `propBoxes`, which is the same volume the pointer is tested
+   * against — so the highlight is a picture of the hitbox rather than a second
+   * guess at it, and "it lit up but the tap missed" cannot happen.
+   */
+  markerFor(f, mode) {
+    const box = isProp(f.kind) ? this.propBoxes.get(f.id) : null;
+    if (!box) {
+      const m = buildTargetMarker(mode);
+      m.position.set(f.x, f.y ?? 0, f.z);
+      return m;
+    }
+    const size = box.getSize(new THREE.Vector3());
+    const m = buildCageMarker(mode, size);
+    box.getCenter(m.position);
+    return m;
   }
 
   /**
@@ -2424,8 +2534,13 @@ export class Scene {
       this.selectedMarker = null;
     }
     if (!f) return;
-    this.selectedMarker = buildTargetMarker('selected');
-    this.selectedMarker.position.set(f.x, 0, f.z);
+    this.selectedMarker = this.markerFor(f, 'selected');
+    // A cage is positioned on the art and not on the tile, so the working spots
+    // below — which are offsets from the tile — would hang off the wrong origin.
+    // Props have none, which is why this reads as a guard rather than a branch:
+    // the two facts are the same fact, and the day a decoration reserves a spot
+    // is the day it stops being a decoration.
+    if (isProp(f.kind)) { this.actorRoot.add(this.selectedMarker); return; }
     // Where the people who use it stand, marked the same way the build ghost
     // marks them — the ghost is the only place they were ever shown, so the
     // moment a fixture was actually standing there they became invisible. For a
@@ -2900,10 +3015,15 @@ export class Scene {
       label.position.set(0.3, 0.28 + n * 0.15, 0);
       held.add(label);
     }
+    // Welded, like stock and crops: an armful is up to `CARRY_SHOWN` little
+    // models nailed to one another, and everybody in the shop is carrying one.
+    // The label rides along untouched — `weld` re-hangs a sprite rather than
+    // trying to merge it.
+    const armful = weld(held);
     // Out in front at chest height, so it reads as carried rather than worn.
-    held.position.set(0, 0.62, 0.34);
-    rec.obj.add(held);
-    rec.carry = held;
+    armful.position.set(0, 0.62, 0.34);
+    rec.obj.add(armful);
+    rec.carry = armful;
   }
 
   /**
@@ -3381,7 +3501,7 @@ export class Scene {
     // pointer is over — and not on `targetMarker`, which is what your *body* is
     // next to; on a press they are usually different objects, and animating the
     // wrong one tells you the game heard a press somewhere else.
-    if (this.aimMarker) {
+    if (this.aimMarker?.userData.ring) {
       const k = this.holdProgress;
       const ring = this.aimMarker.userData.ring;
       if (k === null) {

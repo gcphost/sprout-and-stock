@@ -12,6 +12,12 @@
          content needs this rather than --panel: 94% over 94% is still see-
          through, and rows sliding under a "solid" header read as a fault. */
       --panel-solid: #fffcf5;
+      /* And the same colour with the shop showing through it, for the two things
+         that sit over the world rather than over the page: the build bar and its
+         shape card. Only ever used WITH `backdrop-filter` — glass without the
+         blur is a panel you read a shelf through, and the text on it stops being
+         readable the moment somebody paints a dark floor under the bar. */
+      --panel-glass: rgba(255, 252, 245, 0.76);
       --line: rgba(58, 49, 40, 0.14);
       --accent: #e2564a;
       --good: #5aa356;
@@ -974,6 +980,15 @@
     .fx-verb svg { display: block; }
     /* The price or the count — the two things an icon cannot say. Same corner
        and same treatment the build bar's `.have` badge uses. */
+    /* The key that does this without the button. Top LEFT, because the badge
+       above owns top right and a price is the thing you came here to read. Same
+       weight and the same faintness the rail's own `.kb` uses, so a key cap
+       reads as a key cap wherever it is. */
+    .fx-verb .kb {
+      position: absolute; top: 1px; left: 4px;
+      font-size: 8px; font-weight: 800; line-height: 1;
+      opacity: .35; pointer-events: none;
+    }
     .fx-verb .have {
       position: absolute; top: 0; right: 2px;
       font-size: 9px; font-weight: 800; line-height: 1;
@@ -1105,21 +1120,45 @@
       pointer-events: none; transition: .18s;
     }
     #build.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+    /* ONE WIDTH, WHATEVER IS IN IT. It used to size to its contents under a 960px
+       ceiling, and the bar is centred — so a tab with four things in it was half
+       the width of a tab with twelve, and switching between them slid the whole
+       bar, every tab on it and the tile under your pointer sideways. You cannot
+       aim at a thing that moves because you looked at something else. A width
+       that is the same on every tab means the tabs are always in the same place
+       and the tiles always start at the same edge; a short tab has room to its
+       right, which is what a strip that scrolls looks like when it doesn't need
+       to. */
     #build-bar {
       display: flex; flex-direction: column; gap: 5px;
-      background: var(--panel); border-radius: 16px; padding: 6px;
+      background: var(--panel-glass); border-radius: 16px; padding: 6px;
+      backdrop-filter: blur(14px) saturate(1.15);
+      -webkit-backdrop-filter: blur(14px) saturate(1.15);
       box-shadow: 0 8px 26px rgba(58,49,40,.24);
-      max-width: min(960px, calc(100vw - 28px));
+      width: min(760px, calc(100vw - 28px));
+      /* What the shape card is positioned against. It hangs off the top of this,
+         over the world, rather than being a row inside it — see `#build-shapes`. */
+      position: relative;
     }
 
-    /* Tier one: what sort of thing. */
-    #build-groups {
-      display: flex; gap: 3px; padding-bottom: 5px; border-bottom: 1px solid var(--line);
+    /* TIER ONE AND TWO SHARE A ROW. They were two stacked rows, at two different
+       visual weights, and the second of them came and went — so changing tab
+       changed the height of the bar, and nothing on screen said which of the two
+       rows `Tab` was steering. One row is one question (where am I) read left to
+       right, and it is 25px of screen back. */
+    #build-nav {
+      display: flex; align-items: center; gap: 6px;
+      padding-bottom: 5px; border-bottom: 1px solid var(--line);
     }
+    #build-groups { display: flex; gap: 3px; }
+    /* NOT `flex: 1`. Five tabs stretched across `#build-bar`'s full width is most
+       of why this bar read as enormous: the row was a wall of empty gradient, and
+       each tab was a 190px target for a 15px glyph. Content width — the row is as
+       wide as the words on it, and the space left over is space. */
     .cat {
-      flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+      flex: none; display: flex; align-items: center; justify-content: center; gap: 5px;
       border: 0; border-radius: 10px; background: transparent; cursor: pointer;
-      font: inherit; color: var(--ink); opacity: .5; padding: 5px 10px;
+      font: inherit; color: var(--ink); opacity: .5; padding: 5px 8px;
       white-space: nowrap; transition: opacity .1s, background .1s, box-shadow .1s;
     }
     .cat:hover { opacity: .85; background: rgba(58,49,40,.06); }
@@ -1131,16 +1170,42 @@
       box-shadow: 0 1px 3px rgba(58,49,40,.18), inset 0 0 0 1px rgba(58,49,40,.1);
     }
     .cat .ico { font-size: 15px; line-height: 1; }
-    .cat .nm { font-size: 11.5px; font-weight: 800; }
+    /* An inactive tab is its icon; the open one wears its name. Five labels
+       competing is five things to read to find the one that says where you are,
+       and the label belongs on the tab that IS where you are. The blurb is the
+       tooltip either way, on all of them. */
+    .cat .nm { display: none; font-size: 11.5px; font-weight: 800; }
+    .cat.on .nm { display: block; }
 
     /* Tier two, and only for a tab that split: which part of it. Deliberately
-       quieter than the row above — smaller, chip-shaped, no divider of its own
-       and centred under the tab it belongs to, so the eye reads one tab bar with
-       a caption rather than two competing ones. */
+       quieter than the tabs beside it — smaller, chip-shaped, words rather than
+       glyphs, because "walls" and "floors" are not guessable from an icon and
+       these are the labels the tabs gave up. The divider is this row's own left
+       border, so it is there exactly when there is something to its left of. */
     #build-subs {
-      display: flex; justify-content: center; gap: 3px; padding-bottom: 2px;
+      display: flex; align-items: center; gap: 3px;
+      padding-left: 8px; border-left: 1px solid var(--line);
     }
     #build-subs[hidden] { display: none; }
+    /* The one word the tiles gave up: the name of the thing under the pointer, or
+       of the one you have armed when nothing is. At the far end of the row the
+       tabs are in, so naming a thing costs no tier of its own. Not the price —
+       that is still on every tile, because comparing four of them is the point.
+
+       A FIXED slot rather than one that hugs its text, because it changes on
+       every mouseenter: a slot that grew and shrank with the name in it would
+       shunt the sub-tabs sideways as the pointer crossed the strip, which is the
+       same "you cannot aim at a moving target" problem the bar's own width had.
+       Ellipsis rather than wrap, for the same reason — a second line would move
+       the tiles down. */
+    #build-caption {
+      flex: none; width: 200px; margin-left: auto; text-align: right;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      font-size: 11.5px; font-weight: 800; color: var(--ink);
+    }
+    /* A browse bar keeps its names on its buttons — see `.tool` below — so a
+       caption there would say a thing twice. */
+    #build.browse #build-caption { display: none; }
     .subcat {
       display: flex; align-items: center; gap: 4px;
       border: 0; border-radius: 8px; background: transparent; cursor: pointer;
@@ -1172,7 +1237,10 @@
       font: inherit; color: var(--ink); border-radius: 13px; padding: 6px 8px 5px;
       display: flex; flex-direction: column; align-items: center; gap: 2px;
       min-width: 74px; max-width: 132px;
-      background: linear-gradient(#fffdf8, #f6efe0);
+      /* Slightly see-through, so the glass under the strip reads as glass rather
+         than as a frame around a row of solid cards. The armed one below stays
+         opaque on purpose — it is the one thing here that is not scenery. */
+      background: linear-gradient(rgba(255,253,248,.84), rgba(246,239,224,.76));
       box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07);
       transition: transform .09s, box-shadow .09s, background .09s;
     }
@@ -1222,6 +1290,58 @@
     /* Somebody the sim cannot place — their kind was deleted out from under
        them. That is a problem rather than a job, and it should not read as one. */
     .tool.warn .cost { color: var(--accent); opacity: .9; }
+
+    /* THE BUILD STRIP IS TILES. A picture, the key it answers to, how many you
+       already own, what it costs — and that is the whole button.
+
+       The NAME is what came off it, and only the name. It used to sit under every
+       entry permanently, which with the price made each one three lines and 78px
+       tall at ~100px wide: eight fitted on screen and the strip read as a wall of
+       small text rather than as a row of things. The art is already the label
+       here — `thumb.js` draws the actual piece off its own row, which is the
+       entire reason five floors stopped being five grey glyphs — and a name is
+       long, ragged and only ever a question about ONE entry, the one under the
+       pointer or the one you have armed. That goes in `#build-caption`.
+
+       THE PRICE STAYS. It is four characters, it is right-aligned arithmetic, and
+       it is the actual decision: $40 against $110 across a row of lamps is a
+       comparison, and a comparison you have to hover for one item at a time is
+       not one you can make. Putting it back costs 10px of tile height and buys
+       the only thing on the button anybody was reading.
+
+       Browse bars keep their cards. A hire's note is what they are doing right
+       now — a readout, not a hover question — and their glyph is a category
+       rather than a picture of them, so there is nothing on the button to read
+       them off of. */
+    #build:not(.browse) .tool {
+      width: 48px; min-width: 48px; max-width: 48px;
+      padding: 4px; border-radius: 12px; gap: 1px;
+    }
+    #build:not(.browse) .tool .nm { display: none; }
+    /* This one comes in shapes: hold it, or press this. A hold nothing on screen
+       mentions is a gesture nobody finds, and a shape is cosmetic enough that
+       never finding it would read as the game not having them.
+
+       In the bottom-right of the WELL rather than of the button — the well is
+       4px down and 38px tall, so 30px puts a 10px chip inside its lower corner,
+       clear of the price line underneath. Over the art, so it needs its own
+       ground to stay legible against a dark shelf. */
+    #build:not(.browse) .tool .more {
+      position: absolute; top: 30px; right: 4px; z-index: 1;
+      height: 10px; padding: 0 2px; border-radius: 4px;
+      font-size: 9px; font-weight: 800; line-height: 10px;
+      color: rgba(58,49,40,.62); background: rgba(255,253,248,.8);
+      box-shadow: inset 0 0 0 1px rgba(58,49,40,.11);
+    }
+    #build:not(.browse) .tool:hover .more, #build:not(.browse) .tool.on .more {
+      color: rgba(58,49,40,.85); background: rgba(255,255,255,.95);
+    }
+    #build:not(.browse) .tool .ico { height: 38px; border-radius: 8px; }
+    /* Line height pinned, not left to the font: this is the last line in a button
+       whose height the whole HUD is measured off (`--build-h`), and 1.2× of a
+       9.5px font is a different number of pixels in every browser. */
+    #build:not(.browse) .tool .cost { font-size: 9.5px; line-height: 11px; }
+
     /* A glyph on these two is a category rather than a thing, and an empty
        recess under one is a slot with the thing missing out of it — so a glyph
        keeps the old flat button. Art does not: a hire IS drawn, and their well
@@ -1255,32 +1375,62 @@
       -webkit-box-orient: vertical; overflow: hidden;
     }
 
-    /* The last tier, and only when the piece you have picked comes in more than
-       one — a shape is not another thing to buy, so it never takes a number key.
-       It also goes when the piece does: browse to another tab and this row is a
+    /* The last tier, and the only one that is not part of the bar.
+
+       It was a row along the bottom, drawn whenever the armed piece came in more
+       than one shape — and a row that comes and goes changes the height of the
+       bar, which moves every tab on it and the tile you were aiming at. Twice:
+       once arriving, once leaving. A card hanging off the top of `#build-bar`
+       costs the bar no height at all, so nothing moves, and it can sit over the
+       world because the world behind the palette is not what you are reading.
+
+       `left` is set by `placeChoice` — over the tile it is about. A shape is
+       still not another thing to buy, so it never takes a number key, and it
+       still goes when the piece does: browse to another tab and it would be a
        label for something no longer on screen. */
+    /* A LIST, not a wrapped row of chips. Wrapping made a card whose shape
+       changed with the number of shapes in it and whose names landed in a
+       different place on every line — six things to read in a ragged block,
+       when they are one question with six answers. A column is one column of
+       pictures down the left and one column of words beside them, which is the
+       same button the strip below is made of, stood up. */
     #build-shapes {
-      display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
-      padding-top: 5px; border-top: 1px solid var(--line);
+      position: absolute; bottom: calc(100% + 8px); left: 0;
+      display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+      width: 186px; max-width: calc(100vw - 40px);
+      background: var(--panel-glass); border-radius: 12px; padding: 5px;
+      backdrop-filter: blur(14px) saturate(1.15);
+      -webkit-backdrop-filter: blur(14px) saturate(1.15);
+      box-shadow: 0 10px 24px rgba(58,49,40,.28), inset 0 0 0 1px rgba(58,49,40,.09);
     }
     #build-shapes[hidden] { display: none; }
-    #build-shapes .lbl {
-      font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
-      opacity: .45; padding: 0 4px;
-    }
+    /* One row per shape: its picture on the left, its name beside it, both hard
+       against the same two edges on every row so the list reads down. */
     .shape {
-      display: flex; align-items: center; gap: 5px;
-      border: 0; border-radius: 8px; background: rgba(58,49,40,.07); cursor: pointer;
-      font: inherit; font-size: 11px; font-weight: 700; color: var(--ink);
-      padding: 3px 9px 3px 5px; opacity: .75;
+      display: flex; align-items: center; gap: 7px; text-align: left;
+      border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+      font: inherit; font-size: 11.5px; font-weight: 700; color: var(--ink);
+      padding: 2px 8px 2px 3px; opacity: .8;
     }
-    .shape:hover { opacity: 1; }
+    .shape:hover { opacity: 1; background: rgba(58,49,40,.06); }
     .shape.on { background: #ffd66b; opacity: 1; box-shadow: inset 0 0 0 1.5px #d99b1f; }
-    /* Each shape wearing its own shape. Small enough to sit on the word rather
-       than replace it — a corner shelf and a straight one are one silhouette
-       apart, and at 18px that is a hint, not a label. */
-    .shape .ico.art { width: 20px; height: 18px; display: block; }
+    /* The same well the tiles in the strip stand their art in, at list size —
+       this is that button stood up, not a chip with a picture on it, and a
+       column of art with no ground under it is a column of floating drawings. */
+    .shape .ico.art {
+      flex: none; width: 30px; height: 26px; padding: 2px; border-radius: 7px;
+      background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.9), rgba(58,49,40,.055));
+      box-shadow: inset 0 0 0 1px rgba(58,49,40,.06);
+    }
+    .shape.on .ico.art { background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.92), rgba(160,110,20,.14)); }
     .shape .ico.art svg { width: 100%; height: 100%; display: block; }
+    /* Vertically centred beside the picture rather than sitting on the baseline
+       of a 26px box, and one line whatever its name is — "Wall corner (other
+       way)" is the longest thing in here and wrapping it would make one row of
+       the list twice the height of the others. */
+    .shape .nm {
+      min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
 
     /* Above the bar, and only when it has something to report — see
        `renderBuildHint`. Below it, it sat on the very bottom edge of the screen
@@ -1309,12 +1459,13 @@
          stopped shifting on a desktop and went on shifting on a phone would be
          the same bug with a media query in front of it. */
       #build.browse .tool { width: 84px; min-width: 84px; max-width: 84px; }
-      /* No room for five labelled tabs — the icon is the tab at this width. */
       .cat { padding: 5px 6px; }
-      .cat .nm { display: none; }
-      /* The sub-tabs keep their words. There are three of them, they are the
-         only thing naming the tab you are in once .cat loses its label, and
-         "walls" and "floors" are not guessable from an icon. */
+      /* The open tab keeps its label — it is the one thing naming where you are,
+         and the inactive four have been icons at every width since the nav rows
+         merged. The caption keeps its slot too, narrower: on a touch screen
+         nothing hovers, so it is only ever saying what you have armed, which is
+         exactly the thing a strip of unlabelled tiles cannot tell you. */
+      #build-caption { width: 110px; }
       .subcat { padding: 3px 7px; }
     }
   </style>
@@ -1362,8 +1513,11 @@
   <div id="build" class="hud">
     <div id="build-hint" hidden></div>
     <div id="build-bar">
-      <div id="build-groups"></div>
-      <div id="build-subs" hidden></div>
+      <div id="build-nav">
+        <div id="build-groups"></div>
+        <div id="build-subs" hidden></div>
+        <div id="build-caption"></div>
+      </div>
       <div id="build-tools"></div>
       <div id="build-shapes" hidden></div>
     </div>

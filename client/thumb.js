@@ -278,7 +278,8 @@ export function artForWorker(kind, tier = 1, skin = null) {
 }
 
 /**
- * A catalog row's art: its model, standing on the tile its kind lays.
+ * A catalog row's art, in one of its shapes: its model, standing on the tile its
+ * kind lays.
  *
  * A plot is why this is not just `artForModel`. Its model is one edging board,
  * because the bed itself is a *tile* — `FIXTURES.plot.ground` — and `syncPlots`
@@ -286,10 +287,25 @@ export function artForWorker(kind, tier = 1, skin = null) {
  * a stick is not a thing anybody would press to dig a bed. So a kind that lays
  * ground gets that ground under it, in the colour `TILE_STYLE` gives it, which
  * is the same square the shop draws.
+ *
+ * `variant` is which shape of it — `variantModel`, the same lookup
+ * `Scene.fixtureModel` makes of a placed one, so the button and the thing it
+ * builds are drawn from one record. A palette button is a promise about what the
+ * next tap puts down, and a tile still showing a Standard shelf after you chose
+ * the wall-run one is a promise it does not keep. It also covers appliances,
+ * which are variants of a single `station` row and had their own function for
+ * exactly this before there was a general one.
+ *
+ * Cached per row *and* per shape: one map per row, since a row has as many
+ * pictures as it has shapes and the old cache would have handed back whichever
+ * one was asked for first.
  */
-export function artForPiece(row, kind) {
-  if (!row?.model) return null;
-  if (pieceArt.has(row)) return pieceArt.get(row);
+export function artForPiece(row, kind, variant = '') {
+  const model = variantModel(row, variant);
+  if (!model) return null;
+  let byShape = pieceArt.get(row);
+  if (!byShape) { byShape = new Map(); pieceArt.set(row, byShape); }
+  if (byShape.has(variant)) return byShape.get(variant);
   const ground = FIXTURES[kind]?.ground;
   const base = ground == null ? [] : [{
     shape: 'box',
@@ -297,8 +313,8 @@ export function artForPiece(row, kind) {
     pos: [0, -0.04, 0],
     scale: [1, 0.08, 1],
   }];
-  const art = draw([...base, ...partsAt(row.model, 0)]);
-  pieceArt.set(row, art);
+  const art = draw([...base, ...partsAt(model, 0)]);
+  byShape.set(variant, art);
   return art;
 }
 
@@ -430,28 +446,13 @@ function edgeParts(style) {
  * Demolish is the verb: it is not a thing you are putting down, so a picture of
  * one would be a lie about what tapping it does. Its glyph stays.
  */
-export function artForTool(t, row) {
+export function artForTool(t, row, variant = '') {
   if (t.demolish) return null;
   if (t.paint) return row?.surface ? artForGround(row.surface) : artForBareGround();
-  return artForPiece(row, t.kind) ?? artForEdge(t.edge);
+  return artForPiece(row, t.kind, variant) ?? artForEdge(t.edge);
 }
 
-/** A shape chip's picture, for the row that picks between them. */
+/** A shape row's picture, for the card that picks between them. */
 export function artForVariant(v) {
   return artForModel(v?.model);
-}
-
-/**
- * One appliance, which is a *variant* of the single `station` row.
- *
- * `Scene.fixtureModel` resolves a machine the same way — `variantModel(piece,
- * f.station)` — because an appliance is one kind with one tier ladder wearing
- * seven looks, which is the whole variant bargain. Reading it the same way here
- * is the difference between a palette of seven distinct machines and one that
- * shows the same grey box seven times, and the grey box would have looked like
- * a missing-art problem rather than a lookup that stopped one step short.
- */
-export function artForStation(row, station) {
-  if (!row) return null;
-  return artForModel(variantModel(row, station));
 }

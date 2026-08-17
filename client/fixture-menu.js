@@ -82,11 +82,12 @@ export const act = (id, icon, name, sub, { danger = false, off = false, right = 
  * did: this is a different shape for the same button, not a different button.
  */
 export const actIcon = (id, icon, name, sub, short,
-  { danger = false, off = false, armed = false, on = false, right = '' } = {}) => `
+  { danger = false, off = false, armed = false, on = false, right = '', key = '' } = {}) => `
   <button class="fx-verb${off ? ' off' : ''}${danger ? ' danger' : ''}${armed ? ' armed' : ''}${on ? ' on' : ''}"
     ${off ? 'disabled' : `data-act="${id}"`}
     title="${esc(sub ? `${name} — ${sub}` : name)}" aria-label="${esc(name)}">
     ${right ? `<span class="have">${esc(right)}</span>` : ''}
+    ${key ? `<span class="kb">${esc(key)}</span>` : ''}
     <span class="ico">${icon}</span>
     <span class="nm">${esc(short)}</span>
   </button>`;
@@ -282,8 +283,12 @@ export function showFixture(ui, f) {
   // See `actIcon` for what deliberately does NOT move: the price and the count.
   const foot = [];
 
+  // The keys are on the buttons for the reason every other key in the game is on
+  // its button: a shortcut nothing names is a shortcut for whoever wrote it. Both
+  // of these work on whatever this menu is open on, wherever the pointer is —
+  // see `rotateSelected` and `moveSelected`.
   foot.push(actIcon('move', ICONS.move, 'Move it',
-    'Picks it up with everything on it. Nothing shifts until you set it down.', 'Move'));
+    'Picks it up with everything on it. Nothing shifts until you set it down.', 'Move', { key: 'M' }));
 
   if (FIXTURES[kind]?.rotates) {
     // Which side a thing faces means something different for each of them, and
@@ -293,7 +298,7 @@ export function showFixture(ui, f) {
       checkout: 'Quarter turn. Sets where you serve and which way the queue runs.',
       station: 'Quarter turn. Sets which side you load it from.',
     }[kind] ?? 'Quarter turn. Sets which aisle shoppers browse it from.';
-    foot.push(actIcon('rotate', ICONS.rotate, 'Rotate', why, 'Rotate'));
+    foot.push(actIcon('rotate', ICONS.rotate, 'Rotate', why, 'Rotate', { key: 'R' }));
   }
 
   // Upgrading sits above the destructive half of the list: it is the thing you

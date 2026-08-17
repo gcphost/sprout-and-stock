@@ -118,10 +118,17 @@ keys, scrolling the selection into view, the third tier. It draws from data and
 calls back; it knows nothing about fixtures or people. A caller supplies
 
 ```js
-group = { id, name, icon, blurb, items: [item] }
-item  = { id, icon, name, note, badge, title, warn, last }
-sub   = { label, options: [{ id, name }], picked, onPick } | null
+group   = { id, name, icon, blurb, items: [item], subs?: [group] }
+item    = { id, icon, art, name, note, badge, title, warn, last }
+choice  = { options: [{ id, name, art }], picked, open, onPick } | null
+caption = string | null
 ```
+
+`caption` is the *resting* one — what the slot says with nothing under the
+pointer. Hover is answered inside `bar.js` rather than through a callback: it
+fires on every mouseenter, and a caller that had to re-render the bar to relabel
+one button would repaint three tiers of markup per pixel of mouse travel, and
+throw away the sideways scroll position the pointer is sitting in.
 
 and gets the behaviour for free. `pinLast` is how Demolish and Hire stay at the
 end of every tab they appear on — a stable sort, because without it a pinned
@@ -134,14 +141,64 @@ palette, and the bar could only ever be a preview: nine is how many number keys
 there are, so a tenth fixture had nowhere to go but the panel. The bar has tiers
 now and it scrolls, so it *is* the catalogue and the panel copy is gone.
 
-Four tiers, top to bottom, all in `#build-bar`. Two of them come and go:
+Five tiers, all in `#build-bar` — but **three rows**, because the first three
+share one (`#build-nav`). Two of the five come and go:
 
 | Tier | Element | Build | Roster |
 |---|---|---|---|
 | Category | `#build-groups` | `BUILD_GROUPS` — Shop, Farm, Appliances, Building, Decoration | Everyone, then one per kind actually hired |
 | Part | `#build-subs` | a split group's `subs` — Building is Walls, Floors, Yard, Staff, Customers; Decoration is Greenery, Lighting, Signs, Odds and ends | unused |
+| Caption | `#build-caption` | the *name* of the entry under the pointer, or of the armed one. Not its price — that stays on the tile | unused |
 | Entries | `#build-tools` | palette entries. `1`–`9` reach the first nine | one per hire, note = what they are doing now |
-| Choice | `#build-shapes` | `variantsOf` the piece, when there are two or more | unused |
+| Choice | `#build-shapes` | `variantsOf` the piece — a card floating over the tile, not a row. Asked for | unused |
+
+### The bar stopped being enormous
+
+It was 150px of screen over a 56px nav, and the diagnosis was that none of it
+was content. Four things, and each one is a rule worth keeping:
+
+**Two rows of navigation became one.** Categories and parts were stacked, at two
+different visual weights, and the second came and went — so *changing tab changed
+the height of the bar*, and nothing on screen said which of the two rows `Tab`
+was steering. They share `#build-nav` now: tabs, then a divider, then the parts
+of the open tab, read left to right as one question. The divider is the sub row's
+own left border, so it exists exactly when there is something to its left of.
+
+**A tab is its icon; the open one wears its name.** `.cat` was `flex: 1`, so five
+tabs stretched the full width of the bar — a wall of empty gradient, and a 190px
+target for a 15px glyph. Five labels is also five things to read to find the one
+that says where you are, and that label belongs on the tab that *is* where you
+are. The blurb is the tooltip on all of them either way.
+
+**The strip is tiles, and only the NAME came off them.** Every entry carried its
+name and its price permanently: three lines, 78px tall, ~100px wide, eight on
+screen, and it read as a wall of small text rather than as a row of things. The
+art is already the label — `thumb.js` draws the actual piece, which is the whole
+reason five floors stopped being five grey glyphs — and a name is long, ragged,
+and only ever a question about *one* entry. So a name lives in the caption, fed
+by `mouseenter` and falling back to whatever is armed. At 48px about eighteen
+tiles fit where eight did, which is the half of this that matters as the
+catalogue grows.
+
+**The price did not come off them**, and that is the line between the two. It is
+four characters of right-aligned arithmetic, and $40 against $110 across a row of
+lamps is a *comparison* — one you cannot make by hovering items one at a time. It
+costs 10px of tile height and it is the only thing on the button anybody was
+reading.
+
+**One width, whatever is in it.** The bar sized to its contents under a 960px
+ceiling, and it is centred — so a four-entry tab was half the width of a
+twelve-entry one, and switching between them slid the bar, every tab on it and
+the tile under your pointer sideways. You cannot aim at something that moved
+because you looked at something else. Fixed at `min(760px, 100vw - 28px)`: the
+tabs are always in the same place, the tiles always start at the same edge, and a
+short tab has room to its right — which is what a strip that scrolls looks like
+when it doesn't need to. The caption is a fixed-width slot for the same reason
+one step down; it changes on every mouseenter, and one that hugged its text would
+shunt the sub-tabs about as the pointer crossed the strip.
+
+Everything above the bar is `calc()` off `--build-h`, which is *measured*
+(`measureBar`), so none of this needed a second number kept in step.
 
 **A tab that opens onto nothing never renders.** For Build that means dropping
 any group whose only entry is the pinned bulldozer — which is what Appliances
@@ -202,6 +259,38 @@ fixture no longer anywhere in front of you — a row of buttons that appear to d
 nothing, because picking a shape for something you cannot see changes nothing
 you can see. `renderBar` draws it only while `picked` is among the entries on
 screen.
+
+**And it is not a row.** It was one: drawn along the bottom of the bar whenever
+the armed piece came in more than one shape. A tier that comes and goes changes
+the bar's *height*, which moves every tab on it and the tile you were aiming at
+— twice, once arriving and once leaving, while you were mid-decision. It hangs
+off the top of `#build-bar` now (`position: absolute`, `left` from
+`placeChoice`), over the world: no height, nothing moves. Three things follow
+from that:
+
+- **It is asked for** (`choice.open`), because a card that floats over the shop
+  cannot also be free. **Hold a tile**, or press the **chevron** it wears —
+  which is the same sentence build mode speaks on the canvas, where a hold on a
+  fixture picks it up rather than opening it. The chevron is there because a
+  hold nothing mentions is a gesture nobody finds, and a shape is cosmetic
+  enough (`sim/index.js` — "to the build rules every appliance is the same")
+  that never finding it would read as the game not having shapes.
+- **A hold is cancelled by movement** past 8px. The strip scrolls sideways, and
+  a drag is a press that has not let go yet — without it, pulling the far end of
+  a tab into view opens the shapes of whatever tile you started the drag on.
+- **Closing it does not repaint the bar.** `UI` hides the element directly:
+  a repaint replaces every tile, and a button removed from the document between
+  pointerdown and pointerup never fires its click — so with the card up, the
+  press that was about to arm the freezer would land on a button that stopped
+  existing halfway through, and the tile would just not respond.
+
+**A shape is remembered per piece** (`UI.pieceVariant`, keyed by `variantKey`).
+Arming a shelf arms the shelf you were building, not a Standard one — re-deriving
+Standard on every trip to the bar makes a row of wall-run shelving the same
+decision typed out nine times. Keyed by the *piece* rather than the kind, because
+`variantsOf` reads a piece: two designs of shelf have two different sets of
+shapes, and "corner" remembered against the kind hands a corner to a piece that
+has no such row.
 
 **Picking is not the same verb in both.** A build entry *arms* — it stays lit
 and the next tap on the ground places it. A person *opens* — `showWorker` puts
@@ -408,19 +497,87 @@ second input. That only works because the anchor is right.
 
 ### One press, three meanings
 
-| the press | on the floor | on a thing |
-|---|---|---|
-| moved | pan the camera | pan the camera |
-| still, released | go there | open it |
-| still, held | — | — |
+| the press | on the floor | on a thing | on a thing, building |
+|---|---|---|---|
+| moved | pan the camera | pan the camera | **move it** |
+| still, released | go there | open it | open it, or close its menu |
+| still, held | — | — | **pick it up** |
 
-The hold is wired and drawn — the aim ring winds in while you keep pressing —
-but does nothing (`HOLD_OPENS` in `main.js`). Opening moved back onto the tap,
-which leaves the hold with no job the tap does not already do sooner. It is a
-flag rather than a deletion because what a *tap* should mean has now changed
-three times, and the server still resolves a fixture's working spot
+Outside build mode the hold is wired and drawn — the aim ring winds in while you
+keep pressing — but does nothing (`HOLD_OPENS` in `main.js`). Opening moved back
+onto the tap, which leaves the hold with no job the tap does not already do
+sooner. It is a flag rather than a deletion because what a *tap* should mean has
+now changed three times, and the server still resolves a fixture's working spot
 (`walkToFixture`, covered by `verify:walk`) even though nothing currently asks
 it to.
+
+**With the palette up, a press on a thing you own is a move** — `drag.lift`,
+armed on the way down and spent at the slop line, where a pan would otherwise
+have committed. Press the lamp, pull it over, let go, and it lands where you let
+go of it. It is the same errand the fixture menu's Move button starts —
+`startMove`, then `build-lift`, so build mode is held open across the carry —
+reached by aiming instead of by reading. Moving something used to cost three
+presses, two of them ceremony around a decision you had already made by pointing
+at it.
+
+The camera never sees that drag, and `drag.moving` has to hold the verdict for
+the *rest* of it: `lift` is spent as it fires, so without the second guard the
+first move pulls the lamp out and every move after it turns the shop underneath —
+which is the bug the branch exists to fix, arriving one event later. **A left
+drag in build mode therefore moves things and does not turn the view**; the right
+drag and `,`/`.` still do, which is the escape hatch and the reason this is a
+trade rather than a loss.
+
+The hold does the same lift for a press that never moved (the gesture a finger
+makes), and leaves the thing carried for a tap instead of dropping it: you have
+not pointed anywhere else yet, so there is nowhere to put it but where it already
+was. Either way the drop needs nothing from `ui.holding` — messages arrive in
+order, so the server has processed the lift by the time the drop is read, and
+`dropFixture` reads the kind, piece, tier and variant off what it knows you are
+carrying. `dropCarried` sends **no `rot`** on that path: `buildRot` is still the
+palette's angle until the snapshot replaces it with the fixture's own, so sending
+it on a fast flick is "moving it reset its rotation" as a race condition.
+
+A pointed move does **not** reopen the menu afterwards (`startMove`'s `reopen`).
+An errand returns you where you started, and here you started by pointing —
+rearranging four lamps in a row would otherwise leave a panel open on each in
+turn, and the shop then always has something selected with nothing you pressed to
+explain why.
+
+The bulldozer keeps the pointer to itself throughout: with it up you are aiming
+at things to destroy them, and a press that handed you the shelf instead would be
+the one gesture in the mode that does the opposite of what the tool says.
+
+### An empty hand is a state
+
+`ui.toolOff`. Build mode used to mean "a shelf is in your hand", because
+`buildTool` has a default and there was no way to put it down — so every tap on
+bare ground bought something, and *looking* at your own shop with the bar up was
+a mode you could not be in. That is what made rearranging things frightening: the
+gesture for moving a lamp and the gesture for buying a shelf were the same press
+a few pixels apart.
+
+The mode opens with nothing armed, and there are three ways back to nothing:
+press the lit button again, right-click, or Escape. On the ladder it is one rung
+**below** everything that is on screen and **above** the mode itself — so the
+first press empties your hand and the second shuts the bar, which is what makes
+backing out of a mis-armed shelf cost one press rather than a mode you then have
+to turn back on.
+
+It is deliberately **not** the same question as `paletteArmed`, and that split is
+the whole of why an empty hand works: `paletteArmed` stays true, so a decoration
+is still pointable (`aimable`) and still draggable. One flag says "pointing at
+the world builds", the other says "the mode is up" — they were one flag, which is
+exactly why there was no such thing as putting the shelf down. Everything that
+asks what a tap would do reads `toolId()`, which answers `null`, so the wall
+tool, the brush, the bulldozer and the lit button on the bar all empty out
+together; `ghostKindForTool` is the one reader that needs it spelled out, because
+a ghost wants the kind and `toolId` is a piece.
+
+The server is never told. It owns `build.tool` because it disarms Clear after a
+removal and it has no concept of *nothing*, so `syncBuildTool` goes on adopting
+whatever kind it names and this sits in front of the answer rather than fighting
+it.
 
 Same three on a mouse and on a finger, which is a decision that was made
 **twice** and is worth recording in both directions.

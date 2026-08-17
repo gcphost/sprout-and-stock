@@ -1,16 +1,23 @@
 # Deliveries — the van, the wait, and the car park
 
-Status: **steps 1–4 built.** An order is a promise that joins a run and lands
-hours later; the van is a content row somebody drew; it drives in along a lane
-computed once per layout, unloads with `dropGoods` and leaves; and the car park
-is a pad you paint that shoppers actually drive to, take a bigger basket out of,
-and walk in from. `npm run verify` is green across all thirteen sweeps.
+Status: **steps 1–4 built. Steps 5–6 proposed, nothing built.** An order is a
+promise that joins a run and lands hours later; the van is a content row
+somebody drew; it drives in along a lane computed once per layout, unloads with
+`dropGoods` and leaves; and the car park is a pad you paint that shoppers
+actually drive to, take a bigger basket out of, and walk in from. `npm run
+verify` is green across all thirteen sweeps.
 
-What is *not* built is at the bottom, and none of it is unfinished work — it is
-the list of things nobody has needed yet: a bigger-van upgrade, a `road` ground
-kind, a way to cancel an order, a car that drives back off the map rather than
-leaving with its driver, and a `verify:park` sweep to replace the throwaway
-proof that stood in for one.
+Steps 5 and 6 are the asymmetry step 4 left behind: **the van has a lane and the
+cars do not.** A shopper's car blinks into existence on its space and vanishes
+with its driver, which is the one thing in the yard that does not read as a
+thing that happened. Step 5 gives a car the same treatment the van already has;
+step 6 is the `road` brush, which is only worth pricing once there is something
+on it more often than six seconds a run.
+
+What is *not* built is at the bottom, and the rest of it is not unfinished work
+— it is the list of things nobody has needed yet: a bigger-van upgrade, a way to
+cancel an order, and a `verify:park` sweep to replace the throwaway proof that
+stood in for one.
 
 ⚠️ **Balance: not recorded here yet.** A separate measurement pass is running
 and this doc does not have its result, so there is deliberately no number in it
@@ -366,6 +373,127 @@ centre point the way the van wants the bay's will want the region adding.
 
 ---
 
+## Step 5 — a car drives in and out 🔲
+
+The van arrives eight tiles off the map, drives a lane, does its job and leaves.
+A shopper's car is put down on its space by `stepSpawning` and deleted by
+`despawn`. Both are vehicles, both belong to somebody who came here on purpose,
+and only one of them ever moves — which is why the bay reads as a place things
+happen and the car park reads as a texture with props on it.
+
+### What is already here
+
+Most of it, and this is the argument for doing it at all:
+
+- **The renderer needs nothing.** `vehicleProps` in
+  [client/render/scene.js](../client/render/scene.js) already draws a vehicle
+  from its catalog row, eases it per *frame* rather than per snapshot
+  (`VEHICLE_CHASE` / `VEHICLE_TURN`) precisely because a body at lorry speed
+  judders at 10Hz, and turns the nose with the model's east-facing convention.
+  A car that moves is the same three fields the van already sends.
+- **`followPath` drives it.** The same function a shopper walks with and the van
+  drives with.
+- **A car is already authored content.** `use: 'customer'` rows exist,
+  `customerCar()` picks one, and `speed` is read off the row for the van
+  (`driveVan`) so a car answers it the same way.
+- **`vanRoute` is the template**, including the fallback that makes it safe: no
+  lane means no animation and the thing still happens.
+
+### What it actually takes
+
+1. **`carRoute(L, space)` in [server/layout.js](../server/layout.js)** — the
+   same shape as `vanRoute`: a straight spur of `DRIVABLE` cells out to the
+   border ring, then a clear leg along the ring off the map, shortest wins. The
+   difference is arity. `vanRoute` is computed **once** for one bay; a car park
+   is up to a dozen cells and each needs its own lane. So it is a map keyed by
+   cell, computed in the same breath at the *end* of `compose` — the only point
+   where `blocked` is final — and never inside `layoutSoFar`, or a thrown-away
+   size probe pays for a dozen lane searches.
+2. **A parked car is one fact and a driving car is three.** `parkedAt` is
+   deliberately a single field today: it is the claim on the cell, the thing
+   `parkedCars()` draws, and where `leaveShop` sends them. A car that drives has
+   a position that is not its space, a waypoint list, and a phase — so
+   `parkedCars()` stops being a derivation and becomes state that has to be
+   stepped. **This is where the cost is**, and it is worth being honest that it
+   undoes the nicest property step 4 has.
+3. **A customer who is still driving is not yet a customer.** `stepSpawning`
+   puts the driver on the space and walks them in from there. A drive-in means
+   there is a person in `this.customers` who has not arrived, and every loop that
+   walks that object — patience, `turnedAway`, the shop-full test, the HUD count
+   — now counts them. **Patience ticking down while somebody is still on the
+   approach road is the invisible bug this step has**, and it presents as
+   customers who storm out faster the further away they parked.
+4. **The way out is the easy half.** `leaveShop` already ends at
+   `pathTo(cust, cust.parkedAt)` with a comment naming `carRoute` as the one line
+   that changes. The space is held to `despawn`, which is already correct and
+   stays correct — a car that freed its cell when its owner joined the queue is a
+   pad that holds more shopping trips than it holds cars.
+5. **A space with no lane is still a space.** `parkSpaces()` already filters on
+   `findPath` to the door; filtering it *again* on having a drivable lane would
+   remove spaces, and `parkReach()` feeds `catchment()` — so an animation would
+   quietly move the balance. Take the van's rule instead: no lane, no drive, the
+   car appears on its space the way it does today. Step 4's numbers do not move.
+
+### Traps
+
+- **One van is free; twelve cars are traffic.** The van gets "one at a time" for
+  nothing, because one run *is* one lorry. A dozen spaces means a dozen cars that
+  can be on the ring at once, and probably on the same stretch of it. The honest
+  answer is that they pass through one another — a van owns no tile either, for
+  the same reason. Anything better than that is a traffic system, which is a
+  different project and should be named as one before it is started by accident.
+- **Raw `dt`, not world time.** `driveVan` takes raw `dt` and `loadVan` takes the
+  world clock, and mixing them is invisible until night. A car is a body: raw
+  `dt`, or the car park empties six times faster after dark.
+- **The car must not be saved.** The van is in memory only, in neither
+  `serialize()` nor `persist()`, because a restored position and a half-eaten
+  waypoint list sit against a lane `regenerateLayout` recomputes. A car has the
+  same problem *and* an owner who is saved, so a reload has to put a driving car
+  back on its space, not back on its lane.
+- **`parkCache` is keyed on layout identity.** The lanes belong in it, and it is
+  already cleared the right way.
+
+### Verify
+
+This is the step that makes the owed `verify:park` sweep necessary rather than
+merely owed: a car that got there and a car that was placed there are the same
+still frame. The claims worth holding are a lane per reachable space, a
+lane-less space still parking, the space held to despawn, no car surviving a
+reload, and — the one this step introduces — **nothing about a shopper starting
+until the car has stopped.**
+
+---
+
+## Step 6 — a `road` ground kind 🔲
+
+Offered at step 3 and declined; the reason still holds and the reason step 5
+changes it is worth writing down rather than rediscovering.
+
+**Today every outdoor cell is a road.** `DRIVABLE` is grass, path, floor and the
+three pads, so the van drives across your lawn and the lane is invisible — there
+is nothing to see, which is why "the ring reads fine" was the right call with one
+lorry on it for six seconds a run. With a dozen cars using it, the ring stops
+being a technicality and becomes the busiest ground in the shop.
+
+**Mechanically it is nothing new**, which is the whole argument for it being
+cheap: `GROUND.road` → `T.ROAD` = **15**, a new enum number and never a reused
+gap, because a save holds `tiles` as raw numbers. Walkable, in neither buildable
+set, no `pad: true` — it is a *look* the way `floor` is, not a job the way the
+four pads are. `PAD_KINDS`, `BUILD_KINDS`, `groundKindOfTile` and the palette
+pick it up derived, exactly as `park` did.
+
+**It must be a preference, not a requirement.** One line in the cost function
+that `vanRoute` and `carRoute` share: a road cell scores cheaper than grass, so
+a lane you painted is the lane that gets chosen. The moment a road is *required*,
+every shop that has not painted one loses its deliveries on the next re-flow —
+a new brush that breaks existing saves, which is the worst trade in this
+document.
+
+**Do not build it before step 5.** A road with nothing on it is a stripe of
+tarmac you paid for; cars driving over somebody's grass is the thing you notice.
+
+---
+
 ## What is not built, and why
 
 - **No van upgrade.** Which van the shop drives is derived rather than owned —
@@ -374,12 +502,14 @@ centre point the way the van wants the bay's will want the region adding.
 - **No cancel-an-order verb, deliberately.** An order you can cancel for free is a
   free option, and the wait stops costing anything — which is the whole mechanic.
   A refund-at-a-loss is the version worth having if it ever reads badly.
-- **No drive-out for a car.** It goes when its driver reaches it and despawns;
-  it does not drive off the map. `vanRoute` is one lane to the bay and there is
-  no lane per parking space. `carRoute` is the line that would change.
+- **No drive-in or drive-out for a car.** It appears on its space, and it goes
+  when its driver reaches it and despawns. `vanRoute` is one lane to the bay and
+  there is no lane per parking space. `carRoute` is the line that would change —
+  **see step 5**, which is what it takes.
 - **No queueing for a space.** Somebody who could not park drove past and walked
   in instead, which is the arrival this game has always had.
-- **No `road` ground kind.** See step 3.
+- **No `road` ground kind.** See step 3 for why it was declined and **step 6**
+  for what would change that — which is step 5 landing first.
 - **No `verify:park` sweep.** A 59-assertion proof exists and passed — it authors
   its own `park` row and removes it on exit, the way `verify:break` does — but it
   lives in a scratchpad rather than in `scripts/`. Every claim in it is the kind

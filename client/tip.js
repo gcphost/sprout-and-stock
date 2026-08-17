@@ -20,6 +20,7 @@
  *   data-tip-key   a hotkey, drawn as a key cap on the right (optional)
  *   data-tip-note  a second line — what it is DOING, right now (optional)
  *   data-tip-tone  `good` or `warn`, which colours the note (optional)
+ *   data-tip-wait  present = this one waits for a real dwell (see `DWELL_MS`)
  *
  * ...but a plain `title` gets one too, because the alternative was rewriting
  * every hover string in the game to opt in — twenty-five of them across six
@@ -45,14 +46,32 @@ const SPLIT = ' — ';
 /**
  * How long the pointer has to rest before a tip appears.
  *
- * The rail is eight buttons on a 46px pitch, so crossing it to reach the one
- * you want passes over four of them — with no delay that is four tooltips
- * firing and cancelling in about a third of a second, which reads as the HUD
- * glitching. Long enough to mean you stopped, short enough that it never feels
- * like waiting: a native title takes about a second and that is the thing this
- * is replacing.
+ * A row of buttons on a small pitch is a row you cross to reach one of them —
+ * with no delay at all that is four tooltips firing and cancelling in about a
+ * third of a second, which reads as the HUD glitching. Long enough to mean you
+ * stopped, short enough that it never feels like waiting: a native title takes
+ * about a second and that is the thing this is replacing.
+ *
+ * This is the delay for things you might genuinely not know: a menu row, a
+ * palette entry, a readout. The fixed furniture opts into `DWELL_MS` instead.
  */
 const SHOW_MS = 110;
+
+/**
+ * …and how long for something you only need explaining once.
+ *
+ * `data-tip-wait` opts a control into this. It is for the FIXED FURNITURE — the
+ * rail and the build bar's tabs — which is a dozen words you learn on your first
+ * afternoon and then read past a hundred times a session, on the two rows the
+ * pointer crosses to reach everything else. At 110ms every glance at the bottom
+ * of the screen throws a card over the shop. A delay is the only thing that can
+ * tell those two hovers apart: you have to *stop*, which is what somebody who
+ * does not know does, and what somebody who does never does.
+ *
+ * Not applied by this file to a list of selectors, because which controls are
+ * learn-once is a fact about the control rather than about tooltips.
+ */
+const DWELL_MS = 650;
 
 /**
  * How far the box sits off the thing it describes.
@@ -104,7 +123,12 @@ class Tip {
       this.hide();
       if (el) {
         this.target = el;
-        this.timer = setTimeout(() => this.show(), SHOW_MS);
+        // PRESENT, not truthy. `data-tip-wait` is written bare, so its value is
+        // the empty string — testing it for truth reads every opted-in control
+        // as opted out, and the delay silently stays at 110ms with the markup
+        // saying otherwise.
+        const wait = el.dataset.tipWait != null ? DWELL_MS : SHOW_MS;
+        this.timer = setTimeout(() => this.show(), wait);
       }
     });
 

@@ -97,6 +97,28 @@ export class UI {
     this.paused = false;
     this.buildOn = false;
     this.buildTool = 'shelf';
+    /**
+     * Is anything on the palette actually armed?
+     *
+     * Build mode used to mean "a shelf is in your hand", because `buildTool` has
+     * a default and there was no way to put it down — so every tap on bare
+     * ground bought something, and *looking* at your own shop with the bar up
+     * was a mode you could not be in. That is what made rearranging things
+     * frightening: the gesture for moving a lamp and the gesture for buying a
+     * shelf were the same press a few pixels apart.
+     *
+     * Deliberately NOT the same question as `paletteArmed`, which stays true
+     * with nothing armed: the mode is still on, so a decoration is still
+     * pointable and still draggable. One flag says "pointing at the world
+     * builds", the other says "the mode is up" — they were one flag, and that is
+     * exactly why there was no such thing as an empty hand.
+     *
+     * The server is never told. It owns `build.tool` because it disarms Clear
+     * after a removal, and it has no concept of *nothing* — so `syncBuildTool`
+     * goes on adopting whatever kind it names, and this sits in front of the
+     * answer rather than fighting it.
+     */
+    this.toolOff = true;
     // Which design off the catalog, when the tool is a piece. The kind is what
     // the server owns and the build rules read; this is which of that kind's
     // rows you picked, and it rides out in the place spec beside the variant.
@@ -105,6 +127,14 @@ export class UI {
     // kind — see `toolId`.
     this.buildStation = '';
     this.buildVariant = '';
+    // Which shape you last chose for each piece, so arming a shelf again arms
+    // the shelf you were building rather than a Standard one. Keyed by piece
+    // because a shape belongs to a piece — see `variantKey`.
+    this.pieceVariant = {};
+    // Whether the shape popover is up. It floats over the world rather than
+    // sitting in the bar, so this is the whole of its state — where it goes is
+    // read off the tile it belongs to, at render.
+    this.shapesOn = false;
     this.buildRot = 0;
     // Whether that angle is YOURS. Off, the ghost faces itself against whatever
     // wall it is put against (`faceAlong`); pressing R turns the pin on and the
@@ -146,6 +176,7 @@ export class UI {
       build: document.getElementById('build'),
       buildGroups: document.getElementById('build-groups'),
       buildSubs: document.getElementById('build-subs'),
+      buildCaption: document.getElementById('build-caption'),
       buildTools: document.getElementById('build-tools'),
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
@@ -194,6 +225,23 @@ export class UI {
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.escape();
     });
+    // A card floating over the world goes when you touch anything that is not
+    // it. Capture, so it closes before whatever you pressed acts — pressing the
+    // ground with it up should build there and leave nothing behind. The tile's
+    // own press is included on purpose: closing and reopening is what makes a
+    // second hold on the same tile a toggle rather than a no-op.
+    addEventListener('pointerdown', (e) => {
+      if (!this.shapesOn || e.target.closest?.('#build-shapes')) return;
+      this.shapesOn = false;
+      // Hidden directly rather than through `renderHotbar`, and that is not an
+      // optimisation. A repaint replaces every tile in the strip, and a button
+      // removed from the document between pointerdown and pointerup never fires
+      // its click — so with the card up, the press that was going to arm the
+      // freezer would land on a button that stopped existing halfway through it,
+      // and the tile would simply not respond. Nothing else about the bar
+      // changes when this closes, so nothing else needs redrawing.
+      if (this.el.buildShapes) this.el.buildShapes.hidden = true;
+    }, true);
     this.renderHotbar();
   }
 
@@ -222,6 +270,14 @@ export class UI {
 
   toggleBuild(on = !this.buildOn, { quiet = false } = {}) {
     this.buildOn = on;
+    // The mode opens with empty hands. Turning building on is "let me at my
+    // shop", not "sell me a shelf" — and the first thing anybody does in here is
+    // look at what is already built, which used to mean crossing the floor with
+    // a loaded pointer. Arming is one press away and is now a thing you *say*.
+    //
+    // On the way out too, or the mode remembers a tool across a session and the
+    // first tap of the next one buys whatever you last built.
+    this.toolOff = true;
     // Building flies the view where nobody can stand (`setFreeRoam`), and
     // riding on a hire moves what it is flying *from* — two things steering one
     // camera. Building wins: you asked for the wheel.
@@ -298,8 +354,13 @@ export class UI {
    * everywhere else — a mode a menu switched on for you goes back off at the
    * end of the errand; a mode you chose yourself with G is yours and stays.
    */
-  startMove(f) {
-    this._move = { kind: f.kind, borrowed: !!this._modeFromMenu, to: null };
+  startMove(f, opts = {}) {
+    // `reopen` says whether finishing puts the menu back on it. True from the
+    // menu's Move button, because that is where you were; false when you pulled
+    // the thing out by pointing at it, because you were not anywhere.
+    this._move = {
+      kind: f.kind, borrowed: !!this._modeFromMenu, to: null, reopen: opts.reopen !== false,
+    };
     // `holding` isn't true until the next snapshot lands, and the menu is about
     // to close in front of it. Without a marker for that gap `releaseMenuMode`
     // hands the mode back mid-lift, and the server drops what you picked up.
@@ -354,13 +415,17 @@ export class UI {
     }
     // By tile, not by id — being set down re-mints it as a fresh placement, for
     // the same reason `refreshFixture` looks things up this way.
-    const f = move.to ? this.scene?.fixtureAt(move.to.x, move.to.z) : null;
+    const f = move.reopen && move.to ? this.scene?.fixtureAt(move.to.x, move.to.z) : null;
     if (f) showFixture(this, f);
   }
 
   selectBuildTool(id) {
     const t = buildTools(this).find((x) => x.id === id);
     if (!t) return;
+    // Picking one is the thing that fills an empty hand, and it is every route
+    // in: the bar, the number keys, and the server disarming Clear onto
+    // something else. Anything that can arm a tool comes through here.
+    this.toolOff = false;
     // The entry knows what it is. It used to be parsed back out of the id, which
     // worked while the only compound id was `station:blender` and stopped the
     // moment a piece id was free-form — a planter called `plot-marker` would
@@ -386,9 +451,15 @@ export class UI {
         if (s) this.barSub[g] = s;
       }
     }
-    // Shapes belong to a piece, so switching piece drops back to Standard rather
-    // than asking for a "corner till" nobody drew.
-    this.buildVariant = '';
+    // Shapes belong to a piece, so switching piece cannot carry the old one over
+    // — nobody drew a "corner till". What it CAN do is remember: you pick the
+    // wall-run shelf once and every shelf you arm after that is a wall-run
+    // shelf, until you say otherwise. Re-deriving Standard each time made the
+    // choice a thing you re-made on every trip to the bar, which for a row of
+    // shelving is the same decision typed out nine times.
+    this.buildVariant = this.pieceVariant[this.variantKey()] ?? '';
+    // Whatever the popover was open over, it is not this.
+    this.shapesOn = false;
     this._toolId = t.id;
     // An edge tool is not a fixture and the server keeps no state for one:
     // `setBuildTool` refuses anything outside FIXTURES, so telling it "fence"
@@ -410,6 +481,33 @@ export class UI {
   }
 
   /**
+   * What a remembered shape is filed under.
+   *
+   * The PIECE, not the palette entry and not the kind. A shape is a row on a
+   * piece (`variantsOf`), so two designs of shelf have two different sets of
+   * them and remembering "corner" against the kind would hand a corner to a
+   * piece that has no such row. Falling back to the kind covers a tool that
+   * names no piece, which is every tool that has no shapes anyway.
+   */
+  variantKey() {
+    return this.buildPiece || this.buildTool || '';
+  }
+
+  /**
+   * Open or shut the shape popover.
+   *
+   * It is a *floating* card anchored over its tile rather than a row in the bar,
+   * which is the whole reason it exists in this form: as a tier it changed the
+   * height of the bar and moved every tab on it, and it did that on the way in
+   * and again on the way out, while you were aiming at something. A row that
+   * shoves the thing you are pointing at is worse than one press.
+   */
+  toggleShapes(on = !this.shapesOn) {
+    this.shapesOn = !!on;
+    this.renderHotbar();
+  }
+
+  /**
    * Which shape of the selected fixture the next tap builds.
    *
    * Client-side only, and deliberately: it rides along in the `build-place`
@@ -419,6 +517,9 @@ export class UI {
    */
   selectBuildVariant(id) {
     this.buildVariant = id ?? '';
+    this.pieceVariant[this.variantKey()] = this.buildVariant;
+    // Picking one is the end of the question, so the popover goes with it.
+    this.shapesOn = false;
     // `renderHotbar`, not a repaint of the shape row alone — there is no such
     // method and there never was, so every press of a shape button threw before
     // it reached the hint below it. It read as a row that ignores you: the
@@ -437,9 +538,34 @@ export class UI {
    * which is what `syncBuildTool` needs when the server disarms us.
    */
   toolId() {
+    // Nothing armed is a real answer, and one place to give it. Everything that
+    // asks what a tap would do goes through here — the ghost's kind, the wall
+    // tool, the brush, the bulldozer, the lit button on the bar — so an empty
+    // hand costs those callers nothing and cannot be forgotten by one of them.
+    if (this.toolOff) return null;
     if (this._toolId) return this._toolId;
     if (this.buildStation) return `station:${this.buildStation}`;
     return this.buildPiece || this.buildTool;
+  }
+
+  /** Is a palette entry armed — that is, would a tap on bare ground build? */
+  get toolArmed() {
+    return this.paletteArmed && !this.toolOff;
+  }
+
+  /**
+   * Put it down. The bar stays up and the mode stays on.
+   *
+   * `resetRot` with it: an angle is part of a placement decision, and the next
+   * thing armed has not made one. See `resetRot`.
+   */
+  disarmTool() {
+    if (this.toolOff) return;
+    this.toolOff = true;
+    this.shapesOn = false;
+    this.resetRot();
+    this.renderHotbar();
+    this.renderBuildHint();
   }
 
   /**
@@ -580,7 +706,12 @@ export class UI {
     // up at all — a Move errand borrows the mode the same way Empty does, so
     // the hands are asked before `paletteArmed` refuses.
     if (this.holding) return this.holding.kind;
-    return this.paletteArmed ? this.buildTool : null;
+    // `toolArmed`, not `paletteArmed`. This is the one reader that goes to
+    // `buildTool` directly rather than through `toolId`, because a ghost needs
+    // the KIND and the id is a piece — so it is also the one place an empty hand
+    // has to be spelled out, and the one that would otherwise put a shelf-shaped
+    // ghost under a pointer with nothing armed.
+    return this.toolArmed ? this.buildTool : null;
   }
 
   /**
@@ -612,6 +743,47 @@ export class UI {
       station: this.buildStation ?? null,
       tier: 1,
     };
+  }
+
+  /**
+   * R, with a fixture's own menu open, turns THAT fixture.
+   *
+   * The same message the menu's Rotate button sends, on the key that has always
+   * meant "turn it" everywhere else — so the one place you are unambiguously
+   * talking about a single fixture was the one place the key did not apply, and
+   * turning a lamp meant crossing to a button in a popover.
+   *
+   * By id first and by tile second, because a rotation re-mints the placement:
+   * the id is right until the snapshot lands and the tile is right afterwards,
+   * and for a decoration the tile is only *nearly* right — it shares one.
+   *
+   * `withBuildMode`, exactly as the button does: every fixture verb is gated on
+   * the mode server-side, and pressing R is not a decision to go shopping.
+   * Answers whether it took the key, so the caller can fall through to turning
+   * the ghost when nothing is selected.
+   */
+  rotateSelected(dir = 1) {
+    const f = this.selectedFixture();
+    if (!f) return false;
+    this.withBuildMode(() => this.net.send('build-rotate', { id: f.id, dir }));
+    return true;
+  }
+
+  /**
+   * The fixture this menu is open on, live off the layout.
+   *
+   * By id first and by tile second, because a rotation re-mints the placement:
+   * the id is right until the snapshot lands and the tile is right afterwards,
+   * and for a decoration the tile is only *nearly* right — it shares one.
+   *
+   * Null with your hands full: every verb it feeds acts on something standing in
+   * the shop, and what you are carrying is not standing anywhere.
+   */
+  selectedFixture() {
+    if (this.openPanel !== 'fixture' || !this.fixtureRef || this.holding) return null;
+    return this.scene?.fixtureById(this.fixtureRef.id)
+      ?? this.scene?.fixtureAt(this.fixtureRef.x, this.fixtureRef.z)
+      ?? null;
   }
 
   rotateBuild() {
@@ -689,16 +861,31 @@ export class UI {
 
   renderBuildBar() {
     const groups = this.buildGroupList();
-    const at = groupAt(groups, this.barTab.build);
+    // One resolution of which tab, which part of it and what is on it, shared by
+    // the caption below and by the render — `openBuildGroup` already writes back
+    // a tab that resolved to something other than what was remembered, which is
+    // what `renderBar` would otherwise be asked to work out a second time.
+    const open = this.openBuildGroup(groups);
+    // What the caption says with nothing under the pointer: the entry you have
+    // armed. Against what is *drawn* rather than against `buildTool`, for the
+    // reason the shape row is (see `renderChoice`) — naming a fixture that is not
+    // on the tab in front of you is a label for something you cannot see, and
+    // browsing another tab is not a change of what is armed.
+    const armed = open.items.find((it) => it.id === this.toolId());
     const { group, sub } = renderBar(this.barEl(), {
       groups,
-      at: this.barTab.build,
-      atSub: at ? this.barSub[at.id] : null,
+      at: open.group?.id ?? null,
+      atSub: open.sub?.id ?? null,
       picked: this.toolId(),
+      // The one word the tiles gave up. Not the price — that is still on every
+      // one of them, because comparing four of them is the point of it.
+      caption: armed?.name ?? null,
       // Shapes are not palette entries of their own — a corner shelf is a shelf,
       // at a shelf's price, and the number keys should keep meaning one fixture.
       choice: {
-        label: 'Shape',
+        // Asked for rather than standing: it floats over the world now, so it is
+        // up while you are choosing and gone the rest of the time.
+        open: this.shapesOn,
         // Each shape wearing its own shape. A corner unit and a straight one are
         // the same word in two spellings otherwise, which is the thing a picture
         // is actually for.
@@ -709,7 +896,29 @@ export class UI {
       },
       onTab: (id) => this.selectBuildGroup(id),
       onSubTab: (id) => this.selectBuildSub(id),
-      onPick: (t) => { this.commitBuildMode(); this.selectBuildTool(t.id); },
+      // Pressing the lit one puts it down, which is the other half of an empty
+      // hand being a real state: the button that armed it is the button anybody
+      // reaches for to unarm it, and a palette where the only way out is a key
+      // is a palette you cannot put down with the mouse you armed it with.
+      //
+      // `toolId` rather than a stored flag, so this asks the same question the
+      // lit ring on the button answers — press what is lit and it goes out.
+      onPick: (t) => {
+        if (this.toolId() === t.id) { this.disarmTool(); return; }
+        this.commitBuildMode();
+        this.selectBuildTool(t.id);
+      },
+      // Holding a tile, or pressing its chevron. Arms it first when it isn't the
+      // one that is armed — you cannot be asking about the shapes of a shelf and
+      // not be asking for a shelf — and `selectBuildTool` restores whichever
+      // shape you last chose for it, so the card opens on the answer you gave
+      // last time rather than on Standard.
+      onShapes: (t) => {
+        this.commitBuildMode();
+        const same = this.toolId() === t.id;
+        if (!same) this.selectBuildTool(t.id);
+        this.toggleShapes(same ? !this.shapesOn : true);
+      },
     });
     this.barTab.build = group?.id ?? null;
     if (group && sub) this.barSub[group.id] = sub.id;
@@ -746,15 +955,17 @@ export class UI {
   }
 
   /**
-   * The four elements `bar.js` draws into. Neither browse bar has sub-tabs or a
-   * choice row, and both are hidden rather than absent — one strip of screen
-   * means one set of elements, and a bar that swapped its own markup would have
-   * to put the height back too.
+   * The five elements `bar.js` draws into. A browse bar has no sub-tabs, no
+   * choice row and no caption — its buttons keep their own names, which is what
+   * the caption is *for* on the build bar — and all three are hidden rather than
+   * absent: one strip of screen means one set of elements, and a bar that swapped
+   * its own markup would have to put the height back too.
    */
   barEl() {
     return {
       groups: this.el.buildGroups,
       subs: this.el.buildSubs,
+      caption: this.el.buildCaption,
       items: this.el.buildTools,
       choice: this.el.buildShapes,
     };
@@ -895,7 +1106,23 @@ export class UI {
     if (this.aimed && this.demolishArmed()) {
       return { text: `Tear out the ${this.fixtureName(this.aimed).toLowerCase()} — tap it`, warn: true };
     }
-    if (this.aimed) return { text: `${this.fixtureName(this.aimed)} — tap to open it` };
+    // Two gestures on one thing, so the line has to name both: a hold picks it
+    // up, and a gesture nothing on screen mentions is a gesture nobody finds.
+    // Only with the bar up, which is the one place the hold does anything —
+    // this same line is what a shopper sees pointing at a shelf.
+    if (this.aimed) {
+      return {
+        text: `${this.fixtureName(this.aimed)} — tap to open it`
+          + `${this.paletteArmed ? ' · drag it to move it' : ''}`,
+      };
+    }
+    // Empty hands, which is now where the mode starts. Says so, because a bar
+    // with nothing lit and no ghost under the pointer is otherwise
+    // indistinguishable from a mode that has stopped working — and it is the one
+    // state in build mode with nothing on screen to explain itself.
+    if (this.paletteArmed && !this.toolArmed) {
+      return { text: 'Nothing armed — drag things about, or pick something to build' };
+    }
     const v = this.buildVerdict;
     // A red ghost is a refusal, and the reason is the only thing that turns it
     // from "nothing happened" into "not there".
@@ -1796,6 +2023,9 @@ export class UI {
    * all you wanted was to clear a search box.
    */
   escape() {
+    // Outermost rung of all: it floats over everything, it owns no world state,
+    // and it is the most recent thing you opened whenever it is up.
+    if (this.shapesOn) { this.toggleShapes(false); return; }
     if (this.openPanel && this.query) { this.clearFilter(); this.repaint(); return; }
     if (this.openPanel) { this.closePanel(); return; }
     // The roster bar is a rung of its own. It arms nothing and owns no world
@@ -1804,6 +2034,13 @@ export class UI {
     if (this.bar === 'staff') { this.showBar(null); return; }
     if (!this.buildOn) return;
     if (this.holding) { this.net.send('build-cancel', {}); return; }
+    // Put down what is armed before leaving the mode. One rung, in the place the
+    // ladder's own logic puts it: everything above this is something on screen,
+    // and an armed tool is the last thing that is *loaded* before the mode
+    // itself. So the first press empties your hand and the second shuts the bar,
+    // which is what makes backing out of a mis-armed shelf cost one press rather
+    // than a mode you then have to turn back on.
+    if (this.toolArmed) { this.disarmTool(); return; }
     this.toggleBuild(false);
   }
 

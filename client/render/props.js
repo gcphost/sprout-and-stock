@@ -873,6 +873,73 @@ export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spot
 }
 
 /**
+ * The same marker for something that does not stand on a tile.
+ *
+ * A frame on the floor says "this square", which is the right sentence for a
+ * shelf and the wrong one for a lamp. A decoration owns no cell on purpose, and
+ * a hanging one is drawn most of a tile up-screen of the cell it belongs to — so
+ * the frame lights up ground the thing is not on, the thing itself does not
+ * change at all, and what you are pointing at becomes a guess. This is the same
+ * sentence said about the object: a cage round its own art, at its own height.
+ *
+ * The box comes from the caller because only the renderer knows how big the art
+ * came out — the same bounds the pointer is tested against, so what lights up
+ * and what you can hit are the same volume by construction.
+ *
+ * `userData.ring` so the held-press wind-in animates this exactly as it animates
+ * the flat frame: one mesh with a material of its own, which is also why the
+ * cage is twelve merged bars rather than a `LineSegments` — a line's width is
+ * one pixel on every platform that has ever ignored `linewidth`, and at this
+ * camera that reads as a smudge rather than as a box.
+ */
+export function buildCageMarker(mode = 'aim', size = { x: 1, y: 1, z: 1 }) {
+  const g = new THREE.Group();
+  const look = MARKER_LOOK[mode] ?? MARKER_LOOK.aim;
+  g.userData.color = look.color;
+
+  const t = 0.045;
+  // A floor between the bar thickness and the box: a garland is a few
+  // centimetres thick, and a cage thinner than its own bars is a solid lump.
+  const hx = Math.max(size.x, t * 4) / 2;
+  const hy = Math.max(size.y, t * 4) / 2;
+  const hz = Math.max(size.z, t * 4) / 2;
+
+  const parts = [];
+  const bar = (sx, sy, sz, x, y, z) => parts.push(
+    new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z),
+  );
+  for (const y of [-hy, hy]) for (const z of [-hz, hz]) bar(hx * 2, t, t, 0, y, z);
+  for (const x of [-hx, hx]) for (const z of [-hz, hz]) bar(t, hy * 2, t, x, 0, z);
+  for (const x of [-hx, hx]) for (const y of [-hy, hy]) bar(t, t, hz * 2, x, y, 0);
+
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  if (merged) {
+    const cage = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({
+      color: look.color, transparent: true, opacity: 0.9, depthTest: false,
+    }));
+    cage.renderOrder = 9;
+    g.add(cage);
+    g.userData.ring = cage;
+  }
+
+  // Above the cage rather than at the group's origin, which for a hanging thing
+  // is up in the air already — a chevron inside the box it is pointing at.
+  if (look.chevron) {
+    const arrow = new THREE.Mesh(GEO.cone, new THREE.MeshBasicMaterial({
+      color: look.color, transparent: true, opacity: 0.95, depthTest: false,
+    }));
+    arrow.scale.set(0.26, 0.3, 0.26);
+    arrow.rotation.x = Math.PI;
+    arrow.position.y = hy + 0.3;
+    arrow.renderOrder = 10;
+    g.add(arrow);
+    g.userData.arrow = arrow;
+  }
+  return g;
+}
+
+/**
  * A square outline lying in the XY plane, drawn as one shape with a hole.
  *
  * A square rather than a circle because the thing being marked stands on a

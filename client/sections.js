@@ -2,7 +2,8 @@ import { ICONS, icon } from './icons.js';
 import { pinLast, KEYED } from './bar.js';
 import { FIXTURES, isProp, isGround, FLOOR_KIND } from '../shared/build.js';
 import { kindOf, countKey } from '../shared/pieces.js';
-import { artForTool, artForStation, artForWorker } from './thumb.js';
+import { variantsOf } from '../shared/model.js';
+import { artForTool, artForWorker } from './thumb.js';
 import { doingNow, bodyOf, kindSummary } from './worker-menu.js';
 // What is on a van. Shared with the shelf menu, which asks the same two
 // questions of it — see client/orders.js.
@@ -415,10 +416,16 @@ export function buildTools(ui) {
         id: p.id,
         kind,
         piece: p.id,
-        // A picture of the thing, off its own row. `icon` stays as the fallback
-        // for a kind nobody has drawn — those are the entries with no `p.model`
-        // to draw, and a generic box would claim they look like something.
-        art: artForTool({ paint, kind }, p),
+        // A picture of the thing, off its own row, IN THE SHAPE YOU LAST CHOSE
+        // for it. `icon` stays as the fallback for a kind nobody has drawn —
+        // those are the entries with no `p.model` to draw, and a generic box
+        // would claim they look like something.
+        //
+        // The shape belongs here rather than only on the ghost because the tile
+        // is a promise about what the next tap builds: pick the wall-run shelf,
+        // and a tile still drawing the standard one is the palette disagreeing
+        // with the preview, the popover's own tick and the shelf you get.
+        art: artForTool({ paint, kind }, p, ui?.pieceVariant?.[p.id] ?? ''),
         // What the gesture is. A fixture is tapped onto a tile, a wall is
         // dragged along a line, and this one is dragged over an area — the bar
         // needs to know which without asking the kind, because `edge` already
@@ -480,7 +487,8 @@ export function buildTools(ui) {
       station: u.payload.station,
       group: 'appliance',
       icon: ICONS.station,
-      art: artForStation(machine, u.payload.station),
+      // An appliance IS a variant, so it draws the way every other shape does.
+      art: artForTool({ kind: 'station' }, machine, u.payload.station),
       name: u.name,
       blurb: u.description || 'An appliance. Turns what goes in into something worth more.',
     }));
@@ -511,6 +519,12 @@ export function buildGroups(ui) {
       note: cost == null ? '' : `$${cost.toFixed(0)}`,
       badge: have ? String(have) : '',
       title: `${t.name} — ${t.blurb}`,
+      // Whether this one comes in shapes, which is what earns the tile its
+      // chevron and makes a hold on it mean something. Asked of the PIECE, since
+      // that is what `variantsOf` reads and what the popover will offer — a tool
+      // with no piece (a wall, a brush, the bulldozer) answers Standard-only and
+      // gets no chevron, which is the honest answer for a thing with one shape.
+      shapes: variantsOf((ui?.catalog?.fixtures ?? []).find((x) => x.id === t.piece)).length >= 2,
     };
   });
   return BUILD_GROUPS
@@ -1432,7 +1446,14 @@ export const SECTIONS = [
       { name: 'Back out', sub: 'menu, then hands, then build mode', right: 'Esc', plain: true },
       { name: 'Back out on the world', sub: 'a click, not a drag — drops a half-drawn wall first', right: 'R-click', plain: true },
       { sep: 'Building', icon: ICONS.build },
-      { name: 'Build mode', sub: 'tap ground to place, tap a fixture to open', right: 'G', plain: true },
+      { name: 'Build mode', sub: 'opens with nothing armed — pick something to place', right: 'G', plain: true },
+      // The same press as "open its menu" up under Getting about, doing the
+      // other thing a press can do to a thing you own. Listed here rather than
+      // there because it is the mode that gives the press this second meaning.
+      { name: 'Move a fixture', sub: 'drag it where it should sit', right: 'drag', plain: true },
+      { name: 'or pick it up', sub: 'hold it, then tap where it goes', right: 'hold', plain: true },
+      { name: 'Put down what is armed', sub: 'the lit button again, or back out once', right: 'R-click', plain: true },
+      { name: 'Turn the view instead', sub: 'a left drag moves things in here', right: 'R-drag', plain: true },
       { name: 'Turn a fixture', sub: 'a quarter turn', right: 'R', plain: true },
       { name: 'Bottom bar', sub: 'the open tab — nothing with the bar down', right: '1–9', plain: true },
       { name: 'Next tab', sub: 'every tab in turn, and every part of a split one', right: 'Tab', plain: true },

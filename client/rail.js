@@ -61,6 +61,7 @@ export class Rail {
     // available to a screen reader, which is the half `title` was also doing.
     this.el.innerHTML = RAIL_ITEMS.map((s) => `
       <button class="rail-btn" data-rail="${s.id}" aria-label="${esc(s.name)}"
+        data-tip-wait
         data-tip="${esc(s.name)}" data-tip-key="${s.key.toUpperCase()}"
         ${blurbOf(s) ? `data-tip-note="${esc(blurbOf(s))}"` : ''}>
         ${s.ring ? `<svg class="ring" viewBox="0 0 40 40" aria-hidden="true">

@@ -257,7 +257,7 @@ what the next step was meant to be.
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, and the shop hand who takes goods back *off* a shelf | steps 1–6 and 8–10 built; 7 proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, and a shop that turns people away when it's full | steps 1–3 built |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
-| [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers | proposed, nothing built |
+| [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, and the lane a shopper's car does not yet have | steps 1–4 built; 5–6 proposed |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | proposed, nothing built |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
@@ -778,6 +778,23 @@ what the next step was meant to be.
   tile" (for placing); `pickFixture` intersects each fixture height's top plane,
   tallest first, and answers "which thing am I pointing at". Using the first for
   the second selects the fixture *behind* the one you clicked.
+- **…and hitting the right mesh is only half of it: a tile stopped being one
+  fixture.** `pickFixtureHit` raycasts the art, which is right, and then threw
+  the hit away and re-derived the answer from the tile it stood on
+  (`fixtureAt`), which was right for exactly as long as a fixture stamped a
+  tile. A decoration deliberately stamps none — that is what makes it weigh
+  nothing — so a lamp hangs over a shelf and a plant stands at the end of a
+  counter, and `fixtureAt` is a `find` over a list with `props` **last**. Every
+  such prop was therefore unpointable: the ray hit the lamp, the answer came
+  back as the shelf underneath it, and the ring, the menu and the bulldozer all
+  named the wrong thing — which reads as "the pointer is selecting the tile
+  instead of the prop", because it is. The group carries its own `f.id` now
+  (`userData.fixture`, stamped where it is built, so it can never be older than
+  the mesh) and the tile is the fallback for the groups that have none — a
+  shelf's stock and a bed's crop, which belong to what they stand on. The
+  general shape: **an invariant a lookup relies on can be retired by a feature
+  three files away**, and "one fixture per tile" was retired the day a prop
+  stopped owning its cell.
 - **`el.className = 'show'` silently deletes the `hud` class**, and with it
   `position: fixed`. The element drops out of the overlay into document flow,
   where you simply never see it. The toast had this from the beginning, which

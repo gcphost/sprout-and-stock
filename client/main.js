@@ -121,9 +121,21 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     ui.cycleBuildGroup(e.shiftKey ? -1 : 1);
   }
-  if (ui.buildOn && k === 'r') {
+  // A selected fixture outranks the ghost, and is not gated on the mode: a
+  // fixture menu opens without build mode, and `rotateSelected` borrows it the
+  // way the Rotate button it stands in for does. With nothing selected the key
+  // goes back to turning what you are about to place.
+  if (k === 'r' && !ui.rotateSelected() && ui.buildOn) {
     ui.rotateBuild();
     refreshGhost();
+  }
+  // ...and M picks the selected one up, which is the Move button's key. Its own
+  // binding rather than a rung on R's, because it has nothing to fall through
+  // to: with nothing selected there is nothing to move, and a key that quietly
+  // lifts whatever the pointer happens to be over is the proximity bug again.
+  if (k === 'm') {
+    const f = ui.selectedFixture();
+    if (f) liftAimed(f, { reopen: false });
   }
   // Escape backs out one layer at a time. UI owns the whole ladder — an open
   // menu, then whatever you're carrying, then build mode — because two
@@ -386,6 +398,10 @@ const LONG_PRESS_MS = 420;
  * deleted because the gesture is still wired end to end — the aim ring still
  * winds in while you hold — and the reason it is off is a decision about what
  * a *tap* should mean, which has now changed three times.
+ *
+ * In build mode the hold has a job of its own regardless (`liftAimed`), and it
+ * is the job the gesture was always shaped for: the ring winds in on the thing
+ * you are pointing at, and at the end of it that thing is in your hands.
  */
 const HOLD_OPENS = false;
 
@@ -399,6 +415,8 @@ const drag = {
   timer: null,
   pressedAt: 0,     // when it started, for the wind-in the frame loop draws
   done: false,      // a long press already fired; the release means nothing
+  lift: null,       // the fixture this press would pull, once it moves
+  moving: false,    // ...and it did: this drag is carrying something
 };
 
 /**
@@ -424,6 +442,8 @@ function clearLongPress() {
 function endDrag() {
   clearLongPress();
   drag.id = null;
+  drag.lift = null;
+  drag.moving = false;
   release();
 }
 
@@ -709,6 +729,20 @@ canvas.addEventListener('pointerdown', (e) => {
   drag.id = e.pointerId;
   drag.ox = drag.lx = drag.ax = e.clientX;
   drag.oy = drag.ly = e.clientY;
+  // ...and the fourth drag: a fixture, pulled to where it should be instead.
+  //
+  // This is what a press on a thing you own means once the mode says you are
+  // building, and it is the gesture everybody tries first — press the lamp, pull
+  // it over there, let go. Without it the press was a camera turn, so the shop
+  // spun under the thing you were trying to pick up, which reads as the move
+  // feature fighting the view.
+  //
+  // Only *armed*, not lifted. The press has not chosen yet: release without
+  // moving and it is still a tap, which opens the menu the way it always did.
+  // The lift happens at the slop line, where a pan would have committed.
+  drag.lift = ui.paletteArmed && !ui.holding && !ui.demolishArmed()
+    ? pickTarget(e.clientX, e.clientY)
+    : null;
   // A mouse drag turns the view, the same quarters the right button turns it in
   // — one gesture for "let me see round the back", whichever button is under
   // your finger. A finger keeps the slide, and that asymmetry is the point
@@ -770,6 +804,29 @@ canvas.addEventListener('pointerdown', (e) => {
     // thing a hold does. Fires at 420ms against a ring that needs a full
     // second, so the release is always swallowed before the action lands.
     drag.done = true;
+
+    // Build mode's own answer to a held press, and it comes before `HOLD_OPENS`
+    // because it is not the same question: that flag is about whether holding
+    // *looks* at things, and this is holding *taking* one. The bulldozer keeps
+    // the pointer to itself — with it up you are aiming at things to destroy
+    // them, and a hold that quietly handed you the shelf instead would be the
+    // one gesture in the mode that does the opposite of what the tool says.
+    //
+    // The same lift the drag does, for a press that never moved — which is the
+    // one a finger makes, and the one you make when the thing is already where
+    // it should be and you only want it in your hands. It leaves the fixture
+    // carried rather than dropping it on release: you have not pointed anywhere
+    // else yet, so there is nowhere to put it down but where it already was.
+    //
+    // `drag.lift` is spent here too, or dragging on after the hold has fired
+    // would ask the server for a second lift of the thing already in your hands.
+    if (drag.lift) {
+      const f = drag.lift;
+      drag.lift = null;
+      liftAimed(f, { reopen: false });
+      return;
+    }
+
     if (!HOLD_OPENS) return;
     // The wind-in has to land on something. Without a ripple at the end the
     // ring just stops being wound and the menu appears, which reads as the
@@ -810,6 +867,20 @@ canvas.addEventListener('pointermove', (e) => {
     // gets, and it has to be sent rather than merely remembered — the server is
     // the thing counting the ring up.
     release();
+    // Past the slop with a fixture under where you started: this is a move, and
+    // the camera never gets this drag at all.
+    if (drag.lift) {
+      const f = drag.lift;
+      drag.lift = null;
+      drag.moving = true;
+      liftAimed(f, { reopen: false });
+      return;
+    }
+    // ...and it does not get any of the rest of it either. `lift` is spent the
+    // instant it fires, so without this the first move pulls the lamp out and
+    // every move after it spins the shop underneath — which is the bug this
+    // whole branch exists to fix, arriving one event later.
+    if (drag.moving) return;
     if (drag.turns) {
       const t = stepTurn(drag.ax, e.clientX);
       drag.ax = t.anchor;
@@ -870,8 +941,46 @@ function endPress(e) {
   // A press that never really moved is a tap, not a pan — and a long press has
   // already spent the gesture, so its release means nothing.
   const tapped = e && !drag.done && drag.travel < TAP_SLOP;
+  const dropping = drag.moving && !!e;
   endDrag();
+  // Pulled something out and let go: it lands where you let go of it. A drag
+  // that ends with no event at all — a cancelled pointer, a lost window — leaves
+  // it in your hands instead, which is the recoverable half: Esc puts it back
+  // and a tap sets it down. Dropping it wherever the pointer was last seen is
+  // how a fixture ends up in a corner nobody chose.
+  if (dropping) { dropCarried(e.clientX, e.clientY); return; }
   if (tapped) tapAtPointer(e.clientX, e.clientY);
+}
+
+/**
+ * Let go of a fixture you dragged out.
+ *
+ * `tapAtPointer` is the placement path and does everything right — the spec off
+ * what is in your hands, the verdict checked before the send, the target marked
+ * so the errand can find the fixture afterwards — so this is a `tapAtPointer`
+ * with one case in front of it.
+ *
+ * That case is the round trip. The lift went out a few frames ago and the
+ * snapshot that fills our hands may not be back yet, so `ui.holding` can still
+ * be null on a quick flick. It does not matter to the *server*: messages arrive
+ * in the order they were sent, so `build-lift` has already been processed and
+ * `p.holding` is set by the time this one is read. What is missing is only the
+ * client's copy — and a drop needs nothing from it but a tile, because
+ * `dropFixture` reads the kind, piece, tier and variant off what the server
+ * knows we are carrying.
+ */
+function dropCarried(cx, cy) {
+  const tile = scene.pickTile(cx, cy);
+  // Released off the edge of the world. Still in hand, nothing sent.
+  if (!tile) return;
+  if (ui.holding) { tapAtPointer(cx, cy); return; }
+  ui.markMoveTarget(tile);
+  // No `rot`, deliberately. `buildRot` is the *palette's* angle until the
+  // snapshot lands and replaces it with the one the fixture already had — so
+  // sending it on a fast flick would turn the thing you were only moving, which
+  // is precisely the "moving it reset its rotation" bug wearing a race
+  // condition. `dropFixture` falls back to what it is carrying, which is right.
+  net.send('build-drop', { x: tile.x, z: tile.z });
 }
 /**
  * The right button backs out, the way it does in every builder — unless the
@@ -1036,6 +1145,51 @@ const aimable = (f) => ui.paletteArmed || !isProp(f.kind);
 
 function pickTarget(cx, cy) {
   return scene.pickFixtureHit(cx, cy, aimable)?.f ?? null;
+}
+
+/**
+ * Hold a thing in build mode and you pick it up.
+ *
+ * The same errand the fixture menu's Move button starts, on the gesture that
+ * was already winding a ring on the thing you were pointing at and then doing
+ * nothing with it. Moving something used to cost three presses — point at it,
+ * wait for the panel, find Move — and two of those are ceremony around a
+ * decision you had already made by aiming.
+ *
+ * It is the *hold* rather than the tap for the reason it is everywhere else in
+ * the game: a tap is what you do to ask a question, and lifting a lamp off the
+ * ceiling by accident because you wanted to know what it cost is the kind of
+ * mistake a gesture should be shaped to prevent. Holding is a sentence you have
+ * to finish, and the ring says how long you have to change your mind.
+ *
+ * `startMove` before the send, and both before the snapshot that says your
+ * hands are full: it is what holds build mode open across the carry, and the
+ * gap between the two is exactly what `_lifting` exists to cover.
+ */
+function liftAimed(f, opts = {}) {
+  scene.ripple(f.x, f.z);
+  // `reopen: false`, and it is the difference between an errand and a habit. The
+  // menu's own Move button came FROM the menu, so putting the thing down goes
+  // back to it. Pointing at something and pulling it did not: rearranging four
+  // lamps in a row would leave a panel open on each in turn, and the shop then
+  // always has something selected with nothing you pressed to explain why.
+  //
+  // An errand returns you where you started, and here you started by pointing.
+  // `withBuildMode`, the way the Move button it stands in for does: every fixture
+  // verb is gated on the mode server-side, and M is reachable from a menu opened
+  // without it. It wraps `startMove` as well as the send, or `borrowed` is
+  // computed before the mode it is about to borrow exists.
+  ui.withBuildMode(() => {
+    ui.startMove(f, { reopen: opts.reopen !== false });
+    net.send('build-lift', { id: f.id });
+  });
+  // The panel would be a menu for a thing that is no longer standing where the
+  // menu says it is.
+  ui.closePanel();
+  // One wording for both ways in: a drag puts it down when you let go, a hold
+  // leaves it in your hands for a tap, and "put it down where it should sit" is
+  // true of each without naming a gesture the player did not use.
+  ui.toast(`Carrying the ${ui.fixtureName(f).toLowerCase()} — put it down where it should sit · R turns it`);
 }
 
 /**
@@ -1269,9 +1423,21 @@ function tapAtPointer(cx, cy) {
     const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
     if (who?.hire) { showWorker(ui, who.hire); return; }
 
-    const over = scene.pickFixture(cx, cy);
+    // `pickTarget`, so a decoration answers here too — `pickFixture` skips the
+    // box a prop is aimed by, which made the one class of thing you build a
+    // palette tab for the one class you could not open with a tool in your hand.
+    const over = pickTarget(cx, cy);
     if (over && ui.demolishArmed()) { ui.razeFixture(over); return; }
-    if (over) { showFixture(ui, over); return; }
+    if (over) {
+      // Press it again and the menu goes away, which the shopkeeping branch has
+      // always done and this one never did — so the only way out of a fixture
+      // menu in build mode was the × or a key. By tile rather than by id, for
+      // the reason `refreshFixture` is: turning something re-mints its id.
+      const open = ui.openPanel === 'fixture' && ui.fixtureRef;
+      if (open && ui.fixtureRef.x === over.x && ui.fixtureRef.z === over.z) ui.closePanel();
+      else showFixture(ui, over);
+      return;
+    }
   }
 
   // Building on bare ground is the only part that needs the mode.
