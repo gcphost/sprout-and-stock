@@ -1261,3 +1261,34 @@ export function defaultPads(L) {
   pad(L.store.x + L.store.w - PAD_SEED_W, 'drop');
   return out;
 }
+
+/**
+ * The awning over the front door, as decorations for somebody to own.
+ *
+ * The same seed-not-rule argument `defaultPads` makes, one step further along.
+ * The awning used to be four striped boxes the *renderer* drew over `L.door` on
+ * every re-flow (`addAwning`, client/render/scene.js) — so it was not a thing at
+ * all: nothing could aim at it, nothing could price it, and there was no way to
+ * get rid of it or to put a second one anywhere else. A shop front you may not
+ * change is scenery, and this game has one place for scenery, which is behind
+ * the camera.
+ *
+ * Four one-tile sections in the row immediately outside the doorway, facing
+ * south (`rot: 1` — quarter turns clockwise from "front to the east"), so the
+ * canopy projects out over the path exactly where the drawn one hung. Each
+ * section is its own placement, which is the whole point of doing it a tile at
+ * a time: you can tear out one, run six along a longer frontage, or restyle the
+ * lot without any of them being a special case.
+ *
+ * It offers cells rather than placing them. Whether one may actually stand on
+ * a given cell is `canPlace`'s question and nobody else's — see `freezeAwning`,
+ * which asks it — because the seed must only lay what the player could lay.
+ */
+export function defaultAwning(L) {
+  const z = L.door.z + 1;
+  const out = [];
+  // Centred on the two-cell doorway, which puts one section either side of it:
+  // the drawn awning was four tiles wide starting one west of `door.x`.
+  for (let dx = -1; dx <= 2; dx++) out.push({ x: L.door.x + dx, z, rot: 1 });
+  return out;
+}

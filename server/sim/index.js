@@ -15,7 +15,9 @@
 import { content, world as loadWorld, saveWorld, freshEconomy } from '../content.js';
 import { JOBS } from '../../shared/schemas.js';
 import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '../db.js';
-import { generateLayout, defaultPads, buildWalkGrid, isWalkable, T } from '../layout.js';
+import {
+  generateLayout, defaultPads, defaultAwning, buildWalkGrid, isWalkable, T,
+} from '../layout.js';
 import { E, SOLID, edgeBetween } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
@@ -651,6 +653,15 @@ export class Game {
      */
     this.yardStamped = state.yardStamped ?? false;
     /**
+     * Whether the shop front has ever been stamped — see `freezeAwning`.
+     *
+     * Its own mark for `yardStamped`'s reason, said about decorations: "does
+     * this shop own an awning" hands you a new one the day you decide you
+     * didn't want it, which would make it the one prop in the game you are not
+     * allowed to remove — the exact complaint it exists to answer.
+     */
+    this.awningStamped = state.awningStamped ?? false;
+    /**
      * How big the building is, once somebody has one.
      *
      * Null until a shop has been stamped, then a fact about that shop. See
@@ -745,6 +756,7 @@ export class Game {
     const edits = w.edits ?? [];
     const ground = w.ground ?? w.floors ?? [];
     const yardStamped = w.yardStamped ?? false;
+    const awningStamped = w.awningStamped ?? false;
     const shell = w.shell ?? null;
     // A stamped shop asks for what is standing in it; one nobody has opened yet
     // asks for a starter shop. `starterShop` is the second case only, and it is
@@ -830,6 +842,7 @@ export class Game {
       edits,
       ground,
       yardStamped,
+      awningStamped,
       shell,
       layout,
       layoutVersion: 1,
@@ -851,6 +864,9 @@ export class Game {
     // ...and the yard, which stamps on its own mark rather than on `shell`'s —
     // see `freezeYard` for the save this order exists to rescue.
     game.freezeYard();
+    // ...and the shop front, for the same reason and on the same terms: it was
+    // drawn rather than owned, so no save has ever had one to restore.
+    game.freezeAwning();
     // After the stamp, not before: `freezeShell` can re-flow the layout, and
     // restoring onto shelves that are about to be replaced puts the stock back
     // on objects nobody keeps.
@@ -889,6 +905,7 @@ export class Game {
       edits: this.edits,
       ground: this.ground,
       yardStamped: this.yardStamped,
+      awningStamped: this.awningStamped,
       shell: this.shell,
       layout: this.layout,
       layoutVersion: this.layoutVersion,
@@ -992,6 +1009,7 @@ export class Game {
       edits: this.edits,
       ground: this.ground,
       yardStamped: this.yardStamped,
+      awningStamped: this.awningStamped,
       shell: this.shell,
       // Settings, the day's running total and whatever is on the van, because
       // the total is only meaningful beside the day it belongs to — see
@@ -6534,6 +6552,62 @@ export class Game {
     this.ground = [...this.ground, ...yard];
     this.regenerateLayout();
     return true;
+  }
+
+  /**
+   * Stamp the awning over the front door once, and stop drawing it.
+   *
+   * `freezeYard`'s argument, made about the shop front. The awning was four
+   * striped boxes the renderer laid over `L.door` every time it built the
+   * world, which meant it was not a thing: you could not aim at it, move it,
+   * sell it back, put a second one anywhere, or take it down. The palette had
+   * nothing that could produce one either, so "get rid of that" had no answer
+   * at all — not even an expensive one.
+   *
+   * Handed over as ordinary `prop-floor` placements it is all of those things
+   * at once, and no code in the renderer knows what an awning is any more: it
+   * is a catalog row with a striped model, the same as a planter or a lamp.
+   *
+   * Free, deliberately. Every existing shop is being given back the thing it
+   * was already looking at, and charging for that would read as the game
+   * billing you on load. What it costs is `cost` on the row, from the second
+   * one onwards.
+   *
+   * `canPlace` is asked about each section rather than trusted, for the rule
+   * the yard learned the hard way: **the seed may only lay what the player
+   * could lay**. A shop whose doorway opens onto a plot, a crate or the border
+   * ring gets fewer sections rather than four illegal ones, and the mark is set
+   * either way — one attempt, on the load this lands, and never again.
+   */
+  freezeAwning() {
+    if (this.awningStamped) return false;
+    this.awningStamped = true;
+    const spec = defaultAwning(this.layout);
+    const stamped = [];
+    for (const s of spec) {
+      const p = {
+        id: `fx-${this.nextFixtureId}`,
+        kind: 'prop-floor',
+        piece: 'awning',
+        station: null,
+        x: s.x,
+        z: s.z,
+        rot: s.rot,
+        tier: 1,
+        variant: '',
+        boh: false,
+      };
+      // Against the layout *plus* whatever this loop has already put down, so
+      // two sections cannot be stamped onto one cell — `canPlaceProp` allows
+      // one prop to a cell and it reads `L.props`, which has not been rebuilt
+      // yet. Cheapest correct answer is to re-flow as we go; there are four.
+      if (!canPlace(this.layout, p).ok) continue;
+      this.nextFixtureId++;
+      this.placements = [...this.placements, p];
+      stamped.push(p);
+      this.regenerateLayout();
+    }
+    return stamped.length > 0;
   }
 
   /**

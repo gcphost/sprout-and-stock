@@ -82,8 +82,8 @@ export const act = (id, icon, name, sub, { danger = false, off = false, right = 
  * did: this is a different shape for the same button, not a different button.
  */
 export const actIcon = (id, icon, name, sub, short,
-  { danger = false, off = false, armed = false, right = '' } = {}) => `
-  <button class="fx-verb${off ? ' off' : ''}${danger ? ' danger' : ''}${armed ? ' armed' : ''}"
+  { danger = false, off = false, armed = false, on = false, right = '' } = {}) => `
+  <button class="fx-verb${off ? ' off' : ''}${danger ? ' danger' : ''}${armed ? ' armed' : ''}${on ? ' on' : ''}"
     ${off ? 'disabled' : `data-act="${id}"`}
     title="${esc(sub ? `${name} — ${sub}` : name)}" aria-label="${esc(name)}">
     ${right ? `<span class="have">${esc(right)}</span>` : ''}

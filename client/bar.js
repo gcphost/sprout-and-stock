@@ -45,7 +45,7 @@ export const KEYED = 9;
 
 /**
  * Entries a caller wants pinned to the end of every tab they appear on —
- * Demolish, Hire. A stable sort, so everything else keeps the order it was
+ * Demolish. A stable sort, so everything else keeps the order it was
  * given; without it a pinned entry lands wherever the source list happened to
  * put it, which on some tabs is slot one, under the 1 key.
  */

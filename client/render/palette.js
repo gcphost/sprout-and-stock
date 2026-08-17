@@ -54,8 +54,9 @@ export const PALETTE = {
   path: '#d9cbb0',
   fence: '#c99a63',
   door: '#f6f3ea',
-  awningA: '#e2564a',
-  awningB: '#f6f3ea',
+  // The awning's two stripes used to live here, because the renderer drew the
+  // shop front itself. They are on the `awning` catalog row now — a piece
+  // carries its own colours, which is what lets there be a second design of one.
   sky: '#cfe9f5',
 
   // Open and close. The sun sits low and throws long warm light, so the sky

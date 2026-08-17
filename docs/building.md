@@ -961,8 +961,11 @@ guess.
   `layout.door.x, layout.door.z - 1`. So entry is a *route*: approach → door.
   `approachList()` filters map-edge spots by walkability and knows nothing about
   which door it is feeding. With several doors, each wants the approach nearest
-  it, or everyone crosses the map to use the front one. `addAwning` hardcodes
-  the single south-wall door too. Small, but it sits in the sim's hot path.
+  it, or everyone crosses the map to use the front one. Small, but it sits in
+  the sim's hot path. (`addAwning` used to hardcode the single south-wall door
+  alongside it. It is gone: the awning is an ordinary `prop-floor` piece the
+  save stamps once over the door — see `freezeAwning` — so a second entrance
+  gets its own shop front by somebody placing one, which is the whole point.)
 
 - **Fixture ids already live in two namespaces** (`shelf-p0` from the generator,
   `fx-N` from the player) and must never collide. A things-list makes this

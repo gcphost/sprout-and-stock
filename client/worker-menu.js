@@ -192,6 +192,18 @@ export function showWorker(ui, workerId) {
 
   const foot = [];
 
+  // First, because it is the only verb here that costs nothing, changes
+  // nothing and can be pressed twice — and because it is the one you want
+  // *while* reading the rest. A hire whose kind was deleted has no body to
+  // follow, which is the same `!body` that greys the read-out at the top.
+  const watching = ui.follow === entry.id;
+  foot.push(actIcon('follow', ICONS.camera,
+    watching ? 'Stop following' : 'Follow them',
+    watching
+      ? 'The camera comes back to you. Walking anywhere does the same.'
+      : 'The camera rides on them until you walk somewhere yourself.',
+    watching ? 'Stop' : 'Follow', { off: !body, on: watching }));
+
   const next = nextTier(kind, entry.tier);
   if (next) {
     const afford = (ui.state?.cash ?? 0) >= next.cost;
@@ -264,7 +276,10 @@ function workerSignature(ui, entry, body) {
   return JSON.stringify([entry, body?.job ?? null, body?.carry ?? null,
     // Rounded, or a bar that moves by a thousandth redraws the panel at 10Hz.
     body?.pastime ?? null, Math.round((body?.energy ?? 1) * 20),
-    ui.state?.cash?.toFixed(0), ui.catalog.version, armedToFire(ui, entry.id)]);
+    ui.state?.cash?.toFixed(0), ui.catalog.version, armedToFire(ui, entry.id),
+    // Walking away turns the follow off from outside this menu, and the verb
+    // has to stop saying Following when it does.
+    ui.follow === entry.id]);
 }
 
 /** The authored kind behind a hire, or null if it has since been deleted. */
@@ -495,6 +510,12 @@ function wireWorkerMenu(ui, entry, weights, vocabulary, rows) {
 
   ui.el.panelBody.querySelectorAll('[data-act]').forEach((el) => {
     el.onclick = () => {
+      // A toggle, and the only verb in this menu that sends the server nothing:
+      // where your camera points is yours.
+      if (el.dataset.act === 'follow') {
+        ui.setFollow(ui.follow === entry.id ? null : entry.id);
+        return;
+      }
       if (el.dataset.act === 'promote') {
         ui.net.send('promote', { workerId: entry.id });
         return;

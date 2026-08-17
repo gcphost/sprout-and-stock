@@ -223,6 +223,17 @@ player is told why, and the fix is a second till rather than a mystery.
 - **Crowding must not be measured in tiles.** Customers pass through each
   other, so there is no physical crowding to detect and no appetite for adding
   collision to the pathfinder. Occupancy is a ratio, not a jam.
+- **…which is why a broken line looks like a bug in the queue and is not one.**
+  Shoppers standing inside one another at a till is `queueSlot` clamping: the
+  lane ran out, and everyone past its end is handed the last slot. A lane can
+  only run out for one of two reasons. Either the line is genuinely longer than
+  the room — which the turn-away rule should have prevented at the door — or
+  `growLane` could not take a single step, and the way that happens shop-wide is
+  **enclosure being gone**: a lane grows over `insideStore` tiles, and a shop
+  with a wall knocked through has none. A lane now relaxes that requirement when
+  its own serving spot is outdoors (`indoorOnly`, `shared/build.js`), so an
+  open-plan shop queues on the floor instead of in a heap. If you see the pile
+  again, read `laneOf(till).length` before reading anything in `stepQueue`.
 
 ---
 

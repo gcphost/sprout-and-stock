@@ -170,6 +170,8 @@ function refreshGhost(force = false) {
     scene.setEdgeGhost(null, null);
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
     scene.setAimTarget(razing, 'raze');
+    scene.setPersonAim(null);
+    canvas.style.cursor = '';
     ui.setAim(razing);
     ui.setBuildVerdict(null);
     return;
@@ -183,6 +185,8 @@ function refreshGhost(force = false) {
     scene.setEdgeGhost([seg], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
     ui.setBuildVerdict(verdict);
     scene.setAimTarget(null);
+    scene.setPersonAim(null);
+    canvas.style.cursor = '';
     ui.setAim(null);
     return;
   }
@@ -200,6 +204,8 @@ function refreshGhost(force = false) {
     scene.setFloorGhost([cell], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
     ui.setBuildVerdict(verdict);
     scene.setAimTarget(null);
+    scene.setPersonAim(null);
+    canvas.style.cursor = '';
     ui.setAim(null);
     return;
   }
@@ -224,6 +230,28 @@ function refreshGhost(force = false) {
     // `aimable`. This is the branch that drew the ring on it, and a ring is a
     // promise: the tap it was advertising opened a menu of build verbs on a
     // thing you were not building.
+    // A person outranks everything behind them, exactly as they do on the tap
+    // (see the `pickPerson` branch there) — and until now the two disagreed in
+    // the way that matters least on paper and most in the hand: the tap picked
+    // them and nothing on screen ever said so. A hire is a third of a tile
+    // wide, walking, on a shop floor full of things that DO light up, so the
+    // one thing you have to point at to reach their menu was the only thing
+    // that gave you nothing back for pointing at it.
+    //
+    // Only a hire. A customer is not selectable, and a marker is a promise that
+    // a tap does something.
+    const person = pointer.onCanvas && !ui.demolishArmed()
+      ? scene.pickPerson(pointer.x, pointer.y) : null;
+    scene.setPersonAim(person?.hire ?? null);
+    // The other half of "you can press this", and the half that works before
+    // you have looked down at their feet. The ring says which one; the cursor
+    // says there is one at all.
+    canvas.style.cursor = person?.hire ? 'pointer' : '';
+    if (person?.hire) {
+      scene.setAimTarget(null);
+      ui.setAim(null);
+      return;
+    }
     const aim = pointer.onCanvas && !ui.holding
       ? scene.pickAim(pointer.x, pointer.y, aimable) : null;
     scene.setAimTarget(aim?.crate ?? aim?.fixture ?? null);
@@ -237,6 +265,8 @@ function refreshGhost(force = false) {
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
     ui.setBuildVerdict(null);
     scene.setAimTarget(null);
+    scene.setPersonAim(null);
+    canvas.style.cursor = '';
     ui.setAim(null);
     return;
   }
@@ -247,6 +277,8 @@ function refreshGhost(force = false) {
   // which of the three shelves in reach you meant.
   const over = ui.holding ? null : pickTarget(pointer.x, pointer.y);
   scene.setAimTarget(over);
+  scene.setPersonAim(null);
+  canvas.style.cursor = '';
   ui.setAim(over);
   if (over) {
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
@@ -920,6 +952,12 @@ document.getElementById('build')?.addEventListener('contextmenu', (e) => e.preve
  */
 function walkTo(spec) {
   net.send('walk-to', spec);
+  // Going somewhere is what reclaims the view, and following somebody is the
+  // strongest form of the view being elsewhere — so it comes off here rather
+  // than only on the button. Tapping the floor while watching a stocker is
+  // unambiguous: you meant to go there, and you cannot watch your own walk from
+  // over their shoulder.
+  ui.setFollow(null);
   scene.recentre();
 }
 
@@ -1075,6 +1113,15 @@ function tapAtPointer(cx, cy) {
     // clerk wandering in front of a shelf must not stop you tearing it out.
     const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
     if (who?.hire) { showWorker(ui, who.hire); return; }
+
+    // Past the people, so this press is on something that is not one: the
+    // floor, a shelf, a crate, or a menu being dismissed. All of them are
+    // "clicking off them", and following ends here rather than only on the
+    // button — the button lives in a menu, and a tap on the world is the first
+    // thing that puts a menu away. Pointing at a hire is what does NOT end it,
+    // which is why this sits under that branch: watching a stocker and tapping
+    // them to read what they are up to obviously meant to keep watching.
+    ui.setFollow(null);
 
     // A crate is a verb, and the only one on the shop floor that a tap fires
     // directly. Everything else you point at either opens (a fixture, a hire)
@@ -1333,8 +1380,12 @@ function pollInput(dt) {
 
   // Taking the wheel takes the camera back too. The server drops the route on
   // the first frame of steering, so leaving the view parked where a pan left it
-  // would walk you off the side of your own screen.
-  if ((dx || dz) && scene.panned) scene.recentre();
+  // would walk you off the side of your own screen — and a view riding on
+  // somebody else is that with the parking spot walking away as well.
+  if (dx || dz) {
+    ui.setFollow(null);
+    if (scene.panned) scene.recentre();
+  }
 
   if (dx !== lastInput.dx || dz !== lastInput.dz) {
     lastInput = { dx, dz };

@@ -114,6 +114,9 @@ export class UI {
     // per bar rather than one shared value: they have nothing in common but the
     // strip of screen, and a roster tab is not an answer to a build question.
     this.barTab = { build: null, staff: null, upgrades: null };
+    // The hire whose shoulder the camera is riding on, or null for your own.
+    // See `setFollow` — a view is not part of the shop and is never sent.
+    this.follow = null;
     // And which sub-tab each split tab was last left on, keyed by the tab. Same
     // reasoning one level down: Walls and Floors are two jobs, so coming back to
     // Building should put you back on the one you were doing rather than at the
@@ -213,6 +216,10 @@ export class UI {
 
   toggleBuild(on = !this.buildOn, { quiet = false } = {}) {
     this.buildOn = on;
+    // Building flies the view where nobody can stand (`setFreeRoam`), and
+    // riding on a hire moves what it is flying *from* — two things steering one
+    // camera. Building wins: you asked for the wheel.
+    if (on) this.setFollow(null);
     this.resetRot();
     // Build mode owns the bar while it is on, and hands it back to nobody when
     // it goes off — the roster does not come back just because you stopped
@@ -642,13 +649,36 @@ export class UI {
     // say zero explicitly. Everything above it in the stack is `calc()` off
     // this, and a stale value floats the panel over empty screen.
     if (!this.bar) { this.measureBar(true); return; }
-    if (this.bar === 'staff') return this.renderBrowseBar(staffGroups(this), (it) => (
-      it.hire ? showWorker(this, it.hire) : this.showSection('staff')
-    ), this.openPanel === 'worker' ? `hire:${this.workerRef}` : null);
-    if (this.bar === 'upgrades') return this.renderBrowseBar(upgradeGroups(this), (it) => (
-      showUpgrade(this, it.upgrade)
-    ), this.openPanel === 'upgrade' ? this.upgradeRef : null);
+    const browse = this.browseGroups();
+    if (browse) return this.renderBrowseBar(browse, (it) => this.openBarEntry(it), this.litEntry());
     return this.renderBuildBar();
+  }
+
+  /**
+   * Press one entry of a browse bar.
+   *
+   * A person opens their own menu — there is a lot to say about somebody who
+   * already works here. A kind of person does not: pressing Hire hires. The
+   * ceremony argument `showUpgrade` makes does not carry over, because the tile
+   * already says the name and the price and there is nothing else to read.
+   */
+  openBarEntry(it) {
+    if (it.hire) return showWorker(this, it.hire);
+    if (it.kind) return this.net.send('hire', { kind: it.kind });
+    if (it.upgrade) return showUpgrade(this, it.upgrade);
+    return undefined;
+  }
+
+  /**
+   * Which entry the bar draws as the open one. It follows whatever menu is up
+   * rather than a selection this object holds — see `renderBrowseBar` — so it
+   * is spelled here exactly the way the entries themselves are spelled in
+   * `staffGroups` and `upgradeGroups`.
+   */
+  litEntry() {
+    if (this.openPanel === 'worker') return `hire:${this.workerRef}`;
+    if (this.openPanel === 'upgrade') return this.upgradeRef;
+    return null;
   }
 
   renderBuildBar() {
@@ -796,8 +826,15 @@ export class UI {
 
   /** Round the tabs, for the key that cycles them. Whichever bar is up. */
   cycleBuildGroup(dir = 1) {
-    if (this.bar === 'staff') {
-      this.staffGroup = nextGroup(staffGroups(this), this.staffGroup, dir);
+    // Whichever bar is up says which tabs there are, and `barTab[this.bar]` is
+    // the one field that says which of them is open — it is what
+    // `renderBrowseBar` draws from. The roster kept a second idea of the same
+    // thing (`staffGroup`), which the bar never read, so Tab moved a field
+    // nothing drew and the key read as dead; Upgrades had no branch at all and
+    // so cycled the BUILD tabs, invisibly, from a bar with none of them on it.
+    const browse = this.browseGroups();
+    if (browse) {
+      this.barTab[this.bar] = nextGroup(browse, this.barTab[this.bar], dir);
       this.renderHotbar();
       return;
     }
@@ -832,13 +869,16 @@ export class UI {
   }
 
   buildHintText() {
-    // The roster bar arms nothing, so it has no ghost and no warning to give.
-    // What it can say is the thing the strip has no room for: that there is
-    // nobody to show, which otherwise reads as a bar that failed to load.
+    // The roster bar arms nothing, so it has no ghost and no warning to give —
+    // and it no longer needs to say there is nobody working here, because the
+    // Hire tab is the bar when the roster is empty and it is a list of people
+    // with prices on. What it cannot say for itself is a shop with no `workers`
+    // rows at all: an empty tab under an empty roster reads as a bar that
+    // failed to load rather than as a game nobody has authored a worker for.
     if (this.bar === 'staff') {
-      return (this.state?.roster ?? []).length
+      return (this.catalog.workers ?? []).length
         ? null
-        : { text: 'Nobody works here yet — press Hire to take somebody on' };
+        : { text: 'Nobody has authored a kind of worker — there is no one to hire' };
     }
     if (this.holding) {
       return { text: `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R turns it · Esc puts it back` };
@@ -910,6 +950,26 @@ export class UI {
   }
 
   /**
+   * Watch a hire work, or take the camera back with `null`.
+   *
+   * The flag lives here and the camera lives in the scene, for the same reason
+   * `setFixtureRef` is a pair: the menu has to be able to say Unfollow, and two
+   * ideas of who is being followed would let a button disagree with the view.
+   *
+   * It is deliberately NOT saved and not sent. Where somebody's camera is
+   * pointing is not part of the shop, and the other player watching their
+   * stocker is not something your screen should know about.
+   */
+  setFollow(id = null) {
+    if (this.follow === id) return;
+    this.follow = id;
+    this.scene?.watch(id);
+    // Say so where it was pressed. `panelTick` catches the case where the menu
+    // open is somebody else's — the verb is theirs, and only theirs is lit.
+    if (this.openPanel === 'worker' && this.workerRef) showWorker(this, this.workerRef);
+  }
+
+  /**
    * The fixture under the pointer, from the renderer. Only the hint changes —
    * the gold ring in the world is the renderer's job.
    */
@@ -940,8 +1000,21 @@ export class UI {
    * half of this and stays inside the nine it can name.
    */
   hotbarTools() {
-    if (this.bar === 'staff') return groupAt(staffGroups(this), this.staffGroup)?.items ?? [];
+    const browse = this.browseGroups();
+    if (browse) return groupAt(browse, this.barTab[this.bar])?.items ?? [];
     return this.openBuildGroup().items;
+  }
+
+  /**
+   * The tabs of whichever browse bar is up, or null when the one up is the
+   * palette. One place that answers it, because the number keys, the Tab key
+   * and the bar itself all have to agree about what is on screen — and they
+   * did not: two of them asked different fields, and one asked the palette.
+   */
+  browseGroups() {
+    if (this.bar === 'staff') return staffGroups(this);
+    if (this.bar === 'upgrades') return upgradeGroups(this);
+    return null;
   }
 
   /**
@@ -952,10 +1025,10 @@ export class UI {
   selectBuildToolByIndex(i) {
     const t = i < KEYED ? this.hotbarTools()[i] : null;
     if (!t) return;
-    if (this.bar === 'staff') {
-      if (t.hire) showWorker(this, t.hire); else this.showSection('staff');
-      return;
-    }
+    // A browse bar opens a menu rather than arming anything, so a number key
+    // does exactly what tapping the entry does — see `renderBrowseBar`. It has
+    // to be the same branch, or `selectBuildTool` is handed a person's id.
+    if (this.browseGroups()) { this.openBarEntry(t); return; }
     this.commitBuildMode();
     this.selectBuildTool(t.id);
   }
@@ -1479,6 +1552,10 @@ export class UI {
   update(state) {
     // The fixture menu reads stock, queues and hoppers straight out of here.
     this.state = state;
+    // Somebody the other player let go while you were watching them. The scene
+    // falls back to you on its own, but the flag has to go too or the menu of
+    // the next hire you open says Unfollow.
+    if (this.follow && !(state.roster ?? []).some((e) => e.id === this.follow)) this.setFollow(null);
     this.el.cash.textContent = `$${state.cash.toFixed(2)}`;
     this.el.day.textContent = `Day ${state.day}`;
     this.el.season.textContent = state.season;

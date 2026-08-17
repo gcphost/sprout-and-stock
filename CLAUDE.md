@@ -138,7 +138,10 @@ Fourteen sweeps, about twenty seconds:
   manual till holds it for ever, that serving yourself is slower than being
   served — or the top rung is strictly better and there is no decision on the
   ladder — and that the takings still land on the counter rather than in the
-  bank. It authors its own pieces and removes them on exit.
+  bank. And one claim that is about walls rather than tills, because what it
+  protects is the queue: that a shop whose walls have been taken out still lays
+  a *line* — one tile per place — instead of clamping every shopper onto the
+  serving tile. It authors its own pieces and removes them on exit.
 - `verify:motion` guards the one thing a screenshot can never show: whether the
   thing was moving. That a part flagged `motion` becomes the *right* moving part
   even when a `seam` is dropped past it — the meshes are not the parts, so an
@@ -492,6 +495,22 @@ what the next step was meant to be.
   which reads as bad modelling rather than bad wiring. `verify:catalog` gives its
   test shelf a deliberately *shorter* tier ladder so the wrong row is a number
   that differs rather than a picture that happens to match.
+- **Enclosure is shop-wide and all-or-nothing, so anything gated on "indoors"
+  fails everywhere at once.** Take enough of a wall out and `computeIndoor`
+  returns *zero* indoor cells — not a smaller room, none — and every rule
+  written as "indoors" then applies to nothing. The queue is where that showed
+  up: `growLane` walked `insideStore` tiles only, so no lane grew a single step,
+  every lane came out length 1, and `queueSlot`'s clamp put the entire queue on
+  the serving tile. What you see is a pile of shoppers standing inside one
+  another at the counter, days after the wall came out, and it reads as the
+  queue code having broken — a real save had it, and the tell was `laneOf`
+  answering 1 while `queueMax` said 0. A lane now takes its indoor requirement
+  from **where it starts** (`indoorOnly` in `startLane`): a till in a room
+  queues in that room, which is every generated shop and every sweep, and a till
+  with no room queues on whatever floor it can reach. The wall between two tiles
+  still stops the line either way. The general shape is worth keeping: a rule
+  phrased against enclosure has a silent third state — no enclosure — and it is
+  not "a bit less room", it is the rule applying nowhere.
 - **A floor is a look, and it is what makes a walled room a shop.** Enclosure
   has meant "whatever the walls close in" since step 3 of docs/building.md — so
   you could always draw an annex and it counted as indoors, and it then refused

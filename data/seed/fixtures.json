@@ -317,6 +317,197 @@
     "work": null
   },
   {
+    "id": "awning",
+    "name": "Awning",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e2564a",
+          "pos": [
+            -0.3,
+            1.22,
+            -0.25
+          ],
+          "scale": [
+            0.36,
+            0.06,
+            0.48
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e2564a",
+          "pos": [
+            0.02,
+            1.16,
+            -0.25
+          ],
+          "scale": [
+            0.32,
+            0.06,
+            0.48
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e2564a",
+          "pos": [
+            0.3,
+            1.09,
+            -0.25
+          ],
+          "scale": [
+            0.3,
+            0.06,
+            0.48
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e2564a",
+          "pos": [
+            0.44,
+            1,
+            -0.25
+          ],
+          "scale": [
+            0.07,
+            0.16,
+            0.48
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f6f3ea",
+          "pos": [
+            -0.3,
+            1.22,
+            0.25
+          ],
+          "scale": [
+            0.36,
+            0.06,
+            0.48
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f6f3ea",
+          "pos": [
+            0.02,
+            1.16,
+            0.25
+          ],
+          "scale": [
+            0.32,
+            0.06,
+            0.48
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f6f3ea",
+          "pos": [
+            0.3,
+            1.09,
+            0.25
+          ],
+          "scale": [
+            0.3,
+            0.06,
+            0.48
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f6f3ea",
+          "pos": [
+            0.44,
+            1,
+            0.25
+          ],
+          "scale": [
+            0.07,
+            0.16,
+            0.48
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "prop-floor",
+    "cost": 28,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null
+  },
+  {
     "id": "bakery-case",
     "name": "Bakery Case",
     "model": {
@@ -9032,6 +9223,30 @@
     "emits": null,
     "tags": [],
     "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null
+  },
+  {
+    "id": "shop-floor",
+    "name": "Shop Floor",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "floor",
+    "cost": 6,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#f0ddb8",
+      "accent": null,
+      "pattern": "plain"
+    },
     "yields": null,
     "charm": 0,
     "work": null

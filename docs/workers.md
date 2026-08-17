@@ -274,14 +274,43 @@ upgrades themselves retired — leaving them would mean two ways to hire.
 
 ## The UI — `client/worker-menu.js`
 
-The Staff section lists who is on shift, and **the row is the way in**: tapping
-a name opens that person, exactly as tapping a shelf opens that shelf. Two
-stockers are two rows, and which one you pressed is the only thing that can tell
-them apart — which is the whole reason a hire is a roster row.
+Staff is **a bar, not a panel** — `STAFF_BAR` in `client/sections.js`, the same
+shape Upgrades is — and **the entry is the way in**: pressing a name opens that
+person, exactly as tapping a shelf opens that shelf. Two stockers are two
+entries, and which one you pressed is the only thing that can tell them apart —
+which is the whole reason a hire is a roster row.
 
-"Take someone on" reads `catalog.workers`, not the staff upgrades, so a kind
-authored over MCP is hireable with no client change, and hiring the same kind
-twice is a second person rather than a refusal.
+Its tabs are the roster (`staffGroups`), and the last of them is **Hire**:
+`catalog.workers`, not the staff upgrades, so a kind authored over MCP is
+hireable with no client change, and hiring the same kind twice is a second
+person rather than a refusal. A kind wears its price as its note and how many of
+them already work here as its badge, which is what the build palette does with a
+shelf. **Pressing one hires**, with nothing in between — the tile carries the
+name, the price and the count, and there is no third screen to say them again.
+
+That was a panel, titled "Who works here" and listing everyone who does *not*
+work here, opened by a Hire entry pinned to the end of every roster tab. With
+nobody hired yet the whole strip was that one button, and the rail icon, the
+button, the panel and the bar's own hint line were four things on screen saying
+you could take somebody on. The bar holds the list; the panel is gone.
+
+The first pass at this replaced the panel with a per-kind menu — cost, wage,
+job list, a Hire button — reasoning from `showUpgrade` that an unrefundable
+purchase deserves ceremony. It is written down because it was wrong twice over:
+a hire is $220 against an upgrade's $20,000, and more to the point it was a
+second popover in place of the popover being removed. The ceremony rule is about
+the *size* of what a press commits you to, not about it being irreversible.
+
+Two things fell out of retiring the section, both older than this change and
+both invisible. The keys list in Help was generated from `SECTIONS`, so a menu
+that is a bar has never appeared in it — Staff would simply have dropped off,
+and Upgrades was already missing; it reads `RAIL_ITEMS` now, which is what
+`main.js` actually binds. And **which tab a browse bar has open was two fields**:
+`renderBrowseBar` drew `barTab[bar]` while Tab moved `ui.staffGroup`, so Tab read
+as a dead key on the roster and the number keys picked out of whichever tab
+happened to be first. `ui.browseGroups()` is the one answer now, and Upgrades —
+which had no branch at all, and so cycled the *build* tabs from a bar with none
+of them on it — goes through the same door.
 
 No new panel machinery, per `docs/ui-shell.md`. Three things made that true:
 
@@ -361,6 +390,35 @@ lookups use `icon(name, fallback)`. An icon per authored kind is a contradiction
 anyway, and the real answer landed in step 5 — the worker's own `model`. The
 fallback icon survives only for the roster row and the menu title, where
 something has to sit next to a name.
+
+### Following one, and being able to hit them
+
+Two things about pointing at a person, both of which the shop floor had wrong.
+
+**A hire can be selected, so hovering one has to say so.** Everything else you
+can press lights up — a shelf, a crate, the ground — and a hire, who is a third
+of a tile wide and *walking*, was the one target that gave you nothing back.
+`setPersonAim` is its own marker rather than a mode on `setAimTarget` for one
+reason: everything that one rings stands still, so it is placed once at a tile.
+This holds a roster id and re-places itself every frame off the body's own
+interpolated position — a marker left where they were standing when you hovered
+is worse than none, because it points at a tap that will miss. It rings hires
+only. A customer has no menu, and a marker is a promise that a press does
+something.
+
+**The camera can ride on one.** `ui.follow` is a roster id and `scene.watch` is
+what reads it — the same split `setFixtureRef` uses, so the button and the view
+cannot disagree. It is never sent and never saved: where somebody's camera
+points is not part of the shop.
+
+What ends it is the interesting half, and it is the same rule the pan already
+obeys — *going somewhere reclaims the view* (`walkTo`, `recentre`). So it ends
+on the button, on a walk order, on a movement key, on entering build mode (which
+flies the view from what it is following, two hands on one camera), and on any
+press on the world that is **not** a person. That last one is why the clear sits
+directly under the `pickPerson` branch in the tap handler: tapping the hire you
+are watching, to read what they are up to, is the one press that obviously meant
+to keep watching.
 
 ### The whole loop, driven in a real page
 

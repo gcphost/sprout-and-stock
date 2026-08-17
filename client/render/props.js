@@ -952,6 +952,11 @@ const MARKER_LOOK = {
   // cannot read. A chevron floats over the thing and stacks visually the way a
   // row of signposts does.
   stock: { color: 0x7cc46a, chevron: true, outline: false },
+  // Somebody the pointer is over. Amber, because it is the same sentence the
+  // aim frame says — "this is what you are pointing at" — and tighter, because
+  // a person occupies about a third of a tile and a tile-sized frame under one
+  // in an aisle rings the shelf behind them as well.
+  person: { color: 0xffd66b, half: 0.34, band: 0.07, chevron: true },
 };
 
 /**

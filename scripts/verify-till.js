@@ -45,6 +45,7 @@ import { Game } from '../server/sim/index.js';
 import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { pieceFor } from '../shared/pieces.js';
+import { insideStore } from '../shared/build.js';
 
 const failures = [];
 let checks = 0;
@@ -367,6 +368,59 @@ const tillOf = (g) => g.layout.checkouts[0];
   check(raised > bare,
     'and a bed you paid to raise is further along than one you did not',
     `bare ${bare}, raised ${raised}`);
+}
+
+// ---------------------------------------------------------------------------
+// 6. A shop with no walls left still grows a LINE, not a pile.
+//
+// The one claim here that is not about a till's numbers, and it is here because
+// what it protects is the queue. `growLane` only ever walked `insideStore`
+// tiles, which is right and is asserted as such in `verify:layout` — and is a
+// rule a till cannot obey when there is no inside. Knock the back wall through
+// and enclosure is gone shop-wide, so no lane grows a single step, every lane
+// comes out length 1, and `queueSlot` clamps the entire queue onto the serving
+// tile. It was live in a real save: a heap of shoppers standing inside one
+// another at the counter, with nothing on screen connecting it to a wall taken
+// out days earlier, and it reads as the queue code having broken.
+//
+// Both directions are asserted, because the fix is worth nothing if it quietly
+// let an ordinary shop queue out through its own doorway.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const walled = g.laneOf(tillOf(g)).length;
+  check(walled > 1, 'a walled shop lays a line at all', `${walled}`);
+  const insideAll = g.laneOf(tillOf(g)).every((c) => insideStore(g.layout, c.x, c.z));
+  check(insideAll, 'and every place in it is indoors — the rule is unchanged');
+
+  // Take the shell's walls out the way a player does: an edit per segment,
+  // through the same re-flow a demolition triggers.
+  const L = g.layout;
+  for (let x = L.store.x; x < L.store.x + L.store.w; x++) {
+    g.edits.push({ o: 'h', x, z: L.store.z + L.store.h, k: 0 });
+    g.edits.push({ o: 'h', x, z: L.store.z, k: 0 });
+  }
+  g.regenerateLayout();
+
+  let indoor = 0;
+  for (let i = 0; i < g.layout.indoor.length; i++) if (g.layout.indoor[i]) indoor++;
+  eq(indoor, 0, 'with the walls out, nothing in the shop is indoors');
+
+  const open = g.laneOf(tillOf(g));
+  check(open.length > 1,
+    'and the till still has somewhere to put shopper #2', `lane is ${open.length} long`);
+  const spots = new Set(open.map((c) => `${c.x},${c.z}`));
+  eq(spots.size, open.length, 'every place in that line is its own tile');
+
+  // The actual symptom, asserted where it was seen: two shoppers, two tiles.
+  const till = tillOf(g);
+  till.queue = [];
+  const ids = queueUp(g, till, 2);
+  eq(ids.length, 2, 'two shoppers join the line');
+  const [a, b] = ids.map((id) => g.customers[id]);
+  check(a.x !== b.x || a.z !== b.z,
+    'and they are not standing inside one another',
+    `${a.x},${a.z} vs ${b.x},${b.z}`);
 }
 
 // ---------------------------------------------------------------------------

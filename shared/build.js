@@ -538,6 +538,28 @@ function startLane(L, from, dir, opts = {}) {
     max,
     claimed,
     blocked,
+    /**
+     * WHETHER THIS LANE IS AN INDOOR ONE, decided by where it starts.
+     *
+     * "A queue stays indoors" is the right rule for a till in a room, and it is
+     * asserted as one in `verify:layout`. It is not a rule a till can *obey*
+     * when there is no room: knock the back wall through and enclosure is
+     * gone, so `insideStore` is false on every tile in the world — no lane can
+     * grow a single step, every lane comes out length 1, and `queueSlot` then
+     * clamps every shopper in the shop onto the serving tile. A real shop hit
+     * exactly that and it reads as the queue code having broken, because what
+     * you see is a heap of people standing inside one another at the counter
+     * and nothing anywhere connecting it to a wall you took out last week.
+     *
+     * So the requirement is the *serving spot's own* answer rather than a
+     * constant. A till standing in a room queues in that room, exactly as
+     * before, and every generated shop is that case — which is why nothing in
+     * the sweeps moves. A till with no room around it queues on whatever floor
+     * it can reach, which is a line rather than a pile, and is the same call
+     * the rest of this file makes about strange buildings: the sim copes, and
+     * you keep what you built.
+     */
+    indoorOnly: insideStore(L, from.x, from.z),
     tiles: [{ x: from.x, z: from.z }],
     used: new Set([`${from.x},${from.z}`]),
     heading: dir,
@@ -566,7 +588,11 @@ function growLane(s) {
     const key = `${x},${z}`;
     if (s.used.has(key) || s.claimed?.has(key)) continue;
     if (SOLID.has(edgeBetween(s.L, at.x, at.z, x, z))) continue;
-    if (!insideStore(s.L, x, z) || !isWalkableTile(s.L, x, z) || s.blocked(x, z)) continue;
+    // The wall between two tiles still stops the line either way — a queue may
+    // not run through one whether or not the shop has an inside. What relaxes
+    // when there is no inside is only which floor counts. See `indoorOnly`.
+    if (s.indoorOnly && !insideStore(s.L, x, z)) continue;
+    if (!isWalkableTile(s.L, x, z) || s.blocked(x, z)) continue;
     // Bent the other way, so the next corner should follow this one. Compared
     // by value: every turn helper mints a fresh object, so `===` on a step is
     // always false and the line would forget which way it last bent.

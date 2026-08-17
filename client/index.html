@@ -821,6 +821,16 @@
        stops the press — greying without it is a button that lies. */
     .fx-verb.off { opacity: .25; cursor: default; }
     .fx-verb.off:hover { background: transparent; }
+    /* A verb that is a TOGGLE, and currently on. Amber rather than the accent
+       `armed` uses: red is "one press from something you cannot undo", and a
+       camera that is following somebody is neither a warning nor a decision —
+       it is a state, and it has to be readable as one from the same glance that
+       reads Let go as dangerous. */
+    .fx-verb.on {
+      opacity: 1; background: rgba(217,155,31,.18);
+      box-shadow: inset 0 0 0 1px rgba(217,155,31,.5);
+    }
+    .fx-verb.on:hover { background: rgba(217,155,31,.28); }
     /* One press from something that cannot be taken back. It has to be loud
        here in a way it did not have to be as a row: a row said "Tap again to
        let them go" in words, and a caption has no room for a sentence. */
@@ -1079,10 +1089,38 @@
     /* Somebody the sim cannot place — their kind was deleted out from under
        them. That is a problem rather than a job, and it should not read as one. */
     .tool.warn .cost { color: var(--accent); opacity: .9; }
-    /* The roster and Upgrades share this strip and have no art to put in a well
-       — an empty recess under a glyph is a slot with the thing missing out of
-       it. They keep the old flat button. */
-    #build.browse .tool .ico { background: none; box-shadow: none; height: auto; }
+    /* A glyph on these two is a category rather than a thing, and an empty
+       recess under one is a slot with the thing missing out of it — so a glyph
+       keeps the old flat button. Art does not: a hire IS drawn, and their well
+       has to be the same fixed height every other slot's is or the button
+       changes height with the drawing in it. */
+    #build.browse .tool .ico:not(.art) { background: none; box-shadow: none; height: auto; }
+    /* A ROSTER ENTRY MUST NOT RESIZE ITSELF. Its note is what that person is
+       doing right now — "on the till", then "carrying 4x tomato", then "off for
+       a break" — so a button sized to its own text is one that grows and
+       shrinks every few seconds and shunts every button after it sideways. You
+       cannot press a moving target, and the whole point of the strip is that
+       who is on the tills is a glance rather than a menu.
+
+       So the browse bars fix the width instead of ranging between the floor and
+       the ceiling above, and both lines ellipsise into it. The tooltip carries
+       the whole sentence, which is where an ellipsis sends you. */
+    #build.browse .tool { width: 108px; min-width: 108px; max-width: 108px; }
+    /* …and it gets TWO lines to say it in, centred, clamped. One line of 108px
+       cut "carrying 4x tomato" down to about "carrying 4x to", which is a
+       readout you have to hover to read. Two lines is most of what anybody is
+       ever doing.
+
+       The height is fixed at both of them rather than left to the text, for the
+       same reason the width is: a note that dropped to one line would shorten
+       the button, and the bar measures itself (`--build-h`) so the whole HUD
+       above it would step down with it. A one-line note simply sits in the top
+       half. */
+    #build.browse .tool .cost {
+      white-space: normal; text-align: center; line-height: 1.15; height: 2.3em;
+      display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
 
     /* The last tier, and only when the piece you have picked comes in more than
        one — a shape is not another thing to buy, so it never takes a number key.
@@ -1134,6 +1172,10 @@
     @media (max-width: 720px) {
       #log { display: none; }
       .tool { min-width: 52px; padding: 6px 8px 5px; }
+      /* Narrower, but still ONE width — see the rule above. A roster that
+         stopped shifting on a desktop and went on shifting on a phone would be
+         the same bug with a media query in front of it. */
+      #build.browse .tool { width: 84px; min-width: 84px; max-width: 84px; }
       /* No room for five labelled tabs — the icon is the tab at this width. */
       .cat { padding: 5px 6px; }
       .cat .nm { display: none; }

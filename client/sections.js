@@ -2,8 +2,8 @@ import { ICONS, icon } from './icons.js';
 import { pinLast, KEYED } from './bar.js';
 import { FIXTURES, isProp, isGround, FLOOR_KIND } from '../shared/build.js';
 import { kindOf, countKey } from '../shared/pieces.js';
-import { artForTool, artForStation } from './thumb.js';
-import { showWorker, doingNow, bodyOf, kindSummary } from './worker-menu.js';
+import { artForTool, artForStation, artForWorker } from './thumb.js';
+import { doingNow, bodyOf, kindSummary } from './worker-menu.js';
 // What is on a van. Shared with the shelf menu, which asks the same two
 // questions of it — see client/orders.js.
 import { comingByItem, comingWhy } from './orders.js';
@@ -563,11 +563,13 @@ export function groupOfTool(t) {
 /**
  * The roster, as tabs for the same bar the palette uses.
  *
- * "All" first and always, because with four hires that is the only tab anybody
- * wants; the per-kind tabs earn their place at twenty. They are generated from
- * who actually works here rather than from the `workers` table — a tab for a
- * kind you have never hired is a tab that opens onto nothing, and the one for
- * the kind you just took on should appear without anybody listing it here.
+ * "All" first whenever anybody works here, because with four hires that is the
+ * only tab anybody wants; the per-kind tabs earn their place at twenty. Those
+ * are generated from who actually works here rather than from the `workers`
+ * table — a tab for a kind you have never hired is a tab that opens onto
+ * nothing, and the one for the kind you just took on should appear without
+ * anybody listing it here. Hiring is the last tab, reads the table instead, and
+ * in a shop with nobody in it is the only tab there is.
  *
  * The entry for a person carries what they are doing right now as its note, so
  * the bar is a standing answer to "who is on the tills" without opening
@@ -579,11 +581,20 @@ export function staffGroups(ui) {
   const kinds = ui.catalog.workers ?? [];
   const nameOfKind = (id) => kinds.find((w) => w.id === id)?.name ?? id;
 
+  const skins = ui.catalog.skins ?? [];
+  const kindRow = (id) => kinds.find((w) => w.id === id) ?? null;
+
   const person = (e) => {
     const body = bodyOf(ui, e);
     return {
       id: `hire:${e.id}`,
       hire: e.id,
+      // Them, at their grade and in their skin — not the staff glyph, which
+      // drew four different people as four copies of one silhouette. `icon` is
+      // still here as the fallback, for a hire whose kind was deleted out from
+      // under them: there is no art to draw, and that is exactly the entry that
+      // must not disappear.
+      art: artForWorker(kindRow(e.kind), e.tier, skins.find((s) => s.id === e.skin) ?? null),
       icon: icon(e.kind, ICONS.staff),
       name: e.name,
       note: doingNow(ui, e, body),
@@ -592,30 +603,55 @@ export function staffGroups(ui) {
     };
   };
 
-  // The way to take somebody on, pinned to the end of every tab. It opens the
-  // hire catalogue as a panel rather than listing kinds along here: hiring is
-  // browsing — wages, jobs, what each one is for — and the bar is for choosing
-  // between things you already have.
-  const hire = {
-    id: 'hire-new',
-    hire: null,
-    last: true,
-    icon: ICONS.upgrades,
-    name: 'Hire',
-    note: `${kinds.length} to pick from`,
-    title: 'Take somebody else on',
-  };
+  // Taking somebody on is a TAB, not an entry pinned to the end of every other
+  // one. It was that entry, and the entry was a door to a panel that then said
+  // the same thing over the top of the bar it had been pressed on: with nobody
+  // hired yet the whole strip was one button whose only job was to open a list
+  // — plus a rail icon, plus a hint line, all four saying "you can hire
+  // someone".
+  //
+  // The bar can hold the list. A kind wears its price as its note exactly as a
+  // fixture in the palette does, and how many of them already work here as its
+  // badge, which is the count the palette prints too. Pressing one HIRES —
+  // there is no menu behind it, because the tile already says the name, the
+  // price and how many you have, and a second screen repeating that is the
+  // thing this replaced.
+  const forHire = kinds.map((w) => ({
+    id: `kind:${w.id}`,
+    kind: w.id,
+    // How they turn up: the bottom rung, in the colours they were drawn in —
+    // the same call `artForModel` makes about selling the battered freezer
+    // rather than the chrome one.
+    art: artForWorker(w, 1, null),
+    icon: icon(w.id, ICONS.staff),
+    name: w.name,
+    note: `$${w.cost.toFixed(0)}`,
+    badge: roster.filter((e) => e.kind === w.id).length || null,
+    title: `${w.name} — ${kindSummary(w)}`,
+  }));
 
   const seen = [...new Set(roster.map((e) => e.kind))];
   return [
-    { id: 'all', name: 'Everyone', icon: ICONS.staff, blurb: 'Everybody on shift.', items: [...roster.map(person), hire] },
-    ...seen.map((k) => ({
-      id: `kind:${k}`,
-      name: nameOfKind(k),
-      icon: icon(k, ICONS.staff),
-      blurb: `Everyone taken on as a ${nameOfKind(k).toLowerCase()}.`,
-      items: [...roster.filter((e) => e.kind === k).map(person), hire],
-    })),
+    // No roster means no tabs about the roster: "Everyone" over an empty strip
+    // is a tab that opens onto nothing, and the fall-through in `groupAt` then
+    // lands you on Hire, which is the only thing there is to do.
+    ...(roster.length ? [
+      { id: 'all', name: 'Everyone', icon: ICONS.staff, blurb: 'Everybody on shift.', items: roster.map(person) },
+      ...seen.map((k) => ({
+        id: `kind:${k}`,
+        name: nameOfKind(k),
+        icon: icon(k, ICONS.staff),
+        blurb: `Everyone taken on as a ${nameOfKind(k).toLowerCase()}.`,
+        items: roster.filter((e) => e.kind === k).map(person),
+      })),
+    ] : []),
+    {
+      id: 'hire',
+      name: 'Hire',
+      icon: ICONS.upgrades,
+      blurb: 'Take somebody new on.',
+      items: forHire,
+    },
   ];
 }
 
@@ -1173,11 +1209,40 @@ export const UPGRADE_BAR = {
   name: 'Upgrades',
   key: 'u',
   bar: 'upgrades',
+  // What the keys list in Help prints under the name. A section says this with
+  // `title`, which is its panel's header; a bar has no panel and no header.
+  blurb: 'What there is to buy, once',
   badge: (ui) => {
     const owned = ui.ownedUpgrades ?? [];
     const n = buyableUpgrades(ui)
       .filter((u) => !owned.includes(u.id) && (ui._cash ?? 0) >= u.cost
         && (u.requires ?? []).every((r) => owned.includes(r))).length;
+    return n ? String(n) : null;
+  },
+};
+
+/**
+ * The rail's Staff press, and the third thing that is not a section.
+ *
+ * It was a section — a panel titled "Who works here" that listed the kinds you
+ * could hire, i.e. everybody who does *not* work here — and the bar underneath
+ * it held one button that opened it. Both halves are the bar now (`staffGroups`):
+ * the roster is its tabs, hiring is the last tab, and a tap on a kind hires.
+ * Nothing is left for a panel of rows to do, exactly as with `UPGRADE_BAR`.
+ */
+export const STAFF_BAR = {
+  id: 'staff',
+  icon: ICONS.staff,
+  name: 'Staff',
+  key: 'h',
+  bar: 'staff',
+  blurb: 'Who works here, and who you could take on',
+  // The roster is the ledger of who works here; the NPC on the floor is only
+  // its body. Reading the roster rather than counting bodies means someone
+  // whose kind was deleted still shows up — as a problem, which is what they
+  // are — instead of quietly vanishing off the payroll.
+  badge: (ui) => {
+    const n = (ui.state?.roster ?? []).length;
     return n ? String(n) : null;
   },
 };
@@ -1238,59 +1303,6 @@ export const SECTIONS = [
     },
     rows: stockRows,
     foot: stockFoot,
-  },
-
-  {
-    id: 'staff',
-    icon: ICONS.staff,
-    name: 'Staff',
-    key: 'h',
-    title: 'Who works here',
-    // The rail's Staff press claims the bottom bar rather than opening this
-    // panel — the roster is a list of people you pick between, which is what
-    // the bar is for. The panel is still here and still a section; it is what
-    // the bar's Hire entry opens, and what `showSection('staff')` reaches.
-    bar: 'staff',
-    facet: 'tag',
-    // The roster is the ledger of who works here; the NPC on the floor is only
-    // its body. Reading the roster rather than counting bodies means someone
-    // whose kind was deleted still shows up — as a problem, which is what they
-    // are — instead of quietly vanishing off the payroll.
-    badge: (ui) => {
-      const n = (ui.state?.roster ?? []).length;
-      return n ? String(n) : null;
-    },
-    live: (ui) => JSON.stringify([
-      ui.state?.roster,
-      (ui.state?.players ?? []).filter((p) => p.staff)
-        .map((p) => [p.hire, p.job, p.carry?.qty, p.pastime]),
-      Math.floor(ui._cash ?? 0), ui.catalog.version,
-    ]),
-    // Only the hiring half. The roster itself moved to the bottom bar — see
-    // `staffGroups` — because a list of people is exactly the thing the bar was
-    // built for, and a person is reached by pressing them the way a fixture is.
-    // What is left here is a shop for hires, which is a browsable catalogue and
-    // therefore a panel, the same as the supplier.
-    rows: (ui) => {
-      const kinds = ui.catalog.workers ?? [];
-      const roster = ui.state?.roster ?? [];
-      const rows = [{ sep: roster.length ? 'Take someone else on' : 'Nobody works here yet' }];
-      // Straight off the `workers` table, so a kind authored over MCP can be
-      // hired with no client change — and hiring the same kind twice is a
-      // second person, not a refusal.
-      rows.push(...kinds.map((w) => ({
-        icon: icon(w.id, ICONS.staff),
-        name: w.name,
-        sub: kindSummary(w),
-        right: `$${w.cost.toFixed(0)}`,
-        facets: w.tags ?? [],
-        dim: (ui._cash ?? 0) < w.cost,
-        button: { label: 'hire', run: () => ui.net.send('hire', { kind: w.id }) },
-      })));
-      return rows;
-    },
-    foot: () => `They obey the same rules you do — they walk, queue and carry.
-      Whoever is on shift is along the bottom; tap one to change what they do.`,
   },
 
   {
@@ -1417,19 +1429,28 @@ export const SECTIONS = [
   },
 ];
 
-/** The menu keys, listed from the same array that binds them. */
+/**
+ * The menu keys, listed from the same array that binds them.
+ *
+ * `RAIL_ITEMS` rather than `SECTIONS`, because two of the menus a key opens are
+ * a bar rather than a panel — and a keys list that only knows about panels is a
+ * key nobody can find. Staff joined them the day it stopped being a panel, and
+ * would otherwise have dropped silently off this list. Build is the one
+ * exception: it is a mode, and it has its own line under Building below.
+ */
 function SECTION_KEYS() {
-  return SECTIONS.map((s) => ({
-    name: s.name, sub: s.title, right: s.key.toUpperCase(), plain: true,
+  return RAIL_ITEMS.filter((s) => !s.mode).map((s) => ({
+    name: s.name, sub: s.title ?? s.blurb, right: s.key.toUpperCase(), plain: true,
   }));
 }
 
 export const sectionById = (id) => SECTIONS.find((s) => s.id === id) ?? null;
 
 /**
- * The rail, top to bottom. Build leads it because it is the mode you are in
- * most, and it is not a section — see `BUILD_MODE`.
+ * The rail, top to bottom. The three that own the bottom bar lead it — Build
+ * because it is the mode you are in most, then the two that are a bar rather
+ * than a panel — and the panels follow. None of the first three is a section.
  */
-export const RAIL_ITEMS = [BUILD_MODE, UPGRADE_BAR, ...SECTIONS];
+export const RAIL_ITEMS = [BUILD_MODE, UPGRADE_BAR, STAFF_BAR, ...SECTIONS];
 
 export const railItemById = (id) => RAIL_ITEMS.find((s) => s.id === id) ?? null;

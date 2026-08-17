@@ -365,6 +365,12 @@ export class Scene {
     // where you are standing — at the till it is a twitch, and out on the farm
     // it is half the screen.
     this.camFollowing = false;
+    // Whose shoulder it rides on. Null is you, which is every frame anybody has
+    // ever played; a hire's roster id is the camera watching them work instead.
+    // A roster id rather than a body, because a body is re-sent whole in every
+    // snapshot and one held here would freeze the view where they were standing
+    // when you pressed it.
+    this.watching = null;
     // Where the view has been dragged to, relative to whoever it follows. Kept
     // apart from camTarget because that is overwritten from the player's
     // position every sync — a pan folded into it would be erased 10 times a
@@ -429,8 +435,8 @@ export class Scene {
     // they are one thing — see `syncVehicles`. In `actorRoot` with the other
     // props, and NOT cleared by `buildWorld`: a vehicle is positioned from the
     // snapshot rather than from the layout, so a re-flow neither moves one nor
-    // renumbers it, which is what `clearFixtureProps` exists to cope with for
-    // the props that are hung off a fixture id.
+    // takes one away, which is what `refreshFixtureProps` exists to cope with
+    // for the props that are hung off a fixture id.
     this.vehicleProps = new Map();
     this.actionRings = new Map();
     this.catalog = { items: {}, crops: {} };
@@ -638,6 +644,18 @@ export class Scene {
    */
   recentre() {
     this.camPan.set(0, 0, 0);
+  }
+
+  /**
+   * Ride on a hire instead of on yourself. `null` gives the camera back.
+   *
+   * The pan goes with the switch, for the reason `walkTo` recentres: a drag is
+   * an offset from whoever is being followed, so keeping it would hand you a
+   * camera aimed fourteen tiles off the person you just asked to watch.
+   */
+  watch(hire) {
+    this.watching = hire ?? null;
+    this.recentre();
   }
 
   /** Has the view been shoved off the player? Lets the HUD offer a way back. */
@@ -857,12 +875,13 @@ export class Scene {
     // Anything still dropping was a group under that root, and is now a freed
     // buffer the animator would go on scaling every frame.
     this.landings.length = 0;
-    // Shelf and plot props live in `actorRoot`, not `staticRoot`, so emptying
-    // the maps without taking the meshes out of the scene orphans every one of
-    // them. They stayed exactly where the old shelves used to be, which is why
-    // expanding the shop left stock apparently lying about on the floor. It
-    // leaked a fresh set on every re-flow, and build mode re-flows constantly.
-    this.clearFixtureProps();
+    // Shelf and plot props live in `actorRoot`, not `staticRoot`, so they
+    // survive the clear above and have to be dealt with by name. Only the ones
+    // whose fixture the re-flow removed — emptying the maps wholesale is what
+    // made every shelf in the shop blink each time you laid a tile, and taking
+    // the records out without taking the MESHES out orphans a full set of stock
+    // at the old positions. See `refreshFixtureProps` for both.
+    this.refreshFixtureProps(L);
 
     // Ground: one big plane rather than 1500 grass tiles. It runs well past the
     // last tile — see GROUND_MARGIN — so the world never visibly ends, and so
@@ -960,7 +979,6 @@ export class Scene {
 
     this.addEdges(L);
     this.addFixtureProps(L);
-    this.addAwning(L);
     // Only before there is anybody to follow — see `camFollowing`. A shop that
     // re-flows is still the shop you are standing in, and where you are looking
     // is not something a re-flow gets an opinion about.
@@ -972,23 +990,58 @@ export class Scene {
     this.setAimTarget(null);
   }
 
-  /** Take every shelf stack and crop out of the scene and free its geometry. */
-  clearFixtureProps() {
-    for (const map of [this.shelfProps, this.plotProps]) {
-      for (const [, rec] of map) {
+  /**
+   * Take the stock and crops off fixtures the re-flow got rid of, and leave
+   * everything else standing.
+   *
+   * This used to bin the lot, and that is what "painting a floor makes every
+   * shelf redraw" was. The teardown is synchronous and the refill is not: goods
+   * are drawn from the *snapshot*, which arrives ten times a second, so every
+   * shelf in the shop and every bed on the farm went empty for up to 100ms and
+   * then came back. One re-flow is a blink you could argue with — but build
+   * mode re-flows on every placement, wall segment and floor stroke, so what it
+   * actually reads as is the shop flickering the whole time you work in it.
+   *
+   * Nothing about a floor, a wall, or a shelf three aisles over changes what is
+   * drawn on this board, which is why keeping the record is safe: `syncShelves`
+   * re-reads position, rotation and boards every sync already — that is what
+   * makes a fixture you MOVE take its stock with it — so a survivor is placed
+   * against the new layout on the very next tick either way.
+   *
+   * Two halves, and both are load-bearing:
+   *
+   * - **A record whose fixture is gone must go**, meshes and all. Deleting from
+   *   the map alone orphans them in the scene at the old positions, which is
+   *   the scar `buildWorld` carries a paragraph about — stock apparently lying
+   *   about on the floor, and another full set leaked on every re-flow. A
+   *   plot's readouts are a second `actorRoot` child, so they go out by name.
+   * - **A survivor's `key` is dropped**, so the next sync redraws its goods
+   *   rather than trusting a cache built against the old shop. What is on
+   *   screen stays up in the meantime, which is the whole point — but it is not
+   *   *trusted*, because a tier that keeps its board count while moving the
+   *   boards would otherwise leave every stack at the old heights.
+   *
+   * `stationProps` has worked this way since it was written — it sweeps its own
+   * dead records at the end of `syncStations` — which is why an appliance's
+   * readouts never flickered while every shelf in the building did.
+   */
+  refreshFixtureProps(L) {
+    const alive = [
+      new Set((L.shelves ?? []).map((s) => s.id)),
+      new Set((L.plots ?? []).map((p) => p.id)),
+    ];
+    [this.shelfProps, this.plotProps].forEach((map, i) => {
+      for (const [id, rec] of map) {
+        if (alive[i].has(id)) { rec.key = null; continue; }
         this.actorRoot.remove(rec.group);
         disposeGroup(rec.group);
-        // The crop readouts are a second actorRoot child, so they need taking
-        // out by name. Clearing the map alone would strand every bar and
-        // bubble in the scene at the old plot positions, and leak another set
-        // on every re-flow — the same way the stacks once did.
         if (rec.overlay) {
           this.actorRoot.remove(rec.overlay);
           disposeGroup(rec.overlay);
         }
+        map.delete(id);
       }
-      map.clear();
-    }
+    });
   }
 
   /**
@@ -1166,7 +1219,6 @@ export class Scene {
     return boards.some((b) => b.depth >= b.span) && boards.some((b) => b.span > b.depth);
   }
 
-  /** A striped awning over the shop door — pure decoration, sells the vibe. */
   /**
    * Walls, windows, doorways and fences — the things that live on the
    * boundaries between cells rather than on a cell of their own.
@@ -1266,24 +1318,12 @@ export class Scene {
     }
   }
 
-  addAwning(L) {
-    // `door` is the shop-floor cell behind the opening, so the wall line — and
-    // therefore the front of the building — is half a tile further out. The
-    // awning hangs off that, not off the cell.
-    const wallLine = L.door.z + 0.5;
-    const centre = L.door.x + 0.5;
-    const width = 4;
-    for (let i = 0; i < width; i++) {
-      const stripe = new THREE.Mesh(
-        new THREE.BoxGeometry(1, 0.12, 1.4),
-        material(i % 2 === 0 ? PALETTE.awningA : PALETTE.awningB),
-      );
-      stripe.position.set(centre - width / 2 + i + 0.5, 1.28, wallLine + 0.55);
-      stripe.rotation.x = -0.28;
-      stripe.castShadow = true;
-      this.staticRoot.add(stripe);
-    }
-  }
+  // The awning used to be built here — four striped boxes hung off `L.door` on
+  // every re-flow. It is content now: an `awning` piece in the build catalog,
+  // stamped over the door as ordinary decorations the first time a save loads
+  // (`freezeAwning`, server/sim/index.js). Which is what made it erasable: a
+  // thing the renderer draws for you is a thing nobody can point at, price,
+  // move or take down, and the palette had nothing that could replace it.
 
   // -------------------------------------------------------------------------
   // Dynamic actors
@@ -1324,9 +1364,14 @@ export class Scene {
     this.syncActionTarget(state.players.find((p) => p.id === myId));
     this.syncStockTargets(state.players.find((p) => p.id === myId));
 
+    // Who the camera is riding on. Falling back to `me` when the hire being
+    // watched has no body is not a nicety: they can be let go, or their kind
+    // deleted over MCP, by the other player — and a camera left aimed at
+    // somebody who is not there is a shop you cannot get back to.
     const me = state.players.find((p) => p.id === myId);
-    if (me) {
-      this.camTarget.set(me.x, 0, me.z);
+    const eye = (this.watching && state.players.find((p) => p.hire === this.watching)) || me;
+    if (eye) {
+      this.camTarget.set(eye.x, 0, eye.z);
       this.camFollowing = true;
     }
 
@@ -2275,6 +2320,40 @@ export class Scene {
   }
 
   /**
+   * Ring the PERSON the pointer is over.
+   *
+   * Its own marker rather than a mode on `setAimTarget`, for one reason that
+   * decides the whole shape: everything that one rings stands still. A shelf is
+   * placed at a tile and the marker is placed at the same tile once. A hire
+   * walks, so this holds an id and is re-positioned every frame off the mesh's
+   * own interpolated position — the marker would otherwise sit where they were
+   * standing when you hovered them, which is worse than no marker, because it
+   * says the tap will land somewhere it will not.
+   *
+   * Takes a roster id rather than a body for the reason `watch` does: bodies
+   * are re-sent whole ten times a second.
+   */
+  setPersonAim(hire) {
+    const id = hire ?? null;
+    if (this.personAimId === id) return;
+    this.personAimId = id;
+    if (this.personMarker) {
+      this.actorRoot.remove(this.personMarker);
+      disposeGroup(this.personMarker);
+      this.personMarker = null;
+    }
+    if (!id) return;
+    this.personMarker = buildTargetMarker('person');
+    this.actorRoot.add(this.personMarker);
+  }
+
+  /** The body of a hire, by roster id — what the marker above rides on. */
+  bodyOfHire(hire) {
+    const p = (this.playerState ?? []).find((x) => x.hire === hire);
+    return p ? this.players.get(p.id) ?? null : null;
+  }
+
+  /**
    * Ring the fixture whose menu is open, and keep it ringed.
    *
    * A third marker rather than a mode on the aim ring, because the two answer
@@ -3202,6 +3281,19 @@ export class Scene {
       // became squares that agree with the tile grid it stopped being
       // invisible and started being wrong.
       this.aimMarker.userData.arrow.position.y = 1.62 + Math.sin(now / 1000 * 4) * 0.11;
+    }
+    // The one marker that has to be re-placed every frame, because what it is
+    // pointing at is walking. If their body has gone — let go, or their kind
+    // deleted — the marker goes with it rather than hanging over the floor.
+    if (this.personMarker) {
+      const rec = this.bodyOfHire(this.personAimId);
+      if (!rec) this.setPersonAim(null);
+      else {
+        this.personMarker.position.copy(rec.obj.position);
+        // Lower than a fixture's: a shelf is chest high and a person is not, so
+        // the same 1.62 floats a chevron in the air over their head.
+        this.personMarker.userData.arrow.position.y = 1.34 + Math.sin(now / 1000 * 4) * 0.11;
+      }
     }
     if (this.stockPips?.size) {
       // Per-frame rather than per-sync, like every other marker here: something

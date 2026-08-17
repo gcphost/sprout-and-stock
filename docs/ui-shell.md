@@ -319,13 +319,13 @@ that honest, and the history says all three are needed:
 
 ## Keys
 
-Bound from `SECTIONS` in `main.js`, so a new section is bound and labelled the
-moment it exists.
+Bound from `RAIL_ITEMS` in `main.js`, so a new menu is bound and labelled the
+moment it exists — including the ones that are a bar rather than a panel.
 
 | Key | Does |
 |---|---|
 | `B` `U` `T` `/` | toggle Supplier · Upgrades · Shop · Controls |
-| `H` | the roster along the bottom — a bar, not a panel (`bar: 'staff'` on the section) |
+| `H` | the roster along the bottom — a bar, not a panel (`STAFF_BAR`, which is not a section at all) |
 | `G` | build mode on and off — the rail's Build button presses this |
 | `1`–`9` | the open tab of whichever bar is up, seeds when neither is |
 | `Tab` | next tab of the bar that is up, sub-tabs counting as their own stops (`shift` for back). Prevented hard, or focus lands in the search box |
@@ -835,34 +835,29 @@ spent out of it.
 
 ## Staff
 
-The roster is the **bottom bar** (`H`), not a panel: Everyone first, then a tab
-per kind actually hired, each entry a person carrying what they are doing right
-now. That makes "who is on the tills" a glance rather than a menu. Pressing one
-opens their own menu in `#panel`, exactly the way pressing a shelf does — two
-clerks are two entries and which one you pressed is the only thing that tells
-them apart. The **Hire** entry is pinned last on every tab and opens the section
-below, because hiring is *browsing* — wages, jobs, what each kind is for — and
-the bar is for choosing between things you already have.
+Staff is the **bottom bar** (`H`) and nothing else — there is no staff panel.
+Everyone first, then a tab per kind actually hired, each entry a person carrying
+what they are doing right now, and **Hire** as the last tab. That makes "who is
+on the tills" a glance rather than a menu. Pressing a person opens their own
+menu in `#panel`, exactly the way pressing a shelf does — two clerks are two
+entries and which one you pressed is the only thing that tells them apart.
+Pressing a kind on the Hire tab **hires**: the tile carries the name, the price
+and how many you already have, so there is nothing left for a menu to say.
 
-Hires are **upgrades** — `kind: 'staff'`, `payload.role` — and `syncStaff` adds
-or removes an NPC to match what you own. They are entries in the same `players`
-table you are in, so they obey the rules you obey and the roster is read
-straight off the snapshot: what a row says a hire is doing is literally what it
-is doing on the floor.
+Two rules the entries follow, and both are about a strip you read at a glance:
 
-The section exists because hiring was reachable but invisible — four staff
-upgrades sat among seventeen others with nothing grouping them.
+- **A hire wears their own picture** (`artForWorker`), at their grade and in
+  their skin, rather than the staff glyph — four people drawn as four copies of
+  one silhouette is the same complaint five floors in one grey glyph were.
+- **A browse-bar button is one fixed width.** Everywhere else a `.tool` ranges
+  between a floor and a ceiling and sizes to its text; a roster entry's text is
+  what that person is doing *right now*, so sizing to it means every button
+  shifts sideways every few seconds. Both lines ellipsise and the tooltip
+  carries the sentence.
 
-**What it deliberately does not do**, because the sim has no support for it and
-a button that lies is worse than no button:
-
-- **No firing.** Ownership of an upgrade is permanent; there is no "sell
-  upgrade" message. Undoing a hire means a server change.
-- **No assignment.** You can't put a clerk on a particular till or a farmhand on
-  a particular field. `stepStaff` picks targets itself.
-
-The foot of the section says both out loud. If either becomes wanted, it starts
-in `server/sim/staff.js` and needs a new room message, not a UI change.
+For what a hire *is* — a roster row rather than an upgrade, and therefore two of
+somebody, letting one go, promotions, skins and job weights — see
+**docs/workers.md**. This section covers the shell only.
 
 ## Density
 

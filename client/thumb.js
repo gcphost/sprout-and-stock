@@ -30,7 +30,7 @@
  * falls off the end with them, with no version to remember to bump.
  */
 
-import { partsAt, variantModel } from '../shared/model.js';
+import { partsAt, variantModel, skinnedParts, skinKey, tierProgress } from '../shared/model.js';
 import { FIXTURES } from '../shared/build.js';
 import { PALETTE, TILE_STYLE, EDGE_STYLE, edgeBands, patternColor, shade } from './render/palette.js';
 
@@ -226,6 +226,7 @@ const r3 = (n) => Math.round(n * 1000) / 1000;
 // ---- what each kind of palette entry is ------------------------------------
 
 const modelArt = new WeakMap();
+const workerArt = new WeakMap();
 const pieceArt = new WeakMap();
 const groundArt = new WeakMap();
 const edgeArt = new Map();
@@ -243,6 +244,36 @@ export function artForModel(model) {
   if (modelArt.has(model)) return modelArt.get(model);
   const art = draw(partsAt(model, 0));
   modelArt.set(model, art);
+  return art;
+}
+
+/**
+ * One hire, as a picture of *that hire*.
+ *
+ * The roster bar used to wear the staff glyph on every entry, which is the
+ * five-floors-one-grey-glyph argument at the top of this file said about
+ * people: four bots in four colours, drawn as four copies of the same
+ * silhouette, and the only thing telling them apart the name underneath.
+ *
+ * Unlike `artForModel` this draws them at THEIR stage and in THEIR skin, so a
+ * promotion restages the button and a repaint repaints it — a hire's art is the
+ * one place in the game where two rows of the same kind are supposed to look
+ * different. `tierProgress` and `skinnedParts` are the same two calls the
+ * renderer makes for the body on the floor, so the button cannot drift from it.
+ *
+ * Cached in a WeakMap on the model with the stage and skin as the inner key: a
+ * catalog reload hands over new model objects and the whole inner map falls off
+ * with them, exactly the way every other cache in this file forgets.
+ */
+export function artForWorker(kind, tier = 1, skin = null) {
+  if (!kind?.model) return null;
+  const key = `${tier}:${skinKey(skin)}`;
+  let byLook = workerArt.get(kind.model);
+  if (!byLook) { byLook = new Map(); workerArt.set(kind.model, byLook); }
+  if (byLook.has(key)) return byLook.get(key);
+  const parts = partsAt(kind.model, tierProgress(tier, kind.tiers?.length ?? 1));
+  const art = draw(skinnedParts(parts, skin));
+  byLook.set(key, art);
   return art;
 }
 
