@@ -42,6 +42,13 @@ import {
  * `BASE_CAM_OFFSET` in scene.js is (20, 24, 20): a 45° yaw, and a pitch that
  * falls out of the same vector rather than being chosen. Kept as the offset and
  * reduced here so it stays recognisably the same three numbers.
+ *
+ * It is the HOME pose and stays one, now the live camera can be turned and
+ * tilted off it. A button is a picture of what a thing is rather than of where
+ * you happen to be standing — a palette whose icons all leaned over as you
+ * dragged the view would be motion in the one part of the screen that should
+ * hold still, and two shelves drawn at 26° are harder to tell apart than the
+ * same two at 40°.
  */
 const CAM = [20, 24, 20];
 const CAM_LEN = Math.hypot(...CAM);

@@ -1,7 +1,7 @@
 # Building — design
 
-Status: **steps 1–9, 11, 13, 14 and 15 built. 10 is cancelled. 12 is what step 9
-left.**
+Status: **steps 1–9, 11, 13, 14, 15 and 16 built. 10 is cancelled. 12 is what
+step 9 left.**
 There is also a working interactive mockup —
 [turn the shop around here](https://claude.ai/code/artifact/1aac9d71-46fc-4e78-9f93-d54a6e6d2467).
 
@@ -901,6 +901,102 @@ Passability, not privacy. The room is still indoors, a shelf in it is still a
 legal shelf, and a shopper can still see in. If "customers cannot see the
 stockroom" ever matters, that is a rendering question and a different feature.
 
+### Picking several, and what a menu can then say
+
+*Built (step 16).* A fixture menu could only ever be about one fixture, because
+opening it was the only way to *name* one. Which meant that restyling a row of
+shelving — the thing you most obviously want to do to shelving, since a shape is
+free and keeps its stock — was open, press, close, walk, open, press, close, once
+per unit. The decision was made in one look at the shop and paid for seventeen
+times.
+
+Three parts, and the order matters because each is useless without the one before
+it.
+
+**Hold Shift and the shop says what is like this.** Every fixture of the same
+*design* as the one you have picked wears a thin, faded version of the selection
+ring (`kin` in `MARKER_LOOK`). The key selects nothing — it is a preview, and it
+is the half that makes the rest discoverable at all: shift-click is invisible
+until something on screen reacts to the shift. Design means the **piece**
+(`UI.designOf`), which is the set that shares one list of shapes, so every basic
+shelf lights up whether it is currently straight, a corner or a wall unit. That is
+exactly the set "make them all wall units" is asked of. It goes through `pieceFor`
+rather than reading `f.piece`, because a fixture placed before the catalog split
+carries no piece at all and resolves to the very row the ones beside it name — off
+the raw field, a shop's own shelving sorts into two designs that draw identically.
+
+**Shift-click adds or drops one.** It takes the press before any of the four
+drags in `pointerdown`, and that is not an ordering nicety: each of those is a
+verb — a wall tool would have laid a segment, the brush a cell, the palette a
+fixture, the bare press turned the camera — and picking six shelves is six clicks
+that have to be *only* picks. It is consumed whole, so the release is not also a
+tap. The first pick is still an ordinary one (`fixtureRef`), and the extras are
+`ui.picked`; picking something new without shift clears them, which is the rule
+that keeps an ordinary tap safe.
+
+**The menu narrows to what they share.** Not a second menu: a second list of rows
+about the same fixtures is two pictures of one thing, and this file's own gotcha
+about `thumb.js` says what happens to those. The same `showFixture` runs, and each
+group is asked whether the *whole* selection can do it — one stock kind for the
+item list (a freezer and a warmer share no item that could go on both), one design
+for the shapes, every unit holding goods for the refill order. What is left is the
+four standing decisions: the shape, what it is kept for, when it gets refilled,
+who may rearrange it, and whether it is back-of-house. A tick is lit only when
+they *all* agree, and the press then says which way it means (`on: !allSay(...)`)
+rather than flipping each — six flips is six different answers.
+
+Move, Rotate, Upgrade, Downgrade, Empty and Remove stay one at a time and **say
+so** rather than disappearing. A hole cannot answer "where is the Remove button",
+and that row is the most familiar thing on the menu. R and M refuse with the same
+sentence (`ONE_AT_A_TIME`), because a key that refused differently from the button
+it stands in for is two rules to learn.
+
+#### One message, one re-flow
+
+The server side is the part nobody sees and the part that had to change. Every
+fixture verb takes one id, so the obvious client answer is to send the message
+once per fixture — and that is wrong three ways, none of them visible in a shop of
+six. `styleFixture` goes through `repositionFixture`, which re-runs the generator,
+rebuilds the walk grid, throws away every shopper's path and bumps
+`layoutVersion` — the same cost `setBackOfHouse` argues its way out of paying for
+one flag. It also re-mints the id of what it moves, so a client sending N messages
+with the ids it was holding is a bug waiting for its own re-flow. And the feed
+would carry one event told six times, which is `endPull`'s argument about a
+gesture said about a selection.
+
+So the message carries `ids`, `targets` in `MartRoom` is the one spelling of "who
+is this about", and `Game.bulkFixtures` runs the single-fixture verb per id inside
+`holdReflow` — which defers every re-flow and does the one at the end. What makes
+that safe rather than merely cheaper is that nothing *between* the verbs reads the
+layout: each looks its own fixture up and checks `canPlace` against a shop none of
+them has moved a tile of. Only the plain form defers; a re-flow that is
+compensating differently or asking for a different set of fixtures is not the one
+the batch is going to run.
+
+A batch that lands on some and not others is an `ok` that logs what it could not
+do — six refusal toasts stacked over each other for one press is worse than the
+information is worth — and only a batch that changed *nothing* comes back as an
+error. **A selection of one is the old path exactly**: no fold, no summary line,
+no held re-flow, and the verb's own result rather than a batch report wearing it.
+Every press in the game that is not a bulk one goes through there now, so that is
+the assertion that stops this being a tax on ordinary play. `verify:pick` pins all
+of it, and its centrepiece is a number that must not grow — and must not stay at
+zero either, because a held re-flow nothing fires is a shop that silently does not
+update.
+
+#### What it is not
+
+A marquee. Dragging a box round part of the shop to pick everything in it is the
+obvious next gesture and it is a separate one: it needs its own drag path in
+`pointerdown` beside the wall, brush, lift and camera drags, and a screen-space
+test against the art rather than the tile. Everything above it is already in
+place — the set of rings, the narrowed menu, `ids` on the wire — so it is a
+gesture rather than a feature.
+
+Nor is it bulk Upgrade or bulk Remove. Both spend or refund real money once per
+fixture, and the row that would do it is one press from a selection you picked for
+a different reason. They are the two verbs worth being asked about twice.
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:
@@ -1033,6 +1129,14 @@ the number.
     idea pointed at direction rather than at who: see above for the pricing
     decision, the two warnings it fixes, and why "in" is read off the enclosure
     rather than stored.
+16. **Picking several at once.** *Built.* Hold Shift to see everything of the
+    same design, shift-click to add or drop one, and the fixture menu narrows to
+    the standing decisions the whole selection shares — the shape, what it is
+    kept for, the refill order, the shop hand, back-of-house. On the wire it is
+    one message carrying `ids` and one re-flow (`Game.bulkFixtures`,
+    `holdReflow`), which is the half of it nothing on screen can show. Additive
+    and independent of everything above: no new kind, no new column, no
+    migration. See above, and `verify:pick`.
 
 ---
 

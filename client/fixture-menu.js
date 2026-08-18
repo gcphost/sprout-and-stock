@@ -51,6 +51,46 @@ const carrying = (ui) => (ui.state?.players ?? [])
  */
 const craftedItems = (ui) => new Set((ui.catalog.recipes ?? []).map((r) => r.output_id));
 
+/**
+ * Which fixtures a row's press is about — this one, or everything picked.
+ *
+ * One spelling on this side, matching the one `targets` is on the server's, and
+ * for the same reason: five rows each deciding for themselves whether the
+ * selection counts is five places to forget it. Every row that can act on a
+ * whole selection sends `ids`; a selection of one sends a list of one, which is
+ * the old message exactly.
+ *
+ * Falls back to the fixture the menu is named after. `pickedIds` is empty while
+ * your hands are full — `selectedFixture` refuses then, because every verb it
+ * feeds is about something standing in the shop — and a row that sent no
+ * targets at all would be a press that silently does nothing.
+ */
+function aimAt(ui, f) {
+  const ids = ui.pickedIds();
+  return ids.length ? ids : [f.id];
+}
+
+/**
+ * Do they ALL say the same thing about this?
+ *
+ * What a tick means for a selection: `picked` is true only when every unit
+ * agrees, because a row that lit up for four of six would be the menu making a
+ * claim about two units that are off screen behind you. The press that follows
+ * sends what it wants explicitly (`on: !allSay(...)`) rather than "flip it" —
+ * the same argument the `assign` message already carries `on` for, one step
+ * further out: six flips is six different answers.
+ */
+const allSay = (lives, fn) => lives.length > 0 && lives.every((l) => fn(l));
+
+/**
+ * What the verbs that are still one-at-a-time say to a selection.
+ *
+ * One string, because it is said by this menu's foot and by the two keys that
+ * stand in for two of those buttons (R and M) — and a key that refused for a
+ * different reason than the button it duplicates is two rules to learn.
+ */
+export const ONE_AT_A_TIME = 'One at a time — shift-click the others back off first.';
+
 /** How each kind of fixture shows up in its own menu. */
 const FIXTURE_ICON = {
   shelf: ICONS.shelf, freezer: ICONS.freezer, warmer: ICONS.warmer,
@@ -154,7 +194,12 @@ export function showFixture(ui, f) {
   // open on the thing that is still sitting right there on that tile.
   // Through the setter, so the world marks which prop this menu is about —
   // the panel names it, and the shop floor is where you are looking.
-  ui.setFixtureRef(f);
+  // `keepPicked`: opening a menu is not a decision about the SELECTION. The
+  // decision was taken by the press that got here (`selectFixture` clears,
+  // `togglePicked` adds), and this is also the call every redraw makes — a
+  // re-flow, a tick, a row pressed — so clearing here would drop the other five
+  // units the moment you used the menu on them.
+  ui.setFixtureRef(f, { keepPicked: true });
   // ...and whoever's menu was open before this one is no longer the subject, so
   // their ring goes. A hire's marker means "this menu is about them" and nothing
   // else — unlike a fixture's, which doubles as the build selection R and M act
@@ -170,6 +215,17 @@ export function showFixture(ui, f) {
   const kind = f.kind;
   const refund = refundFor(ui, f);
   const blocked = removeBlockedReason(ui, f, live);
+
+  // Everything picked, `f` first. One is the ordinary case and the whole menu
+  // below is written for it; several is the shift-clicked selection, and what
+  // changes is narrow on purpose — the rows that are a *standing decision* about
+  // a unit act on all of them, and everything else is still about the one the
+  // menu is named after. See `bulkRows` for the rule.
+  const many = ui.pickedFixtures();
+  const bulk = many.length > 1;
+  // What every one of them agrees about, since a tick that is true of four of
+  // six is a menu lying about two units you cannot see from here.
+  const lives = many.map((g) => liveFixture(ui, g));
 
   // Three regions, the same shape a hire's menu settled on and for the same
   // reason. What this thing IS stays pinned at the top; what you can DO about
@@ -198,7 +254,12 @@ export function showFixture(ui, f) {
   // the player's, not the plot's — but this is where you are when you want it,
   // and at an empty bed it outranks moving or selling the thing.
   // A ripe bed offers no seeds: picking one there would throw the harvest away.
-  if (f.kind === 'plot' && !live?.ready) {
+  // Sowing is not a standing decision, it is one bed being planted now, and it
+  // spends a seed per bed — so it is not on offer to a selection. The same test
+  // (`!bulk`) covers the recipe list below and for the same reason: what a
+  // machine is set to make is per machine, and six machines set to one recipe is
+  // a kitchen making six of the same thing out of one hopper's worth of stock.
+  if (f.kind === 'plot' && !live?.ready && !bulk) {
     group(live?.crop_id ? 'Sow something else' : 'Sow it with', ICONS.seeds,
       seedRows(ui, f, live), 'seeds');
   }
@@ -208,10 +269,17 @@ export function showFixture(ui, f) {
   // rather than a single sowing, so it also gets to say how eagerly the shop
   // keeps that promise — which is the difference between "we sell milk here"
   // and "we are never out of milk".
-  if (holdsGoods(kind)) {
+  // A mixed selection is offered what the WHOLE of it can do, which for stock is
+  // that every unit in it keeps the same kind of goods: a freezer and a warmer
+  // picked together share no item that could go on both, and `assignShelf`
+  // refuses the mismatch one unit at a time — so the list would be forty rows
+  // that half-work. `shelfKind` is the same normalisation the sim uses, which is
+  // what stops this being a fourth hand-written list of kinds.
+  const oneStockKind = many.every((g) => holdsGoods(g.kind) && shelfKind(g.kind) === shelfKind(kind));
+  if (holdsGoods(kind) && oneStockKind) {
     // Built once and shown twice. The shortlist is a *selection* of these rows,
     // not a second list about the same items — see `quickRows`.
-    const items = stockRows(ui, f, live);
+    const items = stockRows(ui, f, live, { many, lives });
     // In front of the full list, because it is the answer for almost every
     // shelf almost every time: the whole catalogue is what you open when the
     // shortlist did not have it. No `find`, and none needed — `QUICK_ROWS`
@@ -223,7 +291,7 @@ export function showFixture(ui, f) {
   // What an appliance is set to make. The same argument the shelf above makes:
   // what a thing is FOR is decided at the thing, and for a machine that knows
   // four recipes and runs one, it is the only decision there is.
-  if (kind === 'station') {
+  if (kind === 'station' && !bulk) {
     group('Set it to make', ICONS.station, recipeRows(ui, f, live), 'recipes');
   }
 
@@ -237,18 +305,36 @@ export function showFixture(ui, f) {
   // that: the sixth switch would push the row into two, and by the tenth nobody
   // could find any of them. A list has room for the sentence each one needs, and
   // adding the next is a row in `MODIFIERS` rather than a decision about layout.
-  group('Settings', ICONS.settings, settingRows(ui, f, live));
+  group('Settings', ICONS.settings, settingRows(ui, f, live, { many, lives }));
 
   // A shape is free and keeps whatever is on it, so it is a browse rather than a
   // decision — which is exactly what belongs in the scrolling half. One shape is
   // not a choice, so a kind nobody has drawn a second design for gets no tab.
-  const styles = styleRows(ui, f);
+  //
+  // ...and to a selection it is offered only when every unit in it is the same
+  // DESIGN, which is the same test the held Shift lights up on (`designOf`).
+  // Two designs share a kind and not a shape list, so a mixed pair would be
+  // offering "Wall unit" to a shelf that has no such shape and refusing half the
+  // press — where the point of the row is that it is one decision.
+  const oneDesign = many.every((g) => ui.designOf(g) === ui.designOf(f));
+  const styles = oneDesign ? styleRows(ui, f, { many }) : [];
   if (styles.length > 1) group('Shape', ICONS.fixtures, styles, 'shapes');
 
-  group('More of these', ICONS.build, moreOfTheseRows(ui, f), 'deals');
+  // A deal is bought once and applies to everything you build afterwards, so it
+  // is not a thing a selection changes the meaning of — and a menu about six
+  // shelves is not where anybody is shopping. It comes back with the selection.
+  if (!bulk) group('More of these', ICONS.build, moreOfTheseRows(ui, f), 'deals');
 
   // ---- the head: what it is ------------------------------------------------
-  const parts = [`<div class="pnl-head">${fixtureDetail(ui, f, live)}</div>`];
+  //
+  // ...or what THEY are, when several are picked. A shelf's head is its boards —
+  // what is on each, at what price, with a button to take an armful — and every
+  // one of those is about one unit standing in one place. Printing the first
+  // one's over a selection of six would be the menu answering a question about
+  // six things with a fact about one of them, and the fact people would act on.
+  const parts = [`<div class="pnl-head">${bulk
+    ? selectionDetail(ui, many)
+    : fixtureDetail(ui, f, live)}</div>`];
 
   // ---- the middle: the long half, tabbed once there is more than one --------
   //
@@ -329,12 +415,27 @@ export function showFixture(ui, f) {
   // See `actIcon` for what deliberately does NOT move: the price and the count.
   const foot = [];
 
+  // Every verb in the foot is one at a time, and with several picked they say so
+  // rather than disappearing.
+  //
+  // Which of the two is not a style question. A hole cannot answer "where is the
+  // Remove button" — the same argument the disabled order button on a board row
+  // makes — and this row is the most familiar thing on the menu, so a selection
+  // that quietly shortened it would read as the menu having broken. And each of
+  // them is genuinely a different sentence about six things than about one: Move
+  // fills your hands with one fixture, Rotate turns each into its own corner,
+  // and Upgrade and Remove spend or refund real money six times over. They are
+  // one press away — shift-click the one you want, or press Escape.
+  const alone = bulk ? ONE_AT_A_TIME : null;
+  const only = alone ? { off: true } : {};
+
   // The keys are on the buttons for the reason every other key in the game is on
   // its button: a shortcut nothing names is a shortcut for whoever wrote it. Both
   // of these work on whatever this menu is open on, wherever the pointer is —
   // see `rotateSelected` and `moveSelected`.
   foot.push(actIcon('move', ICONS.move, 'Move it',
-    'Picks it up with everything on it. Nothing shifts until you set it down.', 'Move', { key: 'M' }));
+    alone ?? 'Picks it up with everything on it. Nothing shifts until you set it down.',
+    'Move', { key: 'M', ...only }));
 
   if (FIXTURES[kind]?.rotates) {
     // Which side a thing faces means something different for each of them, and
@@ -344,7 +445,7 @@ export function showFixture(ui, f) {
       checkout: 'Quarter turn. Sets where you serve and which way the queue runs.',
       station: 'Quarter turn. Sets which side you load it from.',
     }[kind] ?? 'Quarter turn. Sets which aisle shoppers browse it from.';
-    foot.push(actIcon('rotate', ICONS.rotate, 'Rotate', why, 'Rotate', { key: 'R' }));
+    foot.push(actIcon('rotate', ICONS.rotate, 'Rotate', alone ?? why, 'Rotate', { key: 'R', ...only }));
   }
 
   // Upgrading sits above the destructive half of the list: it is the thing you
@@ -358,10 +459,10 @@ export function showFixture(ui, f) {
     // which is fixed and short; the row below it says what you actually get.
     const blurb = `${next.name} — ${tierBlurb(next)}`;
     foot.push(actIcon('upgrade', ICONS.tierup, 'Upgrade',
-      afford ? blurb : `${blurb} You cannot afford it yet.`, 'Upgrade',
+      alone ?? (afford ? blurb : `${blurb} You cannot afford it yet.`), 'Upgrade',
       // A tier that is purely cosmetic still costs nothing, and `$0` in the
       // price column reads as a broken number rather than as good news.
-      { off: !afford, right: next.cost > 0 ? money(next.cost) : 'free' }));
+      { off: !afford || bulk, right: next.cost > 0 ? money(next.cost) : 'free' }));
   }
 
   // Straight under Upgrade, because it is the same ladder and the pair reads as
@@ -371,13 +472,14 @@ export function showFixture(ui, f) {
   const back = prevTier(ui, f);
   if (back) {
     foot.push(actIcon('downgrade', ICONS.tierdown, 'Downgrade',
-      `Back to ${back.name} — ${tierBlurb(back)} Half of that rung back, and it keeps its stock.`,
-      'Downgrade', { right: back.refund > 0 ? signed(back.refund) : '' }));
+      alone ?? `Back to ${back.name} — ${tierBlurb(back)} Half of that rung back, and it keeps its stock.`,
+      'Downgrade', { right: back.refund > 0 ? signed(back.refund) : '', ...only }));
   }
 
   const holds = contentsOf(ui, f, live);
   if (holds.n > 0) {
-    foot.push(actIcon('empty', ICONS.empty, 'Empty it', holds.blurb, 'Empty', { right: `${holds.n}` }));
+    foot.push(actIcon('empty', ICONS.empty, 'Empty it', alone ?? holds.blurb, 'Empty',
+      { right: `${holds.n}`, ...only }));
   } else if (holdsGoods(kind) && live?.stacks?.length) {
     // The labels are what was last on each board; what it is *kept* for is a tab
     // above and survives this. This one keeps its sub-line, because "take the
@@ -385,28 +487,34 @@ export function showFixture(ui, f) {
     // something, not saying so is the menu looking like it will undo both.
     const labels = live.stacks.map((k) => ui.itemName(k.item_id)).join(', ');
     foot.push(actIcon('empty', ICONS.label, 'Take the labels off',
-      live.assigned?.length
+      alone ?? (live.assigned?.length
         ? `Last held ${labels}. It stays kept for ${live.assigned.map((id) => ui.itemName(id)).join(', ')}.`
-        : `Still labelled ${labels}. Clear them and anything can go on.`,
+        : `Still labelled ${labels}. Clear them and anything can go on.`),
       // Not "Label" — that reads as a verb for putting one ON, which is the
       // opposite of what this does and is a tab away.
-      'Unlabel'));
+      'Unlabel', { ...only }));
   }
 
   // A greyed square says nothing about why, and this is the one verb people
   // press and get refused — so the reason IS the tooltip when there is one.
   foot.push(actIcon('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
-    blocked ?? 'Half of what it cost back.',
+    alone ?? blocked ?? 'Half of what it cost back.',
     kind === 'station' ? 'Sell' : 'Remove',
-    { danger: true, off: !!blocked, right: blocked ? '' : signed(refund) }));
+    { danger: true, off: !!blocked || bulk, right: blocked ? '' : signed(refund) }));
 
   parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
 
   // Which unit, and which tab of it. Reserving an item or picking a shape
   // redraws the whole menu and must keep your place in a list that can run to
   // forty items; changing tab or aiming at another shelf must not.
-  ui.showPanel(`${FIXTURE_ICON[kind] ?? ICONS.crate} ${ui.fixtureName(f)}`, parts.join(''),
-    `fixture:${f.id}:${at}:${ui.query}:${ui._fxDept ?? ''}`);
+  //
+  // ...and how many, because the title is the one place that says a press here
+  // is about six things rather than one. The count is in the repaint key with
+  // everything else in it: picking another unit changes what the rows say, and a
+  // menu keyed only on the fixture would not redraw for it.
+  ui.showPanel(`${FIXTURE_ICON[kind] ?? ICONS.crate} ${bulk
+    ? `${many.length} picked` : ui.fixtureName(f)}`, parts.join(''),
+  `fixture:${f.id}:${many.length}:${at}:${ui.query}:${ui._fxDept ?? ''}`);
   // After `showPanel`, which hides it — see the note there.
   ui.showFilter(filterable);
   wireFixtureMenu(ui, f, live);
@@ -490,8 +598,13 @@ function recipeRows(ui, f, live) {
  * path moving and turning do. So this is a decision you can take back, which is
  * the whole reason it can sit in the menu next to Remove without a warning.
  */
-function styleRows(ui, f) {
-  const here = f.variant ?? '';
+function styleRows(ui, f, { many = [f] } = {}) {
+  // The shape they are ALL wearing, or none — so a selection standing in three
+  // different shapes has no row marked, and every row is live. Which is right:
+  // with nothing ticked, every one of them is a change, and that is what the
+  // press does.
+  const here = many.every((g) => (g.variant ?? '') === (f.variant ?? '')) ? f.variant ?? '' : null;
+  const count = many.length;
   return variantsOf(pieceFor(ui.catalog.fixtures ?? [], f)).map((v) => ({
     // Each shape wearing its own shape, the same picture the palette's shape
     // card draws — "Wall corner" and "Wall corner (other way)" are one word in
@@ -501,10 +614,14 @@ function styleRows(ui, f) {
     art: artForVariant(v),
     icon: ICONS.fixtures,
     name: v.name,
-    sub: v.id === here ? 'what this one is' : 'free — it keeps whatever is on it',
+    sub: v.id === here
+      ? (count > 1 ? `what all ${count} of them are` : 'what this one is')
+      : (count > 1
+        ? `free — all ${count} of them, and each keeps whatever is on it`
+        : 'free — it keeps whatever is on it'),
     picked: v.id === here,
     run: v.id === here ? null : () => ui.withBuildMode(() => {
-      ui.net.send('build-style', { id: f.id, variant: v.id });
+      ui.net.send('build-style', { ids: aimAt(ui, f), variant: v.id });
     }),
   }));
 }
@@ -518,8 +635,14 @@ function styleRows(ui, f) {
  * is an instruction no stocker will ever carry out, and a row that can only
  * ever error is worse than a row that isn't there.
  */
-function stockRows(ui, f, live) {
+function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
   const home = shelfKind(f.kind);
+  // How many units this list is deciding for. Everything else below is read off
+  // the unit the menu is named after — how many boards it has, what is standing
+  // on them, what a board of this would hold — and that stays true of a
+  // selection of one design, which is the only selection this tab is offered to
+  // (`oneStockKind`, and shapes do not change a ladder).
+  const count = many.length;
   // A LIST now, and every row is a checkbox rather than a picker. The same rows
   // in the same order — what changed is that pressing one toggles it instead of
   // replacing whatever was there.
@@ -575,7 +698,10 @@ function stockRows(ui, f, live) {
   const rows = (ui.catalog.items ?? [])
     .filter((it) => homeKind(it) === home)
     .map((it) => {
-      const on = kept.includes(it.id);
+      // Ticked when they ALL keep a board for it. The press then says which way
+      // it means explicitly, so a selection where four of six already keep it
+      // turns the other two on rather than flipping each — see `allSay`.
+      const on = allSay(lives, (l) => (l?.assigned ?? []).includes(it.id));
       const here = (live?.stacks ?? []).find((k) => k.item_id === it.id) ?? null;
       // Ticking this would need a board, and there is not one. Said as a reason
       // rather than a silently dead row — "every board is taken" is a fact about
@@ -690,7 +816,7 @@ function stockRows(ui, f, live) {
         // make it. A ticked row survives the second one on purpose — selling the
         // fryer must leave you able to untick the board you kept for chips.
         run: (noRoom || (missing && !on)) ? null
-          : () => ui.net.send('assign', { shelfId: f.id, itemId: it.id, on: !on }),
+          : () => ui.net.send('assign', { ids: aimAt(ui, f), itemId: it.id, on: !on }),
       };
     });
 
@@ -702,10 +828,12 @@ function stockRows(ui, f, live) {
     rows.unshift({
       icon: ICONS.label,
       name: 'Anything at all',
-      sub: kept.length > 1
-        ? `Stop keeping it for those ${kept.length}. Your crew fill it with whatever sells.`
-        : 'Stop keeping it for one thing. Your crew fill it with whatever sells.',
-      run: () => ui.net.send('assign', { shelfId: f.id, itemId: null }),
+      sub: count > 1
+        ? `Stop keeping all ${count} of them for anything. Your crew fill them with whatever sells.`
+        : (kept.length > 1
+          ? `Stop keeping it for those ${kept.length}. Your crew fill it with whatever sells.`
+          : 'Stop keeping it for one thing. Your crew fill it with whatever sells.'),
+      run: () => ui.net.send('assign', { ids: aimAt(ui, f), itemId: null }),
     });
   }
   return rows;
@@ -836,9 +964,12 @@ const MODIFIERS = [
   },
 ];
 
-function modifierRows(ui, f, live) {
-  return MODIFIERS.filter((m) => m.kinds.includes(f.kind)).map((m) => {
-    const on = m.on(live);
+function modifierRows(ui, f, live, { many = [f], lives = [live] } = {}) {
+  // Only the switches every picked unit carries. A switch offered to a
+  // selection half of which has never heard of it is a press that half-lands,
+  // and the half that did not is the half you cannot see.
+  return MODIFIERS.filter((m) => many.every((g) => m.kinds.includes(g.kind))).map((m) => {
+    const on = allSay(lives, m.on);
     return {
       icon: m.icon,
       name: m.name(on),
@@ -852,7 +983,7 @@ function modifierRows(ui, f, live) {
       // with or without it, so the press has to carry the mode in rather than
       // bounce off it. Sent raw it comes back "not in build mode" and the row
       // simply does nothing, which reads as a dead button.
-      run: () => ui.withBuildMode(() => ui.net.send(m.verb, { id: f.id, on: !on })),
+      run: () => ui.withBuildMode(() => ui.net.send(m.verb, { ids: aimAt(ui, f), on: !on })),
     };
   });
 }
@@ -881,28 +1012,35 @@ const HANDS = [
   },
 ];
 
-function handRows(ui, f, live) {
-  const at = live?.managed !== false;
-  return HANDS.map((h) => ({
-    icon: ICONS.stocker,
-    name: h.name,
-    sub: h.sub,
-    picked: h.on === at,
-    run: h.on === at ? null
-      : () => ui.net.send('shelf-hands', { shelfId: f.id, on: h.on }),
-  }));
+function handRows(ui, f, live, { lives = [live] } = {}) {
+  return HANDS.map((h) => {
+    // Ticked only when they all say it — see `allSay`. A selection that
+    // disagrees has no row marked and every row live, which is exactly the
+    // state it is in: whichever you press is a change to some of them.
+    const at = allSay(lives, (l) => (l?.managed !== false) === h.on);
+    return {
+      icon: ICONS.stocker,
+      name: h.name,
+      sub: h.sub,
+      picked: at,
+      run: at ? null
+        : () => ui.net.send('shelf-hands', { ids: aimAt(ui, f), on: h.on }),
+    };
+  });
 }
 
-function priorityRows(ui, f, live) {
-  const at = live?.priority ?? 0;
-  return PRIORITIES.map((p) => ({
-    icon: ICONS.supplier,
-    name: p.name,
-    sub: p.sub,
-    picked: p.at === at,
-    run: p.at === at ? null
-      : () => ui.net.send('restock-order', { shelfId: f.id, priority: p.at }),
-  }));
+function priorityRows(ui, f, live, { lives = [live] } = {}) {
+  return PRIORITIES.map((p) => {
+    const at = allSay(lives, (l) => (l?.priority ?? 0) === p.at);
+    return {
+      icon: ICONS.supplier,
+      name: p.name,
+      sub: p.sub,
+      picked: at,
+      run: at ? null
+        : () => ui.net.send('restock-order', { ids: aimAt(ui, f), priority: p.at }),
+    };
+  });
 }
 
 /**
@@ -921,14 +1059,18 @@ function priorityRows(ui, f, live) {
  * type — the whole tab is under the eight-row line today, but the next switch
  * anybody adds should not have to think about that.
  */
-function settingRows(ui, f, live) {
+function settingRows(ui, f, live, sel = {}) {
+  const many = sel.many ?? [f];
   const rows = [];
   const under = (heading, list) => { if (list.length) rows.push({ sep: heading }, ...list); };
-  if (holdsGoods(f.kind)) {
-    under('When it gets refilled', priorityRows(ui, f, live));
-    under('The shop hand', handRows(ui, f, live));
+  // Every unit picked has to hold goods, not just the one the menu is named
+  // after: a shelf and a till picked together share no refill order, and the
+  // server would refuse the till on every press.
+  if (many.every((g) => holdsGoods(g.kind))) {
+    under('When it gets refilled', priorityRows(ui, f, live, sel));
+    under('The shop hand', handRows(ui, f, live, sel));
   }
-  under('Set up', modifierRows(ui, f, live));
+  under('Set up', modifierRows(ui, f, live, sel));
   return rows;
 }
 
@@ -1012,6 +1154,18 @@ export function liveFixture(ui, f) {
 /** Everything the open menu draws from, so it can redraw when any of it moves. */
 export function fixtureSignature(ui, f, live) {
   return JSON.stringify([f.id, f.rot, f.tier, live, ui.state?.cash?.toFixed(0),
+    // Which OTHER units are picked, and what each of them says. Every tick on
+    // this menu is now a claim about the whole selection ("all six keep bread"),
+    // so a signature that only watched this fixture's row would leave those
+    // ticks describing a shop that has moved — including one somebody else in
+    // the shop moved. Ids and the three switched fields only, never quantities,
+    // for the reason the shelf fold below gives.
+    ui.picked.map((r) => r.id).join(','),
+    ui.pickedFixtures().slice(1).map((g) => {
+      const l = liveFixture(ui, g);
+      return `${g.id}:${(l?.assigned ?? []).join('+')}:${l?.priority ?? 0}`
+        + `:${l?.managed === false ? 0 : 1}:${l?.boh === true ? 1 : 0}:${g.variant ?? ''}`;
+    }).join(','),
     ui.ownedUpgrades?.length, ui.selectedCrop, ui._season,
     // What is in your hands. Every board's Take button greys out while you are
     // holding something else, so a menu blind to this would still be offering
@@ -1058,6 +1212,33 @@ export function fixtureSignature(ui, f, live) {
       + (s.stacks ?? []).reduce((m, k) => m + (k.qty ?? 0), 0), 0),
     (ui.state?.deliveries ?? [])
       .map((d) => lotStacks(d).map((k) => `${k.item_id}:${k.qty}`).join('+')).join(',')]);
+}
+
+/**
+ * ...and the read-out at the top when SEVERAL are picked: what they are.
+ *
+ * A count per design rather than a list of units, because the list is on the
+ * shop floor already — every one of them is wearing a teal frame, which is the
+ * whole reason the marker is a set rather than one. What the panel can say that
+ * the floor cannot is whether you have picked what you think you have: "6 ×
+ * Basic Shelf" and "5 × Basic Shelf, 1 × Chest Freezer" are the same six frames
+ * from across the room, and the second one is why half the rows below have gone.
+ *
+ * Named by `fixtureName`, which is the piece's own label — so two designs of
+ * shelf count separately, which is exactly the distinction a bulk restyle turns
+ * on.
+ */
+function selectionDetail(ui, many) {
+  const line = (label, value) => `<div class="fx-line"><span>${label}</span><b>${value}</b></div>`;
+  const byName = new Map();
+  for (const g of many) {
+    const name = ui.fixtureName(g);
+    byName.set(name, (byName.get(name) ?? 0) + 1);
+  }
+  return `<div class="fx-detail">
+    ${[...byName].map(([name, n]) => line(esc(name), `${n}`)).join('')}
+    ${line('Picked', `${many.length}`)}
+  </div>`;
 }
 
 /** The read-out at the top: what this particular thing is doing right now. */
@@ -1217,7 +1398,7 @@ function fixtureDetail(ui, f, live) {
     }).join('');
 
     // `Waiting for` retired here — those are rows now (`rows` above), which is
-    // where every other thing you can do to a board already lived. `+6 at 14:00`
+    // where every other thing you can do to a board already lived. `+6 at 2pm`
     // still gets said, on the board's own number, by the same `coming` fold: what
     // the line was for was telling "kept for juice, nothing ordered" apart from
     // "kept for juice, a van is due", and a board reading `0/12 +6` says that in

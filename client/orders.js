@@ -1,7 +1,7 @@
 /**
  * What is on a van, as the two questions anyone asks of it.
  *
- * Its own module because "6 eggs are arriving at 14:00" is a fact about the
+ * Its own module because "6 eggs are arriving at 2pm" is a fact about the
  * world rather than a fact about the supplier panel, and it has two readers now:
  * the supplier's item list, and a shelf's own menu, which is where you are
  * standing when the question occurs to you. A second spelling of the fold would
@@ -17,13 +17,13 @@
  * asking whether any of it was about *it*.
  *
  * A leg is a run, not an order. Two orders of eggs placed either side of a
- * coffee break both land at 14:00, and telling you that twice is a list you
- * have to add up yourself — what a shopkeeper wants is "eight eggs at 14:00",
+ * coffee break both land at 2pm, and telling you that twice is a list you
+ * have to add up yourself — what a shopkeeper wants is "eight eggs at 2pm",
  * which is exactly one leg. The split only survives where it means something,
  * which is a genuine second arrival time.
  *
  * `in` — seconds still to wait — is read for ordering the legs and never
- * printed. The player was told an hour ("on the 14:00 van"); a countdown is a
+ * printed. The player was told an hour ("on the 2pm van"); a countdown is a
  * different promise, and a smaller one.
  */
 export function comingByItem(ui) {
@@ -58,7 +58,7 @@ export function comingByItem(ui) {
  * and the ring is the difference.
  *
  * A leg is a run rather than an order, exactly as above — six orders on the
- * 14:00 van are one van, and a ring per order would be six rings all landing
+ * 2pm van are one van, and a ring per order would be six rings all landing
  * at once.
  */
 export function nextVan(ui) {
@@ -86,7 +86,7 @@ export function nextVan(ui) {
   const p = onVan || wait <= 0 ? 1 : Math.min(1, Math.max(0, 1 - (next.in ?? 0) / wait));
 
   // What the button says on hover. The HOUR, not a countdown in seconds: "on
-  // the 14:00 van" is the promise the player was actually made, and it is still
+  // the 2pm van" is the promise the player was actually made, and it is still
   // true after a reload where a number of seconds would not be. The second
   // clause only appears when there IS a second van, or every order in the shop
   // reads as though it had been split in two.
@@ -103,7 +103,7 @@ export function nextVan(ui) {
  *
  * The count says *how many* are coming; this says *when*, which is the half you
  * plan against. It is deliberately a sentence rather than a countdown —
- * "arriving at 14:00" is the thing you were told when you pressed the button,
+ * "arriving at 2pm" is the thing you were told when you pressed the button,
  * and it stays true across a reload where a number of seconds would not.
  */
 export function comingWhy(e) {

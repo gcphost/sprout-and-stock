@@ -68,7 +68,7 @@ const BOARD_SNAP_PX = 4;
  *  hangs a fixed distance over the same spot, so the two cannot drift apart. */
 const CASH_Y = 0.95;
 const ZOOM_MIN = 0.7;         // wider than the old fixed view, for finding things
-const ZOOM_MAX = 3.4;         // ~5 tiles tall: one shelf and its neighbours
+const ZOOM_MAX = 5.0;         // ~3.4 tiles tall: one unit and what is on it
 const ZOOM_DEFAULT = 1.45;    // ~12 tiles tall: the shop, not the whole county
 /** Per notch. Multiplicative, so a notch is the same *proportion* in or out. */
 const ZOOM_STEP = 1.12;
@@ -78,17 +78,23 @@ const ZOOM_STEP = 1.12;
  *
  * Sized against the *camera*, not the tile grid: the point is that zooming all
  * the way out can never bring the edge of the world on screen. At ZOOM_MIN the
- * frustum is FRUSTUM/ZOOM_MIN tall (~24 tiles), the camera's ~40° pitch stretches
- * that across the ground by 1/sin(pitch) (~19 tiles from the centre), an ultrawide
- * viewport stretches the other axis by `aspect` again (~36 at 3:1), and the camera
- * rides on the player, who can stand in the very corner of the grid. Corner to
- * corner that's about 41 tiles, so this is that plus honest headroom.
+ * frustum is FRUSTUM/ZOOM_MIN tall (~24 tiles), the pitch stretches that across
+ * the ground by 1/sin(pitch), an ultrawide viewport stretches the other axis by
+ * `aspect` again (~1.5× at 3:1), and the camera rides on the player, who can
+ * stand in the very corner of the grid.
+ *
+ * The pitch in that sum is `PITCH_MIN` and not the home 40°, which is the half
+ * that had to change when the view learned to tilt: 1/sin goes from 1.56 to
+ * 3.63 on the way down, so the flattest view looks about 44 tiles up the ground
+ * from the middle of the screen where the pose this number was settled against
+ * managed 19 — and what running out looks like is the world ending in mid-air
+ * along the top of the screen, at one angle, on one monitor.
  *
  * It's one box either way — the only thing a bigger apron costs is a bigger
  * number in a geometry constructor. Note `pickTile` intersects a mathematical
  * plane rather than this mesh, so no amount of apron can affect aiming.
  */
-const GROUND_MARGIN = 56;
+const GROUND_MARGIN = 120;
 
 // `MODEL_REPLACES_TILE` retired here. It answered "does this fixture's model
 // stand instead of the coloured block its tile drew" — a question that only
@@ -217,18 +223,44 @@ const SEAL_SAMPLES = [
   [0.92, 0.6, 0.5], [0.5, 0.6, 0.92],
 ];
 
-/** The camera's home corner. Rotation swings this around Y in quarter turns. */
+/** The camera's home pose. Yaw swings it around Y; pitch raises and drops it. */
 const BASE_CAM_OFFSET = new THREE.Vector3(20, 24, 20);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const QUARTER = Math.PI / 2;
 
 /**
- * How much further a tile of ground runs than the screen it covers, going away
- * from you. The camera's pitch is fixed by BASE_CAM_OFFSET (~40°), so this is
- * 1/sin(pitch) — derived rather than typed, so retuning the offset keeps a pan
- * tracking your finger instead of quietly drifting behind it.
+ * The home pose, taken apart into the two numbers the camera is actually steered
+ * by: how far back it sits, and how far up.
+ *
+ * Distance is held CONSTANT as the pitch moves — the camera swings along an arc
+ * rather than sliding up and down a wall — because an orthographic projection
+ * does not care how far away it is and does care about the angle. Keeping it
+ * fixed means the near clip, the shadow frustum and the light pool all stay
+ * where they were tuned, and the only thing a tilt changes is the one thing it
+ * is supposed to.
  */
-const GROUND_STRETCH = BASE_CAM_OFFSET.length() / BASE_CAM_OFFSET.y;
+const CAM_DIST = BASE_CAM_OFFSET.length();
+const PITCH_HOME = Math.asin(BASE_CAM_OFFSET.y / CAM_DIST);   // ~40°
+/**
+ * How far the view may be tilted, in radians.
+ *
+ * The floor is where the shop stops being a shop rather than where anything
+ * breaks. It is deliberately well under the angle at which the picture is at its
+ * *best*: a front row that hides the aisle behind it is a view you chose to look
+ * along, and the range is only worth having if its ends are extreme. What is
+ * over the line is a view with no ground left in it, which is a first-person
+ * camera wearing an orthographic projection and reads as the tilt being broken.
+ *
+ * The goods on a canopied board go out of sight some way above the floor — see
+ * `CAM_RISE` in shared/model.js, which is written against the home pitch and is
+ * the one thing here a tilt can make quietly wrong.
+ *
+ * The ceiling is short of straight down for the opposite reason: at 90° a
+ * fixture is its own footprint and the shop reads as a floor plan, and an ortho
+ * camera gives you no perspective back to say which way anything is facing.
+ */
+const PITCH_MIN = 16 * (Math.PI / 180);
+const PITCH_MAX = 62 * (Math.PI / 180);
 
 /** How far the view may be shoved off the player it follows, in tiles. */
 const PAN_LIMIT = 14;
@@ -444,6 +476,9 @@ export class Scene {
     // turns, which is what `quarter` now rounds it back into.
     this.camYaw = 0;
     this.camAngle = 0;
+    // Pitch has no target/drawn pair, because nothing eases it: only a drag
+    // moves it, and a drag is already the hand's own easing.
+    this.camPitch = PITCH_HOME;
     this.camTarget = new THREE.Vector3(22, 0, 17);
     this.camLook = this.camTarget.clone();
     // Whether anybody has claimed the view yet. The camera follows you, and
@@ -517,6 +552,10 @@ export class Scene {
     // cleared by `addFixtureProps` for the same reason as the map above: it
     // describes meshes a re-flow throws away.
     this.propBoxes = new Map();
+    // Markers that come in SETS rather than one at a time — see `setMarkedSet`.
+    // Keyed by what the set means ('picked', 'kin') so the two are independent:
+    // they are live at once and answer different questions.
+    this.markSets = new Map();
     this.shelfProps = new Map();
     this.plotProps = new Map();
     this.cashProps = new Map();
@@ -644,8 +683,43 @@ export class Scene {
     if (!rad) return this.camYaw;
     this.camYaw += rad;
     this.camAngle += rad;
-    this.camOffset.copy(BASE_CAM_OFFSET).applyAxisAngle(AXIS_Y, this.camAngle);
+    this.aimCamera();
     return this.camYaw;
+  }
+
+  /**
+   * Raise or drop the camera, for the other axis of the same drag.
+   *
+   * Clamped rather than wrapped, and clamped *silently*: a drag that has run out
+   * of tilt simply stops, the way the zoom does, because a view that bounced or
+   * flipped over the top would be a gesture arguing with the hand making it.
+   *
+   * Positive raises the camera toward straight down. The caller pairs that with
+   * dragging *down* the screen, which is the same "world follows your hand" the
+   * yaw has: you pull the far side of the shop toward you, and the far side of
+   * the shop coming toward you is the camera going up and over it.
+   */
+  tiltView(rad) {
+    const p = Math.min(PITCH_MAX, Math.max(PITCH_MIN, this.camPitch + rad));
+    if (p === this.camPitch) return this.camPitch;
+    this.camPitch = p;
+    this.aimCamera();
+    return this.camPitch;
+  }
+
+  /**
+   * Rebuild where the camera sits from the two angles it is steered by.
+   *
+   * One place, because the yaw is moved by a drag and eased by a key press and
+   * the pitch is moved on its own — three callers, and a pose rebuilt from
+   * `BASE_CAM_OFFSET` in any of them is one that silently throws the *other*
+   * angle away. That is the shape of it: tilting and then pressing `.` would
+   * stand the camera back up, once, with nothing to say why.
+   */
+  aimCamera() {
+    const flat = Math.cos(this.camPitch) * CAM_DIST;
+    this.camOffset.set(flat * Math.SQRT1_2, Math.sin(this.camPitch) * CAM_DIST, flat * Math.SQRT1_2)
+      .applyAxisAngle(AXIS_Y, this.camAngle);
   }
 
   /**
@@ -674,10 +748,13 @@ export class Scene {
    *
    * - **pixels to tiles** is the ortho frustum over the canvas height, divided
    *   by zoom, because zoom is on the camera rather than on FRUSTUM.
-   * - **screen up to ground** stretches by 1/sin(pitch). The camera looks down
-   *   at ~40°, so a tile of ground covers only ~0.65 of a tile of screen going
-   *   away from you — dragging without this tracks correctly across the screen
-   *   and lags going up it, which reads as the ground being slippery.
+   * - **screen up to ground** stretches by 1/sin(pitch). At the home 40° a tile
+   *   of ground covers only ~0.65 of a tile of screen going away from you —
+   *   dragging without this tracks correctly across the screen and lags going up
+   *   it, which reads as the ground being slippery. Read off `camOffset` every
+   *   call rather than worked out once, because the pitch moves now: a constant
+   *   here is a pan that tracks the hand at one angle and slides at every other
+   *   one, which presents as the tilt having broken the drag.
    *
    * Directions come off `camOffset`, which is already rotated by whatever the
    * view has been turned to, so a pan after a quarter turn follows the finger
@@ -694,7 +771,7 @@ export class Scene {
     const fx = -hx / hl;
     const fz = -hz / hl;
     const across = -dxPx * upp;
-    const away = dyPx * upp * GROUND_STRETCH;
+    const away = dyPx * upp * (this.camOffset.length() / this.camOffset.y);
     this.camPan.x += rx * across + fx * away;
     this.camPan.z += rz * across + fz * away;
     return this.clampPan();
@@ -3243,6 +3320,56 @@ export class Scene {
   }
 
   /**
+   * ...and mark a whole SET of them at once.
+   *
+   * The three markers above each hold one thing, because until now every
+   * question the world could be asked about a fixture had one answer: what the
+   * pointer is over, whose menu is open, which hire that is. Picking is the
+   * first question with several — the shelves you have shift-clicked, and the
+   * ones a held Shift is offering — so this is a fourth marker rather than a
+   * fourth mode on any of them, and both sets can be up together with the aim
+   * frame and the selection ring inside them.
+   *
+   * One group per set, rebuilt whole rather than diffed. The key is every id,
+   * tile and facing in the set, so a still selection over a still shop costs
+   * nothing and any change at all — a pick, a re-flow that re-mints ids, a unit
+   * turned — rebuilds it. Diffing would buy nothing: a set changes on a press,
+   * and a press is not ten times a second.
+   *
+   * @param {string} name  which set ('picked', 'kin'), so the two are separate
+   * @param {?Array<{f: object, mode: string, spots?: Array}>} list
+   */
+  setMarkedSet(name, list) {
+    const items = (list ?? []).filter((m) => m?.f);
+    const key = items.map((m) => `${m.f.id}@${m.f.x},${m.f.z},${m.f.rot ?? 0}:${m.mode}`
+      + `|${(m.spots ?? []).map((s) => `${s.x},${s.z}`).join(';')}`).join('/');
+    const held = this.markSets.get(name);
+    if (held && held.key === key) return;
+    if (held) {
+      this.actorRoot.remove(held.group);
+      disposeGroup(held.group);
+      this.markSets.delete(name);
+    }
+    if (!items.length) return;
+    const group = new THREE.Group();
+    for (const m of items) {
+      const marker = this.markerFor(m.f, m.mode);
+      // The working spots go on for the same reason the selection ring's do —
+      // and only on something that owns a cell, because a cage is positioned on
+      // the art rather than on the tile and the spots are offsets from the tile.
+      // The same guard `setSelectedTarget` makes, and the same two facts.
+      if (!isProp(m.f.kind)) {
+        for (const s of m.spots ?? []) {
+          marker.add(buildWorkSpot(s.role, { x: s.x - m.f.x, z: s.z - m.f.z }, marker.userData.color));
+        }
+      }
+      group.add(marker);
+    }
+    this.actorRoot.add(group);
+    this.markSets.set(name, { key, group });
+  }
+
+  /**
    * Show (or clear) the build preview.
    *
    * Validity comes from `shared/build.js` — the same function the server runs
@@ -4523,7 +4650,7 @@ export class Scene {
     const da = this.camYaw - this.camAngle;
     if (da) {
       this.camAngle += Math.abs(da) < 0.0005 ? da : da * 0.14;
-      this.camOffset.copy(BASE_CAM_OFFSET).applyAxisAngle(AXIS_Y, this.camAngle);
+      this.aimCamera();
     }
     // Readouts follow the eased angle, not the target one, so they turn *with*
     // the swing instead of snapping to the new corner while the shop is still

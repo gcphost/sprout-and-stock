@@ -7,9 +7,10 @@
  */
 
 import { variantsOf } from '../shared/model.js';
-import { fixtureLabel, pieceFor } from '../shared/pieces.js';
+import { fixtureLabel, pieceFor, kindOf } from '../shared/pieces.js';
 import { spotsOf } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
+import { clockLabel } from '../shared/clock.js';
 import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups,
 } from './sections.js';
@@ -21,7 +22,7 @@ import { showWorker } from './worker-menu.js';
 import { Rail } from './rail.js';
 import { tip } from './tip.js';
 import { ICONS } from './icons.js';
-import { showFixture } from './fixture-menu.js';
+import { showFixture, ONE_AT_A_TIME } from './fixture-menu.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
 import { artForVariant, artForModel, artForWorker } from './thumb.js';
@@ -111,6 +112,16 @@ const FIXTURE_ICON = {
   plot: ICONS.plot, station: ICONS.station,
 };
 
+/**
+ * Is this held ref the same fixture as that record?
+ *
+ * The same two halves `isSelected` uses and for the same reason: the id goes
+ * stale the moment anything re-mints the placement, and the tile alone is not
+ * enough now that a decoration shares one with whatever it stands on.
+ */
+const refIs = (r, f) => !!r && !!f
+  && (r.id === f.id || (r.x === f.x && r.z === f.z && r.kind === f.kind));
+
 export class UI {
   constructor(net) {
     this.net = net;
@@ -129,6 +140,15 @@ export class UI {
      */
     this.shopOpen = true;
     this.paused = false;
+    /**
+     * The fixtures picked BESIDE the one the menu is about — see `togglePicked`.
+     *
+     * Held as refs rather than records, and cleared by `setFixtureRef` whenever
+     * you pick something new without shift.
+     */
+    this.picked = [];
+    /** Is Shift down over a selection? Then the shop shows what else is like it. */
+    this.kinOn = false;
     this.buildOn = false;
     this.buildTool = 'shelf';
     /**
@@ -903,6 +923,12 @@ export class UI {
   rotateSelected(dir = 1) {
     const f = this.selectedFixture();
     if (!f) return false;
+    // With several picked, R is the Rotate button and says what it says: one at
+    // a time. Turning only the first of six would be the one key in the game
+    // that quietly acts on part of a selection, and which part is invisible —
+    // the ring is on all of them. It still takes the key rather than falling
+    // through to turning the ghost, or R would start placing shelves.
+    if (this.manyPicked) { this.toast(ONE_AT_A_TIME); return true; }
     this.withBuildMode(() => this.net.send('build-rotate', { id: f.id, dir }));
     return true;
   }
@@ -1469,15 +1495,182 @@ export class UI {
    * behind is pointing at a menu that closed, which is worse than no ring at
    * all. Pass null for "no fixture menu open".
    */
-  setFixtureRef(f) {
+  setFixtureRef(f, { keepPicked = false } = {}) {
     this.fixtureRef = f;
+    // Picking a different thing starts a different selection. That is the rule
+    // every multi-select in every program works to, and it is the only one that
+    // makes an ordinary tap safe: without it, opening a shelf to look at it
+    // would quietly add it to six units you had picked ten minutes ago and the
+    // next thing you pressed would happen to all seven.
+    //
+    // `keepPicked` is for the one press that means the opposite — shift, which
+    // is the whole gesture (`togglePicked`) — and for a re-flow re-pointing the
+    // ref at the same fixture's new id.
+    if (!keepPicked) this.picked = [];
     this.scene?.setSelectedTarget(f, f ? this.markerSpots(f) : null);
+    this.syncPickMarkers();
     // The standing hint names which of the two presses you are on, and picking
     // something changes that answer without the pointer moving — which is
     // exactly what `setAim` cannot see, since it early-returns on the same id.
     // Without this the line under a shelf you just picked still says "tap to
     // pick it", over a ring saying you already have.
     if (this.buildOn) this.renderBuildHint();
+  }
+
+  /**
+   * Add a fixture to the selection, or take it back out — the shift-click.
+   *
+   * The FIRST one is the ref, not a member of the list. That asymmetry is worth
+   * stating because it is what keeps the whole feature cheap: the menu, the
+   * ring, R, M and every verb that was written against one fixture go on being
+   * written against one fixture, and `picked` is the extras. Shift-clicking the
+   * ref itself is how you back out to a plain selection, which is also what
+   * makes the gesture reversible in both directions.
+   *
+   * Refs rather than records, and by tile as well as id, for the reason
+   * `refreshFixture` gives: a re-flow re-mints ids, and a bulk restyle is a
+   * re-flow — so a selection held by id alone would empty itself the moment you
+   * used it.
+   */
+  togglePicked(f) {
+    if (!f) return;
+    // Nothing picked yet: the first shift-click is an ordinary pick, so shift
+    // is never a key you have to press twice to start with.
+    if (!this.fixtureRef) { this.selectFixture(f); return; }
+    if (this.isSelected(f)) {
+      // Backing out of the one the menu is about. The first extra takes its
+      // place rather than the whole selection collapsing — you meant to drop
+      // that unit, not the other five.
+      const [next, ...rest] = this.picked;
+      this.setFixtureRef(next ? this.liveRef(next) : null, { keepPicked: true });
+      this.picked = next ? rest : [];
+      this.syncPickMarkers();
+      this.repaintFixtureMenu();
+      return;
+    }
+    const at = this.picked.findIndex((r) => refIs(r, f));
+    if (at >= 0) this.picked.splice(at, 1);
+    else this.picked.push({ id: f.id, x: f.x, z: f.z, kind: f.kind });
+    this.syncPickMarkers();
+    this.repaintFixtureMenu();
+  }
+
+  /**
+   * Every fixture picked, live off the layout, the ref first.
+   *
+   * Resolved on every read rather than stored, exactly as `selectedFixture` is,
+   * and anything that has since gone drops out silently — a shelf somebody else
+   * removed, a placement a re-flow could not honour. A selection that held dead
+   * records would send a bulk verb ids the shop has never heard of, and the
+   * count in the menu would be a promise about fixtures that are not there.
+   */
+  pickedFixtures() {
+    const first = this.selectedFixture();
+    if (!first) return [];
+    const rest = this.picked.map((r) => this.liveRef(r)).filter(Boolean);
+    return [first, ...rest.filter((f) => f.id !== first.id)];
+  }
+
+  /** ...and just their ids, which is what a bulk message carries. */
+  pickedIds() {
+    return this.pickedFixtures().map((f) => f.id);
+  }
+
+  /** Is more than one thing picked? The test every bulk row is gated on. */
+  get manyPicked() {
+    return this.picked.length > 0 && this.pickedFixtures().length > 1;
+  }
+
+  /**
+   * One held ref, resolved against the shop as it stands now.
+   *
+   * Tile first and id second — the same order and the same reason
+   * `refreshFixture` states: the generator re-mints `shelf-p0` positionally on
+   * every re-flow, so an id lookup can quietly land on a completely different
+   * shelf.
+   */
+  liveRef(r) {
+    if (!r) return null;
+    return this.scene?.allFixtures().find((f) => f.x === r.x && f.z === r.z && f.kind === r.kind)
+      ?? this.scene?.fixtureById(r.id)
+      ?? null;
+  }
+
+  /**
+   * Which design a fixture is — what "the same thing as this one" means.
+   *
+   * The PIECE, not the kind and not the shape. That is the set that shares one
+   * list of shapes (`variantsOf` reads the piece), so it is exactly the set a
+   * bulk restyle can act on: every basic shelf in the shop lights up whether it
+   * is currently straight, a corner or a wall unit, because turning all of them
+   * into wall units is the thing you are here to do. An appliance falls back to
+   * its `station`, the same shrug `pieceOf` makes in the renderer — two toasters
+   * are the same thing and a toaster and a fryer are not.
+   */
+  designOf(f) {
+    if (!f) return null;
+    // Through `pieceFor`, never off `f.piece` — that is the one that makes an
+    // *unpieced* fixture answer the same as one that names the kind's default
+    // row. Every fixture in a shop built before the catalog split has no
+    // `piece` at all and resolves to exactly the row the ones beside it name, so
+    // reading the raw field would sort a shop's own shelving into two designs
+    // that draw identically. `kindOf` is the fallback for a kind nobody has
+    // drawn a row for, the same shrug the renderer makes.
+    const piece = pieceFor(this.catalog?.fixtures ?? [], f);
+    return `${f.kind}/${piece?.id ?? kindOf(f) ?? ''}/${f.kind === 'station' ? f.station ?? '' : ''}`;
+  }
+
+  /** Everything in the shop that is the same design as the picked one. */
+  kinOfSelection() {
+    const first = this.selectedFixture();
+    if (!first) return [];
+    const want = this.designOf(first);
+    return (this.scene?.allFixtures() ?? []).filter((f) => this.designOf(f) === want);
+  }
+
+  /**
+   * Hold Shift and the shop shows you what else is like this one.
+   *
+   * A preview and nothing else: the key selects nothing, it says what a
+   * shift-click would be able to reach. Which is the half that makes the gesture
+   * discoverable at all — shift-click is invisible until something on screen
+   * reacts to the shift.
+   */
+  setKinPreview(on) {
+    const want = !!on && !!this.fixtureRef;
+    if (this.kinOn === want) return;
+    this.kinOn = want;
+    this.syncPickMarkers();
+  }
+
+  /**
+   * Put both sets of rings where they belong.
+   *
+   * Called from every place either answer can change — a pick, the ref moving,
+   * Shift going down or up, and a layout landing. `setMarkedSet` keys on the
+   * whole set, so calling it when nothing has moved costs a string compare.
+   *
+   * The picked extras wear the `selected` look, because they ARE selected —
+   * the ref is only first among them, and a different marker would be the world
+   * disagreeing with the menu about how many things you have picked.
+   */
+  syncPickMarkers() {
+    if (!this.scene) return;
+    const picked = this.pickedFixtures().slice(1);
+    this.scene.setMarkedSet('picked', picked.map((f) => ({
+      f, mode: 'selected', spots: this.markerSpots(f),
+    })));
+    // Never under the ones already picked: the same square wearing two frames
+    // reads as a third state, and the thin one is the one that would win.
+    const taken = new Set(this.pickedFixtures().map((f) => f.id));
+    this.scene.setMarkedSet('kin', this.kinOn
+      ? this.kinOfSelection().filter((f) => !taken.has(f.id)).map((f) => ({ f, mode: 'kin' }))
+      : []);
+  }
+
+  /** Redraw the fixture menu if one is open — the selection changed under it. */
+  repaintFixtureMenu() {
+    if (this.openPanel === 'fixture' && this.fixtureRef) showFixture(this, this.fixtureRef);
   }
 
   /**
@@ -1533,10 +1726,15 @@ export class UI {
     // but only one of them can decide what a missing fixture means.
     if (!this.fixtureRef || this.openPanel === 'fixture') return;
     const at = this.fixtureRef;
+    // `keepPicked`, because this is the same selection being re-pointed at the
+    // same shop — and a bulk verb is itself a re-flow, so a selection dropped
+    // here would empty itself the moment you used it, which reads as the second
+    // press doing nothing.
     this.setFixtureRef(
       fixtures.find((f) => f.x === at.x && f.z === at.z && f.kind === at.kind)
       ?? fixtures.find((f) => f.id === at.id)
       ?? null,
+      { keepPicked: true },
     );
   }
 
@@ -2394,10 +2592,7 @@ export class UI {
    * had not closed.
    */
   setClock(state) {
-    const hour = state.time * 24;
-    const h = Math.floor(hour);
-    const m = Math.floor((hour - h) * 60);
-    this.el.clock.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    this.el.clock.textContent = clockLabel(state.time * 24);
 
     this.shopOpen = state.shutters ?? state.isOpen ?? true;
     this.paused = !!state.paused;

@@ -61,6 +61,26 @@ stop. Add a tag instead.
 
 ## Two habits that matter
 
+**A fixture verb can be asked of several fixtures now, and the client sends one
+message.** `p.errand`'s four kinds of address are about one thing at a time;
+`ids` is the other axis. `targets` in `MartRoom` is the one spelling of "who is
+this about" and `Game.bulkFixtures` is the one loop, because the obvious answer —
+send the single-fixture message N times — is wrong in three ways that a shop of
+six shelves hides. `styleFixture` re-flows (and re-mints the id of what it
+touches, so ids captured before the first message go stale under the rest), and a
+re-flow is not a repaint; `assignShelf` writes a line per shelf, so one press
+becomes one event told six times; and a refusal per fixture is six error toasts
+for one click. So: one message, `holdReflow` collapses the re-flows into the one
+that was always enough, `logFold` collapses the feed, and only a batch that
+changed **nothing** comes back as an error. The rule for adding the next bulk
+verb is that a **selection of one must be the old path exactly** — `bulkFixtures`
+returns the verb's own result untouched for a list of one, because every ordinary
+press in the game now goes through it. And the client half of the same rule:
+`setFixtureRef` clears the selection unless told to keep it, which is what makes
+an ordinary tap safe, and every redraw (`showFixture`, `refollowSelection`) has
+to say `keepPicked` — a bulk verb IS a re-flow, so a selection that did not
+survive one would empty itself the instant you used it.
+
 **After changing anything that touches money — run `simulate`.**
 Adding an item, repricing, editing an archetype, changing an upgrade cost.
 Balance is invisible from reading code. `simulate` runs 100 in-game days in
@@ -281,6 +301,22 @@ Fifteen sweeps, about twenty seconds:
   `makeShelf`, so a bin with no branch is not refused, it is silently BUILT AS
   SHELVING. It authors two items, a piece and a worker, and removes them on exit.
 
+- `verify:pick` guards a verb done to SEVERAL fixtures at once, and everything it
+  guards is about the middle of the press rather than the end of it — six shelves
+  restyled one at a time and six restyled together are the same six shelves
+  afterwards. Its centrepiece is a number that must not grow *and* must not stay
+  at zero: `layoutVersion`, which the client watches to decide whether to dispose
+  the entire scene. Six re-flows for one press is the cost `setBackOfHouse`
+  argues its way out of paying for one flag, and none at all is a shop that
+  silently did not update — which is the failure a deferred re-flow introduces.
+  Plus: that the batch lands on every member and on nothing that was not picked
+  (against a control), that the feed says it ONCE where the single verb writes a
+  line per unit, that a bad id in the middle does not stop the rest while a batch
+  where nothing worked is an *error*, that a hold does not swallow a re-flow when
+  what is inside it throws, and — the one that keeps this from being a tax on
+  ordinary play — that a selection of one comes back in the verb's own shape,
+  with no fold, no summary and no held re-flow. It authors nothing.
+
 Each of the first twelve found real bugs the day it was written, and so did
 `verify:hot` — two, both of them a list of kinds somebody had written out by
 hand — and so did `verify:orphans`, which is the only one so far written to a
@@ -392,7 +428,8 @@ what the next step was meant to be.
 | [docs/audio.md](docs/audio.md) | a bus per slider, why the sounds cannot come from the log, the four caps that stop a busy shop being a slot machine, sound as a column on a catalog row, the Sound rows and the Credits tab in the Menu — and why the ambient bed was built, played and cut | steps 2, 3, 5 built; 1 cut; 4, 6 proposed |
 | [docs/waste.md](docs/waste.md) | the shop's way out — the skip, why a hire may carry out rot and never your stock, rot becoming a box on the floor only if you own one, and the one spelling that keeps rubbish from reading as supply | step 1 built; 2–3 proposed |
 | [docs/pickups.md](docs/pickups.md) | the customer who never comes in — a collection point as a till whose queue is fed by the road, why picking is `serve` rather than a new job, why a staged tote is not stock, and the share that is a consequence of owning one | all proposed |
-| [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | steps 2–3 built; 1, 4–8 proposed |
+| [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | steps 2–4 built; 1, 5–8 proposed |
+| [docs/steam.md](docs/steam.md) | selling it on Steam for Windows and macOS — the shell that keeps the renderer we have tested on, a server nobody can find, why Steam Cloud and SQLite's WAL disagree, the 43 milestones that are already an achievement list, why the model call leaves the build and `inventEvent` *is* the director, and why Steam's own relay retires the invite code | all proposed |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
 
 ---

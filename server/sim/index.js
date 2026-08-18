@@ -30,6 +30,7 @@ import {
 } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { hash01 } from '../../shared/hash.js';
+import { hourLabel } from '../../shared/clock.js';
 import { R, netRep } from '../../shared/reputation.js';
 import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { makeNamer } from './names.js';
@@ -1987,7 +1988,7 @@ export class Game {
           qty: o.qty,
           cost: round2(o.cost ?? 0),
           placedDay: o.placedDay ?? this.day,
-          at: clockLabel(o.runHour ?? DELIVERY_RUNS[0]),
+          at: hourLabel(o.runHour ?? DELIVERY_RUNS[0]),
           in: r2(Math.max(0, o.arrivesAt - this.elapsed)),
           // ...and how long it was when it set off, so `in` is a *fraction* of
           // something rather than a bare number of seconds. The pair is what
@@ -2003,7 +2004,7 @@ export class Game {
         // When the vans come at all, so the panel can say what the next one is
         // without knowing the schedule. It is a rule of the world rather than a
         // setting, and it is the one number that explains every wait above it.
-        runs: DELIVERY_RUNS.map(clockLabel),
+        runs: DELIVERY_RUNS.map(hourLabel),
         // How much more the yard will take. A cap that refuses you at the till
         // and never shows you the number is a refusal that reads as a bug.
         bayRoom: this.bayRoom(),
@@ -6490,12 +6491,12 @@ export class Game {
     // it there — which is what `restock` is, one board at a time.
     const who = this.saidBy(playerId, 'ordered');
     this.logGoods(`order:${run.hour}`, {
-      pre: `${who.verb} `, post: ` — on the ${clockLabel(run.hour)} van.`,
+      pre: `${who.verb} `, post: ` — on the ${hourLabel(run.hour)} van.`,
       goods: [{ item_id: itemId, qty: take }], by: who.by,
     });
     return ok({
       ordered: take, cost: round2(cost), delivery: true, orderId: order.id,
-      arrivesAt: clockLabel(run.hour), arrivesIn: round2(run.wait),
+      arrivesAt: hourLabel(run.hour), arrivesIn: round2(run.wait),
     });
   }
 
@@ -7026,7 +7027,7 @@ export class Game {
     // ordered off both of them.
     const hour = run.find((o) => o.runHour != null)?.runHour;
     this.logGoods(null, {
-      pre: hour != null ? `The ${clockLabel(hour)} van's here — ` : "The van's here — ",
+      pre: hour != null ? `The ${hourLabel(hour)} van's here — ` : "The van's here — ",
       post: ' at the bay.',
       goods: run.map((o) => ({ item_id: o.item_id, qty: o.qty })),
     });
@@ -8813,6 +8814,17 @@ export class Game {
   }
 
   /**
+   * ...and the same sentence about an item, for a line that names one.
+   *
+   * The id is the fallback rather than a blank, because content is edited live:
+   * a row deleted out from under a log line should read as the id it was rather
+   * than as the shop having forgotten what it just did.
+   */
+  itemSaid(itemId) {
+    return content().byId.items[itemId]?.name ?? itemId;
+  }
+
+  /**
    * Which piece id a request to build one of these should record.
    *
    * Names the piece asked for when the catalog has it, the kind's default when
@@ -9067,6 +9079,91 @@ export class Game {
     const f = this.findFixture(id);
     if (!f) return { error: 'no such fixture' };
     return { p, f };
+  }
+
+  /**
+   * One fixture verb, done to a whole selection, and said ONCE.
+   *
+   * Every verb in the fixture menu takes a single id, because until now the only
+   * way to name a fixture was to open it. Several can be picked at a time now
+   * (shift-click), and the naive answer — send the message once per fixture — is
+   * wrong three ways over, none of them visible in one shop of six shelves:
+   *
+   * - **Re-flows.** `styleFixture` goes through `repositionFixture`, which calls
+   *   `regenerateLayout` and broadcasts. Eight shelves is eight full re-runs of
+   *   the generator, eight walk grids, eight teardowns of the client's entire
+   *   static scene — the same cost `setBackOfHouse` argues its way out of one
+   *   comment down. `holdReflow` collapses them into the one that was always
+   *   enough, since nothing between them is read by anybody.
+   * - **The feed.** `assignShelf` writes a line per shelf, so ticking one item
+   *   across six units is one event told six times. Same argument `endPull`
+   *   makes about a hold and `logRun` makes about a job loop.
+   * - **The toast.** A refusal per fixture is six error toasts stacked over each
+   *   other for one press. So a partial batch is an `ok` that logs what it could
+   *   not do, and only a batch that changed *nothing* comes back as an error —
+   *   which is the one case where the player has nothing else to look at.
+   *
+   * @param {string[]} ids     what to do it to, in the order the player picked
+   * @param {function} run     the single-fixture verb, called with one id
+   * @param {function} say     `(n) => string`, the one line for a run of them
+   */
+  bulkFixtures(ids, run, say = (n) => `Changed ${n} fixtures.`) {
+    const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
+    if (!list.length) return err('nothing selected');
+    // One at a time is the old path exactly — no fold, no summary, no held
+    // re-flow. The single case is every press in the game that is not a bulk
+    // one, and it must not start behaving differently because bulk exists.
+    if (list.length === 1) return run(list[0]);
+
+    const lines = [];
+    this.logFold = lines;
+    let done = 0;
+    let failed = null;
+    this.holdReflow(() => {
+      for (const id of list) {
+        const r = run(id);
+        if (r?.ok) done++;
+        else failed ??= r?.error ?? 'that would not work';
+      }
+    });
+    this.logFold = null;
+
+    if (!done) return err(failed ?? 'nothing changed');
+    // The fold's own lines are thrown away rather than replayed — they are six
+    // spellings of the sentence `say` writes once. A single line is kept as it
+    // was written, because a verb that only landed on one fixture has already
+    // named that fixture better than a count can.
+    this.pushLog(done === 1 && lines.length === 1 ? lines[0] : say(done));
+    if (failed) this.pushLog(`${list.length - done} of them would not: ${failed}`);
+    return ok({ done, of: list.length, error: failed });
+  }
+
+  /**
+   * Hold every re-flow inside `fn`, and do the one at the end.
+   *
+   * A re-flow is not a repaint (see `setBackOfHouse` for the full list of what
+   * it actually costs), so a batch of eight fixture verbs must not run eight of
+   * them. What makes this safe rather than merely cheaper is that nothing
+   * *between* the verbs reads the layout: each one looks its own fixture up,
+   * checks `canPlace` against the shop as it stood before the batch — which is
+   * the same shop, since none of them moves a tile — and pushes a placement.
+   *
+   * The alias map is merged rather than chained: a fixture is renamed at most
+   * once per batch, because a selection holds each id once.
+   *
+   * Nested calls are a no-op wrapper, so a verb that batches internally cannot
+   * strand the outer hold.
+   */
+  holdReflow(fn) {
+    if (this.reflowHold) return fn();
+    this.reflowHold = { want: false, seed: null, alias: {} };
+    try {
+      return fn();
+    } finally {
+      const held = this.reflowHold;
+      this.reflowHold = null;
+      if (held.want) this.regenerateLayout(held.seed, held.alias);
+    }
   }
 
   /** How much stuff is inside a fixture — what "empty it first" is measuring. */
@@ -10460,6 +10557,20 @@ export class Game {
    *   and the verify sweeps, which need a shop of a stated shape to drive.
    */
   regenerateLayout(newSeed, alias = {}, { compensate = true, want: asked = null } = {}) {
+    // A batch is holding them (`holdReflow`). Remember what this one would have
+    // carried and let the batch do it once, at the end.
+    //
+    // Only the plain form defers. A re-flow that is compensating differently or
+    // asking for a different set of fixtures is not the one the batch is going
+    // to run, and folding it in would quietly drop the difference — which is a
+    // shop that refunds the wrong thing, days later, with nothing to connect it
+    // to the press that caused it.
+    if (this.reflowHold && compensate && !asked) {
+      this.reflowHold.want = true;
+      this.reflowHold.seed = newSeed ?? this.reflowHold.seed;
+      Object.assign(this.reflowHold.alias, alias);
+      return;
+    }
     const oldShelves = this.layout.shelves;
     const oldPlots = this.layout.plots;
     const oldStations = this.layout.stations ?? [];
@@ -12636,6 +12747,11 @@ export class Game {
    * another entry".
    */
   pushLog(msg, extra = null) {
+    // A batch is folding them (`bulkFixtures`): the six lines one press wrote
+    // are six spellings of one event, and the batch writes that event itself.
+    // Collected rather than dropped, because a batch that landed on exactly one
+    // fixture keeps the line the verb wrote for it.
+    if (this.logFold) { this.logFold.push(msg); return; }
     this.logSeq = (this.logSeq ?? 0) + 1;
     this.log.push({ id: this.logSeq, day: this.day, t: r2(this.time), msg, ...(extra ?? {}) });
     if (this.log.length > 200) this.log.shift();
@@ -12957,14 +13073,6 @@ const round3 = (v) => Math.round(v * 1000) / 1000;
 const repMovesOut = (moves) => Object.fromEntries(
   Object.entries(moves ?? {}).map(([k, v]) => [k, round3(v)]).filter(([, v]) => v !== 0),
 );
-/**
- * An hour of the day as a shopkeeper would write it — 8 becomes "08:00".
- *
- * Whole hours only, because the only thing that gets labelled this way is a
- * delivery run and `DELIVERY_RUNS` is whole hours. A run at half past would
- * want minutes here, and that is the moment to widen it rather than now.
- */
-const clockLabel = (h) => `${String(Math.floor(h)).padStart(2, '0')}:00`;
 /**
  * One id, several, or none — always as a list.
  *

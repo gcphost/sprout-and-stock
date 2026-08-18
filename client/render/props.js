@@ -1184,6 +1184,19 @@ const MARKER_LOOK = {
   // belongs to, and on a shelf that is over the *unit*, which is precisely the
   // answer a board marker is not giving. Nothing else about a cage cares.
   board: { color: 0xffd66b, chevron: false },
+  // Every other one LIKE the one you have picked, while Shift is held. The
+  // `selected` teal, because teal is what pressing one would make it — a second
+  // colour here would be a third vocabulary for the player to learn about a
+  // marker that is only ever on screen while a key is down.
+  //
+  // Thin and faded, and that is the whole of what separates it: this is the one
+  // marker that appears in *numbers* on the ground, seventeen at a time in a
+  // shop full of shelving, and `stock` solved the same problem by dropping its
+  // outline entirely. A chevron cannot do it here — the question is "which
+  // squares", so the answer has to be on the squares — so it stays a frame and
+  // gives up weight instead. Full-strength it reads as a grid painted over the
+  // shop rather than as some shelves being marked.
+  kin: { color: 0x5fd6c4, half: 0.5, band: 0.04, chevron: false, fade: 0.34 },
 };
 
 /**
@@ -1210,7 +1223,8 @@ export function buildTargetMarker(mode = 'aim') {
         ? cornerShapes(look.half, look.band, look.arm)
         : frameShape(look.half, look.band)),
       new THREE.MeshBasicMaterial({
-        color: look.color, transparent: true, opacity: 0.9,
+        // `fade` is for the one look that is drawn in numbers — see `kin`.
+        color: look.color, transparent: true, opacity: look.fade ?? 0.9,
         side: THREE.DoubleSide, depthTest: false,
       }),
     );

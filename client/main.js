@@ -11,7 +11,7 @@ import { Scene } from './render/scene.js';
 import { Net } from './net.js';
 import { UI } from './ui.js';
 import { RAIL_ITEMS } from './sections.js';
-import { showFixture, refreshFixture } from './fixture-menu.js';
+import { showFixture, refreshFixture, ONE_AT_A_TIME } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
 import { showEdgeMenu, hasEdgeMenu, sameFamily, kindAt } from './edge-menu.js';
 import { Menu, preselectedWorld } from './menu.js';
@@ -145,6 +145,12 @@ net.on('layout', (m) => {
   // own refresh cannot see. R turns the fixture you picked without opening it,
   // and the working spots are the only part of the marker a turn moves.
   ui.refollowSelection(scene.allFixtures());
+  // ...and so does everything picked BESIDE it, whose rings are their own set of
+  // markers and whose records the re-flow has just re-minted. This is also the
+  // frame after a bulk verb landed, which is a re-flow by construction — so a
+  // selection that did not follow the shop here would visibly empty itself the
+  // moment you used it.
+  ui.syncPickMarkers();
 });
 net.on('catalog', (m) => { scene.setCatalog(m); ui.setCatalog(m); });
 net.on('state', (m) => {
@@ -209,6 +215,15 @@ addEventListener('keydown', (e) => {
 
   keys.add(k);
 
+  // Shift lights up everything that is the same design as the thing you have
+  // picked — see `setKinPreview`. It selects nothing on its own: the key is what
+  // makes shift-click discoverable, because until something on screen answers
+  // the key there is no way to find out the click exists. Not `preventDefault`ed
+  // and not returned on: Shift is a modifier, and every other binding in here
+  // reads it (Tab cycles the palette backwards with it) rather than being
+  // replaced by it.
+  if (k === 'shift') ui.setKinPreview(true);
+
   // Every menu key is read off the same array the rail draws itself from, so a
   // new section is bound and labelled the moment it exists. Pressing the key of
   // the menu already open shuts it — the key that opened it has to close it.
@@ -271,7 +286,11 @@ addEventListener('keydown', (e) => {
   // lifts whatever the pointer happens to be over is the proximity bug again.
   if (k === 'm') {
     const f = ui.selectedFixture();
-    if (f) liftAimed(f, { reopen: false });
+    // ...and it is one at a time for the reason R is (`rotateSelected`), said
+    // louder: your hands hold one fixture, so a Move over a selection of six
+    // could only ever have been a Move of one of them.
+    if (f && ui.manyPicked) ui.toast(ONE_AT_A_TIME);
+    else if (f) liftAimed(f, { reopen: false });
   }
   // Escape backs out one layer at a time. UI owns the whole ladder — an open
   // menu, then whatever you're carrying, then build mode — because two
@@ -280,7 +299,14 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => {
   keys.delete(e.key.toLowerCase());
+  if (e.key.toLowerCase() === 'shift') ui.setKinPreview(false);
 });
+
+// ...and a key held while the window loses focus never comes up. `keys` has
+// always had this hazard and lives with it — a stuck direction is fixed by
+// tapping the key — but a stuck *preview* is a shop wearing seventeen frames
+// with no key down to explain them, which reads as the marker being broken.
+addEventListener('blur', () => ui.setKinPreview(false));
 
 // Where the pointer is, so the build ghost knows what it is being aimed at.
 // `onCanvas` matters as much as the coordinates: the HUD floats over the world
@@ -678,7 +704,7 @@ const drag = {
   id: null,
   ox: 0, oy: 0,     // where it started, for the tap/drag verdict
   lx: 0, ly: 0,     // where it was last frame, for the pan delta
-  ax: 0,            // ...and the anchor the turns are counted off, when it turns
+  ax: null,         // ...and the point the turn and tilt are counted off, when it turns
   turns: false,     // does this drag turn the view, or slide it? See below.
   spun: false,      // ...and it has: past the slop, every pixel turns the view
   travel: 0,
@@ -1025,21 +1051,28 @@ function dropTouch(id) {
 // off-corner view to the nearest one, and the keys are how you square the shop
 // back up when the rounding has stopped agreeing with what you can see.
 //
-// The world follows your hand: drag right and the shop turns right, which is
-// `,`. No easing on this path — see `spinView` — because the shop is being held
-// rather than sent somewhere.
+// The world follows your hand, on both axes: drag right and the shop turns
+// right, which is `,`; drag down and the far side of the shop tips toward you,
+// which raises the camera. No easing on either path — see `spinView` — because
+// the shop is being held rather than sent somewhere.
+//
+// The two are deliberately not the same speed. A quarter turn is 90px because
+// yaw is unbounded and you spend it in whole corners, while the whole tilt is
+// 46° end to end: at the same rate a flick would cross it twice, so it is four
+// times slower and the full sweep is about 180px.
 // ---------------------------------------------------------------------------
 const SPIN_STEP = 90;         // px of drag per quarter turn
 const SPIN_RAD_PER_PX = (Math.PI / 2) / SPIN_STEP;
+const TILT_STEP = 4;          // px of drag per degree of pitch
+const TILT_RAD_PER_PX = (Math.PI / 180) / TILT_STEP;
 
 let spin = null;
 
 /**
- * Turn a horizontal drag into an angle, and hand back the anchor to carry on
- * from.
+ * Turn a drag into two angles, and hand back the anchor to carry on from.
  *
  * The anchor walks along with the pointer rather than the whole distance being
- * re-read, so this is a frame delta for the same reason `panBy` is fed one:
+ * re-read, so these are frame deltas for the same reason `panBy` is fed one:
  * turning by the total again on every event accelerates away from the hand.
  *
  * `started` is the caller's own sticky "this drag has turned" flag, and it is
@@ -1049,16 +1082,23 @@ let spin = null;
  * needs a deliberate drag. Above it the anchor is the pointer and every pixel
  * counts, or a slow drag stutters in 7px jumps.
  *
+ * The slop is measured as a *distance* rather than per axis, or a drag straight
+ * down would sit under the threshold on x for ever and the tilt would never
+ * start — and once either angle is live both are, because a hand that is turning
+ * the view is holding the view.
+ *
  * Shared by both buttons on purpose. The left drag turns the view as well, and
  * two copies of an accumulator are two things that can disagree about which way
  * a shop spins — the sort of difference nobody would think to look for, because
  * each button feels right on its own.
  */
-function stepTurn(anchor, x, started) {
-  const dx = x - anchor;
-  if (!started && Math.abs(dx) < TAP_SLOP) return { anchor, turned: false };
+function stepTurn(anchor, x, y, started) {
+  const dx = x - anchor.x;
+  const dy = y - anchor.y;
+  if (!started && Math.hypot(dx, dy) < TAP_SLOP) return { anchor, turned: false };
   scene.spinView(-dx * SPIN_RAD_PER_PX);
-  return { anchor: x, turned: true };
+  scene.tiltView(dy * TILT_RAD_PER_PX);
+  return { anchor: { x, y }, turned: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -1203,7 +1243,12 @@ canvas.addEventListener('pointerdown', (e) => {
     // left drag would hand the spin that drag's own id and steal its moves.
     if (drag.id !== null) return;
     spin = {
-      id: e.pointerId, ax: e.clientX, turned: false, at: performance.now(), put: null, raze: null,
+      id: e.pointerId,
+      ax: { x: e.clientX, y: e.clientY },
+      turned: false,
+      at: performance.now(),
+      put: null,
+      raze: null,
     };
     // The put half of the press, armed on the way DOWN for the same reason the
     // take is: the ring winds off an errand, so naming it on release means a
@@ -1235,6 +1280,30 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+  // Shift takes the press before ANY of the four drags below, and hands it to
+  // the selection.
+  //
+  // First, because every one of them is a verb and shift-click is not: a wall
+  // tool would have laid a segment, the brush a cell, the palette a fixture, and
+  // the bare press turned the camera. Picking six shelves means holding a key
+  // and clicking six times, and each of those clicks has to be *only* a pick —
+  // one that also built something would make the gesture unusable in exactly
+  // the mode you use it in.
+  //
+  // Consumed whole (no capture, no `drag`, no hold timer) so the release is not
+  // also a tap: `tapAtPointer` would walk you to the last shelf you picked.
+  // Missing the fixtures entirely is a shift-click on the floor, which does
+  // nothing at all — it is not "deselect", because the ordinary press already
+  // means that and this one is meant to be safe to repeat.
+  if (e.shiftKey && !ui.holding) {
+    const pick = pickTarget(e.clientX, e.clientY);
+    if (pick) {
+      ui.togglePicked(pick);
+      scene.ripple(pick.x, pick.z, 'miss');
+      return;
+    }
+  }
+
   // A wall tool takes the drag before the camera sees it — unless the
   // bulldozer is up and there is something standing where you pressed, which is
   // a tap on that thing rather than the start of a run along the wall behind it.
@@ -1265,8 +1334,9 @@ canvas.addEventListener('pointerdown', (e) => {
   }
 
   drag.id = e.pointerId;
-  drag.ox = drag.lx = drag.ax = e.clientX;
+  drag.ox = drag.lx = e.clientX;
   drag.oy = drag.ly = e.clientY;
+  drag.ax = { x: e.clientX, y: e.clientY };
   // ...and the fourth drag: a fixture, pulled to where it should be instead.
   //
   // This is what a press on a thing you own means once the mode says you are
@@ -1413,7 +1483,7 @@ canvas.addEventListener('pointerdown', (e) => {
 
 canvas.addEventListener('pointermove', (e) => {
   if (spin && e.pointerId === spin.id) {
-    const t = stepTurn(spin.ax, e.clientX, spin.turned);
+    const t = stepTurn(spin.ax, e.clientX, e.clientY, spin.turned);
     spin.ax = t.anchor;
     // Sticky: one turn anywhere in the press means the release was a drag, and
     // a drag must not also back out of the mode you were looking around inside.
@@ -1459,7 +1529,7 @@ canvas.addEventListener('pointermove', (e) => {
     // whole branch exists to fix, arriving one event later.
     if (drag.moving) return;
     if (drag.turns) {
-      const t = stepTurn(drag.ax, e.clientX, drag.spun);
+      const t = stepTurn(drag.ax, e.clientX, e.clientY, drag.spun);
       drag.ax = t.anchor;
       drag.spun = t.turned || drag.spun;
     } else {

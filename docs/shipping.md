@@ -1,9 +1,14 @@
 # Shipping — a standalone game you can invite someone into
 
-Status: **nothing built.** All eight steps are proposed.
+Status: steps **2–4 built**; 1 and 5–8 proposed.
 
 The decision: Sprocket & Stock ships as a **downloadable binary**, single-player
 by default, with a Host button that lets one friend in. Not a hosted service.
+
+**If the binary goes on Steam, read [docs/steam.md](steam.md) first.** It is the
+sequel to this document and it retires two of the steps below: Steam brings its
+own identity, its own relay and its own updater, so steps 5 and 6 — the session
+token and the pasteable invite code — are work you would do and then throw away.
 
 The reasoning is in the shape of the code rather than in a business plan. Every
 live world is a 10Hz simulation in a Colyseus room, so a hosted version pays CPU
@@ -93,11 +98,13 @@ off — the Keep button on the menu only existed to say "not this one", so a sav
 that never expires retires both halves and one fewer thing on the card is the
 point. A save goes when somebody deletes it.
 
-### There is no pause
+### ~~There is no pause~~ — built
 
-Grep the sim and the room for it; there isn't one. The shop trades while you
-answer the door. Acceptable in a two-player dev session where the world is
-always somebody's problem, not acceptable in a single-player game.
+There is now: `Game.setPaused`, world-wide, said out loud by whoever pressed it,
+and saved as a **stamp** rather than a flag — a restart within five minutes
+comes back stopped, a night off does not. The renderer is told separately
+(`scene.paused`), because the one loop driven by the page's clock rather than
+the shop's would otherwise keep a blade turning in stopped time.
 
 ### The director's fallback quietly becomes the whole game
 
@@ -286,11 +293,13 @@ doing — a guest whose shop silently freezes will assume it crashed.
 
 1. **Data dir.** Per-user path via `SNS_DB`, first-run seed copy. Nothing
    user-visible; everything else needs it.
-2. **Drop on disconnect.** `dropGoods` in `removePlayer`. Three lines, and the
-   only step that fixes a bug that exists *today*.
+2. ~~**Drop on disconnect.**~~ **Built**, and then mostly *superseded* by step 3:
+   you are remembered rather than tidied away, so the goods stay in your hands.
+   The crate on the floor survives for the one case it is still right for — a
+   second leaver overwriting a row that already holds somebody's armful.
 3. ~~**Stable player id + `allowReconnection`.**~~ **Built**, and without the
    reconnection window — what was wanted was a save, not a socket. See above.
-4. **Pause**, broadcast to both clients.
+4. ~~**Pause**, broadcast to both clients.~~ **Built.** See above.
 5. **Session token.** Minted on host, mandatory when packaged, `OPEN_ROUTES`
    shrunk to the screenshot upload.
 6. **Host / Join UI.** `cloudflared` bundled and driven in-process, URL + token

@@ -29,6 +29,24 @@ import { touchWorldRow, worldRow, listWorldRows, DEFAULT_WORLD_ID } from '../db.
 export const rooms = new Set();
 
 /**
+ * Which fixtures a menu message is about — the ONE spelling of it.
+ *
+ * Every fixture verb took a single id, because until now the only way to name a
+ * fixture was to open its menu. Several can be picked at once now, so the
+ * message carries `ids` and the old singular field is what a selection of one
+ * still sends. Both are read here rather than in five handlers, for the reason
+ * `stockCrates` gives about rubbish: ten readers each doing their own version
+ * of "which ones did they mean" is ten places a new caller can be subtly wrong.
+ *
+ * The singular field is not one name: a build verb says `id` and a shopkeeping
+ * one says `shelfId`, and that split is older than this and worth keeping —
+ * `assign` is a decision about stock and `build-style` is construction.
+ */
+const targets = (m) => (Array.isArray(m?.ids) && m.ids.length
+  ? m.ids.map(String)
+  : [m?.id ?? m?.shelfId].filter((x) => x != null).map(String));
+
+/**
  * The room the control API should act on when nothing says otherwise.
  *
  * Prefers the room with the most connected clients rather than whichever was
@@ -322,9 +340,16 @@ export class MartRoom extends Room {
     // a toggle that re-reads the state it is toggling races the snapshot — press
     // twice quickly and the second press reads the first one's old answer.
     // Undefined still means "flip it", so a client that has not reloaded works.
+    // ...and `ids` is which units, because several can be picked at once now.
+    // `targets` is the one spelling of "who is this about" — see the note there.
     this.onMessage('assign', (client, m) => {
-      client.send('action-result', this.game.assignShelf(
-        client.sessionId, m?.shelfId, m?.itemId ?? null, m?.on ?? null,
+      const item = m?.itemId ?? null;
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.assignShelf(client.sessionId, id, item, m?.on ?? null),
+        (n) => (item
+          ? `${n} units ${m?.on === false ? 'no longer kept' : 'kept'} for ${this.game.itemSaid(item)}.`
+          : `${n} units take anything again.`),
       ));
     });
 
@@ -340,14 +365,24 @@ export class MartRoom extends Room {
     });
 
     this.onMessage('restock-order', (client, m) => {
-      client.send('action-result', this.game.setRestockPriority(m?.shelfId, m?.priority));
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setRestockPriority(id, m?.priority),
+        (n) => `${n} units moved in the refill queue.`,
+      ));
     });
 
     // Whether the shop hand may rearrange this unit. Not gated on build mode,
     // the same way `restock-order` isn't: it is a shopkeeping decision about a
     // shelf you are stood in front of, not a change to what the shop is made of.
     this.onMessage('shelf-hands', (client, m) => {
-      client.send('action-result', this.game.setShelfHands(m?.shelfId, m?.on));
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setShelfHands(id, m?.on),
+        (n) => (m?.on === false
+          ? `${n} units left for you to arrange.`
+          : `${n} units handed back to the shop hand.`),
+      ));
     });
 
     // What the shop does without being asked, and what that may cost per day.
@@ -476,7 +511,13 @@ export class MartRoom extends Room {
     // claim the opposite and broadcast one anyway, which cost a full teardown
     // and rebuild of the scene every time somebody flipped a shelf.
     this.onMessage('build-boh', (client, m) => {
-      client.send('action-result', this.game.setBackOfHouse(client.sessionId, m?.id, m?.on !== false));
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setBackOfHouse(client.sessionId, id, m?.on !== false),
+        (n) => (m?.on !== false
+          ? `Moved ${n} units into the back.`
+          : `Put ${n} units back on the shop floor.`),
+      ));
     });
     this.onMessage('build-rotate', (client, m) => {
       const res = this.game.rotateFixture(client.sessionId, m?.id, m?.dir);
@@ -496,8 +537,16 @@ export class MartRoom extends Room {
       if (res.ok) this.sendLayout();
     });
 
+    // The one bulk verb that re-flows, which is the whole reason `bulkFixtures`
+    // holds them: restyling eight shelves one message at a time is eight runs of
+    // the generator and eight teardowns of the client's scene, for a change that
+    // moves no tile. One message, one re-flow, one `sendLayout`.
     this.onMessage('build-style', (client, m) => {
-      const res = this.game.styleFixture(client.sessionId, m?.id, m?.variant ?? '');
+      const res = this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.styleFixture(client.sessionId, id, m?.variant ?? ''),
+        (n) => `Restyled ${n} fixtures.`,
+      );
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
