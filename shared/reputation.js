@@ -39,6 +39,7 @@ export const R = {
   MISSED: 'missed',
   CROWD: 'crowd',
   TURNED: 'turned',
+  SHUT: 'shut',
 };
 
 /**
@@ -94,6 +95,12 @@ export const REP_CAUSES = [
     name: 'Turned away',
     sub: 'looked in, saw the crush, walked on',
     why: 'people turned away at a full door',
+  },
+  {
+    id: R.SHUT,
+    name: 'Found you shut',
+    sub: 'walked up during opening hours to a closed door',
+    why: 'people finding the shutters down in the middle of the day',
   },
 ];
 

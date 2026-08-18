@@ -10,7 +10,12 @@
       "kids": 0.7,
       "luxury": -0.8,
       "premium": -0.5,
-      "artisanal": -0.4
+      "artisanal": -0.4,
+      "frozen": 0.7,
+      "household": 0.6,
+      "condiment": 0.3,
+      "pantry": 0.6,
+      "meat": 0.4
     },
     "price_sensitivity": 0.9,
     "patience": 70,
@@ -33,9 +38,11 @@
       "shelf-stable": 0.9,
       "pantry": 0.7,
       "cheap": 0.6,
-      "household": 0.5,
+      "household": 0.9,
       "perishable": -0.5,
-      "fragile": -0.6
+      "fragile": -0.6,
+      "frozen": 0.5,
+      "condiment": 0.3
     },
     "price_sensitivity": 0.6,
     "patience": 100,
@@ -57,10 +64,13 @@
       "dairy": 0.4,
       "produce": 0.3,
       "cheap": 0.3,
-      "frozen": 0.2,
-      "pantry": 0.3,
+      "frozen": 0.6,
+      "pantry": 0.5,
       "luxury": -0.3,
-      "junk": -0.2
+      "junk": -0.2,
+      "prepared": 0.5,
+      "household": 0.5,
+      "condiment": 0.5
     },
     "price_sensitivity": 0.55,
     "patience": 85,
@@ -84,7 +94,9 @@
       "condiment": 0.5,
       "bakery": 0.4,
       "generic": -0.7,
-      "junk": -0.5
+      "junk": -0.5,
+      "prepared": 0.4,
+      "meat": 0.4
     },
     "price_sensitivity": 0.1,
     "patience": 120,
@@ -160,7 +172,10 @@
       "cheap": 0.2,
       "perishable": 0.1,
       "junk": -0.3,
-      "luxury": -0.4
+      "luxury": -0.4,
+      "prepared": 0.5,
+      "pantry": 0.4,
+      "meat": 0.3
     },
     "price_sensitivity": 0.5,
     "patience": 70,
@@ -185,7 +200,7 @@
       "kids": 0.8,
       "beverage": 0.6,
       "produce": -0.5,
-      "household": -0.8,
+      "household": -0.2,
       "healthy": -0.6
     },
     "price_sensitivity": 0.7,

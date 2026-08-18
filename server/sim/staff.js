@@ -997,8 +997,29 @@ function authoredSpot(game, p, s = null) {
   const L = game.layout;
   if (p.spot === 'bay') return L.bay;
   if (p.spot === 'outside') return { x: L.door.x, z: L.door.z + 2 };
-  if (p.spot === 'till') return tendSpot(L.checkouts[0]);
+  // A till NOBODY IS AT, and `null` — take it where you stand — rather than the
+  // first one if every counter is manned. `checkouts[0]` was the whole answer,
+  // which is the same bug idle clerks had before posts were handed out by
+  // roster order: it put the bot propping up the counter on the exact tile the
+  // clerk serving that counter stands on, and two bodies inside one another
+  // reads as a rendering fault rather than as two hires who both had a reason
+  // to be there. The fallback matters more than the search does — a break spot
+  // that cannot be free has to degrade to `here`, or somebody walks the length
+  // of the shop to stand inside a colleague anyway.
+  if (p.spot === 'till') return freeTill(game, s);
   if (p.spot === 'roam') return roamSpot(game, s);
+  return null;
+}
+
+/** A counter's tending tile with nobody standing on it, or null if there is none. */
+function freeTill(game, s) {
+  const taken = new Set(Object.values(game.players)
+    .filter((o) => o !== s)
+    .map((o) => `${Math.round(o.x)},${Math.round(o.z)}`));
+  for (const till of game.layout.checkouts ?? []) {
+    const spot = tendSpot(till);
+    if (spot && !taken.has(`${Math.round(spot.x)},${Math.round(spot.z)}`)) return spot;
+  }
   return null;
 }
 
@@ -1197,7 +1218,7 @@ function stepAside(game, s) {
   // Whoever sorts lowest holds the tile. Nothing about that is fair and it does
   // not need to be — what it buys is that the decision is the same on every
   // machine and in every replay.
-  if (here.every((o) => String(s.id) > String(o.id))) return false;
+  if (here.every((o) => String(s.id) < String(o.id))) return false;
 
   const spin = Math.floor(hash01(`${s.id}:aside:${mine}`) * STEPS.length);
   for (let i = 0; i < STEPS.length; i++) {

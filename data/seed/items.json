@@ -1,9 +1,178 @@
 [
   {
+    "id": "bacon",
+    "name": "Bacon Rashers",
+    "tags": [
+      "meat",
+      "needs-freezer",
+      "perishable",
+      "breakfast",
+      "junk",
+      "classic"
+    ],
+    "base_cost": 2.1,
+    "base_price": 5.4,
+    "shelf_life_days": 7,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c96a5a",
+          "pos": [
+            0,
+            0.04,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.06,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f0d8c4",
+          "pos": [
+            0,
+            0.055,
+            -0.05
+          ],
+          "scale": [
+            0.3,
+            0.04,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f0d8c4",
+          "pos": [
+            0,
+            0.055,
+            0.05
+          ],
+          "scale": [
+            0.3,
+            0.04,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "batteries",
+    "name": "Batteries",
+    "tags": [
+      "household",
+      "shelf-stable",
+      "premium",
+      "gift"
+    ],
+    "base_cost": 1.8,
+    "base_price": 5.2,
+    "shelf_life_days": 365,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#2b2f36",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.18,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#d9a441",
+          "pos": [
+            -0.05,
+            0.13,
+            0.02
+          ],
+          "scale": [
+            0.05,
+            0.16,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#d9a441",
+          "pos": [
+            0.05,
+            0.13,
+            0.02
+          ],
+          "scale": [
+            0.05,
+            0.16,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "berry-swirl",
     "name": "Berry Swirl",
     "tags": [
-      "prepared",
       "frozen",
       "needs-freezer",
       "kids",
@@ -33,7 +202,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -52,7 +224,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -71,7 +246,94 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "bin-bags",
+    "name": "Bin Bags",
+    "tags": [
+      "household",
+      "shelf-stable",
+      "bulky",
+      "cheap"
+    ],
+    "base_cost": 1.4,
+    "base_price": 3.9,
+    "shelf_life_days": 365,
+    "stack": 14,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#4a4f57",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.28,
+            0.22,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#2f333a",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.29,
+            0.05,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#c8d2dc",
+          "pos": [
+            0,
+            0.11,
+            0.071
+          ],
+          "scale": [
+            0.16,
+            0.09,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -170,6 +432,92 @@
             0.12
           ],
           "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "cereal-box",
+    "name": "Breakfast Cereal",
+    "tags": [
+      "pantry",
+      "shelf-stable",
+      "breakfast",
+      "kids",
+      "bulky",
+      "classic"
+    ],
+    "base_cost": 1.6,
+    "base_price": 4.6,
+    "shelf_life_days": 180,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e2882f",
+          "pos": [
+            0,
+            0.21,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.42,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f6e2b8",
+          "pos": [
+            0,
+            0.24,
+            0.052
+          ],
+          "scale": [
+            0.17,
+            0.19,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#b8641f",
+          "pos": [
+            0,
+            0.4,
+            0
+          ],
+          "scale": [
+            0.27,
+            0.05,
+            0.11
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -558,7 +906,6 @@
     "name": "Iced Doughnut",
     "tags": [
       "candy",
-      "snack",
       "junk",
       "kids",
       "cheap",
@@ -588,6 +935,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -609,6 +957,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -630,6 +979,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -651,6 +1001,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -672,6 +1023,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -693,6 +1045,93 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "dried-pasta",
+    "name": "Dried Pasta",
+    "tags": [
+      "pantry",
+      "shelf-stable",
+      "cheap",
+      "classic",
+      "dinner",
+      "vegan"
+    ],
+    "base_cost": 0.8,
+    "base_price": 2.4,
+    "shelf_life_days": 300,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e8d59a",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.32,
+            0.09
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#c23f36",
+          "pos": [
+            0,
+            0.26,
+            0
+          ],
+          "scale": [
+            0.23,
+            0.09,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f6efd8",
+          "pos": [
+            0,
+            0.12,
+            0.048
+          ],
+          "scale": [
+            0.12,
+            0.12,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -944,7 +1383,6 @@
     "tags": [
       "frozen",
       "needs-freezer",
-      "produce",
       "healthy",
       "organic",
       "breakfast",
@@ -973,7 +1411,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -992,7 +1433,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -1011,7 +1455,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -1030,7 +1477,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -1041,7 +1491,6 @@
     "tags": [
       "frozen",
       "needs-freezer",
-      "produce",
       "healthy",
       "vegan",
       "cheap"
@@ -1069,7 +1518,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -1088,7 +1540,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -1107,7 +1562,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -1126,7 +1584,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -1232,7 +1693,6 @@
     "id": "fruit-lolly",
     "name": "Fruit Swirl Lolly",
     "tags": [
-      "candy",
       "frozen",
       "needs-freezer",
       "junk",
@@ -1263,6 +1723,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -1284,6 +1745,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -1305,6 +1767,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -1326,6 +1789,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -1431,10 +1895,95 @@
     }
   },
   {
+    "id": "gummy-bears",
+    "name": "Gummy Bears",
+    "tags": [
+      "candy",
+      "shelf-stable",
+      "kids",
+      "junk",
+      "cheap",
+      "party"
+    ],
+    "base_cost": 0.7,
+    "base_price": 2.4,
+    "shelf_life_days": 180,
+    "stack": 20,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e2557a",
+          "pos": [
+            0,
+            0.13,
+            0
+          ],
+          "scale": [
+            0.18,
+            0.26,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.85,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "capsule",
+          "color": "#f2b03a",
+          "pos": [
+            -0.03,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.06,
+            0.09,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "capsule",
+          "color": "#5fbf6a",
+          "pos": [
+            0.04,
+            0.16,
+            0.01
+          ],
+          "scale": [
+            0.06,
+            0.09,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "hot-chips",
     "name": "Hot Chips",
     "tags": [
-      "prepared",
       "snack",
       "junk",
       "kids",
@@ -1540,6 +2089,92 @@
     }
   },
   {
+    "id": "hot-sauce",
+    "name": "Hot Sauce",
+    "tags": [
+      "condiment",
+      "shelf-stable",
+      "trendy",
+      "artisanal",
+      "party",
+      "vegan"
+    ],
+    "base_cost": 1.3,
+    "base_price": 4.4,
+    "shelf_life_days": 240,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c8342a",
+          "pos": [
+            0,
+            0.13,
+            0
+          ],
+          "scale": [
+            0.11,
+            0.26,
+            0.11
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cone",
+          "color": "#a82a22",
+          "pos": [
+            0,
+            0.29,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.07,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#2f2f33",
+          "pos": [
+            0,
+            0.34,
+            0
+          ],
+          "scale": [
+            0.045,
+            0.05,
+            0.045
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "ice-cream",
     "name": "Ice Cream",
     "tags": [
@@ -1595,7 +2230,6 @@
     "tags": [
       "frozen",
       "needs-freezer",
-      "candy",
       "junk",
       "kids",
       "cheap",
@@ -1624,7 +2258,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -1643,7 +2280,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -1662,7 +2302,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -1989,11 +2632,94 @@
     }
   },
   {
+    "id": "kitchen-roll",
+    "name": "Kitchen Roll",
+    "tags": [
+      "household",
+      "shelf-stable",
+      "bulky",
+      "classic"
+    ],
+    "base_cost": 1.1,
+    "base_price": 3.2,
+    "shelf_life_days": 365,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f6f1e6",
+          "pos": [
+            0,
+            0.19,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.38,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#d8cdb6",
+          "pos": [
+            0,
+            0.385,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.02,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#7fb2d8",
+          "pos": [
+            0,
+            0.2,
+            0.101
+          ],
+          "scale": [
+            0.13,
+            0.14,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "latte",
     "name": "Flat White",
     "tags": [
       "beverage",
-      "prepared",
       "premium",
       "trendy",
       "breakfast",
@@ -2018,7 +2744,14 @@
             0.36,
             0.22
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "cylinder",
@@ -2033,7 +2766,14 @@
             0.05,
             0.2
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -2084,6 +2824,177 @@
             0.18
           ],
           "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "liquorice",
+    "name": "Liquorice Twists",
+    "tags": [
+      "candy",
+      "shelf-stable",
+      "nostalgic",
+      "classic",
+      "kids",
+      "cheap"
+    ],
+    "base_cost": 0.9,
+    "base_price": 3.1,
+    "shelf_life_days": 200,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#2e2a2c",
+          "pos": [
+            -0.05,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.24,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#3d3436",
+          "pos": [
+            0.05,
+            0.1,
+            0.02
+          ],
+          "scale": [
+            0.05,
+            0.2,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#d8c9a8",
+          "pos": [
+            0,
+            0.02,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.03,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "mayo",
+    "name": "Mayonnaise",
+    "tags": [
+      "condiment",
+      "shelf-stable",
+      "classic",
+      "lunch",
+      "kids"
+    ],
+    "base_cost": 1.1,
+    "base_price": 3.3,
+    "shelf_life_days": 120,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f4efdc",
+          "pos": [
+            0,
+            0.13,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.26,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#4b7fc0",
+          "pos": [
+            0,
+            0.28,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.05,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#dfe8f5",
+          "pos": [
+            0,
+            0.13,
+            0.081
+          ],
+          "scale": [
+            0.11,
+            0.12,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -2142,6 +3053,177 @@
           "seam": false,
           "alpha": 1,
           "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "mince",
+    "name": "Beef Mince",
+    "tags": [
+      "meat",
+      "needs-freezer",
+      "perishable",
+      "dinner",
+      "classic",
+      "heavy"
+    ],
+    "base_cost": 2.6,
+    "base_price": 6.2,
+    "shelf_life_days": 4,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#f4f0e8",
+          "pos": [
+            0,
+            0.04,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.08,
+            0.22
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#9c3f38",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.25,
+            0.05,
+            0.18
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8e2d4",
+          "pos": [
+            0,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.01,
+            0.19
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.55,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "mustard",
+    "name": "Mustard Jar",
+    "tags": [
+      "condiment",
+      "shelf-stable",
+      "classic",
+      "cheap",
+      "dinner"
+    ],
+    "base_cost": 0.9,
+    "base_price": 2.9,
+    "shelf_life_days": 200,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e6c23a",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.15,
+            0.22,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8a6a1f",
+          "pos": [
+            0,
+            0.235,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.05,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f7efd6",
+          "pos": [
+            0,
+            0.11,
+            0.076
+          ],
+          "scale": [
+            0.1,
+            0.1,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -2244,10 +3326,95 @@
     }
   },
   {
+    "id": "peanuts",
+    "name": "Salted Peanuts",
+    "tags": [
+      "snack",
+      "shelf-stable",
+      "party",
+      "cheap",
+      "classic",
+      "vegan"
+    ],
+    "base_cost": 0.8,
+    "base_price": 2.6,
+    "shelf_life_days": 120,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c98a3a",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.28,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#7a4d1c",
+          "pos": [
+            0,
+            0.24,
+            0
+          ],
+          "scale": [
+            0.21,
+            0.07,
+            0.09
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f2e0bc",
+          "pos": [
+            0,
+            0.11,
+            0.042
+          ],
+          "scale": [
+            0.12,
+            0.11,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "pickles",
     "name": "Pickled Veg",
     "tags": [
-      "condiment",
       "pantry",
       "shelf-stable",
       "vegan",
@@ -2277,6 +3444,7 @@
           "surface": false,
           "seam": false,
           "alpha": 0.55,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2298,6 +3466,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2319,6 +3488,7 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2340,6 +3510,93 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "protein-bar",
+    "name": "Protein Bar",
+    "tags": [
+      "snack",
+      "shelf-stable",
+      "healthy",
+      "trendy",
+      "lunch",
+      "premium"
+    ],
+    "base_cost": 1.2,
+    "base_price": 3.8,
+    "shelf_life_days": 150,
+    "stack": 18,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#4a6f52",
+          "pos": [
+            0,
+            0.04,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.07,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#8fc27a",
+          "pos": [
+            0,
+            0.045,
+            0.062
+          ],
+          "scale": [
+            0.26,
+            0.05,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#2f4a36",
+          "pos": [
+            -0.12,
+            0.04,
+            0
+          ],
+          "scale": [
+            0.06,
+            0.075,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2585,7 +3842,6 @@
     "name": "Roast Chicken",
     "tags": [
       "meat",
-      "prepared",
       "dinner",
       "classic",
       "premium",
@@ -2712,11 +3968,96 @@
     }
   },
   {
+    "id": "salmon-fillet",
+    "name": "Salmon Fillet",
+    "tags": [
+      "meat",
+      "needs-freezer",
+      "perishable",
+      "premium",
+      "healthy",
+      "dinner"
+    ],
+    "base_cost": 4.2,
+    "base_price": 11.5,
+    "shelf_life_days": 3,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e08a5f",
+          "pos": [
+            0,
+            0.05,
+            0
+          ],
+          "scale": [
+            0.28,
+            0.09,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f2b48c",
+          "pos": [
+            0,
+            0.098,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.02,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#8a5a4a",
+          "pos": [
+            0,
+            0.05,
+            0.081
+          ],
+          "scale": [
+            0.28,
+            0.07,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "salsa",
     "name": "Fresh Salsa",
     "tags": [
       "prepared",
-      "condiment",
       "artisanal",
       "healthy",
       "vegan",
@@ -2742,7 +4083,14 @@
             0.32,
             0.26
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "cylinder",
@@ -2757,7 +4105,100 @@
             0.06,
             0.28
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "sausages",
+    "name": "Sausages",
+    "tags": [
+      "meat",
+      "needs-freezer",
+      "perishable",
+      "cheap",
+      "classic",
+      "breakfast"
+    ],
+    "base_cost": 1.7,
+    "base_price": 4.2,
+    "shelf_life_days": 5,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "capsule",
+          "color": "#b8663f",
+          "pos": [
+            -0.06,
+            0.06,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.09,
+            0.09
+          ],
+          "rot": 90,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "capsule",
+          "color": "#a85a37",
+          "pos": [
+            0.06,
+            0.06,
+            0.02
+          ],
+          "scale": [
+            0.3,
+            0.09,
+            0.09
+          ],
+          "rot": 90,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f2e4d2",
+          "pos": [
+            0,
+            0.02,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.02,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -2767,7 +4208,6 @@
     "name": "Berry Smoothie",
     "tags": [
       "beverage",
-      "prepared",
       "healthy",
       "trendy",
       "summer",
@@ -2792,7 +4232,14 @@
             0.44,
             0.2
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -2807,7 +4254,76 @@
             0.12,
             0.2
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "soap-bar",
+    "name": "Soap Bar",
+    "tags": [
+      "household",
+      "shelf-stable",
+      "cheap",
+      "classic"
+    ],
+    "base_cost": 0.6,
+    "base_price": 1.9,
+    "shelf_life_days": 365,
+    "stack": 20,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e9d7f0",
+          "pos": [
+            0,
+            0.05,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.1,
+            0.18
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#cbb2d8",
+          "pos": [
+            0,
+            0.105,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.02,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -2975,10 +4491,95 @@
     }
   },
   {
+    "id": "tinned-beans",
+    "name": "Tinned Beans",
+    "tags": [
+      "pantry",
+      "shelf-stable",
+      "cheap",
+      "classic",
+      "breakfast",
+      "vegetarian"
+    ],
+    "base_cost": 0.5,
+    "base_price": 1.6,
+    "shelf_life_days": 365,
+    "stack": 20,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#d8dde2",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.17,
+            0.18,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#3f7fc0",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.175,
+            0.11,
+            0.175
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#b9c1c8",
+          "pos": [
+            0,
+            0.185,
+            0
+          ],
+          "scale": [
+            0.17,
+            0.01,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "toast",
     "name": "Jam on Toast",
     "tags": [
-      "bakery",
       "prepared",
       "breakfast",
       "classic",
@@ -3004,7 +4605,14 @@
             0.12,
             0.3
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "box",
@@ -3019,7 +4627,14 @@
             0.04,
             0.24
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -3029,7 +4644,6 @@
     "name": "Cheese Toastie",
     "tags": [
       "prepared",
-      "bakery",
       "lunch",
       "classic",
       "kids",
@@ -3165,7 +4779,6 @@
     "id": "veg-juice",
     "name": "Garden Juice",
     "tags": [
-      "prepared",
       "beverage",
       "healthy",
       "organic",
@@ -3195,7 +4808,10 @@
           "surface": false,
           "seam": false,
           "alpha": 0.55,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "cylinder",
@@ -3214,7 +4830,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "cylinder",
@@ -3233,7 +4852,10 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -3343,10 +4965,93 @@
     }
   },
   {
+    "id": "washing-up-liquid",
+    "name": "Washing-Up Liquid",
+    "tags": [
+      "household",
+      "shelf-stable",
+      "cheap",
+      "classic"
+    ],
+    "base_cost": 1.2,
+    "base_price": 3.4,
+    "shelf_life_days": 365,
+    "stack": 14,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#4fb98a",
+          "pos": [
+            0,
+            0.15,
+            0
+          ],
+          "scale": [
+            0.15,
+            0.3,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cone",
+          "color": "#3f9c74",
+          "pos": [
+            0,
+            0.32,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.08,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e6f2ec",
+          "pos": [
+            0,
+            0.38,
+            0
+          ],
+          "scale": [
+            0.05,
+            0.06,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "wheat",
     "name": "Wheat Sheaf",
     "tags": [
-      "produce",
       "shelf-stable",
       "pantry",
       "bulky",
@@ -3372,7 +5077,14 @@
             0.44,
             0.16
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -3387,7 +5099,14 @@
             0.16,
             0.18
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }

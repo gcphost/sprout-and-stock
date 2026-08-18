@@ -476,6 +476,38 @@ const STALE_BOARD_DAYS = 4;
  * loop the mark exists to break — and short enough to lapse inside a week.
  */
 const HAND_DROP_DAYS = 5;
+
+/**
+ * How much longer than its authored life a thing actually keeps.
+ *
+ * This is not a fudge factor, it is the old behaviour written down. Spoilage
+ * ran once a day and stamped whole days, so `shelf_life_days` was never the
+ * number the game enforced: an item was given the rest of the day it was put
+ * out, and then it lived until the next midnight after its life ran out. Every
+ * `shelf_life_days` in the catalog was authored and balance-tuned against that,
+ * which makes the generosity part of the content rather than a bug in it.
+ *
+ * Checking hourly against a fractional stamp is *stricter* — it enforces the
+ * authored number exactly — and stricter is a balance change nobody asked for:
+ * measured at six times the spoilage and −7.5% mean profit over three seeds, on
+ * a change whose entire purpose was that you could watch it happen. So the day
+ * the old rule handed out for free is handed out on purpose, and what moved is
+ * WHEN you find out rather than how much rots.
+ *
+ * The one thing to keep straight if you retune it: raising an item's
+ * `shelf_life_days` and raising this are not the same lever. That one is "this
+ * food keeps longer than that food"; this is "the shop is a day behind noticing"
+ * — and it applies to the tin as much as the lettuce, which is why it is flat
+ * rather than a multiplier.
+ */
+const SPOIL_GRACE_DAYS = 1;
+
+/** What share of normal footfall still walks up to a shop that has shut. */
+const SHUT_FOOTFALL = 0.5;
+/** ...and what share of those take it personally — see `stepShutArrivals`. */
+const SHUT_ANGER = 0.35;
+/** What one of those costs. Between a turn-away (0.005) and a storm-out (0.03). */
+const REP_FOUND_SHUT = 0.012;
 /**
  * ...and how long the SHOP's own version lasts, which used to be for ever.
  *
@@ -2475,6 +2507,30 @@ export class Game {
     }
     if (this.day !== prevDay) this.onNewDay();
 
+    /**
+     * ...and rot on the hour, which used to be a midnight event only because
+     * that is where the call sat.
+     *
+     * `onNewDay` still runs it, and deliberately: the roll is where `binOrphans`
+     * and the day's accounting happen, and the two have an ordering the note
+     * there sets out. This is an *extra* sweep rather than a move, which costs
+     * nothing because the whole thing is a threshold on age — it finds things
+     * sooner and can never find them twice.
+     *
+     * The hour is derived rather than counted, so it survives everything that
+     * moves the clock without stepping it: a `set_time` jump, a save loaded at
+     * teatime, a shut shop skipping the night at 6×. Comparing the derived hour
+     * against the last one seen is what makes those all the same case.
+     */
+    const hourNow = Math.floor(this.day * 24 + this.time * 24);
+    if (this.lastSpoilHour !== hourNow) {
+      // Not on the very first tick of a load: `lastSpoilHour` is in memory, so a
+      // restart would otherwise always sweep, which is harmless but writes a
+      // logful of spoilage the moment a save opens rather than while it runs.
+      if (this.lastSpoilHour !== undefined) this.spoilStock();
+      this.lastSpoilHour = hourNow;
+    }
+
     const c = content();
     const folded = this.folded();
 
@@ -2822,6 +2878,43 @@ export class Game {
    * mysterious margin. `spoiledValue` is that attribution, at what it would cost
    * to replace, and it is a readout rather than a charge.
    */
+  /**
+   * The date, with the time of day on the end of it.
+   *
+   * Every freshness clock in the shop is measured in DAYS — `shelf_life_days` is
+   * the authored number — and used to be stamped as a whole one, because the
+   * only thing that ever read them ran at midnight. So a board put out at 09:00
+   * and one put out at 23:00 were the same age all week, and a thing that
+   * crossed its life at breakfast sat there looking fine until the clock rolled.
+   *
+   * A float keeps the unit and adds the precision: 5.5 is lunchtime on day five,
+   * `age` is still a count of days, and every comparison against
+   * `STALE_BOARD_DAYS` and friends goes on reading the way it always did. An
+   * integer stamp from an older save is simply a stack that was put out at
+   * midnight, which is the right way for that to be wrong.
+   */
+  dayNow() { return this.day + this.time; }
+
+  /**
+   * Age everything that can go off.
+   *
+   * **Hourly, not at midnight.** This ran once, in `onNewDay`, which is why a
+   * shop full of rot appeared out of nothing as the day turned: nothing decayed
+   * while you were watching, and then a tenth of the shop was in the skip. The
+   * timing was never a rule about food, it was where the call happened to sit.
+   *
+   * Two things had to change together and neither works alone. The stamps are
+   * fractional now (`dayNow`), or an hourly sweep would read the same integer
+   * age twenty-four times and the extra runs would find nothing; and `age` is
+   * measured against `dayNow()` rather than `this.day`, or a board stocked at
+   * teatime would count that whole day against itself. Rates and lives are
+   * untouched — a three-day item still keeps for three days, it just stops
+   * keeping at the hour it was put out rather than at the next midnight.
+   *
+   * It stays idempotent, which is what makes the frequency a free choice: every
+   * clause here is a threshold on age, so running it more often finds things
+   * sooner and never finds them twice.
+   */
   spoilStock() {
     const items = content().byId.items;
     const folded = this.folded();
@@ -2879,8 +2972,8 @@ export class Game {
         if (rate <= 0) continue;
         // `keeps_mult` is the tier's contribution: a better freezer keeps for
         // longer than a basic one, whatever is in it.
-        const effLife = item.shelf_life_days * this.fixtureStats(shelf).keeps_mult / rate;
-        const age = this.day - stack.stockedDay;
+        const effLife = item.shelf_life_days * this.fixtureStats(shelf).keeps_mult / rate + SPOIL_GRACE_DAYS;
+        const age = this.dayNow() - stack.stockedDay;
         if (age > effLife) {
           const lost = stack.qty;
           // The board goes; the reservation stays. Binning a shelf of milk is
@@ -2924,13 +3017,13 @@ export class Game {
         if (!item || !(pile.qty > 0)) continue;
         const rate = spoilRate(item);
         if (rate <= 0) continue;
-        const effLife = item.shelf_life_days / rate;
+        const effLife = item.shelf_life_days / rate + SPOIL_GRACE_DAYS;
         // A pile written before this has no stamp of its own and falls back to
         // the box's, which is where the clock used to live; a crate with
         // neither is treated as fresh rather than as infinitely old — a save
         // that binned the whole yard on the first morning after an update is a
         // worse bug than the one being fixed.
-        const age = this.day - (pile.day ?? crate.day ?? this.day);
+        const age = this.dayNow() - (pile.day ?? crate.day ?? this.dayNow());
         if (age <= effLife) continue;
         const lost = pile.qty;
         crate.stacks = lotTake(crate, pile.item_id, lost).lot?.stacks ?? [];
@@ -4979,7 +5072,7 @@ export class Game {
       item_id: item.id,
       qty: 0,
       price: suggestedPrice(item, this.folded(), this.season),
-      stockedDay: this.day,
+      stockedDay: this.dayNow(),
     };
     shelf.stacks = [...this.shelfStacks(shelf), stack];
     return stack;
@@ -9210,7 +9303,7 @@ export class Game {
       const own = (here.stacks ??= []);
       const at0 = own.find((k) => k.item_id === itemId);
       if (at0) at0.qty += qty;
-      else own.push({ item_id: itemId, qty, day: this.day });
+      else own.push({ item_id: itemId, qty, day: this.dayNow() });
       return here;
     }
     const crate = {
@@ -9224,7 +9317,7 @@ export class Game {
       // declining to reorder what just went off, and a bay that says it is
       // full of rubbish it is not standing on.
       waste: true,
-      stacks: [{ item_id: itemId, qty, day: this.day }],
+      stacks: [{ item_id: itemId, qty, day: this.dayNow() }],
     };
     this.deliveries.push(crate);
     return crate;
@@ -10615,6 +10708,50 @@ export class Game {
    * `this.customers`: since people drive, being in that object stopped meaning
    * being in the shop.
    */
+  /**
+   * Arrivals at a shut shop, during hours the town expects you open.
+   *
+   * Deliberately NOT a customer. Everything a shopper is for — a list, a basket,
+   * a queue, patience draining while they browse — begins at the door, and none
+   * of it can happen here: `this.customers` is walked by `stepMood`,
+   * `measureOccupancy`, `moodAverage` and the snapshot, and putting somebody in
+   * it who can never enter is the `inACar` trap for the third time. What the
+   * feature actually needs is a tally and a reputation hit, so that is what it
+   * is.
+   *
+   * Only inside `trading()` hours, which is the one thing that stops this
+   * charging you for the night: shutting at 20:00 is closing time, and nobody
+   * walks up to a bakery at 04:00 and is offended. `isOpen` is `open &&
+   * trading()`, so reaching here with `trading()` true is exactly "you chose to
+   * be shut while the town was about".
+   *
+   * Hashed rather than drawn, for `shared/hash.js`'s reason said about a
+   * different loop: `simulate` forces the shutters up, so an rng draw here would
+   * be dead code in every balance run and live code in every real shop — the one
+   * shape that guarantees the two disagree with nothing to say why.
+   */
+  stepShutArrivals(dt, folded) {
+    if (!this.trading()) return;
+    const rate = footfall({
+      day: this.day, hourFraction: this.time,
+      reputation: this.reputation, folded, catchment: this.catchment(),
+    });
+    this.shutAccumulator = (this.shutAccumulator ?? 0) + (rate * SHUT_FOOTFALL / 60) * dt;
+    while (this.shutAccumulator >= 1) {
+      this.shutAccumulator -= 1;
+      this.stats.foundShut = (this.stats.foundShut ?? 0) + 1;
+      if (hash01(`${this.day}:${this.stats.foundShut}:shut`) >= SHUT_ANGER) continue;
+      this.moveRep(-REP_FOUND_SHUT, R.SHUT);
+      // Once per stretch of being shut rather than per person, the way the
+      // packed-door line is: a shop shut for an hour would otherwise write forty
+      // identical lines and bury everything else in the log.
+      if (!this.sayingShut) {
+        this.sayingShut = true;
+        this.pushLog('Somebody came to the door and found you shut.');
+      }
+    }
+  }
+
   customersInside() {
     return Object.values(this.customers)
       .reduce((n, cu) => n + (cu.state === 'ENTER' || inACar(cu) ? 0 : 1), 0);
@@ -10942,8 +11079,35 @@ export class Game {
     return out;
   }
 
+  /**
+   * Who still walks up when the shutters are down, and how many of them mind.
+   *
+   * `SHUT_FOOTFALL` is the share of normal footfall that still turns up: the
+   * town does not know you have shut, so somebody sets off, and the ones who
+   * would have arrived later in the hour see the closed door from across the
+   * road and never bother. Not 1.0 for that reason, and not 0 because a shop
+   * that is invisible while shut is a shop whose shutters cost nothing.
+   *
+   * `SHUT_ANGER` is the share of those who take it personally, and the rest
+   * shrug — which is what makes shutting for twenty minutes different in kind
+   * from shutting for the afternoon rather than just smaller. It is a share
+   * rather than a smaller hit each because that is the thing being modelled: one
+   * annoyed regular, not thirty faintly disappointed ones.
+   *
+   * The hit itself sits between a turn-away at a packed door (0.005) and a
+   * storm-out (0.03). Walking up to a shut shop in the middle of the day is
+   * worse than finding it too busy — that at least says the place is popular —
+   * and not as bad as queueing for ten minutes and giving up.
+   */
   stepSpawning(dt, c, folded) {
-    if (!this.isOpen() || c.archetypes.length === 0) return;
+    if (c.archetypes.length === 0) return;
+    // Shut, but the town is still out and about. They arrive, find the door
+    // closed, and go home — which is the whole feature: `isOpen` used to bail
+    // here, so a shop that shut at noon simply stopped existing until it opened
+    // again, and the shutters were free.
+    if (!this.isOpen()) return this.stepShutArrivals(dt, folded);
+    // Open again, so the next stretch of being shut gets its own line in the log.
+    this.sayingShut = false;
     const rate = footfall({
       day: this.day, hourFraction: this.time,
       reputation: this.reputation, folded, catchment: this.catchment(),
@@ -12575,7 +12739,7 @@ function saidGoods(goods) {
 function freshStats() {
   return {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
-    spoiled: 0, spoiledValue: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
+    spoiled: 0, spoiledValue: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, foundShut: 0, byItem: {},
     // What moved reputation today, by cause, signed. Not a second copy of the
     // counts above: `abandoned` says three people stormed out and this says what
     // that cost, which is the only form the question is ever asked in — a shop

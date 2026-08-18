@@ -68,7 +68,7 @@ const BOARD_SNAP_PX = 4;
  *  hangs a fixed distance over the same spot, so the two cannot drift apart. */
 const CASH_Y = 0.95;
 const ZOOM_MIN = 0.7;         // wider than the old fixed view, for finding things
-const ZOOM_MAX = 2.4;         // close enough to read a single shelf
+const ZOOM_MAX = 3.4;         // ~5 tiles tall: one shelf and its neighbours
 const ZOOM_DEFAULT = 1.45;    // ~12 tiles tall: the shop, not the whole county
 /** Per notch. Multiplicative, so a notch is the same *proportion* in or out. */
 const ZOOM_STEP = 1.12;
@@ -438,11 +438,11 @@ export class Scene {
 
     this.camera = new THREE.OrthographicCamera();
     this.camOffset = BASE_CAM_OFFSET.clone();
-    // Which corner we're viewing from, counted in quarter turns and never
-    // wrapped: letting it run to 4, -1 and beyond means easing toward
-    // `camQuarter * QUARTER` always spins the short way round on its own,
-    // with no shortest-arc special case.
-    this.camQuarter = 0;
+    // Where the view is headed, in radians and never wrapped: letting it run
+    // past ±2π means easing toward it always spins the short way round on its
+    // own, with no shortest-arc special case. It used to be a count of quarter
+    // turns, which is what `quarter` now rounds it back into.
+    this.camYaw = 0;
     this.camAngle = 0;
     this.camTarget = new THREE.Vector3(22, 0, 17);
     this.camLook = this.camTarget.clone();
@@ -615,20 +615,50 @@ export class Scene {
   }
 
   /**
-   * Turn the camera a quarter of the way round the world, +1 or -1.
+   * Turn the camera to the next corner of the world, +1 or -1.
    *
-   * Only four corners exist, so the 45° isometric pitch is exactly preserved at
-   * every stop — a free-range angle would lose it, and would leave the movement
-   * keys mapping onto a direction that no longer means anything.
+   * It lands on the quarter *grid* rather than adding a quarter to wherever the
+   * view happens to be, which is the whole difference now a drag can leave it
+   * between two corners: a key is how you get the shop square on again, so
+   * pressing it from 15° off has to end at 90° rather than at 105°. Rounding
+   * first is also what stops a key press being swallowed — from 89° off-grid,
+   * `+90` would be a one-degree turn nobody can see.
    */
   rotateView(dir) {
-    this.camQuarter += Math.sign(dir);
-    return this.camQuarter;
+    const q = Math.round(this.camYaw / QUARTER) + Math.sign(dir);
+    this.camYaw = q * QUARTER;
+    return q;
   }
 
-  /** Quarter turns from home, normalised to 0..3, for mapping input. */
+  /**
+   * Turn the camera by an arbitrary angle, for a drag.
+   *
+   * Unlike `rotateView` this moves the *drawn* angle too, rather than setting a
+   * target for the easing to chase. A drag is direct manipulation — the same
+   * thing `panBy` is — so the world has to turn under the hand holding it, and
+   * a 0.14-per-frame ease between the finger and the shop reads as the view
+   * being dragged through treacle. A key press keeps the ease, because there is
+   * no hand to keep up with there.
+   */
+  spinView(rad) {
+    if (!rad) return this.camYaw;
+    this.camYaw += rad;
+    this.camAngle += rad;
+    this.camOffset.copy(BASE_CAM_OFFSET).applyAxisAngle(AXIS_Y, this.camAngle);
+    return this.camYaw;
+  }
+
+  /**
+   * The nearest corner, normalised to 0..3, for mapping input.
+   *
+   * Everything that reads this wants an integer — WASD is remapped through it,
+   * and so is which way a fixture faces — so a view resting between two corners
+   * answers with whichever one it is closest to. That is a rounding rather than
+   * a truncation on purpose: "up" should mean the direction that most looks
+   * like up, and it flips at 45°, which is exactly halfway.
+   */
   get quarter() {
-    return ((this.camQuarter % 4) + 4) % 4;
+    return ((Math.round(this.camYaw / QUARTER) % 4) + 4) % 4;
   }
 
   /**
@@ -4489,7 +4519,8 @@ export class Scene {
       this.camera.updateProjectionMatrix();
     }
     // Swing round to the target corner, same easing idea as zoom and camLook.
-    const da = this.camQuarter * QUARTER - this.camAngle;
+    // A drag has already moved both, so this is a no-op while one is happening.
+    const da = this.camYaw - this.camAngle;
     if (da) {
       this.camAngle += Math.abs(da) < 0.0005 ? da : da * 0.14;
       this.camOffset.copy(BASE_CAM_OFFSET).applyAxisAngle(AXIS_Y, this.camAngle);

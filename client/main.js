@@ -680,6 +680,7 @@ const drag = {
   lx: 0, ly: 0,     // where it was last frame, for the pan delta
   ax: 0,            // ...and the anchor the turns are counted off, when it turns
   turns: false,     // does this drag turn the view, or slide it? See below.
+  spun: false,      // ...and it has: past the slop, every pixel turns the view
   travel: 0,
   timer: null,
   pressedAt: 0,     // when it started, for the wind-in the frame loop draws
@@ -1017,41 +1018,47 @@ function dropTouch(id) {
 // spin can never be folded into the drag: what a press *ends* in is the whole
 // difference between them, and only the moves in the middle are shared.
 //
-// It fires `rotateView` in whole quarters rather than orbiting freely,
-// because `scene.quarter` is an integer everything else reads — WASD is
-// remapped through it, and so is which way a fixture faces. A camera resting
-// between two corners would leave "up" pointing at nothing in particular.
+// It orbits freely — any angle, tracking the hand — while `,`/`.` still step
+// between the four corners. That split is the point rather than an
+// inconsistency: `scene.quarter` is an integer everything else reads (WASD is
+// remapped through it, and so is which way a fixture faces), so it rounds an
+// off-corner view to the nearest one, and the keys are how you square the shop
+// back up when the rounding has stopped agreeing with what you can see.
 //
 // The world follows your hand: drag right and the shop turns right, which is
-// `,`. Easing is already in the renderer, so a fast flick across three steps
-// still arrives as one smooth swing.
+// `,`. No easing on this path — see `spinView` — because the shop is being held
+// rather than sent somewhere.
 // ---------------------------------------------------------------------------
 const SPIN_STEP = 90;         // px of drag per quarter turn
+const SPIN_RAD_PER_PX = (Math.PI / 2) / SPIN_STEP;
 
 let spin = null;
 
 /**
- * Turn a horizontal drag into whole quarter turns, and hand back the anchor to
- * carry on from.
+ * Turn a horizontal drag into an angle, and hand back the anchor to carry on
+ * from.
  *
- * The anchor walks along with the turns rather than the whole distance being
- * re-read, so a drag out and back turns the same number of times each way, and
- * one flick past three steps fires three of them.
+ * The anchor walks along with the pointer rather than the whole distance being
+ * re-read, so this is a frame delta for the same reason `panBy` is fed one:
+ * turning by the total again on every event accelerates away from the hand.
  *
- * Shared by both buttons on purpose. The left drag turns the view as well now,
- * and two copies of an accumulator are two things that can disagree about which
- * way a shop spins — which is the sort of difference nobody would ever think to
- * look for, because each button feels right on its own.
+ * `started` is the caller's own sticky "this drag has turned" flag, and it is
+ * what makes the slop a threshold rather than a gate. Below it a press is still
+ * a click — a mouse wobbles a pixel or two under a finger coming off a button,
+ * and a shop that visibly rotates on every right-click is worse than one that
+ * needs a deliberate drag. Above it the anchor is the pointer and every pixel
+ * counts, or a slow drag stutters in 7px jumps.
+ *
+ * Shared by both buttons on purpose. The left drag turns the view as well, and
+ * two copies of an accumulator are two things that can disagree about which way
+ * a shop spins — the sort of difference nobody would think to look for, because
+ * each button feels right on its own.
  */
-function stepTurn(anchor, x) {
-  let turned = false;
-  for (let dx = x - anchor; Math.abs(dx) >= SPIN_STEP; dx = x - anchor) {
-    const dir = Math.sign(dx);
-    scene.rotateView(-dir);
-    anchor += dir * SPIN_STEP;
-    turned = true;
-  }
-  return { anchor, turned };
+function stepTurn(anchor, x, started) {
+  const dx = x - anchor;
+  if (!started && Math.abs(dx) < TAP_SLOP) return { anchor, turned: false };
+  scene.spinView(-dx * SPIN_RAD_PER_PX);
+  return { anchor: x, turned: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -1285,6 +1292,7 @@ canvas.addEventListener('pointerdown', (e) => {
   // A stylus counts as a finger here, not as a mouse: it is held over a screen
   // that has the twist, and it has no second button to back out with either.
   drag.turns = e.pointerType !== 'touch' && e.pointerType !== 'pen';
+  drag.spun = false;
   drag.travel = 0;
   drag.done = false;
   // Cleared before the arming block below, which is what sets it.
@@ -1405,7 +1413,7 @@ canvas.addEventListener('pointerdown', (e) => {
 
 canvas.addEventListener('pointermove', (e) => {
   if (spin && e.pointerId === spin.id) {
-    const t = stepTurn(spin.ax, e.clientX);
+    const t = stepTurn(spin.ax, e.clientX, spin.turned);
     spin.ax = t.anchor;
     // Sticky: one turn anywhere in the press means the release was a drag, and
     // a drag must not also back out of the mode you were looking around inside.
@@ -1451,8 +1459,9 @@ canvas.addEventListener('pointermove', (e) => {
     // whole branch exists to fix, arriving one event later.
     if (drag.moving) return;
     if (drag.turns) {
-      const t = stepTurn(drag.ax, e.clientX);
+      const t = stepTurn(drag.ax, e.clientX, drag.spun);
       drag.ax = t.anchor;
+      drag.spun = t.turned || drag.spun;
     } else {
       // Fed the *frame* delta, not the distance from the origin — panning by the
       // total would move the camera by the whole drag again on every event, which
