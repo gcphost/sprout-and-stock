@@ -94,7 +94,13 @@ export const PLAYER_COLORS = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
  * place the server, the build validator and this file all agree.
  */
 export const TILE_STYLE = {
-  [T.GRASS]: { color: PALETTE.grass, h: 0 },
+  // Drawn, and the lowest ground there is. It used to be `h: 0` and skipped
+  // outright by `buildWorld` — what you saw was the apron plane underneath, one
+  // flat colour with none of the per-cell jitter or baked lamp light every other
+  // kind of ground gets. A hair rather than nothing because the road is 0.02 and
+  // deliberately flush: a lawn that stood level with the tarmac would put the
+  // kerb back that `T.ROAD` says in as many words it does not want.
+  [T.GRASS]: { color: PALETTE.grass, h: 0.01 },
   [T.FLOOR]: { color: PALETTE.floor, h: 0.06 },
   [T.WALL]: { color: PALETTE.wall, h: 1.1 },
   // The plot tile is only the bed. Whether it reads as rough turf or turned
@@ -358,6 +364,25 @@ export const STRIPE_BARS = 3;
 export const stripeBars = (surface) => Math.max(1, Math.round(surface?.bars || STRIPE_BARS));
 export const stripeDuty = (surface) => 1 / (stripeBars(surface) * 2);
 
+/**
+ * How thickly an unauthored `tufts` cell is planted, and how tall a blade is.
+ *
+ * Six is enough to read as planted from the height you play at and cheap enough
+ * to carpet a field with — see `MAX_TUFTS` in `client/render/scene.js` for the
+ * ceiling this multiplies into. `STRIPE_BARS`' argument applies word for word: a
+ * fallback for a design that did not choose, never a second opinion.
+ *
+ * It was four while a blade was a wide triangle, where four already looked
+ * crowded. A blade is a narrow strip now and the same four read as bald, which
+ * is the ordinary way a density and a shape have to be retuned together.
+ */
+export const TUFT_DENSITY = 6;
+/** In tiles. A shopper is about 0.9 tall, so this is ankle-deep. */
+export const TUFT_BLADE = 0.13;
+
+export const tuftDensity = (surface) => Math.max(1, Math.round(surface?.density || TUFT_DENSITY));
+export const tuftBlade = (surface) => Math.max(0.02, surface?.blade || TUFT_BLADE);
+
 export function patternColor(surface, x, z) {
   const base = surface.color;
   const accent = surface.accent ?? shade(base, -0.16);
@@ -365,12 +390,13 @@ export function patternColor(surface, x, z) {
     ? (x + z) % 2 === 1
     // Planks run along x and step every third row, so the joins stagger rather
     // than lining up into one long stripe down the shop.
-    // `stripes` is deliberately absent, and that is the one pattern that is not
-    // a per-cell colour. A zebra bar is a fraction of a tile wide — one bar per
-    // CELL is a bar half a car long, which is a chequerboard with ambitions —
-    // so the cell stays its base colour here and the bars are drawn on top of
-    // it as their own geometry — see `STRIPE_BARS` above, and `addStripes` in
-    // `client/render/scene.js`, which lays them.
+    // `stripes` and `tufts` are deliberately absent, and they are the two
+    // patterns that are not a per-cell colour. A zebra bar is a fraction of a
+    // tile wide — one bar per CELL is a bar half a car long, which is a
+    // chequerboard with ambitions — and a tuft is not flat at all. Both leave
+    // the cell its base colour here and draw themselves on top of it as their
+    // own geometry, in `accent`: see `STRIPE_BARS` and `TUFT_DENSITY` above,
+    // and `addStripes` / `addTufts` in `client/render/scene.js`, which lay them.
     : (surface.pattern === 'planks' ? Math.floor(z + (x % 3 === 0 ? 1 : 0)) % 3 === 0 : false);
   return jitter(alt ? accent : base, 0.03, x * 31 + z * 17);
 }

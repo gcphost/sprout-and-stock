@@ -18,7 +18,7 @@ import { shelfFor } from '../server/sim/staff.js';
 import { content } from '../server/content.js';
 import { requiredFixture } from '../shared/tags.js';
 import {
-  canPlace, canPlaceCleanly, isGround, faceAlong, behindTile,
+  canPlace, canPlaceCleanly, isGround, isSurface, faceAlong, behindTile,
   blockedAt, insideStore, tileAt,
 } from '../shared/build.js';
 import { SOLID, edgeBetween } from '../shared/edges.js';
@@ -1639,9 +1639,15 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     // Every ground kind, not just floor: the yard pads are painted the same way
     // and are just as unaimable, and a check that named floor would start
     // demanding geometry from a delivery bay the day one was authored.
-    if (isGround(kindOf(fx))) {
-      check(fx.surface?.color != null, `ground ${fx.id} says what it is made of`);
-      check(fx.model == null, `ground ${fx.id} carries no model to draw`);
+    //
+    // ...and paint is the same claim once more, which is why this asks
+    // `isSurface` rather than naming the two: a finish is not a thing standing
+    // in a cell either — it is half of a wall's own skin, aimed at through the
+    // wall (`pickFace`) and never through the piece. A check written against
+    // ground alone would start demanding geometry from a tin of emulsion.
+    if (isSurface(kindOf(fx))) {
+      check(fx.surface?.color != null, `${kindOf(fx)} ${fx.id} says what it is made of`);
+      check(fx.model == null, `${kindOf(fx)} ${fx.id} carries no model to draw`);
       continue;
     }
     const rungs = fx.tiers?.length || 1;

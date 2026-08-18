@@ -485,6 +485,23 @@ export class MartRoom extends Room {
     // Painting an area of ground rather than drawing along a line. Two corners
     // for the same reason a wall sends two ends: a stroke is up to 256 cells
     // and the inbound cap is 4KB.
+    // Finishing one FACE of a wall, or a run of them. Two ends and a side, for
+    // the reason above — and the reply is not a layout.
+    //
+    // `sendLayout` is what every other build verb answers with, because every
+    // other build verb moves something: the client disposes its entire static
+    // scene on one and builds it again. Paint moves nothing, so the shop it
+    // would rebuild is the shop already on screen — the only thing that has
+    // changed is which colour a few wall faces are drawn in, and the renderer
+    // rebuilds walls on their own already (it does it on every quarter turn of
+    // the camera). So the overlay goes out by itself, to everybody, because the
+    // other player is looking at the same wall.
+    this.onMessage('paint-face', (client, m) => {
+      const res = this.game.paintFaces(client.sessionId, m ?? {});
+      client.send('action-result', res);
+      if (res.ok && !res.unchanged) this.broadcast('paint', this.game.paint);
+    });
+
     this.onMessage('build-ground', (client, m) => {
       const res = this.game.buildGround(client.sessionId, m ?? {});
       client.send('action-result', res);

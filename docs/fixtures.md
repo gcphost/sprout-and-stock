@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-45 pieces across 15 kinds.
+71 pieces across 18 kinds.
 
 ## Fixtures
 
@@ -39,6 +39,8 @@ Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other
 
 8 parts · **2 boards of goods** (6 facings drawn) · has glass
 
+✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 1. **Bakery case** — free, as built
 2. **Heated case** — $120, keeps ×1.6
 3. **Patisserie case** — $300, holds ×1.35, keeps ×2
@@ -50,6 +52,8 @@ Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other
 8 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn)
 
 🔄 **Open all round** — no back panel, so it is worked from all four sides rather than three. Reach and the working-spot markers only: where it may be built and where a tap walks you go by the one anchor either way.
+
+✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 1. **Trestle table** — free, as built
 2. **Tiered display** — $90, holds ×1.4
@@ -76,6 +80,8 @@ Shapes: Standard, Chest, Wall run, Wall corner, Wall corner (other way), Endcap 
 `deli-counter` · kind `freezer` · $240 to build
 
 6 parts · **1 board of goods** (3 facings drawn) · has glass
+
+✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 1. **Serve-over** — free, as built
 2. **Chilled well** — $150, keeps ×1.8
@@ -181,6 +187,16 @@ Shapes: Standard, Timber Trough, Cold Frame — looks only, same price and same 
 2. **Raised bed** — $90, speed ×1.6
 3. **Greenhouse** — $260, speed ×2.3
 
+### `bin`
+
+Indoors or out, owns its cell (people walk around it), worked from the side it faces (`useAt`), rotates.
+
+#### Skip
+
+`bin` · kind `bin` · $90 to build
+
+6 parts · no `surface` boards — goods pile on its roof
+
 ## Decorations
 
 They weigh nothing, on purpose. No tile stamped, no generator budget, no working spot reserved — so people walk past them and no shop that was walkable stops being so. Anything that must be walked around is a shelf.
@@ -195,17 +211,23 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 5 parts
 
+✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 #### Basket Stack
 
 `basket-stack` · kind `prop-floor` · $20 to build
 
 6 parts
 
+✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 #### A-Frame Sign
 
 `a-frame-sign` · kind `prop-floor` · $25 to build
 
 6 parts
+
+✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 #### Money Tree
 
@@ -223,6 +245,8 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 4 parts
 
+✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 💡 Emits `#ffd7a1`, intensity 1.1, range 4.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 #### Lamp Post
@@ -230,6 +254,8 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 `lamp-post` · kind `prop-floor` · $90 to build
 
 5 parts
+
+✨ Charm **2** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 💡 Emits `#ffd9a6`, intensity 1.6, range 7 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
@@ -239,6 +265,8 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 4 parts
 
+✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 💡 Emits `#ffe0b0`, intensity 0.7, range 3.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 #### Awning
@@ -246,6 +274,8 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 `awning` · kind `prop-floor` · $28 to build
 
 8 parts
+
+✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 ### `prop-ceiling`
 
@@ -257,6 +287,8 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 3 parts
 
+✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 💡 Emits `#ffd7a1`, intensity 1.3, range 5.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 #### Aisle Sign
@@ -265,11 +297,15 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 5 parts
 
+✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 #### String Lights
 
 `string-lights` · kind `prop-ceiling` · $55 to build
 
 5 parts
+
+✨ Charm **2** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 💡 Emits `#ffe0b0`, intensity 0.8, range 4 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
@@ -279,6 +315,8 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 4 parts
 
+✨ Charm **0.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 💡 Emits `#e8f0ff`, intensity 1.5, range 6 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 #### Fan Light
@@ -286,6 +324,8 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 `ceiling-fan` · kind `prop-ceiling` · $110 to build
 
 6 parts · 2 parts move always
+
+✨ Charm **2** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 💡 Emits `#ffe1b3`, intensity 1, range 5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
@@ -295,6 +335,8 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 2 parts · has glass
 
+✨ Charm **0.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 💡 Emits `#eef4ff`, intensity 1.3, range 5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 #### Paper Lantern
@@ -302,6 +344,8 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 `paper-lantern` · kind `prop-ceiling` · $45 to build
 
 3 parts
+
+✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 💡 Emits `#ffdcae`, intensity 0.9, range 4.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
@@ -311,7 +355,47 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 11 parts
 
+✨ Charm **3.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 💡 Emits `#ffd08a`, intensity 1.8, range 6.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+## Paint
+
+Not placed and not a cell either — **a finish for one side of a wall**, painted along a run and priced per face. A face is half an edge, which is why this is its own bucket: the two sides of one wall are two decisions.
+
+### `paint`
+
+A finish for one **side** of a wall. Painted along a run, priced per face, and read by nothing but the renderer — the two sides of a wall are two decisions, and neither can move a tile.
+
+#### Cream Emulsion
+
+`paint-cream` · kind `paint` · $3 per face
+
+Surface `#e8ded0`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Sage Green
+
+`paint-sage` · kind `paint` · $4 per face
+
+Surface `#8fa383`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Deep Teal
+
+`paint-teal` · kind `paint` · $5 per face
+
+Surface `#2f6f6a`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Red Brick
+
+`paint-brick` · kind `paint` · $7 per face
+
+Surface `#9d5240` / `#e0d6c6`, planks repeat. No model — a finish is the wall's own skin.
+
+#### White Tile
+
+`paint-tile` · kind `paint` · $9 per face
+
+Surface `#eef0ee` / `#c8ccc9`, checker repeat. No model — a finish is the wall's own skin.
 
 ## Ground
 
@@ -452,6 +536,130 @@ Surface `#d9cbb0` / `#c6b79a`, checker repeat. No model — ground *is* the cell
 `zebra-crossing` · kind `path` · $6 per tile
 
 Surface `#f2efe6` / `#5f646d`, stripes repeat. No model — ground *is* the cell.
+
+### `lawn`
+
+Ground. Painted over an area, blocks nobody, and is purely a **look** — two designs of land leave byte-identical tiles.
+
+#### Turf
+
+`lawn-turf` · kind `lawn` · $0.40 per tile
+
+Surface `#8ec96b` / `#a5d982`, tufts repeat. No model — ground *is* the cell.
+
+#### Meadow
+
+`lawn-meadow` · kind `lawn` · $0.60 per tile
+
+Surface `#86c164` / `#9fd47c`, tufts repeat. No model — ground *is* the cell.
+
+#### Mown Lawn
+
+`lawn-mown` · kind `lawn` · $1.10 per tile
+
+Surface `#93cf70` / `#88c465`, checker repeat. No model — ground *is* the cell.
+
+#### Dry Scrub
+
+`lawn-scrub` · kind `lawn` · $0.30 per tile
+
+Surface `#b3b072` / `#c7c286`, tufts repeat. No model — ground *is* the cell.
+
+#### Bare Earth
+
+`dirt-bare` · kind `lawn` · $0.20 per tile
+
+Surface `#a8763f` / `#96693a`, plain repeat. No model — ground *is* the cell.
+
+#### Packed Dirt
+
+`dirt-packed` · kind `lawn` · $0.25 per tile
+
+Surface `#9c7040` / `#8d6234`, checker repeat. No model — ground *is* the cell.
+
+#### Mud
+
+`dirt-mud` · kind `lawn` · $0.25 per tile
+
+Surface `#7d5530` / `#6b4626`, checker repeat. No model — ground *is* the cell.
+
+#### Dust
+
+`dirt-dust` · kind `lawn` · $0.20 per tile
+
+Surface `#c4a878` / `#b39a6c`, checker repeat. No model — ground *is* the cell.
+
+#### Rutted Track
+
+`dirt-rut` · kind `lawn` · $0.30 per tile
+
+Surface `#9c7040` / `#7d5530`, planks repeat. No model — ground *is* the cell.
+
+#### Burnt Grass
+
+`grass-burnt` · kind `lawn` · $0.20 per tile
+
+Surface `#6b6255` / `#544b40`, tufts repeat. No model — ground *is* the cell.
+
+#### Dead Grass
+
+`grass-dead` · kind `lawn` · $0.25 per tile
+
+Surface `#b9a86a` / `#cdbc7e`, tufts repeat. No model — ground *is* the cell.
+
+#### Patchy Grass
+
+`grass-patchy` · kind `lawn` · $0.30 per tile
+
+Surface `#9aab63` / `#8fc45e`, tufts repeat. No model — ground *is* the cell.
+
+#### Moss
+
+`grass-moss` · kind `lawn` · $0.80 per tile
+
+Surface `#6fae5c` / `#83c46f`, tufts repeat. No model — ground *is* the cell.
+
+#### Clover
+
+`grass-clover` · kind `lawn` · $0.70 per tile
+
+Surface `#7cc46a` / `#93d47f`, tufts repeat. No model — ground *is* the cell.
+
+#### Wildflower
+
+`grass-wildflower` · kind `lawn` · $1.20 per tile
+
+Surface `#86c164` / `#e8c05a`, tufts repeat. No model — ground *is* the cell.
+
+#### Long Grass
+
+`grass-long` · kind `lawn` · $0.50 per tile
+
+Surface `#7fb85c` / `#94cc70`, tufts repeat. No model — ground *is* the cell.
+
+#### Gravel
+
+`land-gravel` · kind `lawn` · $0.35 per tile
+
+Surface `#a8a49c` / `#948f86`, checker repeat. No model — ground *is* the cell.
+
+#### Sand
+
+`land-sand` · kind `lawn` · $0.30 per tile
+
+Surface `#dfc99a` / `#d0b988`, checker repeat. No model — ground *is* the cell.
+
+#### Bark Chip
+
+`land-bark` · kind `lawn` · $0.50 per tile
+
+Surface `#9a6b45` / `#85593a`, planks repeat. No model — ground *is* the cell.
+
+#### Weeds
+
+`land-weeds` · kind `lawn` · $0.15 per tile
+
+Surface `#9c8f5e` / `#a8bd5e`, tufts repeat. No model — ground *is* the cell.
 
 ---
 

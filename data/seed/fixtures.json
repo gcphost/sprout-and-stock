@@ -4002,6 +4002,146 @@
     "open": false
   },
   {
+    "id": "dirt-bare",
+    "name": "Bare Earth",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.2,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#a8763f",
+      "accent": "#96693a",
+      "pattern": "plain",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "dirt-dust",
+    "name": "Dust",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.2,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#c4a878",
+      "accent": "#b39a6c",
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "dirt-mud",
+    "name": "Mud",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.25,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#7d5530",
+      "accent": "#6b4626",
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "dirt-packed",
+    "name": "Packed Dirt",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.25,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9c7040",
+      "accent": "#8d6234",
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "dirt-rut",
+    "name": "Rutted Track",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.3,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9c7040",
+      "accent": "#7d5530",
+      "pattern": "planks",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
     "id": "floor-lamp",
     "name": "Floor Lamp",
     "model": {
@@ -5692,6 +5832,202 @@
     "open": false
   },
   {
+    "id": "grass-burnt",
+    "name": "Burnt Grass",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.2,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#6b6255",
+      "accent": "#544b40",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 4,
+      "blade": 0.1
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "grass-clover",
+    "name": "Clover",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.7,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#7cc46a",
+      "accent": "#93d47f",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 11,
+      "blade": 0.08
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "grass-dead",
+    "name": "Dead Grass",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.25,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#b9a86a",
+      "accent": "#cdbc7e",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 7,
+      "blade": 0.17
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "grass-long",
+    "name": "Long Grass",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.5,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#7fb85c",
+      "accent": "#94cc70",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 7,
+      "blade": 0.32
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "grass-moss",
+    "name": "Moss",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.8,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#6fae5c",
+      "accent": "#83c46f",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 12,
+      "blade": 0.06
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "grass-patchy",
+    "name": "Patchy Grass",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.3,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9aab63",
+      "accent": "#8fc45e",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 4,
+      "blade": 0.12
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "grass-wildflower",
+    "name": "Wildflower",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 1.2,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#86c164",
+      "accent": "#e8c05a",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 8,
+      "blade": 0.19
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
     "id": "gravel-track",
     "name": "Gravel Track",
     "model": null,
@@ -6067,6 +6403,230 @@
     "surface": null,
     "yields": null,
     "charm": 2,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "land-bark",
+    "name": "Bark Chip",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.5,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9a6b45",
+      "accent": "#85593a",
+      "pattern": "planks",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "land-gravel",
+    "name": "Gravel",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.35,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#a8a49c",
+      "accent": "#948f86",
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "land-sand",
+    "name": "Sand",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.3,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#dfc99a",
+      "accent": "#d0b988",
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "land-weeds",
+    "name": "Weeds",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.15,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9c8f5e",
+      "accent": "#a8bd5e",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 5,
+      "blade": 0.24
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "lawn-meadow",
+    "name": "Meadow",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.6,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#86c164",
+      "accent": "#9fd47c",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 10,
+      "blade": 0.2
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "lawn-mown",
+    "name": "Mown Lawn",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 1.1,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#93cf70",
+      "accent": "#88c465",
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "lawn-scrub",
+    "name": "Dry Scrub",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.3,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#b3b072",
+      "accent": "#c7c286",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 5,
+      "blade": 0.15
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "lawn-turf",
+    "name": "Turf",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0
+      }
+    ],
+    "variants": [],
+    "kind": "lawn",
+    "cost": 0.4,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#8ec96b",
+      "accent": "#a5d982",
+      "pattern": "tufts",
+      "bars": null,
+      "density": 7,
+      "blade": 0.11
+    },
+    "yields": null,
+    "charm": 0,
     "work": null,
     "open": false
   },
@@ -7416,6 +7976,171 @@
     "emits": null,
     "tags": [],
     "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "paint-brick",
+    "name": "Red Brick",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "paint",
+    "cost": 7,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#9d5240",
+      "accent": "#e0d6c6",
+      "pattern": "planks",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "paint-cream",
+    "name": "Cream Emulsion",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "paint",
+    "cost": 3,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#e8ded0",
+      "accent": null,
+      "pattern": "plain",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "paint-sage",
+    "name": "Sage Green",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "paint",
+    "cost": 4,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#8fa383",
+      "accent": null,
+      "pattern": "plain",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "paint-teal",
+    "name": "Deep Teal",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "paint",
+    "cost": 5,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#2f6f6a",
+      "accent": null,
+      "pattern": "plain",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false
+  },
+  {
+    "id": "paint-tile",
+    "name": "White Tile",
+    "model": null,
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "paint",
+    "cost": 9,
+    "emits": null,
+    "tags": [],
+    "surface": {
+      "color": "#eef0ee",
+      "accent": "#c8ccc9",
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
+    },
     "yields": null,
     "charm": 0,
     "work": null,

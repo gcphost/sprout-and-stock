@@ -35,7 +35,7 @@ import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import {
   BUILD_KINDS, FIXTURE_KINDS, PROP_KINDS, FIXTURES, isProp, isFloor, canPlace,
-  GROUND, GROUND_KINDS, PAD_KINDS, isGround, groundTile, groundKindOfTile,
+  GROUND, GROUND_KINDS, PAD_KINDS, PAINT_KINDS, isGround, isPaint, groundTile, groundKindOfTile,
 } from '../shared/build.js';
 import { kindOf, pieceFor, defaultPiece, piecesOf, countKey } from '../shared/pieces.js';
 import { WALKABLE } from '../shared/tiles.js';
@@ -163,8 +163,19 @@ for (const p of TEST_PIECES) {
   const ground = BUILD_KINDS.filter((k) => isGround(k));
   check(ground.length >= 1, 'nothing in the vocabulary is ground rather than a thing');
   eq(GROUND_KINDS.length, ground.length, 'a ground kind is missing from BUILD_KINDS');
-  eq(BUILD_KINDS.length, FIXTURE_KINDS.length + PROP_KINDS.length + ground.length,
-    'every kind is exactly one of: a fixture, a decoration, or ground');
+  // FOUR buckets now, and paint is the one that made this line earn its keep:
+  // it arrived as a kind in no bucket and this is what said so. It is not a
+  // fixture (nothing stands anywhere), not a decoration (it weighs nothing
+  // because it is not a thing) and not ground (it has no cell at all — it goes
+  // on one side of the line between two).
+  const paint = BUILD_KINDS.filter((k) => isPaint(k));
+  check(paint.length >= 1, 'nothing in the vocabulary is a finish rather than a thing');
+  eq(PAINT_KINDS.length, paint.length, 'a paint kind is missing from BUILD_KINDS');
+  eq(BUILD_KINDS.filter((k) => isGround(k) && isPaint(k)).length, 0,
+    'nothing is both ground and a finish');
+  eq(BUILD_KINDS.length,
+    FIXTURE_KINDS.length + PROP_KINDS.length + ground.length + paint.length,
+    'every kind is exactly one of: a fixture, a decoration, ground, or a finish');
   for (const k of ground) {
     check(!FIXTURES[k], `${k} has no placement rules — it is not placed, it is painted`);
     check(!isProp(k), `${k} is not a decoration`);

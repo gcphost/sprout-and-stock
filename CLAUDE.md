@@ -61,6 +61,26 @@ stop. Add a tag instead.
 
 ## Two habits that matter
 
+**A wall has two sides, and paint is the first thing that knows it.** A finish
+(`PAINT` in `shared/build.js`) is authored as a `surface` exactly as a floor is,
+and goes on a FACE — `faceKey` is `o:x:z:±1` along the edge's own normal. Three
+things about it are worth knowing before touching either end. The side is a
+**number and never "inside"**: which side is indoors is a fact about the shop
+that `computeIndoor` re-answers every re-flow, so paint stored as "the inside
+face" would swap sides the day you extended the building — the bay-window trap
+with a colour on it. It is hung on the **finished** layout rather than handed to
+the generator, and that is structural rather than tidy: `ground` has to go in
+because a painted cell becomes a different tile, and paint must never have that
+power, so a generator that is never told about it cannot have been changed by
+it. And `paint-face` answers with the overlay rather than a layout, because a
+re-flow is the client disposing its entire scene — `Scene.setPaint` rebuilds the
+one group that draws walls, which already stands alone since it is rebuilt on
+every quarter turn of the camera. The trap when adding the NEXT kind outside
+`FIXTURES`: `selectBuildTool` only sends `build-tool` for things that table
+knows, and a kind missing from that guard works perfectly while printing "no
+such build tool" on every press — which is why the test is now "is it a
+fixture" rather than a list of exceptions.
+
 **A fixture verb can be asked of several fixtures now, and the client sends one
 message.** `p.errand`'s four kinds of address are about one thing at a time;
 `ids` is the other axis. `targets` in `MartRoom` is the one spelling of "who is
@@ -316,6 +336,23 @@ Fifteen sweeps, about twenty seconds:
   what is inside it throws, and — the one that keeps this from being a tax on
   ordinary play — that a selection of one comes back in the verb's own shape,
   with no fold, no summary and no held re-flow. It authors nothing.
+
+- `verify:paint` guards the same claim `verify:floor` makes about the ground,
+  said about the other surface in the building — and it has to be made again
+  rather than inherited, because paint goes somewhere nothing had gone before:
+  on ONE SIDE of the line between two cells. Everything that reads a wall reads
+  it as a number in `edgesV`/`edgesH` — enclosure, pathing, the queue, who may
+  cross — so a finish that touched either array would not be a rendering bug, it
+  would be a shop that changes shape when you decorate it. Its centrepiece is
+  therefore a comparison rather than a value: every wall in a furnished shop
+  painted, and `tiles`, `blocked`, `indoor` and both edge arrays byte-identical
+  afterwards. Plus the claims a SIDE brings with it: that painting one face
+  leaves the other bare (a key that dropped the side would paint both and look
+  perfectly correct from a camera that can only see one of them), that it
+  survives the re-flow a purchase causes and **causes none itself**, that a face
+  with no wall is refused while a drag ALONG a wall skips the gaps, and that a
+  repaint hands back half of what was under it so no amount of redecorating
+  prints money. It authors two paint rows and removes them on exit.
 
 Each of the first twelve found real bugs the day it was written, and so did
 `verify:hot` — two, both of them a list of kinds somebody had written out by

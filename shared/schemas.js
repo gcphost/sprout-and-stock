@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { ALL_TAGS } from './tags.js';
 // One spelling of the kind that is ground. `shared/build.js` reaches only
 // tiles.js and edges.js, so there is no cycle to pay for taking it from source.
-import { isGround } from './build.js';
+import { isSurface } from './build.js';
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lowercase kebab/snake case');
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb hex colour');
@@ -618,8 +618,17 @@ export const FixtureSchema = z.object({
      * pedestrian crossing authorable rather than a kind — see `GROUND.path`. It
      * is the one pattern whose *direction* means something, so a crossing drawn
      * north–south and one drawn east–west are the same design laid two ways.
+     *
+     * `tufts` is the second one that is not a colour at all: blades stood up off
+     * the cell in `accent` over a base of `color`. It is what makes a lawn worth
+     * having a row — the ground is seen edge-on at 45°, so a colour is all that
+     * survives of a *flat* pattern, and the way you tell grass from lino is that
+     * grass has height. Authorable on any ground kind on purpose: weeds through
+     * a cracked yard is a design somebody may want, and refusing it would mean
+     * this enum knowing which kinds are outdoors, which is not something a look
+     * should know.
      */
-    pattern: z.enum(['plain', 'checker', 'planks', 'stripes']).default('plain'),
+    pattern: z.enum(['plain', 'checker', 'planks', 'stripes', 'tufts']).default('plain'),
     /**
      * How many bars a `stripes` cell is painted with. Null takes the default.
      *
@@ -633,6 +642,28 @@ export const FixtureSchema = z.object({
      * not two: a zebra that is not half-and-half is a different marking.
      */
     bars: z.number().int().min(1).max(8).nullable().default(null),
+    /**
+     * How thickly a `tufts` cell is planted, and how tall. Null takes the
+     * defaults.
+     *
+     * `bars`' opposite number, on the same argument: how coarse a pattern is is
+     * a look and belongs on the row, while what a tuft IS stays renderer
+     * geometry. Two of them at half height is a mown lawn, nine at full height
+     * is a meadow, and both are somebody authoring a design.
+     *
+     * `density` is per cell rather than per tile-area because the cell is the
+     * unit everything else about ground is counted in — how big you paint it is
+     * how much of it you have, said about planting.
+     *
+     * It is capped low deliberately. Ground is the biggest thing in the world by
+     * cell count and build mode re-flows the whole scene on every wall segment,
+     * so this number multiplies the one buffer that gets rebuilt most often —
+     * see `MAX_TUFTS` in `client/render/scene.js`, which is the real ceiling and
+     * thins rather than refuses.
+     */
+    density: z.number().int().min(1).max(12).nullable().default(null),
+    /** How tall a `tufts` blade stands, in tiles. Null takes the default. */
+    blade: z.number().min(0.04).max(0.5).nullable().default(null),
   }).nullable().default(null),
   /**
    * Feeds the tag system, if a decoration should ever do more than look nice.
@@ -642,13 +673,17 @@ export const FixtureSchema = z.object({
 }).refine((v) => (v.tiers?.[0]?.cost ?? 0) === 0, {
   message: 'tier 1 is what a new one already is, so it must cost 0',
   path: ['tiers'],
-}).refine((v) => (isGround(v.kind) ? v.surface != null : v.model != null), {
+}).refine((v) => (isSurface(v.kind) ? v.surface != null : v.model != null), {
   // Split rather than one required field each way round, because the two halves
   // fail for opposite reasons and a shared message would explain neither:
   // ground with a model is asking for geometry nothing draws, and a shelf with
   // no model is a shelf nobody can see. Every ground kind is on the same side
   // of this — a delivery bay is seen edge-on at 45° with a shop standing on it,
   // exactly like a floor, so what content authors for one is a colour too.
+  //
+  // ...and so is paint, which is the same question stood up: a wall at this
+  // camera is a strip of flat colour with a repeat on it, so a finish is a
+  // `surface` and `isSurface` is the one test both kinds answer.
   message: 'ground is authored as a `surface` (colour + pattern) and everything else as a `model`',
   path: ['model'],
 });

@@ -300,13 +300,80 @@ export const GROUND = {
     label: 'Pavement',
     tile: T.PATH,
   },
+  /**
+   * The lawn — the seventh ground kind, and the last cell in the game that was
+   * still a hardcoded colour.
+   *
+   * `T.GRASS` is what every outdoor cell is made of before anybody paints
+   * anything, so it has been in the game since the first world was generated —
+   * and it was ground in exactly the sense `path` was: a thing you could see,
+   * could not restyle, and could not have a second design of. Worse than the
+   * path, in fact, because the renderer did not draw it at all. A grass cell
+   * fell through `buildWorld`'s tile loop and what you saw was the big apron
+   * plane underneath, one flat colour, with none of the per-cell jitter or baked
+   * lamp light every other kind of ground gets. "Our grass is flat" was
+   * literally true: there was no grass, there was a box.
+   *
+   * Giving it a row is the same promotion `path` got and costs the same nothing:
+   * no new tile value, no new enum, no migration. Every existing shop is already
+   * covered in unpainted `T.GRASS` and stays that way — an unpainted cell has no
+   * entry in `layout.ground`, so `surfaceOf` falls back to the tile's own palette
+   * colour and a save that has never heard of a lawn design renders as it always
+   * did, only jittered.
+   *
+   * It is a *look* and never a permission, which is the same claim `floor` and
+   * `road` make and matters more here than for either: `BUILDABLE_OUTDOOR` is
+   * `T.GRASS`, so a bed is dug into whatever lawn you painted and a meadow is
+   * still farmland. A design that changed that would not be a design, it would
+   * be a kind.
+   */
+  lawn: {
+    // The id is `lawn` and the word is Land, which is the split CLAUDE.md draws
+    // about the robots: an id is load-bearing on rows that already exist and a
+    // label is what somebody reads. It was called a lawn for about an hour,
+    // until the second batch of designs turned out to be bare earth, burnt
+    // stubble and gravel — all of them the same brush laying the same tile, and
+    // none of them a lawn. Do not "fix" the mismatch later.
+    label: 'Land',
+    tile: T.GRASS,
+  },
 };
 
 export const FLOOR_KIND = 'floor';
 
+/**
+ * PAINT — what a wall's FACE is finished in.
+ *
+ * The third partition, and it is neither of the other two on the same grounds
+ * they are not each other. A fixture answers "where may this stand and who can
+ * reach it"; ground answers "what is this cell made of". Paint answers neither:
+ * it has no cell at all. It goes on one *side* of a line between two cells, and
+ * the two sides of one wall are two different answers — which is the whole of
+ * why it could not have been a ground kind with a different `tile`, and why it
+ * is not a fifth glazing either. `GLAZING` and `WAYS` are looks of the wall
+ * ITSELF, one per edge; a face is half an edge.
+ *
+ * Authored exactly as a floor is — a `surface`, which is a colour and a pattern
+ * — because it is the same question seen from the side: a wall at this camera
+ * is a strip of flat colour with a repeat on it. So `create_fixture` needs no
+ * new shape, `artForGround` already draws the swatch, and a new shade of blue
+ * is one MCP call. One kind rather than several, because "matt", "gloss" and
+ * "brick" are rows in it, not vocabularies of their own — the thing that would
+ * earn a second kind here is a finish that DOES something, and a look that does
+ * something has stopped being a look.
+ *
+ * It changes no tile, blocks nobody, encloses nothing and is read by nothing
+ * but the renderer. `verify:paint` pins that, the way `verify:floor` pins the
+ * same claim about the ground.
+ */
+export const PAINT = {
+  paint: { label: 'Paint' },
+};
+
 /** Every kind a piece may name. The closed vocabulary, in one place. */
 export const GROUND_KINDS = Object.keys(GROUND);
-export const BUILD_KINDS = [...Object.keys(FIXTURES), ...GROUND_KINDS];
+export const PAINT_KINDS = Object.keys(PAINT);
+export const BUILD_KINDS = [...Object.keys(FIXTURES), ...GROUND_KINDS, ...PAINT_KINDS];
 
 /** The ground kinds that carry a job rather than only a look. */
 export const PAD_KINDS = GROUND_KINDS.filter((k) => GROUND[k].pad);
@@ -361,6 +428,17 @@ export const FIXTURE_KINDS = Object.keys(FIXTURES).filter((k) => FIXTURES[k].at 
 export const isProp = (kind) => FIXTURES[kind]?.at != null;
 
 export const isGround = (kind) => GROUND[kind] != null;
+
+export const isPaint = (kind) => PAINT[kind] != null;
+
+/**
+ * The two kinds that are authored as a `surface` rather than as a model.
+ *
+ * Asked by the schema, by the palette and by the thumbnail drawer, and derived
+ * rather than written out three times — a kind added to one list and not the
+ * others is a row the database accepts and nothing can draw.
+ */
+export const isSurface = (kind) => isGround(kind) || isPaint(kind);
 
 export const isFloor = (kind) => kind === FLOOR_KIND;
 
@@ -884,6 +962,90 @@ export function queueLanes(L) {
 }
 
 /**
+ * A FACE — one side of one edge, which is what paint goes on.
+ *
+ * An edge is a line between two cells and has two of them, so a face is the
+ * edge plus which way it looks. `s` is -1 or 1 along the edge's own normal: a
+ * vertical edge at x separates cell x-1 (that is `-1`) from cell x (`1`), and a
+ * horizontal one at z separates cell z-1 from cell z the same way.
+ *
+ * Numbers rather than 'inside'/'outside', and that is the decision this rests
+ * on. Which side is indoors is a fact about the *shop*, not about the wall —
+ * `computeIndoor` re-answers it every re-flow, and a room you wall off changes
+ * it for edges nobody touched. Stored as "the inside face", a paint job would
+ * silently swap sides the day you extended the building, which is the bay
+ * window trap (`outward` in the renderer) with a colour on it. The geometry
+ * never moves, so the geometry is what it is keyed to.
+ *
+ * One string, because the whole overlay is a map and three readers have to
+ * agree about it — the same argument `countKey` makes for a fixture.
+ */
+export const faceKey = (f) => `${f.o}:${f.x}:${f.z}:${f.s < 0 ? -1 : 1}`;
+
+/** ...and back, for a reader that has the key and wants the geometry. */
+export function faceOf(key) {
+  const [o, x, z, s] = String(key).split(':');
+  return { o, x: Number(x), z: Number(z), s: Number(s) };
+}
+
+/**
+ * May this face take paint?
+ *
+ * Almost nothing to say no about, which is the point: paint reads nothing, moves
+ * no tile and encloses nothing, so the only genuine refusal is that there is no
+ * wall there to paint. Everything `canPlaceEdges` has to worry about — sealing
+ * the shop, stranding a fixture, the border ring — is about what a wall DOES,
+ * and a face does nothing.
+ *
+ * Glass is the one exception and it is not a rule about paint, it is a rule
+ * about where paint LANDS: a pane takes its colour from the wall it is set in
+ * (see `paintedBands`), so a face whose edge is nothing but glass has nowhere
+ * to put it. There is no such edge today — every glazing has a sill and a
+ * header — which is why this asks about the edge existing and not about that.
+ */
+export function canPaintFaces(L, faces) {
+  const nope = (reason) => ({ ok: false, reason });
+  if (!faces?.length) return nope('nothing to paint');
+  for (const f of faces) {
+    if (f.o !== 'v' && f.o !== 'h') return nope('that is not a wall line');
+    if (!edgeAt(L, f)) return nope('there is nothing there to paint');
+  }
+  return { ok: true };
+}
+
+/** What is on this line right now — the read `canPaintFaces` is made of. */
+export function edgeAt(L, f) {
+  const x = Math.round(f.x);
+  const z = Math.round(f.z);
+  if (f.o === 'v') {
+    if (x < 0 || z < 0 || x > L.w || z >= L.h) return E.NONE;
+    return L.edgesV?.[z * (L.w + 1) + x] ?? E.NONE;
+  }
+  if (x < 0 || z < 0 || x >= L.w || z > L.h) return E.NONE;
+  return L.edgesH?.[z * L.w + x] ?? E.NONE;
+}
+
+/**
+ * The faces a paint drag covers — `edgeRun` with a side carried through.
+ *
+ * The side is the one the drag STARTED on, for every segment of it, rather than
+ * re-read per segment: a drag along the front of the shop crosses the doorway
+ * and both bay corners, and a run that re-decided at each step would paint the
+ * inside of the two segments your cursor happened to drift across. You said
+ * which face when you pressed.
+ *
+ * Runs of faces that have no wall are dropped rather than refused, which is the
+ * opposite of what building a wall does and right for the same reason a floor
+ * drag is: you are dragging along a wall that is already there, so a gap in it
+ * is a gap, not a mistake.
+ */
+export function faceRun(L, start, to, max = 40) {
+  return edgeRun(start, to, max)
+    .map((seg) => ({ ...seg, s: start.s < 0 ? -1 : 1 }))
+    .filter((f) => edgeAt(L, f) !== E.NONE);
+}
+
+/**
  * May a wall, window or doorway go on this line?
  *
  * Same two answers as `canPlace`, and the same reasoning: off the map is
@@ -1291,6 +1453,14 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
       if (ground !== want || (painted.get(`${x},${z}`) ?? null) !== piece) changed++;
     } else {
       if (was == null) continue;                     // nothing to take up
+      // ...and neither is ground that is ALREADY what taking it up leaves.
+      // Every cell in the world is a kind now that the lawn has a row, so `was`
+      // stopped being the whole test the day grass got one: a drag of the eraser
+      // across a field would otherwise report every cell of it as a change,
+      // charge for the stroke, and warn about the holes it left in a shop where
+      // nothing moved. The design is the real question — bare lawn is the bare
+      // ground this stroke produces, and lawn somebody painted is not.
+      if (ground === want && (painted.get(`${x},${z}`) ?? null) == null) continue;
       // See above: this would drop the fixture rather than strand it.
       if (blockedAt(L, x, z)) return no('something is standing on it');
       changed++;

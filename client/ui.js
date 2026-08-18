@@ -624,7 +624,16 @@ export class UI {
     // deliberately not in FIXTURES because it is what a cell is made of rather
     // than a thing standing on it. Painting names its own piece in
     // `build-ground`, so there is nothing to tell the server.
-    if (t.edge === undefined && !t.paint) {
+    //
+    // ...and a FINISH is the third of them, which is the whole list of things
+    // this guard has to know about: every kind that is not in `FIXTURES`. It
+    // shipped one press behind, exactly as the Farm tab's two edge tools did —
+    // the tool worked perfectly (it names its own piece in `paint-face`) and
+    // said "no such build tool" while doing it, which is the same silent
+    // refusal becoming a visible one. Written as "is it a fixture" rather than
+    // as a list of exceptions, so the next kind outside that table cannot
+    // arrive with this line still passing.
+    if (t.edge === undefined && !t.paint && !t.face) {
       this._sentTool = this.buildTool;
       this.net.send('build-tool', { tool: this.buildTool });
     }
@@ -755,7 +764,11 @@ export class UI {
    */
   armedEdgeTool() {
     const t = this.armedTool();
-    return t?.edge !== undefined || !!t?.paint;
+    // Everything that is not a fixture, which is what the one caller means by
+    // it: `toggleBuild` sends the armed tool along with the mode, and the
+    // server refuses anything outside `FIXTURES` by name. A finish is the third
+    // such tool — see the note in `selectBuildTool`.
+    return t?.edge !== undefined || !!t?.paint || !!t?.face;
   }
 
   /**
@@ -809,6 +822,21 @@ export class UI {
     return { kind: t.piece ? t.kind : null, piece: t.piece ?? '' };
   }
 
+  /**
+   * The finish this tool paints, or undefined when it is not a paint tool.
+   *
+   * `groundForTool`'s sibling, and separate for the reason the flags are: they
+   * are two different gestures over two different things, and every reader
+   * below branches on which. An empty piece is the brush's null entry — Bare
+   * Wall — exactly as it is for ground.
+   */
+  faceForTool() {
+    if (!this.paletteArmed || this.holding) return undefined;
+    const t = buildTools(this).find((x) => x.id === this.toolId());
+    if (!t?.face) return undefined;
+    return { piece: t.piece ?? '' };
+  }
+
   /** The palette entry currently armed, or null outside build mode. */
   armedTool() {
     if (!this.buildOn) return null;
@@ -858,6 +886,10 @@ export class UI {
     // standing something on it, so the fixture ghost would be a shelf-shaped
     // box hovering over ground you were about to tile.
     if (this.groundForTool() !== undefined) return null;
+    // ...and a finish aims at neither: it goes on the side of a wall, so it has
+    // no tile at all — the same reason a wall tool has no tile ghost, said one
+    // dimension further in.
+    if (this.faceForTool() !== undefined) return null;
     // What's in your hands outranks what's on the palette: while you're
     // carrying a shelf, every tile you point at is a candidate home for *it*.
     // And carrying is the one thing that arms a tap without the palette being

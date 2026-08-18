@@ -3,7 +3,8 @@
  */
 
 import {
-  canPlaceEdges, edgeRun, canPaintGround, groundStroke, strokeThick, GROUND_STROKE_MAX,
+  canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun,
+  groundStroke, strokeThick, GROUND_STROKE_MAX,
   faceAlong, isProp, isWalkableTile, workSpotOf, REACH,
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
@@ -152,6 +153,9 @@ net.on('layout', (m) => {
   // moment you used it.
   ui.syncPickMarkers();
 });
+// A wall was painted — by you, or by whoever else is in the shop. Only the
+// walls are rebuilt; nothing else in the building has moved.
+net.on('paint', (m) => scene.setPaint(m));
 net.on('catalog', (m) => { scene.setCatalog(m); ui.setCatalog(m); });
 net.on('state', (m) => {
   latestState = m;
@@ -333,7 +337,7 @@ function refreshGhost(force = false) {
   // A wall tool previews the line under the pointer, not a tile. While a drag
   // is live the drag owns the ghost — it knows the whole run, this only ever
   // knows the one segment you are hovering. Same for a brush and its area.
-  if (edgeDrag || floorDrag) return;
+  if (edgeDrag || floorDrag || faceDrag) return;
 
   // The bulldozer aims at a thing first and a line second. A shelf standing
   // against a wall covers the line behind it on screen, and "the wall" is never
@@ -380,6 +384,32 @@ function refreshGhost(force = false) {
     return;
   }
   scene.setEdgeGhost(null, null);
+
+  // A finish previews the one FACE under the pointer, which is the half of this
+  // tool nobody could guess: the wall you are pointing at has two sides and the
+  // gesture picks one, so the preview has to stand on the side it picked. Before
+  // the ground brush and after the wall tools, which is where it sits in the
+  // pointer's own order of questions: a line first, then which side of it, then
+  // the square.
+  const finish = pointer.onCanvas ? ui.faceForTool() : undefined;
+  if (finish !== undefined) {
+    const face = scene.pickFace(pointer.x, pointer.y);
+    const faces = face ? [face] : [];
+    const verdict = faces.length
+      ? canPaintFaces(scene.storeLayout, faces) : { ok: false, reason: 'nothing there to paint' };
+    scene.setFaceGhost(verdict.ok ? faces : [], 'ok');
+    // Nothing said when there is no wall under the pointer. A refusal printed on
+    // every frame you spend crossing the shop floor is a tool that reads as
+    // broken while you carry it to the wall you meant.
+    ui.setBuildVerdict(verdict.ok ? verdict : null);
+    scene.setAimTarget(null);
+    ui.setBoardTip(null, null);
+    scene.setPersonAim(null);
+    canvas.style.cursor = '';
+    ui.setAim(null);
+    return;
+  }
+  scene.setFaceGhost(null, null);
 
   // A brush previews the one cell under the pointer, so hovering already tells
   // you whether the ground will take it — the drag then previews the rectangle.
@@ -1122,6 +1152,34 @@ function edgeDragRun(cx, cy) {
   return { segs: edgeRun(edgeDrag.start, to), to };
 }
 
+let faceDrag = null;
+
+/**
+ * The faces a paint drag covers, and how far along the pointer has got.
+ *
+ * `edgeDragRun` said about a side. The far end is read off the tile for the same
+ * reason it is there — `pickFace` answers which LINE, which is the wrong
+ * question once the line is chosen — and the side is never re-read at all.
+ */
+function faceDragRun(cx, cy) {
+  if (!faceDrag) return { faces: [], to: null };
+  const tile = scene.pickTile(cx, cy, 0.55);
+  const to = tile ? (faceDrag.start.o === 'v' ? tile.z : tile.x) : null;
+  return { faces: faceRun(scene.storeLayout, faceDrag.start, to), to };
+}
+
+function showFaceDrag(cx, cy) {
+  const { faces, to } = faceDragRun(cx, cy);
+  if (!faces.length) { scene.setFaceGhost(null, null); return null; }
+  const verdict = canPaintFaces(scene.storeLayout, faces);
+  scene.setFaceGhost(faces, verdict.ok ? 'ok' : 'no');
+  ui.setBuildVerdict(verdict);
+  // The pointer's own far end, never the tail of the list — the wall drag's
+  // hard-won lesson, and it applies here for exactly the same reason: `edgeRun`
+  // emits lowest-index-first whichever way you dragged.
+  return { faces, verdict, to };
+}
+
 function showEdgeDrag(cx, cy) {
   const { segs, to } = edgeDragRun(cx, cy);
   if (!segs.length) { scene.setEdgeGhost(null, null); return null; }
@@ -1168,6 +1226,56 @@ function armEdgeRaze(cx, cy) {
   const seg = scene.pickEdge(cx, cy);
   if (!seg || kindAt(scene.storeLayout, seg) === E.NONE) return null;
   return seg;
+}
+
+/**
+ * ...and the same press with a BRUSH up: take this cell back to bare ground.
+ *
+ * `armEdgeRaze` said about an area instead of a line, and it is the same
+ * complaint — you lay ground in one gesture and regret it a cell at a time, and
+ * undoing one square meant finding Bare Ground on another tab, painting it, and
+ * arming the brush you were using again. Three inputs around a decision you made
+ * while looking at the tile.
+ *
+ * Two things it deliberately does NOT do. It aims with `pickTile` and never
+ * `pickFixture`, which is the left drag's own rule (`pickFixture` here would
+ * scrape the roof of a shelf), and it is a single CELL rather than a drag, which
+ * is what makes it the wall gesture rather than a second brush: the right button
+ * is also the only way to turn the view while a brush has the left one, so
+ * anything it does has to survive being abandoned mid-press.
+ *
+ * Null hands the press back to the button's ladder — turn, then `ui.escape()`,
+ * then a walk — so pointing at grass that is already bare backs out the way it
+ * always did rather than doing nothing at all.
+ */
+function armGroundScrape(cx, cy) {
+  const brush = ui.groundForTool();
+  if (brush === undefined) return null;
+  // Bare Ground itself is exempt. With the null entry armed the LEFT button
+  // already scrapes, over an area, so a right press on it would be one act with
+  // two gestures — which is the thing the eraser's own comment argues against.
+  if (!brush.piece) return null;
+  const cell = scene.pickTile(cx, cy);
+  if (!cell) return null;
+  // `canPaintGround` is the authority, exactly as `canPlaceEdges` is for a wall,
+  // and `unchanged` is the half a wall does not have: every cell in the world is
+  // a ground kind now that the lawn has a row, so "is there anything here" can
+  // only be answered by asking what taking it up would change.
+  const verdict = canPaintGround(scene.storeLayout, [cell], null, null);
+  if (!verdict.ok || verdict.unchanged) return null;
+  return cell;
+}
+
+/** Take one cell back to bare ground, judged and reported the way a run is. */
+function scrapeGround(at) {
+  const verdict = canPaintGround(scene.storeLayout, [at], null, null);
+  if (!verdict.ok) { ui.toast(verdict.reason, true); return; }
+  if (verdict.warn) ui.toast(verdict.warn);
+  scene.ripple(at.x, at.z, 'no');
+  // No `to`, for `razeEdge`'s reason: a null far end is what `groundStroke`
+  // reads as a stroke of one on the server as well as here, so the cell charged
+  // for is the cell the verdict was taken over.
+  net.send('build-ground', { x: at.x, z: at.z, piece: '', to: null });
 }
 
 /** Knock one segment through, judged and reported the way a drag's run is. */
@@ -1238,7 +1346,7 @@ canvas.addEventListener('pointerdown', (e) => {
     // and `endPress` with no event drops it without sending. This used to live
     // on `contextmenu`, which is too late on Windows — that event fires on
     // *release* there, by which point the pointerup below has already built it.
-    if (edgeDrag || floorDrag) { endPress(); return; }
+    if (edgeDrag || floorDrag || faceDrag) { endPress(); return; }
     // A mouse reuses one pointerId for every button, so a right press during a
     // left drag would hand the spin that drag's own id and steal its moves.
     if (drag.id !== null) return;
@@ -1249,6 +1357,7 @@ canvas.addEventListener('pointerdown', (e) => {
       at: performance.now(),
       put: null,
       raze: null,
+      scrape: null,
     };
     // The put half of the press, armed on the way DOWN for the same reason the
     // take is: the ring winds off an errand, so naming it on release means a
@@ -1262,6 +1371,11 @@ canvas.addEventListener('pointerdown', (e) => {
     // reason — the pointer is on the wall now, and by the time the button comes
     // up the view may have turned under it.
     spin.raze = armEdgeRaze(e.clientX, e.clientY);
+    // ...and the brush's version of the same press. None of the three can ever
+    // both answer: a put needs full hands and no palette, a raze needs an armed
+    // EDGE tool and this needs an armed GROUND one, and `edgeKindForTool` and
+    // `groundForTool` are two different flags on one entry.
+    spin.scrape = armGroundScrape(e.clientX, e.clientY);
     if (spin.put) hold();
     canvas.setPointerCapture(e.pointerId);
     return;
@@ -1315,6 +1429,21 @@ canvas.addEventListener('pointerdown', (e) => {
       edgeDrag = { start, kind: ek, id: e.pointerId };
       canvas.setPointerCapture(e.pointerId);
       showEdgeDrag(e.clientX, e.clientY);
+      return;
+    }
+  }
+
+  // ...and a finish takes it along a wall, on the side you pressed. The side is
+  // read ONCE, here, and carried through the whole run — see `faceRun`: a drag
+  // that re-decided per segment would paint the inside of whichever two your
+  // cursor drifted across on the way.
+  const finish = ui.faceForTool();
+  if (finish !== undefined) {
+    const start = scene.pickFace(e.clientX, e.clientY);
+    if (start) {
+      faceDrag = { start, piece: finish.piece, id: e.pointerId };
+      canvas.setPointerCapture(e.pointerId);
+      showFaceDrag(e.clientX, e.clientY);
       return;
     }
   }
@@ -1496,6 +1625,10 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pinch) { stepPinch(); return; }
+  if (faceDrag && e.pointerId === faceDrag.id) {
+    showFaceDrag(e.clientX, e.clientY);
+    return;
+  }
   if (edgeDrag && e.pointerId === edgeDrag.id) {
     showEdgeDrag(e.clientX, e.clientY);
     return;
@@ -1574,6 +1707,22 @@ function endPress(e) {
       // one direction, for every drag towards a lower x or z.
       net.send('build-edge', {
         o: start.o, x: start.x, z: start.z, kind, to: drawn.to,
+      });
+    }
+    return;
+  }
+  if (faceDrag && (!e || e.pointerId === faceDrag.id)) {
+    const drawn = e ? showFaceDrag(e.clientX, e.clientY) : null;
+    const { start, piece } = faceDrag;
+    faceDrag = null;
+    scene.setFaceGhost(null, null);
+    ui.setBuildVerdict(null);
+    if (drawn) {
+      if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
+      // Two ends, a side and a piece — never the list, for the cap's sake, and
+      // the server re-runs the same `faceRun` against the same maximum.
+      net.send('paint-face', {
+        o: start.o, x: start.x, z: start.z, s: start.s, piece, to: drawn.to,
       });
     }
     return;
@@ -1661,12 +1810,12 @@ function dropCarried(cx, cy) {
  */
 function endSpin(e) {
   if (!spin || (e && e.pointerId !== spin.id)) return null;
-  const { turned, put, raze, at } = spin;
+  const { turned, put, raze, scrape, at } = spin;
   spin = null;
   // Always, whether or not this press armed anything: the button is up, and a
   // `pressing` bit left set is a ring that goes on winding with nothing down.
   release();
-  return { turned, put, raze, held: performance.now() - at >= LONG_PRESS_MS };
+  return { turned, put, raze, scrape, held: performance.now() - at >= LONG_PRESS_MS };
 }
 canvas.addEventListener('pointerup', (e) => {
   const wasPinching = !!pinch;
@@ -1731,6 +1880,10 @@ canvas.addEventListener('pointerup', (e) => {
     // this on the way down, when the pointer was still on the line — with the
     // palette up there is nothing in your hands for it to compete with.
     if (spun.raze) { razeEdge(spun.raze); return; }
+    // ...and a cell of ground, on the same precedence and for the same reason:
+    // pointing at something you laid is a positive act, and backing out is what
+    // the button falls back to when you were not.
+    if (spun.scrape) { scrapeGround(spun.scrape); return; }
     // Backing out still comes first, and it is still every rung of the ladder —
     // a search box, a menu, a selection, a browse bar, an armed tool, the mode.
     // What is new is that the ladder now says when it did nothing, which the

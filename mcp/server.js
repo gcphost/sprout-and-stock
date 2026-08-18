@@ -289,6 +289,7 @@ server.registerTool('create_fixture', {
     + '  prop-floor    a decoration standing on the floor, indoors or out\n'
     + '  prop-ceiling  a decoration hanging from the ceiling, so indoors only\n'
     + '  floor         the ground itself — painted over an area, not placed on a tile\n'
+    + '  paint         a finish for one SIDE of a wall — painted along a run, not on a cell\n'
     + '  road          the same, and the lane a van or a shopper\'s car would rather drive on\n'
     + '  path          pavement — the same again, for feet. A `stripes` design of one laid across a road is a crossing.\n'
     + '  bay/drop/break/park  the pads — ground that carries a job. Deliveries land, stock waits, staff rest, shoppers park.\n\n'
@@ -319,7 +320,7 @@ server.registerTool('create_fixture', {
     + STAGE_HELP,
   inputSchema: {
     id: z.string().describe('Slug, yours to choose, e.g. "terracotta-planter" or "chiller-shelf". Reuse one to update it.'),
-    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor', 'road', 'path', 'bay', 'drop', 'break', 'park'])
+    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor', 'road', 'path', 'bay', 'drop', 'break', 'park', 'paint'])
       .describe('Which build rules it plays by. Closed set — this is not a way to invent kinds.'),
     name: z.string().describe('Display name, e.g. "Shelving". This is what the build palette calls it.'),
     model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except GROUND (floor, road, bay, drop, break, park), which has no model. ' + STAGE_HELP),
@@ -331,7 +332,7 @@ server.registerTool('create_fixture', {
         .describe('STRIPES ONLY: how many bars a cell is painted with (default 3). The gaps are always the same width as the bars, so this one number is the whole marking: 2 is a wide continental crossing, 5 is a hatched box junction.'),
       pattern: z.enum(['plain', 'checker', 'planks', 'stripes']).default('plain')
         .describe('How the two colours repeat, tile by tile. "plain" uses only the first. "stripes" is bands one cell wide running along z — that is a pedestrian crossing, and it is the one pattern whose direction means something, so the same design laid east-west and north-south reads as bars across your way or rails along it.'),
-    }).optional().describe('GROUND ONLY (floor, road, bay, drop, break, park), and required for one. Ground is a colour and a repeat — there is no geometry, because it is seen edge-on at 45° with a shop standing on it and nothing finer than a tile survives that. The four PADS carry a job, and how big you paint one is how much it holds: `bay` is where wholesale orders land as pallets, `drop` is where hands are cleared and stock waits, `break` seats one resting worker per cell, and `park` parks one shopper\'s car per cell. `floor` and `road` carry none — they are only a look. A road is a PREFERENCE and never a permission: every outdoor cell is drivable already, so what a painted one changes is which lane the van and the cars choose, which means you can draw the drive rather than watch a lorry cross your lawn.'),
+    }).optional().describe('GROUND AND PAINT ONLY, and required for one. PAINT is the same authoring shape stood up: a finish for one SIDE of a wall, priced per face, and the two sides of a wall are two decisions the player makes separately. It changes nothing but the picture \u2014 no shopper, no path and no tile reads it \u2014 so a new shade is a row and never a balance run. Ground is a colour and a repeat — there is no geometry, because it is seen edge-on at 45° with a shop standing on it and nothing finer than a tile survives that. The four PADS carry a job, and how big you paint one is how much it holds: `bay` is where wholesale orders land as pallets, `drop` is where hands are cleared and stock waits, `break` seats one resting worker per cell, and `park` parks one shopper\'s car per cell. `floor` and `road` carry none — they are only a look. A road is a PREFERENCE and never a permission: every outdoor cell is drivable already, so what a painted one changes is which lane the van and the cars choose, which means you can draw the drive rather than watch a lorry cross your lawn.'),
     yields: z.object({
       cash: z.number().min(0).max(500).describe('How much money one payout is.'),
       every: z.number().min(1).max(1440).default(60).describe('In-game MINUTES between payouts. A day is 24x60 of these.'),

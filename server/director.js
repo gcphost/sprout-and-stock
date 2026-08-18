@@ -49,7 +49,31 @@ function getClient() {
  * structured-output mode, we get valid JSON back or nothing — there is no
  * "parse the model's prose and hope" step anywhere in this file.
  */
-const DIRECTOR_SCHEMA = {
+/**
+ * Which tags the model may name — the ones something in the catalogue carries,
+ * not the whole vocabulary.
+ *
+ * `ALL_TAGS` is what a tag *can* be; this is what a tag currently *means* in
+ * this shop. The local director has always filtered its drivers this way and
+ * says why: an event about a tag no item has is a headline that changes
+ * nothing, which is the same failure as authoring an item with invented tags,
+ * seen from the other end. The API path was reading the vocabulary, so it could
+ * spend a whole day's event on `generic` or `winter` — both real tags, neither
+ * of them on a single item — and produce a toast, a log line and no change to
+ * any number in the shop.
+ *
+ * Built per call rather than once: content is edited live, so the enum has to
+ * be the catalogue as it stands this morning.
+ */
+function liveTags() {
+  const live = new Set(content().items.flatMap((i) => i.tags ?? []));
+  const usable = ALL_TAGS.filter((t) => live.has(t));
+  // Nothing stocked at all — a brand new world mid-wipe. Hand back the whole
+  // vocabulary rather than an empty enum, which no schema can satisfy.
+  return usable.length ? usable : ALL_TAGS;
+}
+
+const directorSchema = () => ({
   type: 'object',
   properties: {
     headline: {
@@ -68,7 +92,7 @@ const DIRECTOR_SCHEMA = {
         properties: {
           tag: {
             type: 'string',
-            enum: ALL_TAGS,
+            enum: liveTags(),
             description: 'Which tag this affects. Must be one of the known tags.',
           },
           demand_mult: {
@@ -91,7 +115,7 @@ const DIRECTOR_SCHEMA = {
   },
   required: ['headline', 'description', 'modifiers'],
   additionalProperties: false,
-};
+});
 
 /**
  * Build the context the director reasons about. Kept deliberately small and
@@ -175,7 +199,7 @@ export async function runDirector(game, { force = false } = {}) {
       // the right trade here. Raise it if events start feeling repetitive.
       output_config: {
         effort: 'medium',
-        format: { type: 'json_schema', schema: DIRECTOR_SCHEMA },
+        format: { type: 'json_schema', schema: directorSchema() },
       },
       messages: [{ role: 'user', content: `Here is the shop today:\n\n${describeWorld(game)}\n\nDecide what happens in town today.` }],
     });
@@ -214,8 +238,17 @@ function markRan(game) {
  * response can't produce a 500x demand spike.
  */
 function applyPlan(game, plan, source) {
-  const mods = (plan.modifiers ?? []).slice(0, 4);
-  if (mods.length === 0) return applyFallback(game, 'plan had no modifiers');
+  // The enum the model was handed is already the live catalogue (`liveTags`),
+  // so this is the belt to that pair of braces: a model can ignore an enum, a
+  // plan can arrive from `add_modifier` by hand, and the tags an event names are
+  // the one thing about it that has to be true of THIS shop. A craze for
+  // something nobody sells is a toast, a log line and no number moving —
+  // indistinguishable, from the player's chair, from the director being broken.
+  const live = new Set(content().items.flatMap((i) => i.tags ?? []));
+  const mods = (plan.modifiers ?? []).filter((m) => live.has(m.tag)).slice(0, 4);
+  const dropped = (plan.modifiers ?? []).length - mods.length;
+  if (dropped > 0) console.warn(`[director] dropped ${dropped} modifier(s) naming a tag nothing stocks`);
+  if (mods.length === 0) return applyFallback(game, 'plan had no modifiers the shop could feel');
 
   for (const m of mods) {
     addModifier({
@@ -320,10 +353,10 @@ const RIVALS = {
  * this only decides what today's headline is allowed to be about.
  */
 const SEASON_DRIVERS = {
-  spring: ['produce', 'organic', 'healthy', 'vegan', 'gluten-free', 'breakfast', 'trendy'],
-  summer: ['frozen', 'beverage', 'party', 'snack', 'kids', 'produce', 'viral'],
-  autumn: ['bakery', 'pantry', 'condiment', 'classic', 'nostalgic', 'dinner', 'meat'],
-  winter: ['holiday', 'gift', 'luxury', 'prepared', 'dinner', 'dairy', 'premium'],
+  spring: ['produce', 'organic', 'healthy', 'vegan', 'gluten-free', 'breakfast', 'trendy', 'household'],
+  summer: ['frozen', 'beverage', 'party', 'snack', 'kids', 'produce', 'viral', 'candy'],
+  autumn: ['bakery', 'pantry', 'condiment', 'classic', 'nostalgic', 'dinner', 'meat', 'household'],
+  winter: ['holiday', 'gift', 'luxury', 'prepared', 'dinner', 'dairy', 'premium', 'candy'],
 };
 
 const SURGE_HEADLINES = [

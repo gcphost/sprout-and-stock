@@ -2089,6 +2089,91 @@
     }
   },
   {
+    "id": "hot-chocolate",
+    "name": "Hot Chocolate",
+    "tags": [
+      "beverage",
+      "winter",
+      "kids",
+      "classic",
+      "needs-warmer"
+    ],
+    "base_cost": 1,
+    "base_price": 4.2,
+    "shelf_life_days": 1,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f4efe4",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.15,
+            0.22,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#6b4128",
+          "pos": [
+            0,
+            0.21,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.03,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#fdf6ec",
+          "pos": [
+            0.02,
+            0.235,
+            0.01
+          ],
+          "scale": [
+            0.07,
+            0.05,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "hot-sauce",
     "name": "Hot Sauce",
     "tags": [
@@ -2478,6 +2563,92 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "kale",
+    "name": "Kale",
+    "tags": [
+      "produce",
+      "winter",
+      "healthy",
+      "organic",
+      "vegan",
+      "perishable"
+    ],
+    "base_cost": 0.9,
+    "base_price": 2.6,
+    "shelf_life_days": 6,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "sphere",
+          "color": "#3f7a4a",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.2,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#57955e",
+          "pos": [
+            0.05,
+            0.17,
+            0.03
+          ],
+          "scale": [
+            0.14,
+            0.12,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8fae6a",
+          "pos": [
+            0,
+            0.04,
+            0
+          ],
+          "scale": [
+            0.04,
+            0.09,
+            0.04
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -3135,6 +3306,178 @@
           "surface": false,
           "seam": false,
           "alpha": 0.55,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "mince-pies",
+    "name": "Mince Pies",
+    "tags": [
+      "bakery",
+      "winter",
+      "holiday",
+      "gift",
+      "classic",
+      "perishable"
+    ],
+    "base_cost": 1.6,
+    "base_price": 5.2,
+    "shelf_life_days": 12,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#d9a55e",
+          "pos": [
+            -0.06,
+            0.05,
+            0
+          ],
+          "scale": [
+            0.14,
+            0.09,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c98a3f",
+          "pos": [
+            0.06,
+            0.05,
+            0.02
+          ],
+          "scale": [
+            0.14,
+            0.09,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f4e6c8",
+          "pos": [
+            -0.06,
+            0.098,
+            0
+          ],
+          "scale": [
+            0.09,
+            0.01,
+            0.09
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "mulled-cider",
+    "name": "Mulled Cider",
+    "tags": [
+      "beverage",
+      "winter",
+      "holiday",
+      "party",
+      "premium",
+      "artisanal"
+    ],
+    "base_cost": 2.4,
+    "base_price": 7.4,
+    "shelf_life_days": 90,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#8a3f2a",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.32,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cone",
+          "color": "#6f3220",
+          "pos": [
+            0,
+            0.35,
+            0
+          ],
+          "scale": [
+            0.11,
+            0.07,
+            0.11
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8d8b8",
+          "pos": [
+            0,
+            0.17,
+            0.068
+          ],
+          "scale": [
+            0.11,
+            0.14,
+            0.01
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
           "shadow": false,
           "drift": false,
           "motion": null,
@@ -4577,6 +4920,92 @@
     }
   },
   {
+    "id": "tinned-soup",
+    "name": "Tinned Soup",
+    "tags": [
+      "pantry",
+      "winter",
+      "shelf-stable",
+      "dinner",
+      "cheap",
+      "classic"
+    ],
+    "base_cost": 0.7,
+    "base_price": 2.3,
+    "shelf_life_days": 365,
+    "stack": 18,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#d8dde2",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.2,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c8622f",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.165,
+            0.12,
+            0.165
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#b9c1c8",
+          "pos": [
+            0,
+            0.205,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.01,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "toast",
     "name": "Jam on Toast",
     "tags": [
@@ -4771,6 +5200,93 @@
             0.14
           ],
           "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "turkey-crown",
+    "name": "Turkey Crown",
+    "tags": [
+      "meat",
+      "winter",
+      "holiday",
+      "dinner",
+      "premium",
+      "needs-freezer",
+      "heavy"
+    ],
+    "base_cost": 6.5,
+    "base_price": 16.5,
+    "shelf_life_days": 4,
+    "stack": 4,
+    "model": {
+      "parts": [
+        {
+          "shape": "sphere",
+          "color": "#e8c49a",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.2,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#d8ab7c",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.1,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#c8543f",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.03,
+            0.26
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -5097,6 +5613,92 @@
           "scale": [
             0.18,
             0.16,
+            0.18
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "wrapping-paper",
+    "name": "Wrapping Paper",
+    "tags": [
+      "household",
+      "winter",
+      "holiday",
+      "gift",
+      "shelf-stable",
+      "bulky"
+    ],
+    "base_cost": 1.1,
+    "base_price": 3.6,
+    "shelf_life_days": 365,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c0392b",
+          "pos": [
+            -0.04,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.4,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#2e7d5b",
+          "pos": [
+            0.05,
+            0.18,
+            0.03
+          ],
+          "scale": [
+            0.07,
+            0.36,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f2e6c8",
+          "pos": [
+            0,
+            0.02,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.03,
             0.18
           ],
           "rot": 0,

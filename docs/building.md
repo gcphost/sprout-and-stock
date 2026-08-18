@@ -1,7 +1,7 @@
 # Building — design
 
-Status: **steps 1–9, 11, 13, 14, 15 and 16 built. 10 is cancelled. 12 is what
-step 9 left.**
+Status: **steps 1–9, 11, 13–17 built. 10 is cancelled. 12 is what step 9
+left.**
 There is also a working interactive mockup —
 [turn the shop around here](https://claude.ai/code/artifact/1aac9d71-46fc-4e78-9f93-d54a6e6d2467).
 
@@ -997,6 +997,86 @@ Nor is it bulk Upgrade or bulk Remove. Both spend or refund real money once per
 fixture, and the row that would do it is one press from a selection you picked for
 a different reason. They are the two verbs worth being asked about twice.
 
+### Painting the walls, one side at a time
+
+*Built (step 17).* A floor has been content since step 13 — a `surface` row, a
+colour and a repeat, painted over an area. The walls were the half that was
+still the renderer's opinion: every wall in every shop was `PALETTE.wall`, and
+the only way to change one was to edit a file.
+
+**A finish goes on a FACE**, which is the thing that makes this its own kind
+rather than a fifth glazing or a floor with a different tile. `GLAZING` and
+`WAYS` are looks of the wall itself, one per edge; a face is *half* an edge. The
+two sides of the wall between the shop floor and the stockroom are two different
+answers, and the whole feature is that you can give them.
+
+So `BUILD_KINDS` partitions in **four** now — a fixture, a decoration, ground, a
+finish — and `verify:catalog` counts that rather than trusting anyone to
+remember. It counted three when this landed, which is exactly how the fourth
+bucket announced itself: paint arrived as a kind in no bucket, and that line is
+what said so.
+
+Three decisions kept it small.
+
+**It is authored as a `surface`, the same one ground uses.** A wall at this
+camera is a strip of flat colour with a repeat on it, which is what a floor is
+too — so `create_fixture` needed no new shape, `artForGround` already drew the
+swatch, and `isSurface` is the one test the schema, the palette and the
+thumbnail drawer all ask. A new shade of blue is one MCP call.
+
+**The side is a number, not "inside".** `faceKey` is `o:x:z:±1` along the edge's
+own normal. Which side is indoors is a fact about the *shop* — `computeIndoor`
+re-answers it every re-flow, and a room you wall off changes it for edges nobody
+touched — so paint stored as "the inside face" would silently swap sides the day
+you extended the building. That is the bay-window trap (`outward` in the
+renderer) with a colour on it. The geometry never moves, so the geometry is what
+it is keyed to.
+
+**The pointer says which side.** `pickEdge` already computes the raw
+intersection before rounding it to a line, so which side of that line you are on
+is a sign test and nothing more (`pickFace`). Hovering lights the face itself —
+not a bar down the middle of the wall, which would be answering the one question
+the gesture is asking — and a drag paints along the run at the side it
+*started* on. Re-reading the side per segment would paint the inside of whichever
+two segments your cursor drifted across on the way.
+
+#### It never re-flows, and that is the point
+
+`paint-face` answers with the overlay rather than with a layout, and this is the
+same argument `setBackOfHouse` makes one field over. A re-flow re-runs the
+generator, rebuilds the walk grid, throws away every shopper's path and disposes
+the client's entire static scene. Paint stamps no tile, blocks nobody and
+encloses nothing, so there is nothing for any of that to redo — the shop it
+would rebuild is the shop already on screen. The room broadcasts the map, and
+`Scene.setPaint` rebuilds the one group that draws walls, which already stands
+alone because it is rebuilt on every quarter turn of the camera.
+
+The same reasoning decides where the overlay is attached: `regenerateLayout`
+hangs it on the **finished** layout instead of handing it to the generator.
+`ground` has to go in, because a painted cell becomes a different tile and the
+generator's own output depends on it. Paint cannot be given that power, because
+a generator that never hears about it cannot have been changed by it. The day
+that line moves up into the call above is the day a colour can move a wall.
+`verify:paint` pins the claim from the outside — every wall in a furnished shop
+painted, and `tiles`, `blocked`, `indoor`, `edgesV` and `edgesH` byte-identical
+afterwards — but attaching it after the fact is what makes the claim structural
+rather than merely tested.
+
+#### What it is not
+
+Not a *material*. Every solid band of a wall takes the colour and two things
+deliberately do not: glass, because paint on a window is a bricked-up window and
+the sill and header beside it take it anyway; and a band that already carries a
+colour of its own, which is the painted threshold under a signed doorway. That
+stripe is the only thing on screen saying who a door is for, and a finish that
+covered it would delete the one visible half of an otherwise invisible feature.
+
+Not weather, wear or charm. A finish reads to nothing but the renderer, so it
+can never need `simulate` — the same bargain a fixture variant strikes. The day
+a finish *does* something (a scrubbable surface a health inspector likes, a
+frontage that draws people in) it has stopped being a look, and that is a number
+on a kind rather than another row.
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:
@@ -1137,6 +1217,14 @@ the number.
     `holdReflow`), which is the half of it nothing on screen can show. Additive
     and independent of everything above: no new kind, no new column, no
     migration. See above, and `verify:pick`.
+17. **Painting the walls.** *Built.* A finish is a `surface` row like a floor,
+    painted onto one SIDE of a wall — which makes it the fourth partition of
+    `BUILD_KINDS`, since a face is half an edge and belongs to neither the
+    fixtures nor the ground. The pointer picks the side (`pickFace`), a drag
+    paints the run, and it is priced per face with half of what was there back.
+    It never re-flows and is hung on the finished layout rather than handed to
+    the generator, which is what makes "a colour cannot move a wall" structural
+    instead of merely tested. See above, and `verify:paint`.
 
 ---
 

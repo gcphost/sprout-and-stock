@@ -85,6 +85,10 @@ export class Net {
       this.emit('you', m);
     });
     this.room.onMessage('layout', (m) => this.emit('layout', m));
+    // What the walls are painted, on its own. A layout is the shop having
+    // MOVED, and the client throws the whole scene away on one — see
+    // `Scene.setPaint` for why a colour must not cost that.
+    this.room.onMessage('paint', (m) => this.emit('paint', m));
     this.room.onMessage('catalog', (m) => this.emit('catalog', m));
     this.room.onMessage('state', (m) => this.emit('state', m));
     this.room.onMessage('action-result', (m) => this.emit('action', m));

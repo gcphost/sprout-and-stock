@@ -5,7 +5,7 @@ import { pinLast, KEYED } from './bar.js';
 // its name, imported here for an upgrade, the same way the worker menu imports
 // it for a grade. There is one rate and everything that goes down uses it.
 import {
-  FIXTURES, isProp, isGround, FLOOR_KIND, STOCK_KINDS, shelfKind, FIXTURE_REFUND,
+  FIXTURES, isProp, isGround, isPaint, isSurface, FLOOR_KIND, STOCK_KINDS, shelfKind, FIXTURE_REFUND,
 } from '../shared/build.js';
 import { homeKind } from '../shared/tags.js';
 import { kindOf, countKey } from '../shared/pieces.js';
@@ -127,9 +127,8 @@ export const BUILD_GROUPS = [
     icon: ICONS.build,
     blurb: 'The building itself — what makes a room a room.',
     // In the order you do them: walls make the room, floor makes it usable, and
-    // the yard is what you lay once the shop it serves exists. The last two are
-    // the same brush laying ground for *people* rather than for the building —
-    // yours, and then everybody else's.
+    // paint finishes it. Everything that is ground AROUND the building moved to
+    // `outdoors` — see the note there for why eight sub-tabs was the tell.
     subs: [
       {
         id: 'walls',
@@ -143,11 +142,69 @@ export const BUILD_GROUPS = [
         icon: ICONS.floor,
         blurb: 'What a shelf needs under it. Walls alone only make a room.',
       },
-      // The ways in, and the one sub-tab that is not about the building at all.
+      // What the walls are finished in, which is the same afternoon as the
+      // floors and a different gesture: a floor is dragged over an area and a
+      // finish is dragged along one SIDE of a wall. Its own tab rather than a
+      // row of swatches under Floors, because the two lists are picked from for
+      // different reasons and a wall colour hidden among nine floors reads as
+      // one more floor.
+      {
+        id: 'paint',
+        name: 'Paint',
+        icon: ICONS.decor,
+        blurb: 'What the walls are finished in. Point at the side you mean — the inside and the outside of one wall are two decisions.',
+      },
+    ],
+  },
+  /**
+   * Everything the building STANDS IN, as opposed to what it is made of.
+   *
+   * Building had eight sub-tabs, and eight is the tell rather than the problem:
+   * the row stopped being a set of choices and became a list to read. Five of
+   * them were the same brush laying the same kind of thing — ground, outside,
+   * around the shop — filed apart from each other by *whose* ground it is, which
+   * is a distinction that only matters once you have already decided you are out
+   * here. So that decision comes first now, and the five sub-tabs it was
+   * competing with are what is behind it.
+   *
+   * It went from a tab to a group when the lawn arrived, and that is the honest
+   * order of events: Land is the ground the other four are painted ON, so a
+   * palette that offered a delivery bay at the same level as the turf under it
+   * was answering the second question before the first.
+   *
+   * The name is dominant-case rather than exact, deliberately. A `drop` pad
+   * indoors is a stockroom and a break area is as often a corner of the shop
+   * floor as it is out the back — both blurbs say so — and naming the group for
+   * its exceptions would mean naming it nothing anybody would look under.
+   */
+  {
+    id: 'outdoors',
+    name: 'Outdoors',
+    icon: ICONS.town,
+    blurb: 'The ground the shop stands in. All of it is painted over an area, and none of it is a thing you place.',
+    // Outward, in rings: what the ground already is, then the ways in, then the
+    // three pads that carry a job — your goods, your crew, and everybody else.
+    subs: [
+      // The ground that was already there, which is the one tab whose contents
+      // you own before you buy anything.
+      //
+      // Not Floors, whose whole sentence is "what a shelf needs under it" — a
+      // lawn is whatever a shelf may NOT stand on. Not Roads either, which is
+      // filed by what a player has in mind when they reach for it (how anybody
+      // gets here), and nobody lays turf to be arrived on. What is on this tab
+      // is the outdoors as a *look*: the thing every cell of the map is until
+      // somebody paves it, and the place gravel, sand and bark chip belong.
+      {
+        id: 'land',
+        name: 'Land',
+        icon: ICONS.plot,
+        blurb: 'The ground outside, before anything is paved over it. A bed can still be dug in any of it — a lawn is a look, never a permission.',
+      },
+      // The ways in.
       //
       // Road and pavement started on Floors, filed by a fact about the code —
       // both are ground that is a *look*, the way a floor is, and neither
-      // carries a job the way the four pads do. That is true and it is not what
+      // carries a job the way the pads do. That is true and it is not what
       // anybody is looking for a road under. What these two have in common with
       // each other is the thing a player has in mind when they reach for one:
       // how anything gets here. What they have in common with Pine Boards is
@@ -172,7 +229,7 @@ export const BUILD_GROUPS = [
       // is the player's rather than the code's: the yard is where the goods go
       // and this is where the people go. A break area is as often a corner of
       // the shop floor as it is out the back, so filing it under Yard would put
-      // it behind the one word that says it is not indoors.
+      // it behind the one word that says it is about stock.
       {
         id: 'staff',
         name: 'Crew',
@@ -292,6 +349,17 @@ export const KIND_TOOLS = {
     group: 'decor',
     blurb: 'Hangs from the ceiling, so it needs a room to hang in.',
   },
+  // The one tool that goes on a wall's FACE rather than on a cell or a line.
+  // Filed under Building beside the floors, because painting a room and
+  // flooring it are the same afternoon — and on its own sub-tab, because the
+  // gesture is different enough to be worth separating: you drag a floor over
+  // an area and paint along a wall.
+  paint: {
+    icon: ICONS.floor,
+    group: 'shell',
+    sub: 'paint',
+    blurb: 'Drag along a wall. Finishes the side you are pointing at — the two faces of a wall are two decisions.',
+  },
   floor: {
     icon: ICONS.floor,
     // Under Building rather than Decoration, which it visibly is not: laying
@@ -309,13 +377,13 @@ export const KIND_TOOLS = {
   // want to take.
   bay: {
     icon: ICONS.crate,
-    group: 'shell',
+    group: 'outdoors',
     sub: 'yard',
     blurb: 'Drag out an area. Wholesale orders land here as pallets — make it bigger to take bigger deliveries.',
   },
   drop: {
     icon: ICONS.crate,
-    group: 'shell',
+    group: 'outdoors',
     sub: 'yard',
     blurb: 'Drag out an area. Where hands get cleared and stock waits to be shelved. Indoors it is a stockroom.',
   },
@@ -323,7 +391,7 @@ export const KIND_TOOLS = {
   // than for the stock.
   break: {
     icon: ICONS.staff,
-    group: 'shell',
+    group: 'outdoors',
     sub: 'staff',
     blurb: 'Drag out an area. Your crew dock and charge here instead of topping up wherever they finished, and come back fuller. One cell holds one unit.',
   },
@@ -331,21 +399,35 @@ export const KIND_TOOLS = {
   // else's job.
   park: {
     icon: ICONS.walk,
-    group: 'shell',
+    group: 'outdoors',
     sub: 'customers',
     blurb: 'Drag out an area. Hardstanding out front for shoppers who drive here — one cell parks one, and they walk in from where they left it.',
+  },
+  // The ground the world came with, and the last cell in the game to become
+  // something you could restyle. See the `land` sub-tab for why it is neither a
+  // floor nor a road despite being built exactly like both.
+  //
+  // Worth saying once here, because it is the sentence a player will not
+  // believe from the tab: painting a meadow does not stop you digging a bed in
+  // it. `BUILDABLE_OUTDOOR` is `T.GRASS` and every lawn design lays `T.GRASS`,
+  // so the farm does not know which one it is growing in.
+  lawn: {
+    icon: ICONS.plot,
+    group: 'outdoors',
+    sub: 'land',
+    blurb: 'Drag out an area. What the outdoors is made of — beds still dig into any of it, so this is a look and never a permission.',
   },
   // The two ways in, on their own tab. See the `roads` sub-tab for why they are
   // not filed with the floors they are built like.
   road: {
     icon: ICONS.move,
-    group: 'shell',
+    group: 'outdoors',
     sub: 'roads',
     blurb: 'Drag out an area. Vans and shoppers’ cars come in on whichever way is cheapest, and they would rather drive on this than on your grass.',
   },
   path: {
     icon: ICONS.walk,
-    group: 'shell',
+    group: 'outdoors',
     sub: 'roads',
     blurb: 'Drag out an area. Anybody walking outdoors would rather go round on this than cut across the grass. A striped one laid over a road is a crossing.',
   },
@@ -501,10 +583,18 @@ export function buildTools(ui) {
     // the same claim from the other end: an undrawn floor has no colour, so
     // offering one would be a button that paints the ground the shade the
     // renderer happens to default to.
-    const artOnly = isProp(kind) || isGround(kind);
+    // ...and paint is the same claim a third time: an undrawn finish has no
+    // colour, so an entry for one would be a button that paints a wall whatever
+    // the renderer happens to fall back to.
+    const artOnly = isProp(kind) || isSurface(kind);
     const entries = mine.length ? mine : (artOnly ? [] : [{ id: kind, name: FIXTURES[kind]?.label ?? kind }]);
     for (const p of entries) {
+      // Two brushes, and the flag says WHICH GESTURE rather than "is a brush":
+      // `paint` is dragged over an area of ground, `face` is dragged along one
+      // side of a wall. The bar, the ghost and the pointer all branch on this,
+      // and one flag meaning both would put a floor ghost on a wall.
       const paint = isGround(kind);
+      const face = isPaint(kind);
       pieces.push({
         id: p.id,
         kind,
@@ -518,12 +608,13 @@ export function buildTools(ui) {
         // is a promise about what the next tap builds: pick the wall-run shelf,
         // and a tile still drawing the standard one is the palette disagreeing
         // with the preview, the popover's own tick and the shelf you get.
-        art: artForTool({ paint, kind }, p, ui?.pieceVariant?.[p.id] ?? ''),
+        art: artForTool({ paint: paint || face, kind }, p, ui?.pieceVariant?.[p.id] ?? ''),
         // What the gesture is. A fixture is tapped onto a tile, a wall is
         // dragged along a line, and this one is dragged over an area — the bar
         // needs to know which without asking the kind, because `edge` already
         // works exactly this way for walls.
         ...(paint ? { paint: true } : {}),
+        ...(face ? { face: true } : {}),
         icon: KIND_TOOLS[kind]?.icon ?? ICONS.fixtures,
         // A kind nobody grouped lands in the shop rather than nowhere: an entry
         // in no group is one no tab shows, which is the same as not existing.
@@ -565,6 +656,50 @@ export function buildTools(ui) {
       art: artForTool({ paint: true }, null),
       name: 'Bare Ground',
       blurb: 'Takes the floor back up. Indoors that leaves a cell nothing can use — outdoors it is grass again.',
+    });
+    // ...and once more on the other side of the palette, because the brush it
+    // undoes is on both. One null entry served every ground kind while every
+    // ground kind was on one group; splitting Outdoors off left the only way to
+    // lift a road, a bay or a car park sitting behind a tab called Floors, which
+    // is the same "answering four pictures with a verb" problem one level up —
+    // you would go looking for the eraser where the thing you laid was, and it
+    // would not be there.
+    //
+    // A second ENTRY rather than a second gesture, and the ids differ because
+    // the palette keys its selection on them. Both send an empty piece, which is
+    // the one spelling of "take it up" (`canPaintGround` with a null kind), so
+    // there is still exactly one verb behind the two buttons.
+    pieces.push({
+      id: 'ground:none',
+      kind: FLOOR_KIND,
+      piece: '',
+      paint: true,
+      group: 'outdoors',
+      sub: 'land',
+      icon: ICONS.remove,
+      art: artForTool({ paint: true }, null),
+      name: 'Bare Ground',
+      blurb: 'Takes whatever is painted here back up — a road, a pad, a lawn — and leaves plain grass.',
+    });
+  }
+
+  // Taking the finish back off, and it is the Bare Ground argument said about a
+  // wall: the question is what the wall LOOKS like when you have finished, and
+  // answering five swatches with a verb makes stripping paint read as a
+  // different kind of act from putting it on. Offered only once there is a
+  // finish to strip, for the same reason.
+  if (pieces.some((p) => p.face)) {
+    pieces.push({
+      id: 'paint:none',
+      kind: 'paint',
+      piece: '',
+      face: true,
+      group: 'shell',
+      sub: 'paint',
+      icon: ICONS.remove,
+      art: artForTool({ paint: true }, null),
+      name: 'Bare Wall',
+      blurb: 'Takes the finish off that side and leaves the wall as it was built. Half of what the paint cost comes back.',
     });
   }
 

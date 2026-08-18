@@ -563,6 +563,173 @@
     }
   },
   {
+    "id": "kale-patch",
+    "name": "Kale Patch",
+    "item_id": "kale",
+    "grow_minutes": 0.9,
+    "yield_min": 4,
+    "yield_max": 7,
+    "seed_cost": 0.7,
+    "seasons": [
+      "autumn",
+      "winter"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Sprouting",
+          "at": 0.4,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#6f9a5c",
+              "pos": [
+                0,
+                0.1,
+                0
+              ],
+              "scale": [
+                0.14,
+                0.12,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#3f7a4a",
+              "pos": [
+                0,
+                0.14,
+                0
+              ],
+              "scale": [
+                0.28,
+                0.22,
+                0.28
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#57955e",
+              "pos": [
+                0.08,
+                0.19,
+                0.05
+              ],
+              "scale": [
+                0.15,
+                0.13,
+                0.15
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
     "id": "lettuce-bed",
     "name": "Lettuce Bed",
     "item_id": "lettuce",

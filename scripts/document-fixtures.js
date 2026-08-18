@@ -33,7 +33,7 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { content } from '../server/content.js';
-import { FIXTURES, GROUND, isGround, isProp, blocksCell } from '../shared/build.js';
+import { FIXTURES, GROUND, PAINT, isGround, isPaint, isSurface, isProp, blocksCell } from '../shared/build.js';
 import { kindOf, piecesOf } from '../shared/pieces.js';
 import {
   surfacesAt, partsAt, variantsOf, variantWork, isStaged, drawableBoards, shownOn, tierProgress,
@@ -48,6 +48,11 @@ const money = (n) => (n ? `$${Number(n).toFixed(2).replace(/\.00$/, '')}` : '—
 
 /** What the closed kind table says about where one of these may go. */
 function rulesFor(kind) {
+  if (isPaint(kind)) {
+    return 'A finish for one **side** of a wall. Painted along a run, priced per '
+      + 'face, and read by nothing but the renderer — the two sides of a wall are '
+      + 'two decisions, and neither can move a tile.';
+  }
   if (isGround(kind)) {
     const g = GROUND[kind];
     // What the job IS comes off the kind's own row rather than out of a branch
@@ -209,7 +214,8 @@ function describe(row) {
   out.push('');
 
   const facts = [`\`${row.id}\``, `kind \`${kind}\``];
-  if (isGround(kind)) facts.push(`${money(row.cost)} per tile`);
+  if (isPaint(kind)) facts.push(`${money(row.cost)} per face`);
+  else if (isGround(kind)) facts.push(`${money(row.cost)} per tile`);
   else if (row.cost) facts.push(`${money(row.cost)} to build`);
   else facts.push('priced by the upgrade that sells its kind');
   out.push(facts.join(' · '));
@@ -218,7 +224,8 @@ function describe(row) {
   if (row.surface) {
     const s = row.surface;
     out.push(`Surface \`${s.color}\`${s.accent ? ` / \`${s.accent}\`` : ''}, `
-      + `${s.pattern ?? 'plain'} repeat. No model — ground *is* the cell.`);
+      + `${s.pattern ?? 'plain'} repeat. No model — ${isPaint(kind)
+        ? 'a finish is the wall\'s own skin' : 'ground *is* the cell'}.`);
     out.push('');
   } else {
     const rows = surfacesAt(row.model, 1);
@@ -304,6 +311,13 @@ const GROUPS = [
     kinds: Object.keys(FIXTURES).filter((k) => isProp(k)),
   },
   {
+    title: 'Paint',
+    blurb: 'Not placed and not a cell either — **a finish for one side of a wall**, '
+      + 'painted along a run and priced per face. A face is half an edge, which is '
+      + 'why this is its own bucket: the two sides of one wall are two decisions.',
+    kinds: Object.keys(PAINT),
+  },
+  {
     title: 'Ground',
     blurb: 'Not placed — **painted**, over an area, priced per tile. These have no '
       + 'anchor and block nobody, because they are not standing in a cell, they *are* '
@@ -378,7 +392,7 @@ for (const g of GROUPS) {
     md.push('');
     if (!mine.length) {
       md.push('_Nothing authored yet._'
-        + (isProp(kind) || isGround(kind)
+        + (isProp(kind) || isSurface(kind)
           ? ' A kind that *is* its art gets no palette entry until somebody draws one.'
           : ' It still builds — an undrawn fixture renders as a plain block.'));
       md.push('');

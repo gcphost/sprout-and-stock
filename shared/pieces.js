@@ -168,10 +168,27 @@ export function boardsOf(rows, f) {
  * forgiveness `pieceFor` shows a deleted design and matters more here — a
  * floor row tidied out of the catalog while a shop is standing on it would
  * otherwise render as a black hole across half the building.
+ *
+ * It rebuilds the object field by field rather than spreading the row, and that
+ * is the trap: every field a pattern needs has to be named here or it is
+ * authored, validated, printed in `docs/fixtures.md` and silently dropped on
+ * the way to the renderer. `bars` was exactly that from the day it shipped —
+ * `stripeBars` reads `surface.bars`, which was never on the object it was
+ * handed, so every crossing in the game was drawn at the default three however
+ * it was authored. A number that goes nowhere is the "tier that changes no
+ * number" trap wearing a surface.
  */
 export function surfaceOf(rows, pieceId, fallbackColor) {
   const row = (rows ?? []).find((p) => p.id === pieceId);
   const s = row?.surface;
-  if (!s?.color) return { color: fallbackColor, accent: null, pattern: 'plain' };
-  return { color: s.color, accent: s.accent ?? null, pattern: s.pattern ?? 'plain' };
+  const bare = { color: fallbackColor, accent: null, pattern: 'plain', bars: null, density: null, blade: null };
+  if (!s?.color) return bare;
+  return {
+    color: s.color,
+    accent: s.accent ?? null,
+    pattern: s.pattern ?? 'plain',
+    bars: s.bars ?? null,
+    density: s.density ?? null,
+    blade: s.blade ?? null,
+  };
 }

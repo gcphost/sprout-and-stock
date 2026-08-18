@@ -41,7 +41,7 @@ import {
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
-  shelfKind, holdsGoods,
+  shelfKind, holdsGoods, isPaint, faceKey, faceRun, canPaintFaces,
 } from '../../shared/build.js';
 import {
   pieceFor, kindOf, defaultPiece, countKey, boardsOf, fixtureLabel,
@@ -1136,6 +1136,21 @@ export class Game {
      */
     this.ground = state.ground ?? state.floors ?? [];
     /**
+     * What each WALL FACE is finished in — `{ [faceKey]: pieceId }`.
+     *
+     * A map rather than the list `ground` is, and the difference is the key: a
+     * cell is named by two numbers that a list can carry as fields, while a face
+     * is a line plus a side and every reader wants it by that name. It also
+     * makes a repaint an assignment rather than a search, which matters because
+     * a drag along the front of a shop repaints thirty of them.
+     *
+     * Unlike `ground` it takes no part in the re-flow at all: paint stamps no
+     * tile, so the generator is never told about it and `regenerateLayout` hangs
+     * it on the finished layout. That is the claim `verify:paint` makes, and
+     * doing it this way is what makes the claim true rather than tested.
+     */
+    this.paint = { ...(state.paint ?? {}) };
+    /**
      * Whether the yard has ever been stamped — see `freezeYard`.
      *
      * A mark, not a count. "Does this shop own a bay" answers a different
@@ -1433,6 +1448,7 @@ export class Game {
       doorShift: this.doorShift,
       edits: this.edits,
       ground: this.ground,
+      paint: this.paint,
       yardStamped: this.yardStamped,
       awningStamped: this.awningStamped,
       shell: this.shell,
@@ -1552,6 +1568,7 @@ export class Game {
       doorShift: this.doorShift,
       edits: this.edits,
       ground: this.ground,
+      paint: this.paint,
       yardStamped: this.yardStamped,
       awningStamped: this.awningStamped,
       shell: this.shell,
@@ -10117,6 +10134,14 @@ export class Game {
       const key = `${c.x},${c.z}`;
       const had = painted.get(key) ?? null;
       if (had === (piece?.id ?? null) && this.groundKindAt(c.x, c.z) === kind) continue;
+      // The bulldozer's own version of that skip, and it needs one of its own
+      // because taking ground up does not name a kind to compare against. It
+      // used to fall out of `groundKindAt` answering null on bare grass, which
+      // stopped being true the day the lawn got a row — so an eraser dragged
+      // across a field would write a `k: null` entry per cell and report the
+      // lot as taken up. What a stroke LEAVES is bare lawn with no design, so a
+      // cell that is already that is a cell this did nothing to.
+      if (!piece && had == null && this.groundKindAt(c.x, c.z) === 'lawn') continue;
 
       // Pay the difference, exactly as swapping a wall for a window does: what
       // was underfoot is worth `FIXTURE_REFUND` of what it cost, whether you
@@ -10147,11 +10172,17 @@ export class Game {
   }
 
   /**
-   * Which ground kind this cell is right now, or null for bare grass.
+   * Which ground kind this cell is right now, or null for ground with no kind.
    *
    * The half of a repaint the overlay can't answer: `ground` says what you
    * painted, and this says what the cell actually ended up as, which differ for
    * exactly as long as it takes a re-flow to run.
+   *
+   * It used to answer null for bare grass, and that was never a rule — it was
+   * `GROUND` having no row whose tile was `T.GRASS`. It answers `lawn` now, so
+   * a caller that meant "nobody has painted here" has to ask the overlay
+   * (`painted`) rather than this. Null is left for a cell that is a bed, a wall
+   * or a doorway: ground with a job that is not a ground kind.
    */
   groundKindAt(x, z) {
     return groundKindOfTile(this.layout.tiles[z * this.layout.w + x]);
@@ -10178,6 +10209,110 @@ export class Game {
   groundUnitCost(pieceId) {
     if (!pieceId) return 0;
     const row = (content().fixtures ?? []).find((f) => f.id === pieceId && isGround(kindOf(f)));
+    if (!row) return 0;
+    return round2((row.cost ?? 0) * this.fixtureDiscount(kindOf(row)));
+  }
+
+  /**
+   * Paint one face of a wall, or a run of them.
+   *
+   * `buildGround`'s sibling, and deliberately shaped like it: two ends and a
+   * piece, priced per unit, half of what was there before handed back, refused
+   * as a whole gesture before any of it is paid for. Somebody who has read one
+   * of these has read both.
+   *
+   * The one thing it does NOT do is re-flow, and that is the point rather than
+   * an optimisation. A painted face changes no tile, no walk grid and no
+   * enclosure, so there is nothing for the generator to redo — and a re-flow
+   * throws away every shopper's path and rebuilds the client's whole static
+   * scene, which is a lot to spend on a colour. The room broadcasts the new
+   * overlay instead and the renderer rebuilds the one group that draws walls.
+   *
+   * An empty piece is the brush's own null entry, exactly as Bare Ground is:
+   * it strips the face back to whatever the wall is made of.
+   */
+  paintFaces(playerId, spec = {}) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if (!p.build?.on) return err('not in build mode');
+
+    const o = spec.o === 'v' ? 'v' : 'h';
+    const x = Math.round(Number(spec.x));
+    const z = Math.round(Number(spec.z));
+    const s = Number(spec.s) < 0 ? -1 : 1;
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return err('nothing there to paint');
+
+    // Read off the ROW, never off the message — the same reason `buildGround`
+    // gives: a client that named a flooring row while saying `paint` would
+    // finish a wall in something the catalog prices as a floor.
+    const want = String(spec.piece ?? '');
+    const piece = want
+      ? (content().fixtures ?? []).find((f) => f.id === want && isPaint(kindOf(f)))
+      : null;
+    if (want && !piece) return err('nothing in the catalog paints that');
+
+    // The far end is an index along the line the drag started on, the way a wall
+    // run's is — and the SIDE comes from the start for every face in it. See
+    // `faceRun`.
+    const to = spec.to == null ? null : Number(spec.to);
+    const faces = faceRun(this.layout, { o, x, z, s }, to, EDGE_RUN_MAX);
+    const check = canPaintFaces(this.layout, faces.length ? faces : [{ o, x, z, s }]);
+    if (!check.ok) return err(check.reason);
+
+    const unit = piece ? this.paintUnitCost(piece.id) : 0;
+    let spent = 0;
+    let done = 0;
+    let short = false;
+    const next = { ...this.paint };
+    for (const f of faces) {
+      const key = faceKey(f);
+      const had = next[key] ?? null;
+      if (had === (piece?.id ?? null)) continue;
+      // Half of what is on there now back, which is `buildGround`'s rule and the
+      // shop's one sell-back rate. Repainting a wall you paid for is therefore
+      // cheaper than painting a bare one, and no amount of repainting prints
+      // money — the same guarantee `FIXTURE_REFUND` gives every other ladder.
+      const cost = round2(unit - this.paintUnitCost(had) * FIXTURE_REFUND);
+      if (cost > 0 && this.cash - spent < cost) { short = true; break; }
+      spent = round2(spent + cost);
+      if (piece) next[key] = piece.id;
+      else delete next[key];
+      done++;
+    }
+
+    if (!done) {
+      return short ? err(`need $${unit.toFixed(2)}`) : ok({ painted: 0, unchanged: true });
+    }
+
+    this.paint = next;
+    this.cash = round2(this.cash - spent);
+    if (spent > 0) this.stats.spent += spent;
+    // No `regenerateLayout` — see the note above. The live layout carries the
+    // overlay so a client that joins mid-session gets it, and it is the same
+    // object the re-flow would have re-hung, so writing it here keeps the two
+    // from disagreeing for as long as it takes something else to re-flow.
+    this.layout.paint = { ...this.paint };
+    this.persist();
+
+    const what = piece ? piece.name.toLowerCase() : null;
+    this.pushLog(what
+      ? `Painted ${done} wall ${done === 1 ? 'face' : 'faces'} in ${what}`
+        + `${spent > 0 ? ` for $${spent.toFixed(2)}` : ''}.`
+      : `Stripped the paint off ${done} wall ${done === 1 ? 'face' : 'faces'}.`);
+    return ok({ painted: done, cost: spent, short });
+  }
+
+  /**
+   * What one face costs to paint.
+   *
+   * `groundUnitCost` said about a wall, down to the null: a face nobody has
+   * painted refunds nothing, because nobody charged you for the wall's own
+   * colour. The discount is read against the row's kind for the same reason —
+   * a Storage deal must not quietly discount emulsion.
+   */
+  paintUnitCost(pieceId) {
+    if (!pieceId) return 0;
+    const row = (content().fixtures ?? []).find((f) => f.id === pieceId && isPaint(kindOf(f)));
     if (!row) return 0;
     return round2((row.cost ?? 0) * this.fixtureDiscount(kindOf(row)));
   }
@@ -10600,6 +10735,17 @@ export class Game {
       yardStamped: this.yardStamped,
       shell: this.shell,
     });
+
+    // What each wall face is painted, hung on the finished layout rather than
+    // handed to the generator.
+    //
+    // Not tidiness — it is the feature's whole claim, made structurally instead
+    // of tested. `ground` has to go IN because a painted cell becomes a
+    // different tile, so the generator's own output depends on it; paint stamps
+    // nothing, blocks nobody and encloses nothing, so a generator that never
+    // hears about it *cannot* have been changed by it. The day this line moves
+    // up into the call above is the day a colour can move a wall.
+    layout.paint = { ...this.paint };
 
     // A placement the re-flow could no longer honour is paid back rather than
     // put back. It used to go back to the generator, which re-sited it wherever

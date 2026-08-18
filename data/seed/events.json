@@ -25,6 +25,36 @@
     "min_day": 3
   },
   {
+    "id": "cold-snap",
+    "name": "Cold Snap",
+    "description": "Frost on the pavement. Nobody wants a lolly; everybody wants something hot.",
+    "effects": [
+      {
+        "tag": "winter",
+        "demand_mult": 2.4,
+        "price_mult": 1.25
+      },
+      {
+        "tag": "prepared",
+        "demand_mult": 1.7,
+        "price_mult": 1.15
+      },
+      {
+        "tag": "pantry",
+        "demand_mult": 1.4,
+        "price_mult": 1.1
+      },
+      {
+        "tag": "frozen",
+        "demand_mult": 0.5,
+        "price_mult": 0.9
+      }
+    ],
+    "duration_days": 3,
+    "weight": 1.6,
+    "min_day": 4
+  },
+  {
     "id": "health-kick",
     "name": "New Year Health Kick",
     "description": "Resolutions are in full swing. Kale is having a moment; crisps are not.",

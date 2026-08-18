@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty } from './palette.js';
+import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
   buildBubble, buildCashDrop, buildVehicle,
@@ -24,8 +24,14 @@ import {
 import { T } from '../../shared/tiles.js';
 import {
   FIXTURES, workSpots, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind,
+  faceKey,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
+import { hash01 } from '../../shared/hash.js';
+// Only for the wall's own thickness, which the paint ghost has to stand proud
+// of — see `setFaceGhost`. Everything else in here reads edge kinds as the raw
+// numbers the layout carries, through `EDGE_STYLE`.
+import { E } from '../../shared/edges.js';
 import { Lights, emittersIn, BAKED_LAYER } from './lights.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
@@ -44,6 +50,58 @@ const FRUSTUM = 17;
  * pickTile and pickFixture keep working at any zoom without knowing it exists.
  */
 const RING_Y = 1.2;           // charge ring height — just clear of a head at 0.96
+/**
+ * How thick a coat of paint is drawn, in tiles.
+ *
+ * Small enough to read as a finish rather than as cladding — a wall is 0.17
+ * across, so this is a twelfth of it — and large enough to survive the depth
+ * buffer at the far end of a grown shop. Not zero, and it cannot be: a plane
+ * exactly on the wall's own face z-fights with it, which shows up as the wall
+ * strobing while the camera turns and not at all in a screenshot.
+ */
+const SKIN = 0.015;
+
+/**
+ * The ceiling on planted blades, across the whole world.
+ *
+ * `MAX_LIGHTS`' opposite number, decided for the same reason and at the same
+ * time: before there is a catalogue of lawns to trip over it. A `tufts` design
+ * is cells × `density`, ground is the biggest thing in the world by cell count,
+ * and `buildWorld` runs on every wall segment of a drag — so this multiplies the
+ * one buffer that gets rebuilt most often in the game. Finding the number
+ * afterwards means finding it as "building got choppy after I painted the back
+ * field", which reads as build mode being slow rather than as one design being
+ * greedy.
+ *
+ * 9000 is roughly a 45×45 world planted at the default six, which is a bigger
+ * lawn than anybody has. Past it `addTufts` plants every Nth cell rather than
+ * refusing, so the failure mode is a thin meadow and never a bare one.
+ *
+ * It came down from 12000 when a blade stopped being one triangle and became a
+ * curved strip of eight — the cap is about triangles as much as about buffer
+ * writes, and the shape got three times heavier in the same breath it got
+ * right. Roughly 216k triangles at the ceiling, in one draw call.
+ */
+const MAX_TUFTS = 9000;
+
+/**
+ * How fast the wind travels across the world, and how far a blade leans.
+ *
+ * The lean is in tiles at full height and eased to nothing at the root, so a
+ * blade bends rather than slides — a tuft that translated whole would read as
+ * the ground moving under it. Small: this is a breeze in a shop garden, not
+ * weather, and anything you can actually *watch* becomes the thing your eye
+ * goes to in a scene where the interesting motion is people.
+ */
+const WIND_SPEED = 0.9;
+/**
+ * In BLADE-HEIGHTS, like everything else about a tuft — so a meadow blade and a
+ * lawn blade bend by the same proportion and the tall one visibly moves further.
+ * It was in tiles while the geometry was, which made it a lean you could not
+ * see on short grass and a thrash on long.
+ */
+const WIND_LEAN = 0.16;
+
 /**
  * How close to a pile of goods counts as pointing at it (`nearestBoard`).
  *
@@ -430,6 +488,139 @@ function turnTo(from, to) {
   const TAU = Math.PI * 2;
   return (((to - from + Math.PI) % TAU) + TAU) % TAU - Math.PI;
 }
+
+/**
+ * One tuft: three blades in a fan, each a narrow strip that tapers and curves
+ * over, standing in a unit cube.
+ *
+ * EVERY NUMBER IN HERE IS A FRACTION OF THE BLADE'S OWN HEIGHT, and that is the
+ * one thing worth carrying away from it. The first version authored the tip
+ * offset in tiles — `dx * 0.22` — while the instance stretched only y by
+ * `blade`. So a blade 0.13 tall leaned 0.22 sideways: a 60° splay, in every
+ * direction at once, which draws a yucca. It reads as bad art and it is a unit
+ * mismatch, and the reason it is not obvious from the file is that both numbers
+ * are small and look like they are in the same space. The instance scale is
+ * UNIFORM now (`setScalar`), so object space is blade-heights on all three axes
+ * and there is nowhere left for that mistake to hide — a lean is a fraction of a
+ * height because it cannot be anything else.
+ *
+ * A blade is a strip of `SEG` quads rather than one triangle. The triangle was
+ * cheaper and it is a *spike*: what makes grass read as grass at this camera is
+ * that it bends, and one flat tri has nothing to bend with. The bend is
+ * quadratic in t, so it leaves the root vertical and falls away at the tip,
+ * which is what a blade under its own weight does — linear reads as a lean and
+ * a lean reads as wind that is already blowing.
+ *
+ * Three per tuft, at 120° with different heights and different bends, because a
+ * fan of identical blades is a rosette. Two would be a cross that vanishes
+ * edge-on as the view spins — the same bug as spinning a cylinder in
+ * `verify:motion`, correct art nobody can see.
+ *
+ * Built fresh per `buildWorld` rather than shared, because `disposeGroup` frees
+ * any geometry that is not in `props.js`'s `GEO` set — a shared one would be
+ * disposed out from under the next re-flow.
+ */
+function tuftGeometry() {
+  const BLADES = 3;
+  const SEG = 4;             // quads up a blade. 1 is the old spike, 4 curves cleanly
+  const HALF = 0.055;        // half-width at the root, in blade-heights
+  const BEND = 0.30;         // how far the tip falls away, in blade-heights
+  const pos = [];
+  for (let b = 0; b < BLADES; b++) {
+    const a = (b / BLADES) * Math.PI * 2 + 0.5;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    // No two blades in a tuft alike, or the fan is a rosette. Off the index
+    // rather than off a hash: the geometry is shared by every instance in the
+    // world, so this is the ONE tuft everybody is a copy of, and what varies
+    // between them is their own rotation and scale.
+    const tall = 0.72 + (b % 3) * 0.14;
+    const bend = BEND * (0.6 + (b % 2) * 0.8);
+    // Local frame: u runs along the way the blade falls, v across its width.
+    const at = (u, y, v) => pos.push(ca * u - sa * v, y, sa * u + ca * v);
+    for (let i = 0; i < SEG; i++) {
+      const t0 = i / SEG;
+      const t1 = (i + 1) / SEG;
+      const y0 = t0 * tall;
+      const y1 = t1 * tall;
+      const u0 = bend * t0 * t0 * tall;
+      const u1 = bend * t1 * t1 * tall;
+      // Never quite to nothing. A true point is a degenerate triangle with no
+      // normal, which flat shading renders as a black speck at the tip of every
+      // blade in the shop.
+      const w0 = HALF * tall * (1 - t0 * 0.88);
+      const w1 = HALF * tall * (1 - t1 * 0.88);
+      at(u0, y0, -w0); at(u0, y0, w0); at(u1, y1, w1);
+      at(u0, y0, -w0); at(u1, y1, w1); at(u1, y1, -w1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * The material a blade is drawn in — and the ONE place in this renderer with a
+ * vertex shader of its own.
+ *
+ * Deliberately not `material()`. That is a cache keyed by colour, shared by
+ * every prop in the game, so an `onBeforeCompile` hung on it would set every
+ * green thing in the shop swaying — a crate of limes, a hire's overalls, the
+ * money tree. Its own cache, keyed the same way, so a lawn and a meadow in the
+ * same colour still share one.
+ *
+ * The sway is in the shader rather than on the CPU because it is the only place
+ * it is free. These are the most numerous instances in the world by an order of
+ * magnitude, and moving them per frame in JS would mean rewriting the whole
+ * instance buffer sixty times a second — for grass. `DoubleSide` because a blade
+ * is one triangle with no back to it, and a lawn seen from the other side of the
+ * shop would be half missing.
+ */
+const tuftMaterials = new Map();
+function tuftMaterial(color) {
+  const key = String(color);
+  let m = tuftMaterials.get(key);
+  if (!m) {
+    m = new THREE.MeshLambertMaterial({
+      color: new THREE.Color(color),
+      flatShading: true,
+      side: THREE.DoubleSide,
+    });
+    m.onBeforeCompile = (shader) => {
+      shader.uniforms.uWind = WIND_CLOCK;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+          uniform float uWind;`)
+        // After `project_vertex` has the instance matrix folded in, `transformed`
+        // is still object space — so the lean is applied here, in the space the
+        // blade was authored in, and scaled by y so the root stays planted.
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          {
+            vec3 root = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
+            float phase = uWind + root.x * 0.7 + root.z * 0.45;
+            float gust = sin(phase) * 0.7 + sin(phase * 2.3 + 1.7) * 0.3;
+            transformed.x += gust * ${WIND_LEAN.toFixed(4)} * transformed.y;
+            transformed.z += gust * ${(WIND_LEAN * 0.6).toFixed(4)} * transformed.y;
+          }`);
+    };
+    // Two materials that compile to the same program still get separate ones
+    // unless three.js is told they are interchangeable, and a program per lawn
+    // colour is a recompile stutter the first time each comes on screen.
+    m.customProgramCacheKey = () => 'tuft';
+    tuftMaterials.set(key, m);
+  }
+  return m;
+}
+
+/**
+ * The wind's clock, shared by every tuft material there will ever be.
+ *
+ * One uniform object rather than one per material, so `animate` advances the
+ * wind for the whole world with a single write and a lawn painted mid-session
+ * arrives already in step with the one next to it. Seconds.
+ */
+const WIND_CLOCK = { value: 0 };
 
 /** Day-cycle endpoints, resolved once so syncState allocates nothing. */
 const SKY_HIGH = new THREE.Color(PALETTE.sky);
@@ -1134,6 +1325,101 @@ export class Scene {
   }
 
   /**
+   * PLANTING — the second ground pattern that is geometry, and the first with
+   * any height to it.
+   *
+   * `addStripes` is the precedent and the argument is the same one turned up:
+   * what survives of a *flat* pattern at 45° is its colour, so every other
+   * pattern is one colour per cell. The way you tell grass from lino is that
+   * grass is not flat, and that costs geometry or it costs nothing at all.
+   *
+   * One instanced mesh for the whole design, however many cells it covers, so a
+   * field of meadow is one draw call. Two things make that affordable:
+   *
+   * **The blade is authored, the scatter is not.** Where each tuft stands comes
+   * off `hash01` of its cell and index, never off an rng — the same call
+   * `client/render/props.js` makes for a hire's breathing phase, and for the
+   * reason docs/kits.md gives about which bag a shopper carries. A drawn scatter
+   * would reshuffle the entire lawn on every re-flow, and build mode re-flows on
+   * every wall segment: grass that crawled as you dragged a wall reads as the
+   * ground being unstable, not as art.
+   *
+   * **`MAX_TUFTS` thins rather than refuses.** Ground is the biggest thing in
+   * the world by cell count, so a `density` of nine over a forty-tile field is
+   * fourteen thousand instances whose matrices get rebuilt on every wall
+   * segment. Past the cap it plants every Nth cell instead of dropping the
+   * pattern, so a huge meadow comes out sparse rather than bare — the same call
+   * `lights.js` makes about the ninth lamp, and made now rather than found later
+   * as "the game got slow while I was building".
+   */
+  addTufts(cells, surface, height, dummy) {
+    const density = tuftDensity(surface);
+    // Every Nth cell, so the thinning is spatial rather than "the last field you
+    // painted has no grass in it" — the cells arrive in scan order.
+    const step = Math.max(1, Math.ceil((cells.length * density) / MAX_TUFTS));
+    const planted = cells.filter((_, i) => i % step === 0);
+    if (!planted.length) return;
+
+    const blade = tuftBlade(surface);
+    const geo = tuftGeometry();
+    const tufts = new THREE.InstancedMesh(
+      geo,
+      tuftMaterial(surface.accent ?? shade(surface.color, -0.18)),
+      planted.length * density,
+    );
+    // Never a shadow caster. A blade is a couple of triangles a tenth of a tile
+    // tall, so what it costs the shadow map is a full extra pass over the
+    // biggest instance count in the scene and what it buys is a smudge you
+    // cannot see. It still RECEIVES, or a lawn under the building's shadow is a
+    // bright green lawn with a dark box drawn beside it.
+    tufts.castShadow = false;
+    tufts.receiveShadow = true;
+    tufts.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(tufts.count * 3), 3);
+    const bare = new Float32Array(tufts.count * 3).fill(1);
+    const at = new Float32Array(tufts.count * 3);
+
+    let n = 0;
+    for (const [x, z] of planted) {
+      for (let i = 0; i < density; i++) {
+        // Three hashes off one cell: two for where in the cell it stands and one
+        // for how tall and which way it faces. Inset from the edges so a tuft
+        // never straddles the line into the tarmac next door.
+        // Four hashes and not three. Facing used to share one with size, which
+        // correlates them — every tall tuft in the world pointing the same way
+        // is a pattern the eye finds instantly, and it reads as the scatter
+        // being fake rather than as two numbers being the same number.
+        const hx = hash01(`${x}:${z}:${i}:x`);
+        const hz = hash01(`${x}:${z}:${i}:z`);
+        const hr = hash01(`${x}:${z}:${i}:r`);
+        const ha = hash01(`${x}:${z}:${i}:a`);
+        const grow = 0.7 + hr * 0.6;
+        dummy.position.set(x + (hx - 0.5) * 0.82, height, z + (hz - 0.5) * 0.82);
+        dummy.rotation.set(0, ha * Math.PI * 2, 0);
+        // UNIFORM, and it has to be. The geometry is authored in blade-heights
+        // on all three axes (see `tuftGeometry`), so scaling y alone stretches a
+        // blade's height without its width or its curve — which is exactly how
+        // the first version came out as a splayed spike. One number here means
+        // `blade` on the row is a size rather than a stretch, and a tall meadow
+        // blade is proportioned like a short lawn one.
+        dummy.scale.setScalar(blade * grow);
+        dummy.updateMatrix();
+        at[n * 3] = dummy.position.x;
+        at[n * 3 + 1] = dummy.position.y;
+        at[n * 3 + 2] = dummy.position.z;
+        tufts.setColorAt(n, this.lights.bakeInto(
+          new THREE.Color(1, 1, 1), dummy.position.x, dummy.position.y, dummy.position.z,
+        ));
+        tufts.setMatrixAt(n++, dummy.matrix);
+      }
+    }
+    tufts.instanceMatrix.needsUpdate = true;
+    if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
+    tufts.layers.set(BAKED_LAYER);
+    this.bakedGround.push({ mesh: tufts, bare, at });
+    this.staticRoot.add(tufts);
+  }
+
+  /**
    * Re-do the lamp bake over ground that has not moved.
    *
    * Called when the hour turns, and that is the whole of what a bake costs: the
@@ -1226,8 +1512,14 @@ export class Scene {
       for (let x = 0; x < L.w; x++) {
         // Just the ground. A fixture standing here draws itself on top, and the
         // floor under it is floor — which it always was, and now says so.
+        //
+        // `T.GRASS` is 0 and used to be skipped right here, which is the whole
+        // of why the lawn was flat: it never became a mesh, so what you were
+        // looking at was the apron box below with no per-cell jitter and no
+        // baked lamp light on it. It has a ground kind now (`GROUND.lawn`) and
+        // goes through this loop like every other cell, which is one more
+        // instanced mesh and no other change.
         const kind = L.tiles[z * L.w + x];
-        if (kind === 0) continue;
         // Any painted ground, not just floor: a delivery bay is a design on a
         // cell the same way parquet is, and one that only floor could carry
         // would draw every authored bay in the palette's default colour.
@@ -1244,7 +1536,14 @@ export class Scene {
     for (const [, { kind, piece, cells }] of byKind) {
       const style = TILE_STYLE[kind];
       if (!style) continue;
-      const height = Math.max(style.h, 0.04);
+      // A floor under this is a slab too thin to survive the depth buffer at the
+      // far end of a grown shop, which shows up as the ground strobing as the
+      // camera turns. It was 0.04 while the only tile it could ever have caught
+      // was skipped — which quietly raised the road to 0.04 as well, against the
+      // 0.02 `T.ROAD` is authored at and the comment there insisting a lane is
+      // flush rather than a kerb. Now that the lawn is drawn the order matters:
+      // grass 0.01, road 0.02, pads 0.07.
+      const height = Math.max(style.h, 0.01);
       // What this floor is made of, if anybody chose. `surfaceOf` falls back to
       // the tile's own colour, so a design deleted out of the catalog leaves
       // plain shop floor rather than a black hole.
@@ -1298,8 +1597,10 @@ export class Scene {
       this.bakedGround.push({ mesh, bare, at });
       this.staticRoot.add(mesh);
 
-      // ...and the one pattern that is not a colour. See `STRIPE_BARS`.
+      // ...and the two patterns that are not a colour. See `STRIPE_BARS` and
+      // `MAX_TUFTS`.
       if (surface?.pattern === 'stripes') this.addStripes(cells, surface, height, box, dummy);
+      if (surface?.pattern === 'tufts') this.addTufts(cells, surface, height, dummy);
 
       // A contrasting top slab, so a raised tile reads as built rather than as
       // an anonymous coloured block. Only the wall is left: the four furniture
@@ -1636,6 +1937,25 @@ export class Scene {
    * A doorway draws its header and threshold but no leaf, so the gap you walk
    * through is visibly a gap.
    */
+  /**
+   * A new coat of paint, without rebuilding the shop.
+   *
+   * The whole reason `paint-face` answers with an overlay instead of a layout.
+   * `buildWorld` disposes every wall, floor, fixture and prop in the building
+   * and makes them again, which is the right answer when something has actually
+   * moved and an absurd one for a colour — and `addEdges` already stands alone,
+   * because it is rebuilt on every quarter turn of the camera.
+   *
+   * The map is kept on `storeLayout` rather than beside it, so the next genuine
+   * re-flow (which carries its own copy) and this path cannot disagree about
+   * what is painted.
+   */
+  setPaint(map) {
+    if (!this.storeLayout) return;
+    this.storeLayout.paint = { ...(map ?? {}) };
+    this.addEdges(this.storeLayout);
+  }
+
   addEdges(L) {
     // Rebuilt on every quarter turn, so it owns a group of its own rather than
     // living loose in staticRoot — turning the camera must not rebuild the shop.
@@ -1656,10 +1976,23 @@ export class Scene {
     // carry its own — a signed way through is an ordinary opening with its
     // threshold painted (see `edgeBands`). One material per mesh, so a run has
     // to be uniform in it.
+    // ...and by which SIDE it is a skin of, because a painted face is drawn at
+    // its own thickness pushed out to the surface of the wall — see `paintSkin`.
+    // A run is uniform in everything the loop below reads off `set[0]`, and that
+    // now includes whether these boxes are wall or finish.
     const push = (kind, vertical, spec) => {
-      const k = `${kind}:${vertical ? 'v' : 'h'}:${spec.color ?? ''}`;
+      const k = `${kind}:${vertical ? 'v' : 'h'}:${spec.color ?? ''}:${spec.skin ?? ''}`;
       if (!runs.has(k)) runs.set(k, { kind, vertical, boxes: [] });
       runs.get(k).boxes.push(spec);
+    };
+
+    // What each face is finished in, if anything. The overlay rides on the
+    // layout (`Game.regenerateLayout` hangs it on the end) and is replaced on
+    // its own by `setPaint` — a repaint rebuilds these walls and nothing else.
+    const paint = L.paint ?? {};
+    const paintOn = (o, x, z, side) => {
+      const piece = paint[faceKey({ o, x, z, s: side })];
+      return piece ? surfaceOf(this.catalog.pieces ?? [], piece, PALETTE.wall) : null;
     };
 
     // What an edge is made of comes from `edgeBands`, beside the style it reads,
@@ -1687,7 +2020,31 @@ export class Scene {
       const style = EDGE_STYLE[kind];
       if (!style) return;
       const dir = style.out ? outward(vertical, x, z) : 1;
-      for (const band of edgeBands(style)) push(kind, vertical, { cx, cz, dir, ...band });
+      const bands = edgeBands(style);
+      for (const band of bands) push(kind, vertical, { cx, cz, dir, ...band });
+
+      // ...and the finish on either side of it, as a skin over the bands that
+      // are wall. Two things are deliberately left bare. GLASS, because paint on
+      // a window is paint on the frame — a finish over the pane is a bricked-up
+      // window, and the sill and header beside it take the colour anyway. And a
+      // band that already carries a COLOUR of its own, which is the painted
+      // threshold under a signed doorway: that stripe is the only thing on
+      // screen saying who a door is for, and a finish that covered it would
+      // delete the one visible half of a feature that is otherwise invisible.
+      for (const side of [-1, 1]) {
+        const surface = paintOn(vertical ? 'v' : 'h', x, z, side);
+        if (!surface) continue;
+        for (const band of bands) {
+          if (band.alpha !== undefined || band.color) continue;
+          // The pattern is read at the band's own height rather than per cell,
+          // because a wall repeats UP as well as along: `patternColor` takes two
+          // coordinates and the second one here is the course, not the row.
+          push(kind, vertical, {
+            cx, cz, dir, y0: band.y0, y1: band.y1, skin: side,
+            color: patternColor(surface, vertical ? z : x, Math.round(band.y0 * 8)),
+          });
+        }
+      }
     };
 
     for (let z = 0; z < L.h; z++) {
@@ -1726,8 +2083,18 @@ export class Scene {
           // Thickness grows on ONE side and the centre shifts by half of it, or a
           // bay would bulge into the aisle as much as into the street.
           const out = b.out ?? 0;
-          const t = style.t + out;
-          const shift = ((b.dir ?? 1) * out) / 2;
+          // ...and a FINISH is the other way round: no thickness of its own to
+          // speak of, sat on the surface of the wall rather than spanning it. It
+          // has to be a box rather than a plane for the same reason everything
+          // else here is — one geometry, one instanced mesh, shadows for free —
+          // and it has to stand a hair PROUD of the wall, or two coplanar faces
+          // fight over the depth buffer and the wall flickers as the camera
+          // turns. Which is a bug you only see in motion.
+          const skin = b.skin ?? 0;
+          const t = skin ? SKIN : style.t + out;
+          const shift = skin
+            ? skin * ((style.t + SKIN) / 2 - 0.001)
+            : ((b.dir ?? 1) * out) / 2;
           dummy.position.set(
             b.cx + (vertical ? shift : 0),
             (b.y0 + b.y1) / 2,
@@ -1749,7 +2116,11 @@ export class Scene {
       // A contrasting coping along the top, so a wall reads as built rather
       // than as a coloured slab.
       if (!style.top) continue;
-      const capped = boxes.filter((b) => b.y1 >= style.h - 0.001 && b.alpha === undefined);
+      // Skins excluded: a coping is the top of the WALL, and a second one laid
+      // on each painted face would be two more slabs a hair either side of it —
+      // three copings on a painted wall, which reads as the wall having grown.
+      const capped = boxes.filter((b) => b.y1 >= style.h - 0.001
+        && b.alpha === undefined && !b.skin);
       if (!capped.length) continue;
       const cap = new THREE.InstancedMesh(box, material(style.top), capped.length);
       cap.receiveShadow = true;
@@ -2633,6 +3004,75 @@ export class Scene {
     const maxZ = o === 'v' ? L.h - 1 : L.h;
     if (x < 0 || z < 0 || x > maxX || z > maxZ) return null;
     return { o, x, z };
+  }
+
+  /**
+   * Which SIDE of a wall you are pointing at.
+   *
+   * `pickEdge` answers which line, which was the whole question while everything
+   * you could do to a wall was done to the wall — build it, glaze it, sign it,
+   * knock it through. Paint is the first thing that is done to one *face*, and
+   * the answer is already sitting in the raw intersection `pickEdge` rounds off:
+   * an edge at lattice x is drawn at world x-0.5, so which side of that the hit
+   * landed on is a sign test and nothing more.
+   *
+   * It costs no extra pick. `pickEdge` leaves `_hit` where it found it, and the
+   * plane it read is at wall height rather than on the floor, so pointing at the
+   * top of a wall answers about that wall rather than about the ground behind it.
+   */
+  pickFace(clientX, clientY) {
+    const seg = this.pickEdge(clientX, clientY);
+    if (!seg) return null;
+    const along = seg.o === 'v' ? this._hit.x : this._hit.z;
+    const line = (seg.o === 'v' ? seg.x : seg.z) - 0.5;
+    return { ...seg, s: along < line ? -1 : 1 };
+  }
+
+  /**
+   * The faces a paint stroke would cover.
+   *
+   * Its own ghost rather than a mode on `setEdgeGhost`, because it is answering
+   * the question that ghost cannot: a bar down the middle of the line says WHICH
+   * WALL, and the whole decision here is which of its two sides. So this is the
+   * bar pushed out onto the face — thin, and standing where the finish will
+   * stand, which makes the preview a picture of the result rather than a marker
+   * beside it.
+   */
+  setFaceGhost(faces, state) {
+    const key = faces?.length
+      ? `${state}:${faces.map((f) => `${f.o}${f.x},${f.z},${f.s}`).join('|')}`
+      : null;
+    if (key === this.faceGhostKey) return;
+    this.faceGhostKey = key;
+    if (this.faceGhost) {
+      this.actorRoot.remove(this.faceGhost);
+      disposeGroup(this.faceGhost);
+      this.faceGhost = null;
+    }
+    if (!faces?.length || !this.storeLayout) return;
+
+    const colour = state === 'no' ? '#e2564a' : (state === 'warn' ? '#e8a33d' : '#7cc46a');
+    const group = new THREE.Group();
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    // Off the wall's own thickness, so the ghost sits where the paint will —
+    // proud of the same face, by the same hair. A constant here would drift the
+    // day a wall changes thickness, and the drift is invisible: a ghost buried
+    // inside the wall simply stops showing up.
+    const t = EDGE_STYLE[E.WALL].t;
+    for (const f of faces) {
+      const mesh = new THREE.Mesh(geo, material(colour, 0.55));
+      const off = f.s * (t / 2 + 0.03);
+      if (f.o === 'v') {
+        mesh.position.set(f.x - 0.5 + off, 0.55, f.z);
+        mesh.scale.set(0.05, 1.05, 0.96);
+      } else {
+        mesh.position.set(f.x, 0.55, f.z - 0.5 + off);
+        mesh.scale.set(0.96, 1.05, 0.05);
+      }
+      group.add(mesh);
+    }
+    this.actorRoot.add(group);
+    this.faceGhost = group;
   }
 
   /**
@@ -4507,6 +4947,13 @@ export class Scene {
     this.animateCash(now);
     this.animatePlots(now);
     this.animateMoods(now);
+    // The wind, for as long as time is running. Accumulated off `dt` rather than
+    // read off `now`, which is the only way stopping it can mean anything: the
+    // sine of a clock that kept counting resumes wherever it would have got to,
+    // so a lawn paused for a minute snaps to a new lean the moment you unpause.
+    // Exactly the argument `animateStations` makes about a blade, and here it is
+    // about the other kind of blade.
+    if (!this.paused) WIND_CLOCK.value += dt * WIND_SPEED;
     // The van and the parked cars. Per frame rather than per snapshot, unlike
     // every other body in the game — see `VEHICLE_CHASE`.
     this.animateVehicles(dt);
