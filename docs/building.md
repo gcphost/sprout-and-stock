@@ -1077,6 +1077,121 @@ a finish *does* something (a scrubbable surface a health inspector likes, a
 frontage that draws people in) it has stopped being a look, and that is a number
 on a kind rather than another row.
 
+### The ground outside, which was never drawn at all
+
+Every kind of ground in the game became content across steps 13 and 14 — floor,
+the two yard pads, the break area, then the road and the pavement. Grass did
+not, and the reason it was easy to miss is that grass is the *default*: it is
+what a cell is before anybody does anything, so there was never a moment where
+somebody wanted a second one and found they could not have it.
+
+What was actually wrong is worse than "not authorable". `buildWorld` opened its
+tile loop with `if (kind === 0) continue`, and `T.GRASS` is 0 — so a grass cell
+never became a mesh. What you were looking at was the big apron box underneath,
+one flat colour, with none of the per-cell jitter and none of the baked lamp
+light every other kind of ground gets. That is why it reads as plastic next to a
+floor you laid: the floor has three hundred slightly different greens in it and
+the lawn has one. "The grass is flat" was not a complaint about art.
+
+`GROUND.lawn` is the whole fix, and it is the same promotion `GROUND.path` got:
+one row, no new tile value, no enum, no migration. It costs nothing on a live
+save because an unpainted cell has no entry in `layout.ground` at all —
+`surfaceOf` falls back to the tile's own palette colour, so a shop that has
+never heard of a lawn design renders exactly as it always did, only jittered.
+
+**It is a look and never a permission**, which is the claim `floor` and `road`
+both make and which matters more here than for either. `BUILDABLE_OUTDOOR` is
+`T.GRASS` and every lawn design lays `T.GRASS`, so a bed is dug into whatever
+you painted and a meadow is still farmland. A design that changed that would not
+be a design; it would be a kind.
+
+#### A pattern that has height
+
+`stripes` was already the exception to "a pattern is one colour per cell" — a
+zebra bar is a fraction of a tile wide, so it is drawn as its own geometry over
+the cell. `tufts` is the second, and the argument for it is the first one turned
+up: what survives of a *flat* pattern at 45° is its colour, and the way you tell
+grass from lino is that grass is not flat.
+
+One instanced mesh per design however many cells it covers, so a field is one
+draw call. Three things make that affordable and each is a decision rather than
+an optimisation:
+
+- **The scatter is a hash, never a draw.** `hash01` of the cell and the blade
+  index, for docs/kits.md's reason about which bag a shopper carries, plus one
+  that is specific to here: build mode re-flows on every wall segment of a drag,
+  so a drawn scatter would reshuffle the entire lawn as you dragged. Grass that
+  crawls reads as the ground being unstable, not as art.
+- **`MAX_TUFTS` thins rather than refuses.** Ground is the biggest thing in the
+  world by cell count and this multiplies the one buffer that gets rebuilt most
+  often. Past the cap it plants every Nth cell, so a huge meadow comes out
+  sparse and never bare — the call `lights.js` makes about the ninth lamp, made
+  before there was a catalogue of lawns to trip over it rather than found later
+  as "building got choppy".
+- **The wind is a vertex shader on a material of its own.** Not `material()`,
+  which is a cache keyed by colour shared by every prop in the game — an
+  `onBeforeCompile` hung on it would set every green thing in the shop swaying.
+
+#### The one number that matters: a blade is measured in its own height
+
+This cost a round of play-testing and it is the thing to carry away.
+
+The first version authored the blade tip's sideways offset in **tiles**
+(`dx * 0.22`) while the instance stretched only the y axis, by `blade` (0.13).
+So a blade 0.13 tall leaned 0.22 sideways — a 60° splay, in three directions at
+once. It draws a yucca. It presents as bad modelling, and it is a unit mismatch:
+two small numbers, two lines apart, that look like they are in the same space
+and are not.
+
+The fix is not a better constant. The instance scale is **uniform**
+(`setScalar`), so object space is blade-heights on all three axes and a lean can
+only be expressed as a fraction of a height, because there is nothing else for
+it to be a fraction of. `blade` on the row became a *size* rather than a
+stretch, which is also what makes a tall Meadow blade proportioned like a short
+Turf one instead of a stretched version of it. `WIND_LEAN` moved into the same
+space for the same reason — in tiles it was invisible on short grass and a
+thrash on long.
+
+The general shape, and it is not about grass: **a scale that is not uniform
+splits object space into two units and nothing in the file says which one a
+number is in.**
+
+#### Where it goes in the palette
+
+Building had eight sub-tabs after the paint step, and eight is the tell rather
+than the problem — the row stops being a set of choices and becomes a list you
+read. Five of them were the same brush laying ground around the shop, filed
+apart from each other by *whose* ground it is, which is a distinction that only
+matters once you have already decided you are out here.
+
+So `outdoors` is that decision, and Land, Roads, Yard, Crew and Customers are
+behind it. Land goes first because it is the ground the other four are painted
+**on**: a palette that offered a delivery bay at the same level as the turf
+under it was answering the second question before the first.
+
+The name is dominant-case rather than exact, deliberately. A `drop` pad indoors
+is a stockroom and a break area is as often a corner of the shop floor as it is
+out the back — both blurbs say so — and naming a group for its exceptions means
+naming it something nobody would look under.
+
+#### And the right button scrapes
+
+`armEdgeRaze` gave the right button a meaning with a wall tool up: knock *this*
+segment through, because you lay a run in one gesture and regret it a segment at
+a time. Ground has the same shape of regret and had none of the answer — undoing
+one cell meant finding Bare Ground on another tab, painting it, and re-arming
+the brush you were using.
+
+`armGroundScrape` is the mirror, down to the lifecycle: armed on the way down
+(the pointer is on the tile *now*), dropped if the press turned, and falling
+through to `ui.escape()` when there is nothing to take up, so pointing at bare
+grass still backs out the way it always did. Two things it deliberately is not.
+It is **one cell rather than a drag**, because the right button is also the only
+way to turn the view while a brush owns the left one, so anything it does has to
+survive being abandoned mid-press. And it is **exempt on Bare Ground itself**,
+where the left button already scrapes over an area — one act with two gestures
+is exactly what that entry's own comment argues against.
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:
@@ -1225,6 +1340,19 @@ the number.
     It never re-flows and is hung on the finished layout rather than handed to
     the generator, which is what makes "a colour cannot move a wall" structural
     instead of merely tested. See above, and `verify:paint`.
+18. **The ground outside becomes content.** *Built.* `GROUND.lawn` — one row, no
+    new tile value and no migration — plus `pattern: 'tufts'`, which is the
+    second ground pattern that is geometry rather than a per-cell colour. It is
+    the tail of steps 13 and 14 rather than a new idea: every other kind of
+    ground became authorable there and grass was missed because it is the
+    *default*, so nobody ever wanted a second one and found they could not have
+    it. What made it urgent is that grass was not merely unauthorable, it was
+    never drawn — `buildWorld` skipped tile kind 0, so the lawn had none of the
+    jitter or baked light every other cell has. Carries the palette regroup
+    (`outdoors`, because eight sub-tabs is a list rather than a choice) and the
+    right-button scrape, which is `armEdgeRaze` said about an area. See above
+    for the unit rule a blade is measured in, which is the part that cost a
+    round of play-testing.
 
 ---
 

@@ -454,7 +454,7 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads and the break area alike, and who a way through is for — staff only, entrance only, exit only | steps 1–9, 11, 13–15 built; 10 cancelled; 12 next |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — and the ground pattern that has height | steps 1–9, 11, 13–18 built; 10 cancelled; 12 next |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, and the shop hand who takes goods back *off* a shelf | steps 1–6 and 8–10 built; 7 proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
@@ -998,6 +998,69 @@ what the next step was meant to be.
   **not in `FIXTURES`** — a floor has no anchor, blocks nobody and is painted
   rather than placed, so `BUILD_KINDS` partitions in three now, which
   `verify:catalog` counts rather than trusting anyone to remember.
+- **…and the grass was never drawn, which is not the same as not being
+  authorable.** `T.GRASS` is 0 and `buildWorld`'s tile loop opened with
+  `if (kind === 0) continue`, so a grass cell never became a mesh: what you were
+  looking at was the big apron box underneath, one flat colour, with none of the
+  per-cell jitter and none of the baked lamp light every other kind of ground
+  gets. Next to a floor you laid — three hundred slightly different creams — it
+  reads as the *material* being cheap, which points at the palette, and the
+  palette is fine. `GROUND.lawn` fixes both halves at once and costs nothing on a
+  live save, because an unpainted cell has no entry in `layout.ground` and
+  `surfaceOf` falls back to the tile's own colour. The trap it left behind is in
+  the next entry. **A default is the thing nobody notices is missing**: grass is
+  what a cell is before anybody does anything, so there was never a moment where
+  somebody wanted a second one and found they could not have it.
+- **…and a rule phrased against `groundKindOfTile` gained a silent new answer
+  that day.** It answered null for bare grass for as long as `GROUND` had no row
+  whose tile was `T.GRASS` — which read as a rule ("null means nobody painted
+  here") and was a coincidence. Two callers meant exactly that and both broke
+  quietly: `canPaintGround`'s erase branch (`if (was == null) continue`) would
+  count every cell of a field as a change, charge for the stroke and warn about
+  holes where nothing moved, and the server's own skip test would write a
+  `k: null` entry per cell and report the lot as taken up. The fix in both is to
+  ask the *overlay* rather than the tile — "is a design painted here" is the real
+  question, and it always was. Same shape as the `chilled` boolean and the third
+  kind of shelving: **a lookup with a `?? null` has a meaning that comes from
+  what is absent from a table, and adding a row to that table changes it.**
+- **…and a non-uniform scale splits object space into two units, with nothing in
+  the file to say which one a number is in.** A grass blade is authored in a unit
+  cube and the instance sized it — but only on y, by `blade` (0.13 tiles). So the
+  tip offset, authored as `dx * 0.22`, was in TILES while the height it was
+  leaning off was in blade-heights: a blade 0.13 tall leaning 0.22 sideways is a
+  60° splay in three directions, which draws a yucca. It presents as bad
+  modelling and it is arithmetic, and it is invisible in the file because both
+  numbers are small and sit two lines apart. `setScalar` is the fix rather than a
+  better constant: with a uniform scale, object space is blade-heights on every
+  axis and a lean can only be a fraction of a height because there is nothing
+  else for it to be a fraction of. `WIND_LEAN` moved into the same space with it
+  — in tiles it was invisible on short grass and a thrash on long. Worth asking
+  of anything sized per instance: is every number in this geometry in the same
+  unit, and what enforces that?
+- **…and `tufts` is the second ground pattern that is geometry, which is where
+  the cap lives.** `stripes` was the first and the argument is the same one
+  turned up: what survives of a flat pattern at 45° is its colour, and the way
+  you tell grass from lino is that grass has height. Three things about it are
+  decisions rather than optimisations. The scatter is `hash01` and never the rng
+  — build mode re-flows on every wall segment of a drag, so a drawn scatter
+  reshuffles the whole lawn as you drag and reads as the ground being unstable.
+  `MAX_TUFTS` **thins rather than refuses** (every Nth cell), which is
+  `lights.js`'s call about the ninth lamp made before there was a catalogue of
+  lawns to trip over it, because the alternative is finding it later as "building
+  got choppy". And the wind is `onBeforeCompile` on a material of its own —
+  never `material()`, which is a cache keyed by colour shared by every prop in
+  the game, so hanging a vertex shader on it sets every green thing in the shop
+  swaying.
+- **…and `surfaceOf` rebuilds its object field by field, so a pattern's new
+  number has to be named there or it goes nowhere.** `bars` was exactly that from
+  the day it shipped: authored, validated by the schema, printed in
+  `docs/fixtures.md`, and dropped on the way to the renderer, so `stripeBars`
+  read `undefined` and every crossing in the game was drawn at the default three
+  however it was authored. Nothing logs it and the crossing still looks like a
+  crossing. It is the "tier that changes no number" trap wearing a surface, and
+  the reason it survived is that no seeded row had ever set the field — same
+  lesson as `charm`: **whenever a mechanic reads a content column, check how many
+  rows have ever set it.**
 - **A drag sends the POINTER's far end, never the tail of the list it built.**
   Both build drags send two ends rather than the segments, because the inbound
   cap is 4KB — so the server re-runs the same generator and has to land on the
