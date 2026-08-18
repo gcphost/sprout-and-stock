@@ -25,6 +25,11 @@
  * appearing at the opposite end of the bar from the thing you were pointing at.
  * It is gone rather than restyled — see CLAUDE.md on removing UI.
  *
+ * The strip is dragged rather than scrolled — see `wireStrip` — so a caller
+ * hands over the strip's wrapper and its two arrows beside the four elements
+ * that are drawn into. They are optional: a bar without them is the plain
+ * scroller it was.
+ *
  * A caller supplies data and callbacks and never touches the DOM, which is what
  * lets the number keys, the tab cycling, the scroll-the-selection-into-view and
  * the height measurement be written once instead of twice.
@@ -37,8 +42,16 @@
  *
  * Shapes:
  *   group   = { id, name, icon, blurb, items: [item], subs?: [group] }
- *   item    = { id, icon, art, name, note, badge, title, warn, poor, last }
+ *   item    = { id, icon, art, name, note, badge, title, warn, poor, last, head }
  *   choice  = { options: [{ id, name, art }], picked, open, onPick } | null
+ *
+ * `head` is a run label — a word drawn in the gap *before* that entry, upright,
+ * for a strip whose entries come in runs of a kind. It is a field on the first
+ * entry of the run rather than an entry of its own on purpose: a separator in
+ * `items` would take a number key, shift every `data-slot` past it, and have to
+ * be skipped by everything that resolves the nth entry of a tab. This way the
+ * list is exactly what it was and the label is decoration on one of its
+ * members.
  *
  * `art` is a picture of the thing itself where one can be drawn (see
  * `client/thumb.js`) and `icon` the glyph to fall back on. Two fields rather
@@ -47,6 +60,10 @@
  * for it and one that doesn't must not be sized as though it did.
  */
 
+import { ICONS } from './icons.js';
+import { wireScroll } from './scroll.js';
+import { setHtml } from './paint.js';
+
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
@@ -54,8 +71,14 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
 /** How many entries wear a number. That is how many number keys there are. */
 export const KEYED = 9;
 
-/** How long a press on a tile has to last to be asking for its shapes. */
-const HOLD_MS = 400;
+/**
+ * How long a press has to last to be asking for the other thing.
+ *
+ * Exported because a hire's avatar asks the same question — tap to repaint,
+ * hold for the range — and a second copy of this number would be two gestures
+ * that are nearly the same length, which is worse than either.
+ */
+export const HOLD_MS = 400;
 
 /**
  * Entries a caller wants pinned to the end of every tab they appear on —
@@ -93,11 +116,16 @@ export function renderBar(el, {
   // session, and the pointer crosses this row on its way to everything below it.
   // Making the tip wait for a real dwell is what tells "what is this" apart from
   // "I am on my way past" — see `DWELL_MS` in `tip.js`.
-  el.groups.innerHTML = groups.map((g) => `
+  // `setHtml` and not a bare write, here and below: this strip is rebuilt from
+  // the snapshot, and a rebuild that produces the same markup still replaces the
+  // node under the pointer — which drops `:hover` until the mouse moves again.
+  // On a bar whose tiles carry a live line ("looking for something to do") that
+  // is a button flickering in time with the shop. See client/paint.js.
+  setHtml(el.groups, groups.map((g) => `
     <button class="cat${g.id === open?.id ? ' on' : ''}" data-cat="${esc(g.id)}"
       data-tip-wait title="${esc(g.blurb ?? g.name)}">
       <span class="ico">${g.icon}</span><span class="nm">${esc(g.name)}</span>
-    </button>`).join('');
+    </button>`).join(''));
 
   renderSubTabs(el.subs, subs, sub?.id);
 
@@ -105,7 +133,8 @@ export function renderBar(el, {
   // events in some browsers, and the tip explaining WHY it cannot be pressed is
   // a hover away — so the one state that most needs its explanation would be the
   // one state with no way to ask for it. The press is refused below instead.
-  el.items.innerHTML = items.map((it, i) => `
+  setHtml(el.items, items.map((it, i) => `
+    ${it.head ? `<span class="run" aria-hidden="true"><i>${esc(it.head)}</i></span>` : ''}
     <button class="tool${it.id === picked ? ' on' : ''}${it.warn ? ' warn' : ''}${
   it.poor ? ' poor' : ''}"
       data-slot="${i}" title="${esc(it.title ?? it.name)}"
@@ -116,7 +145,7 @@ export function renderBar(el, {
       <span class="nm">${esc(it.name)}</span>
       ${it.note ? `<span class="cost">${esc(it.note)}</span>` : ''}
       ${it.shapes ? '<span class="more" data-more="1">▾</span>' : ''}
-    </button>`).join('');
+    </button>`).join(''));
 
   // The last tier is a choice *about the picked entry*, so it only belongs on
   // screen while that entry is. Browsing to another tab used to leave the shape
@@ -186,7 +215,52 @@ export function renderBar(el, {
   // from off the bar, and after the list shifts under you.
   el.items.querySelector('.tool.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 
+  // Last, because both halves of it are questions about the strip as drawn: how
+  // far it can scroll, and where it is scrolled to *after* the line above.
+  wireStrip(el);
+
   return { group: open, sub };
+}
+
+/**
+ * The strip, and an arrow at each end that has more past it.
+ *
+ * The drag and the "is there more" test are `wireScroll` — every panel list
+ * wants both, and the traps in them are written up there. What is the bar's own
+ * is the pair of arrows: the fade alone says there is more, and a 22px button
+ * is a thing you can press, where a 5px scrollbar was neither.
+ *
+ * The marks land on the STRIP rather than on the scroller, because a scroll
+ * container's own `::before` is part of its content and scrolls away with it —
+ * which is a fade that slides off the end it was marking. The wrapper does not
+ * move, and the arrows are its children rather than the row's, so they are
+ * never redrawn by the `innerHTML` above.
+ */
+function wireStrip(el) {
+  const strip = el.strip;
+  const box = el.items;
+  if (!strip) return;
+
+  if (!strip.dataset.wired) {
+    strip.dataset.wired = '1';
+    if (el.back) el.back.innerHTML = ICONS.back;
+    if (el.on) el.on.innerHTML = ICONS.on;
+    // A press moves it by most of a screenful — enough to be worth pressing,
+    // short of a jump that loses you which end you were at.
+    const nudge = (dir) => box.scrollBy({ left: dir * box.clientWidth * 0.8, behavior: 'smooth' });
+    if (el.back) el.back.onclick = () => nudge(-1);
+    if (el.on) el.on.onclick = () => nudge(1);
+  }
+
+  wireScroll(box, {
+    axis: 'x',
+    ends: (back, on) => {
+      strip.classList.toggle('more-back', back);
+      strip.classList.toggle('more-on', on);
+      if (el.back) el.back.hidden = !back;
+      if (el.on) el.on.hidden = !on;
+    },
+  });
 }
 
 /**
@@ -199,12 +273,12 @@ export function renderBar(el, {
 function renderSubTabs(el, subs, at) {
   if (!el) return;
   el.hidden = !subs;
-  if (!subs) { el.innerHTML = ''; return; }
-  el.innerHTML = subs.map((s) => `
+  if (!subs) { setHtml(el, ''); return; }
+  setHtml(el, subs.map((s) => `
     <button class="subcat${s.id === at ? ' on' : ''}" data-subcat="${esc(s.id)}"
       data-tip-wait title="${esc(s.blurb ?? s.name)}">
       <span class="ico">${s.icon}</span><span class="nm">${esc(s.name)}</span>
-    </button>`).join('');
+    </button>`).join(''));
 }
 
 /**

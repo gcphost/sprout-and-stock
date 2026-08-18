@@ -43,10 +43,42 @@ const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
  */
 const PAVED = 1;
 const ROUGH = 1.25;
-const stepCost = (layout, x, z) => {
+
+/**
+ * What squeezing past a crate costs a SHOPPER, and why it is a price rather
+ * than a wall.
+ *
+ * A box on the floor should turn people back, and the tempting way to say that
+ * is to make the tile unwalkable. That is the one thing this must not do.
+ * Crates land wherever goods are let go of — a stripped shelf, an armful put
+ * down, thirty boxes of rot in a back room — and none of it goes through a
+ * placement validator, so a hard block is a shop that can be sealed by
+ * accident, in the middle of a room, by a hire doing their job correctly. It is
+ * the `TIRED_PACE` pin `verify:break` exists for, said about customers, and it
+ * would present as shoppers who stop arriving.
+ *
+ * Eight is far enough that a shopper walks the length of an aisle rather than
+ * step over one box, so in a shop with any way round at all it reads exactly
+ * like a wall — which is the behaviour asked for. What it buys is that the
+ * degenerate case degrades instead of breaking: wall somebody in with boxes and
+ * they climb over them, unhappily, rather than the shop quietly ceasing to
+ * function.
+ *
+ * **Shoppers only**, which is the same split signed doorways introduced: staff
+ * have to be able to reach a crate to shift it, and a rule that kept them out
+ * would make the mess permanent the moment it mattered. The player is never
+ * routed by A* at all.
+ *
+ * Above 1 like every other surcharge here, because `h` is Manhattan distance and
+ * is only admissible while no step is cheaper than one.
+ */
+const CLUTTER = 8;
+
+const stepCost = (layout, x, z, clutter) => {
   const i = z * layout.w + x;
-  if (layout.indoor?.[i]) return PAVED;
-  return layout.tiles[i] === T.PATH ? PAVED : ROUGH;
+  const mess = clutter?.has(i) ? CLUTTER : 0;
+  if (layout.indoor?.[i]) return PAVED + mess;
+  return (layout.tiles[i] === T.PATH ? PAVED : ROUGH) + mess;
 };
 
 /** Anybody who works here: a wall stops them and a sign does not. */
@@ -63,8 +95,13 @@ const anyoneCanCross = (layout, cx, cz, nx, nz) =>
  * @returns {Array<{x:number,z:number}>|null} tile path excluding the start
  *   tile, or null if unreachable.
  */
-export function findPath(grid, layout, start, goal, { maxNodes = 4000, shopper = false } = {}) {
+export function findPath(grid, layout, start, goal,
+  { maxNodes = 4000, shopper = false, clutter = null } = {}) {
   const canCross = shopper ? shopperCanCross : anyoneCanCross;
+  // Handed in rather than read off the layout, because crates are not part of it
+  // — they live on `Game.deliveries` and move ten times a second. Null for
+  // everybody who works here, so their search is bit-identical to the old one.
+  const mess = shopper ? clutter : null;
   const sx = Math.round(start.x);
   const sz = Math.round(start.z);
   const gx = Math.round(goal.x);
@@ -126,7 +163,7 @@ export function findPath(grid, layout, start, goal, { maxNodes = 4000, shopper =
       const nk = key(nx, nz);
       // Charged on the cell you step ONTO, so the pavement you are walking
       // along is what is being paid for rather than the one you left.
-      const tentative = cg + stepCost(layout, nx, nz);
+      const tentative = cg + stepCost(layout, nx, nz, mess);
       if (tentative < (gScore.get(nk) ?? Infinity)) {
         gScore.set(nk, tentative);
         cameFrom.set(nk, current);

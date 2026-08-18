@@ -320,6 +320,43 @@ already "what share of the town chooses your shop". A missed staple takes
 reputation down, `pull` reads reputation, and the going-elsewhere happens over
 the following days without a rival shop existing anywhere in the codebase.
 
+### A craze is a staple for as long as it lasts
+
+A world event's `demand_mult` used to be worth two things, and neither of them
+was a shopping list: it raised [`pull`](../server/sim/economy.js) so more people
+came, and it raised `purchaseChance` so each of them was keener at the shelf.
+Nobody ever walked in *for* the bakery — `rollList` read the archetype and
+nothing else — so nobody walked out without it, so `failLine` never charged the
+shop a penny for missing the whole event. A shop caught out by a craze and a
+shop that never had one differed only in the takings, which is the one signal a
+busy day already hides.
+
+So `rollList` reads the folded demand table, and does two things with it. It
+scales the opportunistic draw, which is the flavour half — a bakery craze puts
+more bread on more lists. And above `CRAZE_STAPLE` (1.5) it marks the line
+`must`, which is the half that costs: only a staple reaches the charge above.
+The threshold sits between the director's two bands on purpose — a surge writes
+1.8–2.8 on the tag the event is *about* and 1.25–1.6 on the ones it drags along,
+so the headline promotes and the side effects mostly do not.
+
+Three things hold it together, and each is the trap next to it.
+
+**It can only ever promote something they already wanted.** That is not a rule,
+it falls out of the draw: a tag with no affinity never reaches the list, so a
+Health Nut still does not come in for junk in the middle of a junk craze.
+
+**A slump can never demote.** The promotion runs over the finished list and only
+ever sets `must` true — a staple is a fact about the archetype and an event is
+weather, so a `junk: 0.35` week makes junk unfashionable rather than making a
+Teenager stop wanting chips.
+
+**The multiplier moves the weights, never the number of draws.** An ordinary day
+— every multiplier 1 — calls `this.rng` exactly as many times as it did before
+and comes out identical to the tick, which is the [`Game.namer`](../server/sim/names.js)
+trap said about an event table. Anything here that reached for a second draw
+would move every basket, crop and spawn roll after it, and two `simulate` runs
+either side of authoring an *event* would diverge with nothing to say why.
+
 ### `MAX_UNITS_PER_SHELF` retires
 
 With a list, "how many do I take from this shelf" is `qty - got` — the errand

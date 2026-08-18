@@ -1,7 +1,7 @@
 # Milestones
 
-Status: **step 1 built.** Twelve rungs, three kinds of reward, a card that
-stops the world, and a panel you can watch fill.
+Status: **steps 1–2 built.** Forty-three rungs, three kinds of reward, a card
+that stops the world, and a panel you can watch fill.
 
 ---
 
@@ -25,9 +25,10 @@ milestone hands over is money, stock, or town.
 
 | Piece | Lives in |
 |---|---|
-| the twelve rungs, what they measure, what they pay | `server/sim/goals.js` |
+| the rungs, what they measure, what they pay | `server/sim/goals.js` |
 | the lifetime tallies they are measured against | `Game.totals`, folded in `rollTotals` |
 | which have been earned | `Game.milestones.done`, on the save |
+| which have ever been *swept against* | `Game.milestones.known`, on the save |
 | the sweep | `Game.stepMilestones`, once a second of world time |
 | the announcement | `Game.milestoneNews` → `MartRoom.pushState` → `achieved` |
 | the card | `client/award.js` + `#award` in `index.html` |
@@ -42,17 +43,34 @@ nothing can be half-done in a way a save has to remember. Two things follow, and
 both are features rather than compromises:
 
 - A new rung is a new row. No migration, no save version, no content table.
-- A shop that already passed one gets it on the next tick. **The first sweep a
-  save ever gets banks those quietly** (`milestones.opened`) — marked done, no
-  card, no gift, one log line. A day-148 shop with thirteen staff and a perfect
-  reputation is three rungs true at once, and opening it used to stop the world
-  three times and hand over three deliveries before the player had moved.
+- A shop that already passed one gets it on the next tick. **A rung the save has
+  never been swept against banks quietly** (`milestones.known`) — marked done,
+  no card, no gift, one log line. A day-148 shop with thirteen staff and a
+  perfect reputation is three rungs true at once, and opening it used to stop the
+  world three times and hand over three deliveries before the player had moved.
   Congratulating somebody for a thing they did last month reads as the feature
   misfiring. They still count toward `milestoneReach`, because the town is
   derived from the done list and a second list of rungs-that-do-not-count would
   be a number kept beside the shop rather than read off it. A brand-new shop
   banks nothing — nothing on the ladder is true on day one — which is why this
-  needs no special case for a new world, only a flag saying the sweep has run.
+  needs no special case for a new world.
+
+  **Per rung, and it was per save for one step.** `milestones.opened` asked the
+  question once — has this shop ever been swept? — which is the same question
+  only while the ladder never changes. Step 2 added thirty-one rungs, and every
+  established shop in the world is long past its opening sweep: a save on day 81
+  met ten of them in one tick and would have been congratulated ten times in a
+  row, each card stopping the world. That is precisely the moment `opened` was
+  written to prevent, arriving on the *second* impression instead of the first.
+  `known` cannot go wrong again however many rungs are added later.
+
+  The migration is exact rather than approximate: `known` falls back to `done`,
+  and a save written before the field either knows nothing (no ladder yet, so it
+  banks everything true — unchanged behaviour) or has been swept against a
+  ladder whose *earned* rungs are precisely `done`. What is lost is the rungs it
+  had swept and not earned, and they cost nothing — they are not true, so they
+  cannot bank, and being swept afresh awards them properly on the day they
+  come due.
 
 **A reward may not be a thing you unlock.** Cash, a free run of stock, and the
 town growing. All three are numbers that already meant something before this
@@ -63,8 +81,17 @@ shop about what you own is written against `placements` and `ownedUpgrades`.
 **The town is the one worth having.** `Game.catchment` is the only term
 shopkeeping cannot move: you can restock, decorate, pave and promote your way to
 a better shop, and how many people live near it is not a decision — it is
-`BASE_CATCHMENT` plus what you bought. Six of the twelve rungs add to it, +1
-each, so a shop that finishes the ladder has grown its town by about a third.
+`BASE_CATCHMENT` plus what you bought. Sixteen rungs add to it, +1 each, against
+a base of 16 — so **a shop that finishes the ladder has exactly doubled its
+town**, and that number is the deliberate one rather than the sum of what each
+rung felt like paying.
+
+It is also the only reward that still means anything at the far end.
+`footfall` is *linear* in catchment, so +1 is worth about 6% more customers
+whenever you get it; $2,000 is a decision on day nine and a rounding error on
+day ninety, and a free van of stock is worth less the better stocked you are.
+Which is why the ten town rungs added in step 2 are all at the hard end and the
+easy new ones pay cash — the reward that scales goes where the difficulty is.
 
 That is also why the card prints the number rather than the step. `catchment`
 has been on the wire since the shop had customers and has **never been drawn**,
@@ -116,17 +143,31 @@ read as another menu having opened.
 
 ## What it does to the balance
 
-Two things, and both are deliberate:
+Three things, and all three are deliberate:
 
-- Up to **+6 catchment** across the whole ladder, against a base of 16. That is
-  most of a `catchment` upgrade, earned rather than bought.
-- Up to **~250 units of free stock**, spread over twelve awards, each capped by
-  what the bay can hold.
-- **$4,550 in cash across all twelve**, climbing 250 → 100 → 50 → … → 1500. A
-  shop opens on $250 — two crates and a seed tray — so the opening hour was a
-  wait for one shelf to sell through rather than a decision, and the first rung
-  pays the float over again. Every rung pays *something*: a ladder with a gap in
-  it reads as a rung that is broken.
+- Up to **+16 catchment** across the whole ladder, against a base of 16 — a
+  doubled town, spread over the length of a shop's life and earned rather than
+  bought. Ten of those sixteen are past `take-10000`, which used to be the top.
+- Up to **1,320 units of free stock**, spread over forty-three awards, each
+  capped by what the bay can hold — so a shop with a small yard collects less of
+  it, which is the guard doing its job rather than a rung misfiring.
+- **$73,540 in cash across all forty-three**, climbing 250 → 100 → 50 → … →
+  1500 → … → 12,000. A shop opens on $250 — two crates and a seed tray — so the
+  opening hour was a wait for one shelf to sell through rather than a decision,
+  and the first rung pays the float over again. Every rung pays *something*: a
+  ladder with a gap in it reads as a rung that is broken.
+
+The far half is priced against the shop that earns it rather than against the
+rungs below it. `take-250000` pays $12,000, which is a fortnight's takings for
+the shop that gets there and would be the whole game on day nine — the rungs
+get further apart than the shop gets bigger (10k → 25k → 50k → 100k → 250k), so
+each one is a longer wait than the last even while the shop is still growing. A
+ladder whose rungs kept pace with the shop would be a progress bar.
+
+One rung is the exception that proves the town is worth having: `flawless-day`
+is the only one you can fail **by growing**, since every point of catchment the
+rest of the ladder pays makes turning nobody away harder until you find the
+floor space for them.
 
 `simulate` earns them the same way you do — the ladder is not skipped on an
 ephemeral game, because a balance bot that never sees a feature is the broken
@@ -141,9 +182,21 @@ otherwise, which is the other half of "a milestone is a measurement".
 
 ## Next, if it earns it
 
-1. **Rungs that are about the shop rather than the takings** — a shelf of every
-   department, a hundred crops of one kind, a day with nobody turned away. All of
-   them are one `measure` each; none needs anything new.
+1. ~~**Rungs that are about the shop rather than the takings.**~~ Built as step
+   2. Thirty-one rungs: the takings ladder extended so it stops topping out, and
+   the half that is about the *shop* — six departments on the shelves at once, a
+   wall you drew, a break area, a stockroom, a kitchen, a hot counter, a car
+   park, ten charm, a promotion, a day without a hitch. Several of those exist to
+   name a system a shop can play for eighty days and never walk into: a live save
+   on day 81 had no appliance, no warmer and no parking, and nothing in the game
+   had ever mentioned that any of the three were there.
+
+   Two rules came out of writing them, both in the header of `goals.js`:
+   **the first instant a measure is true is the award**, so a rung shaped as an
+   *absence* awards itself at one minute past midnight unless it waits for the
+   day to be over; and a measure returning 0/1 draws a bar that goes empty →
+   full with nothing between, which is right — there is no being two thirds of
+   the way to owning an oven.
 2. **A first-run ladder that teaches.** The first three rungs are the closest
    thing the game has to a tutorial and nothing says so. Naming them as one
    opening sequence — and opening the panel on a new shop — is a client change.

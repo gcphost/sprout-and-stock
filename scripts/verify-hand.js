@@ -33,7 +33,9 @@
  *   shop as far as `shelvesFor` is concerned, so the next stocker walks the crate
  *   you just made straight back onto it. It only holds while nothing else is
  *   holding the item, which is the half that keeps consolidating two boards into
- *   one from retiring what is on them.
+ *   one from retiring what is on them. Tipping the whole unit out says it board
+ *   by board, and the reservation it deliberately keeps is what carves the
+ *   exception — one item walks back on and the other does not.
  * - **A merge frees a board and conserves the stock**, and then does not
  *   un-merge. Clear and Merge both only ever reduce occupied boards, and the
  *   reason `merchandise` has no third verb is that a job whose verbs disagree
@@ -90,6 +92,25 @@ const c = content();
 const AMBIENT = c.items.filter((it) => !it.tags.includes('frozen') && !it.tags.includes('needs-freezer'));
 check(AMBIENT.length >= 2, 'the catalog has two ambient items to shelve', `${AMBIENT.length}`);
 const [ITEM_A, ITEM_B] = AMBIENT;
+/**
+ * The longest-lived and the shortest-lived of them, for 4bb.
+ *
+ * That section is about a clock measured in DAYS, so it rolls ten of them — and
+ * every ambient item in the shipped catalog rots (bread in 3, carrot in 8).
+ * Written against `ITEM_A` the board simply spoiled away, and then `staleBoards`
+ * was empty because there was no board, which is a pass. A sweep about one clock
+ * has to not be quietly measuring the other.
+ *
+ * Picked by span rather than by id, because what rots is content somebody edits
+ * on a Tuesday — the same argument `verify:yard` makes about seasons.
+ */
+const bySpan = AMBIENT.slice().sort((a, b) => (b.shelf_life_days ?? 0) - (a.shelf_life_days ?? 0));
+const KEEPER = bySpan[0];
+const PERISHABLE = bySpan[bySpan.length - 1];
+check((KEEPER?.shelf_life_days ?? 0) > 12,
+  'the catalog has something that keeps long enough to outlive a stale clock',
+  `${KEEPER?.id} keeps ${KEEPER?.shelf_life_days}`);
+check((PERISHABLE?.shelf_life_days ?? 0) > 0, 'and something that rots');
 
 /**
  * The same reset every other sweep makes, plus `orders`.
@@ -304,6 +325,226 @@ const onAShelf = (g, itemId) => g.layout.shelves.some((sh) => (g.shelfStack(sh, 
 }
 
 // ---------------------------------------------------------------------------
+// 4b. …and giving up is a decision you can SEE, UNDO, and outlive.
+//
+// The half that was missing for as long as the job existed, and the one that
+// cost a real save. The mark is shop-wide, compounding and was permanent, and
+// nothing in the game could show it to you: `orders.dropped` rode in the
+// snapshot from the day it was written and no line in `client/` ever read it,
+// so the only trace was one log entry that scrolls. Shop 2 collected eight in a
+// week — every crate of them stranded, `padRoom` at zero, and because the farm
+// and the kitchen are gated on `padRoom` the whole crew went idle beside them.
+//
+// Three claims, none of which is visible in a screenshot: a still frame of a
+// robot standing next to a crate is the same picture whether the shop has
+// stopped stocking that line or the robot is simply between jobs.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh({ jobs: [{ job: 'merchandise', weight: 1 }] });
+  const shelf = g.layout.shelves[0];
+  board(g, shelf, ITEM_A, 12, { soldAgo: 9 });
+  until(g, () => g.droppedItem(ITEM_A.id));
+  check(g.droppedItem(ITEM_A.id), 'the hand gives up on it');
+
+  // ON SCREEN. `notStocking` is the panel's whole source, and it is asserted
+  // off `snapshot()` rather than off `orders.dropped` on purpose: the maps were
+  // always there, and being in the save is exactly what this state already was
+  // when nobody could see it.
+  const listed = g.snapshot().orders.notStocking ?? [];
+  const row = listed.find((d) => d.itemId === ITEM_A.id);
+  check(!!row, 'and the supplier is handed a row saying so', JSON.stringify(listed));
+  check(row?.left > 0, 'with how many days it has left, not just that it happened', String(row?.left));
+
+  // UNDOABLE, by a control rather than by a side effect. Ticking a shelf and
+  // shelving one by hand both lifted the mark before this and both are ways of
+  // doing something else — a control used for its side effect is the shape of a
+  // missing control.
+  const back = g.stockAgain(ITEM_A.id);
+  check(back.ok && back.resumed, 'one press puts it back on the list', back.error ?? '');
+  check(!g.droppedItem(ITEM_A.id), 'and the shop is stocking it again');
+  check(!(g.snapshot().orders.notStocking ?? []).some((d) => d.itemId === ITEM_A.id),
+    'so the row is gone from the panel');
+  // Pressing it twice is a race, not an error: the button is drawn off a
+  // snapshot that can be a tick old, and the mark can lapse on its own underneath.
+  check(g.stockAgain(ITEM_A.id).ok, 'pressing it again is harmless');
+}
+
+// ---------------------------------------------------------------------------
+// 4bb. A day the shutters never went up does not age a board.
+//
+// `staleBoards` is "nothing sold in four days", which is a fair signal about an
+// item right until the reason nothing sold is that the shop was shut. Then it
+// is a signal about the PLAYER, and the shop draws the wrong conclusion from it
+// four days running: the range retired item by item, the crates piling up in a
+// yard nobody is selling out of, and the crew stood idle beside them because
+// `shelvesFor` will not send them anywhere.
+//
+// It reads as a shop that argues with you. Turning something back on bought
+// three days on a real save before the same clock retired the same board again.
+//
+// Nothing here is visible: a shut shop on day 1 and a shut shop on day 8 are
+// the same screen, and the only difference is a stamp.
+// ---------------------------------------------------------------------------
+{
+  const roll = (g, days) => {
+    for (let d = 0; d < days; d++) { g.day++; g.onNewDay(); }
+  };
+
+  // Shut, and stays shut. `fresh()` already shuts the shop, and `tradedToday`
+  // is what the day actually was — set true by `step` on any tick the doors are
+  // open, which is a tick this never runs.
+  {
+    const g = fresh();
+    const shelf = g.layout.shelves[0];
+    board(g, shelf, KEEPER, 6, { soldAgo: 0 });
+    g.tradedToday = false;
+    eq(g.staleBoards().length, 0, 'a board that just sold is not stale');
+
+    roll(g, 10);
+    check(!!g.shelfStack(shelf, KEEPER.id), 'the board is still there ten days on',
+      'it rotted, so everything below passes for the wrong reason');
+    eq(g.staleBoards().length, 0,
+      'and ten shut days later it still is not stale — the shutters are not evidence');
+    check(!g.droppedItem(KEEPER.id), 'so the shop never gives up on it either');
+  }
+
+  // ...and the moment the doors open, the clock is a clock again. The failure
+  // this guards is the opposite one and just as plausible: hold it too well and
+  // `merchandise` never fires in any shop, which passes every assertion above
+  // and quietly deletes the feature.
+  {
+    const g = fresh();
+    const shelf = g.layout.shelves[0];
+    board(g, shelf, KEEPER, 6, { soldAgo: 0 });
+    for (let d = 0; d < 10; d++) { g.day++; g.tradedToday = true; g.onNewDay(); }
+    check(!!g.shelfStack(shelf, KEEPER.id), 'the board survives ten trading days too');
+    check(g.staleBoards().some((x) => x.stack.item_id === KEEPER.id),
+      'ten TRADING days with no sale is exactly what the hand is for');
+  }
+
+  // The empty-board half of the same clock, which keeps its own counter rather
+  // than reading a stamp — so holding the stamps would have missed it entirely.
+  // Held, not reset: two quiet days already served still count when you reopen.
+  {
+    const g = fresh();
+    const shelf = g.layout.shelves[0];
+    board(g, shelf, ITEM_A, 0, { soldAgo: 0 });
+    g.orders.pending = [];
+    g.deliveries = [];
+    roll(g, 6);
+    check(!!g.shelfStack(shelf, ITEM_A.id),
+      'an empty board is not handed back over shut days either');
+
+    g.day++; g.tradedToday = true; g.onNewDay();
+    g.day++; g.tradedToday = true; g.onNewDay();
+    check(!g.shelfStack(shelf, ITEM_A.id),
+      'and two open days is still two open days');
+  }
+
+  // Spoilage is deliberately NOT held. Food rots whether or not you opened, and
+  // a shop that could stop the clock on its stock by shutting would make the
+  // shutters the cheapest preservation in the game.
+  if (PERISHABLE) {
+    const g = fresh();
+    const shelf = g.layout.shelves[0];
+    board(g, shelf, PERISHABLE, 6, { soldAgo: 0 });
+    roll(g, PERISHABLE.shelf_life_days * 4 + 4);
+    eq(g.shelfStack(shelf, PERISHABLE.id), null,
+      'a shut shop does not keep its perishables for ever');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4c. It LAPSES, including on a save written while it did not.
+//
+// Forever was argued from the crate — the goods are on a pad, so a mark that
+// lapsed would send somebody to carry the same units back to the same board and
+// start the same four days again. The argument is sound and what pays it off is
+// 4d: the crate is not on the drop-off any more.
+//
+// The second half is the one that matters to a shop that already exists. A mark
+// made before any of this has no `dropFor` entry, and reading that as "forever"
+// is right about what the code used to do and wrong about what it should have
+// done — it would leave the damage in place on exactly the saves that suffered
+// it. `dropSpan` defaults it, measured from the day on the mark rather than
+// from the load that noticed.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh({ jobs: [{ job: 'merchandise', weight: 1 }] });
+  const shelf = g.layout.shelves[0];
+  board(g, shelf, ITEM_A, 12, { soldAgo: 9 });
+  until(g, () => g.droppedItem(ITEM_A.id));
+
+  const span = g.dropSpan(ITEM_A.id);
+  check(span > 0 && Number.isFinite(span), 'the mark has a span', String(span));
+  g.day += span - 1;
+  check(g.droppedItem(ITEM_A.id), 'a day short of it, the shop is still not stocking it');
+  g.day += 1;
+  check(!g.droppedItem(ITEM_A.id), 'and on the day it is up, it comes back by itself');
+
+  // An old save: the mark with no span beside it.
+  const old = fresh();
+  old.orders.dropped = { [ITEM_A.id]: old.day };
+  old.orders.dropFor = {};
+  check(old.droppedItem(ITEM_A.id), 'a mark from before any of this still holds');
+  const shown = old.snapshot().orders.notStocking.find((d) => d.itemId === ITEM_A.id);
+  eq(shown?.left, span, 'and is shown with the same countdown a new one gets');
+  old.day += span;
+  check(!old.droppedItem(ITEM_A.id), 'so a shop that collected these does not keep them for ever');
+
+  // ...and YOUR clear is untouched by that default. It has always written its
+  // own span, and it is deliberately the shorter of the two: a tidy-up is not a
+  // decision about the range.
+  const mine = fresh();
+  mine.orders.dropped = {};
+  mine.dropItem(ITEM_B.id, 5);
+  eq(mine.dropSpan(ITEM_B.id), 5, 'a mark that carries its own span keeps it');
+}
+
+// ---------------------------------------------------------------------------
+// 4d. The crate goes to the BAY, and that is what makes lapsing safe.
+//
+// The claim that cost the most and is the least visible: two pads of painted
+// ground, and a crate on either one is the same picture. The drop-off is the
+// shop's PRODUCTION buffer — `padRoom` is what `hasSomewhere` and `hasHome`
+// gate the farm and the kitchen on — so a line the shop has stopped selling,
+// parked there, does not merely sit in the way. It stops your beds being picked
+// and your machines being emptied, days later, with nothing connecting the two.
+//
+// On a real save that read as seven robots standing still. `padRoom` was 0.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh({ jobs: [{ job: 'merchandise', weight: 1 }] });
+  const shelf = g.layout.shelves[0];
+  board(g, shelf, ITEM_A, 12, { soldAgo: 9 });
+  const roomBefore = g.padRoom();
+  check(roomBefore > 0, 'the drop-off starts with room on it', String(roomBefore));
+
+  until(g, () => !g.shelfStack(shelf, ITEM_A.id) && !hand(g)?.carry);
+  eq(everywhere(g, ITEM_A.id), 12, 'the goods all survive the trip');
+
+  const onPad = (kind) => g.deliveries
+    .filter((d) => (g.layout[kind]?.cells ?? []).some((c) => c.x === d.x && c.z === d.z))
+    .reduce((n, d) => n + lotQty(d, ITEM_A.id), 0);
+  eq(onPad('bay'), 12, 'and every unit of it is standing on the BAY');
+  eq(onPad('drop'), 0, 'with none of it in the way of what the shop makes');
+  eq(g.padRoom(), roomBefore, 'so the production buffer is exactly as big as it was');
+
+  // ...and the ordinary case is untouched: goods the shop still wants, put down
+  // because no board will have them, go to the drop-off the way they always did.
+  const g2 = fresh({ jobs: [{ job: 'tidy', weight: 1 }] });
+  const worker = hand(g2);
+  worker.carry = { stacks: [{ item_id: ITEM_B.id, qty: 3 }] };
+  check(!g2.droppedItem(ITEM_B.id), 'nothing has been given up on');
+  until(g2, () => !hand(g2)?.carry);
+  const bOn = (kind) => g2.deliveries
+    .filter((d) => (g2.layout[kind]?.cells ?? []).some((c) => c.x === d.x && c.z === d.z))
+    .reduce((n, d) => n + lotQty(d, ITEM_B.id), 0);
+  eq(bOn('drop'), 3, 'an ordinary armful still goes to the drop-off');
+  eq(bOn('bay'), 0, 'and not to the bay');
+}
+
+// ---------------------------------------------------------------------------
 // 5. Merging: one board fewer, the same stock, and it stays merged.
 // ---------------------------------------------------------------------------
 {
@@ -468,6 +709,221 @@ const onAShelf = (g, itemId) => g.layout.shelves.some((sh) => (g.shelfStack(sh, 
   check(done !== null, 'so the crate goes to that shelf rather than back where it came from',
     `${g.shelfStack(s1, ITEM_A.id)?.qty ?? 0} on it`);
   eq(g.shelfStacks(s0).length, 0, 'and the board you cleared stays cleared');
+}
+
+// ---------------------------------------------------------------------------
+// 10. Tipping the WHOLE unit out says the same thing, board by board.
+//
+// "Empty it" is the same intent as Clear said about three boards at once — I
+// will refill this myself — so it lets go of what comes off, or the crates it
+// makes are walked back on one at a time and the unit is as it was inside a
+// minute. The reservation is the exception and gets no code of its own: strip
+// deliberately keeps `assigned`, and a board still set aside is the shop still
+// being asked for it. That split is the whole claim here, and it is invisible in
+// play precisely because it looks like nothing happening — one item comes back
+// and the other does not.
+// ---------------------------------------------------------------------------
+{
+  const jobs = [{ job: 'unload', weight: 1 }, { job: 'shelve', weight: 1 }];
+  const g = fresh({ jobs });
+  const shelf = g.layout.shelves[0];
+  board(g, shelf, ITEM_A, 4, { soldAgo: 0 });    // never spoken for — let go of
+  board(g, shelf, ITEM_B, 4, { soldAgo: 0 });    // kept for — refilled as ever
+  shelf.assigned = [ITEM_B.id];
+
+  const res = g.stripShelf('me', shelf.id);
+  check(res.ok, 'the whole unit tips out', res.error ?? '');
+  eq(g.shelfStacks(shelf).length, 0, 'both boards are free');
+  check(g.droppedItem(ITEM_A.id), 'the shop lets go of what it was never asked for');
+  check(!g.droppedItem(ITEM_B.id),
+    'and holds on to what you kept a board for — strip keeps `assigned` on purpose');
+
+  const done = until(g, () => (g.shelfStack(shelf, ITEM_B.id)?.qty ?? 0) === 4);
+  check(done !== null, 'so the kept one is walked back on', 'the reservation stopped meaning anything');
+  check(!onAShelf(g, ITEM_A.id), 'and the other one is not', 'a stocker undid the strip');
+  eq(everywhere(g, ITEM_A.id), 4, 'with every unit of it still in the crate');
+}
+
+// ---------------------------------------------------------------------------
+// 11. One place per thing — the claim about a second board never being started
+//     WHILE THE FIRST ONE CAN HOLD IT.
+//
+// The other end of everything above. Sections 1–10 are about giving a board
+// BACK; this is about not taking a second one while the first has room, and it
+// is the half that was missing for the whole life of the game.
+//
+// The qualifier is not a softening, it is where the rule's authority ends. A
+// home with room is the shop keeping one thing in one place; a home with none
+// is a rule that has stopped gathering goods and started refusing them, and the
+// goods it refuses are already in a crate in the yard that nothing will lift.
+// See (a). What actually stops the spread compounding is (e) and (f).
+//
+// `shelvesFor` has always ranked the unit an item is already on first, which is
+// a preference and is therefore only consulted when there is a choice. Fill that
+// unit and there is none: the next armful claims a bare board next door, and one
+// item has two homes for the rest of the save. Nothing about that is visible —
+// every frame of it is a worker putting goods on a shelf with room, which is
+// what a working shop looks like — and it compounds, because each board is its
+// own line in `restockQueue` and the shop then buys for both. A real save
+// reached three tomato boards, two chocolate boards and a 15/14 carrot split by
+// day 10, and it reads as the staff being stupid rather than as a missing rule.
+//
+// Five claims, and the first is the only one you could ever see:
+// ---------------------------------------------------------------------------
+{
+  const jobs = [{ job: 'unload', weight: 1 }, { job: 'shelve', weight: 1 }];
+  const cap = (g, sh) => g.shelfCapacity(sh, ITEM_A);
+
+  // (a) The home binds while it CAN, and stops binding when it is full.
+  //
+  //     This claim used to be the stronger one — a full home never spills, and
+  //     the goods stay in the crate "where `unload` has always put a crate
+  //     nothing will take". It was written about an armful with nowhere to go,
+  //     and it is false about the place those goods actually end up. Nothing
+  //     lifts a crate no shelf will take: `unload` asks `roomAcross` before it
+  //     bends down, so a full home meant that item's crates stood in the yard
+  //     until something sold. On a real save that was five items at once, a
+  //     dozen legal shelves standing empty behind them, and the whole crew
+  //     parked alongside with nothing to do — while `padRoom` ran to zero and
+  //     took the farm and the kitchen down with it, because both are gated on it.
+  //
+  //     What made the old claim look necessary is (e) and (f), and both of them
+  //     still hold: the spare board is handed back the moment it empties, and
+  //     the shop never buys for it. Those are the compounding harms. A second
+  //     board that drains and disappears is not one of them.
+  //
+  //     So: while the home has room, one unit — the original claim, and the one
+  //     that stops an item getting two homes out of a preference. Once it does
+  //     not, the goods you have already paid for go on a shelf.
+  {
+    const g = fresh({ jobs });
+    const [s0] = g.layout.shelves;
+    // Part-full, with room for MORE than is waiting. The room has to be able to
+    // swallow the lot: leave one slot against six units and five of them have
+    // nowhere to be but the unit next door, which is the second half of the rule
+    // firing correctly and reads as the first half failing.
+    const ROOM = 4;
+    board(g, s0, ITEM_A, Math.max(1, cap(g, s0) - ROOM), { soldAgo: 0 });
+    const waiting = ROOM - 1;
+    g.dropGoods(ITEM_A.id, waiting, g.layout.bay.cells[0]);
+    const held = g.shelfStack(s0, ITEM_A.id).qty;
+    run(g, 1200);
+    eq(g.layout.shelves.filter((sh) => g.shelfStack(sh, ITEM_A.id)).length, 1,
+      'a home with room for all of it takes all of it, and nothing else starts a board');
+    eq(g.shelfStack(s0, ITEM_A.id)?.qty, held + waiting, 'every unit of it onto the home');
+  }
+  {
+    const g = fresh({ jobs });
+    const [s0] = g.layout.shelves;
+    board(g, s0, ITEM_A, cap(g, s0), { soldAgo: 0 });
+    g.dropGoods(ITEM_A.id, 6, g.layout.bay.cells[0]);
+    const before = everywhere(g, ITEM_A.id);
+
+    run(g, 1200);                              // two in-game minutes of trying
+    const units = g.layout.shelves.filter((sh) => g.shelfStack(sh, ITEM_A.id)).length;
+    eq(units, 2, 'a home that is FULL lets the rest onto the unit next door');
+    eq(everywhere(g, ITEM_A.id), before, 'with every unit of it accounted for');
+    eq(g.deliveries.reduce((n, d) => n + lotQty(d, ITEM_A.id), 0), 0,
+      'and nothing left stranded in the yard — the whole point');
+    eq(g.shelfStack(s0, ITEM_A.id)?.qty, cap(g, s0), 'the home is untouched');
+
+    // ...and the home is STILL the home, which is what makes the spill settle
+    // rather than spread. `homeShelves` picks the unit holding the most, so the
+    // spare is the one that drains — and (e) hands it back the moment it does.
+    const homes = g.homeShelves(ITEM_A.id);
+    check(g.homedAt(s0, ITEM_A.id, homes), 'the fuller board is still the home');
+    const spare = g.layout.shelves.find((sh) => sh.id !== s0.id && g.shelfStack(sh, ITEM_A.id));
+    check(!g.homedAt(spare, ITEM_A.id, homes), 'and the spare is not — so (f) still refuses it a van');
+  }
+
+  // (b) …and the FIRST board is still freely claimed. `homeShelves` answers null
+  //     rather than an empty Set for an item with no home, and a caller that
+  //     conflated the two would refuse every board an item ever gets — which is
+  //     a shop that cannot be stocked at all, passing (a) perfectly.
+  {
+    const g = fresh({ jobs });
+    g.dropGoods(ITEM_A.id, 6, g.layout.bay.cells[0]);
+    check(until(g, () => onAShelf(g, ITEM_A.id)) !== null,
+      'an item with no home anywhere still gets one', 'nothing was ever shelved');
+    eq(g.layout.shelves.filter((sh) => g.shelfStack(sh, ITEM_A.id)).length, 1,
+      'and exactly one unit takes it');
+  }
+
+  // (c) Ticking a second unit is the override, and it has to be the WHOLE
+  //     override — a reservation that merely ranked first would leave this
+  //     failing exactly as (a) does.
+  {
+    const g = fresh({ jobs });
+    const [s0, s1] = g.layout.shelves;
+    board(g, s0, ITEM_A, cap(g, s0), { soldAgo: 0 });
+    s1.assigned = [ITEM_A.id];
+    g.dropGoods(ITEM_A.id, 6, g.layout.bay.cells[0]);
+
+    const done = until(g, () => (g.shelfStack(s1, ITEM_A.id)?.qty ?? 0) === 6, 1200);
+    check(done !== null, 'a unit you ticked for it is a second home',
+      `${g.shelfStack(s1, ITEM_A.id)?.qty ?? 0} on it`);
+  }
+
+  // (d) Your own hands never read it. The same line `orders.assign` and
+  //     `giveUpBoard` draw twice already: the shop's judgement about its own
+  //     range was never a rule about what you may do. Asserted against the two
+  //     functions the press and the highlight actually run, because asking the
+  //     staff's own question here would pass however wrong they are.
+  {
+    const g = fresh();
+    const [s0, s1] = g.layout.shelves;
+    board(g, s0, ITEM_A, cap(g, s0), { soldAgo: 0 });
+    check(g.boardFor(s1, ITEM_A).ok, 'you may still stand it on any shelf you like',
+      g.boardFor(s1, ITEM_A).error ?? '');
+    check(g.shelfAccepts(s1, ITEM_A.id), 'and the shelf still lights up as somewhere it could go');
+  }
+
+  // (e) The spare board is handed back the moment it empties, and neither of the
+  //     two things that protect an ordinary empty board protects it.
+  //
+  //     This is the line that made those boards immortal: `releaseBoards` skips
+  //     an empty board while `homeSupply` is above zero, and for anything you
+  //     farm — or anything with a van out — that is for ever. A spare tomato
+  //     board next to two tomato beds could not age a single day. It has to be
+  //     asked BEFORE the supply guard, which is an ordering claim and invisible
+  //     from either side of it.
+  {
+    const g = fresh();
+    const [s0, s1] = g.layout.shelves;
+    board(g, s0, ITEM_A, 9, { soldAgo: 0 });        // the home: most on it
+    board(g, s1, ITEM_A, 0, { soldAgo: 0 });        // the spare, emptied
+    g.orders.pending = [{ id: 'o-test', item_id: ITEM_A.id, qty: 4, cost: 1, placedDay: g.day }];
+    check(g.homeSupply(ITEM_A.id) > 0, 'there is supply on its way, which normally protects a board');
+
+    g.releaseBoards();
+    eq(g.shelfStacks(s1).length, 0, 'the spare board goes back on the spot, not after the days');
+    eq(g.shelfStack(s0, ITEM_A.id)?.qty, 9, 'and the home board is untouched');
+  }
+
+  // (f) …and the shop stops BUYING for it, which is the half that costs money.
+  //
+  //     A spare board is its own line in `restockQueue` however the goods got
+  //     there, so without the guard in `buy` the shop orders a van for a board
+  //     no stocker will ever walk to: the crate lands, `shelvesFor` sends it
+  //     home, the home is full, and it sits on the pad until it rots. Both
+  //     directions asserted — a sweep that only checked the refusal would pass
+  //     with restocking switched off entirely.
+  {
+    const g = fresh({ jobs: [{ job: 'restock', weight: 1 }] });
+    const [s0, s1] = g.layout.shelves;
+    g.orders.auto = true;
+    board(g, s0, ITEM_A, cap(g, s0), { soldAgo: 0 });   // the home, full
+    board(g, s1, ITEM_A, 0, { soldAgo: 0 });            // the spare, bare
+    run(g, 300);
+    check(!g.orders.pending.some((o) => o.item_id === ITEM_A.id),
+      'no van is bought for a board nothing will ever walk to');
+
+    const g2 = fresh({ jobs: [{ job: 'restock', weight: 1 }] });
+    g2.orders.auto = true;
+    board(g2, g2.layout.shelves[0], ITEM_A, 0, { soldAgo: 0 });
+    check(until(g2, () => g2.orders.pending.some((o) => o.item_id === ITEM_A.id), 300) !== null,
+      '…and the home board itself is still ordered for', 'restocking never fired at all');
+  }
 }
 
 // ---------------------------------------------------------------------------

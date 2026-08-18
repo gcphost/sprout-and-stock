@@ -15,7 +15,7 @@ import {
   buildStationBays,
   buildTextSprite, setTextSprite, buildMoneyLabel, moneySaid,
   buildPallet, CRATE_STEP, buildProgressRing, setRingProgress, buildGhost,
-  buildSoil, buildFixtureGhost, buildTargetMarker, buildCageMarker, buildWorkSpot, disposeGroup, material,
+  buildSoil, buildFixtureGhost, buildTargetMarker, buildEdgeArrow, buildCageMarker, buildWorkSpot, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
   buildRipple,
   buildStamp,
@@ -313,6 +313,26 @@ const LAND_SQUASH = 0.24;
  * no previous shop to have arrived from".
  */
 const STAMP_MAX = 4;
+
+/**
+ * The off-screen signposts: how far in from the frame they ride, how big they
+ * are drawn, how many at once, and how close two may land before the second is
+ * dropped. All four in screen pixels, which is the space the whole feature is
+ * decided in — a margin in world units would sit further in the more you zoomed.
+ *
+ * `EDGE_APART` is the one that is not a taste: a shop is aisles, so half a dozen
+ * units that would take your armful are very often in the same *direction* from
+ * the camera, and they clamp to the same point on the frame. Drawn, that is one
+ * arrow rendered six times; the near one wins and the rest are dropped, which is
+ * also what keeps the cap meaning "six directions" rather than "six shelves".
+ */
+const EDGE_MARGIN = 54;
+const EDGE_SIZE = 22;
+const EDGE_CAP = 6;
+const EDGE_APART = 34;
+
+/** Scratch, so the per-frame pass allocates nothing. */
+const EDGE_V = new THREE.Vector3();
 
 /**
  * What the one lorry is filed under.
@@ -1683,6 +1703,8 @@ export class Scene {
     this.syncLifted(state.players.find((p) => p.id === myId));
     this.syncActionTarget(state.players.find((p) => p.id === myId));
     this.syncStockTargets(state.players.find((p) => p.id === myId));
+    // After the pips, because it stands down for them — see `syncWants`.
+    this.syncWants(state.shelves);
 
     // Who the camera is riding on. Falling back to `me` when the hire being
     // watched has no body is not a nicety: they can be let go, or their kind
@@ -1770,13 +1792,35 @@ export class Scene {
       // Lerp toward the server position so 10Hz network looks smooth at 60fps.
       rec.obj.position.x += (a.x - rec.obj.position.x) * 0.35;
       rec.obj.position.z += (a.z - rec.obj.position.z) * 0.35;
-      rec.obj.rotation.y = a.facing ?? 0;
+      // Kept as well as applied, because `animateRest` turns a body on its break
+      // and needs to know what it would otherwise be facing — reading the mesh
+      // back would have it blending against its own previous answer between
+      // snapshots and drifting away from the shop's.
+      rec.yaw = a.facing ?? 0;
+      rec.obj.rotation.y = rec.yaw;
 
       // Stashed rather than applied: how cross someone looks is animated at
       // 60fps in `animateMoods`, and a shake that only moved when state landed
       // would read as the renderer stuttering. Null for anyone who isn't a
       // shopper — staff and players have no patience to lose.
       rec.anger = a.anger ?? null;
+
+      // ...and the same stashing, for the same reason, for whether their own
+      // moving parts should be running. `job` arrives at 10Hz and a brush that
+      // only turned when the snapshot did would read as a dropped frame — the
+      // argument `animateStations` makes about a blade, said about a hire.
+      //
+      // A break is not work. `stepStaff` writes `job = 'break'` for a charge in
+      // progress rather than clearing it (or the readout would flicker for the
+      // whole charge), so the one thing this test has to spell out is that the
+      // bot sat in the corner with a mug has stopped sweeping.
+      //
+      // ...unless the break IS the sweeping. A chore is a pastime by every
+      // mechanism — it has a spot, a clock and a prop — and `job` therefore
+      // says `break` for a hire doing a circuit of the floor exactly as it does
+      // for one with a mug. `chore` is the sim's own answer to which, and it is
+      // set from the tick the walk begins rather than the tick they arrive.
+      rec.working = !!a.job && (a.job !== 'break' || !!a.chore);
 
       // A want is a thought; a carry is a thing in your hands. Showing both
       // through one bubble meant you could never tell which you were looking at.
@@ -1837,7 +1881,23 @@ export class Scene {
     // skin that has since been deleted resolves to nothing and draws the bot as
     // authored — the same shrug `variantModel` gives a missing variant.
     const skin = p.skin ? this.catalog.skins?.[p.skin] : null;
-    return buildModel(kind.model, { t: tierProgress(p.tier ?? 1, kind.tiers?.length ?? 1), skin });
+    // ...over the top of which goes the charge, on the `glow` slot only. Built
+    // as a skin rather than as a pass over the meshes afterwards because that is
+    // what a slot IS — and because `weld` merges by material, so recolouring
+    // after the fact would have to unpick a merge or repaint every other thing
+    // in the shop that happens to share the colour.
+    //
+    // The id carries the band so anything keyed on the skin can still tell two
+    // bodies apart. A bot with no `energy` — you — gets the skin untouched.
+    const band = chargeBand(p.energy);
+    const worn = band < 0 ? skin : {
+      ...(skin ?? {}),
+      id: `${skin?.id ?? ''}#${band}`,
+      slots: { ...(skin?.slots ?? {}), glow: CHARGE_LOOK[band] },
+    };
+    return buildModel(kind.model, {
+      t: tierProgress(p.tier ?? 1, kind.tiers?.length ?? 1), skin: worn,
+    });
   }
 
   /** Money sitting on a counter waiting to be picked up. */
@@ -1967,14 +2027,17 @@ export class Scene {
         model: this.catalog.items[s.item_id]?.model ?? null,
         name: this.catalog.items[s.item_id]?.name ?? '',
       }));
-      const key = `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}:${at}:${covered ? 'c' : 'o'}`;
+      // `waste` is in the key because it is in the picture: a crate the shop
+      // gave up on is drawn in a different wood, and a box that changed hands
+      // between the two without a redraw would keep whichever it was built as.
+      const key = `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}:${at}:${covered ? 'c' : 'o'}${d.waste ? ':w' : ''}`;
       const existing = this.deliveryProps.get(d.id);
       if (existing && existing.userData.key === key) continue;
       if (existing) {
         this.actorRoot.remove(existing);
         disposeGroup(existing);
       }
-      const obj = buildPallet(piles, { covered, cap });
+      const obj = buildPallet(piles, { covered, cap, waste: d.waste === true });
       obj.position.set(d.x, at * CRATE_STEP, d.z);
       // A hand's turn per crate, so a tower reads as boxes somebody put there
       // rather than as one extruded box, and each one's edges stay findable to
@@ -3051,6 +3114,34 @@ export class Scene {
     this.actorRoot.add(this.personMarker);
   }
 
+  /**
+   * ...and ring the one whose MENU is open, which is a different question.
+   *
+   * The same split `setSelectedTarget` makes against the aim frame, said about
+   * a person: the aim ring is wherever the pointer happens to be, and this
+   * stays on whoever the panel is talking about while you point somewhere else
+   * entirely — which is all of the time the menu is open, since reading it
+   * means taking the pointer off them. And a hire is the case where that
+   * matters most, because they walk away while you read.
+   *
+   * A second marker rather than a second mode on `setPersonAim` for the same
+   * reason, and both can be live at once: pointing at the hire you already have
+   * open puts the amber frame inside the teal one, which is two true sentences.
+   */
+  setPersonSelected(hire) {
+    const id = hire ?? null;
+    if (this.personSelId === id) return;
+    this.personSelId = id;
+    if (this.personSelMarker) {
+      this.actorRoot.remove(this.personSelMarker);
+      disposeGroup(this.personSelMarker);
+      this.personSelMarker = null;
+    }
+    if (!id) return;
+    this.personSelMarker = buildTargetMarker('personSelected');
+    this.actorRoot.add(this.personSelMarker);
+  }
+
   /** The body of a hire, by roster id — what the marker above rides on. */
   bodyOfHire(hire) {
     const p = (this.playerState ?? []).find((x) => x.hire === hire);
@@ -3274,6 +3365,181 @@ export class Scene {
   }
 
   /**
+   * ...and the same signposts for the ones that are off the edge of the screen.
+   *
+   * Per frame rather than per sync, and not because it looks better: the camera
+   * is the input. A pip is placed when the *set* changes, but which of them are
+   * visible changes when you pan, zoom, spin the view or simply walk — none of
+   * which touches the snapshot, so a version of this that ran on state would
+   * leave arrows pointing off a screen the shelf is now in the middle of.
+   *
+   * A pool that is hidden rather than a map that is built and torn down. There
+   * is a hard cap on how many are ever drawn, they carry no identity — an arrow
+   * is a *direction*, and which shelf is at the end of it is the one thing this
+   * marker deliberately cannot say — and this runs sixty times a second, which
+   * is the wrong rate to be minting and disposing meshes at.
+   */
+  syncEdgeArrows(now) {
+    this.edgeArrows ??= [];
+    let used = 0;
+
+    const el = this.renderer.domElement;
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    if (this.stockPips?.size && w > 0 && h > 0) {
+      // Everything below is worked out in PIXELS from the middle of the view,
+      // and that is the one decision here worth keeping. The obvious space is
+      // NDC — it is what `project` hands back — but NDC's two axes are different
+      // numbers of pixels each on any window that is not square, so a margin, a
+      // gap between two arrows and "back off by half an arrowhead" all come out
+      // wider one way than the other. In pixels each of those is the one number
+      // it was written as.
+      const hx = Math.max(20, w / 2 - EDGE_MARGIN);
+      const hy = Math.max(20, h / 2 - EDGE_MARGIN);
+      // One world unit is this many pixels at the current zoom: an orthographic
+      // camera shows `top - bottom` world units over `h` pixels, divided by the
+      // zoom. This is what keeps an arrow the same size on screen however far
+      // out the view is — the pips it stands in for do the opposite, because
+      // they belong to something in the shop and this belongs to the frame.
+      const world = (this.camera.top - this.camera.bottom) / this.camera.zoom / h;
+
+      const off = [];
+      for (const pip of this.stockPips.values()) {
+        if (!pip.visible) continue;
+        // Aimed at the chevron rather than at the fixture's feet, or a shelf at
+        // the very bottom of the view raises an arrow for a pip that is still
+        // perfectly visible above it.
+        const v = EDGE_V.set(pip.position.x, pip.position.y + 0.62, pip.position.z)
+          .project(this.camera);
+        if (!Number.isFinite(v.x) || !Number.isFinite(v.y)) continue;
+        const dx = v.x * (w / 2);
+        const dy = -v.y * (h / 2);
+        if (Math.abs(dx) <= hx && Math.abs(dy) <= hy) continue;
+        // How far out, as a proportion of the frame. The nearest win the cap:
+        // a shelf two screens away is not the one you were about to walk to.
+        const d = Math.max(Math.abs(dx) / hx, Math.abs(dy) / hy);
+        off.push({ dx, dy, d, phase: pip.userData.phase ?? 0 });
+      }
+      off.sort((a, b) => a.d - b.d);
+
+      for (const t of off) {
+        if (used >= EDGE_CAP) break;
+        // Onto the frame: shrink the vector until it touches whichever side it
+        // was going to leave through first.
+        const k = Math.min(hx / Math.abs(t.dx || 1e-6), hy / Math.abs(t.dy || 1e-6));
+        const ex = t.dx * k;
+        const ey = t.dy * k;
+        if (this.edgeArrows.some((a, i) => i < used
+          && Math.hypot(a.userData.ex - ex, a.userData.ey - ey) < EDGE_APART)) continue;
+
+        let arrow = this.edgeArrows[used];
+        if (!arrow) {
+          arrow = buildEdgeArrow();
+          this.actorRoot.add(arrow);
+          this.edgeArrows[used] = arrow;
+        }
+        used += 1;
+        arrow.visible = true;
+        arrow.userData.ex = ex;
+        arrow.userData.ey = ey;
+
+        // The same beat the pip bobs to, off the same per-target phase so a row
+        // of them doesn't pulse in lockstep — and along the way it points rather
+        // than upward, because at the frame "up" is a direction the arrow has an
+        // opinion about, and one bobbing across its own heading reads as loose.
+        const bob = Math.sin(now / 1000 * 3 + t.phase) * 3;
+        const len = Math.hypot(ex, ey) || 1;
+        // Set in by half its own length, so the arrowhead reaches the margin
+        // rather than straddling it.
+        const back = EDGE_SIZE * 0.5 - bob;
+        const fx = ex - (ex / len) * back;
+        const fy = ey - (ey / len) * back;
+
+        EDGE_V.set(fx / (w / 2), -fy / (h / 2), 0).unproject(this.camera);
+        arrow.position.copy(EDGE_V);
+        arrow.scale.setScalar(EDGE_SIZE * world);
+        // Flat to the camera, then turned about the view axis until its +Y — the
+        // way it was modelled — runs the way the thing it stands for lies. The
+        // screen's y counts downward and the rotation's does not, hence the sign.
+        arrow.quaternion.copy(this.camera.quaternion);
+        arrow.rotateZ(Math.atan2(-t.dy, t.dx) - Math.PI / 2);
+      }
+    }
+
+    for (let i = used; i < this.edgeArrows.length; i += 1) this.edgeArrows[i].visible = false;
+  }
+
+  /**
+   * What a unit is waiting for, in the bubble a shopper thinks in.
+   *
+   * A bare board is the one thing in the shop you cannot read off it. Goods are
+   * drawn as themselves, so a full shelf tells you what it holds from across the
+   * room — and an empty one tells you nothing at all, including whether it is
+   * empty *of something*. A unit kept for eggs with no eggs on it and a unit
+   * nobody has ever spoken for are the same picture: bare boards.
+   *
+   * The same bubble a customer wants in, deliberately. It is already the game's
+   * word for "this is the thing on somebody's mind", it is already built, and it
+   * is already billboarded — a second kind of readout saying the same sentence
+   * is one more thing to keep in step with the item art.
+   *
+   * **An empty board, not a thin one**, and that is what keeps this free of the
+   * shop's own rules. How thin is thin is `RESTOCK_FRACTION` and it lives on the
+   * server for the reason `restockQueue` does; asking it again over here is the
+   * copy that drifts from what the shelf menu promises. `qty <= 0` is a fact
+   * rather than a judgement, it is already on the wire, and half-full shelves
+   * wearing bubbles would be noise over a shop that is working fine.
+   *
+   * A reservation comes first because it is the strongest form of the sentence:
+   * you asked for that board, and it has nothing on it.
+   */
+  syncWants(shelves) {
+    this.wantBubbles ??= new Map();
+    const wantOf = (s) => (s.waiting ?? [])[0]?.item_id
+      ?? (s.stacks ?? []).find((k) => (k.qty ?? 0) <= 0)?.item_id
+      ?? null;
+
+    const want = new Map();
+    for (const s of shelves ?? []) {
+      // Not while a stock pip is already over it. That marker means "what you
+      // are holding goes here", which is the same unit answering a better
+      // question — and two readouts on one spike is a stack of arithmetic over
+      // a shelf, which is the mistake the money labels made.
+      if (this.stockPips?.has(s.id)) continue;
+      const id = wantOf(s);
+      if (id) want.set(s.id, id);
+    }
+
+    // Keyed by unit AND item: a board that gives up on eggs and is ticked for
+    // cheese is a different sentence, not a moved one.
+    for (const [id, rec] of this.wantBubbles) {
+      if (want.get(id) === rec.itemId) continue;
+      this.actorRoot.remove(rec.obj);
+      disposeGroup(rec.obj);
+      this.wantBubbles.delete(id);
+    }
+    for (const [id, itemId] of want) {
+      if (this.wantBubbles.has(id)) continue;
+      const item = this.catalog.items[itemId];
+      if (!item) continue;
+      const bubble = buildBubble(item.model);
+      this.actorRoot.add(bubble);
+      this.wantBubbles.set(id, { obj: bubble, itemId });
+      this.readoutsDirty = true;
+    }
+
+    // Positioned every sync rather than at build, the same as the pips and for
+    // the same two reasons: a unit can be carried across the shop, and a tier
+    // bought under it changes how tall it is.
+    for (const [id, rec] of this.wantBubbles) {
+      const f = this.allFixtures().find((o) => o.id === id);
+      if (!f) { rec.obj.visible = false; continue; }
+      rec.obj.visible = true;
+      rec.obj.position.set(f.x, this.fixtureHeight(f) + 0.44, f.z);
+    }
+  }
+
+  /**
    * Preview a wall run on the lines between tiles.
    *
    * Its own ghost rather than a reuse of `setBuildGhost`, because a fixture
@@ -3424,9 +3690,28 @@ export class Scene {
    * something comes into range, and pulls taut once the charge is actually
    * running — which is a frame later, but the two states are still distinct
    * for anything the sim refuses.
+   *
+   * ...unless you are already stood on it, which is most of the time and is
+   * where it was saying nothing. `at` is `spotNearest`, so the moment your feet
+   * are on any working spot of that fixture it IS that spot — a square painted
+   * under the character, over a shelf whose own hover marker is already lit. Two
+   * markers for one sentence, and the second one reads as the player being
+   * highlighted rather than as the floor.
+   *
+   * What it is actually for is the case where the spot is somewhere else: the
+   * thing is in reach round a corner, or off the end of a display table, and
+   * "this is what the hold will do it to" needs somewhere to point. So it draws
+   * when the answer is not your own feet, and the charge ring over your head
+   * goes on saying *when* either way.
    */
   syncActionTarget(me) {
     const at = me?.action?.at ?? null;
+    // Hidden rather than torn down: standing at a spot is a thing you step in
+    // and out of, and rebuilding the marker on each step is a mesh a frame.
+    if (at && Math.round(me.x) === at.x && Math.round(me.z) === at.z) {
+      if (this.targetMarker) this.targetMarker.visible = false;
+      return;
+    }
     if (!at) {
       if (this.targetMarker) {
         this.actorRoot.remove(this.targetMarker);
@@ -3439,6 +3724,7 @@ export class Scene {
       this.targetMarker = buildTargetMarker();
       this.actorRoot.add(this.targetMarker);
     }
+    this.targetMarker.visible = true;
     this.targetMarker.position.set(at.x, 0, at.z);
     this.targetMarker.userData.held = (me.action.progress ?? 0) > 0;
   }
@@ -3511,13 +3797,11 @@ export class Scene {
     const item = this.catalog.items[itemId];
     if (!item) return;
 
-    const bubble = buildBubble();
+    // The icon is the bubble's own job now — it has to measure the model to fit
+    // it, and two callers doing that measurement is two badges that disagree
+    // about how big a tomato is.
+    const bubble = buildBubble(item.model);
     this.readoutsDirty = true;
-    const icon = buildModel(item.model, { castShadow: false });
-    // Sized to sit *inside* the shell rather than burst out of it.
-    icon.scale.setScalar(0.42);
-    icon.position.y = -0.14;
-    bubble.add(icon);
     rec.obj.add(bubble);
     rec.bubble = bubble;
   }
@@ -3691,12 +3975,28 @@ export class Scene {
    * `resting` is set outside the key check on purpose: the slump is the half
    * that reads from across the shop, and it has to work for a pastime nobody has
    * drawn a prop for yet.
+   *
+   * ...and a CHORE is a pastime that must not slump. Everything else here holds
+   * for one — it has a clock, a spot, a prop and a progress, which is why it is
+   * a pastime at all — but the slump is the one part that says *resting* rather
+   * than *doing*, and a bot sagging at the shoulders while it sweeps the floor
+   * reads as broken twice: it is not resting, and it is moving while slumped,
+   * which nothing else in the game does. So the prop still hangs and the stages
+   * still turn; only the posture is held back.
    */
   syncPastime(rec, p) {
-    rec.resting = !!p.pastime;
+    rec.resting = !!p.pastime && !p.chore;
     const model = p.pastime ? (this.catalog.pastimes?.[p.pastime]?.model ?? null) : null;
     const t = p.breakProgress ?? 0;
-    const key = model ? `${p.pastime}:${stageIndexAt(model, t)}` : null;
+    // The same worn/deleted rule the body uses (`buildStaffModel`): a skin is
+    // looked up per hire rather than per kind, and one deleted out from under
+    // somebody resolves to nothing and draws the prop in its authored colours.
+    const skin = p.skin ? this.catalog.skins?.[p.skin] : null;
+    // Which skin belongs in the key. A prop that reads `tint` is a different
+    // picture on a repainted unit, so re-skinning somebody mid-break has to
+    // rebuild it — the stage index alone would hold the old palette until the
+    // break crossed a stage boundary, which on a short one is never.
+    const key = model ? `${p.pastime}:${stageIndexAt(model, t)}:${skinKey({ id: p.skin })}` : null;
     if (rec.pastimeKey === key) return;
     rec.pastimeKey = key;
 
@@ -3707,7 +4007,7 @@ export class Scene {
     }
     if (!key) return;
 
-    rec.pastime = buildPastimeProp(model, t);
+    rec.pastime = buildPastimeProp(model, t, skin);
     rec.obj.add(rec.pastime);
   }
 
@@ -4061,7 +4361,33 @@ export class Scene {
     // this has to be per-frame rather than per-sync for the same reason the
     // markers below are: a worker who only slumped ten times a second would
     // read as the renderer stuttering, not as somebody having a sit down.
-    for (const rec of this.players.values()) animateRest(rec, now);
+    // `camAngle` is the same yaw the billboards are aimed with (`faceReadouts`),
+    // so a hire on a break ends up square to the view exactly as a thought bubble
+    // does — one answer to "which way is the camera", not two that drift a
+    // quarter-turn apart when the view is spun.
+    for (const rec of this.players.values()) {
+      animateRest(rec, now, this.camAngle);
+      // ...and whatever they were authored to move. A hire is a `buildModel`
+      // like any fixture, so the parts were already collected onto the group —
+      // the only thing missing was somebody asking them to turn.
+      //
+      // Two things it borrows wholesale from `animateStations`. `rec.phase` is
+      // the offset, so two janitors in one aisle do not sweep in perfect
+      // unison, and it is the SAME per-person hash their breathing uses rather
+      // than a second one — one answer to "which of you is this". And a body
+      // with no moving parts costs a property read and an empty loop, which is
+      // every shopper, every player and every hire nobody has drawn a brush on.
+      //
+      // Stopped time stops them, and it has to be a SKIP rather than a `false`
+      // — the third thing borrowed from `animateStations`, and the one that is
+      // not obvious. False eases the brush down over half a second, which is a
+      // machine being switched off, and time stopping is not that. Nothing else
+      // would say a word: a paused shop with a brush still turning in it is a
+      // pause button that does not look like it worked.
+      if (!this.paused) {
+        animateMotion(rec.obj.userData.moving, now / 1000 + rec.phase, rec.working);
+      }
+    }
     if (this.liftedRing) {
       // Animated here rather than in syncLifted: state arrives at 10Hz and a
       // marker that only moves ten times a second reads as a rendering fault.
@@ -4091,6 +4417,15 @@ export class Scene {
         // the same 1.62 floats a chevron in the air over their head.
         this.personMarker.userData.arrow.position.y = 1.34 + Math.sin(now / 1000 * 4) * 0.11;
       }
+    }
+    // ...and the same again for whoever's menu is open. It has no chevron to
+    // bob, so this is only the walk — and a hire let go while you were reading
+    // about them loses the marker here rather than leaving a ring on the floor
+    // where they were standing.
+    if (this.personSelMarker) {
+      const rec = this.bodyOfHire(this.personSelId);
+      if (!rec) this.setPersonSelected(null);
+      else this.personSelMarker.position.copy(rec.obj.position);
     }
     if (this.stockPips?.size) {
       // Per-frame rather than per-sync, like every other marker here: something
@@ -4178,6 +4513,21 @@ export class Scene {
     this.camera.lookAt(this.camLook);
     this.sun.target.position.copy(this.camLook);
     this.sun.position.copy(this.camLook).add(SUN_OFFSET);
+    // Down here, after the view has finished moving, and that is not tidiness.
+    // The off-screen signposts are the one thing in this loop whose *input* is
+    // the camera — they project the world onto the frame and put something back
+    // at the answer — so anywhere above this they would be reading the pose the
+    // renderer used last frame, which on a pan is a whole frame of lag between
+    // an arrow and the edge it is supposed to be riding. `updateMatrixWorld` is
+    // what makes that true rather than nearly true: `project`/`unproject` read
+    // `matrixWorldInverse`, and nothing has refreshed it since the last draw.
+    // (It is exactly what `renderer.render` is about to do, so it costs one
+    // matrix inversion and no correctness.)
+    this.camera.updateMatrixWorld();
+    // Unconditional, unlike the pip bob above: the arrows have to come DOWN when
+    // there is nothing left to point at, and "nothing to point at" is precisely
+    // the state with no pips to loop over.
+    this.syncEdgeArrows(now);
     // See the constructor. Set the frame before it is wanted, not after: three
     // clears `needsUpdate` inside `render`, so this is a request for THIS draw.
     this.renderer.shadowMap.needsUpdate = (this.shadowTick++ % SHADOW_EVERY) === 0;
@@ -4199,8 +4549,35 @@ export class Scene {
  * their bodies are built once and left alone.
  */
 function actorKey(p) {
-  return p.staff ? `${p.staff}:${p.tier ?? 1}:${skinKey({ id: p.skin })}` : null;
+  return p.staff
+    ? `${p.staff}:${p.tier ?? 1}:${skinKey({ id: p.skin })}:${chargeBand(p.energy)}`
+    : null;
 }
+
+/**
+ * How charged a robot is, as a colour on the part that already glows.
+ *
+ * Energy has been on the wire since hires existed and had nowhere to be seen: a
+ * bot on its last legs walks at `TIRED_PACE` and looks exactly like one that
+ * has just come off a break, so "why is everything slow" was a question with no
+ * answer on screen. The worker menu could tell you, one hire at a time, which
+ * is the wrong shape for a thing you want to notice about a shop.
+ *
+ * It rides the `glow` tint slot, which every authored worker already has three
+ * parts wearing — a skin is a palette, so lighting the charge is a palette with
+ * one slot overridden and no new art, no new prop and nothing for the renderer
+ * to learn. A bot with a skin keeps its chassis and trim: what changes is the
+ * one part whose job was always to be the lit bit.
+ *
+ * BANDS rather than a gradient, and that is the whole of why it reads. A hue
+ * eased continuously from green to red is a colour nobody can compare across
+ * the shop — two bots four tiles apart are both "sort of orange" — and it would
+ * rebuild the body on every tick of drain. Three states are three answers:
+ * working, getting low, about to stop. The band is in `actorKey`, so crossing
+ * one is a rebuild and staying inside one is free.
+ */
+const CHARGE_LOOK = ['#8fe39a', '#ffcf6b', '#e2564a'];
+const chargeBand = (e) => (e == null ? -1 : (e > 0.6 ? 0 : e > 0.3 ? 1 : 2));
 
 /**
  * Every fixture in a layout as one uniform list.
@@ -4219,5 +4596,6 @@ function fixturesIn(L) {
     // Decorations carry their own kind, because there is more than one of them
     // and which list they came out of no longer says which.
     ...(L.props ?? []),
+    ...(L.bins ?? []).map((b) => ({ ...b, kind: 'bin' })),
   ];
 }

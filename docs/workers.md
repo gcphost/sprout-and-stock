@@ -258,6 +258,82 @@ first rung is a capsule and a sphere, so you cannot tell which way it is looking
 That is the right way round — looks are content — but it means a new kind wants
 *something* on its front, and the fix is an MCP call rather than a code change.
 
+### ...and a hire moves while they are working
+
+A `motion` part turns, bobs, judders or pulses while the thing it belongs to is
+busy, and it had been collected onto a worker's group since the day workers
+stopped being coloured capsules — `buildActor` is a `buildModel` like any other,
+and `buildModel` fills `userData.moving` for anything it draws. Nothing ever
+animated it. `animateStations` walks `movingFixtures` and the station work-props
+and nothing else, so the flag was authorable, validated, saved, rendered *and
+dead* on every hire in the game: the exact shape of a field that reads as content
+and does nothing, which is the trap this doc's own tier ladder is written around.
+
+So the loop that eases a body into its break animates its moving parts too, and
+the whole change is one call. Three things it borrows from the fixture half, each
+of them the reason not to write this from scratch a second time:
+
+- **What counts as working is `job`,** which is already on the wire for the
+  roster. Walking to the mess counts, because that is the job — `tidy` sets it
+  and returns true for the whole errand. A break does not, and that is the one
+  case the renderer has to spell out: `stepStaff` writes `job = 'break'` for a
+  charge rather than clearing it (or the readout would flicker for the whole
+  charge), so a bot sat in the corner with a mug would otherwise be sweeping.
+- **The phase is the per-person hash their breathing already uses,** not a second
+  one. Two janitors in an aisle must not sweep in unison, and there should be one
+  answer to "which of you is this".
+- **A pause is a SKIP, not a `false`.** False eases the brush down over half a
+  second, which is a machine being switched off, and time stopping is not that.
+  A paused shop with a brush still turning in it is a pause button that does not
+  look like it worked.
+
+The Janitor is what it was built for, and it is also where the documented trap
+bit: a **spinning cylinder is invisible**, because it is rotationally symmetric.
+The brush is two crossed bars for exactly the reason the blender turns a paddle.
+
+### Chores — the charge's opposite number
+
+A hire with nothing to do stood *perfectly still* wherever they finished, which
+reads as the game having crashed rather than as the shop being quiet. The idle
+charge fixed that for hires who were promoted, worn out, and had a room to walk
+to — on a quiet afternoon, none of them.
+
+A chore is a pastime with `spot: 'roam'`: they walk to a tile of the shop floor,
+do it there for a few seconds, and go somewhere else. Every gate `tryCharge`
+holds, `tryChore` drops — any rung, any tank, no seat, three seconds instead of
+fifteen. What it keeps is empty hands, and `idleCharge`, which is the whole of
+what makes it safe: the tick is handed back, the job draw runs underneath it, and
+the first real job in the shop ends it.
+
+Four things are worth knowing before touching it.
+
+**Two clocks, not one.** `choreFrom` is separate from `idleFrom`, and that is not
+tidiness — a chore that reset the boredom clock would mean nobody ever reaches
+`BORED_SECONDS` again and the idle charge silently stops existing. Nothing would
+say a word, because a bot pottering about all afternoon looks *more* alive than
+one that charges.
+
+**Hashed, never drawn.** Which chore and which tile both come off `hash01`
+(`shared/hash.js`, moved out of `sim/index.js` for this). This is asked of every
+spare hire on every quiet tick, so an `rng.next()` here would not shift the
+measured stream, it would shred it — two `simulate` runs of one seed would stop
+matching the moment a shop had somebody standing about. The key is `choreFrom`,
+which is also what makes them *arrive*: `onBreak` asks for the spot again every
+tick of the walk, so a key that moved with the clock would hand them a new
+destination each tick and they would drift about getting nowhere.
+
+**A chore is not sent to the break area.** `spotFor`'s override is about where a
+*rest* happens; a bot sweeping the staff room is a bot not sweeping the shop.
+
+**It must not slump.** `syncPastime` holds the posture back for a chore. The
+prop still hangs and its stages still turn — only the sag is suppressed, because
+a bot sagging at the shoulders while crossing the floor reads as broken twice.
+
+Only the Janitor has one today (the pastime is tagged `cleaning`). Every other
+kind gets `choosePastime` answering null and stands still exactly as before,
+which is what makes this opt-in per kind: a clerk wiping the counter is one row
+in the database, not a code change.
+
 ## Runtime: hiring, firing, assigning
 
 Hiring stops being upgrade ownership, because ownership can't express "two
@@ -378,6 +454,170 @@ Measured in a real browser at 1280×800: rows come out 43–57px in a 214px pane
 with no horizontal scroll, which is the same band every other section sits in.
 Blurbs are one clause each for that reason — the two-line clamp means a longer
 one is not wrong, just invisible.
+
+### The head is a profile, and the avatar is the paint control
+
+The menu opened with five label-and-value lines pinned above a job list you
+scrolled: Doing, Charge, Model, Firmware, Lease. That is a spec sheet for a thing
+you never actually see. A bot spends the entire game two tiles away with its back
+to you, and this menu is the one place it can be stood up and turned round — so
+the head is now **the machine on the left and the readings on the right**, and
+the readings are in **two columns** rather than five rows.
+
+`spinForWorker` (`client/thumb.js`) is the avatar. The projector was already a
+pure function of an angle, so twenty-four calls to it at 15° apart is a whole
+turntable with no canvas, no context and nothing to tick — the stills go in one
+long strip and `.wk-turn` slides it with `steps(var(--n))`, which by
+construction stops one frame short of `-100%` and lands back on frame zero.
+Three things about it are not obvious:
+
+- **One view box for every frame.** Fitted per still, the box is fitted to how
+  wide the bot happens to be from *that* side, so a machine deeper than it is
+  broad swells and shrinks as it turns and the ground slides about under it.
+  Invisible in any one frame, which is why `spin()` exists and `draw()` is one
+  call to it.
+- **The shadow is taken at rest and never turned.** It is what the thing stands
+  ON; a footprint that swung round with the body is the floor moving under a bot
+  standing still.
+- **The phase is a negative `animation-delay` off the page clock.** The panel
+  redraws whenever anything in its signature moves — and the foot prices against
+  cash, so on a busy afternoon that is several times a second. A fresh element
+  starts its animation at frame zero, so without this the bot snaps back to
+  facing you every time somebody pays, which reads as the shop being what
+  stopped it.
+
+**The Look tab is gone, and the avatar took its job.** A tap on it repaints them
+(round the list, so the tap alone gets back out of a paint), and a hold opens the
+rack — the palette tile's sentence, over the palette tile's `HOLD_MS`, which is
+exported from `bar.js` now rather than spelled twice. The chevron is that door
+with a handle on it, for the reason it grew on the bar: a look is cosmetic enough
+that a gesture nobody finds would simply read as the game not having any.
+
+Two things followed from moving it. The card's rows are `.shape` — the build
+bar's shape card, because it is the same question with the same shape of answer —
+and the picture on each row is **the bot in that paint** rather than the three
+colour bars it used to be. Those bars were the honest picture while this was a
+tab of names; hanging off an avatar of the machine, paint chips would be
+answering in a different language from the question. And with no second list to
+tab to, the menu has no tabs, which is where the **two-column directive grid**
+got its room: nine short rows in one column was a scroll for no reason, and the
+whole shift now sits on screen at once.
+
+Both grids are `repeat(auto-fit, minmax(…, 1fr))` rather than a flat `1fr 1fr`.
+The panel is `min(430px, 100vw - 24px)`, so on a phone the same markup is one
+column instead of two squeezed to a stepper and an ellipsis.
+
+### A day is a budget — `shared/jobs.js`
+
+A weight has always been *relative*: `stepStaff` draws from the list in
+proportion, so `serve 10, tidy 1` and `serve 100, tidy 10` are the same worker
+and the absolute size of the numbers meant nothing. Which is exactly why nothing
+stopped you setting every directive to ten — it read as "do everything, hard"
+and it cost the same as doing one thing. A roster of generalists is a shop with
+no decision in it: two of somebody is only interesting while they can be told
+*different* things, and specialising has to cost you what you gave up.
+
+So the total is capped, and **the ladder is what buys more of it** — the second
+thing a rung sells that is not a multiplier (`unattended` on a till was the
+first), and the one you can actually see: a promotion is more of their day.
+
+```
+budget = max(JOB_POINTS, what the KIND was authored with) + JOB_POINTS_PER_RUNG × (rung − 1)
+       =        20                                        +        8
+```
+
+Three things about it are not obvious, and each is a way the naive version
+breaks:
+
+- **The authored total is a FLOOR, not the rule.** Authored lists run from 11
+  (clerk) to 33 (farmhand), because until this file existed those numbers were
+  ratios and nobody was choosing a total. Any flat cap below the biggest of them
+  hands you a farmhand who is over budget on the day you hire them, whose first
+  available move is to take something away — which reads as the hire being
+  broken rather than as a rule being applied. As a floor, every authored kind
+  arrives exactly as authored and the cap only ever hands a generalist a spare
+  point or two. It also leaves the lever where content already is: a kind
+  authored heavy is a kind that does more, at whatever wage it was authored
+  with, and `simulate` is what says whether that was a good idea.
+- **Over budget is a state you can be IN, never one you can move further into**
+  (`jobsAffordable` takes what they are already carrying). That is what makes a
+  rollback safe: `demote` drops the allowance and deliberately does not touch the
+  list, so somebody promoted and rolled back is overloaded until you trim them,
+  rather than having their shift silently rewritten by the server — the one
+  outcome nobody would connect to the button they pressed. The counter turns
+  `--accent` and every `+` in the list is dead until it clears.
+- **It is `shared/`, for the `shared/build.js` reason.** The menu greys the `+`
+  and `assignJobs` refuses the list; two implementations of one budget is the
+  green-ghost bug wearing a stepper — a button offering a weight the shop hands
+  straight back.
+
+The counter lives in the list's heading rather than on any row, because there is
+one pot and nine rows drawing on it. It is also what let the standing paragraph
+under the list go: three lines explaining that a weight is a share of a day is a
+thing you read once and scroll past for the rest of the game, and a number
+running out under your thumb teaches the same rule where you are pressing.
+
+### A promoted unit charges itself — `tryCharge`
+
+A hire with nothing to do stood in an aisle waiting to be asked. That is not
+wrong so much as *wasteful*: they will be tired later, the break area is right
+there, and the shop is quiet now rather than in the middle of the lunch rush.
+So anything above the bottom rung takes itself off to charge after
+`BORED_SECONDS` (15) of nothing — the second thing a rung sells that is not a
+multiplier, and unlike the first one you can watch it happen.
+
+The gate is **"any rung above the first"**, not a hardcoded 2: a kind with one
+rung never does it and a kind with five does it from its second. What is being
+sold is judgement — a Casual waits to be told, a Trusted works out that now is
+the moment — which is why it is a rung and not a stat.
+
+Four conditions, each doing work:
+
+| | why |
+|---|---|
+| a **seat**, via `seatIn` and never `spotFor` | a shop that never painted a break area plays exactly as it did. The authored spot is where a *tired* hire rests when there is nowhere to go; a bored one leaning on a shelf mid-floor is a picture of a robot loitering |
+| **empty hands** | the same reason `onBreak` defers a break: a charge with a crate in your arms is a hire who forgot the errand |
+| **not full** | a full tank gains nothing, so the walk buys dead time |
+| **not already charging** | `stepStaff` reaches `tryCharge` on every declined tick *including* the ones inside a charge, so without it a bored hire restarts one every 0.4s |
+
+**The one that matters is that it does NOT outrank the job list.** That
+inversion is the whole difference between a charge and a break, and it is the
+only reason this is safe to ship: a break holds the tick by design, so if a
+charge did too, promoting your clerk would buy you a till nobody is on for
+twenty seconds at a stretch — and the tell would be a shop that got *slower*
+when you spent money on it. `onBreak` hands the tick back while `idleCharge` is
+set (keeping its cooldown, so the draw runs at the same rate an idle hire's
+does), `stepStaff` calls `endCharge` on whatever the draw takes, and the credit
+is **pro-rata**: crediting nothing would make one delivery arriving strictly
+worse than none, and crediting the lot would make being interrupted the best
+thing that can happen to a hire.
+
+Three smaller traps, all of them found by writing it:
+
+- **The boredom clock is not cleared on the way in.** The room may be across the
+  shop, so `tryCharge` returns true for every tick of the walk and is asked
+  again on arrival. Cleared early, they turn up at the seat no longer bored,
+  stand there, and charge fifteen seconds later — in the break room, which is
+  the one place it would look like nothing was wrong. `onBreak` clears it when
+  the charge actually starts.
+- **`idleCharge` is set inside `onBreak`, not by the caller.** Set after the
+  walk, it would be written on the tick they *sit down* — leaving the tick in
+  between as a charge that outranks the job list.
+- **`idle()` had to learn not to move them.** It walks an idle clerk to a till;
+  reached on every declined tick of a charge, it walks them straight back out of
+  the room and charges them standing at the counter — the feature undone one
+  line below where it was done.
+
+`simulate` is blind to all of it and that is not a shortcoming: the balance bot
+never promotes anybody, so every hire in a balance run is on rung 1, `tryCharge`
+returns false before it draws anything, and the rng stream is untouched. Two
+runs of a seed either side of this are identical.
+
+`verify:break` §7 is where the claims live, because every one of them is
+invisible: a bot in the break room because it is worn out and one because there
+is nothing on are the same still frame. Its centrepiece asserts the interruption
+against the hire's **own deadline** rather than against a stopwatch — timed, it
+passes on a charge that simply ran out, which is the exact bug being guarded.
 
 ## Proved end to end
 

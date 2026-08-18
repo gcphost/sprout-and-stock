@@ -910,6 +910,503 @@
     "color": "#7a9e4b"
   },
   {
+    "id": "janitor",
+    "name": "Janitor",
+    "tags": [
+      "staff",
+      "back-of-house",
+      "cleaning"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sweeper",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.08,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.16,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "trim"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.42,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "glow"
+            },
+            {
+              "shape": "box",
+              "color": "#33607f",
+              "pos": [
+                0,
+                0.3,
+                0.28
+              ],
+              "scale": [
+                0.05,
+                0.46,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cylinder",
+              "color": "#33607f",
+              "pos": [
+                0,
+                0.09,
+                0.28
+              ],
+              "scale": [
+                0.11,
+                0.06,
+                0.11
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#e3ddcb",
+              "pos": [
+                0,
+                0.05,
+                0.28
+              ],
+              "scale": [
+                0.3,
+                0.05,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "spin",
+                "hz": 1.6,
+                "amount": 0.05
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#e3ddcb",
+              "pos": [
+                0,
+                0.05,
+                0.28
+              ],
+              "scale": [
+                0.3,
+                0.05,
+                0.07
+              ],
+              "rot": 90,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "spin",
+                "hz": 1.6,
+                "amount": 0.05
+              },
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Deep clean",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.08,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.16,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "trim"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.42,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#b8c2cc",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "glow"
+            },
+            {
+              "shape": "cylinder",
+              "color": "#33607f",
+              "pos": [
+                0,
+                0.62,
+                -0.185
+              ],
+              "scale": [
+                0.2,
+                0.3,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4a5560",
+              "pos": [
+                0,
+                0.95,
+                0
+              ],
+              "scale": [
+                0.03,
+                0.14,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "trim"
+            },
+            {
+              "shape": "sphere",
+              "color": "#5fe0d0",
+              "pos": [
+                0,
+                1.04,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "glow"
+            },
+            {
+              "shape": "box",
+              "color": "#33607f",
+              "pos": [
+                0,
+                0.3,
+                0.28
+              ],
+              "scale": [
+                0.05,
+                0.46,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cylinder",
+              "color": "#33607f",
+              "pos": [
+                0,
+                0.09,
+                0.28
+              ],
+              "scale": [
+                0.11,
+                0.06,
+                0.11
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#e3ddcb",
+              "pos": [
+                0,
+                0.05,
+                0.28
+              ],
+              "scale": [
+                0.3,
+                0.05,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "spin",
+                "hz": 2.6,
+                "amount": 0.05
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#e3ddcb",
+              "pos": [
+                0,
+                0.05,
+                0.28
+              ],
+              "scale": [
+                0.3,
+                0.05,
+                0.07
+              ],
+              "rot": 90,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "spin",
+                "hz": 2.6,
+                "amount": 0.05
+              },
+              "tint": null
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Sweeper",
+        "cost": 0,
+        "speed_mult": 1,
+        "pace_mult": 1,
+        "carry_mult": 1,
+        "wage_mult": 1
+      },
+      {
+        "name": "Deep clean",
+        "cost": 190,
+        "speed_mult": 1.25,
+        "pace_mult": 1.2,
+        "carry_mult": 1.5,
+        "wage_mult": 1.5
+      }
+    ],
+    "jobs": [
+      {
+        "job": "tidy",
+        "weight": 14
+      },
+      {
+        "job": "shelve",
+        "weight": 4
+      },
+      {
+        "job": "unload",
+        "weight": 2
+      }
+    ],
+    "cost": 200,
+    "wage": 5,
+    "speed": 2.6,
+    "pace": 0.55,
+    "carry": 6,
+    "color": "#4f7ea8"
+  },
+  {
     "id": "shop-hand",
     "name": "Shop Hand",
     "tags": [
@@ -939,7 +1436,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "trim"
             },
             {
@@ -959,7 +1458,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "chassis"
             },
             {
@@ -979,7 +1480,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "chassis"
             },
             {
@@ -999,7 +1502,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "glow"
             },
             {
@@ -1019,7 +1524,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": null
             }
           ]
@@ -1045,7 +1552,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "trim"
             },
             {
@@ -1065,7 +1574,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "chassis"
             },
             {
@@ -1085,7 +1596,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "chassis"
             },
             {
@@ -1105,7 +1618,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "glow"
             },
             {
@@ -1125,7 +1640,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": null
             },
             {
@@ -1145,7 +1662,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "trim"
             },
             {
@@ -1165,7 +1684,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "glow"
             }
           ]
@@ -1210,6 +1731,10 @@
       {
         "job": "tidy",
         "weight": 1
+      },
+      {
+        "job": "merchandise",
+        "weight": 2
       }
     ],
     "cost": 280,
@@ -1249,7 +1774,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "trim"
             },
             {
@@ -1269,7 +1796,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "chassis"
             },
             {
@@ -1289,7 +1818,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "chassis"
             },
             {
@@ -1309,7 +1840,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "glow"
             },
             {
@@ -1329,7 +1862,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": null
             }
           ]
@@ -1355,7 +1890,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "trim"
             },
             {
@@ -1375,7 +1912,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "chassis"
             },
             {
@@ -1395,7 +1934,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "chassis"
             },
             {
@@ -1415,7 +1956,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "glow"
             },
             {
@@ -1435,7 +1978,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": null
             },
             {
@@ -1455,7 +2000,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "trim"
             },
             {
@@ -1475,7 +2022,9 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
+              "motion": null,
               "tint": "glow"
             }
           ]

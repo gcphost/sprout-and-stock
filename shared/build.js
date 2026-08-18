@@ -105,6 +105,28 @@ export const FIXTURES = {
   station: { label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt', ends: true },
   plot: { label: 'Plot', blocks: false, ground: T.PLOT, where: 'outdoor', rotates: false, anchor: null },
   /**
+   * The bin — the first thing in the game that takes goods OUT of it.
+   *
+   * Until now stock had exactly two exits: somebody bought it, or it rotted.
+   * There was no way to be rid of anything on purpose, which is felt hardest at
+   * the two moments the shop is already going wrong — a line nobody wants, and
+   * a harvest of the crop you had just stopped growing. `dropGoods` is the only
+   * answer the game had, and a crate in the yard is not getting rid of
+   * something, it is moving it.
+   *
+   * `where: 'any'` because rubbish goes out the back, and the back of the shop
+   * is outdoors. Blocking, because it is a skip and you should have to put it
+   * somewhere; `useAt` because it is used from one side like an appliance
+   * rather than browsed like a shelf.
+   *
+   * **A kind rather than a `bin: true` on a piece**, for the reason the hot
+   * counter's note gives at length: what may be done AT it is read off
+   * `fixture.kind` in the sim and in `actionAt`, and a column on the catalog row
+   * would mean every one of those sites resolving a placement back to its row to
+   * ask something the placement already knew.
+   */
+  bin: { label: 'Bin', blocks: true, where: 'any', rotates: true, anchor: 'useAt' },
+  /**
    * Decorations. Both stand in a cell and neither blocks it.
    *
    * Deliberately NOT the authored-`blocks` kind the design doc describes. A
@@ -1393,6 +1415,18 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
     if (!BUILDABLE_INDOOR.has(ground)) {
       return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
+  } else if (def.where === 'any') {
+    // Either side of the wall, on whatever that side is made of. Its own branch
+    // rather than a third case bolted onto the two above, because both of those
+    // are written as one place with one ground and one refusal — the `else` is
+    // the PLOT rule wearing a general name, right down to the wording ("plots go
+    // outside", "you can only dig into bare grass"). A kind that may go anywhere
+    // fell into it and was told it could only be dug into grass, which reads as
+    // the palette offering something the shop refuses.
+    if (taken) return no('something is already there');
+    if (!BUILDABLE_INDOOR.has(ground) && !BUILDABLE_OUTDOOR.has(ground)) {
+      return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
+    }
   } else {
     if (!keeping && insideStore(L, x, z)) return no('plots go outside, on the grass');
     if (taken) return no('something is already there');
@@ -1423,7 +1457,17 @@ function canPlaceProp(L, def, x, z, ignoreId, keeping = false) {
   }
   // A prop stands *in* the cell, so the cell has to be somewhere a person could
   // stand. This is also what keeps one out of a shelf without a second rule.
-  if (!WALKABLE.has(tileAt(L, x, z)) || blockedAt(L, x, z, ignoreId)) {
+  //
+  // ...unless it HANGS, which is what `at` has said since props existed and
+  // nothing had ever read. A pendant over an aisle is the whole point of a
+  // ceiling fitting — the light wants to be over the goods, and the goods are
+  // the one thing this test calls "already there" — so every cell worth hanging
+  // one in was refused, and the refusal named the shelf you were deliberately
+  // lighting. It reads as the game being wrong about what a lamp is, which it
+  // was. Nothing else changes: `where: 'indoor'` above still keeps it in the
+  // building, it still stamps no tile, and it still cannot share a cell with
+  // another prop.
+  if (def.at !== 'ceiling' && (!WALKABLE.has(tileAt(L, x, z)) || blockedAt(L, x, z, ignoreId))) {
     return no('something is already there');
   }
   const clash = (L.props ?? []).some((p) => p.id !== ignoreId && p.x === x && p.z === z);

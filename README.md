@@ -1,10 +1,15 @@
-# 🌱 Sprout & Stock
+# ⚙️ Sprocket & Stock
 
-A cozy farming + mini-mart game you and someone else build **while playing it**.
+A cozy shop-and-farm sim where you are the only human on the payroll — and a
+game you and someone else build **while playing it**.
 
-Grow crops out back, stock the shelves out front, serve the queue, spend the
-profit on more land. Meanwhile an AI director decides what the town is doing
-today — a heat wave, a viral snack, a supply shortage — and the shop reacts.
+You buy the robots, you set what each one cares about, and they grow the crops
+out back, fill the shelves out front and work the queue. Get the dials wrong and
+they'll spend the day politely doing the wrong job. Meanwhile an AI director
+decides what the town is doing today — a heat wave, a viral snack, a supply
+shortage — and the shop has to react.
+
+Everyone who works here is a machine. Everyone who shops here, mostly, isn't.
 
 The point isn't only the game. It's that two people, on two machines, each with
 their own coding agent, can change the same running world at the same time

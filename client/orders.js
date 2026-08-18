@@ -51,10 +51,11 @@ export function comingByItem(ui) {
  * supplier shut.
  *
  * `p` is 0..1 of the journey covered, and it needs BOTH numbers the server
- * sends. `in` alone cannot say it: the runs are two hours apart in the day and
- * one hour apart overnight, so "twenty minutes to go" is most of the way there
- * on one and a third of the way on the other. `wait` is the distance, `in` is
- * what is left, and the ring is the difference.
+ * sends. `in` alone cannot say it: the runs are an hour apart but an order joins
+ * whichever one is next, so an order placed at 09:05 waits fifty-five minutes
+ * and one placed at 09:50 waits ten — "five minutes to go" is nearly there on
+ * one and half way on the other. `wait` is the distance, `in` is what is left,
+ * and the ring is the difference.
  *
  * A leg is a run rather than an order, exactly as above — six orders on the
  * 14:00 van are one van, and a ring per order would be six rings all landing

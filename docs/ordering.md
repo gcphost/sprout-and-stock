@@ -1,10 +1,12 @@
 # Ordering — what the shop buys, and who decided
 
-Status: **steps 1–5 built.** The restocker counts what the shop can already
+Status: **steps 1–7 built.** The restocker counts what the shop can already
 supply itself before it spends money, the three decisions it used to make
 silently are switches in the supplier, every item can carry a standing order,
-a shelf's own menu will now tell you what is on the van and order more, and
-deciding what a board is *for* has a shortlist and a stock count of its own.
+a shelf's own menu will now tell you what is on the van and order more,
+deciding what a board is *for* has a shortlist and a stock count of its own,
+the shop keeps a thing in one place, and a unit marked for the back is stocked
+for the appliances beside it rather than for the shop front.
 
 ⚠️ Both built steps measure as **balance-neutral at their defaults**, and that
 is deliberate rather than lucky. Step 1 came out at +2.7% mean profit over ten
@@ -303,12 +305,186 @@ They are the *same rows* as the full list, filtered and copied — ticking one
 does exactly what ticking it below does, because a second row builder for one
 checkbox is a second set of rules about what may go where.
 
+**...and under the tabs, the aisle** (`deptStrip`). The catalogue is long and
+the search box only helps when you already know the name of the thing you want.
+That is the wrong assumption about how anybody arrives here: what sends you to a
+shelf is the demand meter saying *produce is short*, so the question is "show me
+produce", and there was no way to ask it.
+
+Three things about the strip:
+
+- **The departments are `DEPARTMENTS`, in the meter's own order.** It is the
+  same twelve buckets drawn in `client/hud-meters.js`, and two readouts of one
+  set in two orders is two things to learn.
+- **Only the aisles this list has rows in.** The icon tabs above deliberately
+  draw empty tabs — they are a fixed shape you learn — and this must not, because
+  a freezer's departments are a property of the list rather than of the menu.
+- **Text, not icons.** There is no picture of "condiment", and inventing twelve
+  is twelve glyphs to learn for words that are already written down the side of
+  the meter. It also wraps rather than scrolling: a strip you scroll hides the
+  aisle you came for, and with words there is no "further right" to predict.
+
+Note this is *not* the split the crate/appliance icon deliberately avoided.
+Splitting the list by where a thing comes from means knowing the answer before
+you can look it up; splitting it by department means being handed the question
+by the meter that sent you.
+
 **And the three settings tabs became one.** *When it gets refilled*, *The shop
 hand* and *Set up* were three tabs holding seven rows between them. A tab is a
 place you learn to look, and every one you add makes the rest narrower on a
 214px panel — three of them meant the thing you wanted was behind whichever
 pictogram you did not try first. One **Settings** tab, three `sep` headings, in
 the order you would read them: how it gets filled, who may touch it, what it is.
+
+---
+
+## Step 6 — one place per thing ✅
+
+### What was wrong
+
+Everything above bounds *how much* the shop buys. Nothing bounded **how many
+boards it buys it for**, and that turns out to be the same bug wearing a shape
+nobody was looking at.
+
+`shelvesFor` ranked the unit an item was already on first, and that is a
+preference rather than a rule — it stops meaning anything the moment that unit
+is full. One armful of overflow claims a bare board on the unit next door, and
+from that tick the shop has two homes for one thing. It does not settle, it
+compounds:
+
+- each board is its own line in `restockQueue`, so the shop now buys for both;
+- `pickItem`'s old `?? scored[0]` fallback made it worse *deliberately* — with
+  every item that fits a unit already stocked somewhere, the function whose
+  whole job is choosing the range chose a second board of the best seller;
+- and neither board could ever be given back. `releaseBoards` protects an empty
+  board while `homeSupply` is above zero, which for anything you farm is for
+  ever — a shop with two tomato beds could not age a spare tomato board a single
+  day.
+
+Observed on a real save at day 10: tomato on three units, chocolate on two,
+carrot split 15/14, soda split 22/7, and four shelves of produce the owner never
+asked for. What it reads as is staff being stupid, because every individual
+decision in that chain is a worker correctly putting goods on a shelf with room.
+
+### What it does now
+
+`Game.homeShelves(itemId)` — the shop's own answer to *where do we keep this*,
+on `Game` for the reason `restockQueue` is, and `shelvesFor` refuses every other
+unit. Three things decide it and none of them is this function:
+
+| | |
+|---|---|
+| `assigned` | Every unit you ticked is a home. That is the override for "I want soda in two aisles". |
+| the stock | Otherwise the unit holding the most of it wins, and the others stop being restocked and drain. |
+| `boh` | Each side is homed separately — a stockroom unit backing up the floor is the one second place that is the point. |
+
+Four notes:
+
+**Consolidating by not filling needs no job and no walk.** The losing board is
+simply never chosen again, sells down, and `releaseBoards` hands it back — which
+is why that function had to learn about homes *before* its supply guard rather
+than after. The shop hand's Merge still walks a live board over when somebody is
+employed to do it; this works in a shop with one clerk, which is most shops.
+
+**Overflow goes to the pad, not to the next unit.** That is the whole change,
+said from the goods' point of view: `unload` already walks a crate nothing will
+take back to the drop-off, and `restock` stops ordering more because `buy` asks
+the same question. Goods are never destroyed and never stranded anywhere new.
+
+**Your own hands never read it.** `boardFor` and `shelfAccepts` are untouched,
+which is the line `orders.assign` and `giveUpBoard` already draw twice: the
+shop's judgement about its own range was never a rule about what you may do.
+
+**`pickItem` answers null now instead of the best seller.** A bare unit with
+nothing new to put on it is a shop with room to grow. Left as it was, it would
+order a second board's worth of the winner and the goods would ride the lorry
+straight to the pad.
+
+`verify:yard`'s three-porter section had to be re-pointed at three *ticked*
+units, and that is worth knowing before writing the next sweep: "every shelf is
+bare, so every shelf is legal" stopped being true for a single item, and a
+reservation is now the shortest way to author a shop where two boards will take
+the same goods.
+
+---
+
+## Step 7 — a stockroom is the kitchen's larder ✅
+
+### What was wrong
+
+Marking a unit **In the back** does three things: shoppers stop seeing it
+(`chooseShelf` filters it, `stockedForTag` stops counting it as having any), the
+chef fills a whole hopper off it rather than borrowing one batch, and each side
+is homed separately so it can back the floor up.
+
+Nothing told the *buyer*. `pickItem` chose a range for a bare back-room board
+exactly the way it chooses one for the shop front — best margin × how much the
+archetypes want it — which is a question about people who are never going to
+walk in there. So a stockroom filled with whatever sells well out front, and
+every unit of it was dead on arrival: no shopper can see it, no machine can use
+it, and it is holding a board, which is [the scarce thing](#step-6--one-place-per-thing-).
+`restock` then went on topping those boards up for ever, because `buy` asked
+`homedAt` and `homedAt` was perfectly happy.
+
+It reads as a stockroom that does not work, and every individual decision in it
+is the shop correctly buying a well-chosen item for a shelf with room.
+
+### What it does now
+
+`Game.larderRanges()` — which machines each stockroom unit is the larder *for* —
+and `Game.backRoomTakes(shelf, itemId)` on top of it. Three callers, and they are
+the three halves of the same sentence:
+
+| | |
+|---|---|
+| `pickItem` | Choosing the range for a bare back-room board: candidates are that unit's larder, and nothing else. |
+| `shelvesFor` | Where an armful may be walked. A stockroom is not a home for goods its machines cannot use, so overflow goes to the pad as it does for [any other item with nowhere to go](#step-6--one-place-per-thing-). |
+| `restock`'s `buy` | The half that spends money. Asked separately, or a board that already holds the wrong thing is topped up for ever. |
+
+Five notes:
+
+**It is per unit, not per shop.** One set for the whole building is right with
+one kitchen and wrong the moment there are two: a coffee corner out front and a
+fryer in the back both wanted their ingredients, so every larder ordered both and
+each kept half a room of stock its own machines could not use — the original
+complaint again at one remove, and worse the more you build. So **every machine
+is served by the larder nearest it**, and a larder no machine picked stocks for
+the machine nearest *it*. The second half is the one that is easy to leave out:
+without it a second unit in the same room as the first is chosen by nothing and
+takes nothing at all, which reads as a shelf that has stopped working.
+
+**Straight-line distance, not a walk.** `findPath` is the hot loop in the game
+and this is asked from `shelvesFor`, which runs per pile per worker per tick —
+and a route that changes as you build would move a larder's range while a hire
+was walking to it. The honest cost is a stockroom on the far side of a wall two
+tiles from the fryer, which is a room you laid out that way.
+
+**Every recipe an owned machine knows, not the one it is set to.** A machine is
+one press from another of its own recipes, and a larder that emptied itself
+every time you changed the menu would cost you the stock and the board both.
+`feasibleRecipe` stays the narrow question — the chef fetches for the batch that
+is going to run.
+
+**A shop with no appliances is the old game exactly.** An empty larder reads as
+"no rule yet" rather than "nothing, then", or marking a back room before buying
+the machine would give you a unit nothing will ever stock — worse than the bug,
+and the order everybody does it in.
+
+**`already` is counted per side now**, which is the same split `homeShelves`
+makes. Shop-wide, the back room could only ever take an ingredient nobody sells
+out front — and tomatoes on the shop floor is exactly what a salsa maker's larder
+wants more of, so the rule would have found nothing left to choose and the
+stockroom would have stayed bare. The same bug wearing the opposite face.
+
+**Your own hands never read it.** `boardFor`, `stockShelf` and `shelfAccepts` are
+untouched, the same line `orders.assign` and `giveUpBoard` draw: you may stand
+anything you like in your own stockroom, and a reservation still binds the shop
+to whatever you ticked.
+
+What it does not do is *clear out* what a stockroom already holds. Those boards
+stop being topped up immediately, and `staleBoards` hands them back four quiet
+days later if anybody has the `merchandise` job — otherwise they are yours to
+empty, which is one press of Empty on the unit.
 
 ---
 

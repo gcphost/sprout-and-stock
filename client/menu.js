@@ -296,8 +296,8 @@ export class Menu {
     const scroll = this.root.scrollTop;
     this.root.innerHTML = `
       <div class="menu-box">
-        <h1>Sprout <span>&amp;</span> Stock</h1>
-        <p class="menu-tag">A farming and mini-mart game for two.</p>
+        <h1>Sprocket <span>&amp;</span> Stock</h1>
+        <p class="menu-tag">Run a shop with a crew of robots. You're the only human in it.</p>
 
         <label class="menu-field">
           <span>You are</span>

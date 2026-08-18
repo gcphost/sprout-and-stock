@@ -1,8 +1,17 @@
 # Sound
 
-Status: **proposed, nothing built.** There is no audio anywhere in the repo —
-no files, no library, no `AudioContext`, no dependency. This is what it should
-be before the first byte of it exists.
+Status: **steps 2, 3 and 5 built. 1 tried and cut; 4 and 6 proposed.** A lofi
+playlist on its own bus, thirteen one-shots wired to a snapshot diff, and a Sound
+tab with a mute and three volumes beside a Credits tab generated from the
+manifest. Eighteen files, all CC0, ~7.5MB. No dependency.
+
+The one-shots that matter most are the two that report a shopper losing
+patience — an `anger` crossing you can still act on, and a walkout you cannot.
+Both happen in an aisle you are not looking at, which is the whole argument in
+"Why it exists".
+
+The ambient crowd bed is the one thing here that was built and removed — see
+"What was tried and cut", which is still the most useful section in this file.
 
 ---
 
@@ -24,22 +33,65 @@ with people in it. `occupancy` has been on the wire since the shop had
 customers and the only thing that ever reads it is a meter. A busy shop and an
 empty one currently differ by some dots moving.
 
+## What was tried and cut
+
+Step 1 — the mixer, an ambience bed and a crowd layer that swelled with
+`state.customers` — was built, played, and taken back out the same afternoon.
+It is worth knowing what happened before anybody builds it again.
+
+**It was synthesised first, and filtered noise is rain.** Noise through a
+bandpass with a slow swell on it is a completely reasonable *description* of a
+busy room and it sounds exactly like weather, because that is what it is:
+broadband, steady, swelling at weather speed. Filtering it differently does not
+help — rain and babble occupy the same frequencies. What separates them is that
+speech is chopped at the syllable rate, three to five times a second, and a room
+is many such envelopes running out of step with each other. That is
+reproducible with an oscillator bank per voice, and the result is still audibly
+a machine imitating a room.
+
+**Then it was two real recordings, and that was not the problem either.** Two
+public-domain mall recordings off Wikimedia Commons, crossfaded by headcount,
+seamlessly looped. It worked, it was correct, and the verdict was still that it
+was not worth having.
+
+So the lesson is not about synthesis. It is that **an ambient bed is the least
+valuable sound in the list and it was built first because it was the most
+interesting to build.** Re-read "Why it exists" above: the argument for sound
+here is that it is the channel that works while you are looking at a panel — a
+noise for a thing that happened *behind you*. A crowd bed reports something you
+can already see, has no moment, and answers no question. The three caps under
+"The budget" exist to stop noise nobody asked for, and the bed is that by
+construction: it is *always* playing.
+
+If this is picked up again, **start at step 3.** A till, a delivery arriving, a
+shelf going empty — things with a moment attached, which is what makes a sound
+information rather than furniture. The bed can come back afterwards if the shop
+sounds thin without one, and it will be a much easier call to make with
+something else already in the mix.
+
+The mixer, the arming-on-first-input, the `localStorage` volumes and the
+`passive` credits tab were all fine and all survived — the bed was cut, not the
+audio. Steps 2, 3 and 5 were built straight afterwards on exactly that
+foundation, which is the evidence for the paragraph above: none of the work was
+wasted, only the one layer that reported something you could already see.
+
 ## The shape
 
-Nothing here exists yet. This is where it should go.
+Rows marked ✅ exist.
 
 | Piece | Lives in |
 |---|---|
-| the mixer — context, buses, master volume | `client/audio/mix.js` |
-| the ambience beds and the crowd swell | `client/audio/room.js` |
-| the music bus and its playlist | `client/audio/music.js` |
-| one-shots, the voice pool and the caps | `client/audio/sfx.js` |
-| what file every sound id means, and who made it | `client/audio/manifest.js` |
-| the files | `client/audio/*.opus` (bundled by vite, not fetched) |
+| ✅ the mixer — context, buses, master volume | `client/audio/mix.js` |
+| ✅ the music bus and its playlist | `client/audio/music.js` |
+| ✅ one-shots, the voice pool and the caps | `client/audio/sfx.js` |
+| ✅ what file every sound id means, and who made it | `client/audio/manifest.js` |
+| ✅ the files | `client/audio/sfx/*.ogg` and `music/*.ogg`, bundled by vite |
+| ✅ the snapshot diff every sound comes off | `client/audio/events.js` |
 | which sound a fixture makes | the `sfx` column on a `fixtures` row |
-| the sliders and the mute | a Sound tab in the `help` section, `client/sections.js` |
-| the credits | a `passive` tab beside it, generated from the manifest |
-| where the volumes are kept | `localStorage`, never the save |
+| ✅ the sliders and the mute | a Sound heading under the Menu's Game tab, `client/sections.js` |
+| ✅ the credits | a `passive` tab of its own, generated from the manifest |
+| ✅ where the volumes are kept | `localStorage`, never the save |
+| ✅ waking it up on the first input | capture listeners at the top of `client/main.js` |
 | the guard | `scripts/verify-audio.js` |
 
 Client-only. The server has no ears the way it has no renderer, and nothing
@@ -189,8 +241,18 @@ Licence first, because it is the constraint that actually narrows the field, and
 because [docs/shipping.md](shipping.md) wants a standalone binary somebody can
 hand to a friend.
 
+**Wikimedia Commons earned its place on this list** during the cut step above,
+and it is first for a reason nothing else here can match: its API returns the
+licence and the author as *structured fields* beside the file, so the credit can
+be read rather than transcribed. Transcribing is exactly where a credits list
+goes wrong. `action=query&generator=search&gsrnamespace=6` with
+`gsrsearch=filetype:audio …` and `iiprop=url|extmetadata` is the whole query,
+and the ambience it found (public domain, usable, correctly credited in about
+two minutes) was fine — it was the *idea* that was cut, not the sourcing.
+
 | For | Source | Licence |
 |---|---|---|
+| Room ambience, with machine-readable credits | **Wikimedia Commons** (`filetype:audio`, filter to PD/CC0) | varies, stated per file |
 | Store ambience, tills, doors, fridges, trolleys | Sonniss GDC Game Audio Bundle | royalty-free, no attribution |
 | Lofi background music | Pixabay Audio | Pixabay licence, commercial, no credit |
 | UI blips, coins, pops | Kenney.nl | CC0 |
@@ -221,20 +283,25 @@ URLs that can rot.
 
 ## The settings, and the credits
 
-Both go in the `?` menu — the `help` section in `client/sections.js`, which is
+Both go in the Menu — the `help` section in `client/sections.js`, which is
 already tabbed and already has a shape that takes them. `tabGroups` in `ui.js`
-turns any `sep` row with an icon into a tab, so each is one more heading:
+turns any `sep` row **with an icon** into a tab and leaves a bare one as an
+ordinary divider, so the two land differently on purpose:
 
 ```js
-{ sep: 'Sound',   icon: ICONS.speaker },
-{ sep: 'Credits', icon: ICONS.music, passive: true },
+{ sep: 'Sound' },                                 // a heading in the Game tab
+{ sep: 'Credits', icon: ICONS.music, passive: true },   // a tab of its own
 ```
 
-They are two tabs rather than one because `passive` means something. It marks a
-tab that *reports* rather than offers work, and all it forfeits is being the one
-the menu opens on — so credits is passive and the sliders are not. Pressing `/`
-should still land you on This shop either way; what passive stops is a licence
-list ever becoming the thing the menu opens on by default.
+Sound is a divider rather than a tab because four volume rows are not worth a
+click, and a menu that opened on the save with the settings hidden one tab away
+is a settings screen you have to go looking for the settings in. Credits is a
+tab because a licence list is long and nobody is ever looking for it while they
+are looking for something else.
+
+`passive` is what stops it *opening* on that list. It marks a tab that
+**reports** rather than offers work, and all it forfeits is being the one the
+menu opens on — so pressing `/` lands you on Game, which is the point.
 
 ### The controls are rows, not widgets
 
@@ -247,7 +314,7 @@ keyboard-reachable and already redraw off `live`:
 - **A volume is a stepper** — the `stp` widget from `ruleFor`, `− 60% +`, in
   steps of ten. A row per bus: Shop, Music, Effects.
 
-Both tabs need a glyph, and icons are **baked** rather than imported —
+A tab needs a glyph, and icons are **baked** rather than imported —
 `scripts/build-icons.js` lifts named icons into `client/icons.js` at build time
 and the output is committed, so a tab whose `sep` names an icon nobody added is
 a `undefined` in the tab strip. Two entries in `WANTED` and one `npm run icons`.
@@ -291,7 +358,7 @@ That panel needs a better layout at some point regardless — five tabs of
 one-line rows is already tight, two more makes seven, and a licence list is
 longer than anything else in there. Neither tab is what breaks it and neither
 should wait for the refit. What the refit should probably do is admit what the
-menu has become: Controls is a reference, Sound is a setting, Credits is a
+menu has become: the keys are a reference, Sound is a setting, Credits is a
 notice, and the shop you are in and the way out of it are neither. That is a
 split by *kind*, and the tab strip is currently a split by topic.
 
@@ -299,11 +366,17 @@ split by *kind*, and the tab strip is currently a split by topic.
 
 ## Steps
 
-**1. The mixer and the crowd.** `mix.js` plus `room.js`: three buses, a master
-slider, one ambience bed, one murmur loop tracking `customers`/`occupancy`.
-No content, no manifest, no per-fixture sound. This is the half that is worth
-play-testing on its own, because whether the swell *feels* right is not a thing
-anybody can reason about — it is a curve, and the curve is wrong the first time.
+**1. The mixer and the bed.** Built once, cut once — see "What was tried and
+cut". If it comes back it should come back *after* step 3, and the useful
+leftovers are: three buses behind one `arm()` on first input, volumes in
+`localStorage`, and a crowd curve anchored at **one** person rather than zero.
+
+That last one was a real fix. Anchored at zero, the step from nobody to one
+shopper is the loudest thing on the whole range — more than the entire span from
+five people to ten — so a single browser wandering in starts a murmur, which is
+a noise one person alone in a shop does not make. Anchored at one it says the
+true thing: one is not a crowd, and what you hear is the shop filling rather
+than the door opening.
 
 **2. Music.** The bus, a playlist, crossfade, a real gap, its own slider,
 default off. Independent of step 1 and can land either side of it.
@@ -322,15 +395,15 @@ working, or always for a thing with no idea what working means). Now a new
 appliance authored over MCP makes a noise. The fixed table from step 3 becomes
 the fallback for a piece that names nothing.
 
-**5. The Sound tab and the Credits tab.** Mute as a switch, three volumes as
-steppers, kept in `localStorage`; credits generated from the manifest and marked
-`passive`. Both reuse row shapes that exist, so this step is content in
-`sections.js` and a handful of lines in `mix.js`, not new UI.
+**5. The Sound tab and the Credits tab.** Both were built during step 1 and went
+out with it, and both were fine. The Sound tab belongs *with* whichever step
+first makes a noise rather than after them all — the first thing anybody does
+with new game audio is turn it down, and a bus with no way to silence it is a
+feature you cannot play-test twice.
 
-There is an argument for pulling the Sound tab forward to step 1, and it is
-worth taking seriously: the first thing anybody does with new game audio is turn
-it down. Step 1 should at minimum ship a master mute — a bus with no way to
-silence it is a feature you cannot play-test twice.
+Only list a row per bus that exists. A knob that turns nothing is the same trap
+as a tier that changes no number: it looks finished, it takes an input, and
+nothing happens.
 
 **6. `verify:audio`.** Small and worth having, because every failure in this
 system is *silence*, and silence is indistinguishable from a quiet moment.

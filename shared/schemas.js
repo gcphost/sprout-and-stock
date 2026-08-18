@@ -126,11 +126,25 @@ const PART = z.object({
    *   pulse   swells and shrinks by `amount` of its own size. A lamp, a heater.
    *
    * WHAT COUNTS AS WORKING is the renderer's question, and it has one rule:
-   * a fixture that can be busy moves while it *is* busy, and a fixture that has
-   * no idea what busy means — a fan, a sign, a mobile — always moves. Only an
-   * appliance can be busy today. Without that second half this would be a field
-   * that silently does nothing on everything except a station, which is the
-   * "tier that changes no number" trap wearing a different hat.
+   * a thing that can be busy moves while it *is* busy, and a thing that has no
+   * idea what busy means — a fan, a sign, a mobile — always moves. Without that
+   * second half this would be a field that silently does nothing on everything
+   * except a station, which is the "tier that changes no number" trap wearing a
+   * different hat.
+   *
+   * Two kinds of thing can be busy, and they answer it from different places. A
+   * fixture is busy mid-batch, which only an appliance can be. A WORKER is busy
+   * when they have a job — `job` on the wire, which the roster already reads —
+   * and deliberately not while they are on a break: `stepStaff` writes
+   * `job = 'break'` for a charge rather than clearing it, so a bot sat with a
+   * mug is the one case the renderer has to spell out. Walking to the mess
+   * counts, because it is the job; standing about with nothing to do does not.
+   *
+   * A hire is a `buildModel` like anything else, so this was collected onto
+   * their group from the day workers stopped being coloured capsules and simply
+   * never animated — which is the shape of a flag that reads as authored and is
+   * dead. If you add a third kind of thing that can be busy, the rule above is
+   * what it owes an answer to.
    */
   motion: z.object({
     kind: z.enum(['spin', 'bob', 'shake', 'pulse']),
@@ -314,7 +328,11 @@ export const UpgradeSchema = z.object({
   // `floor` is here so a flooring deal can be authored as a discount the way
   // every other fixture deal is (`fixtureDiscount`). Nothing ships one — it
   // costs a word to allow and a migration to add later.
-  kind: z.enum(['shelf', 'freezer', 'warmer', 'plot', 'checkout', 'floor', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment']),
+  // `hours` moves the trading window — `{ open, close }` in whole hours, read
+  // by `Game.tradingHours`. A licence rather than a switch, and authored rather
+  // than hardcoded, so "open till ten" and "open all night" are two rows of
+  // content and not two features.
+  kind: z.enum(['shelf', 'freezer', 'warmer', 'plot', 'checkout', 'floor', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment', 'hours']),
   /** Free-form knobs, interpreted by the sim for that `kind`. */
   payload: z.record(z.string(), z.any()).default({}),
   /** Must own these upgrades first. */
@@ -779,6 +797,23 @@ export const PASTIME_SPOTS = [
   'outside',  // out the front, on the path
   'bay',      // round the back, out of sight of the customers
   'till',     // propped against a counter, pretending to look busy
+  /**
+   * ...and the one that is not a place at all: somewhere else on the shop
+   * floor, a fresh tile every time, so what you watch is a circuit rather than
+   * a bot stood still.
+   *
+   * It is a CHORE rather than a rest, and that word is doing all of the work
+   * here — every other rule in this list bends for it. A chore is not sent to
+   * the break area (a robot sweeping in the staff room is not sweeping), needs
+   * no seat, no rung and no empty tank, and puts nothing back. See `tryChore`.
+   *
+   * The reason it is a spot rather than a column of its own: `spot` already
+   * answers "where does this happen", and "not anywhere in particular" is an
+   * answer to that question. A second flag would let somebody author a chore
+   * that happens `here`, which is a bot doing the sweeping animation stood
+   * perfectly still — the thing this exists to stop.
+   */
+  'roam',
 ];
 
 /**
@@ -803,8 +838,16 @@ export const PastimeSchema = z.object({
   spot: z.enum(PASTIME_SPOTS).default('here'),
   /** How long it takes, in seconds of game time. */
   seconds: z.number().min(1).max(600).default(20),
-  /** How much of a full tank it puts back, 0..1. */
-  restores: z.number().min(0.05).max(1).default(0.5),
+  /**
+   * How much of a full tank it puts back, 0..1.
+   *
+   * Zero is legal and is what a `roam` chore is authored at. The floor used to
+   * be 0.05 to stop somebody authoring a break that does nothing — which is
+   * right about a *rest* and exactly wrong about a chore: a bot that recharged
+   * by sweeping would make the break area, the room you paid for and painted,
+   * the slower way to do the same thing.
+   */
+  restores: z.number().min(0).max(1).default(0.5),
   /**
    * They buy something off your own shelf to do it — a snack, a drink. Picked
    * by these tags, paid for at the shelf price, and it lands in the day's

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * THE PLAYGROUND — MCP server for Sprout & Stock.
+ * THE PLAYGROUND — MCP server for Sprocket & Stock.
  *
  * This is what turns "a game we're building" into "a game we're building
  * *inside*". Point a Claude Code agent at this and it can read the live world,
@@ -22,6 +22,37 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { START_TIERS, DEFAULT_TIER } from '../shared/start.js';
+import { JOBS } from '../shared/schemas.js';
+
+/**
+ * What each job actually does, for the tool description.
+ *
+ * Keyed off `JOBS` rather than written out beside it, and the enum below is
+ * `JOBS` itself — because this file had a hand-copied list and it had gone stale
+ * twice over. `merchandise` was missing from the prose entirely, which is
+ * the shape of the problem: the enum is what validates, so a job absent from
+ * this hand-copied list cannot be authored onto a worker through the only
+ * surface content is supposed to go through — complete in the sim and
+ * unreachable from here.
+ *
+ * A job with no line here still validates and simply goes undescribed, which is
+ * the right way round: the sim decides what jobs exist, and this is a gloss.
+ */
+const JOB_HELP = {
+  serve: 'man a till and take payment',
+  restock: 'order wholesale to refill an empty shelf',
+  unload: 'carry a pallet at the delivery bay onto shelves',
+  shelve: 'put whatever is in hand onto a legal shelf',
+  till: 'turn rough soil over',
+  sow: 'plant the chosen crop in a bare bed',
+  harvest: 'pick a ripe plot',
+  craft: 'load an appliance and collect what it made',
+  tidy: 'crate up anything that has nowhere to go, and carry rubbish out to the skip',
+  merchandise: 'take goods back OFF a shelf — clear a dead board, merge a split one',
+};
+const JOB_LINES = JOBS
+  .map((j) => `  ${j.padEnd(12)}${JOB_HELP[j] ?? ''}`.trimEnd())
+  .join('\n');
 
 /**
  * The tiers, spelled out for whoever is reading the tool schema.
@@ -336,15 +367,7 @@ server.registerTool('create_worker', {
   description:
     'Create or update a kind of worker the player can hire — what they look like, what they cost, and what they are willing to do. Live in the running shop within about a second.\n\n'
     + 'JOBS are the whole point. A worker is not a role with a hardcoded program; it is a list of jobs with weights, and one generic brain draws from that list. The job names are fixed, because each one is a routine in the sim — anything else is a worker who stands still:\n'
-    + '  serve    man a till and take payment\n'
-    + '  restock  order wholesale to refill an empty shelf\n'
-    + '  unload   carry a pallet at the delivery bay onto shelves\n'
-    + '  shelve   put whatever is in hand onto a legal shelf\n'
-    + '  till     turn rough soil over\n'
-    + '  sow      plant the chosen crop in a bare bed\n'
-    + '  harvest  pick a ripe plot\n'
-    + '  craft    load an appliance and collect what it made\n'
-    + '  tidy     crate up anything that has nowhere to go\n\n'
+    + `${JOB_LINES}\n\n`
     + 'WEIGHT is how much of that worker\'s attention a job gets. They draw from the list weighted, then fall through to the rest if the drawn job has nothing to do — so weight reads as priority when only one job has work, and as a share of the day when several do. serve 10 + harvest 3 is a till worker who wanders out to the crops when nobody is queueing.\n\n'
     + 'TIERS are the promotion ladder, exactly like a fixture. Tier 1 is who you hired, so it must cost 0. Later tiers cost money and should change numbers AND art, or the button takes money and does nothing:\n'
     + '  speed_mult  how fast they walk\n'
@@ -359,7 +382,7 @@ server.registerTool('create_worker', {
     tags: z.array(z.string()).optional().describe('Call list_tags first. Events aim at tags, never at a worker id.'),
     model: z.any().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. ' + STAGE_HELP),
     jobs: z.array(z.object({
-      job: z.enum(['serve', 'restock', 'unload', 'shelve', 'till', 'sow', 'harvest', 'craft', 'tidy', 'merchandise']),
+      job: z.enum(JOBS),
       weight: z.number().min(0.1).max(100).default(1).describe('Share of their attention. Relative to the other jobs.'),
     })).min(1).describe('What they will do, and how much of each.'),
     tiers: z.array(z.object({
@@ -594,6 +617,8 @@ server.registerTool('create_upgrade', {
     + 'catchment moves the shop somewhere more people walk past (payload {"reach":n}, added to a base of 16). It is the only thing that raises how '
     + 'many customers exist at all — everything else competes for a share of them — so it is the closest thing the game has to a level. '
     + 'Re-run `simulate` after adding a rung: it changes the ceiling on every day that follows.\n\n'
+    + 'hours buys a licence to trade outside the usual 08:00-20:00 (payload {"open":0,"close":24}); the widest window you own wins, and the night still '
+    + 'runs at 6x whatever you hold, so what a licence buys is a thin overnight trickle rather than a longer real-time day.\n\n'
     + 'Note that shelf/freezer/plot/checkout upgrades also set the per-unit price in build mode, where the player buys and places one fixture at a time: '
     + 'a cheaper bundle makes single fixtures cheaper to build and cheaper to sell back.',
   inputSchema: {
@@ -601,8 +626,11 @@ server.registerTool('create_upgrade', {
     name: z.string(),
     description: z.string().default(''),
     cost: z.number().min(0),
-    kind: z.enum(['shelf', 'freezer', 'plot', 'checkout', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment']),
-    payload: z.record(z.string(), z.any()).default({}).describe('Knobs for that kind, e.g. {"plots":4}, {"speedMult":1.3}, {"station":"blender"}, {"width":4,"depth":2} or {"reach":18}.'),
+    // Kept in step with `UpgradeSchema` — a kind the schema accepts and this
+    // enum does not is a kind you cannot author through the tool that exists to
+    // author it, and the refusal names zod rather than the gap.
+    kind: z.enum(['shelf', 'freezer', 'warmer', 'plot', 'checkout', 'floor', 'capacity', 'speed', 'decor', 'staff', 'station', 'space', 'catchment', 'hours']),
+    payload: z.record(z.string(), z.any()).default({}).describe('Knobs for that kind, e.g. {"plots":4}, {"speedMult":1.3}, {"station":"blender"}, {"width":4,"depth":2}, {"reach":18} or {"open":0,"close":24}.'),
     requires: z.array(z.string()).default([]).describe('Upgrade ids that must be owned first.'),
   },
 }, async (args) => text(await call('POST', '/content/upgrade', args)));

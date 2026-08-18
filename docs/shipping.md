@@ -2,7 +2,7 @@
 
 Status: **nothing built.** All eight steps are proposed.
 
-The decision: Sprout & Stock ships as a **downloadable binary**, single-player
+The decision: Sprocket & Stock ships as a **downloadable binary**, single-player
 by default, with a Host button that lets one friend in. Not a hosted service.
 
 The reasoning is in the shape of the code rather than in a business plan. Every
@@ -78,7 +78,7 @@ export const DATA_DIR = path.join(__dirname, '..', 'data');
 ```
 
 [`server/db.js:26`](../server/db.js#L26) — relative to the source file, which
-after packaging is inside `Sprout & Stock.app/Contents/` or Program Files. Both
+after packaging is inside `Sprocket & Stock.app/Contents/` or Program Files. Both
 are read-only. The first write fails, or worse, succeeds into a location the
 next update wipes.
 
@@ -159,23 +159,43 @@ entity, no new renderer, and the stocker tidies it away for free.
 same thing standing on that tile, so a guest whose connection flaps four times
 leaves one crate rather than a forest of one-unit pallets.
 
-### Identity is per install, not per connection
+### Identity is per install, not per connection — **built**
 
-A random `playerId` minted once and kept in the client's local storage, sent as
-a join option. The room keys players on that instead of `sessionId`, and uses
-Colyseus's `allowReconnection` with a short window — long enough for a wifi
-blip, short enough that a guest who has genuinely gone home stops occupying the
-shop.
+A random `who` minted once and kept in the client's local storage (`whoAmI`,
+[client/net.js](../client/net.js)), sent as a join option. The shop keys what it
+remembers about a person on that instead of on `sessionId`, so a reload is the
+same person coming back rather than a stranger arriving — which is what it
+always was everywhere except inside `this.players`.
 
-Reconnect inside the window and you are the same person: same position, same
-colour, same name, and your crate is still in your hands rather than on the
-floor. Reconnect after it, and the drop above has already happened, which is
-the correct outcome and visibly so — the goods are on the floor where you were
-standing.
+Built **without** `allowReconnection`, and the difference is worth writing down
+because it turned out to be the smaller feature. A reconnection window is about
+a socket: it holds the live object open for thirty seconds and then gives up.
+What was actually wanted is about a *save* — reload, restart the server, come
+back tomorrow, and be where you were. So there is no window at all. A leaver is
+written to `Game.away` keyed by `who`, `away` goes into the save beside
+`staffAt`, and `addPlayer` restores from it however long it has been.
 
-Note the ordering trap: `addPlayer` counts humans to assign name and colour
-(`colors[humans % colors.length]`), so a reconnect that runs through the normal
-join path renames the returning player. Restoring has to bypass that count.
+Three things hold it together, and each is a hole if it goes:
+
+- **The record is consumed on the way in.** Two tabs of one browser are one
+  `who`, so a row still sitting there after somebody has claimed it is a second
+  armful of the same six loaves. First one in gets the goods.
+- **...and the reverse: writing a row that already exists drops what the old one
+  held.** Same two tabs, both leaving. That is the one case the crate-on-the-
+  floor behaviour is still exactly right for.
+- **A remembered spot is offered, never trusted.** The shop is rebuilt while you
+  are away, so `canStand` asks the walk grid before putting you back — coming
+  back inside a shelf is worse than coming back at the door, because there is no
+  way to walk out of it. Hands come back regardless: where you stood and what
+  you held are two facts and only one of them a wall can invalidate.
+
+`saveState` writes rows for people who are still CONNECTED as well, which is not
+belt and braces — `node --watch` restarting under a player who never left is how
+this shop actually goes down, and `removePlayer` is never called on that path.
+
+Note the ordering trap that was predicted here and is real: `addPlayer` counts
+humans to assign name and colour (`colors[humans % colors.length]`). The restore
+happens inside that function rather than around it, so the count is untouched.
 
 ### The guest owns nothing, and that is the design
 
@@ -268,8 +288,8 @@ doing — a guest whose shop silently freezes will assume it crashed.
    user-visible; everything else needs it.
 2. **Drop on disconnect.** `dropGoods` in `removePlayer`. Three lines, and the
    only step that fixes a bug that exists *today*.
-3. **Stable player id + `allowReconnection`.** Bypassing `addPlayer`'s human
-   count on the restore path.
+3. ~~**Stable player id + `allowReconnection`.**~~ **Built**, and without the
+   reconnection window — what was wanted was a save, not a socket. See above.
 4. **Pause**, broadcast to both clients.
 5. **Session token.** Minted on host, mandatory when packaged, `OPEN_ROUTES`
    shrunk to the screenshot upload.

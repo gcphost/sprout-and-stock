@@ -53,14 +53,14 @@ exactly when a new player most needs it.
 | `client/sections.js` | `SECTIONS`, `BUILD_TOOLS`, `buildGroups`, `staffGroups`. Every menu and both bars, as data. |
 | `client/bar.js` | The bottom bar itself — tiers, scrolling, the sub row. Knows nothing about what is in it. |
 | `client/panel-drag.js` | Dragging `#panel` by its header, and remembering where each menu was left. |
-| `client/upgrade-menu.js` | One upgrade's own menu — what it does off its payload, and the button that buys it. |
 | `client/worker-menu.js` | Everything one hire can do. Opened by pressing them on the bar. |
 | `client/rail.js` | The rail widget: icons, the lit state, badges, the delivery ring. |
 | `client/tip.js` | The tooltip. One element, moved. Adopts any `title` in the game — see below. |
 | `client/icons.js` | **Generated.** Inline SVG strings. `npm run icons`. |
 | `client/fixture-menu.js` | Everything one fixture can do, including its seed list. |
 | `client/ui.js` | `showSection`/`paintSection` — the one renderer — plus the HUD, the panel and the seed wheel. |
-| `client/hud-meters.js` | The cashflow readout and the demand meter, as pure snapshot → HTML functions. Owns `DEADBAND` and the sparkline. |
+| `client/hud-meters.js` | The cashflow readout and the demand meter, as pure snapshot → HTML functions. Owns `DEADBAND`, the sparkline, and `zeroScale` — where a floating zero line goes, which the Shop report also draws. |
+| `client/report.js` | The Shop panel, as a picture rather than a list. Same pure snapshot → HTML shape as `hud-meters.js`. |
 | `scripts/build-icons.js` | Bakes the icons we name into `client/icons.js`. |
 
 ## Adding a menu
@@ -88,6 +88,15 @@ button: {label, run}, tail, plain }`, or `{ sep }` for a heading. The fixture
 menu builds its seed rows in the same shape and renders them with the same
 `ui.rowHtml`/`ui.wireRows`, so there is one row implementation, not two.
 
+There is a third kind, `{ html }`, and it is deliberately blunt: the string is
+written into the panel body as-is, with no `.row` around it. **A list is the
+right shape for anything you might press and the wrong shape for a report** —
+every row is the same size, so a list says today's profit and "4 picked" are the
+same size of fact. The Shop panel is the one menu that is a picture (see
+`client/report.js`), and this is how it gets in. It carries no `name`, so
+`applyFilter` drops it like a heading; no `run`, so `wireRows` never sees it.
+Anything you put in it you escape yourself.
+
 Two things that will bite:
 
 - **`id` doubles as `openPanel`.** `setCatalog` and `update` both test it to
@@ -103,15 +112,42 @@ Two things that will bite:
 
 Three things use it and never two at once: **Build**, the **roster** and
 **Upgrades**. They are one strip of screen, so claiming it takes it off the
-others (`UI.showBar`), and build mode wins ties — it is a state of the *world*,
-and a bar you cannot see is a mode you cannot see you are in. `UI.barTab` keeps
-each one's open tab separately: they share nothing but the strip, and a roster
-tab is not an answer to a build question.
+others (`UI.showBar`). `UI.barTab` keeps each one's open tab separately: they
+share nothing but the strip, and a roster tab is not an answer to a build
+question.
 
-**Build arms; the other two browse.** A build entry stays lit and the next tap
-on the ground places it. A person or an upgrade *opens* — `showWorker`,
-`showUpgrade` — and leaves nothing armed, so `picked` follows whichever menu is
-open rather than a selection the UI is holding (`renderBrowseBar`).
+**Build mode is one press and the palette is the next** (`UI.pressBuild`). They
+were one press, which meant the only way to be in build mode was with the
+catalogue across the bottom of the screen — and most of what the mode is for is
+rearranging what you already own: dragging a unit two tiles over, turning it,
+opening a doorway, flying the view somewhere you cannot stand. None of that
+needs the shelves, and the shelves are the biggest thing on screen. So the rail's
+hammer cycles mode → palette → out, and Escape unwinds it the same way (the
+palette is its own rung, above the mode and below an armed tool).
+
+Three things hold it together, and each is a way the old shape said something
+this one has to say elsewhere:
+
+- **The bar was the honest test of "is the mode yours", and now `_modeFromMenu`
+  is** (`UI.paletteArmed`). A fixture menu borrows build mode for one press of
+  Empty or Rotate and must not make the ornaments clickable or WASD fly; the bar
+  answered that only because a borrowed mode never raised one. A mode you chose
+  with the bar down is now an ordinary state, so the question has to be asked of
+  who asked for it.
+- **Putting the palette away disarms** (`UI.showBar`). What the bar test was
+  *also* protecting is a tap on bare ground buying a shelf, and that rung stays —
+  it is `toolArmed`, and a tool left armed under a closed palette is the same
+  invisible purchase with nothing on screen holding it.
+- **The rail button is the whole of what says you are in the mode**, so it draws
+  both states: lit for the mode, a pressed-in ring on top for the palette. A bar
+  you cannot see is a mode you cannot see you are in — with no bar at all, the
+  button is what is left to say it.
+
+**Build arms; a person browses; an upgrade acts.** A build entry stays lit and
+the next tap on the ground places it. A person *opens* — `showWorker` — and
+leaves nothing armed, so `picked` follows whichever menu is open rather than a
+selection the UI is holding (`renderBrowseBar`). An upgrade tile does the thing
+it names, in whichever direction it is pointing.
 
 `client/bar.js` is the picker itself: tabs, the sideways scroll, the number
 keys, scrolling the selection into view, the third tier. It draws from data and
@@ -354,15 +390,55 @@ wrong the day a tier is added.
 
 ## Upgrades
 
-The list is the bar (`upgradeGroups`) and one row of it is its own menu
-(`showUpgrade`), so there is no Upgrades *section* any more — `UPGRADE_BAR` is a
-rail item beside `BUILD_MODE`, the second thing on the rail that is not a panel.
+A panel section again (`upgradeRows`), tabbed by `UPGRADE_GROUPS`, and the row
+itself is the button. It has worn three shapes and each one fixed the last one's
+complaint while introducing its own, which is worth having written down:
 
-**One press is the wrong amount of ceremony for a permanent, unrefundable
-$20,000**, which is why a bar entry opens a menu instead of buying. That menu
-reads what it sells off `payload` rather than off the prose — a row edited over
-MCP to 30% off says 30% without anybody remembering to rewrite its description —
-and names what it needs first as rows you can tap to walk the ladder.
+| Shape | Fixed | Broke |
+|---|---|---|
+| rows → a card per upgrade | you could read what one did | two presses to buy, and the card said what the row said |
+| bar tiles → the same card | the list stopped costing a panel | — |
+| bar tiles, no card | one press buys, one press sells back | a 76px tile cannot hold a name, so titles clipped and *what it does* was hover-only |
+| **rows again, the row buys** | the caption says what it does; comparing two is possible | — |
+
+**The tooltip was the actual bug, not the tile.** A tooltip shows one thing at a
+time by construction, so a catalogue explained by hovering is one you can only
+read serially and never *compare* — and comparing is the entire activity here.
+A 214px row has a caption line, which is all it needed.
+
+**What it does is read off `payload`, never off the prose** (`upgradeWhat`). A
+row edited over MCP to 30% off says 30% without anybody rewriting its
+description. This is the one part of the deleted card that was doing work, which
+is why it is the one part that survived it.
+
+**The row buys, and sells back if it is already yours.** `run` sends
+`buy-upgrade` or `sell-upgrade`; the price under the icon is what it costs, or
+what pressing hands back. There *was* a confirmation card, on the argument that
+one press is the wrong ceremony for a permanent, unrefundable $20,000. Both
+halves went: `sellUpgrade` gives half back at `FIXTURE_REFUND`, so it is not
+irreversible, and the way back is a better second chance than a dialog because
+it survives you having already pressed the thing.
+
+**A press that could only be refused is not offered.** No `run` at all when a
+rung below is missing (`dim` — cannot), when you cannot afford it (`soft` — can,
+but not yet), or when something you own stands on it. The caption says which.
+`sellUpgrade` refuses the same cases server-side; the row saying so first is
+what stops the list advertising presses the shop will turn down.
+
+Three kinds never sell, and each is a different way of not being a flag: `space`
+bought land the building has since grown onto, `staff` is the record an old
+save's people were migrated from, and `station` is the *price* of a machine that
+sells back where it stands.
+
+**The panel holds the height of its tallest tab** (`steady` on the section,
+`steadyHeight` in `ui.js`). Seven fixture upgrades against two for you is a
+window that doubles on one press — and on a panel anchored at the bottom the
+strip itself is what moves furthest, so the tab you wanted next is no longer
+under the cursor. Opt-in per section, because the Menu is the counter-example: a
+rule for every tabbed menu would hold its four sound switches at the height of
+its thirty-row keyboard reference. The pitch is measured off two rendered rows
+rather than written down — the CSS owns row height, and a copy of that number
+here is a panel that is right until somebody restyles a row.
 
 **Two kinds no longer list, and neither is deleted** (`RETIRED` in
 `sections.js`):
@@ -410,7 +486,7 @@ moment it exists — including the ones that are a bar rather than a panel.
 
 | Key | Does |
 |---|---|
-| `B` `U` `T` `M` `/` | toggle Supplier · Upgrades · Shop · Milestones · Controls |
+| `B` `U` `T` `M` `/` | toggle Supplier · Upgrades · Shop · Milestones · Menu |
 | `H` | the roster along the bottom — a bar, not a panel (`STAFF_BAR`, which is not a section at all) |
 | `G` | build mode on and off — the rail's Build button presses this |
 | `1`–`9` | the open tab of whichever bar is up, seeds when neither is |
@@ -1044,6 +1120,36 @@ index and not a count of shoppers, which is why only `net`, `fill`, `boards` and
 `event` go on the wire and nothing hands the HUD a figure that looks like a
 count and isn't.
 
+### Putting one away
+
+The meter and the radio could be *moved* long before they could be closed
+(`client/panel-drag.js`), and moving was never the answer to not wanting one:
+every place in this HUD you can drag something to is over something. Both carry
+a ✕ now, and both come back from a row in the Menu — `client/corner.js`.
+
+Four things it is worth knowing before wiring a third one:
+
+**The way back may not be on the thing you closed.** The Menu's rows are
+generated from `CORNERS`, so anything wired with `wireCorner` is listed the day
+it exists. A widget that could be closed and was missing from that list would be
+one nobody can bring back, and that is a bug a player finds before you do.
+
+**The ✕ is built in JS, not authored in the markup.** `ui.update` rewrites the
+demand meter from `innerHTML` ten times a second, so anything sharing that
+element with the bars lives about a tenth of a second. The rows moved into
+`#rci-rows` and the button is a child of the panel — which is also why
+`#rci:empty` became `#rci:has(> #rci-rows:empty)`, or an unfurnished shop draws
+an empty card with a ✕ on it.
+
+**It is its own store, not a flag in `sns-panel-pos`.** Double-clicking a widget
+deletes its entry there to hand the position back, and a shared map would make
+that gesture also un-hide it — one press quietly doing two things, only one of
+which you can see, since a widget you closed is not on screen to watch come
+back.
+
+**Closing says where it went.** A thing that vanishes with no explanation reads
+as broken, and the ✕ is 17px on a hover. The toast names the Menu.
+
 ### The clock — a readout that became a control
 
 The hour was only ever something to read, because opening was only ever
@@ -1171,9 +1277,10 @@ are most interesting at exactly the same moment.
 
 It needs **two** numbers from the server and has both since this shipped:
 `in` (seconds left) and `wait` (the whole journey). `in` alone cannot draw it —
-the runs are two hours apart in the day and one hour apart overnight, so "twenty
-minutes to go" is most of the way there on one and a third of the way on the
-other. `wait` is stored on the order rather than derived, for the same reason
+the runs are an hour apart round the clock but an order joins whichever one is
+next, so "five minutes to go" is nearly there for somebody who ordered on the
+hour and half way for somebody who ordered at ten to. `wait` is stored on the
+order rather than derived, for the same reason
 `runHour` is: `arrivesAt` is rewritten on every load, so the only surviving
 record of how far you have come is the distance you set out to cover.
 
@@ -1190,6 +1297,34 @@ not an `::after` per element, which the rail alone would have made eight of, the
 build bar forty, every one of them a child of something with `overflow` on it.
 Listeners are delegated on the document, because the rail and every menu rebuild
 themselves out of `innerHTML` and a bound listener dies with the node.
+
+**A repaint that changes nothing is not free** (`setHtml`, `client/paint.js`).
+Every live surface here is rebuilt from `innerHTML` behind a signature, and the
+signature is one guard too coarse: a fixture menu's carries stock, queues, hands
+and cash, so a shopper paying two aisles away rebuilds forty rows that come out
+byte for byte the same. The node under the pointer is replaced either way, and
+`:hover` is not re-evaluated until the mouse next moves — so the button you are
+pointing at drops out of its hover state and comes back, in time with the
+snapshot, worst on the surfaces that update most. The panel body, the panel
+title and both rows of the bottom bar compare against the last string they wrote
+and skip the write. Against the last string **written**, not the element's
+current `innerHTML`: `harvest` below moves a `title` onto `data-tip` and removes
+the attribute, so the live markup of the one node you are hovering never matches
+the string that produced it — which is precisely the node worth leaving alone.
+
+**The card outlives the row it is about.** The delegated listeners were only half
+of surviving a repaint. The other half is that the pointer *target* was the
+card's identity — so when a panel rebuilt under a still hand, the browser fired
+`pointerout` on the node being deleted, the card came down, and the identical row
+that replaced it a millisecond later started again from the 110ms delay. A
+tooltip blinking in time with the snapshot, on exactly the rows worth hovering,
+which are the ones that move. Now a target that vanishes leaves the card
+*orphaned* rather than hidden (`orphan`, `ORPHAN_MS`): it keeps its position and
+its `show` class, and the rebuilt row claims it by matching **headline** — not
+the whole card, because the second line is the live half and requiring it to
+match would refuse re-adoption in precisely the case worth keeping a card up
+for. Nothing claims it inside 260ms and it goes, so a row that genuinely left
+takes its card with it.
 
 Anything can ask for one: `data-tip` (headline), `data-tip-key` (a key cap),
 `data-tip-note` (a second line), `data-tip-tone` (`good`/`warn`, which colours
@@ -1274,6 +1409,21 @@ things follow from the width:
 
 Blurbs are one short clause. Anything longer gets ellipsised anyway, so writing
 it long only hides it.
+
+**Rows are chips with 3px between them, and the reason is a lit one.** Stacked
+edge to edge a list reads as a table, which is survivable — right up until two
+adjacent rows are `picked`. Each carries a 2px inset ring, so two of them
+touching draw a 4px seam and the pair reads as one block with a rule through it.
+The spacing is `.sec-row + .sec-row` rather than a gap on the container: a
+heading brings its own margin and its own line, and the last row must not push
+against the panel's padding.
+
+**The lead column is centred; the words are not.** `.sec-row` is `flex-start`
+because a caption that wraps should hang off the name — and that is the wrong
+answer for a single glyph standing for the whole row, which then lines up with
+the first line of it and looks like it slipped. `align-self` on the lead only,
+because moving the row to `center` takes the price, the count and the steppers
+with it.
 
 ## Icons
 

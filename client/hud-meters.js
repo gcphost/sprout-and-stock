@@ -138,21 +138,41 @@ export function cashflowHtml(stats = {}, ledger = []) {
 }
 
 /**
+ * Where zero sits, and how far it is to either end.
+ *
+ * THE ZERO LINE FLOATS, and that is the whole of what this exists to say once.
+ * With no losing day in the week the bars grow off the bottom and use the full
+ * height; a losing day pushes zero up to make room below it. A fixed mid-height
+ * axis would spend half the widget on a half nothing normally reaches.
+ *
+ * Exported because the corner sparkline and the Shop panel's week both draw
+ * this picture at different sizes, in different technologies — one is a 56px
+ * SVG, the other is a column of divs four times the height with labels on it.
+ * What they must not disagree about is where zero is: two widgets showing the
+ * same seven days with the axis in different places is one of them being wrong,
+ * and neither is provable by eye because they are never on screen together.
+ *
+ * `top`/`bottom` are clamped through zero, so a week entirely in profit still
+ * measures from 0 rather than from its own worst day — otherwise the shape is
+ * of the *variation* and a flat good week looks like a crisis.
+ */
+export function zeroScale(values, height) {
+  const top = Math.max(...values, 0);
+  const bottom = Math.min(...values, 0);
+  const span = top - bottom || 1;
+  return { top, bottom, span, zero: (top / span) * height };
+}
+
+/**
  * Profit per finished day, oldest at the left.
  *
  * Bars off a zero line rather than a line chart, because the sign is the thing
  * being read and a polyline crossing an axis is much harder to take in at 46px
- * than a bar that points down. The zero line floats: with no losing day in the
- * week the bars grow off the bottom and use the full height, and a losing day
- * pushes zero up to make room below it. A fixed mid-height axis would spend half
- * the widget on a half nothing normally reaches.
+ * than a bar that points down.
  */
 function sparkHtml(days) {
   if (!days.length) return '';
-  const top = Math.max(...days, 0);
-  const bottom = Math.min(...days, 0);
-  const span = top - bottom || 1;
-  const zero = (top / span) * SPARK_H;
+  const { bottom, span, zero } = zeroScale(days, SPARK_H);
   const slot = SPARK_W / days.length;
   const w = Math.max(2, slot - 1.5);
 

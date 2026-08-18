@@ -95,15 +95,26 @@ before the money moved and that is the half worth keeping. What moved to arrival
 is `dropGoods`, which now lives in `landRun` and is the only thing in the feature
 that touches goods.
 
-**A run, not a timer.** `DELIVERY_RUNS = [8, 14]` at the top of
-[server/sim/index.js](../server/sim/index.js), and an order joins whichever run
-is next. That is the difference between "wait five minutes" and a supply chain:
-everything ordered before the cutoff comes together, which is what makes a
-minimum worth setting and a maximum worth thinking about. It also means one van
-animation per run rather than one per button press.
+**A run, not a timer.** `DELIVERY_RUNS` at the top of
+[server/sim/index.js](../server/sim/index.js) is **every hour, round the clock**,
+and an order joins whichever run is next. That is the difference between "wait
+five minutes" and a supply chain: everything ordered before the cutoff comes
+together, which is what makes a minimum worth setting and a maximum worth
+thinking about. It also means one van animation per run rather than one per
+button press.
 
-The comparison in `nextRun` is strict, so an order placed at exactly 08:00 is on
-the 14:00 van rather than the one pulling away. That is the cutoff doing its job,
+The cadence is flat on purpose, and it has been all three ways. Two runs a day
+(08:00 and 14:00) was a rule you got caught by — missing the morning by a minute
+cost five trading hours and there was nothing you could have done differently.
+Two-hourly while open and hourly once shut was the correction, on the argument
+that a wait is a decision while the doors are open and dead time after; that
+reads well and plays badly, because the half it slows down is the half you are
+stood in the shop for, and a cadence that changes with the clock is one more
+thing to hold in your head. An hour is now the whole rule: the longest anyone
+waits is an hour, whenever they ask.
+
+The comparison in `nextRun` is strict, so an order placed at exactly 09:00 is on
+the 10:00 van rather than the one pulling away. That is the cutoff doing its job,
 and it has a second effect worth naming: an arrival is **always** in the future,
 which is what makes "an order is not a delivery" a rule rather than usually true.
 

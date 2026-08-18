@@ -28,6 +28,7 @@
 
 import * as THREE from 'three';
 import { buildModel, material } from './props.js';
+import { skinnedParts } from '../../shared/model.js';
 
 /** Seconds for one rise-and-fade of a drifting part. */
 const PUFF_SECONDS = 2.4;
@@ -68,10 +69,29 @@ const TAU = Math.PI * 2;
  * reach through it without asking first — the alternative is a null check in
  * every animator, and the one animator that forgot it is a crash on an empty
  * model rather than a prop that isn't there.
+ *
+ * `skin` is the palette of whoever is holding it, and it defaults to null
+ * because only one of the two callers has one: a break is worn by a unit with a
+ * chassis, a trim and a glow, and an appliance mid-batch is furniture. Passing
+ * it means a `tint` on a prop's part reads the same slots the body does, so a
+ * charge cable glows the colour of the machine on the end of it rather than
+ * being the one part of a repainted bot that is still the colour it shipped in.
  */
-export function buildLoopingProp(parts, { castShadow = false } = {}) {
+export function buildLoopingProp(parts, { castShadow = false, skin = null } = {}) {
   const g = new THREE.Group();
-  const list = parts ?? [];
+  // Worn ONCE, here, rather than handed down to each `buildModel` below — a
+  // drifting part is repainted every frame by `fade()` off the colour recorded
+  // in its puff record, so a puff built from a skinned part and remembered from
+  // an authored one would flip back to the colour it shipped in on frame two.
+  // Skinning the list up front means every reader downstream — the split, the
+  // puff's colour, the mesh loop — sees the same worn part.
+  //
+  // The PALETTE only, never `extras`. A skin is two things: colours for slots,
+  // and up to four parts bolted onto the body wearing it. The first is what a
+  // prop wants; the second belongs to the body and nothing else, so handing the
+  // whole skin over would staple a repainted bot's decals onto the mug in its
+  // hand — once per prop, on top of the pair already on the body.
+  const list = skinnedParts(parts ?? [], skin ? { slots: skin.slots } : null);
 
   const held = buildModel({ parts: list.filter((p) => !p.drift) }, { castShadow });
   g.add(held);

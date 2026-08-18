@@ -1,8 +1,8 @@
 [
   {
     "id": "backpack-1",
-    "name": "Bigger Crate",
-    "description": "Carry 12 items at a time instead of 6.",
+    "name": "Carrying Rig",
+    "description": "A harness and side pouches. Your hands hold 12 at a time instead of 6 — crates are a fixed size and are not affected.",
     "cost": 75,
     "kind": "capacity",
     "payload": {
@@ -48,7 +48,7 @@
   {
     "id": "catchment-retail-park",
     "name": "Retail Park Unit",
-    "description": "Out of town, off the ring road, with a car park. Nobody walks past — they drive to you.",
+    "description": "Out of town, off the ring road. Nobody walks past — they drive to you, so lay yourself some tarmac and somewhere to park before you move.",
     "cost": 20000,
     "kind": "catchment",
     "payload": {
@@ -72,7 +72,7 @@
   {
     "id": "checkout-3",
     "name": "Register Trade Account",
-    "description": "Buy registers at trade. 40% off every till you install — which is what you want before you line up a bank of self-service machines.",
+    "description": "Buy registers at trade. 40% off every till you install, replacing the earlier deal rather than stacking with it — worth having before you line up a bank of self-service machines.",
     "cost": 850,
     "kind": "checkout",
     "payload": {
@@ -81,6 +81,30 @@
     "requires": [
       "checkout-2"
     ]
+  },
+  {
+    "id": "decor-frontage",
+    "name": "New Shopfront",
+    "description": "Timber frontage, deep window bays and a lit stall out front. Adds to the repaint rather than replacing it — and like everything that makes the shop lovely, it reaches fewer new people the more of it you have.",
+    "cost": 1400,
+    "kind": "decor",
+    "payload": {
+      "charm": 8
+    },
+    "requires": [
+      "decor-repaint"
+    ]
+  },
+  {
+    "id": "decor-repaint",
+    "name": "Repaint and Signage",
+    "description": "New paint, a proper hanging sign and a swept forecourt. Nothing you place — the whole shop just looks like somewhere that is doing well, and word gets about.",
+    "cost": 450,
+    "kind": "decor",
+    "payload": {
+      "charm": 4
+    },
+    "requires": []
   },
   {
     "id": "freezer-1",
@@ -94,9 +118,48 @@
     "requires": []
   },
   {
+    "id": "freezer-2",
+    "name": "Cold Chain Account",
+    "description": "A trade line with the refrigeration supplier. 35% off every freezer you build, and it replaces the earlier deal rather than stacking with it.",
+    "cost": 720,
+    "kind": "freezer",
+    "payload": {
+      "discount": 0.35
+    },
+    "requires": [
+      "freezer-1"
+    ]
+  },
+  {
+    "id": "licence-24-hour",
+    "name": "24-Hour Licence",
+    "description": "The doors never have to shut. Night footfall is about a tenth of the evening rush and the dark still passes quickly, so this pays out slowly — and only while somebody is standing at the till.",
+    "cost": 3200,
+    "kind": "hours",
+    "payload": {
+      "open": 0,
+      "close": 24
+    },
+    "requires": [
+      "licence-late"
+    ]
+  },
+  {
+    "id": "licence-late",
+    "name": "Late Licence",
+    "description": "Trade until midnight. The evening rush is long over by then, so what you get is a trickle — worth it if somebody is on the till anyway.",
+    "cost": 900,
+    "kind": "hours",
+    "payload": {
+      "open": 8,
+      "close": 24
+    },
+    "requires": []
+  },
+  {
     "id": "plot-2",
-    "name": "Second Field",
-    "description": "Clear the scrub behind the shop. Breaking new ground costs 20% less from here on.",
+    "name": "Groundwork Deal",
+    "description": "A standing order with the timber yard for bed frames and topsoil. 20% off every raised bed you build from here on.",
     "cost": 120,
     "kind": "plot",
     "payload": {
@@ -106,8 +169,8 @@
   },
   {
     "id": "plot-3",
-    "name": "Back Forty",
-    "description": "Buy the strip along the fence line. 35% off every bed you dig.",
+    "name": "Growers Account",
+    "description": "Buying frames by the pallet. 35% off every bed you dig, and it replaces the standing order rather than stacking with it.",
     "cost": 480,
     "kind": "plot",
     "payload": {
@@ -130,8 +193,8 @@
   },
   {
     "id": "shelf-3",
-    "name": "Trade Account",
-    "description": "Buy shelving at trade. 30% off every shelf you put down.",
+    "name": "Shopfitters Account",
+    "description": "Buy shelving at trade. 30% off every shelf you put down, and it replaces the standing order rather than stacking with it.",
     "cost": 360,
     "kind": "shelf",
     "payload": {
@@ -143,8 +206,8 @@
   },
   {
     "id": "space-1",
-    "name": "Side Extension",
-    "description": "Buys the land west of the shop and pushes the building out three tiles. Since you can wall and floor a room yourself, what this really sells is room to do it in — the map only stretches as far as you own.",
+    "name": "East Paddock",
+    "description": "Three more columns of land down the east flank. Nothing is built for you and nothing you built moves — it is ground you are allowed to wall, floor, farm and pave, which is the only thing the map was ever short of.",
     "cost": 650,
     "kind": "space",
     "payload": {
@@ -154,8 +217,8 @@
   },
   {
     "id": "space-2",
-    "name": "Back Extension",
-    "description": "Three more tiles of land behind the shop, and the building grows into them. Deeper aisles, longer queues before anyone spills onto the street, and more ground you are allowed to build on.",
+    "name": "South Paddock",
+    "description": "Three more rows of land toward the street. Same deal as the east strip: the building stays exactly where it is, and what you get is somewhere to put an annex, a longer drive or another block of beds.",
     "cost": 900,
     "kind": "space",
     "payload": {
@@ -245,7 +308,7 @@
   {
     "id": "station-deep-fryer",
     "name": "Deep Fryer",
-    "description": "Adds a deep fryer to the shop floor.",
+    "description": "A basket and a vat of hot oil. Makes doughnuts out of your own wheat and eggs, and turns oven chips into hot chips — which want a hot counter, not a shelf.",
     "cost": 210,
     "kind": "station",
     "payload": {
@@ -267,7 +330,7 @@
   {
     "id": "station-juicer",
     "name": "Juicer",
-    "description": "Adds a juicer to the shop floor.",
+    "description": "A press with a jug under it. Tomatoes and carrots off your own beds go in; garden juice and ketchup come out, worth several times the vegetables.",
     "cost": 190,
     "kind": "station",
     "payload": {
@@ -300,7 +363,7 @@
   {
     "id": "station-sandwich-press",
     "name": "Sandwich Press",
-    "description": "Adds a sandwich press to the shop floor.",
+    "description": "A hinged plate that toasts both sides at once. Bread plus a filling, out in a minute — the cheapest way to turn two shelf items into one better one.",
     "cost": 170,
     "kind": "station",
     "payload": {
@@ -311,7 +374,7 @@
   {
     "id": "station-soft-serve",
     "name": "Soft-Serve Machine",
-    "description": "Adds a soft-serve machine to the shop floor.",
+    "description": "A chilled hopper and a lever. Milk plus berries or jam, out as swirls and lollies — and unlike the rest of the kitchen, what it makes needs a freezer rather than a shelf.",
     "cost": 320,
     "kind": "station",
     "payload": {
@@ -329,5 +392,29 @@
       "station": "toaster"
     },
     "requires": []
+  },
+  {
+    "id": "warmer-1",
+    "name": "Hot Counter Deal",
+    "description": "Heat lamps and gantries at trade price. 20% off every hot counter you build.",
+    "cost": 240,
+    "kind": "warmer",
+    "payload": {
+      "discount": 0.2
+    },
+    "requires": []
+  },
+  {
+    "id": "warmer-2",
+    "name": "Servery Fit-Out",
+    "description": "The whole servery run, bought as one job. 35% off every hot counter.",
+    "cost": 640,
+    "kind": "warmer",
+    "payload": {
+      "discount": 0.35
+    },
+    "requires": [
+      "warmer-1"
+    ]
   }
 ]

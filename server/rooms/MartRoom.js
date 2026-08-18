@@ -169,6 +169,26 @@ export class MartRoom extends Room {
         client.sessionId,
         m?.shelfId ? String(m.shelfId) : null,
         m?.itemId ? String(m.itemId) : null,
+        // Which button, the same field `crate-one` carries and for the same
+        // reason: left takes, right puts, and the shop is told which rather than
+        // guessing from what happens to be in your hands.
+        !!m?.put,
+      );
+      if (!res.ok) client.send('action-result', res);
+    });
+
+    // ...and the same tap on an appliance. Its own message rather than a mode on
+    // `shelf-one` because a station is not a shelf and never was: that is exactly
+    // the bug this fixes — `Game.tapStation`.
+    this.onMessage('station-one', (client, m) => {
+      const res = this.game.tapStation(
+        client.sessionId,
+        m?.stationId ? String(m.stationId) : null,
+        // Which button, the same field `crate-one` and `shelf-one` carry: left
+        // takes one off the tray, right puts one in the hopper. No pile to name
+        // in either direction, unlike a shelf — a machine's goods are inside it,
+        // so there is nothing on screen the pointer could have meant.
+        !!m?.put,
       );
       if (!res.ok) client.send('action-result', res);
     });
@@ -276,6 +296,15 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.buyStock(client.sessionId, m?.itemId, Number(m?.qty) || 1));
     });
 
+    // ...and off it again, while it is still waiting for a run. Its own message
+    // rather than a negative `qty` on the one above: the two have opposite
+    // guards — one is about room at the bay and money in the till, the other
+    // about whether the lorry has left — and a sign flip is the shape of a
+    // typo that spends money.
+    this.onMessage('cancel-order', (client, m) => {
+      client.send('action-result', this.game.cancelOrder(client.sessionId, m?.itemId ? String(m.itemId) : null));
+    });
+
     // `itemId` is WHICH board. A unit holds one price per board, so a price
     // change that did not name one would have to guess, and any rule for
     // guessing reprices something the player was not looking at.
@@ -336,6 +365,15 @@ export class MartRoom extends Room {
       client.send('action-result', this.game.setItemRule(m?.itemId, m ?? {}));
     });
 
+    // Put something back on the list the shop stopped stocking by itself. Its
+    // own message rather than a field on `item-rule` for the reason `stockAgain`
+    // gives: one is a standing instruction of yours, the other is cancelling a
+    // guess the shop made, and folding them together would leave you with a rule
+    // you never wrote.
+    this.onMessage('stock-again', (client, m) => {
+      client.send('action-result', this.game.stockAgain(m?.itemId ? String(m.itemId) : null));
+    });
+
     /**
      * The doors, and the clock.
      *
@@ -358,6 +396,12 @@ export class MartRoom extends Room {
       const res = this.game.buyUpgrade(m?.upgradeId);
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
+    });
+
+    // The way back off one. No layout to send: the only upgrade that ever
+    // changed the shape of the world is the one `sellUpgrade` refuses.
+    this.onMessage('sell-upgrade', (client, m) => {
+      client.send('action-result', this.game.sellUpgrade(m?.upgradeId));
     });
 
     this.onMessage('rename', (client, m) => {
@@ -482,7 +526,9 @@ export class MartRoom extends Room {
     // so it moves when somebody actually walks in — not when a room boots, which
     // an agent can cause without anyone playing anything.
     touchWorldRow(this.worldId);
-    this.game.addPlayer(client.sessionId, options?.name);
+    // `who` outlives the socket where `sessionId` does not — see `whoAmI` in
+    // client/net.js. It is what puts you back where you were standing.
+    this.game.addPlayer(client.sessionId, options?.name, options?.who);
     this.sendLayout(client);
     client.send('catalog', this.catalog());
     // Which shop this is, sent with who you are. The HUD says the name out loud

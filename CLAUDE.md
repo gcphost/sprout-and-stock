@@ -1,7 +1,22 @@
-# Sprout & Stock — working agreement
+# Sprocket & Stock — working agreement
 
-A farming + mini-mart game, built by two people at the same time, each with
-their own agent, against one shared running world.
+A shop-and-farm game staffed entirely by robots, built by two people at the same
+time, each with their own agent, against one shared running world.
+
+The player is the only human who works here. Every hire is a machine — that has
+been true of the *art* since workers became content (`server/sim/names.js` draws
+staff from a machine register and shoppers mostly from a human one), and as of
+the rebrand it is true of the words too. Two conventions follow, and both are
+about words rather than code:
+
+- **User-facing text calls them robots.** Hires are a crew, wages are a lease,
+  a break is a charge, a tier is firmware. Anything a player reads should agree.
+- **Ids, columns and enums are untouched.** `staff-clerk`, `GROUND.break`,
+  `T.BREAK`, `wage_mult`, the `workers` table — every one of those is load-
+  bearing on a live save or an authored content row, and renaming them buys a
+  tidier grep at the cost of everyone's shop. The `wage`/`break` spelling in the
+  code is the old name for a thing the player now sees a new name for, which is
+  ordinary, and the trap to avoid is "fixing" the mismatch later.
 
 Read this before changing anything.
 
@@ -107,7 +122,14 @@ Fifteen sweeps, about twenty seconds:
   off pins every hire at `TIRED_PACE` forever — and that a break taken in it
   restores more than the same break taken leaning on a shelf, or the room is
   ground you pay for that only costs you the walk. It authors its own ground,
-  pastime and worker rows and removes them on exit.
+  pastime and worker rows and removes them on exit. Since step 10 it also guards the
+  charge a **promoted** unit takes on its own after fifteen seconds with nothing
+  to do, which is invisible twice over — a bot in the room because it is worn out
+  and one because the shop is quiet are the same still frame, and the two claims
+  that matter are about somebody who did NOT go and a charge that ENDED. Its
+  centrepiece is that the charge is broken off **before the hire's own deadline**
+  rather than before a stopwatch: timed, it passes on a charge that simply ran
+  out, which is precisely the bug.
 - `verify:economy` guards what a fixture costs and how many of them there are:
   that the price comes off the catalog row and not off an upgrade payload, that
   a build-and-sell round trip always loses money rather than printing it, that a
@@ -221,12 +243,50 @@ Fifteen sweeps, about twenty seconds:
   the sign, which is the one claim that is a comparison rather than a value; that
   no place in a queue is ever beyond a ruled opening; and that the refit costs
   nothing in either direction. It authors one floor row and removes it on exit.
+- `verify:orphans` guards what happens to goods when the row that named them is
+  deleted out from under them. Content is edited live, so an item can stop
+  existing while cases of it are on a board, in a crate, in somebody's hands, on
+  a shoulder, in a hopper, in a tray and on a van — and every loop in the sim
+  that touches stock opens by looking the row up and skipping what it cannot
+  find, which is right in each one and adds up to goods nothing can sell,
+  shelve, spoil or shift. So it is mostly a sweep about PLACES: six of them, six
+  different shapes, and the failure mode is not "the bin is wrong" but "the bin
+  has never heard of shoulders", which passes everything else. Its control is a
+  second item authored identically, never deleted, and put in all six beside the
+  first, because nearly every way of getting this wrong destroys too much rather
+  than too little. Two claims are not about places: that a re-flow still
+  *forgives* an unknown item while the roll collects it (those two rules must
+  not be "unified"), and that a row deleted and put back before midnight costs
+  nothing. Plus: pile by pile rather than box by box, the bay coming back, and
+  no money moving in either direction. It authors two item rows and removes them
+  on exit.
+
+- `verify:bin` guards the first way stock has ever had OUT of the shop, and the
+  one claim in it worth keeping is about somebody NOT doing something. A skip
+  does two jobs that look like one — you throw away what you are carrying, and
+  your crew carry out what has already rotted — and the line between them is
+  docs/workers.md's, said about the shop hand: *what something is worth is the
+  player's question, and a worker answering it is a worker spending your money*.
+  So a hire may take out what is already worthless and may never decide six
+  loaves are not worth keeping, which is a claim about a job loop nobody is
+  watching: a crate of good bread walked to the tip and a crate of rot walked to
+  the tip are the same picture. Its other claims are the `inACar` trap said
+  about crates — ten loops walk `deliveries` meaning "stock" and every one is a
+  different kind of wrong about rubbish, so there is one spelling
+  (`stockCrates`) and three readers that keep the whole list; that a shop with
+  no skip is the old game **to the cent**, since rot only becomes a box if you
+  own one; that the money does not move either way; that both directions of the
+  merge are refused (`dropGoods` into rubbish is the one that would actually
+  happen); and the four places a new kind dies quietly — `compose`'s `else` is
+  `makeShelf`, so a bin with no branch is not refused, it is silently BUILT AS
+  SHELVING. It authors two items, a piece and a worker, and removes them on exit.
 
 Each of the first twelve found real bugs the day it was written, and so did
 `verify:hot` — two, both of them a list of kinds somebody had written out by
-hand. `verify:motion`, `verify:hand`, `verify:park` and `verify:doors` are the
-exceptions and say so: each shipped with its feature, because every claim it
-makes is invisible in a still frame by construction. None of them is visible in a screenshot of one
+hand — and so did `verify:orphans`, which is the only one so far written to a
+bug reported from a screenshot. `verify:motion`, `verify:hand`, `verify:park`
+and `verify:doors` are the exceptions and say so: each shipped with its feature,
+because every claim it makes is invisible in a still frame by construction. None of them is visible in a screenshot of one
 seed — which is exactly why they exist.
 
 ⚠️ **`simulate` also inherits who works for you.** `Game.create` reads the saved
@@ -251,6 +311,7 @@ Keep to your side and you'll almost never touch the same file.
 | Look of things (colours, props, characters) | `client/render/palette.js`, `client/render/props.js` | Safe, self-contained, very visible. Good place for a kid to start. |
 | UI and HUD | `client/ui.js`, `client/index.html` | |
 | What a palette button shows | `client/thumb.js` | Draws a fixture, a floor or a wall from its own art, as inline SVG. Reads `palette.js` — never its own colours. |
+| How the shop is doing | `client/report.js` | The one menu that is a picture rather than a list. Pure snapshot → HTML, like `hud-meters.js`. |
 | Rendering internals | `client/render/scene.js` | |
 | Economy and balance | `server/sim/economy.js` | Re-run `simulate` after every change. |
 | Customer behaviour, crops, actions | `server/sim/index.js` | The biggest file. Coordinate before restructuring. |
@@ -290,6 +351,11 @@ shared/     tags.js       the tag vocabulary + what tags DO
             schemas.js    zod validation — the only gate into the database
             build.js      BUILD_KINDS + where a thing may go (client and server)
             pieces.js     which catalog row a placed thing is, and its ledger name
+            jobs.js       how much of a hire's day there is to hand out, and what
+                          a rung adds to it (client and server, same reason)
+            reputation.js the seven things that move the shop's reputation, and
+                          the words for them — the sim writes the keys, the Shop
+                          report draws them, `simulate` names the worst one
 server/     db.js         SQLite, content tables, content_version trigger
             content.js    in-memory registry; reloads when content_version bumps
             layout.js     procedural store + farm, sized to what you own
@@ -323,8 +389,10 @@ what the next step was meant to be.
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
-| [docs/audio.md](docs/audio.md) | three buses and only three, a crowd that is a gain rather than a trigger, why the sounds cannot come from the log, sound as a column on a catalog row, and the Sound and Credits tabs in the `?` menu | proposed, nothing built |
-| [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | proposed, nothing built |
+| [docs/audio.md](docs/audio.md) | a bus per slider, why the sounds cannot come from the log, the four caps that stop a busy shop being a slot machine, sound as a column on a catalog row, the Sound rows and the Credits tab in the Menu — and why the ambient bed was built, played and cut | steps 2, 3, 5 built; 1 cut; 4, 6 proposed |
+| [docs/waste.md](docs/waste.md) | the shop's way out — the skip, why a hire may carry out rot and never your stock, rot becoming a box on the floor only if you own one, and the one spelling that keeps rubbish from reading as supply | step 1 built; 2–3 proposed |
+| [docs/pickups.md](docs/pickups.md) | the customer who never comes in — a collection point as a till whose queue is fed by the road, why picking is `serve` rather than a new job, why a staged tote is not stock, and the share that is a consequence of owning one | all proposed |
+| [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | steps 2–3 built; 1, 4–8 proposed |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
 
 ---
@@ -428,6 +496,25 @@ what the next step was meant to be.
   them. Hauling only ever runs **out of the yard** (`onAPad`), which is what
   makes it terminate: without that, two shelves pass one crate back and forth
   for ever.
+- **The BUTTON says which way the goods go: left takes, right puts.** It was
+  your hands that said it — a shelf with an armful was somewhere to put things,
+  a shelf with empty hands was somewhere to take them from — and that guess is
+  what made one button work at all. What it cost is the gesture underneath:
+  `boardTakes` excluded full hands, so the unit won the whole tap and a board
+  you wanted one loaf off was unreachable with anything in your arms. You could
+  not walk round plucking one of each, which is what a shopkeeper does. So the
+  direction is *said*, which is the sentence `tapCrate` has carried since a
+  crate became rummageable, now true everywhere: **a tap is one unit, a hold is
+  the lot**, on either button. Three things this rests on. The right press has
+  to arm on the way DOWN (`armPut`) — the ring winds off `p.errand`, so naming
+  it on release is a hold that does nothing however long you hold it. It has to
+  `release()` the moment the view TURNS, because the right drag is also the
+  camera and the player does not move while it spins — `moving`, the server's
+  own answer to a walk-past, never fires, so a ring left winding through a turn
+  empties your hands onto whatever you were last pointing at. And a right
+  release that lasted past `LONG_PRESS_MS` is not also a tap, or pouring an
+  armful ends by putting one more unit down. `syncStockAim` is gone with it: the
+  pointer owned the put-aim only because the hold had to mean either direction.
 - **You name it, and the ring fires it.** Anything that moves goods into or out
   of your hands is pointed at first: a tap on a fixture is a *walk plus a name*
   (`walkToFixture` sets `p.errand`), a tap on the drop-off is the same thing on
@@ -794,10 +881,16 @@ what the next step was meant to be.
   you are pointing at is a menu that does not exist. `pickWay` (client/main.js) is
   the aim, and it is asked by the hover AND by the tap, which is `boardTakes`'s
   rule and matters for the same reason: a bar that lit up while the press opened
-  the shelf behind it is the green-ghost bug wearing a marker. Two things about it
-  are worth knowing. The precedence is **person, fixture, crate, then the way** —
-  things beat gaps — and that is what keeps the shop front usable, because the
-  awning stands on the very tile the front door opens onto. And **the hold opens
+  the shelf behind it is the green-ghost bug wearing a marker. Three things about
+  it are worth knowing. The precedence is **person, fixture, crate, then the way**
+  — things beat gaps — and that is what keeps the shop front usable, because the
+  awning stands on the very tile the front door opens onto. **It is build mode
+  only** (`paletteArmed`, the test `aimable` uses, so a mode a fixture menu
+  borrowed puts nothing on the walls): every row on that menu is a build verb, and
+  a doorway is *everywhere* — the shop front is a line of them, so out of the mode
+  the amber bar lit along the whole front of the building as the pointer crossed
+  it. `toggleBuild` shuts an open one on the way out, beside the fixture menu.
+  And **the hold opens
   nothing** (`HOLD_OPENS = false`): the gesture is wired end to end and switched
   off, so a new thing you can point at, added only to `openAtPointer`, ships dead
   — the tell is a highlight that works over a press that does nothing.
@@ -878,13 +971,29 @@ what the next step was meant to be.
   `simulate` and every `verify:*` sweep — and a balance run against a shop that
   never opens reports zero with nothing in the output to say why. "A new shop
   starts shut" is therefore written by `createWorld` at creation, not defaulted
-  in `Game`, and `simulate` forces the shutters up beside `autoServe`. `paused`
-  is the other half of the clock and is deliberately NOT saved: it stops `step`
-  before `elapsed` moves, which is what keeps it clear of every stamp trap in
-  this list, and a save that came back paused would be a shop that looks broken
-  on load. The renderer has to be *told* (`scene.paused`), because
-  `animateStations` is the one loop driven by the page's clock rather than the
-  shop's — a blade still turning in stopped time reads as the pause not working.
+  in `Game`, and `simulate` forces the shutters up beside `autoServe`. The
+  renderer has to be *told* (`scene.paused`), because `animateStations` is the
+  one loop driven by the page's clock rather than the shop's — a blade still
+  turning in stopped time reads as the pause not working.
+- **…and `paused` is saved as a STAMP, because "not saved" quietly meant "until
+  the next restart".** It was in memory on the argument that a pause is a fact
+  about the person rather than about the shop — like where the camera is
+  pointing — and that a save coming back paused would look broken on load. Both
+  halves are right about somebody who walked away and wrong about the case that
+  actually happens: a dev-mode restart is the same person, at the same desk, two
+  seconds later, looking at a shop they stopped. A live save had **six in-game
+  days** run past a pause pressed at 18:00, because the server was restarted to
+  pick up a code change — and nothing says a word, because a shop that
+  un-paused and a shop that was never paused are the same screen. So
+  `setPaused` stores `pausedAt` and `pauseHolds` honours it for five minutes:
+  a restart comes back stopped, a night off does not. Three things about it.
+  The clock is **`Date.now()` and not `elapsed`**, which inverts this list's
+  usual trap — `elapsed` restarts at zero on every load, so it cannot measure
+  the one thing being asked about, which is time spent with the game *not
+  running*. `setPaused` has to **`persist()` itself**, because a paused game
+  never steps and therefore nothing else would ever write the save again. And a
+  stamp from the *future* reads as not-paused rather than as for ever, or a
+  clock moved back leaves a shop that will not start whatever you press.
 - **A refusal has to come before the money moves, not after the decision.**
   `buyStock` deducted cash, then checked there was a bay to deliver onto — so an
   order with nowhere to land was refused *and* charged for. It read as correct
@@ -898,6 +1007,29 @@ what the next step was meant to be.
   stamp puts the last payout in the future and the thing never pays again.
   `persist` already learned this about `plantedAt` and stores crops as how long
   they *have* grown. `yieldedAt` is in-memory with a `last > elapsed` guard.
+- **Every loop that touches stock skips an item it cannot look up, and the sum
+  of all that correct forgiveness was goods nothing could ever shift.** Content
+  is edited live, so `delete_content` can land while cases of that item are on a
+  board, in a crate, in your hands, on a shoulder, in a hopper, in a tray and
+  paid for on a van. Not one of those readers is wrong — a lookup that guessed
+  would be worse — but the total is stock that can never be sold, shelved,
+  spoiled or moved, holding a board and a bay cell for ever. **It is invisible in
+  exactly the wrong direction:** a crate whose item has gone renders as a crate
+  with nothing in it and the `x12` still on the front, because `syncPallet` has
+  no model to draw — so the symptom points at the renderer and the cause is a row
+  somebody deleted in another window. And you get there by accident, because the
+  verify sweeps author test items into the live shared content database and a
+  shop that is OPEN while one runs will buy them: the tags on them are real, so
+  the ordering does exactly what the tag system is for. Shop 2 collected 84 units
+  of `zz-yard-spud` and `zz-kit-bean` that way, and the tell was not the crates —
+  it was `bayRoom` at 6 out of 108 and the shop quietly failing to order
+  anything. `binOrphans` collects it at the day roll. Two things about where that
+  sits. It is **the roll and not the delete**, because `applyPlacements`
+  deliberately lets an unknown item ride on a re-flow and a re-flow fires on
+  every wall segment — binning there would be instant, repeated and
+  unrecoverable, so the two rules are a pair rather than a contradiction and a
+  day is the grace. And it **moves no money and cannot even price what it took**:
+  `spoiledValue` needs the row, and the row is the thing that has gone.
 - **A pad is a job, and the third one holds people.** The break area
   (`GROUND.break` → `T.BREAK` → `L.break`) is painted with the same brush the bay
   is, and *one cell seats one person* — the yard's "how big you paint it is how
@@ -1029,6 +1161,35 @@ what the next step was meant to be.
   curve saturates at `CHARM_MAX` — otherwise the cheapest strategy in the game
   is a room full of pot plants. It is also the first thing that has ever read
   the `decor` upgrade kind, which sat in the schema dead since it was written.
+  **A working system with no content in it is indistinguishable from a broken
+  one**, and this was that for as long as it existed: `charm` was authored on
+  exactly ONE row in the catalog (`money-tree`, 4.0), so eighteen decorations —
+  every lamp, planter, awning and sign in the game — were worth nothing, and a
+  shop with fourteen awnings up reported a charm of zero. Nothing is wrong in
+  the code and nothing logs anything; what it reads as is decorating not doing
+  anything, which is the same picture as decorating not being implemented. The
+  tell was a milestone asking for ten charm that no amount of building could
+  reach. Worth checking, whenever a mechanic reads a content column: how many
+  rows have ever set it?
+- **…and reputation moves through ONE function, so that it can leave a
+  receipt.** Six places wrote `this.reputation = clamp(this.reputation ± x)`
+  directly, which is correct and tells nobody anything: it is the slowest number
+  in the game, footfall is downstream of it, and a shop sliding from 70% to 40%
+  over a week had seven mechanics to guess between — which in play reads as the
+  bar moving on its own. `Game.moveRep(delta, cause)` is the only writer now and
+  the tally (`stats.repMoves`) is a byproduct of the write rather than a second
+  set of books beside it, so it cannot drift from the number it explains. Three
+  things about it. What is banked is what LANDED — the clamp first, the
+  difference tallied — so a shop already on the floor honestly reports that
+  another storm-out cost it nothing. The causes live in `shared/reputation.js`
+  and the keys are constants, because three readers have to agree about them and
+  a typo would open a silent eighth bucket that every readout prints as a raw
+  key. And the tally is raw in memory and **rounded on the wire**: `crowd`
+  accrues a few ten-thousandths every tick a shop is packed, and the Shop
+  panel's refresh test is a stringify of `stats` — so the unrounded float would
+  redraw the report ten times a second for as long as the shop was busy, which
+  is the one state in which somebody is reading it. Spoilage is deliberately not
+  in the list: rot costs money, and nobody who walked in today ever saw it.
 - **A tile is ground. What is standing on it is `layout.blocked`.** They were
   one array until step 5 of docs/building.md, which is why there was nowhere to
   put a rug — a rug is not a floor material and not an occupant, and one value
@@ -1108,6 +1269,33 @@ what the next step was meant to be.
   now, along with `budgetOf`. **Anything that enumerates kinds and has a
   fallback is a place a new kind dies quietly**, because the fallback is always
   the sensible-looking one.
+- **A break outranks the job list; a CHARGE does not, and that inversion is the
+  whole feature.** Anything above the bottom rung takes itself off to the break
+  area after 15s with nothing to do (`tryCharge`, `server/sim/staff.js`). If it
+  held the tick the way a tired break does, promoting your clerk would buy you a
+  till nobody is on for twenty seconds at a stretch — a shop that gets *slower*
+  when you spend money on it, with a bot in the break room as the only clue.
+  `onBreak` hands the tick back while `idleCharge` is set, whatever the draw
+  takes calls `endCharge`, and the energy credit is pro-rata. Three things it
+  cost, each invisible: the boredom clock must NOT be cleared when the charge is
+  decided (the walk to the room takes ticks, and a hire who arrives no longer
+  bored charges fifteen seconds later, in the break room, where it looks fine);
+  `idleCharge` has to be set where the pastime is rather than by the caller, or
+  the ticks spent walking are a charge that outranks the job list; and `idle()`
+  had to learn not to walk a charging clerk back to their till. `simulate` is
+  blind to all of it — the balance bot never promotes, so every hire in a run is
+  on rung 1 and the rng stream is untouched.
+- **A hire's weights were RELATIVE, and are now also a budget.** `stepStaff`
+  draws from the list in proportion, so `serve 10, tidy 1` and `serve 100,
+  tidy 10` are the same worker — which is why the absolute size of the numbers
+  could be anything, and why the seeded kinds total anywhere from 11 to 33 with
+  nobody having chosen a total. `shared/jobs.js` gives that sum a meaning it did
+  not have (you cannot max every directive; a rung buys +8), and the trap is the
+  floor: the cap is `max(JOB_POINTS, what the KIND was authored with)`, because
+  any flat number below 33 hands you a farmhand who is over budget the day you
+  hire them. Over budget is a state you can be in — a rollback puts you there —
+  and never one you can move further into, or `demote` would silently rewrite
+  somebody's shift.
 - **A tier that changes no number is a button that takes money and does nothing.**
   `capacity_mult`, `keeps_mult`, `speed_mult` and `unattended` are the only knobs
   the sim reads. The till ladder was priced at 0 for exactly that reason until
@@ -1253,6 +1441,21 @@ what the next step was meant to be.
   general shape: **an invariant a lookup relies on can be retired by a feature
   three files away**, and "one fixture per tile" was retired the day a prop
   stopped owning its cell.
+- **A colour that is right on a bar is not right on the number beside it.**
+  `--good` and `--accent` are *mark* colours, measured against the panel, and on
+  a 10px bar they are the correct green and red. The Shop report's warning tiles
+  set 17px figures on a tinted ground, where the same two come out at 2.99:1 and
+  3.14:1 — under the 4.5:1 a figure that size owes a reader — so they use
+  stepped-down versions (`#a8442f`, which the heat pills already use, and
+  `#8a5410`). The 34px hero is the opposite case and deliberately keeps the mark
+  colours: over 18.66px bold the bar is 3:1 and they clear it. The trap is a
+  later tidy-up that "unifies" the two back onto the variables, which looks like
+  removing a magic number and is losing a contrast pass. The same pair is also
+  the worst there is for a red-green colourblind reader — 2.3 ΔE, no separation
+  at all — so **nothing in that panel rests on the colour**: the week's sign is
+  which side of the axis a column is on, the hero says "profit" or "loss" in
+  words, every delta carries an arrow, and each tile is labelled. Anything new
+  in there has to keep that true.
 - **`el.className = 'show'` silently deletes the `hud` class**, and with it
   `position: fixed`. The element drops out of the overlay into document flow,
   where you simply never see it. The toast had this from the beginning, which
@@ -1351,8 +1554,25 @@ what the next step was meant to be.
   with nothing logged. It drops as a crate now (`dropGoods`, the fifth caller),
   which `verify:build` asserts as conservation. Staff are the opposite case and
   worth the contrast: `staff-<n>` outlives the socket, so they *are* saved, spot
-  and hands both. Keeping YOUR position and hands across a reload needs an
-  identity that outlives the socket too — step 3 of docs/shipping.md.
+  and hands both.
+- **…so YOU got an id that outlives the socket, and the drop became the
+  fallback.** `who` is minted once into the browser's localStorage
+  (`whoAmI`, client/net.js) and sent as a join option; `Game.away` keys where you
+  stood and what you held on it, rides in the save beside `staffAt`, and
+  `addPlayer` puts you back. No reconnection window, on purpose: a window is
+  about a socket and holds a live object open for thirty seconds, where what was
+  wanted is about a *save* — a `node --watch` restart, a closed tab, tomorrow.
+  Four things about it. The record is **consumed on the way in**, because two
+  tabs are one `who` and a row still sitting there is a second armful of the same
+  six loaves; **overwriting** one drops what the old row held, which is the one
+  case the crate on the floor is still right for; `saveState` writes rows for
+  people who are still **connected**, since the usual way this shop goes down is
+  a restart under somebody who never left and `removePlayer` never runs on that
+  path; and a remembered spot is **offered, never trusted** (`canStand`) —
+  hands come back regardless, because a wall can invalidate where you stood and
+  not what you were holding. Somebody with no stable id (private mode, a sweep)
+  gets the old behaviour exactly, which is why `verify:build`'s conservation case
+  still passes unchanged.
 - **Copying `data/game.db` with `cp` silently copies a stale shop.** SQLite is
   in WAL mode, so recent writes live in `game.db-wal` until a checkpoint. `cp`
   of the `.db` alone loses them, and the worlds you were about to measure may
@@ -1458,6 +1678,23 @@ what the next step was meant to be.
   read it (`stockShelf` is untouched) and ticking a shelf for it clears it
   outright, which is the same line `orders.assign` draws — the shop's judgement
   about its own range was never a rule about what you may do.
+- **…and the same loop was running with YOUR hands in it, for four steps.** Clear
+  a board or tip a unit out and the goods land in an ordinary pallet beside a
+  board that is now bare *and* unlabelled — which is the best shelf in the
+  building as far as `shelvesFor` is concerned — so the next stocker past put it
+  straight back. What that reads as is the button not working, and the shop looks
+  busy while it undoes you. `clearBoard` and `stripShelf` set the same mark the
+  hand does now (`dropItem`), with the same two ways out. Three things decide
+  where it does NOT apply, and each is a sentence rather than a rule: taking an
+  armful (`unshelve`) or pulling a board into a crate (`crateBoard`) both keep the
+  label, and a stocker refilling a board the shelf still remembers is *correct*;
+  `stillStocked` spares an item another board is holding or set aside for, or
+  consolidating two boards into one retires what is on them and strands the
+  crate; and a strip keeps `assigned`, so a shelf you ticked for cheese is
+  refilled with cheese and only the boards you never spoke for are let go. The
+  general shape is the one above wearing the other pair of hands: **a loop closed
+  for the job that spawned it is still open for every other caller of the same
+  verbs.**
 - **…and an existing control that already vetoes the new thing is not the same
   as a switch for it.** The shop hand shipped with a reservation as its only
   veto, which is true and was not the control: a reservation says what a board
@@ -1470,6 +1707,28 @@ what the next step was meant to be.
   quietly grew a board is a unit the hand rearranged). It defaults to true so no
   save moves, which is why `persist`'s shelf filter had to learn that a switch
   flipped on an *empty* unit is still worth saving.
+- **…and a PREFERENCE stops meaning anything at the moment it is tested.**
+  `shelvesFor` has always ranked the unit an item is already on first, which
+  reads as "the shop keeps things together" and is only ever consulted when
+  there is a choice. Fill that unit and there is no choice: the next armful
+  claims a bare board next door, and from that tick one item has two homes. It
+  compounds rather than settles, because each board is its own line in
+  `restockQueue` — so the shop starts buying for both, and what you are looking
+  at four days later is four shelves of produce nobody asked for. Every single
+  decision in that chain is a worker correctly putting goods on a shelf with
+  room, which is why it reads as the staff being stupid. `Game.homeShelves` is
+  the rule the preference was standing in for: the units you TICKED, else the
+  one holding the most, and `boh` homed separately because a stockroom backing
+  up the floor is the second place that is the point. Three things about it.
+  The losing board is consolidated **by never being chosen again** — it drains
+  and `releaseBoards` hands it back — which needs no job, no walk and no latch,
+  and works in a shop whose one clerk has no `merchandise` job. That release had
+  to be asked BEFORE the supply guard: `homeSupply` is above zero for ever for
+  anything you farm, so a spare tomato board next to two tomato beds could not
+  age a single day. And `pickItem`'s `?? scored[0]` fallback had to go — it
+  fired precisely when every item that fits a unit was already stocked, so the
+  one function whose job is choosing the *range* was deliberately buying a
+  second board of the best seller.
 - **Whatever you change, check the balance bot still models a player doing it.**
   Auto-replant meant plots were never empty, and `simulate` skipped any planted
   plot — so every bed froze on its first crop and three crops reported as

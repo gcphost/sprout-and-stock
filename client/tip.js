@@ -86,12 +86,40 @@ const GAP = 9;
 /** Never nearer the edge of the screen than this. */
 const MARGIN = 8;
 
+/**
+ * How long a tip is held up for a node that has stopped existing.
+ *
+ * THE CARD OUTLIVES THE ROW IT IS ABOUT, and this is the whole of that. Every
+ * live panel in this game rebuilds itself from `innerHTML` — a fixture menu ten
+ * times a second, the rail, the roster — so the element you are hovering is
+ * destroyed and replaced by an identical one several times while you read the
+ * tip about it. The browser fires `pointerout` on the node being removed even
+ * though the pointer never moved, and the old answer was to take the card away
+ * and start again from the 110ms delay: a tooltip that blinks in time with the
+ * snapshot, on precisely the rows worth hovering, which are the ones that move.
+ *
+ * A portal is what a framework would call the fix and it is the half we already
+ * had — this element has always been one node on the body, outside every panel
+ * (see the note at the top). What it was missing is that the *pointer target*
+ * was the identity: the card is now allowed to be homeless for a moment and be
+ * claimed by whatever the repaint puts back in that place.
+ *
+ * Longer than the 100ms tick, short enough that a row which genuinely went away
+ * — a delivery that landed, a hire let go — takes its card with it rather than
+ * leaving one hanging over the gap.
+ */
+const ORPHAN_MS = 260;
+
 class Tip {
   constructor() {
     this.el = null;
     this.target = null;
     this.timer = 0;
     this.wired = false;
+    // What an up card is about, while the node it was about no longer exists.
+    // Null means the card belongs to a live target, which is every other moment.
+    this.waif = null;
+    this.waifTimer = 0;
   }
 
   /**
@@ -116,10 +144,27 @@ class Tip {
       // tip describing a node that is no longer in the document. Checked here
       // rather than on a timer: the only way to find out it is stale is to
       // look, and the cheapest moment to look is one you are already handling.
-      if (this.target && !this.target.isConnected) this.hide();
+      if (this.target && !this.target.isConnected) this.orphan();
       const el = e.target?.closest?.('[data-tip], [title]') ?? null;
       // Moving between a button's own children is not leaving the button.
       if (el === this.target) return;
+      // ...and neither is a panel rebuilding it. A card with no node left is
+      // claimed by whatever the repaint put back saying the same thing — same
+      // headline, so the same control — and it is re-pointed and re-worded in
+      // place: no delay to serve again, and no animation, because as far as
+      // anyone reading it is concerned it never went anywhere.
+      //
+      // The HEADLINE and not the whole card, deliberately: the second line is
+      // the live half ("4 crates, 2 minutes away"), so requiring the whole
+      // thing to match would refuse to re-adopt in exactly the case a card is
+      // worth keeping up for.
+      if (el && this.waif != null && this.headline(el) === this.waif) {
+        clearTimeout(this.waifTimer);
+        this.waif = null;
+        this.target = el;
+        this.show();
+        return;
+      }
       this.hide();
       if (el) {
         this.target = el;
@@ -138,7 +183,13 @@ class Tip {
       // crosses onto a child, and hiding there would flicker the tip off and
       // straight back on as you moved across the icon.
       if (this.target.contains(e.relatedTarget)) return;
-      if (e.target?.closest?.('[data-tip], [title]') === this.target) this.hide();
+      if (e.target?.closest?.('[data-tip], [title]') !== this.target) return;
+      // A node the pointer never left, which simply stopped existing: the panel
+      // repainted under a still hand. The browser reports that as leaving, and
+      // it is not — so the card is orphaned rather than taken down, and the row
+      // that replaces it a millisecond later claims it above.
+      if (!this.target.isConnected) this.orphan();
+      else this.hide();
     });
 
     // Anything that means you have stopped looking at it. A press especially:
@@ -219,6 +270,11 @@ class Tip {
     else delete noteEl.dataset.tone;
 
     this.place();
+    // Already up — a repaint of what it says (`refresh`), or the same control
+    // rebuilt under the pointer. Adding the class again is a no-op, but going
+    // through the two frames below is not: it is the one path that can make an
+    // up card animate, and animating one that never left is the flicker.
+    if (this.el.classList.contains('show')) return;
     // Two frames, not one. The box has to be laid out at its new size before
     // the class goes on, or the transition runs from wherever it was last time
     // and the tip visibly slides in from the previous button.
@@ -298,9 +354,49 @@ class Tip {
     this.show();
   }
 
-  hide() {
+  /**
+   * What a control is called, without touching it.
+   *
+   * `harvest` answers the same question and answers it destructively — it moves
+   * a `title` onto `data-tip` and takes the attribute away — which is right on
+   * the way to showing a card and wrong for the test above, where the element
+   * being asked about is one we may well not adopt. So this reads both spellings
+   * and writes nothing.
+   */
+  headline(el) {
+    if (el?.dataset?.tip) return el.dataset.tip;
+    const raw = el?.getAttribute?.('title')?.trim();
+    if (!raw) return null;
+    const cut = raw.indexOf(SPLIT);
+    return cut > 0 ? raw.slice(0, cut) : raw;
+  }
+
+  /**
+   * The card stays up; the thing it was about has gone.
+   *
+   * Given `ORPHAN_MS` for a rebuilt row to claim it, and taken down if none
+   * does. Deliberately keeps the `show` class and the position it already had:
+   * a card that faded out and back in over 100ms is the flicker this exists to
+   * remove, and one that moved would be worse — the row is being rebuilt in the
+   * same place, so holding still is what makes it look like nothing happened.
+   */
+  orphan() {
+    if (!this.target || !this.el?.classList.contains('show')) { this.hide(); return; }
     clearTimeout(this.timer);
     this.timer = 0;
+    this.waif = this.headline(this.target);
+    this.target = null;
+    if (this.waif == null) { this.hide(); return; }
+    clearTimeout(this.waifTimer);
+    this.waifTimer = setTimeout(() => this.hide(), ORPHAN_MS);
+  }
+
+  hide() {
+    clearTimeout(this.timer);
+    clearTimeout(this.waifTimer);
+    this.timer = 0;
+    this.waifTimer = 0;
+    this.waif = null;
     this.target = null;
     this.el?.classList.remove('show');
   }

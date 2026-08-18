@@ -14,6 +14,7 @@
 
 import { content, world as loadWorld, saveWorld, freshEconomy } from '../content.js';
 import { JOBS } from '../../shared/schemas.js';
+import { jobBudget, jobsAffordable } from '../../shared/jobs.js';
 import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '../db.js';
 import {
   generateLayout, defaultPads, defaultStreet, defaultAwning, buildWalkGrid, isWalkable, carLanes, T,
@@ -28,6 +29,8 @@ import {
   spoilRate, requiredFixture, homeKind, desireFor, impulsePull, tagLabel, DEPARTMENTS,
 } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
+import { hash01 } from '../../shared/hash.js';
+import { R, netRep } from '../../shared/reputation.js';
 import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { makeNamer } from './names.js';
 import { stepStaff, syncStaff, breakProgress, carryOf } from './staff.js';
@@ -72,11 +75,8 @@ const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
  * worth thinking about, and it is why the settings in docs/ordering.md go from
  * numbers you set once to numbers that bind.
  *
- * **Every two hours while you are open, every hour while you are shut**, both
- * derived from the opening times rather than written out — a shop that opens
- * earlier gets an earlier first van with nothing else to change.
- *
- * It began as two runs, at 08:00 and 14:00, and two turned out to be a rule you
+ * **Every hour, all day and all night**, and the flat cadence is the point. It
+ * began as two runs, at 08:00 and 14:00, and two turned out to be a rule you
  * get caught by rather than one you plan around. Missing the 08:00 by a minute
  * cost five trading hours, and everything ordered overnight arrived on one lorry
  * regardless — so the honest description was "orders land twice", a mechanic
@@ -84,31 +84,27 @@ const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
  * withholding stock: you order pizza at 09:00, you are told 14:00, and there was
  * nothing you could have done differently.
  *
- * The split is deliberately the opposite way round to the one you would guess,
- * and it is the trading day that earns the *slower* half. While the doors are
- * open a wait is a decision — a board that dips at 13:50 is stocked by teatime
- * and the same board at 14:10 is bare for two hours — and that is the whole
- * reason runs exist rather than per-order timers. Two hours is long enough for
- * that to bite and short enough that it is a cost rather than a wall.
+ * Then it was two-hourly while the doors were open and hourly once they shut, on
+ * the argument that the trading day is where a wait is a *decision* and the night
+ * is dead time. That argument is fine on paper and wrong in the hand: a cadence
+ * that changes with the clock is one more thing to hold in your head, and the
+ * half it slows down is the half you are actually stood in the shop for. A run
+ * you can predict without thinking is worth more than a wait engineered to bite.
  *
- * Night is the opposite: nobody is shopping, `NIGHT_SPEED` means those hours
- * cost almost no real time, and stock landing at 03:00 is on the shelf before
- * the doors open. There is nothing to plan around, so a wait there is dead time
- * and nothing else. Hourly overnight means a shop you left short is a shop that
- * opens full, which is what an overnight restock is FOR.
+ * So the hour is the whole rule, and every derived thing falls out of it: the
+ * cutoff is still strict, so ordering at 09:00 exactly puts you on the 10:00 van;
+ * the longest anyone ever waits is an hour; and a shop you left short overnight
+ * still opens full, which is what an overnight restock is FOR.
  *
- * Measured on a staffed shop over ten seeds: going from two runs to hourly took
- * shelves-found-empty from 206 to 53 and revenue up 12%. Almost all of that was
- * the night, which is why the night is the half that stayed hourly.
+ * Measured on a staffed shop over ten seeds when the night first went hourly:
+ * shelves-found-empty from 206 to 53 and revenue up 12%. Nothing here trades any
+ * of that away — the day only gets faster.
+ *
+ * Note it is a sweep of the clock rather than a list, so it cannot leave a gap
+ * when the trading hours move, and it no longer reads `OPEN_HOUR`/`CLOSE_HOUR`
+ * at all: when the van comes stopped being a fact about when you are open.
  */
-const DELIVERY_RUNS = [
-  // Open: every second hour, starting as the doors do.
-  ...Array.from({ length: Math.ceil((CLOSE_HOUR - OPEN_HOUR) / 2) },
-    (_, i) => OPEN_HOUR + i * 2),
-  // Shut: every hour, from closing round to opening. Written as one sweep of
-  // the clock so it cannot leave a gap when the trading hours move.
-  ...Array.from({ length: 24 }, (_, h) => h).filter((h) => h < OPEN_HOUR || h >= CLOSE_HOUR),
-].sort((a, b) => a - b);
+const DELIVERY_RUNS = Array.from({ length: 24 }, (_, h) => h);
 
 /**
  * How long the van stands at the bay with its back doors open, in seconds.
@@ -413,7 +409,17 @@ const STATION_BATCHES = 4;
 const ANNOY_IN_SHOP = 0.15;    // being in a shop at all, however good it is
 const ANNOY_LINE = 1.0;        // waiting to pay, walking up the line or standing in it
 const ANNOY_EMPTY_SHELF = 0.12; // one-off: walked over and somebody took the last one
-const ANNOY_CROWD = 0.6;       // per whole multiple of capacity over the top
+const ANNOY_CROWD = 1.2;       // per whole multiple of capacity over CROWD_FROM
+/**
+ * ...and per whole multiple of the floor under boxes, over `MESS_FROM`.
+ *
+ * Deliberately below `ANNOY_CROWD`: a shop you cannot move through is worse than
+ * a shop that needs a tidy, and a mess is also something the player can see and
+ * fix in a minute. What it is worth is that clutter stops being free — before
+ * this, thirty boxes of rot in an aisle cost the shop precisely nothing, and the
+ * only tell was the picture.
+ */
+const ANNOY_MESS = 0.9;
 /**
  * One-off, per staple you did not stock. Bigger than a wasted trip to an empty
  * shelf, because this is the thing they came in for and no other shelf in the
@@ -423,6 +429,26 @@ const ANNOY_CROWD = 0.6;       // per whole multiple of capacity over the top
 const ANNOY_MISSED_STAPLE = 0.2;
 /** And what it does to your standing in the town, per staple missed. */
 const REP_MISSED_STAPLE = 0.008;
+
+/**
+ * How hard the town has to be pulling on a tag before it is a reason somebody
+ * left the house — see `rollList`.
+ *
+ * A `demand_mult` used to be worth two things and neither of them was a
+ * shopping list: it made more people come (`pull`) and made each of them keener
+ * at the shelf (`purchaseChance`). So a craze the shop was caught out by cost
+ * exactly the sales it cost and nothing else — nobody walked in *for* the
+ * bakery, so nobody left without it, so `failLine` never charged for it. A shop
+ * that missed the whole event and a shop that never had one differ only in the
+ * takings, which is the one signal a busy day already hides.
+ *
+ * 1.5 sits deliberately between the director's two bands: a surge writes
+ * 1.8–2.8 on the tag the event is *about* and 1.25–1.6 on the ones it drags
+ * along, so the headline of an event promotes and its side effects mostly do
+ * not. Under it nothing is promoted at all, which is what keeps an ordinary day
+ * — every multiplier 1 — identical to the tick.
+ */
+const CRAZE_STAPLE = 1.5;
 
 /**
  * How long a board sits empty with nothing coming before the unit takes it back.
@@ -440,6 +466,44 @@ const EMPTY_BOARD_DAYS = 2;
  * getting the second wrong throws away stock somebody paid for.
  */
 const STALE_BOARD_DAYS = 4;
+/**
+ * ...and how long YOUR hands' version of it lasts.
+ *
+ * A cooldown rather than the hand's forever: Clear and Strip say "not on this
+ * board", and the shop reading that as "never stock this again" is a permanent
+ * decision taken on your behalf by a tidy-up. Long enough that the crate you
+ * just made gets shelved somewhere else or picked up first — which is the whole
+ * loop the mark exists to break — and short enough to lapse inside a week.
+ */
+const HAND_DROP_DAYS = 5;
+/**
+ * ...and how long the SHOP's own version lasts, which used to be for ever.
+ *
+ * Forever was argued from the crate: the goods the hand cleared are standing on
+ * a pad, so a mark that lapsed would send somebody to carry the same units back
+ * to the same board and start the same four days again — churn on a loop, which
+ * reads as a bug in a way "we don't stock that any more" never does.
+ *
+ * The argument is sound and what it justified was not, because the alternative
+ * it was weighed against was never "churn": it was a permanent, compounding
+ * change to the shop's range, taken without asking, shown nowhere, and undoable
+ * only by a player who already knew the mechanic existed. Seven items went in
+ * five days on a real save, every crate of them stranded on the drop-off, and
+ * because `padRoom` is what gates the farm and the kitchen the shop then stopped
+ * producing too — which is what "the robots just stop" turned out to be.
+ *
+ * Two things pay off the churn it feared, and both are new here. The crate goes
+ * to the BAY rather than the drop-off, so it is out of the production buffer and
+ * `homeSupply` counts it — the shop will not buy more of something it is holding
+ * a crate of, so the lapse cannot land more stock. And it is on screen the whole
+ * time (`Not stocking`, in the supplier), so the state it lapses out of is one
+ * you have been able to see and cancel all along.
+ *
+ * Longer than `HAND_DROP_DAYS` because the shop has more evidence than a
+ * tidy-up does: four days of nothing selling is a real signal, and it should
+ * outlast the week rather than the afternoon.
+ */
+const SHOP_DROP_DAYS = 12;
 
 /** How many distinct tags one shopping trip is spread across. */
 const MAX_LIST_LINES = 3;
@@ -497,8 +561,52 @@ const IMPULSE_MAX_AHEAD = 3;
  */
 const CAPACITY_PER_TILL = 8;
 const CAPACITY_PER_SHELF = 0.5;
+/**
+ * ...and how many bodies a square of shop FLOOR holds, which is the half that
+ * was missing.
+ *
+ * Capacity was tills and stocked shelves alone, so it measured how much the shop
+ * could *serve* and never how much of it there was to stand in. A 7x8 shop and a
+ * 30x30 shop with the same fittings were equally roomy, and the only way to make
+ * a cramped shop read as cramped was to own fewer tills — backwards, since the
+ * fix a player reaches for is to build.
+ *
+ * Walkable indoor tiles, so shelving takes its own room away: a unit you add
+ * gives you half a person of service and costs you a quarter of one in floor,
+ * which is the trade-off a real aisle makes.
+ */
+const CAPACITY_PER_TILE = 0.25;
 /** Past this much over capacity, arrivals look in and walk on instead. */
 const TURN_AWAY_AT = 1.35;
+/**
+ * Where the crush starts being FELT, as a share of capacity.
+ *
+ * Was 1.0 — dead on the top — which left the whole penalty living in the band
+ * between full and `TURN_AWAY_AT`, about a quarter of the gauge. A shop at 90%
+ * annoyed nobody at all, so the Room bar spent most of its travel saying
+ * something that changed no number.
+ */
+const CROWD_FROM = 0.7;
+/**
+ * How much of the floor may be under boxes before anybody minds.
+ *
+ * Not zero, and that is the whole of the number. A working shop always has
+ * something on the floor — a delivery being put away, an armful set down, a bed
+ * just picked — and charging for the first crate would mean the shop is never
+ * *not* being penalised, which makes the term a constant and therefore invisible.
+ * A tenth of the floor is a shop mid-job; a third is a shop nobody is tidying.
+ */
+const MESS_FROM = 0.1;
+/**
+ * What a packed shop does to your name, per second, per whole multiple over
+ * `CROWD_FROM`.
+ *
+ * Reputation used to move on the crush only once it was bad enough to turn
+ * people away at the door. Everything short of that was mood, and mood is
+ * per-person and recovers when they leave — so a shop that was permanently
+ * uncomfortable had no lasting consequence at all.
+ */
+const CROWD_REP_RATE = 0.0015;
 
 /** Visibly unhappy below the first, ready to walk out below the second. */
 const MOOD_ANNOYED = 0.5;
@@ -532,29 +640,6 @@ const basketGoods = (lines) => {
   return [...by].map(([item_id, qty]) => ({ item_id, qty }));
 };
 
-/**
- * A stable 0..1 from a string.
- *
- * Here rather than off `this.rng` on purpose, and it is the one non-obvious
- * thing about kits. Every balance number in the game is downstream of how many
- * times the sim's rng has been called — that is why `Game.namer` is a stream of
- * its own — so drawing a shopper's bag out of the measured stream would move
- * every basket, crop and spawn roll after it, and two `simulate` runs either
- * side of authoring a *paper bag* would diverge with nothing to say why.
- *
- * A hash of who they are costs no draw at all, which is better than either
- * stream: the same shopper always carries the same bag, a reload gives them it
- * back, and the balance is provably untouched because nothing random happened.
- * The client already does exactly this for a hire's breathing phase.
- */
-const hash01 = (str) => {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return ((h >>> 0) % 100000) / 100000;
-};
 
 /**
  * Which kit this shopper has on them at this moment, or null for none authored.
@@ -672,6 +757,15 @@ const FALLBACK_FIXTURE_COST = { shelf: 60, freezer: 260, checkout: 300, plot: 40
 const MAX_FIXTURE_DISCOUNT = 0.6;
 
 /**
+ * ...and the same backstop on how fast a `speed` upgrade may make you walk.
+ *
+ * A player who crosses the shop in a frame is through every `REACH` test in the
+ * game before the tick that would have fired one, so this is a correctness bound
+ * rather than a balance one — see `speedMult`.
+ */
+const SPEED_CAP = 2.5;
+
+/**
  * What a shop nobody has opened yet starts with.
  *
  * Read off the smallest tier rather than written here, and that is a rule about
@@ -702,6 +796,35 @@ const BASE_FIXTURES = tierFixtures(DEFAULT_TIER);
  * intended first lesson.
  */
 const BASE_CATCHMENT = 16;
+
+/**
+ * How long a pause outlives the process that was holding it, in wall-clock ms.
+ *
+ * The line between "the server restarted under me" and "I paused this and went
+ * to bed", and it only has to be long enough for the first — a dev-mode reload
+ * is a couple of seconds, a cold `npm run dev` is a few more. Five minutes is
+ * generous for that and nowhere near a break, a meal or tomorrow.
+ *
+ * Erring long is the cheap direction: coming back to a shop that is still
+ * stopped costs one press of a button you already know about, while coming back
+ * to one that ran without you costs whatever it did in the meantime. Six
+ * in-game days, in the case that prompted this.
+ */
+const PAUSE_HOLDS_FOR = 5 * 60 * 1000;
+
+/**
+ * Should a saved pause still be honoured?
+ *
+ * A stamp from the future reads as false rather than as for ever — a clock
+ * moved back, a save copied between machines. The failure it prevents is the
+ * one that cannot be pressed away: a shop that will not start whatever you do.
+ */
+const pauseHolds = (at) => {
+  const t = Number(at);
+  if (!Number.isFinite(t) || t <= 0) return false;
+  const since = Date.now() - t;
+  return since >= 0 && since < PAUSE_HOLDS_FOR;
+};
 
 /**
  * What the generator is asked to furnish, for a shop that is already stamped.
@@ -735,6 +858,19 @@ function budgetOf(placements) {
 export class Game {
   constructor(state) {
     Object.assign(this, state);
+    /**
+     * The counter behind every feed line's `id` — see `pushLog`.
+     *
+     * Carried on from the highest id in the restored log rather than restarted
+     * at zero, because the client keys its lines by this: a reload that started
+     * counting again would hand a brand-new line the id of one still on screen,
+     * and the client would quietly rewrite that one instead of adding it.
+     */
+    this.logSeq = (this.log ?? []).reduce((n, e) => Math.max(n, e.id ?? 0), 0);
+    // Defaulted here as well as in `create`, because a Game can be built from a
+    // serialized room too and `removePlayer` writes into this on a path nobody
+    // tests: a shop that only ever crashed while somebody was standing in it.
+    this.away ??= {};
     this.rng = makeRng(`${this.seed}:${this.day}`);
     /**
      * Who everybody is — and a stream of its own, which is the whole of what
@@ -768,6 +904,20 @@ export class Game {
      */
     this.open = state.open ?? true;
     /**
+     * ...and whether the doors have actually been open at any point today.
+     *
+     * Not the same question as `open`, which is what the shutters say right
+     * now. This is what the DAY was, and the only thing that reads it is the
+     * board clock — see `holdBoardClocks`.
+     *
+     * Saved, because the day it is about outlives a reload: a shop shut on
+     * Tuesday and restarted on Tuesday afternoon would otherwise roll into
+     * Wednesday having forgotten Tuesday was shut. Defaults to `true` on a save
+     * that predates it, which is the same reasoning `open` gives one line up —
+     * the safe default is the one where nothing changes.
+     */
+    this.tradedToday = state.tradedToday ?? true;
+    /**
      * ...and whether the world is moving at all.
      *
      * Not saved, and not the same idea as `open`. Shut is a state of the shop
@@ -777,11 +927,32 @@ export class Game {
      * advance, which is what keeps every stamp against it honest for free.
      *
      * In memory because it is a thing you do while you are sitting here, like
-     * where the camera is pointing. A save that came back paused would be a
-     * shop that looks broken on load with nothing on screen from before you
-     * left to say why.
+     * where the camera is pointing. A save that came back paused a week later
+     * would be a shop that looks broken on load with nothing on screen from
+     * before you left to say why.
+     *
+     * **...and "a week later" is the whole of that argument, which is why this
+     * is now a stamp rather than nothing.** In memory meant a pause survived
+     * exactly as long as the process, and a dev-mode restart is not a player
+     * walking away — it is the same person, at the same desk, two seconds later,
+     * looking at a shop they stopped. A live save had six in-game days run past
+     * a pause that was pressed at 18:00, because the server was restarted to
+     * pick up a code change and `paused` came back false. Nothing said a word:
+     * an un-pausing shop and a running shop are the same screen.
+     *
+     * So the pause is saved with the WALL-CLOCK moment it was pressed, and honoured
+     * on load only inside `PAUSE_HOLDS_FOR`. Both halves are then true: a restart
+     * comes back stopped where you stopped it, and a shop you paused and left is
+     * running when you come back to it.
+     *
+     * Wall clock and NOT `elapsed`, which is the trap this list is full of —
+     * `elapsed` restarts at zero on every load, so a stamp against it cannot
+     * measure the one thing being asked about here, which is time spent with the
+     * game *not running*. `Date.now()` is the right clock precisely because it is
+     * the only one that keeps going while the process is dead.
      */
-    this.paused = false;
+    this.paused = pauseHolds(state.pausedAt);
+    this.pausedAt = this.paused ? state.pausedAt : null;
     /**
      * The ladder, and the lifetime tallies it is measured against.
      *
@@ -798,12 +969,30 @@ export class Game {
      * measurements rather than a stored score — nothing is claimed to have been
      * remembered that never was.
      */
-    // `opened` is whether this save has ever had the ladder swept. It is what
-    // makes the first sweep bank what is already true instead of celebrating
-    // it — see `checkMilestones`.
+    /**
+     * `known` is which rungs this save has ever been *swept against*, and it is
+     * what makes a rung that is already true bank quietly instead of throwing a
+     * card. It replaces the `opened` boolean, which was the same idea asked once
+     * per save rather than once per rung — right until the ladder grew.
+     *
+     * A shop on day 81 that has already had its opening sweep would otherwise
+     * meet a dozen newly-added rungs in one tick and be congratulated a dozen
+     * times, back to back, each one stopping the world — which is precisely the
+     * bad first impression `opened` was written to prevent, arriving instead on
+     * the *second* impression. Per rung, it cannot happen again however many are
+     * added later.
+     *
+     * The fallback is `done`, and that is exact rather than approximate: a save
+     * written before this line either knows nothing (no ladder yet — banks
+     * everything true, unchanged behaviour) or has been swept against a ladder
+     * whose earned rungs are precisely what is in `done`. Rungs it had swept and
+     * NOT earned are the one thing lost, and they cost nothing — they are not
+     * true, so they cannot bank, and being re-swept awards them properly on the
+     * day they come due. See `checkMilestones`.
+     */
     this.milestones = {
       done: [...(state.milestones?.done ?? [])],
-      opened: state.milestones?.opened === true,
+      known: [...(state.milestones?.known ?? state.milestones?.done ?? [])],
     };
     this.totals = { revenue: 0, sold: 0, harvested: 0, ...(state.totals ?? {}) };
     /**
@@ -871,6 +1060,14 @@ export class Game {
     // Recomputed at the top of every tick; seeded here so anything that reads
     // the world without stepping it first sees an empty shop, not `undefined`.
     this.occupancy = 0;
+    // Its divisor, kept beside it for the snapshot. `null` rather than 0 so a
+    // world nobody has stepped prints a headcount with nothing after it, which
+    // is honest — "0" would say the shop holds nobody.
+    this.capacity = null;
+    // Measured once a tick beside occupancy. Zero rather than undefined so a
+    // shop that has not stepped yet reads as tidy — every sweep that asserts on
+    // mood without stepping would otherwise get NaN out of `stepMood`.
+    this.mess = 0;
     this.turningAway = false;
     /**
      * Everything standing in the shop, and where.
@@ -970,6 +1167,7 @@ export class Game {
       // wrong scale for it: give up on a board alone and the next delivery puts
       // the same thing on the unit next door. See `giveUpBoard`.
       dropped: state.orders?.dropped ?? {},
+      dropFor: state.orders?.dropFor ?? {},
       day: state.orders?.day ?? this.day,
       spent: state.orders?.spent ?? 0,
       /**
@@ -1035,6 +1233,7 @@ export class Game {
       shelves: want.shelf,
       freezers: want.freezer,
       warmers: want.warmer ?? 0,
+      bins: want.bin ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       stations: want.stations,
@@ -1062,6 +1261,11 @@ export class Game {
       // written `false` by `createWorld`, which is where "a new shop starts
       // shut" actually lives.
       open: w.open,
+      // ...and when somebody stopped the clock, which is honoured only if it was
+      // recent enough to have been a restart rather than a night off. A save
+      // from before this field reads as not paused, which is what every shop in
+      // the world was. See `pauseHolds`.
+      pausedAt: w.pausedAt ?? null,
       // The last day the director spoke. Saved rather than held in the room,
       // because a guard that only survives a hot reload fires a fresh world
       // event on every cold start — see `runDirector`.
@@ -1121,6 +1325,21 @@ export class Game {
       layout,
       layoutVersion: 1,
       players: {},
+      /**
+       * People who are not connected but are still expected back.
+       *
+       * Keyed by the id in their browser (`who`, client/net.js) rather than by
+       * a `sessionId`, which is what makes it survive the thing it is for. A row
+       * holds where they stood and what they were holding, is written when they
+       * leave, and is CONSUMED when they walk back in — see `addPlayer` for why
+       * that consumption is a conservation rule and not housekeeping.
+       *
+       * It is deliberately not `players` with a flag: every loop in the sim
+       * walks `this.players` meaning "a body on the floor", and an absent person
+       * with an armful would be counted by the crush, drawn by the renderer and
+       * offered a job. That is the `inACar` trap said about shopkeepers.
+       */
+      away: w.playersAt ?? {},
       customers: {},
       nextCustomerId: 1,
       spawnAccumulator: 0,
@@ -1166,6 +1385,7 @@ export class Game {
       cash: this.cash,
       reputation: this.reputation,
       open: this.open,
+      tradedToday: this.tradedToday,
       lastDirectorDay: this.lastDirectorDay ?? null,
       ownedUpgrades: this.ownedUpgrades,
       ledger: this.ledger,
@@ -1186,6 +1406,10 @@ export class Game {
       layout: this.layout,
       layoutVersion: this.layoutVersion,
       players: this.players,
+      // ...and the ones who are expected back. A body on the floor and a person
+      // the shop is holding a spot for are two different lists on purpose — see
+      // `away` in `create`.
+      away: this.away,
       customers: this.customers,
       nextCustomerId: this.nextCustomerId,
       spawnAccumulator: this.spawnAccumulator,
@@ -1259,10 +1483,14 @@ export class Game {
       cash: this.cash,
       reputation: this.reputation,
       season: this.season,
-      // Whether the doors are open. `paused` deliberately is not here — see the
-      // two fields in the constructor for why one of them is a fact about the
-      // shop and the other is a fact about the person sitting in front of it.
+      // Whether the doors are open, and — as a wall-clock stamp rather than a
+      // boolean — whether somebody has stopped the clock. See the two fields in
+      // the constructor: one is a fact about the shop and the other is a fact
+      // about the person sitting in front of it, which is exactly why the second
+      // one goes stale and the first never does.
       open: this.open,
+      tradedToday: this.tradedToday,
+      pausedAt: this.paused ? this.pausedAt : null,
       lastDirectorDay: this.lastDirectorDay ?? null,
       ownedUpgrades: this.ownedUpgrades,
       // Both are written at the day rollover, *before* this runs — see
@@ -1359,6 +1587,33 @@ export class Game {
           // stock an armful is.
           haul: p.haul ?? null,
         })),
+      /**
+       * ...and the same row for the humans, which is what makes a reload put
+       * you back where you were.
+       *
+       * Both halves of the map, and it has to be both. `away` is who has already
+       * left; the second half is everyone still CONNECTED, written as though
+       * they had — because the way this shop usually goes down is not a tab
+       * closing, it is `node --watch` restarting under a player who never left
+       * at all, and `removePlayer` is never called on that path.
+       *
+       * Keyed by `who`, so a person with no stable id (private mode, a bot) has
+       * nothing written for them and comes back at the door — which is what the
+       * fallback in `removePlayer` already decided about their hands.
+       */
+      playersAt: Object.fromEntries([
+        ...Object.entries(this.away),
+        ...Object.values(this.players)
+          .filter((p) => !p.staff && p.who)
+          .map((p) => [p.who, {
+            who: p.who,
+            x: round2(p.x),
+            z: round2(p.z),
+            facing: p.facing ?? 0,
+            carry: p.carry ?? null,
+            haul: p.haul ?? null,
+          }]),
+      ]),
       plots: budgetOf(this.placements).plot,
       shelves: budgetOf(this.placements).shelf,
       // What is ON the shop, as opposed to what the shop IS. The save held
@@ -1602,13 +1857,28 @@ export class Game {
       // is not the only thing that will ever want to know how full it is.
       mood: round2(this.shopMood()),
       occupancy: round2(this.occupancy),
+      // How much of the floor is under boxes. On the wire because it is a thing
+      // the player can fix in a minute and cannot otherwise see the cost of —
+      // the picture says "boxes", not "this is costing you patience".
+      mess: round2(this.mess ?? 0),
       turnAwayAt: TURN_AWAY_AT,
       // The town, and what share of it you're getting. Sent as the two terms
       // rather than the product because they mean opposite things to a player:
       // catchment is what you buy, pull is what you earn.
       catchment: this.catchment(),
+      // ...and how many of them are standing in the shop this second, which is
+      // the near end of that same sentence. Not derivable on the client from
+      // `occupancy`: that is a ratio against what the building holds, so the
+      // same 0.4 is four people or forty.
+      inShop: this.customersInside(),
+      // ...and what the building holds, which is the OTHER thing that number is
+      // out of. The town is the ceiling on how many could ever come; this is
+      // the ceiling on how many can be in here at once, and they are different
+      // sentences that a single "9 / 51" was quietly inviting you to confuse.
+      // A headcount rather than the ratio the sim runs on — see `shopCapacity`.
+      room: Number.isFinite(this.capacity) ? Math.round(this.capacity) : null,
       pull: round2(pull({ reputation: this.reputation, folded: this.folded() })),
-      // The ladder, whole, every tick. It is twelve small rows and the panel
+      // The ladder, whole, every tick. It is a few dozen small rows and the panel
       // draws a progress bar off `have`/`need`, so sending the list is what
       // makes progression something you can watch rather than something you are
       // told about once. The client never invents a row — see `goals.js`.
@@ -1628,7 +1898,13 @@ export class Game {
       trading: this.trading(),
       paused: this.paused,
       layoutVersion: this.layoutVersion,
-      stats: this.stats,
+      // Everything today, and the reputation tally rounded on the way past.
+      // Not tidiness: `repMoves.crowd` accrues a few ten-thousandths every tick
+      // a shop is packed, and the panel's own refresh test is a stringify of
+      // this object — so the raw float would re-render the report ten times a
+      // second for as long as the shop was busy, which is the one state in
+      // which somebody is actually reading it.
+      stats: { ...this.stats, repMoves: repMovesOut(this.stats.repMoves) },
       // The upgrades panel needs this to grey out what you already own, and
       // the palette needs it to know which deals you have bought — a discount
       // has to show on the button before you press it, or the price you are
@@ -1642,6 +1918,26 @@ export class Game {
         ...this.orders,
         spent: round2(this.staffSpentToday()),
         left: this.orders.budget > 0 ? round2(this.orderBudgetLeft()) : null,
+        /**
+         * What the shop has stopped stocking by itself, and how long each has
+         * left before it comes back.
+         *
+         * `dropped` and `dropFor` have ridden in this object since the mark
+         * existed, by virtue of the spread above, and nothing in `client/` ever
+         * read either — which is how a permanent, compounding change to the
+         * shop's range came to have no surface anywhere in the game. The panel
+         * could derive this from the two maps; it must not, because the lapse
+         * is arithmetic against `this.day` and a second copy of it in
+         * `sections.js` is how a list starts naming items the sim has already
+         * let go of. `droppedItems` is the sim's own answer, and asking it also
+         * expires the stale ones.
+         *
+         * On the snapshot rather than in `ordersOut`, which is where this went
+         * first and was wrong: that one feeds `saveState`, so a derived list
+         * would be written into the save and read back as fact by a shop whose
+         * day had moved on.
+         */
+        notStocking: this.droppedItems(),
         /**
          * What is on the van. The whole point of a wait is planning, and you
          * cannot plan against a list you cannot see — the supplier's `Short`
@@ -1730,6 +2026,21 @@ export class Game {
         // client, because the client can see the break but not the clock the
         // deadline was set against.
         breakProgress: p.pastime ? r2(breakProgress(p, this.elapsed)) : null,
+        // WHY they are on one. A charge taken because there was nothing to do
+        // and a charge taken because they were worn out are the same picture —
+        // a bot in the break room with a mug — and the difference is the whole
+        // of what a promoted unit does differently, so the menu has to be able
+        // to say it. Without this, promoting somebody and watching them wander
+        // off looks like the unit being lazy rather than efficient.
+        idleCharge: !!p.idleCharge,
+        // ...and whether what they are doing is a job of work rather than a sit
+        // down. Sent rather than derived from the pastime row, because the
+        // client would otherwise have to know that `spot: 'roam'` means "still
+        // working" — a rule about the sim's job list, read off a field that
+        // says where something happens. It is what keeps a sweeper's brush
+        // turning: everything else on a break stops moving, and `job` says
+        // `break` for both.
+        chore: !!p.chore,
         // What a hire is doing right now. Staff never set `action` — that is
         // the armed-action field a human's held button drives — so without this
         // the roster can only ever say "idle" about someone halfway up a field.
@@ -1854,7 +2165,14 @@ export class Game {
       // reading the pair would draw a mixed box as whichever kind went in first
       // and count the rest as missing.
       deliveries: this.deliveries.map((d) => ({
-        id: d.id, x: r2(d.x), z: r2(d.z), stacks: lotStacks(d),
+        id: d.id,
+        x: r2(d.x),
+        z: r2(d.z),
+        stacks: lotStacks(d),
+        // Rubbish, so the renderer can draw it as rubbish. Sent only when true
+        // — every crate in every existing shop is stock, and a `false` on all
+        // of them is bytes at 10Hz saying nothing.
+        ...(d.waste ? { waste: true } : {}),
       })),
       /**
        * How many a crate holds, so the renderer can draw one as full when it
@@ -1953,11 +2271,16 @@ export class Game {
    * can only ever take hours AWAY: it shuts you early, keeps you shut, and
    * cannot sell a single thing at three in the morning.
    *
-   * That direction is deliberate rather than incidental. A switch that could
-   * *extend* the day would be free money with no cost attached — never closing
+   * That direction is deliberate rather than incidental. A *switch* that could
+   * extend the day would be free money with no cost attached — never closing
    * would simply be correct, and a button whose right answer is always "on" is
    * not a decision. Pointed the other way it is one: shutting is something you
    * spend trade on, to rebuild an aisle without shoppers walking through it.
+   *
+   * The hours can be bought, which is not the same thing and answers that
+   * argument rather than ignoring it: a licence is paid for once against
+   * everything else the money could have been. See `tradingHours`. The toggle
+   * is unchanged — it still only ever takes hours away, whatever the window is.
    */
   isOpen() { return this.open && this.trading(); }
 
@@ -1973,7 +2296,55 @@ export class Game {
    */
   trading() {
     const h = this.time * 24;
+    const { open, close } = this.tradingHours();
+    return close - open >= 24 || (h >= open && h < close);
+  }
+
+  /**
+   * Is it daytime? The world's own hours, which nothing can buy.
+   *
+   * Split from `trading` the day hours became purchasable, and the split is the
+   * whole of what keeps a licence from costing you real time — see `step`. This
+   * is what the night compression asks, because the night is compressed for
+   * being *dark*, not for the shop being shut. Identical to `trading` for every
+   * shop that owns no licence, which is why nothing else moved.
+   */
+  daylight() {
+    const h = this.time * 24;
     return h >= OPEN_HOUR && h < CLOSE_HOUR;
+  }
+
+  /**
+   * When the town is out, which you can now BUY more of — an `hours` upgrade.
+   *
+   * The argument against this is in `isOpen` above and it is a good one: a
+   * switch that extends the day would be free money with no cost attached, so
+   * never closing is simply correct and there is no decision left on it. What
+   * answers that is the price. A licence is bought once, against everything else
+   * the money could have been, and what it buys is a *thin* stretch of hours —
+   * `dayShape` is 0.25 at three in the morning against 2.6 at the evening rush —
+   * paid for by whoever is standing at the till through them. That is a
+   * decision; a free toggle was not.
+   *
+   * The window is content, not a boolean. A late licence to 22:00 and a
+   * twenty-four-hour one are two rows, and neither is a feature.
+   *
+   * Widest wins rather than last-bought or a sum: owning two licences must not
+   * depend on which order you bought them in, and adding their spans together
+   * would make two eight-hour extensions a thirty-two-hour day. Clamped to the
+   * clock, and a span of 24 is read as "always" by `trading` rather than as a
+   * comparison that is false for exactly one instant at midnight.
+   */
+  tradingHours() {
+    let open = OPEN_HOUR;
+    let close = CLOSE_HOUR;
+    for (const id of this.ownedUpgrades ?? []) {
+      const up = content().byId.upgrades[id];
+      if (up?.kind !== 'hours') continue;
+      open = Math.min(open, clamp(Number(up.payload?.open ?? OPEN_HOUR), 0, 24));
+      close = Math.max(close, clamp(Number(up.payload?.close ?? CLOSE_HOUR), 0, 24));
+    }
+    return { open, close };
   }
 
   hour() { return this.time * 24; }
@@ -2011,16 +2382,24 @@ export class Game {
   /**
    * Stop or start the world.
    *
-   * Never persisted — see the field. The log line is the only trace it leaves,
-   * and it earns its place because pause is world-wide in a shop two people
-   * share: without it the other person's game simply stops with nothing said.
+   * The log line is the only trace it leaves on screen, and it earns its place
+   * because pause is world-wide in a shop two people share: without it the
+   * other person's game simply stops with nothing said.
+   *
+   * It `persist()`s, which is the one thing in here that is not obvious: a
+   * paused game does not `step`, so nothing else would ever write the save
+   * again — the pause would survive a restart only if something happened to
+   * have saved after it, which by construction nothing does. See the field for
+   * why it is stamped rather than stored as a boolean.
    */
   setPaused(paused, by = null) {
     const want = !!paused;
     if (want === this.paused) return ok({ paused: this.paused });
     this.paused = want;
+    this.pausedAt = want ? Date.now() : null;
     const who = by ? `${by} ` : '';
     this.pushLog(want ? `${who}stopped the clock.` : `${who}started the clock.`);
+    this.persist();
     return ok({ paused: this.paused });
   }
 
@@ -2067,16 +2446,27 @@ export class Game {
     // is genuinely less overnight restocking — if that starts leaving shelves
     // bare at opening, the number to change is NIGHT_SPEED, not the staff.
     //
-    // It follows the CLOCK and not the shutters, which matters now that they are
-    // two different questions. The reason the night is compressed is that nobody
-    // is out there to shop — which is `dayShape`, an hour of the day. Hang it on
-    // `isOpen` instead and shutting at noon to re-plan an aisle would fling you
-    // through the afternoon at 6×, which is a control that punishes the thing it
-    // is for. Pause is what stops the clock; this only ever skips the dark.
-    const world = dt * (this.trading() ? 1 : NIGHT_SPEED);
+    // It follows the DARK and not the shutters, and not your licence either —
+    // three questions now, where there used to be one. The reason the night is
+    // compressed is that the town is asleep, which is a fact about the hour.
+    // Hang it on `isOpen` and shutting at noon to re-plan an aisle would fling
+    // you through the afternoon at 6×, which is a control that punishes the
+    // thing it is for. Hang it on `trading` and buying a 24-hour licence would
+    // double how long a day takes in real time — you would sit through twelve
+    // dark hours for a tenth of the footfall, which is the licence charging you
+    // in the one currency it was never supposed to. So `daylight` is its own
+    // predicate against the world's own hours: an unlicensed shop is exactly
+    // the game it was, and a licensed one still skips the dark quickly and
+    // takes a night's trickle on the way past. Pause is what stops the clock.
+    const world = dt * (this.daylight() ? 1 : NIGHT_SPEED);
 
     this.elapsed += world;
     const prevDay = this.day;
+
+    // Before the roll reads it. One boolean rather than counting hours: what
+    // the board clock wants to know is whether this was a day the shop could
+    // possibly have sold anything, and a shop open for ten minutes was open.
+    if (this.isOpen()) this.tradedToday = true;
 
     this.time += world / DAY_SECONDS;
     while (this.time >= 1) {
@@ -2107,6 +2497,11 @@ export class Game {
     // be the *same* number, or the shop turns people away over a crush its own
     // shoppers aren't feeling.
     this.occupancy = this.measureOccupancy();
+    // Once per tick, for `stepMood`'s reason: it is read per customer and the
+    // answer is a property of the shop rather than of any of them. Same shape
+    // `occupancy` has had since the crush existed.
+    this.mess = this.measureMess();
+    this.stepCrowdRep(dt);
     this.stepCustomers(dt, c, folded);
     this.stepSpawning(dt, c, folded);
     stepStaff(this, dt);
@@ -2165,8 +2560,27 @@ export class Game {
     // measured seed came back 9305 / 6723 / 25 on identical code.
     if (!this.ephemeral) pruneModifiers(this.day, this.worldId);
     this.invalidateModifiers();
+    // Before `spoilStock`, which cannot see any of it: both of its loops open
+    // by looking the item up and skipping what they can't find, so an orphan
+    // is the one thing in the shop that never rots however long it stands
+    // there. Clearing it first also means the boards and bay cells it was
+    // holding are free for the rest of the roll to reason about.
+    this.binOrphans();
+    // ...and before `spoilStock` for the second half of the same reason: a box
+    // holding eight crates' worth is eight cells of yard the shop cannot see it
+    // has, and every guard below here — and every order placed tomorrow — is
+    // measured in cells.
+    this.splitOverfull();
     this.spoilStock();
-    this.releaseBoards();
+    // Was yesterday a day the shop could have sold anything? Read and reset
+    // here, once, and handed to both halves of the board clock: one ages a
+    // board with stock on it (`staleBoards`, via the stamps) and one a board at
+    // zero (`releaseBoards`, via its own counter), and a day with the shutters
+    // down is not evidence for either. See `holdBoardClocks`.
+    const traded = this.tradedToday;
+    this.tradedToday = false;
+    if (!traded) this.holdBoardClocks();
+    this.releaseBoards(traded);
     this.payWages();
     // Before `persist`, and after the last thing that touches the day's money —
     // `payWages` is it. `spoilStock` runs first and deliberately moves no cash:
@@ -2201,8 +2615,56 @@ export class Game {
       day: this.day - 1,
       revenue: round2(this.stats.revenue),
       spent: round2(this.stats.spent),
+      // Where the shop's name finished the day, and how far it moved to get
+      // there. Both, because they answer different questions and neither
+      // implies the other: 62% is where you stand, and −4 points is what
+      // yesterday did to you, which is the one a week of columns can show a
+      // shape of. The move is the SUM of the causes rather than a difference
+      // of two levels, so it is the same arithmetic the breakdown prints and
+      // the two can never disagree — and a day that hit the 0 or 1 clamp
+      // reports what actually landed rather than what was asked for.
+      rep: round3(this.reputation),
+      repMove: round3(netRep(this.stats.repMoves)),
     });
     if (this.ledger.length > LEDGER_DAYS) this.ledger = this.ledger.slice(-LEDGER_DAYS);
+  }
+
+  /**
+   * THE ONE WAY REPUTATION MOVES.
+   *
+   * Six places used to write `this.reputation = clamp(this.reputation ± x, 0, 1)`
+   * directly, which is correct and tells nobody anything: reputation is the
+   * slowest number in the game and the only one with no receipt, so a shop
+   * sliding from 70% to 40% over a week had no way at all of saying which of
+   * seven mechanics did it. The player's question is never "what is my
+   * reputation" — the HUD has always answered that — it is *what is costing me*,
+   * and that is a question about causes.
+   *
+   * So every move goes through here with a name on it, and the tally is a
+   * byproduct of the write rather than a second set of books beside it. Adding a
+   * seventh way to lose reputation is one call with one new key; forgetting to
+   * tally it is not something you can do, because there is nowhere else to
+   * write.
+   *
+   * What is banked is what LANDED, not what was asked for — the clamp is applied
+   * first and the difference is the tally. A shop already on the floor at zero
+   * reports nothing further lost, which is true: another storm-out cost it
+   * nothing it had. Raw here and rounded on the way out (see `snapshot`),
+   * because the crowd drain is a few ten-thousandths a tick and a tally rounded
+   * as it accumulated would stay at zero for ever.
+   */
+  moveRep(delta, cause) {
+    if (!delta) return 0;
+    const before = this.reputation;
+    this.reputation = clamp(before + delta, 0, 1);
+    const moved = this.reputation - before;
+    // `??=` because `stats` arrives by `Object.assign` on a restore, so a
+    // payload written before this field existed is a shop whose first sale
+    // throws. Everything else in `stats` is a number and forgives a missing
+    // one; a map does not.
+    this.stats.repMoves ??= {};
+    if (moved) this.stats.repMoves[cause] = (this.stats.repMoves[cause] ?? 0) + moved;
+    return moved;
   }
 
   /**
@@ -2344,8 +2806,8 @@ export class Game {
     this.cash = round2(this.cash - total);
     this.stats.spent += total;
     this.pushLog(this.cash < 0
-      ? `Paid $${total.toFixed(2)} in wages — the shop is now in the red.`
-      : `Paid $${total.toFixed(2)} in wages.`);
+      ? `Paid $${total.toFixed(2)} in lease and power — the shop is now in the red.`
+      : `Paid $${total.toFixed(2)} in lease and power.`);
   }
 
   /**
@@ -2364,12 +2826,39 @@ export class Game {
     const items = content().byId.items;
     const folded = this.folded();
 
-    /** What binning this much of it just cost, at what replacing it would. */
-    const bin = (item, qty) => {
+    /**
+     * What binning this much of it just cost, at what replacing it would —
+     * and, if the shop owns a skip, where the rubbish actually goes.
+     *
+     * Spoilage has always been an accounting event: the stack disappears at
+     * midnight and a line appears in the log. That is honest about the money
+     * and says nothing about the shop, which is the complaint — a tenth of
+     * everything the place handles evaporating overnight, invisibly, with the
+     * crew standing about doing nothing while it happens.
+     *
+     * So rot becomes a thing on the floor: a crate marked `waste`, standing
+     * where the shelf is, for somebody to carry out. Two rules keep it from
+     * being a new mechanic nobody asked for. It only happens **if you own a
+     * bin** — a shop without one is the old game to the unit, which is what
+     * makes the whole feature opt-in and what stops a shop that has never
+     * thought about rubbish filling up with it. And the money is unchanged
+     * either way: `spoiledValue` is counted here, at the moment it rots, not
+     * when somebody gets round to carrying it out. What is in that crate is
+     * worth nothing and is already in the P&L.
+     *
+     * `waste` rides on the CRATE rather than on the stack, which is the
+     * narrower of the two and the one every existing reader can ignore with a
+     * single test. A flag per pile would mean `lotAdd` merging good goods into
+     * a rotten pile — the mixing rules know about kinds and quantities and
+     * would have to learn about a third thing on every path.
+     */
+    const skip = this.anyBin();
+    const bin = (item, qty, at = null) => {
       this.stats.spoiled += qty;
       this.stats.spoiledValue = round2(
         this.stats.spoiledValue + wholesalePrice(item, folded, this.season) * qty,
       );
+      if (skip && at) this.dropWaste(item.id, qty, at);
     };
 
     for (const shelf of this.layout.shelves) {
@@ -2401,8 +2890,11 @@ export class Game {
           // and it is why `shelfShares` reads the reservation first: a shop kept
           // for three things must not re-share itself every time one rots.
           this.clearStack(shelf, stack.item_id);
-          bin(item, lost);
-          this.pushLog(`${lost}x ${item.name} spoiled on the shelf and was binned.`);
+          bin(item, lost, shelf.browseAt ?? shelf);
+          this.logGoods('spoil:shelf', {
+            post: ' spoiled on the shelf and was binned.',
+            goods: [{ item_id: stack.item_id, qty: lost }],
+          });
         }
       }
     }
@@ -2442,14 +2934,224 @@ export class Game {
         if (age <= effLife) continue;
         const lost = pile.qty;
         crate.stacks = lotTake(crate, pile.item_id, lost).lot?.stacks ?? [];
-        bin(item, lost);
-        this.pushLog(`${lost}x ${item.name} spoiled in the yard and was binned.`);
+        bin(item, lost, crate);
+        this.logGoods('spoil:yard', {
+          post: ' spoiled in the yard and was binned.',
+          goods: [{ item_id: pile.item_id, qty: lost }],
+        });
       }
       // A box with nothing left in it goes, the same way `unload` leaves it.
       if (lotTotal(crate) <= 0) {
         this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
       }
     }
+  }
+
+  /**
+   * Goods whose item row no longer exists, cleared out.
+   *
+   * Content is edited live and `delete_content` is one call, so an item can
+   * stop existing while cases of it are standing on a board, sitting in a
+   * crate, held in somebody's hands and still on a van. Nothing anywhere
+   * caught that: every loop in the sim that touches stock looks the row up and
+   * `continue`s when it misses, which is individually right — a lookup that
+   * guessed would be worse — and the sum of all that correct forgiveness is
+   * goods that can never be sold, shelved, spoiled or shifted, holding a board
+   * and a bay cell for ever.
+   *
+   * It is not hypothetical. `verify:yard` and `verify:kitchen` author test
+   * items into whatever content database they are pointed at — usually the
+   * live shared one — and a shop that is open while a sweep runs will BUY
+   * them, because the tags on them are real and the ordering does exactly what
+   * the tag system is for. Shop 2 came out of one with 84 units of
+   * `zz-yard-spud` and `zz-kit-bean` parked on a nine-cell bay, `bayRoom` down
+   * to 6 out of 108, and no move available anywhere that could shift a single
+   * unit. What it reads as is *empty crates*, because `syncPallet` has no
+   * model to draw and only the `x12` on the front survives — so the symptom
+   * points at the renderer and the cause is a row somebody deleted.
+   *
+   * ## The day roll, and not the moment the row goes
+   *
+   * The re-flow already meets this case and deliberately lets it ride
+   * (`applyPlacements`), on the argument that somebody tidying the catalog
+   * should not have every case of it destroyed a frame later — and a re-flow
+   * fires on every wall segment, so that bin would be instant, repeated and
+   * unrecoverable. A day is the shop's own unit for settling up, it is where
+   * the other bin already lives, and it leaves a full in-game day to put a row
+   * back if the deletion was a mistake. So the re-flow goes on forgiving and
+   * this collects.
+   *
+   * ## It moves no money, and cannot even price what it took
+   *
+   * Spoilage bins without charging and attributes the loss to `spoiledValue`
+   * instead. Half of that applies here and half cannot: `wholesalePrice` needs
+   * the row, and the row is the thing that has gone. So this is a log line and
+   * nothing in the P&L — which is honest, since the money left when the van
+   * was paid and is already in `stats.spent`.
+   */
+  /**
+   * Break any crate holding more than a crate back into crates.
+   *
+   * **Every write path already caps**, and that is the point of this rather than
+   * an argument against it. `dropGoods` opens a new box per `crateCapacity()`,
+   * `crateBoard` and `harvest` add through `crateLot()`, `dropLot` funnels into
+   * `dropGoods`, and every staff put-down goes through `stow`. And a live shop on
+   * day 116 still had five boxes holding 22, 29, 52, 70 and **96** units against
+   * a cap of twelve — so either something writes `stacks` by a route none of
+   * those cover, or they predate the cap and `deliveries` is loaded off the save
+   * verbatim (`world()`), which it is. Both answers have the same fix and the
+   * data is wrong either way.
+   *
+   * What it costs is **not** the yard arithmetic, which is the tempting wrong
+   * answer: `bayRoom` and `padRoom` add up `lotTotal`, so they count a box of
+   * ninety-six as ninety-six and are honest about it. Nor is it the picture —
+   * `buildPallet` clamps its sample, so an over-full box draws as a full box.
+   *
+   * It is that **a crate is a TRIP**, which is the one thing every other rule
+   * here rests on. `crateCapacity` is what makes "three crates is three trips"
+   * true, and `liftCrate` hands you whatever is in the box: a ninety-six-unit
+   * crate is eight trips' worth on one shoulder, in one gesture, past a cap that
+   * every other way of filling a box respects. The pile that should have been
+   * eight boxes you can peel is one wall you cannot divide.
+   *
+   * It does **not** call `dropGoods`: that merges into anything within 2.2 tiles
+   * first, which is the crate it just came out of. The excess is peeled off and
+   * stood on the same tile as boxes of its own, which is what a pile is —
+   * `pickPallet` takes them apart by height and `liftCrate` no longer minds
+   * which one you aimed at, so a split pile is a thing you can work through
+   * rather than a wall.
+   *
+   * At the day roll beside `binOrphans`, for the same reason: it is a repair
+   * rather than a rule, so it belongs where the shop tidies up after itself
+   * once, not in the hot loop that would have to keep proving it.
+   */
+  splitOverfull() {
+    const cap = this.crateCapacity();
+    if (!(cap > 0)) return 0;
+    let split = 0;
+    // A snapshot, because the loop pushes onto the list it is walking.
+    for (const d of [...this.deliveries]) {
+      if (lotTotal(d) <= cap) continue;
+      // Down to the brim, biggest pile first — `lotSweep`'s ordering, and for
+      // its reason: it levels the box rather than emptying it in arrival order,
+      // so what is left is the box a glance would have expected.
+      while (lotTotal(d) > cap) {
+        const s = lotStacks(d).sort((a, b) => b.qty - a.qty)[0];
+        if (!s) break;
+        const take = Math.min(s.qty, cap, lotTotal(d) - cap);
+        if (!(take > 0)) break;
+        d.stacks = lotTake(d, s.item_id, take).lot?.stacks ?? [];
+        const box = {
+          id: `del-${this.nextDeliveryId++}`,
+          stacks: lotOf(s.item_id, take).stacks,
+          x: d.x,
+          z: d.z,
+          // Rubbish stays rubbish. A skip's crate is over-full by exactly the
+          // same routes and must not come apart into stock — `stockCrates` and
+          // `dropGoods` both refuse to mix the two, and a split that dropped the
+          // flag would put rot back in the supply.
+          ...(d.waste ? { waste: true } : {}),
+        };
+        // The pile's own clock rides with it, or half a fortnight-old box comes
+        // out of this fresh and the yard stops being under spoilage — which is
+        // the dodge `stampPile` exists to close. `s` is the stack object as it
+        // was before the take, so its stamp is still on it.
+        if (s.day != null) box.stacks[0].day = s.day;
+        else this.stampPile(box, s.item_id);
+        this.deliveries.push(box);
+        split += 1;
+      }
+    }
+    if (split > 0) this.pushLog(`Restacked the yard — ${split} more crate${split === 1 ? '' : 's'}.`);
+    return split;
+  }
+
+  binOrphans() {
+    const items = content().byId.items;
+    const gone = (id) => !!id && !items[id];
+
+    let binned = 0;
+    const names = new Set();
+    const bin = (id, qty) => { binned += qty ?? 0; names.add(id); };
+
+    // A board, and the reservation that holds one. The stack is goods and the
+    // reservation is only a label, but both occupy a board — a unit set aside
+    // for something that does not exist is a board nothing can ever land on,
+    // which is the same clog wearing no stock. `applyPlacements` already drops
+    // those on a re-flow; a shop that has not bought anything lately never
+    // re-flows.
+    for (const shelf of this.layout.shelves) {
+      for (const stack of [...this.shelfStacks(shelf)]) {
+        if (!gone(stack.item_id)) continue;
+        bin(stack.item_id, stack.qty);
+        this.clearStack(shelf, stack.item_id);
+      }
+      const kept = toList(shelf.assigned);
+      if (kept.some(gone)) shelf.assigned = kept.filter((id) => !gone(id));
+    }
+
+    // Pile by pile and never box by box, for `spoilStock`'s reason: a mixed
+    // crate holding one dead kind beside two live ones must lose the one.
+    for (const crate of [...this.deliveries]) {
+      for (const pile of lotStacks(crate)) {
+        if (!gone(pile.item_id)) continue;
+        bin(pile.item_id, pile.qty);
+        crate.stacks = lotTake(crate, pile.item_id, pile.qty).lot?.stacks ?? [];
+      }
+      if (lotTotal(crate) <= 0) {
+        this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+      }
+    }
+
+    // Hands and shoulders, separately, for the reason `haul` is its own field
+    // rather than a flag on `carry`: every ordinary reader asks about one of
+    // them, and an accounting sweep that learned only about `carry` is the
+    // silent conservation hole CLAUDE.md records against `removePlayer` and
+    // firing. Staff are in `this.players` too, and a hire can be stood holding
+    // an armful of it at the moment the day turns.
+    for (const p of Object.values(this.players)) {
+      for (const hold of ['carry', 'haul']) {
+        for (const s of lotStacks(p[hold])) {
+          if (!gone(s.item_id)) continue;
+          bin(s.item_id, s.qty);
+          p[hold] = lotTake(p[hold], s.item_id, s.qty).lot;
+        }
+      }
+    }
+
+    // A hopper and a finished tray. A batch already underway is left alone —
+    // its ingredients are spent, and whatever it produces lands in `output`
+    // for tomorrow's sweep to take if that has gone too.
+    for (const st of this.layout.stations ?? []) {
+      for (const [itemId, n] of Object.entries(st.contents ?? {})) {
+        if (!gone(itemId)) continue;
+        bin(itemId, n);
+        delete st.contents[itemId];
+      }
+      if (st.output && gone(st.output.item_id)) {
+        bin(st.output.item_id, st.output.qty);
+        st.output = null;
+      }
+    }
+
+    // ...and what is still on its way, or the van lands another crate of it
+    // tomorrow and this whole sweep is a treadmill. It is also the half that
+    // gives the bay back today rather than at the next run: `bayRoom` counts
+    // orders in flight as well as crates standing there, which is what stops
+    // six orders placed in one tick all passing a check against an empty pad.
+    if (this.orders.pending.some((o) => gone(o.item_id))) {
+      for (const o of this.orders.pending) if (gone(o.item_id)) bin(o.item_id, o.qty);
+      this.orders.pending = this.orders.pending.filter((o) => !gone(o.item_id));
+    }
+
+    if (!binned) return;
+    // The ids, because there is no name left to print — the row that held it
+    // is exactly what has gone. Three of them and a count, the way the van's
+    // line refuses to say six things six times.
+    const list = [...names];
+    const said = list.slice(0, 3).join(', ')
+      + (list.length > 3 ? ` and ${list.length - 3} more` : '');
+    this.pushLog(`Binned ${binned} units of ${said} — not in the catalogue any more, so nothing could shelve or sell it.`);
   }
 
   // -------------------------------------------------------------------------
@@ -2871,7 +3573,7 @@ export class Game {
    * you pointed at that freezer, so "bread needs a freezer" is the answer you
    * are owed. Guessing silently is what proximity did.
    */
-  actionAt(p, f, itemId = null) {
+  actionAt(p, f, itemId = null, put = false) {
     // The side of it you are NEAREST, which is the marker's position — and with
     // somebody stood at one, the tile under their own feet.
     //
@@ -2912,7 +3614,10 @@ export class Game {
           repeat: true,
           at,
           run: () => this.crateBoard(p.id, f.id, itemId),
-          done: (n) => this.pushLog(`Crated ${n}x ${said} off the ${this.fixtureSaid(f)}.`),
+          done: (n) => this.logGoods(`crate:${f.id}`, {
+            pre: 'Crated ', post: ` off the ${this.fixtureSaid(f)}.`,
+            goods: [{ item_id: itemId, qty: n }],
+          }),
         };
       }
       if (p.carry) {
@@ -2933,6 +3638,24 @@ export class Game {
     }
 
     if (f.kind === 'station') {
+      // **A machine has two openings, so the direction is said.** Everything
+      // else in the shop offers one job per state and can be ordered by what is
+      // there; an appliance can be full at both ends at once, and reading the
+      // tray first meant a batch waiting in it silently took the right button
+      // away — the one button whose entire meaning is putting things in. What
+      // that reads as is a machine you cannot feed until you have emptied it,
+      // which is not a rule anybody wrote. `put` comes off the errand and the
+      // errand comes off `aimAt`, which is the right press and nothing else.
+      const load = (from) => ({
+        kind: 'load', target: f.id, label: 'Load', at, run: () => this.loadStation(p.id, f.id, { from }),
+      });
+      if (put && p.carry) return load('carry');
+      // ...and out of a crate on your shoulder, which armed nothing at all — so
+      // a machine you walked a box of milk over to offered no action, no
+      // refusal and no message, and read as a machine that had stopped working.
+      // See `loadStation`; the shelves have poured straight out of a crate
+      // since hauling existed.
+      if (put && p.haul) return load('haul');
       // Collecting when there is anywhere in your hands for what is in the
       // tray. `lotRoom` rather than "am I holding this already", because with
       // three kinds those stopped being the same question: hands holding
@@ -2940,8 +3663,22 @@ export class Game {
       if (f.output && lotRoom(p.carry, f.output.item_id, this.carryLot(p)) > 0) {
         return { kind: 'collect', target: f.id, label: 'Collect', at, run: () => this.collectStation(p.id, f.id) };
       }
+      // Hands before the shoulder, the way a shelf orders them: an armful is the
+      // thing you last picked up, and the crate is still there for the next tap.
+      if (p.carry) return load('carry');
+      if (p.haul) return load('haul');
+      return null;
+    }
+
+    if (f.kind === 'bin') {
+      // Both hands, and the crate first — a box on the shoulder is the bigger
+      // thing to be rid of and the one you walked over here holding. Same
+      // ordering `stow` uses, for the same reason.
+      if (p.haul) {
+        return { kind: 'bin', target: f.id, label: 'Throw away', at, run: () => this.binGoods(p.id, f.id) };
+      }
       if (p.carry) {
-        return { kind: 'load', target: f.id, label: 'Load', at, run: () => this.loadStation(p.id, f.id) };
+        return { kind: 'bin', target: f.id, label: 'Throw away', at, run: () => this.binGoods(p.id, f.id) };
       }
       return null;
     }
@@ -3120,7 +3857,7 @@ export class Game {
     // end of a unit is now equally a place the errand fires from.
     if (!this.atFixture(p, f)) return null;
 
-    const act = this.actionAt(p, f, e.itemId);
+    const act = this.actionAt(p, f, e.itemId, e.put);
     // It offered something when you set off and offers nothing now — the bed
     // was picked, the tray was collected. Not a refusal, just gone.
     if (!act) { p.errand = null; return null; }
@@ -3412,7 +4149,7 @@ export class Game {
     // board fills from two directions. Nothing logs it and the sim looks
     // healthy; what you see is the money going. Every counting loop over a
     // container in this file goes through `lotQty` for that reason.
-    for (const d of this.deliveries) n += lotQty(d, itemId);
+    for (const d of this.stockCrates()) n += lotQty(d, itemId);
     for (const o of this.orders.pending) if (o.item_id === itemId) n += o.qty ?? 0;
     for (const p of Object.values(this.players)) {
       n += lotQty(p.carry, itemId);
@@ -3597,6 +4334,214 @@ export class Game {
   }
 
   /**
+   * The unit the shop keeps an item on — one place, not four.
+   *
+   * Nothing used to answer this, and `shelvesFor` only ever *preferred* the unit
+   * an item was already on: full up, the next armful claimed a bare board on the
+   * unit next door, and the shop had two homes for one thing for the rest of the
+   * save. It compounds rather than settles. Each of those boards is its own line
+   * in `restockQueue`, so the shop then buys for both — which is what a shop
+   * that has quietly turned into four shelves of produce is looking at, and it
+   * reads as the staff being stupid rather than as a rule nobody wrote.
+   *
+   * Answers `{ floor, back }`, each a Set of unit ids or **null** meaning "no
+   * home on that side yet, so any unit there may become one". Null rather than
+   * an empty Set on purpose: the two are opposite answers, and a caller that
+   * conflated them would refuse the first board an item ever gets.
+   *
+   * Three things decide it, and each is somebody's decision rather than this
+   * function's:
+   *
+   *   `assigned` — you TICKED it, so every unit you ticked is a home. That is
+   *                the override for "I want soda in two aisles", and it is the
+   *                same one `staleBoards` and `giveUpBoard` already honour.
+   *   the stock  — otherwise the unit already holding the most of it wins, and
+   *                the others stop being restocked and drain. Consolidating by
+   *                *not filling* needs no job, no walk and no latch; the shop
+   *                hand's Merge still walks a live board over when somebody is
+   *                employed to.
+   *   `boh`      — a stockroom unit backing up what is on the floor is the one
+   *                second place that is the point rather than the bug, so each
+   *                side is homed separately.
+   *
+   * Your own hands never read it. `boardFor` and `shelfAccepts` are untouched,
+   * which is the line `orders.assign` and `giveUpBoard` already draw: the shop's
+   * judgement about its own range was never a rule about what you may do.
+   */
+  homeShelves(itemId) {
+    const out = { floor: null, back: null };
+    if (!itemId) return out;
+    // ONE walk. This is read from `shelvesFor`, which is read from `unload` once
+    // per pile per worker per tick — the note on `shelvesFor` about a helper
+    // being allowed to walk the shop exactly once applies here too.
+    const floor = { kept: [], holds: [] };
+    const back = { kept: [], holds: [] };
+    for (const sh of this.layout.shelves) {
+      const side = sh.boh === true ? back : floor;
+      if (toList(sh.assigned).includes(itemId)) side.kept.push(sh);
+      else if (this.shelfStack(sh, itemId)) side.holds.push(sh);
+    }
+    const pick = (side) => {
+      // A reservation beats a holding, and beats it outright rather than joining
+      // it — otherwise ticking a shelf for cheese leaves the cheese that is
+      // already on the unit next door with a home of its own for ever, and the
+      // reservation never fills.
+      if (side.kept.length) return new Set(side.kept.map((s) => s.id));
+      if (!side.holds.length) return null;
+      const best = side.holds.slice().sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)
+        || (this.shelfStack(b, itemId)?.qty ?? 0) - (this.shelfStack(a, itemId)?.qty ?? 0)
+        || String(a.id).localeCompare(String(b.id)))[0];
+      return new Set([best.id]);
+    };
+    out.floor = pick(floor);
+    out.back = pick(back);
+    return out;
+  }
+
+  /** Is this the unit the shop keeps that item on? */
+  homedAt(shelf, itemId, homes = null) {
+    const side = (homes ?? this.homeShelves(itemId))[shelf.boh === true ? 'back' : 'floor'];
+    return !side || side.has(shelf.id);
+  }
+
+  /**
+   * ...and is that unit out of room, so the rule has nothing left to bind?
+   *
+   * `homedAt` is a good rule with one state nobody wrote down: what happens
+   * when the home fills up. The answer was "nothing" — goods you already own,
+   * standing in a crate, were refused by every other shelf in the shop for as
+   * long as the home stayed full. On a real save that was five items at once,
+   * every one of them with a dozen legal shelves standing empty, and what you
+   * watch is a yard full of crates and a crew stood next to them with nothing
+   * to do. Every individual refusal is the shop correctly keeping one thing in
+   * one place.
+   *
+   * The rule exists to stop an item getting two homes and the shop then buying
+   * for both (see `homeShelves`). That is a question about the VAN, and it is
+   * guarded where the money is spent — `restock` asks `homedAt` itself, in
+   * `buy`, and this does not touch it. So the shop still orders for one board
+   * only, and goods it has *already paid for* stop being stranded by a rule
+   * about what to buy next.
+   *
+   * It settles rather than spreading, with no new mechanism: `homeShelves`
+   * picks the unit holding the MOST, so the home stays the home, and the
+   * overflow board drains and is handed back by `releaseBoards` — the same
+   * "consolidated by never being chosen again" the split-board fix already
+   * relies on.
+   *
+   * `false` when there is no home at all, because there is then no rule to be
+   * out of room: `homedAt` already lets everything through.
+   */
+  homeFull(itemId, boh, homes = null) {
+    const side = (homes ?? this.homeShelves(itemId))[boh === true ? 'back' : 'floor'];
+    if (!side) return false;
+    const item = content().byId.items[itemId];
+    if (!item) return false;
+    for (const sh of this.layout.shelves) {
+      if (!side.has(sh.id)) continue;
+      // Both questions, the way `shelvesFor` asks them: a unit can be out of
+      // BOARDS while every board on it has space, and either one is room this
+      // item cannot use.
+      if (!this.shelfHasRoomFor(sh, itemId)) continue;
+      if (this.shelfCapacity(sh, item) - (this.shelfStack(sh, itemId)?.qty ?? 0) > 0) return false;
+    }
+    return true;
+  }
+
+  /** Everything one appliance could take: the inputs of every recipe it knows. */
+  applianceInputs(station, into = new Set()) {
+    for (const r of this.recipesFor(station.station)) {
+      for (const i of r.inputs ?? []) into.add(i.item_id);
+    }
+    return into;
+  }
+
+  /**
+   * Which appliances each stockroom unit is the larder FOR.
+   *
+   * The shop-wide version of this was one set for the whole building, which is
+   * right in a shop with one kitchen and wrong the moment there are two: a
+   * coffee corner out front and a fryer in the back both wanted their
+   * ingredients, so every larder ordered both and each of them kept half a room
+   * of stock its own machines could not use. That is the original complaint
+   * again at one remove, and it gets worse the more you build.
+   *
+   * So: **every machine is served by the larder nearest it**, and a larder no
+   * machine picked stocks for the machine nearest IT. Both halves are needed and
+   * the second is the one that is easy to leave out — without it, a second unit
+   * in the same room as the first is chosen by nothing and takes nothing at all,
+   * which reads as a shelf that has stopped working rather than as a rule.
+   *
+   * Straight-line distance, not a walk. `findPath` is the hot loop in the game
+   * and this is asked from `shelvesFor`, which is asked per pile per worker per
+   * tick; and a route that changes as you build would move a larder's range
+   * while a hire was walking to it. The honest cost is a stockroom on the far
+   * side of a wall two tiles from the fryer, which is a room you laid out that
+   * way.
+   *
+   * Answers a Map of unit id → the item ids it may hold, or **null** when the
+   * question does not arise — no appliances, or no back room. `backRoomTakes`
+   * reads that null as yes, which is what keeps a shop with no kitchen exactly
+   * the game it was.
+   */
+  larderRanges() {
+    const stations = this.layout.stations ?? [];
+    if (!stations.length) return null;
+    const backs = this.layout.shelves.filter((s) => s.boh === true);
+    if (!backs.length) return null;
+
+    const gap = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+    const nearest = (from, list) => list.reduce(
+      (best, c) => (!best || gap(from, c) < gap(from, best) ? c : best), null,
+    );
+
+    const out = new Map(backs.map((s) => [s.id, new Set()]));
+    for (const st of stations) this.applianceInputs(st, out.get(nearest(st, backs).id));
+    for (const sh of backs) {
+      const set = out.get(sh.id);
+      if (!set.size) this.applianceInputs(nearest(sh, stations), set);
+    }
+    return out;
+  }
+
+  /**
+   * Would the shop put this item on that unit?
+   *
+   * A back-of-house unit is the kitchen's larder and nothing else — the menu
+   * that marks one says so, and the code agrees: shoppers cannot see it
+   * (`chooseShelf` filters `boh` out, and `stockedForTag` does not count it as
+   * having any), and the only thing in the game that ever takes stock back OFF
+   * one is the chef. So anything in there that no machine can use is dead the
+   * moment it lands: nobody buys it, nobody cooks it, and it holds a board,
+   * which is the scarce thing (`staleBoards`).
+   *
+   * That was the whole of what a stockroom did wrong. `pickItem` chose its range
+   * the way it chooses the shop floor's — best margin × who wants it — so a
+   * shelf you marked as the back room filled up with whatever sells well out
+   * front, and then sat there. What it read as is a stockroom that does not
+   * work.
+   *
+   * An ordinary shelf is not asked, and a shop with **no appliances** is the old
+   * game exactly. The rule has nothing to say there, and saying "nothing, then"
+   * would leave a back room you cannot stock at all — which is worse than the
+   * bug, and it is the order everybody does it in.
+   *
+   * `ranges` rides in because `larderRanges` walks the shop and this is asked
+   * per item: the caller computes it once, the same bargain `homeShelves` and
+   * `shelvesFor` already strike.
+   *
+   * The shop's judgement only. Your own hands never read it, the same line
+   * `giveUpBoard` and `orders.assign` draw: you may stand anything you like in
+   * your own stockroom.
+   */
+  backRoomTakes(shelf, itemId, ranges = undefined) {
+    if (shelf?.boh !== true) return true;
+    const map = ranges === undefined ? this.larderRanges() : ranges;
+    const set = map?.get(shelf.id);
+    return !set || set.has(itemId);
+  }
+
+  /**
    * Hand back a board that has been empty for days with nothing coming.
    *
    * A sold-out board deliberately keeps its label — that is what tells the
@@ -3622,19 +4567,90 @@ export class Game {
    *                is not idle, it is waiting. `homeSupply` is already the one
    *                spelling of that question.
    *   days       — one quiet day is a Tuesday. Two is a decision.
+   *
+   * ...and `ageing` is a fourth, which is not about the board at all: a day the
+   * shutters never went up is not a quiet Tuesday, it is a day the shop was not
+   * asked. The spare-board release above still runs — that one is about where
+   * an item is KEPT and has nothing to do with trade — so a shut shop still
+   * consolidates itself, it just stops retiring its own range. See
+   * `holdBoardClocks`, which is the same exception said to `staleBoards`.
+   *
+   * Defaults to true, so the sweeps and anything calling this by hand get the
+   * behaviour they were written against.
    */
-  releaseBoards() {
+  releaseBoards(ageing = true) {
     for (const shelf of this.layout.shelves) {
       const kept = toList(shelf.assigned);
       for (const stack of [...this.shelfStacks(shelf)]) {
         if (stack.qty > 0) { stack.emptyDays = 0; continue; }
         if (kept.includes(stack.item_id)) continue;
+        // A second home, given back the moment it empties rather than after the
+        // days — because the days are there for a board that might refill, and
+        // this one never will: `shelvesFor` sends the item to its home now, so
+        // nothing in the shop is ever walking here again. It has to come BEFORE
+        // the supply guard, which is the reason these boards were immortal — a
+        // shop with two tomato beds has `homeSupply` above zero for ever, so a
+        // spare tomato board could never age a single day.
+        if (!this.homedAt(shelf, stack.item_id)) {
+          const name = content().byId.items[stack.item_id]?.name ?? stack.item_id;
+          this.clearStack(shelf, stack.item_id);
+          this.pushLog(`Gave the spare ${name} board back — it is kept on one shelf now.`);
+          continue;
+        }
         if (this.homeSupply(stack.item_id) > 0) { stack.emptyDays = 0; continue; }
+        // Held rather than reset: a shut day is not evidence either way, so the
+        // two quiet days a board had already served still count when you open
+        // again.
+        if (!ageing) continue;
         stack.emptyDays = (stack.emptyDays ?? 0) + 1;
         if (stack.emptyDays < EMPTY_BOARD_DAYS) continue;
         const name = content().byId.items[stack.item_id]?.name ?? stack.item_id;
         this.clearStack(shelf, stack.item_id);
         this.pushLog(`Gave the ${name} board back — empty ${EMPTY_BOARD_DAYS} days with none coming.`);
+      }
+    }
+  }
+
+  /**
+   * A day the shop never opened does not age a board.
+   *
+   * `staleBoards` is "nothing sold in four days" and `releaseBoards` is "empty
+   * two days with none coming". Both are measured against the calendar, and
+   * both are reasoning from an absence of sales — which is a fair signal about
+   * an item right up until the reason nothing sold is that you had the shutters
+   * down. Then it is a signal about YOU, and the shop draws the wrong
+   * conclusion from it four days running: the whole range written off, item by
+   * item, with the crates piling up in a yard nobody is selling out of.
+   *
+   * It is not hypothetical and it is not slow. A shop shut on day 94 had seven
+   * items written off by day 97; turning them back on by hand bought three days
+   * before the same four-day clock retired the same boards again. From inside
+   * the game that is a shop that argues with you, and there is no wrong line
+   * anywhere in it.
+   *
+   * The clocks are held rather than the tests being changed, which is the
+   * pattern a roofed bed already uses: `stepCrops` moves `plantedAt` along with
+   * `elapsed` so a covered crop keeps its progress without `plotGrowth` needing
+   * to know about roofs. Same shape — one place that knows about the exception,
+   * and every reader goes on doing arithmetic on a stamp.
+   *
+   * **`soldDay` only, and `stockedDay` deliberately left where it is.** They
+   * look interchangeable — `staleBoards` reads `soldDay ?? stockedDay` — and
+   * moving both is the obvious way to hold that fallback. It is also wrong:
+   * `stockedDay` is what `spoilStock` ages, so a shop that held it would stop
+   * its food rotting by shutting, which makes the shutters the cheapest
+   * preservation in the game. Written that way first; the sweep below caught it.
+   *
+   * So a board that has never sold anything is given a stale clock of its own
+   * here rather than having the shared stamp moved. That is safe because
+   * `staleBoards` is `soldDay`'s ONLY reader — nothing anywhere treats it as
+   * "a sale happened on this day", so seeding it costs nothing and the fallback
+   * stops being load-bearing on a stamp that means something else.
+   */
+  holdBoardClocks() {
+    for (const shelf of this.layout.shelves) {
+      for (const stack of this.shelfStacks(shelf)) {
+        stack.soldDay = (stack.soldDay ?? stack.stockedDay ?? this.day) + 1;
       }
     }
   }
@@ -3701,27 +4717,56 @@ export class Game {
    * board alone and the next delivery lands the same thing on the unit next
    * door.
    *
-   * It does not expire, and there are two ways to overrule it, both of which
-   * already existed:
+   * It lapses after `SHOP_DROP_DAYS`, and there are three ways to overrule it:
    *
+   *   - **The supplier's `Not stocking` tab.** One press, and the reason it is
+   *     first in that list is that this used to be a decision with no surface
+   *     at all — see `SHOP_DROP_DAYS` for what that cost.
    *   - **Tick a shelf for it.** A reservation outranks everything in
    *     `shelvesFor` and always has; that is what a reservation is *for*.
    *   - **Put it on a shelf yourself.** `stockShelf` never reads this. The shop
    *     giving up is the shop's judgement about its own range — the same line
    *     `orders.assign` draws — and it was never a rule about your hands.
    *
-   * A timer instead would be worse than either: the crate is still on the pad,
-   * so the day it lapsed a worker would carry the same goods back to the same
-   * board and start the same four days again. Churn on a loop reads as a bug in
-   * a way "we don't stock that any more" never does.
+   * Forever was the first shape and the note that justified it is worth keeping,
+   * because the trap it describes is real: the goods are standing on a pad, so a
+   * mark that simply lapsed would send somebody to carry the same units back to
+   * the same board and start the same four days again. What answers it is not
+   * the timer, it is where the crate goes — `dropAt` sends it to the bay, out of
+   * the production buffer and into the one `homeSupply` counts, so the shop will
+   * not buy more of something it is holding a crate of.
    */
   giveUpBoard(shelf, itemId, days) {
-    if (!this.dropItem(itemId)) return;
+    if (!this.dropItem(itemId, SHOP_DROP_DAYS)) return;
     const name = content().byId.items[itemId]?.name ?? itemId;
     this.pushLog(
-      `Gave up on the ${name} — nothing sold in ${days} days. `
-      + 'Set a shelf aside for it to stock it again.',
+      `Stopped stocking ${name} — nothing sold in ${days} days. `
+      + `Back on the list in ${SHOP_DROP_DAYS} days, or turn it back on in the supplier.`,
     );
+  }
+
+  /**
+   * Where goods the shop has stopped stocking are put down.
+   *
+   * The bay, not the drop-off, and it is the half that makes the mark safe to
+   * expire. The drop-off is the shop's *production* buffer: `padRoom` is what
+   * `hasSomewhere` and `hasHome` gate the farm and the kitchen on, so a
+   * discontinued line parked there does not merely sit in the way — it stops
+   * your beds being picked and your machines being emptied, days later, with
+   * nothing connecting the two. That is most of what "the robots just stop" was.
+   *
+   * The bay is where goods that came from outside wait, which is exactly what a
+   * line the shop has stopped selling is. It costs `bayRoom`, and that is the
+   * honest reading rather than a side effect: you are holding stock you are not
+   * putting out, so the shop orders less until it is dealt with.
+   *
+   * Falls back to the drop-off, because a shop can have no bay at all — the
+   * pads are ground somebody paints, and `dropPad` already makes the same
+   * concession the other way round.
+   */
+  dropAt(itemId) {
+    if (!this.droppedItem(itemId)) return this.dropPad();
+    return this.layout.bay ?? this.dropPad();
   }
 
   /**
@@ -3735,15 +4780,175 @@ export class Game {
    * caller that says nothing the second time is the difference between a shop
    * that tells you once and one that tells you every time you tidy a board.
    */
-  dropItem(itemId) {
+  dropItem(itemId, days = null) {
     if (this.orders.dropped[itemId] !== undefined) return false;
     this.orders.dropped[itemId] = this.day;
+    // ...and how long it lasts, which is the difference between the two callers
+    // rather than a second kind of mark.
+    //
+    // Both callers pass one now and they differ in SIZE rather than in kind:
+    // taking cheese off a shelf is "not on that board" and nobody pressing Clear
+    // is making a decision about the range, while four days of nothing selling
+    // is the shop having actually learned something. `null` — no expiry at all —
+    // is what the hand used to pass, and it is left legal only because a save
+    // written before this has marks on it with no `dropFor` entry.
+    //
+    // A second map rather than a richer value, because `dropped` is on the save:
+    // a shop that predates this has no `dropFor`, reads as permanent, and does
+    // not move.
+    if (days != null) {
+      this.orders.dropFor ??= {};
+      this.orders.dropFor[itemId] = days;
+    }
     return true;
   }
 
-  /** Has the shop given up on stocking this? Staff read it; your hands don't. */
+  /**
+   * Put it back on the list — the supplier's `Not stocking` button.
+   *
+   * The control this whole state was missing. There were two ways to overrule
+   * the mark and both were side effects of doing something else: tick a shelf
+   * for it, or stand somewhere and shelve one by hand. A control used for its
+   * side effect is the shape of a missing control — the same reading that got
+   * `shelf.managed` written — and here it was worse than usual, because the mark
+   * itself was invisible: you had to know the mechanic existed to go looking for
+   * the workaround.
+   *
+   * Deliberately NOT a `setItemRule` patch. `auto: false` is "never order this",
+   * a standing instruction of yours; this is cancelling a judgement the shop
+   * made about its own range. Folding them together would mean turning the
+   * shop's guess off also wrote you a rule you never asked for, and it would
+   * then survive the guess lapsing.
+   *
+   * Answers `ok` either way with what actually changed, because the button is
+   * drawn off a snapshot that can be a tick old — pressing something that has
+   * already lapsed on its own is an ordinary race, not an error worth a toast.
+   */
+  stockAgain(itemId) {
+    if (!content().byId.items[itemId]) return err('no such item');
+    const was = this.orders.dropped?.[itemId] !== undefined;
+    if (was) {
+      delete this.orders.dropped[itemId];
+      if (this.orders.dropFor) delete this.orders.dropFor[itemId];
+      this.persist();
+      const name = content().byId.items[itemId]?.name ?? itemId;
+      this.pushLog(`Stocking ${name} again.`);
+    }
+    return ok({ itemId, resumed: was });
+  }
+
+  /**
+   * Everything the shop has stopped stocking, and how long each has left.
+   *
+   * For the panel, and it is a *derivation* rather than a second store: the two
+   * maps on the save are the truth and this reads them with the same arithmetic
+   * `droppedItem` lapses on, so a row can never say two days left about
+   * something the sim has already let go of.
+   *
+   * Every row carries a number of days, including one marked before any of this
+   * expired — `dropSpan` answers that, measured from the day it was actually
+   * marked rather than from the load that noticed.
+   */
+  droppedItems() {
+    const out = [];
+    for (const itemId of Object.keys(this.orders.dropped ?? {})) {
+      // Through the lapse rather than around it, so reading the list is also
+      // what clears the expired ones — the same trick `droppedItem` plays for
+      // the supplier and the log. Keys are snapshotted first, because that call
+      // deletes out of the object being walked.
+      if (!this.droppedItem(itemId)) continue;
+      out.push({
+        itemId,
+        since: this.orders.dropped[itemId],
+        left: Math.max(0, this.dropSpan(itemId) - (this.day - this.orders.dropped[itemId])),
+      });
+    }
+    return out.sort((a, b) => a.left - b.left || a.itemId.localeCompare(b.itemId));
+  }
+
+  /**
+   * Is any board in the shop still holding this, or set aside for it?
+   *
+   * The guard on both of your ways of giving up (`clearBoard`, `stripShelf`),
+   * and the thing that tells "I am clearing this out" apart from "I am moving it
+   * onto the unit over there". The mark is on the ITEM — it has to be, or the
+   * next van lands the same goods on the unit next door — so a shop where
+   * something is still stocked somewhere must not take one board coming off as
+   * the whole range changing: that strands the crate on the floor AND stops
+   * restocking a shelf nobody touched.
+   *
+   * Asked AFTER the boards have gone, so it reads the shop the press has just
+   * made rather than the one before it. A reservation the verb deliberately
+   * leaves behind (`stripShelf` keeps `assigned`) is the shop still being asked
+   * for it, which is exactly right: strip lets go of what you never asked for
+   * and keeps what you did.
+   */
+  stillStocked(itemId) {
+    return this.layout.shelves.some((s) => (this.shelfStack(s, itemId)?.qty ?? 0) > 0
+      || toList(s.assigned).includes(itemId));
+  }
+
+  /**
+   * Is any board in the shop TICKED for this?
+   *
+   * `stillStocked`'s narrower half, and separate from it because the two answer
+   * different questions. That one asks whether the shop still sells this at all
+   * — stock counts, because a board with cheese on it is the shop selling
+   * cheese. This one asks whether somebody *decided* it should be here, which
+   * only a reservation can say: stock is a fact about today, a tick is an
+   * instruction, and the whole point of the second is that it survives the first
+   * running out.
+   *
+   * Read by `shelvesFor` to overrule a give-up, so it must stay the strict
+   * question — folding stock back in would mean a board that happens to have
+   * one jar left cancels a judgement the shop has just made about the jam.
+   */
+  keptFor(itemId) {
+    return this.layout.shelves.some((s) => toList(s.assigned).includes(itemId));
+  }
+
+  /**
+   * Has the shop given up on stocking this? Staff read it; your hands don't.
+   *
+   * Lapses itself on read rather than in `onNewDay`, the same argument
+   * `staffSpentToday` makes: a counter cleared by exactly one code path is wrong
+   * every time the day changes some other way — a save loaded later, a
+   * `set_time` jump, a sixty-day balance run. Cleared rather than merely
+   * ignored, so the supplier and the log never mention a ban that has expired.
+   */
   droppedItem(itemId) {
-    return this.orders.dropped?.[itemId] !== undefined;
+    if (this.orders.dropped?.[itemId] === undefined) return false;
+    const days = this.dropSpan(itemId);
+    if (this.day - this.orders.dropped[itemId] >= days) {
+      delete this.orders.dropped[itemId];
+      if (this.orders.dropFor) delete this.orders.dropFor[itemId];
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * How long a mark lasts, with the missing case answered.
+   *
+   * A mark written before any of this expired has no `dropFor` entry, and the
+   * first version of this read that as *forever* — which is right about what
+   * the code used to do and wrong about what it should ever have done. It also
+   * left the damage in place on precisely the saves that suffered it: a shop
+   * that collected eight of these in a week would open on the fix with eight
+   * permanent ones and no way out except finding the new button eight times.
+   *
+   * So a missing span reads as `SHOP_DROP_DAYS`, which invents nothing — the
+   * DAY it was marked is already on the save, so the countdown is measured from
+   * when it actually happened rather than from when the shop was next loaded.
+   * A read-time default rather than a migration, the same shape `kindOf` uses
+   * for a `fixtures` row with no `kind`: an old save, an export and a fresh
+   * world all agree with no ceremony.
+   *
+   * `HAND_DROP_DAYS` marks are unaffected — your Clear has always written its
+   * own span, so nothing that was five days becomes twelve.
+   */
+  dropSpan(itemId) {
+    return this.orders.dropFor?.[itemId] ?? SHOP_DROP_DAYS;
   }
 
   /**
@@ -3879,8 +5084,75 @@ export class Game {
     return this.walk[tz * this.layout.w + tx] === 1;
   }
 
+  /**
+   * The nearest square somebody standing inside a fixture can step out to.
+   *
+   * A re-flow can leave a person on a tile that has stopped being floor, and
+   * the obvious way to do it is to set a shelf down on your own feet — the
+   * ghost is green there, deliberately, because blocking yourself in is a move
+   * the shop copes with. What it did NOT cope with was the person: the only
+   * answer was `layout.spawn`, so putting a till down where you were standing
+   * threw you across the shop and out of the building, which reads as the game
+   * having crashed and reloaded rather than as a consequence of the tap.
+   *
+   * A flood rather than a ring scan, because the square has to be one you could
+   * plausibly have walked to: the far side of the wall you were just enclosed
+   * by is one step away and no use at all, so a solid edge is never crossed.
+   * It spreads *through* blocked tiles, which is what gets somebody out of the
+   * middle of a bank of shelving, and `limit` is what keeps that from becoming
+   * a teleport by another name — past that, spawn is honestly the better answer.
+   *
+   * @returns {?{x: number, z: number}} Null if nothing near is standable.
+   */
+  stepOff(x, z, limit = 6) {
+    const sx = Math.round(x);
+    const sz = Math.round(z);
+    const seen = new Set([`${sx},${sz}`]);
+    let front = [{ x: sx, z: sz }];
+    for (let d = 0; d < limit && front.length; d++) {
+      const next = [];
+      for (const c of front) {
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = c.x + dx;
+          const nz = c.z + dz;
+          const key = `${nx},${nz}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (nx < 0 || nz < 0 || nx >= this.layout.w || nz >= this.layout.h) continue;
+          if (SOLID.has(edgeBetween(this.layout, c.x, c.z, nx, nz))) continue;
+          // Nearest first, because the frontier is walked a ring at a time —
+          // so the step out of a doorway is the doorway, not the aisle beyond.
+          if (this.canStand(nx, nz)) return { x: nx, z: nz };
+          next.push({ x: nx, z: nz });
+        }
+      }
+      front = next;
+    }
+    return null;
+  }
+
+  /**
+   * How fast you walk, as a multiplier — off the rows, not off an id.
+   *
+   * It was `includes('boots-1') ? 1.3 : 1`, which is the dead-knob trap in
+   * CLAUDE.md caught in the act: the row authored `{ speedMult: 1.3 }` and
+   * nothing ever read it, so retuning the boots did nothing, and a second rung
+   * would have been a button that took money and changed no number. The failure
+   * is silent in both directions — the boots still work, at whatever the
+   * literal says.
+   *
+   * Best-of rather than multiplied, for `fixtureDiscount`'s reason: the ladder
+   * is already ordered, so owning two rungs should read as owning the better
+   * one. `SPEED_CAP` is the backstop against a row authored at 9 — a player who
+   * crosses the shop in one frame walks through every reach test in the game.
+   */
   speedMult() {
-    return this.ownedUpgrades.includes('boots-1') ? 1.3 : 1;
+    const owned = this.ownedUpgrades ?? [];
+    if (!owned.length) return 1;
+    const best = content().upgrades
+      .filter((u) => u.kind === 'speed' && owned.includes(u.id))
+      .reduce((m, u) => Math.max(m, Number(u.payload?.speedMult ?? 0)), 1);
+    return clamp(best, 1, SPEED_CAP);
   }
 
   /**
@@ -3937,25 +5209,66 @@ export class Game {
     return base + bonus;
   }
 
-  addPlayer(id, name) {
+  /**
+   * Somebody walks in — at the door, or back where they left off.
+   *
+   * `who` is an id that outlives the socket (client/net.js). Handed one that
+   * this shop has a record for, you come back standing where you were with what
+   * you were holding, which is the whole of step 3 of docs/shipping.md.
+   *
+   * The record is CONSUMED on the way in, and that is not tidiness. It is what
+   * makes it impossible to walk into your own shop twice and come out with two
+   * armfuls of the same six loaves — two tabs share a `localStorage`, so the
+   * second one is a duplicate waiting to be minted. Whoever gets here first has
+   * the goods and everyone after them starts at the door.
+   */
+  addPlayer(id, name, who = null) {
     const spawn = this.layout.spawn;
     const colors = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
     // Hired staff share `this.players`, so count only the humans — otherwise
     // hiring a clerk renames and recolours the next person who joins.
     const humans = Object.values(this.players).filter((p) => !p.staff).length;
+    const back = who ? this.away[who] : null;
+    if (who) delete this.away[who];
+    // A shop is rebuilt while you are away: the tile you were standing on can be
+    // under a shelf, outside the walls, or off a map that shrank. Somewhere you
+    // cannot stand is worse than the door, because there is no way to walk out
+    // of it — so the spot is offered, never trusted.
+    const stood = back && this.canStand(back.x, back.z);
     this.players[id] = {
       id,
+      who: who ?? null,
       name: name || `Player ${humans + 1}`,
-      x: spawn.x + (humans % 2 === 0 ? -1 : 1),
-      z: spawn.z - 1,
-      facing: 0,
+      x: stood ? back.x : spawn.x + (humans % 2 === 0 ? -1 : 1),
+      z: stood ? back.z : spawn.z - 1,
+      facing: stood ? (back.facing ?? 0) : 0,
       color: colors[humans % colors.length],
-      carry: null,
-      haul: null,
+      // Hands and shoulder come back even when the SPOT could not, because
+      // where you were standing and what you were holding are two facts and
+      // only one of them can be invalidated by a wall. Dropping the armful
+      // because a shelf moved is the conservation hole `removePlayer` documents.
+      carry: back?.carry ?? null,
+      haul: back?.haul ?? null,
       input: { dx: 0, dz: 0 },
     };
     this.pushLog(`${this.players[id].name} clocked in.`);
     return this.players[id];
+  }
+
+  /**
+   * Is this somewhere a person can be? Asked of a remembered spot, once.
+   *
+   * The walk grid rather than `isWalkableTile` alone: a tile can be indoor floor
+   * and have a shelf standing on it, and coming back inside a freezer is the
+   * same "there is no way out of here" as coming back inside a wall.
+   */
+  canStand(x, z) {
+    const { w, h, blocked } = this.layout;
+    const tx = Math.round(x);
+    const tz = Math.round(z);
+    if (!Number.isFinite(tx) || !Number.isFinite(tz)) return false;
+    if (tx < 0 || tz < 0 || tx >= w || tz >= h) return false;
+    return !blocked?.[tz * w + tx];
   }
 
   /**
@@ -3971,18 +5284,50 @@ export class Game {
    * fifth caller of `dropGoods` rather than anything new — the crate lands where
    * you were standing, merges with one of the same thing already there, the
    * stocker tidies it away for free, and it now survives the restart because
-   * crates are saved. See docs/shipping.md, step 2. Step 3 — a player id that
-   * outlives the socket — is what would keep it in your hands instead.
+   * crates are saved. See docs/shipping.md, step 2.
+   *
+   * ...and step 3 arrived, so the drop is the FALLBACK now rather than the rule.
+   * Handed a `who` (client/net.js) the shop remembers the person instead: where
+   * they stood and what was in their hands, on `this.away`, saved with the
+   * world. A reload is then the same person coming back rather than a stranger
+   * arriving, which is what it always was everywhere except in this object.
    */
   removePlayer(id) {
     const p = this.players[id];
-    if (p?.carry) this.dropLot(p.carry, { x: p.x, z: p.z });
-    // ...and the crate on their shoulder, for exactly the same reason and by
-    // exactly the same route. A hauled crate is the biggest single thing a
-    // disconnect could ever have destroyed — twelve of something rather than
-    // six — and it was one `if` away from being the bug this function was
-    // written to fix, wearing a new field's name.
-    if (p?.haul) this.dropLot(p.haul, { x: p.x, z: p.z });
+    if (!p) return;
+    if (p.who) {
+      // One row per person, so a row already there is somebody's goods about to
+      // be overwritten — two tabs of one browser are one `who`, and the second
+      // to leave would silently destroy what the first was holding. Whoever is
+      // being displaced gets their armful on the floor where they left it,
+      // which is the old behaviour applied to exactly the case it is still
+      // right for.
+      const had = this.away[p.who];
+      if (had?.carry) this.dropLot(had.carry, { x: had.x, z: had.z });
+      if (had?.haul) this.dropLot(had.haul, { x: had.x, z: had.z });
+      // You are remembered rather than tidied away, so the goods stay in your
+      // hands rather than becoming a crate on the floor. This is the whole of
+      // what the paragraph above was waiting for: the drop was never the right
+      // answer, it was the least-wrong one available while every reload was a
+      // stranger arriving.
+      this.away[p.who] = {
+        who: p.who,
+        x: round2(p.x),
+        z: round2(p.z),
+        facing: p.facing ?? 0,
+        carry: p.carry ?? null,
+        haul: p.haul ?? null,
+      };
+      // A record with stock in it that nothing writes to disk is stock
+      // destroyed by the next restart, and this is usually the last thing that
+      // happens before one — the tab closing IS the reload.
+      this.persist();
+    } else {
+      // No stable id: private browsing, storage turned off, a bot. Nothing will
+      // ever come back to claim it, so the old behaviour is the right one.
+      if (p.carry) this.dropLot(p.carry, { x: p.x, z: p.z });
+      if (p.haul) this.dropLot(p.haul, { x: p.x, z: p.z });
+    }
     delete this.players[id];
   }
 
@@ -4300,7 +5645,15 @@ export class Game {
     // has an opinion about where the armful should GO while the pull it came
     // from is still running. See `pulling`.
     if (this.pulling(p)) return ok({ at: p.errand?.at ?? null });
-    p.errand = { at: fixtureId, itemId: null };
+    // **`put` is the direction, SAID rather than inferred**, and this is the one
+    // place in the game that can say it for a *hold*: `aimAt` is the right button
+    // and nothing else — one sentence, "this is where what I am holding goes" —
+    // where `walkToFixture` is the left one. An errand had no direction on it
+    // because nothing needed one: a shelf offers the same job either way round.
+    // An appliance does not. It has two openings, and `actionAt` read the tray
+    // first, so a machine with a batch waiting could not be fed at all: the ring
+    // collected instead, on the button whose whole meaning is putting things in.
+    p.errand = { at: fixtureId, itemId: null, put: true };
     return ok({ at: fixtureId });
   }
 
@@ -4633,6 +5986,14 @@ export class Game {
       const weight = Number(j.weight);
       if (!Number.isFinite(weight) || weight <= 0) return err('a weight has to be a positive number');
       clean.push({ job: j.job, weight: Math.min(100, Math.max(0.1, weight)) });
+    }
+    // How much of a day there is to hand out, and the same function the menu
+    // greys the `+` with — see shared/jobs.js. Judged against what they are
+    // ALREADY carrying, so a hire left over their allowance by a rollback can
+    // still be rearranged downward rather than being stuck.
+    const kind = content().byId.workers[entry.kind];
+    if (!jobsAffordable(kind, entry.tier, clean, entry.jobs)) {
+      return err(`that is more than ${entry.name} has in a day — ${jobBudget(kind, entry.tier)} at their firmware`);
     }
     entry.jobs = clean;
     this.persist();
@@ -4980,6 +6341,17 @@ export class Game {
     if (room <= 0) return err('the bay is full — unload it before ordering more');
     if (take > room) return err(`only room for ${room} more at the bay`);
 
+    // ...and the same question about the shop rather than about the bay. The
+    // guard above is where the van may LAND; this one is whether the shop has
+    // anywhere for it to end up, counted wherever it is standing. See
+    // `looseRoom` — the two are a pair, and the bay alone let a shop with 381
+    // units on its floors go on buying because sixteen of them were not on a
+    // pad. With the other refusals and before the money, the way `buyStock` had
+    // to learn to put the bay check.
+    const loose = this.looseRoom();
+    if (loose <= 0) return err('the shop is full of crates — shelve or bin some before ordering more');
+    if (take > loose) return err(`only room for ${loose} more until some of it is cleared`);
+
     const unit = wholesalePrice(item, this.folded(), this.season);
     const cost = unit * take;
     if (this.cash < cost) return err(`need $${cost.toFixed(2)}, you have $${this.cash.toFixed(2)}`);
@@ -5008,9 +6380,11 @@ export class Game {
       arrivesAt: this.elapsed + run.wait,
       // How long the whole journey is, which is the one number a countdown
       // cannot be drawn without and the client can never work out: `in` says
-      // how much is left, and "40 minutes left" is a full ring on the overnight
-      // hourly run and a third of one on the two-hour daytime gap. Stored
-      // rather than derived, for the same reason `runHour` is — `arrivesAt` is
+      // how much is left, and "five minutes left" is nearly there for somebody
+      // who ordered on the hour and half way for somebody who ordered at ten
+      // to. Stored rather than derived, for the same reason `runHour` is — the
+      // runs are evenly spaced but a wait is not, because an order joins
+      // whichever run is next. `arrivesAt` is
       // rewritten on every load, so the only surviving record of how far you
       // have come is the distance you set out to cover.
       wait: round2(run.wait),
@@ -5018,11 +6392,79 @@ export class Game {
     this.orders.pending.push(order);
     this.persist();
 
-    this.pushLog(`${take}x ${item.name} ordered — on the ${clockLabel(run.hour)} van.`);
+    // One line per VAN, not per board. Keyed by the run, so everything going on
+    // the same lorry lands on the same line however many separate decisions put
+    // it there — which is what `restock` is, one board at a time.
+    const who = this.saidBy(playerId, 'ordered');
+    this.logGoods(`order:${run.hour}`, {
+      pre: `${who.verb} `, post: ` — on the ${clockLabel(run.hour)} van.`,
+      goods: [{ item_id: itemId, qty: take }], by: who.by,
+    });
     return ok({
       ordered: take, cost: round2(cost), delivery: true, orderId: order.id,
       arrivesAt: clockLabel(run.hour), arrivesIn: round2(run.wait),
     });
+  }
+
+  /**
+   * Call an order back off the list — everything of this item that has not been
+   * loaded yet.
+   *
+   * The other end of `buyStock`, and it was missing entirely: the only way to
+   * unspend money on stock was to take the delivery and then sell nothing. A
+   * supplier you can only add to is a list rather than an order.
+   *
+   * **Loaded is the line, and it is the line the game already draws.** A van is
+   * a promise (see `nextRun` — an arrival is always in the future), and once the
+   * lorry has your crates on it the promise has been kept as far as the shop is
+   * concerned: `onVan` is exactly that state, it is already on the wire, and it
+   * is already what the supplier shows as "arriving". So cancelling is free
+   * right up to the moment it is loaded and impossible afterwards, which needs
+   * no new rate, no restocking fee and no second sell-back number beside
+   * `FIXTURE_REFUND`.
+   *
+   * Per ITEM rather than per order id, because that is the shape of the
+   * question: three cases of milk ordered across two runs is one decision — "I
+   * do not want the milk" — and a control that made you cancel them one at a
+   * time would be a list of receipts rather than a shopping list. What is loaded
+   * is left alone and reported, or a press that silently did half the job reads
+   * as the button not working.
+   *
+   * Refunds what was CHARGED (`o.cost`) rather than recomputing the price. A
+   * repricing between placing and cancelling would otherwise be free money in
+   * one direction and a quiet loss in the other, and the stat has to move with
+   * it or the day's spend keeps money the till has back.
+   */
+  cancelOrder(playerId, itemId) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if (!itemId) return err('say what to cancel');
+    const loaded = new Set(this.van?.orders ?? []);
+    const mine = this.orders.pending.filter((o) => o.item_id === itemId);
+    if (!mine.length) return err('nothing of that on order');
+    const free = mine.filter((o) => !loaded.has(o.id));
+    if (!free.length) return err('that is already on the van');
+
+    const back = round2(free.reduce((n, o) => n + (o.cost ?? 0), 0));
+    const qty = free.reduce((n, o) => n + (o.qty ?? 0), 0);
+    const drop = new Set(free.map((o) => o.id));
+    this.orders.pending = this.orders.pending.filter((o) => !drop.has(o.id));
+    this.cash = round2(this.cash + back);
+    this.stats.spent = round2(Math.max(0, this.stats.spent - back));
+    // A staff order cancelled gives the day's cap its money back too, or an
+    // afternoon of ordering and cancelling would leave the crew unable to buy
+    // anything with nothing to show for it.
+    this.orders.spent = round2(Math.max(0, (this.orders.spent ?? 0) - back));
+
+    const still = mine.length - free.length;
+    this.persist();
+    this.logGoods(null, {
+      pre: 'Cancelled ',
+      post: ` — $${back.toFixed(2)} back.${
+        still ? ` ${still} lot already on the van is still coming.` : ''}`,
+      goods: [{ item_id: itemId, qty }],
+    });
+    return ok({ cancelled: qty, refund: back, onVan: still });
   }
 
   /**
@@ -5034,8 +6476,8 @@ export class Game {
    * that measured the wait in real seconds instead would have the morning van
    * arrive six hours late every night.
    *
-   * The comparison is strict, so an order placed at exactly 08:00 is on the
-   * 14:00 van rather than the one pulling away. That is the cutoff doing its
+   * The comparison is strict, so an order placed at exactly 09:00 is on the
+   * 10:00 van rather than the one pulling away. That is the cutoff doing its
    * job — and it also means an arrival is ALWAYS in the future, which is what
    * makes "an order is not a delivery" a rule rather than usually true.
    */
@@ -5061,6 +6503,17 @@ export class Game {
     const bay = this.layout.bay;
     if (!bay?.cells?.length) return 0;
     let used = 0;
+    // **Every crate standing there, rubbish included**, and that is the one line
+    // in here that is a `stockCrates()` on purpose reversed. Everywhere else in
+    // the game rot must not read as supply — `homeSupply` reordering what just
+    // went off is the `inACar` trap `verify:bin` sweeps ten loops for — but this
+    // is not a question about supply. It is a question about SPACE, and a box of
+    // rot occupies a cell exactly as hard as a box of bread.
+    //
+    // The two claims sit together without contradiction, which is why the cell
+    // test stays: rot lands where the food was, so rubbish that is not on the
+    // pad still takes none of the pad's room. What is fixed is only rubbish that
+    // IS on it.
     for (const d of this.deliveries) {
       if (bay.cells.some((c) => c.x === d.x && c.z === d.z)) used += lotTotal(d);
     }
@@ -5093,10 +6546,72 @@ export class Game {
     const pad = this.dropPad();
     if (!pad?.cells?.length) return 0;
     let used = 0;
+    // Rubbish included, for `bayRoom`'s reason — this is space, not supply. It
+    // is the half that actually bit: a live shop had **all four** drop-off cells
+    // standing under boxes of rot while this answered 45 units free, so the gate
+    // the farm and the kitchen are held on was reading a buffer that was not
+    // there.
     for (const d of this.deliveries) {
       if (pad.cells.some((c) => c.x === d.x && c.z === d.z)) used += lotTotal(d);
     }
     return Math.max(0, pad.cells.length * this.crateCapacity() - used);
+  }
+
+  /**
+   * ...and the same question asked of the WHOLE shop, which is the one nobody
+   * was asking.
+   *
+   * `bayRoom` and `padRoom` are both about a region, and each is right about the
+   * thing it guards — where a van may unload, how much the farm may buffer.
+   * Between them they leave a hole the size of the shop floor: a crate that is
+   * not standing on either pad is counted by neither, and there is no rule
+   * anywhere that a crate has to be on a pad. A stripped shelf leaves its goods
+   * where the shelf stood. An armful put down lands under your feet. A hire who
+   * cannot reach a pad keeps hold of it and tries again somewhere else.
+   *
+   * So the brake had a hole in it that widened the worse things got, and the
+   * failure is not subtle once you look: a live shop on day 116 had **381 units
+   * in twenty-one crates against 292 on the shelves** — more stock on the ground
+   * than in the building — while `bayRoom` reported sixteen units of room and
+   * the supplier went on buying, twenty-four runs a day. Every individual answer
+   * was correct. `homeSupply` was right that the shop had no ice cream; the bay
+   * was right that it had room for sixteen more. Nothing was asking whether the
+   * shop was already drowning.
+   *
+   * **The limit is the yard you painted**, both pads together, which is the
+   * sentence the pads have made since they became ground: how big you paint it
+   * is how much it holds. What is new is that it is now measured against
+   * everything loose *wherever it is standing*, so tidying stock into an aisle
+   * stops the ordering the same way filling the bay does.
+   *
+   * That last part is a real cost and worth saying out loud, because `bayRoom`
+   * explicitly declines to pay it — "counting them would mean tidying your own
+   * goods into the yard stopped you being able to order." Right, and the reason
+   * it is right there and wrong here is the difference between a *region* test
+   * and a *total*: the bay refusing a van because you parked an armful on it is
+   * a wholesaler complaining about your housekeeping, while the shop refusing to
+   * buy a twenty-second crate when twenty-one are already on the floor is the
+   * shop noticing it has nowhere to put anything. If you genuinely want the
+   * stock, paint more storage — the same answer the farm and the kitchen get.
+   */
+  looseRoom() {
+    const cells = (this.layout.bay?.cells?.length ?? 0) + (this.dropPad()?.cells?.length ?? 0);
+    // No yard at all is not "no room" — a shop with neither pad is refused by
+    // `buyStock`'s own bay guard, which says something useful, and answering
+    // zero here would shadow it with a worse message.
+    if (!cells) return Infinity;
+    let used = 0;
+    // Everywhere, which is the whole point — no cell test. Rubbish counts here
+    // too, and for `bayRoom`'s reason rather than in spite of it: an order has
+    // to land somewhere, and a yard under boxes of rot has nowhere whether or
+    // not those boxes are sellable. The refusal names both, because "shelve
+    // some" is no use to somebody whose problem is the tip.
+    for (const d of this.deliveries) used += lotTotal(d);
+    // What is on the van counts too, for `bayRoom`'s reason: six orders placed
+    // in one tick would otherwise each pass a test against the floor as it was
+    // before any of them landed.
+    for (const o of this.orders.pending) used += o.qty ?? 0;
+    return Math.max(0, cells * this.crateCapacity() - used);
   }
 
   /**
@@ -5402,19 +6917,26 @@ export class Game {
     const landed = new Set(run.map((o) => o.id));
     this.orders.pending = this.orders.pending.filter((o) => !landed.has(o.id));
 
-    const c = content();
-    let units = 0;
-    for (const o of run) {
-      this.dropGoods(o.item_id, o.qty, pad);
-      units += o.qty;
-    }
+    for (const o of run) this.dropGoods(o.item_id, o.qty, pad);
     // One line for the run, not one per order. That is the whole point of a
     // run: everything asked for before the cutoff turns up together, and a log
     // that said it six times would read as six vans.
-    const what = run.length === 1
-      ? `${run[0].qty}x ${c.byId.items[run[0].item_id]?.name ?? run[0].item_id}`
-      : `${units} units across ${run.length} orders`;
-    this.pushLog(`The van's here — ${what} at the bay.`);
+    //
+    // It said "42 units across 6 orders", which is arithmetic rather than
+    // news — it counted the paperwork instead of naming the goods, so the one
+    // question you have standing at a bay ("what turned up?") was answered by
+    // walking over and looking in the crates. `logGoods` is called per order and
+    // merges, which also folds two orders of the same item into one chip.
+    //
+    // Named by its RUN, the same hour `buyStock` promised you when you ordered:
+    // two vans a day means "the van's here" is ambiguous the moment you have
+    // ordered off both of them.
+    const hour = run.find((o) => o.runHour != null)?.runHour;
+    this.logGoods(null, {
+      pre: hour != null ? `The ${clockLabel(hour)} van's here — ` : "The van's here — ",
+      post: ' at the bay.',
+      goods: run.map((o) => ({ item_id: o.item_id, qty: o.qty })),
+    });
     this.persist();
   }
 
@@ -5446,7 +6968,7 @@ export class Game {
    * crate absorbing the whole yard is the same bug as one crate swallowing a
    * delivery, and it would take the pad's size with it.
    */
-  dropGoods(itemId, qty, at) {
+  dropGoods(itemId, qty, at, { exact = false } = {}) {
     if (!(qty > 0) || !at) return null;
 
     // Where a crate may stand.
@@ -5472,8 +6994,24 @@ export class Game {
     // Membership rather than a radius, because a radius around one point is the
     // wrong shape for a room — the far end of a big stockroom is still the
     // stockroom.
-    const here = (d) => slots.some((s) => s.x === d.x && s.z === d.z)
-      || Math.hypot(d.x - at.x, d.z - at.z) <= 2.2;
+    // ...and never into the rubbish. `dropWaste` refuses to merge the other
+    // way for the obvious reason — rot in a crate of bread — and this is the
+    // same claim from the side that would actually happen: a stocker tidying an
+    // armful down beside yesterday's spoilage would otherwise pour good goods
+    // into the box the binman is about to walk to the skip. One flag, both
+    // directions, or the conservation hole is a job doing its work correctly.
+    //
+    // ...unless you NAMED the square, which is what `exact` says. The 2.2 is
+    // right for a drop that happened to you — a bed's surplus, a stripped
+    // shelf, a hopper tipped out — where the alternative is a forest of
+    // one-unit pallets down a row of beds. It is exactly wrong for a setdown
+    // you aimed: pointing at the tile beside a crate and watching the goods go
+    // INTO that crate is the game overruling the only instruction you gave it,
+    // and sorting a mixed armful into separate boxes becomes impossible. The
+    // ghost already draws the distinction — the square you pointed at is the
+    // square it lights.
+    const here = (d) => !d.waste && (slots.some((s) => s.x === d.x && s.z === d.z)
+      || (!exact && Math.hypot(d.x - at.x, d.z - at.z) <= 2.2));
 
     const opts = this.crateLot();
     let left = Math.round(qty);
@@ -5571,10 +7109,10 @@ export class Game {
    * So it is a verb of its own rather than a loop written out four times, and
    * `dropGoods` stays the single place a crate is made.
    */
-  dropLot(lot, at) {
+  dropLot(lot, at, opts) {
     let first = null;
     for (const s of lotStacks(lot)) {
-      const made = this.dropGoods(s.item_id, s.qty, at);
+      const made = this.dropGoods(s.item_id, s.qty, at, opts);
       first = first ?? made;
     }
     return first;
@@ -5641,20 +7179,32 @@ export class Game {
    * Its own pad, not the delivery bay. Both hold the same pallets, and that is
    * exactly why they have to be apart: on one pad there is no way to look at
    * the yard and tell an order that arrived from an armful you parked.
+   *
+   * `want` names the pad, and it exists for exactly one caller: a hire crating
+   * up a line the shop has stopped stocking walks to the BAY (`Game.dropAt`),
+   * and would then be told to take it round to the drop-off by the very
+   * function it walked there to call. It defaults to null, which is the
+   * drop-off and is every other caller including yours — being sent to the bay
+   * because of a judgement the shop made about its own range is the one thing
+   * this verb has never done to the player's hands.
    */
-  stow(playerId) {
+  stow(playerId, want = null) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
     if (!p.carry) return err('nothing in hand');
-    if (!this.dropPad()) return err('nowhere to put it down — lay some storage first');
-    if (!this.onPad(p, this.dropPadKind())) return err('take it round to the drop-off');
+    const kind = want === 'bay' && this.layout.bay ? 'bay' : this.dropPadKind();
+    const pad = kind === 'bay' ? this.layout.bay : this.dropPad();
+    if (!pad) return err('nowhere to put it down — lay some storage first');
+    if (!this.onPad(p, kind)) {
+      return err(kind === 'bay' ? 'take it round to the bay' : 'take it round to the drop-off');
+    }
 
     const qty = lotTotal(p.carry);
     const itemId = lotMain(p.carry).item_id;
     // The whole armful, every pile of it. `dropGoods` still decides which cells
     // the crates stand on — the pad goes in as a REGION, which is the ordering
     // that makes a stow fill the yard rather than one tile.
-    this.dropLot(p.carry, this.dropPad());
+    this.dropLot(p.carry, pad);
     p.carry = null;
     // No log line. Staff `putDown` comes through here for every armful it
     // crates up, so the feed filled with a shop working normally — and the
@@ -5687,14 +7237,111 @@ export class Game {
    *
    * `say: false` for the same reason a rummage says nothing: the unit landing
    * in your hands is the message, and a tap is a thing you do six times.
+   *
+   * **`put` is the other direction, and it is SAID rather than inferred** —
+   * `tapCrate`'s sentence, said about a shelf, and now the rule everywhere goods
+   * move: left takes, right puts. Read off your hands instead ("holding some of
+   * that? then this must mean putting it back") the same press means opposite
+   * things depending on state you are not looking at, so plucking one more loaf
+   * off a board while carrying five would quietly hand one back.
+   *
+   * Which pile is `itemId` both ways round and it addresses different ends: on a
+   * take it is the board you pointed at, on a put it is the pile in your HANDS,
+   * falling back to the biggest — because a put cannot mean "convert", and the
+   * board that ends up holding it is `boardFor`'s answer rather than the one
+   * under the pointer. Point at the bread with milk in your hands and the milk
+   * goes on the unit, on whichever board will have it.
    */
-  tapBoard(playerId, shelfId, itemId) {
+  tapBoard(playerId, shelfId, itemId, put = false) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
     if (this.pulling(p)) return ok({ took: 0, item_id: itemId, pulled: true });
+
+    if (put) {
+      const shelf = this.layout.shelves.find((s) => s.id === shelfId);
+      if (!shelf) return err('no such shelf');
+      if (!near(p, shelf)) return err('too far from that shelf');
+      // **Both places goods can be**, which is the trap `p.haul` sets for every
+      // verb written before it existed: a crate is not a `carry`, so a put that
+      // only read your hands answered "nothing in hand" to somebody standing
+      // there with a box on their shoulder. The hold has always poured a crate
+      // (`stockFromCrate`); it was only the tap that could not.
+      const from = p.carry ?? p.haul;
+      if (!from) return err('nothing in hand');
+      const give = itemId && lotHas(from, itemId) ? itemId : lotMain(from).item_id;
+      // One unit, through the same funnel an armful goes through. `pourInto` is
+      // where a board is chosen, a reservation binds and a freezer refuses
+      // bread, and a second spelling of any of that here is the drift
+      // `stockShelf` and `stockFromCrate` were folded together to avoid.
+      const res = this.pourInto(shelf, { stacks: [{ item_id: give, qty: 1 }] }, 1);
+      if (!res.moved) return res.refusal;
+      const left = lotTake(from, give, 1).lot;
+      if (p.carry) p.carry = left;
+      // A crate emptied to nothing stops being on your shoulder, the same way
+      // `unload` leaves one on the floor — a box with no goods in it is a thing
+      // you would then have to put down before you could do anything else.
+      else p.haul = lotTotal(left) > 0 ? left : null;
+      p.errand = null;
+      p.action = null;
+      return ok({ stocked: 1, item_id: give, price: res.price });
+    }
+
     const res = this.unshelve(playerId, shelfId, itemId, { max: 1, say: false });
     if (!res.ok) return res;
     this.endPull(p);
+    p.errand = null;
+    p.action = null;
+    return res;
+  }
+
+  /**
+   * A machine you are standing at, tapped. Left takes the tray, right puts one
+   * ingredient in.
+   *
+   * `tapBoard` said about an appliance, and it exists because a station is not a
+   * shelf and both buttons had only ever learned about shelves. **The right
+   * button** sent `shelf-one` at a fixture `layout.shelves` has never heard of,
+   * so what came back was **"no such shelf"** — an error naming a thing you were
+   * not pointing at, about a gesture that works one press either side of it. The
+   * hold poured the armful in the whole time, which is what made it read as
+   * feeding being all-or-nothing rather than as a hole. Same shape the skip left
+   * when it fell through that branch.
+   *
+   * **The left button** had the opposite problem and it was quieter: a machine
+   * with a batch ready is `readyToTake`, so a tap sent you to walk to it — and
+   * standing there already, that walk is a no-op. What you saw was a tray of
+   * finished food, a press that visibly did nothing, and the goods only moving
+   * once you held the button down. The same thing `tapBoard` says about a board
+   * you are stood at: sending the errand again is a press with nothing to show
+   * for it.
+   *
+   * **One unit either way, and the hold is the lot either way** — the grade a
+   * crate and a shelf board already draw, and the machine is not a good place to
+   * make an exception to it. In, it is what a recipe wants: one of each, rather
+   * than six loaves into a press that takes four and four loaves you then tip
+   * the machine up to get back. Out, it is one portion off the tray, and the
+   * hold is still there for the whole batch — which is the press you actually
+   * want, since emptying the tray is what frees the machine to start the next
+   * one (`stationOutputRoom`).
+   *
+   * The reach test is here rather than in `collectStation`, which has never made
+   * one: every caller it had was already standing there — a hire who walked,
+   * `actionAt`'s ring, `interact`'s proximity — and a message is not.
+   */
+  tapStation(playerId, stationId, put = false) {
+    const p = this.players[playerId];
+    const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
+    if (!p || !st) return err('no such appliance');
+    if (!near(p, st.useAt, REACH) && !near(p, st, REACH)) return err('too far from it');
+    // Hands, else the crate on your shoulder — the same order `actionFor` puts
+    // them in, so a tap and a hold on the same machine draw from the same place.
+    const res = put
+      ? this.loadStation(playerId, stationId, { max: 1, from: p.carry ? 'carry' : 'haul' })
+      : this.collectStation(playerId, stationId, { max: 1 });
+    // Spent whether or not it worked, the same as every other tap: the press
+    // that opened this gesture armed the hold on the way down (that is what
+    // lets one press be either), so a tap that left the errand standing would
+    // empty your hands into the next machine you walked past.
     p.errand = null;
     p.action = null;
     return res;
@@ -5931,7 +7578,9 @@ export class Game {
 
     const qty = lotTotal(p.haul);
     const itemId = lotMain(p.haul).item_id;
-    this.dropLot(p.haul, at);
+    // `exact`: the square you pointed at is the square it lands on, and a crate
+    // one tile over is a different crate. See `dropGoods`.
+    this.dropLot(p.haul, at, { exact: true });
     p.haul = null;
     return ok({ dropped: qty, item_id: itemId, at });
   }
@@ -5974,7 +7623,9 @@ export class Game {
     // One tile, so `dropGoods` gets a point rather than a region — three piles
     // put down together share the cell and stack, which is what a pile of boxes
     // on one square already means and what `pickPallet` picks apart by height.
-    this.dropLot(p.carry, at);
+    // `exact`, for the reason `dropCrate` gives: a named square is an
+    // instruction, and a crate two tiles away must not answer it.
+    this.dropLot(p.carry, at, { exact: true });
     p.carry = null;
     return ok({ dropped: qty, item_id: itemId, at });
   }
@@ -6161,13 +7812,44 @@ export class Game {
    * Put what you're holding into an appliance. Ingredients go in one armful at
    * a time, which is why a station has a hopper rather than taking a whole
    * recipe in one action.
+   *
+   * `max` is the tap's half of the grade every goods gesture in the shop draws —
+   * **a tap is one unit, a hold is the lot** — and it is a bound on this funnel
+   * rather than a second verb for the same reason `pourInto` is one function: a
+   * hopper's rules about what a recipe wants, what is already in there and what
+   * to say when it will not fit are the interesting part, and a one-unit path
+   * that reimplemented them would drift from this one the day a recipe changed.
+   *
+   * Which pile a bounded load takes from is deliberately NOT a parameter, which
+   * it is on every other one-unit verb in the game. Those are answered by the
+   * pointer — a shelf's stock is drawn as itself, so `pickFixtureHit` can hand
+   * back the board you meant — and a hopper's contents are not pointable at all:
+   * the piles are inside the machine. So there is nothing to name it with, and a
+   * hint nothing could ever set is the dead knob CLAUDE.md keeps warning about.
+   * Mixed hands drain in `lotStacks` order, one tap at a time, which is a thing
+   * you can watch happen and repeat.
+   *
+   * `from` is which hand — `'carry'` or `'haul'`. A crate on the shoulder is
+   * goods looking for somewhere to be exactly as much as an armful is, and this
+   * function reading only `p.carry` meant a machine offered NOTHING while you
+   * were carrying a box of what it wanted: no action armed, no refusal, no
+   * message. What that reads as is a machine that has stopped working. The
+   * shelves learned this when hauling was added (`stockFromCrate` pours a crate
+   * straight onto a board); the hopper was the one place that did not, so
+   * feeding a machine out of a crate meant setting the box down, taking an
+   * armful out of it, loading, and picking the box back up.
+   *
+   * A parameter rather than a second verb, for the reason `max` is one: what a
+   * recipe wants, what is already in the hopper and what to say when it will not
+   * fit is the interesting part, and a second copy of it would drift.
    */
-  loadStation(playerId, stationId) {
+  loadStation(playerId, stationId, { max = Infinity, from = 'carry' } = {}) {
     const p = this.players[playerId];
     const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
     if (!p || !st) return err('no such appliance');
     if (!near(p, st.useAt, REACH) && !near(p, st, REACH)) return err('too far from it');
-    if (!p.carry) return err('nothing in hand');
+    const held = p[from];
+    if (!held) return err(from === 'haul' ? 'no crate to empty' : 'nothing in hand');
 
     // Only accept things the recipe it is SET TO wants — otherwise the hopper
     // fills with ingredients for a recipe it isn't making, which can never come
@@ -6189,20 +7871,21 @@ export class Game {
      * hopper with room for three when you are holding four — a refusal you
      * have to do arithmetic to avoid is a refusal that reads as broken.
      */
-    const wanted = lotStacks(p.carry).filter((s) => recipe.inputs.some((i) => i.item_id === s.item_id));
+    const wanted = lotStacks(held).filter((s) => recipe.inputs.some((i) => i.item_id === s.item_id));
     if (!wanted.length) {
-      const name = lotLabel(p.carry, content().byId.items);
+      const name = lotLabel(held, content().byId.items);
       return err(`the ${st.station} is making ${recipe.name} — no use for ${name}`);
     }
 
     let moved = 0;
     let full = null;
     for (const s of wanted) {
+      if (moved >= max) break;
       const room = this.stationHopperRoom(st, s.item_id);
       if (room <= 0) { full = full ?? s.item_id; continue; }
-      const take = Math.min(s.qty, room);
+      const take = Math.min(s.qty, room, max - moved);
       st.contents[s.item_id] = (st.contents[s.item_id] ?? 0) + take;
-      p.carry = lotTake(p.carry, s.item_id, take).lot;
+      p[from] = lotTake(p[from], s.item_id, take).lot;
       moved += take;
     }
     if (!moved) {
@@ -6212,14 +7895,21 @@ export class Game {
     return ok({ loaded: moved, station: st.id, contents: { ...st.contents } });
   }
 
-  /** Take the finished product out. */
-  collectStation(playerId, stationId) {
+  /**
+   * Take the finished product out.
+   *
+   * `max` is the tap's half of the grade, and a bound on this funnel rather than
+   * a verb of its own for `loadStation`'s reason: what a tray will give up, what
+   * your hands have room for and what to say when they have none is the
+   * interesting part, and a one-unit path that reimplemented it would drift.
+   */
+  collectStation(playerId, stationId, { max = Infinity } = {}) {
     const p = this.players[playerId];
     const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
     if (!p || !st) return err('no such appliance');
     if (!st.output) return err('nothing ready');
     const madeId = st.output.item_id;
-    const take = Math.min(st.output.qty, lotRoom(p.carry, madeId, this.carryLot(p)));
+    const take = Math.min(st.output.qty, lotRoom(p.carry, madeId, this.carryLot(p)), max);
     if (take <= 0) {
       return lotTotal(p.carry) >= this.carryCapacity(p)
         ? err('hands full')
@@ -6274,7 +7964,16 @@ export class Game {
         // "is ready" lines in an eight-line log, which buries everything else
         // that happened this morning — and the useful message is the one that
         // says how much is waiting, since that is what you are walking over for.
-        if (finished) this.pushLog(`${st.output.qty}x ${finished.name} ready at the ${st.station}.`);
+        //
+        // Never merged (a null key): `st.output.qty` is the whole TRAY, so this
+        // already says the total — a second run's line added to the first would
+        // count what is standing there twice.
+        if (finished) {
+          this.logGoods(null, {
+            post: ` ready at the ${st.station}.`,
+            goods: [{ item_id: st.output.item_id, qty: st.output.qty }],
+          });
+        }
         continue;
       }
 
@@ -6415,7 +8114,16 @@ export class Game {
 
     stack.qty -= take;
     p.carry = lotAdd(p.carry, itemId, take, this.carryLot(p)).lot;
-    if (say) this.pushLog(`Took ${take}x ${item?.name ?? itemId} off the ${this.fixtureSaid(shelf)}.`);
+    // Keyed by the unit, so plucking one loaf four times off the same shelf is
+    // one line that counts up rather than four lines saying the same thing —
+    // which is what walking a board picking singles actually looks like.
+    if (say) {
+      const who = this.saidBy(playerId, 'took');
+      this.logGoods(`take:${shelf.id}`, {
+        pre: `${who.verb} `, post: ` off the ${this.fixtureSaid(shelf)}.`,
+        goods: [{ item_id: itemId, qty: take }], by: who.by,
+      });
+    }
     // Whether the same pull could have another one. Measured after the take, so
     // it answers the two ways a hold ends by itself — the board ran out, or your
     // hands did — and never the one it must not end on, which is you letting go.
@@ -6579,7 +8287,7 @@ export class Game {
    * honest answer to "why did this unit refuse me", and a caller that reported
    * the last would name whichever pile happened to sort last.
    */
-  pourInto(shelf, lot) {
+  pourInto(shelf, lot, max = Infinity) {
     let left = lot;
     let moved = 0;
     let first = null;
@@ -6609,7 +8317,10 @@ export class Game {
       if (!item) continue;
       const board = this.boardFor(shelf, item);
       if (!board.ok) { refusal = refusal ?? board; continue; }
-      const take = Math.min(board.room, pile.qty);
+      // `max` is what makes a tap one unit rather than an armful, and it is a
+      // budget across the whole lot rather than a cap per pile — mixed hands
+      // would otherwise put down one of each.
+      const take = Math.min(board.room, pile.qty, max - moved);
       if (take <= 0) { refusal = refusal ?? board; continue; }
 
       const wasEmpty = board.stack.qty === 0;
@@ -6763,7 +8474,11 @@ export class Game {
     // which works and then leaves a shop carrying a "we don't stock that"
     // against something on a shelf with its name on it. The log line promises
     // this outright, so it has to be the thing that happens.
-    if (this.orders.dropped?.[itemId] !== undefined) delete this.orders.dropped[itemId];
+    if (this.orders.dropped?.[itemId] !== undefined) {
+      delete this.orders.dropped[itemId];
+      // Both halves, or a mark you set later inherits the old cooldown.
+      if (this.orders.dropFor) delete this.orders.dropFor[itemId];
+    }
     this.pushLog(`The ${this.fixtureSaid(shelf)} is set aside for ${item.name}.`);
     return ok({ assigned: shelf.assigned, shelf: shelf.id });
   }
@@ -6915,7 +8630,16 @@ export class Game {
     // Only things you can put down. Move and Clear used to live in this list
     // and acted on whatever you were stood by; they're per-fixture menu items
     // now, so a tool is never anything but a fixture you're about to buy.
-    if (!FIXTURES[tool] || tool === 'station') return err('no such build tool');
+    //
+    // `station` is one of those, and refusing it here was a leftover from when
+    // the palette named an appliance as `station:blender` and this had no way to
+    // read one half of that. The bar sends the KIND now (`t.kind`, since a piece
+    // id is free-form and cannot be parsed back out of an id) and keeps which
+    // machine to its own side — the same place a variant lives — so arming any
+    // appliance at all put "no such build tool" on screen while the ghost and
+    // the purchase both went on working. `build-place` carries `spec.station`
+    // and checks it against the upgrade, which is where that question belongs.
+    if (!FIXTURES[tool]) return err('no such build tool');
     p.build.tool = tool;
     // A lifted fixture deliberately survives this. It isn't a tool any more —
     // it's a thing in your hands — and dropping it because you clicked Freezer
@@ -6937,7 +8661,21 @@ export class Game {
       // things to a different noun. They carry their own kind because there is
       // more than one and the list they came from no longer says which.
       ...(this.layout.props ?? []).map((p) => ({ ...p, ref: p })),
+      ...(this.layout.bins ?? []).map((b) => ({ ...b, kind: 'bin', ref: b })),
     ];
+  }
+
+  /**
+   * Somewhere to throw things away, or null.
+   *
+   * Null is the ordinary answer and every rule that reads this has to be
+   * written for it: a shop with no bin is every shop that exists today, and the
+   * whole of what owning one changes has to hang off this being non-null. The
+   * nearest is not asked for — a bin is a place a job walks to, and `findPath`
+   * is what decides which one is worth the trip.
+   */
+  anyBin() {
+    return (this.layout.bins ?? [])[0] ?? null;
   }
 
   findFixture(id) {
@@ -7287,6 +9025,16 @@ export class Game {
    * Emptying a shelf is nearly always the first half of restocking it, and a
    * clear-out that also forgot what the shelf was for would mean re-choosing it
    * every time. Handing it back to "anything" is its own choice, in its own row.
+   *
+   * …and *who* restocks it is the half that survival decides. Tipping a unit out
+   * says "I will fill this myself", so the shop lets go of what comes off it
+   * (`dropItem`, the mark `clearBoard` and the shop hand both set) — otherwise
+   * the crates this makes are lifted by the first stocker past and the unit is
+   * back the way it was inside a minute, which reads as the button not working.
+   * The reservation is what carves the exception, and it needs no code of its
+   * own: `stillStocked` counts a board set aside as the shop still being asked
+   * for it, so a shelf you ticked for cheese is refilled with cheese exactly as
+   * it always was, and only the boards you never spoke for are let go.
    */
   stripShelf(playerId, shelfId) {
     const p = this.players[playerId];
@@ -7300,20 +9048,39 @@ export class Game {
     // for itself rather than a new container: three crates render, get picked
     // up and get tidied away by machinery that already existed.
     let moved = 0;
-    const names = [];
+    const tipped = [];
     for (const stack of [...stacks]) {
-      const name = content().byId.items[stack.item_id]?.name ?? stack.item_id;
       if (stack.qty > 0) {
         this.dropGoods(stack.item_id, stack.qty, shelf.browseAt);
         moved += stack.qty;
-        names.push(`${stack.qty}x ${name}`);
+        tipped.push({ item_id: stack.item_id, qty: stack.qty });
       }
     }
     shelf.stacks = [];
-    this.pushLog(moved > 0
-      ? `Stripped ${names.join(', ')} off the ${this.fixtureSaid(shelf)} — it's in crates beside it.`
-      : `Cleared the labels off the ${this.fixtureSaid(shelf)}.`);
-    return ok({ emptied: moved, shelf: shelf.id });
+
+    // Asked once the boards are gone, and per item: a unit holding three things
+    // is three separate sentences, and the one you ticked it for is not one of
+    // them. See `stillStocked`.
+    const gaveUp = [];
+    for (const stack of stacks) {
+      if ((stack.qty ?? 0) <= 0) continue;
+      if (this.stillStocked(stack.item_id)) continue;
+      if (this.dropItem(stack.item_id, HAND_DROP_DAYS)) {
+        gaveUp.push(content().byId.items[stack.item_id]?.name ?? stack.item_id);
+      }
+    }
+
+    const note = gaveUp.length
+      ? ` The shop won't restock the ${gaveUp.join(' or ')} for ${HAND_DROP_DAYS} days — set a shelf aside to change that sooner.`
+      : '';
+    if (moved > 0) {
+      this.logGoods(null, {
+        pre: 'Stripped ',
+        post: ` off the ${this.fixtureSaid(shelf)} — it's in crates beside it.${note}`,
+        goods: tipped,
+      });
+    } else this.pushLog(`Cleared the labels off the ${this.fixtureSaid(shelf)}.${note}`);
+    return ok({ emptied: moved, shelf: shelf.id, dropped: gaveUp.length > 0 });
   }
 
   /**
@@ -7368,15 +9135,140 @@ export class Game {
     // the press asked for. It is also why this is the item and not the board:
     // give up on one board alone and the next van lands the same thing on the
     // unit next door, which is `giveUpBoard`'s note said about a player.
-    const stillStocked = this.layout.shelves.some((s) => (this.shelfStack(s, itemId)?.qty ?? 0) > 0
-      || toList(s.assigned).includes(itemId));
-    const gaveUp = qty > 0 && !stillStocked && this.dropItem(itemId);
+    const gaveUp = qty > 0 && !this.stillStocked(itemId) && this.dropItem(itemId, HAND_DROP_DAYS);
 
-    this.pushLog((qty > 0
-      ? `Took ${qty}x ${name} off the ${this.fixtureSaid(shelf)} — it's in a crate beside it.`
-      : `Took ${name} off the ${this.fixtureSaid(shelf)}.`)
-      + (gaveUp ? ` The shop won't restock ${name} — set a shelf aside for it to change that.` : ''));
+    const note = gaveUp
+      ? ` The shop won't restock ${name} for ${HAND_DROP_DAYS} days — set a shelf aside for it to change that sooner.`
+      : '';
+    // An empty board has no goods to draw, so it is words — `logGoods` says
+    // nothing at all when handed nothing, which is right everywhere else and
+    // wrong here, where taking the LABEL off is the whole event.
+    if (qty > 0) {
+      this.logGoods(null, {
+        pre: 'Took ',
+        post: ` off the ${this.fixtureSaid(shelf)} — it's in a crate beside it.${note}`,
+        goods: [{ item_id: itemId, qty }],
+      });
+    } else this.pushLog(`Took ${name} off the ${this.fixtureSaid(shelf)}.${note}`);
     return ok({ emptied: qty, shelf: shelf.id, item: itemId, dropped: gaveUp });
+  }
+
+  /**
+   * The crates that are STOCK — which is what every reader in the sim meant by
+   * `deliveries` right up until one of them stopped being stock.
+   *
+   * Ten loops walk that list and every one of them is a different kind of wrong
+   * about a crate of rot: `homeSupply` would stop the shop reordering the thing
+   * that just went off, `unload` would send a stocker to shelve it, `craft`
+   * would cook with it, `bayRoom` would report a bay full of rubbish that is not
+   * standing on it, and `restock`'s `atTheBay` would refuse to buy while it sat
+   * there. None of those looks wrong afterwards, which is the shape CLAUDE.md
+   * records for `inACar`: **a container whose membership used to imply a fact
+   * stops implying it the moment something can be in it that is not that fact.**
+   *
+   * So one spelling rather than ten flags. `this.deliveries` is still the whole
+   * list, and the three readers that genuinely want the whole list keep it: the
+   * renderer (rubbish is a thing you can see), your own hands (you may pick it
+   * up and carry it out), and the bin job.
+   */
+  stockCrates() {
+    return this.deliveries.filter((d) => !d.waste);
+  }
+
+  /**
+   * Rubbish on the floor, as its own crate.
+   *
+   * Not `dropGoods`, and that is the whole of the design. `dropGoods` tops up
+   * any box within a couple of tiles before opening a new one — which is right
+   * for goods and catastrophic here, because the box it would top up is full of
+   * things somebody is going to sell. One rotten pile merged into a crate of
+   * good bread makes the whole crate rubbish or makes the rubbish stock, and
+   * there is no third answer.
+   *
+   * So waste never merges with goods, and only ever merges with waste already
+   * on the same tile — which is what keeps a week of it one readable pile
+   * rather than a heap of one-unit crates.
+   *
+   * It is deliberately not on a pad. Rot happens where the food was, so it goes
+   * down at the shelf: `padRoom` is the production buffer and rubbish must not
+   * be able to stop the farm, and the walk from the aisle to the skip is the
+   * thing you are meant to be able to see happening.
+   */
+  dropWaste(itemId, qty, at) {
+    if (!(qty > 0) || !at) return null;
+    const x = Math.round(at.x);
+    const z = Math.round(at.z);
+    const here = this.deliveries.find((d) => d.waste && d.x === x && d.z === z);
+    if (here) {
+      // No cap. A crate holds twelve because a crate is a TRIP, and nobody is
+      // making trips with this — the pile is a readout of how bad it got.
+      // The crate's OWN array, not `lotStacks` — that one hands back copies on
+      // purpose ("never hands back the lot's own array", so a caller that
+      // sorted the result would be reordering somebody's hands). Adding to the
+      // copy is a write that lands nowhere, and what it reads as is a second
+      // day of spoilage quietly failing to appear.
+      const own = (here.stacks ??= []);
+      const at0 = own.find((k) => k.item_id === itemId);
+      if (at0) at0.qty += qty;
+      else own.push({ item_id: itemId, qty, day: this.day });
+      return here;
+    }
+    const crate = {
+      id: `del-${this.nextDeliveryId++}`,
+      x,
+      z,
+      day: this.day,
+      // The flag every other reader tests. `unload`, `homeSupply`, `restock`
+      // and `bayRoom` all have to skip it, and each of those is a different
+      // kind of wrong if it does not: a stocker shelving rot, the shop
+      // declining to reorder what just went off, and a bay that says it is
+      // full of rubbish it is not standing on.
+      waste: true,
+      stacks: [{ item_id: itemId, qty, day: this.day }],
+    };
+    this.deliveries.push(crate);
+    return crate;
+  }
+
+  /**
+   * Throw away what you are holding.
+   *
+   * The first verb in the game that DESTROYS goods on purpose, and the reason
+   * it took this long is the note in docs/workers.md: *"what something is worth
+   * is the player's question, and a worker answering it is a worker spending
+   * your money."* That is why this takes a `playerId` and why the staff job
+   * beside it will only ever carry rubbish — a hire may take out what has
+   * already rotted, and may never decide that six loaves are not worth keeping.
+   *
+   * Both hands at once. A crate on the shoulder and an armful are two places
+   * goods live and you walked to the skip to be rid of what you are carrying,
+   * not to be asked which half.
+   *
+   * It costs nothing and refunds nothing. Charging for it is the trap
+   * `stow`'s note already describes — it punishes exactly the moment somebody
+   * is experimenting, and what people learn instead is to stand there holding
+   * it — and paying for it would make the bin a second, worse till. What it
+   * costs is the walk and the goods.
+   */
+  binGoods(playerId, binId) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    const bin = (this.layout.bins ?? []).find((b) => b.id === binId);
+    if (!bin) return err('no such bin');
+    if (!p.carry && !p.haul) return err('nothing in hand');
+    if (!near(p, bin.useAt ?? bin, UNLOAD_REACH)) return err('take it over to the bin');
+
+    const gone = lotTotal(p.carry) + lotTotal(p.haul);
+    // Everything, pile by pile — both hands and the shoulder. It used to name
+    // the biggest pile and count the rest ("42 units — Bread and more"), which
+    // is the one line where you most want to see what you just destroyed.
+    const tipped = [...lotStacks(p.carry), ...lotStacks(p.haul)]
+      .map((s) => ({ item_id: s.item_id, qty: s.qty }));
+    p.carry = null;
+    p.haul = null;
+    this.logGoods(null, { pre: 'Threw away ', post: '.', goods: tipped });
+    this.persist();
+    return ok({ binned: gone });
   }
 
   /** Tip an appliance's hopper (and any finished batch) out into crates. */
@@ -7386,20 +9278,25 @@ export class Game {
     if (!p || !st) return err('no such appliance');
 
     let moved = 0;
+    const tipped = [];
     for (const [itemId, n] of Object.entries(st.contents ?? {})) {
       this.dropGoods(itemId, n, st.useAt);
+      tipped.push({ item_id: itemId, qty: n });
       moved += n;
     }
     st.contents = {};
     if (st.output) {
       this.dropGoods(st.output.item_id, st.output.qty, st.useAt);
+      tipped.push({ item_id: st.output.item_id, qty: st.output.qty });
       moved += st.output.qty;
       st.output = null;
     }
     if (moved === 0) return err('that hopper is already empty');
     // A batch already underway is left to finish — its ingredients are spent,
     // so cancelling it would destroy them for nothing.
-    this.pushLog(`Emptied the ${st.station} — ${moved} units back in crates.`);
+    this.logGoods(null, {
+      pre: `Emptied the ${st.station} — `, post: ' back in crates.', goods: tipped,
+    });
     return ok({ dumped: moved, station: st.id });
   }
 
@@ -8135,7 +10032,7 @@ export class Game {
     if (up.kind === 'staff') {
       // Hiring moved to the roster, which can express two of someone and
       // letting one go. Selling this again would be a second way in.
-      return err('take people on from the Staff menu');
+      return err('lease units from the Crew menu');
     }
     if (up.kind === 'station') {
       // An appliance is still bought per machine, in build mode, on a tile you
@@ -8162,26 +10059,32 @@ export class Game {
       const dw = Math.max(0, Math.trunc(up.payload.width ?? 0));
       const dh = Math.max(0, Math.trunc(up.payload.depth ?? 0));
       this.grow = { w: this.grow.w + dw, h: this.grow.h + dh };
-      // Land extends the building you have, rather than re-deriving one. Both
-      // are kept: `grow` still sizes a shop that has never been stamped, and the
-      // shell is what a stamped one actually is.
+      // ...and that is the whole of it now. `grow` is the WORLD's size — see
+      // `compose` in server/layout.js.
       //
-      // It extends east and south, never re-centring, because a stored shop's
-      // fixtures are absolute — nudging the west wall out would move the whole
-      // building out from under every shelf in it.
-      // Spread, not rebuilt. Writing the two fields it changes and nothing else
-      // dropped `z`, and `storeNorth` reads `shell.z ?? STORE_NORTH_LEGACY` — so
-      // a shop stamped at the modern z=5 silently became a legacy z=2 the moment
-      // you bought space, jumping the entire building three rows north. Every
-      // placement then outside it was dropped and refunded, which on a real save
-      // meant shelves 21 -> 14, plots 3 -> 0 and checkouts 1 -> **0**: a shop
-      // that cannot sell, presenting as "I bought an upgrade and went broke".
-      // Measured at revenue $723 over 60 days against $33,353 with this fixed.
+      // It used to grow the shell as well, which is what "an extension" meant
+      // while the building was the only place you could put anything. It stopped
+      // being the right answer the day walls went on edges and floor went on a
+      // brush: a shop is something you draw, so an extension that stamps a new
+      // outer wall three tiles past the one you drew leaves your wall stranded
+      // inside as a line to knock through, and re-stamps the shell over
+      // whatever you had put on the way. What people want out of "more space"
+      // is somewhere to build, and that was the one thing it did not reliably
+      // sell — the map only widened once the building passed `WORLD_W - 8`.
       //
-      // The irony is that `shell.z` exists precisely to stop the building
-      // moving. A field added to pin something down is exactly the field a
-      // wholesale rewrite of its object will lose, so extend rather than replace.
-      if (this.shell) this.shell = { ...this.shell, w: this.shell.w + dw, h: this.shell.h + dh };
+      // The line that used to be here wrote `shell.w`/`shell.h`, and it is
+      // worth knowing what it cost before anybody puts it back. `shell` is what
+      // the building IS, and rewriting the object rather than extending it
+      // dropped `z` — `storeNorth` reads `shell.z ?? STORE_NORTH_LEGACY`, so a
+      // shop stamped at the modern z=5 silently became a legacy z=2 the moment
+      // you bought space, jumping the whole building three rows north. Every
+      // placement then outside it was dropped and refunded: shelves 21 -> 14,
+      // plots 3 -> 0 and checkouts 1 -> **0** on a real save. Revenue $723 over
+      // 60 days against $33,353 with it fixed, and what it presented as was "I
+      // bought an upgrade and went broke".
+      //
+      // A field added to pin something down is exactly the field a wholesale
+      // rewrite of its object will lose. `shell.x` is the second one now.
     }
 
     // Land is the only upgrade left that changes the shape of the world. Every
@@ -8190,6 +10093,59 @@ export class Game {
     if (up.kind === 'space') this.regenerateLayout();
     this.pushLog(`Bought ${up.name}.`);
     return ok({ upgrade: upgradeId });
+  }
+
+  /**
+   * The way back off an upgrade, at `FIXTURE_REFUND`.
+   *
+   * "Permanent, and there is no selling it back" was true of these alone, and it
+   * stopped being a rule the day both other ladders in the game grew a way down
+   * (`downgradeFixture`, `demote`). What it cost was not money, it was the
+   * decision: a $20,000 catchment is a bet you make once and can never unmake,
+   * so the honest way to play it was to not press it — which is a button that
+   * mostly does nothing.
+   *
+   * Half back, the same rate everything else in the shop sells at, so buying and
+   * selling in a circle always loses money rather than printing it.
+   *
+   * Three refusals, and each is a different kind of "this is not a flag":
+   *
+   * - `space` bought LAND, and the building grew onto it. Selling it would have
+   *   to shrink the shell, which strands every placement outside the new wall —
+   *   the bug `buyUpgrade`'s own comment is about, pointed the other way.
+   * - `staff` is what an old save's people were made of, read once by
+   *   `rosterFromUpgrades`. Selling one would delete the record a hire was
+   *   migrated from.
+   * - `station` was never owned: that row is the *price* of a machine, and the
+   *   machine sells back in build mode where it is standing.
+   *
+   * And one that is about the ladder rather than the row: a rung something else
+   * you own stands on cannot be pulled out from under it, or a shop keeps
+   * `catchment-retail-park` while owing nothing for the two rungs below it.
+   */
+  sellUpgrade(upgradeId) {
+    const up = content().byId.upgrades[upgradeId];
+    if (!up) return err('no such upgrade');
+    if (!this.ownedUpgrades.includes(upgradeId)) return err('you do not own it');
+    if (up.kind === 'space') return err('the land it bought is under the shop now');
+    if (up.kind === 'staff') return err('let people go from the Crew menu');
+    if (up.kind === 'station') return err('an appliance sells back in the Build menu');
+
+    const holding = this.ownedUpgrades.filter((id) => {
+      const other = content().byId.upgrades[id];
+      return other && (other.requires ?? []).includes(upgradeId);
+    });
+    if (holding.length) {
+      const names = holding.map((id) => content().byId.upgrades[id]?.name ?? id);
+      return err(`${names.join(', ')} needs it — sell that first`);
+    }
+
+    const back = round2((up.cost ?? 0) * FIXTURE_REFUND);
+    this.ownedUpgrades = this.ownedUpgrades.filter((id) => id !== upgradeId);
+    this.cash += back;
+    this.pushLog(`Sold ${up.name} back — $${back.toFixed(2)}.`);
+    this.persist();
+    return ok({ upgrade: upgradeId, refund: back });
   }
 
   /**
@@ -8281,7 +10237,17 @@ export class Game {
     // Where it is, as well as how big. A shop that predates the field reads as
     // the position it was generated at, so nothing standing in one moves — see
     // `storeNorth` in server/layout.js for why that matters more than it looks.
-    this.shell = { w: this.layout.store.w, h: this.layout.store.h, z: this.layout.store.z };
+    // `x` as well as `z`, and for the same reason said about the other axis:
+    // the building has always been centred east-west, derived fresh from the
+    // world's width — which is safe only while that width is a constant. Land
+    // is bought in world tiles now (`storeWest`), so a re-derived centre would
+    // slide the shop sideways out from under every absolute placement in it.
+    this.shell = {
+      w: this.layout.store.w,
+      h: this.layout.store.h,
+      x: this.layout.store.x,
+      z: this.layout.store.z,
+    };
     this.regenerateLayout(null, alias);
     return true;
   }
@@ -8418,6 +10384,7 @@ export class Game {
       shelves: want.shelf,
       freezers: want.freezer,
       warmers: want.warmer ?? 0,
+      bins: want.bin ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       stations: want.stations,
@@ -8575,11 +10542,18 @@ export class Game {
       }
       cu.state = 'BROWSE';
     }
+    // Anybody left standing in something that has just become solid — which is
+    // almost always somebody who set a fixture down on their own feet. One step
+    // out (`stepOff`), and the door of the shop only for somebody sealed in on
+    // their own. The route goes with them: A* planned it from where they were
+    // standing and `stepPlayers` deliberately does not re-check a routed walk,
+    // so a path kept across a displacement walks them straight back into it.
     for (const p of Object.values(this.players)) {
-      if (!this.canStand(p.x, p.z)) {
-        p.x = layout.spawn.x;
-        p.z = layout.spawn.z;
-      }
+      if (this.canStand(p.x, p.z)) continue;
+      const to = this.stepOff(p.x, p.z) ?? layout.spawn;
+      p.x = to.x;
+      p.z = to.z;
+      p.path = null;
     }
 
     // ...and the van is driving to a dock that may have moved. Same problem as
@@ -8607,6 +10581,46 @@ export class Game {
   // -------------------------------------------------------------------------
 
   /**
+   * A shop nobody can move in gets a name for it.
+   *
+   * The crush was worth mood and nothing else, and mood is per-person and resets
+   * with the person: everybody in a packed shop was miserable, they left, and by
+   * the next customer the shop's own record of it was gone. So a permanently
+   * uncomfortable shop had no lasting consequence at all unless it got bad
+   * enough to turn arrivals away at the door, which is a cliff rather than a
+   * slope.
+   *
+   * Only while OPEN, or a shop shut with people finishing up quietly bleeds
+   * reputation for a crowd it is in the middle of getting rid of. Rate-limited
+   * by nothing else: `dt` is the whole of it, so it holds at 10Hz in the room
+   * and at 10000x in a balance run.
+   */
+  stepCrowdRep(dt) {
+    if (!this.isOpen()) return;
+    const over = this.occupancy - CROWD_FROM;
+    if (over <= 0 || !Number.isFinite(over)) return;
+    this.moveRep(-CROWD_REP_RATE * over * dt, R.CROWD);
+  }
+
+  /**
+   * How many people are actually in the shop right now.
+   *
+   * Its own method because two different questions ask it and they are not the
+   * same question: how CROWDED it is (below) is a ratio against what the place
+   * can hold, and how many people are in there is a headcount the HUD shows
+   * beside the size of the town. A ratio cannot answer the second — 0.4 is four
+   * people in a small shop and forty in a big one.
+   *
+   * The membership test is `inACar`'s, for the reason CLAUDE.md gives about
+   * `this.customers`: since people drive, being in that object stopped meaning
+   * being in the shop.
+   */
+  customersInside() {
+    return Object.values(this.customers)
+      .reduce((n, cu) => n + (cu.state === 'ENTER' || inACar(cu) ? 0 : 1), 0);
+  }
+
+  /**
    * How full the shop is, as a ratio of what it can hold. 1.0 is comfortably
    * busy; above that people start getting in each other's way.
    *
@@ -8616,18 +10630,120 @@ export class Game {
    * away because of the queue *to get in*.
    */
   measureOccupancy() {
-    const inside = Object.values(this.customers)
-      .reduce((n, cu) => n + (cu.state === 'ENTER' || inACar(cu) ? 0 : 1), 0);
+    // Kept, because the snapshot wants the divisor as a number and this is the
+    // one place it is already worked out — it walks every shelf in the shop, and
+    // asking again ten times a second to print it would be a second full sweep
+    // for a figure that cannot have changed since the first.
+    const capacity = this.shopCapacity();
+    this.capacity = capacity;
+    // A shop with no till and nothing on the shelves is not a shop with
+    // infinite room; it is one nobody can use.
+    return capacity > 0 ? this.customersInside() / capacity : Infinity;
+  }
+
+  /**
+   * How many people this shop comfortably holds.
+   *
+   * Its own verb because it is a HEADCOUNT and the thing the sim runs on is a
+   * ratio — and a ratio cannot be drawn as a number. `occupancy` at 0.4 is four
+   * people or forty, which is exactly why the HUD could show the crush as a bar
+   * and never as "9 of 24": the divisor was a local inside the measurement.
+   */
+  shopCapacity() {
     // Units with something on them, NOT boards. How much room a shop has is
     // about how many places there are to stand and browse, and a shelf holding
     // three things is still one shelf with one aisle in front of it — counting
     // boards would have ticking a checkbox make the building bigger.
     const stocked = this.layout.shelves.reduce((n, s) => n + (this.shelfQty(s) > 0 ? 1 : 0), 0);
-    const capacity = this.layout.checkouts.length * CAPACITY_PER_TILL
+    const service = this.layout.checkouts.length * CAPACITY_PER_TILL
       + stocked * CAPACITY_PER_SHELF;
-    // A shop with no till and nothing on the shelves is not a shop with
-    // infinite room; it is one nobody can use.
-    return capacity > 0 ? inside / capacity : Infinity;
+    // ...and the building. The LOWER of the two, not the sum: a shop is as busy
+    // as its tightest constraint, and adding a fourth till to a room that holds
+    // eight people does not make it hold twelve. That direction is the whole
+    // point — a tiny shop has to stay tiny however well you fit it out, or
+    // "cramped" is a thing you can buy your way out of without moving a wall.
+    return Math.min(service, this.floorRoom());
+  }
+
+  /**
+   * How many people the floor itself holds.
+   *
+   * Walkable indoor tiles rather than the shell's rectangle, so a wall you draw
+   * counts, an annex you floor counts, and the aisles your own shelving eats do
+   * too. Read off the same two masks everything else does rather than kept as a
+   * number beside the shop — `world.fixtures` is the cautionary tale.
+   */
+  floorRoom() {
+    const { w, h, indoor, blocked } = this.layout;
+    if (!indoor) return Infinity;
+    let tiles = 0;
+    for (let i = 0; i < w * h; i++) if (indoor[i] && !blocked?.[i]) tiles++;
+    return tiles * CAPACITY_PER_TILE;
+  }
+
+  /**
+   * Which tiles a shopper would rather not walk over.
+   *
+   * Tile indices, so `findPath` can ask `has(i)` in its inner loop without
+   * touching an object — this is the hot loop in the game and it is asked once
+   * per route rather than once per step, but the set is walked by every
+   * expansion.
+   *
+   * **Everywhere, not just indoors.** A crate on the approach path is in the way
+   * exactly as much as one in an aisle, and the pavement preference already
+   * proves people route around things outside. The yard is where crates are
+   * *supposed* to be, and it needs no exception: nothing routes a shopper
+   * through the bay, so the cost is never paid.
+   */
+  clutterTiles() {
+    const { w } = this.layout;
+    const out = new Set();
+    for (const d of this.deliveries) out.add(Math.round(d.z) * w + Math.round(d.x));
+    return out;
+  }
+
+  /**
+   * How much of the shop floor is under boxes, as a share of the walkable room.
+   *
+   * The mess half of the same object the clutter cost is the pathing half of:
+   * one is "I had to walk round it", this is "the place is a tip".
+   *
+   * Three decisions in it. It counts **tiles rather than units**, because a
+   * hundred loaves in one box is one thing in the way and one thing to look at,
+   * while four part-crates on four cells is a mess — the same call
+   * `measureOccupancy` makes about units of shelving rather than boards.
+   *
+   * **Rubbish counts double.** A box of stock is a shop mid-job; a box of rot is
+   * a shop that has given up, and the difference is the entire reason the skip
+   * exists. It is also the only lever that makes buying one worth anything to a
+   * shopper rather than to your conscience.
+   *
+   * And it is **indoors only**, which is the opposite of `clutterTiles` on
+   * purpose. Being in the way is a fact about a route and can happen anywhere;
+   * being a tip is a fact about the room somebody is standing in, and a yard full
+   * of crates is a yard doing its job. Charging for it would make every shop
+   * permanently untidy and the term would say nothing.
+   */
+  measureMess() {
+    const { w, h, indoor, blocked } = this.layout;
+    if (!indoor) return 0;
+    let floor = 0;
+    for (let i = 0; i < w * h; i++) if (indoor[i] && !blocked?.[i]) floor++;
+    if (!floor) return 0;
+
+    // By CELL, so two boxes on one tile are one untidy tile. Weighted as it
+    // goes, and the heavier of the two wins a shared cell — a crate of rot with
+    // a crate of bread on top of it is still rot on your floor.
+    const seen = new Map();
+    for (const d of this.deliveries) {
+      const i = Math.round(d.z) * w + Math.round(d.x);
+      if (!indoor[i] || blocked?.[i]) continue;
+      const weight = d.waste ? 2 : 1;
+      if ((seen.get(i) ?? 0) < weight) seen.set(i, weight);
+    }
+    let mess = 0;
+    for (const weight of seen.values()) mess += weight;
+    return mess / floor;
   }
 
   /**
@@ -8842,7 +10958,7 @@ export class Game {
       // three days later. This is the same loop, closed on the same tick.
       if (this.occupancy > TURN_AWAY_AT) {
         this.stats.turnedAway++;
-        this.reputation = clamp(this.reputation - 0.005, 0, 1);
+        this.moveRep(-0.005, R.TURNED);
         // Logged on the way in and out of the state rather than per person, or
         // a busy hour buries every other line in the log.
         if (!this.turningAway) {
@@ -9103,8 +11219,24 @@ export class Game {
    * A repeat draw of a tag raises that line's `qty` instead of adding a second
    * line, which is what turns a strong affinity into "three of those" rather
    * than three separate errands for the same thing.
+   *
+   * **What the town is going mad for is read here, and it does two things.** It
+   * scales the opportunistic draw — a bakery craze puts more bread on more
+   * lists — and above `CRAZE_STAPLE` it makes the line a *staple*, which is the
+   * half that actually costs the shop something: only a `must` line reaches
+   * `failLine`'s charge, so without the promotion an unfulfilled event was
+   * lost sales and no reputation at all. It can only ever promote something
+   * they already wanted, which falls out of the draw rather than being a rule:
+   * a tag with no affinity is never on the list, so a Health Nut still does not
+   * come in for junk in the middle of a junk craze.
+   *
+   * The multiplier is applied to the *weights* rather than by a second draw, so
+   * a shop with no modifiers on it calls `this.rng` exactly as many times as it
+   * did before and every balance number downstream is untouched — the trap
+   * `Game.namer` exists for, said about an event table.
    */
-  rollList(arch, units) {
+  rollList(arch, units, folded = this.folded()) {
+    const demand = folded?.demand ?? {};
     const lines = new Map();
     const add = (tag, must) => {
       // `seen` and `blocked` are what `failLine` reads to tell a stockout from a
@@ -9133,7 +11265,7 @@ export class Game {
     // the line anyway — it would just fail as unmet demand and blame the shop.
     const wants = Object.entries(arch.affinities)
       .filter(([, w]) => w > 0)
-      .map(([tag, w]) => ({ tag, w }));
+      .map(([tag, w]) => ({ tag, w: w * (demand[tag] ?? 1) }));
     while (placed < units && wants.length) {
       // A trip is a few categories bought several of, not eight single items.
       // Past MAX_LIST_LINES a draw becomes another of something already on the
@@ -9146,6 +11278,15 @@ export class Game {
         : this.rng.weighted(wants, 'w').tag;
       add(tag, false);
       placed++;
+    }
+
+    // ...and anything the town is pulling hard enough on is what they came in
+    // for. Last, over the finished list, so a craze promotes a staple tag they
+    // were always going to ask for as readily as a line the draw just handed
+    // them — and so a slump can never demote one, since a `must` is a fact
+    // about the archetype and an event is weather.
+    for (const line of lines.values()) {
+      if ((demand[line.tag] ?? 1) >= CRAZE_STAPLE) line.must = true;
     }
 
     return [...lines.values()];
@@ -9295,9 +11436,7 @@ export class Game {
       // without it, and a shopper who thought your milk was daylight robbery is
       // no happier than one who found the fridge empty — so the split above is
       // about telling the player what to do, never about softening the blow.
-      this.reputation = clamp(
-        this.reputation - REP_MISSED_STAPLE * cust.missed.length, 0, 1,
-      );
+      this.moveRep(-REP_MISSED_STAPLE * cust.missed.length, R.MISSED);
       /**
        * Who, and what sort of shopper they were.
        *
@@ -9336,7 +11475,7 @@ export class Game {
       // Walking out empty-handed is a much stronger signal than a happy sale,
       // so it moves reputation harder — otherwise a busy shop can post great
       // numbers while quietly failing a third of its customers.
-      this.reputation = clamp(this.reputation - 0.015, 0, 1);
+      this.moveRep(-0.015, R.EMPTY);
       this.stats.leftEmpty++;
     }
     return this.leaveShop(cust);
@@ -9356,8 +11495,13 @@ export class Game {
     // field only a shopper has — six of the eight callers here are customers.
     // Staff and the player route as they always did: a signed doorway is an
     // ordinary opening to everybody who works here.
+    // A shopper walks round a box; everybody who works here walks over it. Built
+    // per call rather than cached on the tick, because a route is planned once
+    // and followed for many ticks — and a stale clutter set is a shopper
+    // threading a crate that is no longer there, or refusing one that is.
+    const shopper = !!entity.archetype_id;
     const path = findPath(this.walk, this.layout, from ?? entity, goal,
-      { shopper: !!entity.archetype_id });
+      { shopper, clutter: shopper ? this.clutterTiles() : null });
     entity.path = path ?? [];
     if (path && from) entity.path.unshift({ x: from.x, z: from.z });
     return path !== null;
@@ -9532,7 +11676,11 @@ export class Game {
     // the same as standing in it.
     if (cust.till) annoy += ANNOY_LINE;
     // Everyone inside pays for the crush, whatever they're doing.
-    if (this.occupancy > 1) annoy += ANNOY_CROWD * (this.occupancy - 1);
+    if (this.occupancy > CROWD_FROM) annoy += ANNOY_CROWD * (this.occupancy - CROWD_FROM);
+    // ...and the state of the place. Same shape as the crush and for the same
+    // reason: everybody inside pays it whatever they are doing, because it is a
+    // fact about the room rather than about their errand.
+    if (this.mess > MESS_FROM) annoy += ANNOY_MESS * (this.mess - MESS_FROM);
 
     cust.mood = clamp(cust.mood - (annoy / cust.patience) * dt, 0, 1);
     if (cust.mood > 0) return false;
@@ -9603,7 +11751,7 @@ export class Game {
     const name = content().byId.archetypes[cust.archetype_id]?.name ?? 'customer';
     const had = cust.basket.length;
     this.stats.abandoned++;
-    this.reputation = clamp(this.reputation - 0.03, 0, 1);
+    this.moveRep(-0.03, R.STORMED);
     this.pushLog(had
       ? `A ${name} lost patience and stormed out — ${had} item${had === 1 ? '' : 's'} abandoned.`
       : `A ${name} lost patience and stormed out.`);
@@ -10024,8 +12172,23 @@ export class Game {
         if (DEPARTMENTS.includes(tag)) this.stats.moved[tag] = (this.stats.moved[tag] ?? 0) + 1;
       }
     }
-    // Happy customers nudge reputation up; a long wait blunts that.
-    this.reputation = clamp(this.reputation + 0.004 * cust.mood, 0, 1);
+    // Happy customers nudge reputation up; a long wait blunts that — and past
+    // `MOOD_ANNOYED` it goes the other way, which is the half that was missing.
+    //
+    // `0.004 * mood` could only ever be a gain, so every completed sale paid you
+    // back however grim the trip was: a shop could annoy everybody in it, sell to
+    // all of them anyway, and climb. That is the bounce-back. Pivoting on the
+    // same threshold the sim already calls annoyed (and the mood bar already
+    // changes colour at) means a perfect trip is worth exactly what it always
+    // was, and a bad one now costs instead of paying a little less.
+    //
+    // Banked under two names for one number, split on the sign it came out
+    // with. Netted, a busy afternoon reads "sales: nothing" and hides the whole
+    // point — that you gained from forty people and gave it back to eleven who
+    // had a miserable time getting served — and those are two different things
+    // to do something about.
+    const mood = 0.008 * (cust.mood - MOOD_ANNOYED);
+    this.moveRep(mood, mood < 0 ? R.GRUMPY : R.SERVED);
     // Out of the basket and into their arms — the shop no longer owns it, but
     // they still have it until they are off the map.
     cust.bought = cust.basket;
@@ -10266,6 +12429,7 @@ export class Game {
     if (station) {
       if (station.output) return this.collectStation(playerId, station.id);
       if (p.carry) return this.loadStation(playerId, station.id);
+      if (p.haul) return this.loadStation(playerId, station.id, { from: 'haul' });
       if (station.making) return err(`${station.station} is still going`);
     }
 
@@ -10298,18 +12462,128 @@ export class Game {
     return best;
   }
 
-  pushLog(msg) {
-    this.log.push({ day: this.day, t: r2(this.time), msg });
+  /**
+   * Put a line on the feed.
+   *
+   * Every line carries an `id`, which the client keys its DOM lines by. That is
+   * what makes `logGoods` below possible at all: a line that grows a second item
+   * has to be the SAME line on screen, not a new one shoved on top of it, and
+   * the client has no other way to tell "this entry changed" from "here is
+   * another entry".
+   */
+  pushLog(msg, extra = null) {
+    this.logSeq = (this.logSeq ?? 0) + 1;
+    this.log.push({ id: this.logSeq, day: this.day, t: r2(this.time), msg, ...(extra ?? {}) });
     if (this.log.length > 200) this.log.shift();
+  }
+
+  /**
+   * One line for a run of the same thing happening to several items.
+   *
+   * `endPull` above makes this argument about a single gesture; this is the same
+   * argument about a job loop. `restock` orders one board at a time — that is
+   * what makes it stop at the right amount — so a shop topping itself up wrote
+   * five lines saying "3x Bread ordered", "6x Milk ordered"… and the feed shows
+   * six. What a player wants to know is that a van was called and what is on it,
+   * which is one event, and the itemising was pushing everything else off the
+   * bottom.
+   *
+   * So a caller hands over its own goods and a `key`, and a second call with the
+   * same key **amends the line it already wrote** rather than adding to the pile.
+   * Only ever the newest line, deliberately: anything else happening in between
+   * is a real event that came after, and reaching back past it to grow an older
+   * line would print the shop's history out of order. A `null` key never merges,
+   * which is what a one-off with several items in it wants — a strip, a hopper
+   * tipped out — and it is the honest spelling of "this is one event", rather
+   * than an id nothing will ever match.
+   *
+   * The goods are on the entry twice. `msg` spells them out in words, which is
+   * what MCP's `get_log` and every headless reader see; `goods` is the same list
+   * as data, which the client draws as `2x <icon>` chips instead — six names is
+   * a paragraph and six icons is a glance. Keep both: a feed that only rendered
+   * as pictures would say nothing to anything that isn't the browser.
+   */
+  /**
+   * "Marla took" / "Took" — who did it, in front of the sentence.
+   *
+   * Two things come back rather than one, and they are not the same fact. The
+   * words go in `msg`, which is the only channel MCP and the verify sweeps have;
+   * `by` is the roster id, which the client resolves to a *picture* of that hire
+   * at their grade and in their skin — `artForWorker`, the same call the roster
+   * bar makes. A name alone would be the staff-glyph bug wearing text: four bots
+   * doing four different things, told apart only by reading.
+   *
+   * Nothing for the player. It is your own shop and your own hands, so a chip
+   * saying you did the thing you just did is a label on every line that carries
+   * no news — and the absence of one is then exactly the signal that matters,
+   * which is "somebody else did this".
+   *
+   * The id and not the name, because a hire can be renamed, repainted and
+   * promoted after the line is written, and the line should follow them. A hire
+   * who has been let go resolves to nothing and the line keeps its words, which
+   * is why the name is in `msg` as well.
+   */
+  saidBy(playerId, verb) {
+    const p = this.players[playerId];
+    return p?.hire
+      ? { by: p.hire, verb: `${p.name} ${verb}` }
+      : { by: null, verb: verb[0].toUpperCase() + verb.slice(1) };
+  }
+
+  logGoods(key, { pre = '', post = '', goods, by = null }) {
+    const add = (into) => {
+      for (const g of goods) {
+        if (!(g.qty > 0)) continue;
+        const had = into.find((x) => x.item_id === g.item_id);
+        if (had) had.qty += g.qty;
+        else into.push({ item_id: g.item_id, qty: g.qty });
+      }
+      return into;
+    };
+    const last = this.log[this.log.length - 1];
+    // Who did it is part of the match, not just the key. Two hires working the
+    // same shelf are two events with two faces on them, and folding them into
+    // one line would put one bot's name on the other's armful.
+    if (key && last?.key === key && last.day === this.day
+      && (last.by ?? null) === by && Array.isArray(last.goods)) {
+      add(last.goods);
+      last.t = r2(this.time);
+      last.msg = `${pre}${saidGoods(last.goods)}${post}`;
+      return;
+    }
+    const own = add([]);
+    if (!own.length) return;
+    this.pushLog(`${pre}${saidGoods(own)}${post}`, { key, goods: own, pre, post, by });
   }
 }
 
 // ---------------------------------------------------------------------------
 
+/**
+ * "2x Bread, 6x Milk" — the words half of a `logGoods` line.
+ *
+ * Falls back to the id for an item the catalogue no longer has, the way every
+ * other reader of a stored `item_id` does. A line is written once and read
+ * afterwards, so the row it names can be deleted between the two — see
+ * `binOrphans`.
+ */
+function saidGoods(goods) {
+  const items = content().byId.items;
+  return goods.map((g) => `${g.qty}x ${items[g.item_id]?.name ?? g.item_id}`).join(', ');
+}
+
 function freshStats() {
   return {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
     spoiled: 0, spoiledValue: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, byItem: {},
+    // What moved reputation today, by cause, signed. Not a second copy of the
+    // counts above: `abandoned` says three people stormed out and this says what
+    // that cost, which is the only form the question is ever asked in — a shop
+    // sheds reputation from seven different places at seven different rates, so
+    // "one walked out" and "the shop was packed for an hour" are the same size
+    // of incident and nothing like the same size of damage. Written by exactly
+    // one function (`moveRep`), so it cannot drift from the number it explains.
+    repMoves: {},
     // How many of today's arrivals drove in. The measurement handle for the car
     // park and the only one there is: the pad's two effects are a bigger basket
     // and a wider town, and both of them show up in the takings as "the shop did
@@ -10504,6 +12778,21 @@ function moving(p) {
   return dx !== 0 || dz !== 0 || p.path?.length > 0;
 }
 const r2 = (v) => Math.round(v * 100) / 100;
+/**
+ * Reputation, to a tenth of a percentage point.
+ *
+ * Its own precision rather than `r2`'s, because reputation is read as a
+ * percentage: two decimals of a 0..1 number is whole points only, which would
+ * round every single one of the day's causes to nothing and print a breakdown
+ * of zeroes under a bar that had visibly moved. Three is exactly what the panel
+ * shows — one decimal of a point — so the wire, the ledger and the readout all
+ * agree by construction.
+ */
+const round3 = (v) => Math.round(v * 1000) / 1000;
+/** The same map, rounded, for the wire. See `Game.moveRep`. */
+const repMovesOut = (moves) => Object.fromEntries(
+  Object.entries(moves ?? {}).map(([k, v]) => [k, round3(v)]).filter(([, v]) => v !== 0),
+);
 /**
  * An hour of the day as a shopkeeper would write it — 8 becomes "08:00".
  *

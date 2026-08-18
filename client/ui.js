@@ -11,17 +11,20 @@ import { fixtureLabel, pieceFor } from '../shared/pieces.js';
 import { spotsOf } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import {
-  buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups, upgradeGroups,
+  buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups,
 } from './sections.js';
 import { renderBar, groupAt, nextGroup, KEYED } from './bar.js';
+import { deptsIn, deptStrip, inDept } from './aisles.js';
+import { setHtml } from './paint.js';
+import { wireScroll } from './scroll.js';
 import { showWorker } from './worker-menu.js';
-import { showUpgrade } from './upgrade-menu.js';
 import { Rail } from './rail.js';
 import { tip } from './tip.js';
 import { ICONS } from './icons.js';
 import { showFixture } from './fixture-menu.js';
 import { wireDrag, restorePos } from './panel-drag.js';
-import { artForVariant, artForModel } from './thumb.js';
+import { wireCorner } from './corner.js';
+import { artForVariant, artForModel, artForWorker } from './thumb.js';
 import { rciHtml, cashflowHtml } from './hud-meters.js';
 import { money } from './money.js';
 
@@ -52,7 +55,13 @@ function tabGroups(all) {
       // `passive` — a tab that reports rather than offers work. It is drawn and
       // reachable like any other; all it forfeits is being the one a menu opens
       // on. See `tabIndex`.
-      groups.push({ label: r.sep, icon: r.icon, passive: !!r.passive, rows: [] });
+      // `count` is the bucket's own tally rather than `rows.length` measured
+      // here, because a heading may be emitted for a bucket that ended up empty
+      // — that is the whole point of drawing every tab — and the two only agree
+      // while nothing filters the rows on the way in.
+      groups.push({
+        label: r.sep, icon: r.icon, passive: !!r.passive, count: r.count ?? null, rows: [],
+      });
       continue;
     }
     if (!groups.length) { groups.lead.push(r); continue; }
@@ -183,7 +192,9 @@ export class UI {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
       clock: document.getElementById('clock'),
-      shutter: document.getElementById('shutter'),
+      // The date, which is also the shutters (see the CSS).
+      shutter: document.getElementById('sign'),
+      doorway: document.getElementById('doorway'),
       rep: document.getElementById('rep'),
       mood: document.getElementById('mood'),
       full: document.getElementById('full'),
@@ -193,6 +204,9 @@ export class UI {
       boardtip: document.getElementById('boardtip'),
       log: document.getElementById('log'),
       rci: document.getElementById('rci'),
+      // The panel is what you grab, drag and close; the rows are what gets
+      // rewritten at 10Hz. See client/corner.js for why they are two elements.
+      rciRows: document.getElementById('rci-rows'),
       flow: document.getElementById('flow'),
       todo: document.getElementById('todo'),
       panel: document.getElementById('panel'),
@@ -203,6 +217,9 @@ export class UI {
       buildGroups: document.getElementById('build-groups'),
       buildSubs: document.getElementById('build-subs'),
       buildTools: document.getElementById('build-tools'),
+      buildStrip: document.getElementById('build-strip'),
+      buildBack: document.getElementById('build-back'),
+      buildOn: document.getElementById('build-on'),
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
       prompt: document.getElementById('prompt'),
@@ -213,6 +230,10 @@ export class UI {
     // Per-section, and wiped when the section closes — a filter you can't see
     // the cause of is worse than no filter at all.
     this.query = '';
+    // Which aisle the open list is narrowed to, on the same terms and for the
+    // same reason (`client/aisles.js`). A second narrowing, so it has to be as
+    // visible and as forgettable as the first.
+    this.dept = null;
 
     // Once, for the whole HUD. It listens on the document and adopts any
     // `title` it is pointed at, so it belongs to the shell rather than to any
@@ -243,9 +264,16 @@ export class UI {
     // Filed under a name no section uses, since both share `sns-panel-pos`.
     wireDrag(this.el.rci, this.el.rci, () => 'rci');
     restorePos(this.el.rci, 'rci');
+    // ...and it can be put away entirely, which moving it never covered: every
+    // place you can drag it to is over something. The Menu brings it back.
+    wireCorner(this.el.rci, 'rci', (msg) => this.toast(msg));
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.escape();
     });
+    // On the window rather than on the feed — see `hoverLog`. The canvas gets
+    // the event and it bubbles here, so the log can stay untouchable and still
+    // know when you are looking at it.
+    addEventListener('pointermove', (e) => this.hoverLog(e.clientX, e.clientY));
     // A card floating over the world goes when you touch anything that is not
     // it. Capture, so it closes before whatever you pressed acts — pressing the
     // ground with it up should build there and leave nothing behind. The tile's
@@ -289,6 +317,38 @@ export class UI {
 
   // ---- build mode ----------------------------------------------------------
 
+  /**
+   * Pressing Build — the rail's hammer, or G. Three states, in the order you
+   * arrive at them.
+   *
+   * The mode and the palette used to be one press, so the only way to be in
+   * build mode was with a strip of shelves across the bottom of the screen —
+   * and most of what the mode is for is *rearranging what is already there*:
+   * dragging a unit two tiles over, turning it, opening a doorway. None of that
+   * needs the catalogue, and the catalogue is the biggest thing on screen.
+   *
+   * So: first press is the mode (drag things about, aim at walls, fly the view),
+   * second press is the palette, third puts both away. The toast on the first
+   * one is the exception to "the mode, and nothing else" below — a second press
+   * that does something different from the first is not a thing anybody finds by
+   * pressing once, so it is said once, where it happens.
+   */
+  pressBuild() {
+    if (!this.buildOn) { this.toggleBuild(true); return; }
+    // Asking for the palette is asking for the mode, which matters when the one
+    // you are standing in was borrowed by a fixture menu: without this the
+    // shelves would be up over a mode `paletteArmed` still called somebody
+    // else's, so nothing you pointed at would build.
+    if (this.bar !== 'build') {
+      // You did the thing it asked; the note has nothing left to say.
+      this.rail.clearNote();
+      this.commitBuildMode();
+      this.showBar('build');
+      return;
+    }
+    this.toggleBuild(false);
+  }
+
   toggleBuild(on = !this.buildOn, { quiet = false } = {}) {
     this.buildOn = on;
     // The mode opens with empty hands. Turning building on is "let me at my
@@ -304,9 +364,16 @@ export class UI {
     // camera. Building wins: you asked for the wheel.
     if (on) this.setFollow(null);
     this.resetRot();
-    // Build mode owns the bar while it is on, and hands it back to nobody when
-    // it goes off — the roster does not come back just because you stopped
-    // building, since you never asked for it.
+    // The mode no longer brings the palette with it — that is the second press
+    // (`pressBuild`), because the bar is the most expensive thing on screen and
+    // most of building is rearranging what you already own. What entering the
+    // mode DOES do is clear the bar somebody else was using, for the same reason
+    // `showBar` leaves the mode when it hands the strip to the roster: two
+    // things cannot have the bottom of the screen.
+    //
+    // Going out takes the palette with it, and hands the bar back to nobody —
+    // the roster does not come back just because you stopped building, since you
+    // never asked for it.
     //
     // Except when a menu borrowed the mode for one action of its own, which is
     // what `quiet` means. Every verb in a fixture's menu is gated on build mode
@@ -315,11 +382,20 @@ export class UI {
     // palette up over the menu you are still reading answers a question nobody
     // asked. The mode goes on, the bar stays where you left it.
     if (!quiet) {
-      this.bar = on ? 'build' : (this.bar === 'build' ? null : this.bar);
+      // A mode you pressed for yourself is yours, whatever a menu was doing with
+      // it a moment ago. Without this the flag outlives the mode it described:
+      // borrow the mode from a fixture menu, press G twice, and `paletteArmed`
+      // would still call the mode you just chose somebody else's.
+      this._modeFromMenu = false;
+      this._modeQuiet = false;
+      if (this.bar === 'build' || (on && this.bar)) this.bar = null;
     }
     this.rail.setBar(this.bar);
-    document.body.classList.toggle('building', on);
-    if (!on && this.openPanel === 'fixture') this.closePanel();
+    this.markBuilding();
+    // A way's menu goes with the fixture's: both are rows of build verbs, and a
+    // doorway can only be *pointed at* in the mode (see `pickWay`), so one left
+    // up out of it is a menu on something you can no longer aim at.
+    if (!on && (this.openPanel === 'fixture' || this.openPanel === 'way')) this.closePanel();
     // The working-spot rings belong to the mode (see `markerSpots`), and the
     // mode can change with something already selected — so the marker has to be
     // re-asked here. Keyed on the spots it was built with, so this is a no-op
@@ -341,8 +417,36 @@ export class UI {
     // tap on the ground does, what a tap on a fixture does, what WASD does now —
     // which is the welcome-toast mistake said again: a list nobody reads at the
     // one moment they cannot use it. All three are answered where they happen,
-    // by the ghost under the pointer and the line above the bar.
-    this.toast(on ? 'Build mode' : 'Back to shopkeeping');
+    // by the ghost under the pointer and the line above the bar — and so is the
+    // second press, by the lit button that is now two states rather than one.
+    this.toast(on ? 'Build mode enabled' : 'Back to shopkeeping');
+    // ...and the half of it that is about the button rather than about the shop
+    // goes over the button (`Rail.note`). The palette used to come up with the
+    // mode, so a mode that appears to have opened onto nothing has to say where
+    // the shelves went — and it has to say it where they would have been.
+    if (on) this.rail.note('Drag things about — click again for the menu');
+    else this.rail.clearNote();
+  }
+
+  /**
+   * The frame round the window (`#edge`), which says one of three things about
+   * the world: you are building, the shop is shut, or the clock is stopped.
+   *
+   * `paletteArmed` and not `buildOn`, which is the same distinction every other
+   * reader of the mode draws: a fixture menu borrowing it for one press of
+   * Rotate must not light up the whole screen, and it is the only mode that puts
+   * nothing else on screen either.
+   *
+   * The other two are set in `setClock`, where the numbers they come from
+   * already are. Which one wins is CSS's (see `#edge`), not a decision made
+   * here — three booleans and one frame, and a precedence written as `if`s here
+   * would be a second opinion about it.
+   *
+   * Called from `update` as well as from the toggle, because `commitBuildMode`
+   * and `releaseMenuMode` both change the answer without going through one.
+   */
+  markBuilding() {
+    document.body.classList.toggle('building', this.paletteArmed);
   }
 
   /**
@@ -648,27 +752,34 @@ export class UI {
    * this: it reads the kind off the catalog row the piece names.
    */
   /**
-   * Is the palette up — that is, does pointing at the world build something?
+   * Is the mode YOURS — that is, does pointing at the world build rather than
+   * shop?
    *
    * Build mode is two things wearing one flag: the **permission** the server
-   * gates its fixture verbs on, and the **palette** that turns a tap on the
-   * floor into a purchase. A menu that borrows the mode for one press of Empty
-   * or Rotate needs the first and never asked for the second — which `quiet`
-   * already says, by leaving the bar where it was. So the bar is the honest
-   * test of whether anything is armed.
+   * gates its fixture verbs on, and the **mode** that turns pointing at the shop
+   * into building it. A menu that borrows the mode for one press of Empty or
+   * Rotate needs the first and never asked for the second — pressing Empty must
+   * not silently make the ornaments clickable, the walls openable or WASD fly.
    *
-   * Without this, pressing Empty armed whatever `buildTool` was last set to —
-   * `'shelf'` out of the box, since it has a default and the palette is where
-   * you would normally have changed it — and the next tap on bare ground bought
-   * a shelf, out of a mode with nothing on screen saying it was on. Then
-   * `commitBuildMode` on that tap made the borrowed mode yours, so it also
-   * outlived the menu that lent it.
+   * The bar used to be the test for that, and it was the right test right up
+   * until the palette became a second press (`pressBuild`): build mode with the
+   * bar down is a state you can now deliberately be in — the one where you
+   * rearrange what is already built without a strip of shelves over your shop —
+   * and the bar test called that mode borrowed. So the honest question is who
+   * asked for the mode, which `_modeFromMenu` is exactly the answer to.
+   *
+   * What the bar was ALSO protecting is a separate rung and stays where it is:
+   * a tap on bare ground only buys something while a tool is armed
+   * (`toolArmed`), and a mode nobody chose off the palette opens with `toolOff`.
+   * That is what stops a borrowed mode buying a shelf, and it is why putting the
+   * bar away disarms (see `showBar`) — an armed tool with no bar on screen is
+   * the same invisible purchase wearing the other hat.
    *
    * Deliberately not `armedEdgeTool`'s test: that one asks what the *server*
    * has been told, which is a different question and must keep its answer.
    */
   get paletteArmed() {
-    return this.buildOn && this.bar === 'build';
+    return this.buildOn && !this._modeFromMenu;
   }
 
   groundForTool() {
@@ -892,7 +1003,7 @@ export class UI {
     this.el.build.classList.toggle('on', !!this.bar);
     // The two browse bars have no art to stand in a slot, and an empty well
     // under a glyph reads as a slot with the thing missing out of it.
-    this.el.build.classList.toggle('browse', this.bar === 'staff' || this.bar === 'upgrades');
+    this.el.build.classList.toggle('browse', this.bar === 'staff');
     // Nothing up: the bar is still in the document and still has a height, so
     // say zero explicitly. Everything above it in the stack is `calc()` off
     // this, and a stale value floats the panel over empty screen.
@@ -911,14 +1022,16 @@ export class UI {
    * Press one entry of a browse bar.
    *
    * A person opens their own menu — there is a lot to say about somebody who
-   * already works here. A kind of person does not: pressing Hire hires. The
-   * ceremony argument `showUpgrade` makes does not carry over, because the tile
-   * already says the name and the price and there is nothing else to read.
+   * already works here. A kind of person does not: pressing Hire hires, and the
+   * tile already says the name and the wage.
+   *
+   * There were three browse bars and this dispatched all of them. Upgrades left
+   * — a tile is 76px and could not say what the thing DOES, which is the only
+   * question anybody has about an upgrade — so the roster is what is left.
    */
   openBarEntry(it) {
     if (it.hire) return showWorker(this, it.hire);
     if (it.kind) return this.net.send('hire', { kind: it.kind });
-    if (it.upgrade) return showUpgrade(this, it.upgrade);
     return undefined;
   }
 
@@ -926,11 +1039,12 @@ export class UI {
    * Which entry the bar draws as the open one. It follows whatever menu is up
    * rather than a selection this object holds — see `renderBrowseBar` — so it
    * is spelled here exactly the way the entries themselves are spelled in
-   * `staffGroups` and `upgradeGroups`.
+   * `staffGroups` — the only browse bar left.
    */
   litEntry() {
     if (this.openPanel === 'worker') return `hire:${this.workerRef}`;
-    if (this.openPanel === 'upgrade') return this.upgradeRef;
+    // No upgrade branch: pressing one acts rather than opening anything, so
+    // there is never an upgrade tile to draw as the open one.
     return null;
   }
 
@@ -1031,6 +1145,12 @@ export class UI {
       groups: this.el.buildGroups,
       subs: this.el.buildSubs,
       items: this.el.buildTools,
+      // The strip's frame and its two ends. Not drawn into — they are what the
+      // entries scroll *inside* — so they are handed over once and `bar.js`
+      // wires them rather than rebuilding them on every render.
+      strip: this.el.buildStrip,
+      back: this.el.buildBack,
+      on: this.el.buildOn,
       choice: this.el.buildShapes,
     };
   }
@@ -1046,7 +1166,28 @@ export class UI {
    */
   showBar(which) {
     if (this.bar === which) return;
-    if (which !== 'build' && this.buildOn) { this.toggleBuild(false, { quiet: true }); }
+    // Handing the strip to somebody ELSE leaves build mode. Putting it away
+    // does not, and that distinction is the whole of the second press: build
+    // mode with the palette down is the state you drag things about in, so
+    // `showBar(null)` out of it must leave the mode standing.
+    if (which && which !== 'build' && this.buildOn) { this.toggleBuild(false, { quiet: true }); }
+    // ...but it does take whatever was armed with it. `toolArmed` no longer asks
+    // about the bar (see `paletteArmed`), so a shelf left armed under a palette
+    // you have just closed is a tap on the floor that buys one, out of a mode
+    // with nothing on screen saying what it is holding — which is the exact bug
+    // `paletteArmed` was written for, wearing the other hat.
+    if (this.bar === 'build' && which !== 'build') this.disarmTool();
+    // A menu opened FROM a bar goes with it. A hire's sheet is a tile of the
+    // strip underneath expanded — `openBarEntry` is the only thing that opens
+    // one — so a bar that closes and leaves it behind has left a window onto a
+    // list you can no longer see, floating over the shop with nothing to shut it
+    // but a second press somewhere else. It was two of these; an upgrade tile
+    // opens nothing at all now.
+    //
+    // A fixture menu is the exception. It is about something standing in the
+    // world and outlives every bar on purpose: opening the palette to move the
+    // shelf you were just reading about must not close what you were reading.
+    if (this.openPanel === 'worker') this.closePanel();
     this.bar = which;
     this.rail.setBar(which);
     this.renderHotbar();
@@ -1222,15 +1363,21 @@ export class UI {
           + `${this.paletteArmed ? ' · drag it to move it' : ''}`,
       };
     }
-    // Empty hands, which is now where the mode starts. Says so, because a bar
-    // with nothing lit and no ghost under the pointer is otherwise
-    // indistinguishable from a mode that has stopped working — and it is the one
-    // state in build mode with nothing on screen to explain itself.
+    // Empty hands, which is where the mode starts. Says so, because a bar with
+    // nothing lit and no ghost under the pointer is otherwise indistinguishable
+    // from a mode that has stopped working — and it is the one state in build
+    // mode with nothing on screen to explain itself.
+    //
+    // It used to carry the drag as well, and that half has moved a press earlier
+    // (`Rail.note`): dragging things about is what the mode with NO palette is
+    // for, so saying it again over the open palette is the one line here telling
+    // you about somewhere you are not. What is left is the question this line is
+    // actually the answer to — the bar is up, and nothing on it is lit.
+    //
     // `linger`, because this one is an introduction rather than an answer: it is
-    // true for as long as you have not picked anything, which is the whole time
-    // you spend rearranging what is already there.
+    // true for as long as you have not picked anything.
     if (this.paletteArmed && !this.toolArmed) {
-      return { text: 'Nothing armed — drag things about, or pick something to build', linger: true };
+      return { text: 'Nothing armed — pick something below to build it', linger: true };
     }
     const v = this.buildVerdict;
     // A red ghost is a refusal, and the reason is the only thing that turns it
@@ -1334,6 +1481,66 @@ export class UI {
   }
 
   /**
+   * The hire the open menu is about, and the teal ring on the shop floor that
+   * says which one.
+   *
+   * The same setter-rather-than-assignment rule `setFixtureRef` states, and a
+   * hire needs it more than a fixture does: a shelf whose ring was left behind
+   * is at least still the shelf you were reading about, where a hire walks off
+   * and the ring goes with them — so a stale one ends up over somebody working
+   * two aisles away, for reasons nobody can reconstruct.
+   *
+   * By roster id, because bodies are re-sent whole ten times a second.
+   */
+  setWorkerRef(id) {
+    const was = this.workerRef ?? null;
+    this.workerRef = id ?? null;
+    if (was === this.workerRef) return;
+    this.scene?.setPersonSelected(this.workerRef);
+    // ...and the tile on the bar lights NOW rather than whenever the roster
+    // next moves. `litEntry` reads this field, but the strip is only rebuilt
+    // when its own signature changes (`_staffKey`: names, jobs, hands, cash) —
+    // and pressing a different bot changes none of those. On a quiet shop where
+    // every hire says "looking for something to do" that is not a short delay,
+    // it is until somebody picks something up: you press one card, nothing
+    // lights, and the press reads as dropped.
+    this.renderHotbar();
+  }
+
+  /**
+   * Follow the SELECTION through a re-flow, the way `refreshFixture` follows
+   * the menu.
+   *
+   * Selection and the menu stopped being one fact the day the first press
+   * picked a thing without opening it — and only the menu ever learned to
+   * follow its fixture. `fixtureRef` is a record out of the snapshot that
+   * turned it, so with nothing open, R re-minted the placement, the shop drew
+   * the till the new way round, and the teal marker went on describing the old
+   * one: the working spots are the only part of it that moves, so what you see
+   * is a fixture rotating with its two rings nailed to the floor. The one press
+   * where that matters is the one press the marker exists for.
+   *
+   * Tile first, id second, for the reason spelled out in `refreshFixture`: a
+   * rotation re-mints the id, and the generator re-uses the freed name on the
+   * next re-flow.
+   *
+   * @param {Array<object>} fixtures The fresh layout.
+   */
+  refollowSelection(fixtures) {
+    // The menu's own refresh already re-points the ref (`showFixture` calls
+    // this class's setter), so this is the case it cannot see: picked, not
+    // opened. Two of them running would be a no-op — the marker is keyed —
+    // but only one of them can decide what a missing fixture means.
+    if (!this.fixtureRef || this.openPanel === 'fixture') return;
+    const at = this.fixtureRef;
+    this.setFixtureRef(
+      fixtures.find((f) => f.x === at.x && f.z === at.z && f.kind === at.kind)
+      ?? fixtures.find((f) => f.id === at.id)
+      ?? null,
+    );
+  }
+
+  /**
    * Watch a hire work, or take the camera back with `null`.
    *
    * The flag lives here and the camera lives in the scene, for the same reason
@@ -1397,7 +1604,6 @@ export class UI {
    */
   browseGroups() {
     if (this.bar === 'staff') return staffGroups(this);
-    if (this.bar === 'upgrades') return upgradeGroups(this);
     return null;
   }
 
@@ -1462,11 +1668,19 @@ export class UI {
     // earns the caret — see `showFilter`.
     if (this.openPanel !== id) {
       this.releaseMenuMode(); this.clearFilter(); this.resetTab();
+      // The aisle goes with the query, and for its reason: it is a narrowing,
+      // and a list showing four of forty rows because of something you chose in
+      // another menu is a menu that looks broken.
+      this.dept = null;
+      // ...and the list is taken as it stands. Opening a panel is exactly when
+      // you want it sorted by what matters now; every paint after that is when
+      // you want it to stop moving. See `freezeOrder`.
+      this.thawOrder();
       this._filterFresh = true;
     }
     this.openPanel = id;
     this.setFixtureRef(null);
-    this.workerRef = null;
+    this.setWorkerRef(null);
     this.wayRef = null;
     this.panelTick = null;
     sec.onOpen?.(this);
@@ -1508,12 +1722,98 @@ export class UI {
     // supplier's first bucket is the van — and it opened onto the one thing you
     // had just ordered with the catalogue nowhere on screen. A press names a
     // passive tab perfectly well; it simply is not what a panel starts on.
-    const first = groups.findIndex((g) => !g.passive);
+    // ...and never onto an EMPTY one, which only became reachable once every
+    // bucket started drawing its tab. A menu that opens on "Short: 0" has
+    // answered a question nobody asked and hidden the list you came for.
+    const usable = (g) => !g.passive && g.count !== 0;
+    const first = groups.findIndex(usable);
     const at = named >= 0 ? named
-      : (this._tabPick || first < 0 || !groups[want].passive) ? want : first;
+      : (this._tabPick || first < 0 || usable(groups[want])) ? want : first;
     this._tab = at;
     this._tabName = groups[at].label;
     return at;
+  }
+
+  /**
+   * Hold a list still while you work down it.
+   *
+   * The supplier sorts on what is due, what is hot and what you hold — all live
+   * numbers — so the list re-ordered itself on every repaint and the row you
+   * were reaching for slid because a shopper bought something. A panel you *use*
+   * has to stay where you left it; a panel you *read* does not, which is why
+   * this is opt-in per section rather than a rule about lists.
+   *
+   * POSITION only, and that is the whole design. The rows themselves are rebuilt
+   * every paint, so every number on them is live — what is pinned is the order
+   * they come in. Which tab a row lands in is live too: a shelf that runs dry
+   * while you are reading still appears under Short, in the place its item has
+   * always had.
+   *
+   * A row nobody has seen before goes to the END rather than into its sorted
+   * place, keeping the order it arrived in. Authoring an item over MCP while the
+   * panel is open should not reshuffle what is in front of you — and "new things
+   * are at the bottom" is a rule you can act on, where "new things are wherever
+   * the sort put them" is the churn this exists to stop.
+   */
+  freezeOrder(key, rows, idOf) {
+    const seq = this._frozen?.[key];
+    if (!seq) {
+      (this._frozen ??= {})[key] = new Map(rows.map((r, i) => [idOf(r), i]));
+      return rows;
+    }
+    const end = seq.size;
+    let extra = 0;
+    const at = new Map(rows.map((r) => {
+      const id = idOf(r);
+      // Recorded as it is handed out, so two new rows keep their own order and
+      // do not swap places on the next paint.
+      if (!seq.has(id)) seq.set(id, end + extra++);
+      return [r, seq.get(id)];
+    }));
+    return [...rows].sort((a, b) => at.get(a) - at.get(b));
+  }
+
+  /**
+   * ...and which BUCKET a row is in, held still the same way.
+   *
+   * Position alone was half a freeze, and the missing half is the one that made
+   * the panel unusable: `grouped` puts a row in the first bucket that takes it,
+   * and every one of those tests reads a number your own press just moved. Buy
+   * six loaves and Bread is `inbound > 0`, so it leaves Short for the van tab —
+   * out of the list you were working down, on the tick you worked it. Nudge a
+   * minimum and the row crosses the other way. Either one reads as the row
+   * having been eaten by the press, because the thing you were aiming at is the
+   * thing that vanished; you cannot check what you just did, and you cannot do
+   * two things to one item without going to find it again.
+   *
+   * So a row keeps the tab it was in when the list was taken, until you ask for
+   * a new list. That is the same bargain `freezeOrder` makes and it costs the
+   * same thing: a shelf that runs dry while you read stays under Rest until the
+   * refresh button, which is the one control this rests on — see the caveat on
+   * `thawOrder`. The counts on the headings are counts of the frozen bins for
+   * the same reason, or the tab would say 4 over a list of three.
+   *
+   * A row nobody has seen before is filed where it belongs *now*, exactly as a
+   * new row is appended rather than sorted: there is no remembered place to
+   * keep, and the first paint of every row goes through here.
+   */
+  freezeBin(key, id, live) {
+    const seq = ((this._frozen ??= {})[key] ??= new Map());
+    if (!seq.has(id)) seq.set(id, live);
+    return seq.get(id);
+  }
+
+  /**
+   * Take the list as it stands now — the refresh button, and opening a panel.
+   *
+   * Clearing everything rather than one key is deliberate now that a section
+   * freezes two things: a list whose rows had been re-sorted into tabs they are
+   * no longer in is a worse list than either freeze on its own.
+   */
+  thawOrder(key = null) {
+    if (!this._frozen) return;
+    if (key) delete this._frozen[key];
+    else this._frozen = {};
   }
 
   /** No choice made: the next paint decides, and may skip a passive tab. */
@@ -1548,28 +1848,129 @@ export class UI {
     let at = 0;
     if (groups) {
       at = this.tabIndex(groups);
+      // How many are in each, on the tab. It answers the question the tab is
+      // for without costing a press — "is anything short" is the supplier's
+      // whole first tab — and it is what makes an always-drawn empty tab
+      // readable as empty rather than as broken. Only where a section counted
+      // (`grouped`); a menu whose headings are just headings gets no badges.
       tabs = `<div class="tabs">${groups.map((g, n) => `
-        <button class="tab${n === at ? ' on' : ''}" data-tab="${n}" title="${esc(g.label)}"
-          aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`;
+        <button class="tab${n === at ? ' on' : ''}${g.count === 0 ? ' none' : ''}" data-tab="${n}"
+          title="${esc(g.label)}${g.count != null ? ` — ${g.count}` : ''}"
+          aria-label="${esc(g.label)}">${g.icon}${
+  g.count != null ? `<i class="tcount">${g.count}</i>` : ''}</button>`).join('')}</div>`;
       rows = [...groups.lead, ...groups[at].rows];
     } else {
       rows = filterable ? this.applyFilter(all) : all;
     }
 
+    // ...and under the tabs, the aisle — for any section whose rows carry one
+    // (`client/aisles.js`). The supplier is the case: every item in the shop, in
+    // one list, where the question you arrived with is "show me produce" and a
+    // search box can only answer "show me the thing I can already name".
+    //
+    // Drawn off what the open TAB holds, so the chips are the aisles in front of
+    // you rather than the aisles in the menu. It is skipped entirely while a
+    // search is running, for the reason the tabs are: a query is a question
+    // about the whole menu, and two narrowings on screen at once is an empty
+    // pane with two possible explanations.
+    let aisles = '';
+    if (!(filterable && this.query)) {
+      const depts = deptsIn(rows);
+      const dept = depts.includes(this.dept) ? this.dept : null;
+      if (depts.length > 1) aisles = deptStrip(depts, dept);
+      rows = inDept(rows, dept);
+    }
+
+    // "Nothing matches that" is the answer to a SEARCH, and an empty tab is now
+    // something you can press your way onto with no search running at all —
+    // where it reads as the filter having eaten the list. An empty bucket is
+    // good news in most of them (nothing is short), so it says which.
     const body = rows.length
       ? rows.map((r, i) => this.rowHtml(r, i)).join('')
-      : '<div class="foot">Nothing matches that.</div>';
+      : `<div class="foot">${this.query ? 'Nothing matches that.'
+        : `Nothing ${esc((groups?.[at]?.label ?? '').toLowerCase()) || 'here'} right now.`}</div>`;
 
     // Which section, which tab of it, and what it is filtered to. All three
     // change what the list IS, so all three have to drop your place — a search
     // that kept its offset would leave you scrolled past three results.
-    this.showPanel(sec.title, tabs + body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''),
-      `section:${this.openPanel}:${tabs ? at : ''}:${this.query}`);
+    // A section may hang a readout off the right of its own title — see
+    // `vanNote`. Part of the title rather than a third argument, because
+    // `showPanel` already takes the title as HTML for the fixture menu's icon.
+    this.showPanel(sec.title + (sec.note?.(this) ?? ''),
+      tabs + aisles + body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''),
+      `section:${this.openPanel}:${tabs ? at : ''}:${this.query}:${this.dept ?? ''}`);
     this.showFilter(filterable);
+    this.steadyHeight(sec, groups);
     this.wireRows(rows);
     this.el.panelBody.querySelectorAll('[data-tab]').forEach((el) => {
       el.onclick = () => { this.tab = Number(el.dataset.tab); this.paintSection(); };
     });
+    // The aisle is kept ACROSS tabs on purpose — Short and On the way are the
+    // same catalogue asked two ways, and hunting produce through both is one
+    // errand. A tab that has no rows in it falls back to All on its own, since
+    // `deptsIn` is asked of what is actually in front of you.
+    this.el.panelBody.querySelectorAll('[data-dept]').forEach((el) => {
+      el.onclick = () => { this.dept = el.dataset.dept || null; this.paintSection(); };
+    });
+    // ...and it stays put while the list scrolls, like the tabs above it: both
+    // are choosers, and one that scrolled away would leave you in a narrowed
+    // list with no way back to the whole one. A section scrolls the body, so
+    // this is `sticky` under a `sticky` — and where the second one sticks is
+    // MEASURED off where the first one ends rather than written down, because
+    // the tab strip's height is padding, a glyph and a border, three numbers
+    // that are the stylesheet's business and not this file's.
+    const tabBar = this.el.panelBody.querySelector('.tabs');
+    const aisleBar = this.el.panelBody.querySelector('.dtabs');
+    if (tabBar && aisleBar) aisleBar.style.top = `${aisleBar.offsetTop - tabBar.offsetTop}px`;
+    // The one control that lives in the title bar. Wired here rather than in
+    // `showPanel` because the note is a section's own HTML — and `stopPropagation`
+    // because that strip is the drag handle, so a press on it would otherwise
+    // start moving the window as well as sorting the list.
+    this.el.panelTitle.querySelector('[data-resort]')?.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      this.thawOrder();
+      this.paintSection();
+    });
+  }
+
+  /**
+   * HOLD THE PANEL AT THE HEIGHT OF ITS TALLEST TAB.
+   *
+   * A tab strip is a promise that the tabs are alternatives, and a window that
+   * resizes as you press along it breaks that promise twice: the thing you are
+   * comparing moves, and the tab you want next is no longer under the cursor —
+   * on a panel anchored at the bottom, growing upward, the strip itself is what
+   * moves furthest. Seven fixture upgrades against two for you is a panel that
+   * doubles in height on one press.
+   *
+   * OPT-IN, per section (`steady`), and the Menu is the argument for that: its
+   * Controls tab is thirty rows of keys, so a rule that applied everywhere would
+   * hold the sound switches at the height of the keyboard reference. It is
+   * worth it where the tabs are the same *kind* of thing at different lengths,
+   * and wrong where one tab is a reference list.
+   *
+   * The pitch is MEASURED off two rows that are on screen rather than written
+   * down as a row height — the CSS owns that number, it changed twice this week
+   * (the 3px gap, the centred lead), and a copy of it here would be a panel
+   * that is right until somebody restyles a row. Falls back to one row's own
+   * height for a tab holding exactly one, and does nothing at all with none:
+   * a `min-height` guessed from no evidence is worse than a panel that jumps.
+   *
+   * It can exceed what the screen has, and that is fine — `#panel` caps itself
+   * and the body scrolls, which is the same answer a long tab already gets.
+   */
+  steadyHeight(sec, groups) {
+    const body = this.el.panelBody;
+    if (!sec.steady || !groups) { body.style.minHeight = ''; return; }
+    const drawn = body.querySelectorAll('.sec-row');
+    const pitch = drawn.length >= 2
+      ? drawn[1].offsetTop - drawn[0].offsetTop
+      : (drawn[0]?.offsetHeight ?? 0);
+    if (!pitch) { body.style.minHeight = ''; return; }
+    // Every tab shows the lead rows too, so they are part of every tab's height
+    // rather than of the tallest one's.
+    const most = Math.max(...groups.map((g) => g.rows.length)) + groups.lead.length;
+    body.style.minHeight = `${Math.round(pitch * most)}px`;
   }
 
   /**
@@ -1600,8 +2001,9 @@ export class UI {
     if (!q) return rows;
     return rows.filter((r) => {
       // A heading with everything under it filtered away is a heading over
-      // nothing, so headings only survive an unfiltered list.
-      if (r.sep) return false;
+      // nothing, so headings only survive an unfiltered list. A drawn block is
+      // the same case: it has no name to match and is not a result.
+      if (r.sep || r.html != null) return false;
       return `${r.name} ${r.sub ?? ''} ${(r.facets ?? []).join(' ')}`.toLowerCase().includes(q);
     });
   }
@@ -1658,15 +2060,44 @@ export class UI {
    * the game fits; a longer one should be shortened rather than hidden behind a
    * hover nobody would know to try.
    *
+   * `mark` is that shortening, taken to its end: a **state** the row is in, as
+   * one glyph with the sentence in its `title`. It is not the same trick the
+   * paragraph above bans — that one repeated the visible text into a tip, so
+   * the hover was pure cost; this one is the only place the words exist, and
+   * the glyph is what fits. Three states earned it, and what they have in
+   * common is that they are the same words on every row that has them and none
+   * of them is a number you scan for: your crew stopped stocking this, it is on
+   * a shelf already, it is made in an appliance. Printed in full they crowded
+   * out the caption AND ellipsised anyway — a 214px panel clamped
+   * "your crew stopped stocking this — bac…", which is a sentence that stops
+   * exactly before the part with the information in it.
+   *
+   * A row that gives its caption up to a mark falls back to printing its tags,
+   * so the line is spent on something the glyph does not already say.
+   *
    * `art` wins over `icon` where a row has one — a picture of the thing beats a
    * glyph for its kind, which is the same call the palette makes, and `icon`
    * stays as the fallback for anything nobody has drawn.
    */
   rowHtml(r, i) {
     if (r.sep) return `<div class="sep">${r.sep}</div>`;
+    // A menu that draws itself. `sep` was already the precedent — a thing in the
+    // rows array that is not a row — and this is the same escape hatch one step
+    // further: the Shop report is a picture rather than a list, and wrapping it
+    // in `.row` would give it a hover, a click target and a lead column it has
+    // no use for. It carries no `name`, so `applyFilter` drops it the way it
+    // drops a heading, and no `run`, so `wireRows` never looks at it.
+    if (r.html != null) return r.html;
     const cls = ['row', 'sec-row'];
     if (r.picked) cls.push('picked');
     if (r.dim) cls.push('owned');
+    // Two weights of "not the obvious choice", because one weight was being
+    // asked to say two things. `dim` is CANNOT — no board free, no appliance to
+    // make it — and it is half-faded next to a row with nothing to press. `soft`
+    // is CAN, BUT: something else in the shop already has this, and ticking is
+    // exactly how you overrule that. At the same fade the two were one picture,
+    // so a choice you were being offered read as one that had been taken away.
+    if (r.soft) cls.push('muted');
     if (r.run) cls.push('clickable');
     const stacked = !r.plain;
     return `<div class="${cls.join(' ')}"${r.run ? ` data-row="${i}"` : ''}${
@@ -1677,7 +2108,12 @@ export class UI {
         ${r.right ? `<span class="cost">${r.right}</span>` : ''}
       </div>` : ''}
       <div class="name"><span class="t">${r.name}</span>${
-  r.heat || r.sub ? `<span class="meta">${r.heat ?? ''}${
+  r.heat || r.sub || r.mark ? `<span class="meta">${r.heat ?? ''}${
+    // Before the caption, because it is the stronger fact — a line the shop has
+    // stopped stocking is not a row you go on reading the tags of. `title` is
+    // the whole sentence and is escaped: it is the one attribute in this row
+    // built from copy rather than from a number.
+    r.mark ? `<span class="mark${r.mark.warn ? ' warn' : ''}" title="${esc(r.mark.title)}">${r.mark.icon}</span>` : ''}${
     r.sub ? `<span class="tags${r.subWarn ? ' warn' : ''}">${r.sub}</span>` : ''}</span>` : ''}${
   // How far along something is, 0..1. Inside the name's column rather than
   // beside it, because that column is the only elastic thing in the row — a bar
@@ -1687,7 +2123,7 @@ export class UI {
       ${!stacked && r.right ? `<div class="price">${r.right}</div>` : ''}
       ${r.count ? `<span class="held ${r.countClass ?? ''}">${r.count}</span>` : ''}
       ${r.rule ?? ''}
-      ${r.button ? `<button data-btn="${i}">${r.button.label}</button>` : ''}
+      ${r.button ? `<button data-btn="${i}"${r.button.danger ? ' class="danger"' : ''}>${r.button.label}</button>` : ''}
       ${r.tail ? `<span class="have">${r.tail}</span>` : ''}
     </div>`;
   }
@@ -1972,10 +2408,27 @@ export class UI {
 
     this.el.clock.classList.toggle('shut', !state.isOpen);
     this.el.clock.classList.toggle('paused', this.paused);
+    // ...and the same two states on the window's own frame (`#edge`), which is
+    // the half of this that is visible while you are looking at a shelf in the
+    // middle of the screen rather than at the clock in the corner of it.
+    //
+    // `isOpen` and not `shutters`, exactly as the strike-through above: what it
+    // marks is "nobody can be served right now", which is true at 22:00 with the
+    // shutters wide open. Two marks for one state have to be read off one field.
+    document.body.classList.toggle('shut', !state.isOpen);
+    document.body.classList.toggle('held', this.paused);
     this.el.clock.title = this.paused ? 'Start the clock (P)' : 'Stop the clock (P)';
 
     this.el.shutter.classList.toggle('shut', !this.shopOpen);
     this.el.shutter.title = this.shopOpen ? 'Close the shop (O)' : 'Open the shop (O)';
+    // The button's own words are the day and the balance, which say nothing
+    // about what pressing it does — so unlike every icon-only control in here,
+    // this one has to be labelled explicitly rather than by `tip.harvest`.
+    this.el.shutter.setAttribute('aria-label', this.el.shutter.title);
+    // A door, open or closed. Written only inside the `_clockKey` guard above,
+    // so this is a couple of writes a day rather than ten a second — and the
+    // icons are baked into the bundle, so there is nothing to fetch.
+    this.el.doorway.innerHTML = this.shopOpen ? ICONS.open : ICONS.shut;
   }
 
   /**
@@ -2000,9 +2453,15 @@ export class UI {
     // Out of room, the bar has nothing left to say with length — a 0%-wide bar
     // is just an empty track, and an empty track is what "no data" looks like.
     // So it fills instead and pulses: not a quantity any more, an alarm.
+    // Traffic light, and the thresholds are the crush the sim actually charges
+    // for rather than round numbers: amber is where `CROWD_FROM` starts taking
+    // mood and reputation, red is the last quarter before the door shuts. A bar
+    // that went amber somewhere the shop was still fine is a warning you learn
+    // to ignore.
     this.el.full.style.width = shut ? '100%' : `${Math.round(room * 100)}%`;
     this.el.full.style.background = shut ? 'var(--accent)'
-      : room >= 0.4 ? 'var(--good)' : 'var(--warn)';
+      : room >= 0.48 ? 'var(--good)'
+        : room >= 0.25 ? 'var(--warn)' : 'var(--accent)';
     this.el.full.classList.toggle('shut', shut);
   }
 
@@ -2017,16 +2476,40 @@ export class UI {
     this.el.day.textContent = `Day ${state.day}`;
     this.el.season.textContent = state.season;
     this.el.rep.style.width = `${Math.round(state.reputation * 100)}%`;
-    // The town. Written only when it changes: this runs at 10Hz over a live
-    // canvas and the number moves a handful of times in a whole game, so a
-    // blind write here is the one in this function that buys nothing at all.
+    // The town: how many are in here, out of how many could be.
+    //
+    // The pair is the point. Catchment on its own is a number nothing in the
+    // shop ever moves against — it changes a handful of times in a whole game —
+    // so it read as a fact about the map rather than as the ceiling on your
+    // trade. The headcount beside it is the same number's near end, and it moves
+    // every minute you watch it.
+    //
+    // Still written only when either half changes: this runs at 10Hz over a live
+    // canvas, and one of the two is now a number that actually moves — which is
+    // exactly when a key beats a blind write.
     const town = Math.round(state.catchment ?? 0);
-    if (town !== this._town) {
-      this._town = town;
-      this.el.town.querySelector('b').textContent = String(town);
+    const here = Math.round(state.inShop ?? 0);
+    const room = state.room ?? null;
+    // What share of the town walks in. It is `reputation × world events`, which
+    // is the answer to "does rep decide how many people come" — it decides
+    // nothing else, and it is the only percentage on this panel that is a rate
+    // rather than a level, hence a second line rather than a fourth bar.
+    const share = Math.round((state.pull ?? 0) * 100);
+    const townKey = `${here}/${room}/${town}/${share}`;
+    if (townKey !== this._town) {
+      this._town = townKey;
+      this.el.town.querySelector('b').textContent = String(here);
+      // Against what the BUILDING holds. A shop with no floor and no till has no
+      // capacity to be out of, so the pair collapses to a headcount rather than
+      // printing "/null" — which is every headless game and a brand new world
+      // for the tick before its shell is stamped.
+      this.el.town.querySelector('.of').textContent = room ? `/${room}` : '';
+      this.el.town.querySelector('.tw').textContent = `${town} town · ${share}%`;
       // On the element rather than in the markup, because the sentence names
-      // the number — see `tip.js`, which adopts any `title` in the HUD.
-      this.el.town.title = `${town} people within reach of the shop — milestones, parking, charm and a better address all grow it`;
+      // the numbers — see `tip.js`, which adopts any `title` in the HUD.
+      this.el.town.title = `${here} in the shop${room ? `, which holds about ${room}` : ''}. `
+        + `${town} people are within reach and your reputation brings ${share}% of them in — `
+        + 'milestones, parking, charm and a better address all grow the town';
     }
     this.setGauges(state);
 
@@ -2050,19 +2533,8 @@ export class UI {
     // A crate says the same sentence an armful does now: the chevrons are up for
     // it (`takers` reads both hands and shoulder) and a shelf pours it straight
     // off the box, so "the only move is to put it down" stopped being true.
-    // What is in your hands, said pile by pile. One kind reads exactly as it
-    // always did; more than one lists them, because "carrying 11 things" is a
-    // number you cannot act on and the whole point of a mixed armful is knowing
-    // which shelf clears which part of it.
-    const said = (lot) => lotStacks(lot)
-      .map((k) => `${k.qty}x ${this.itemName(k.item_id)}`).join(', ');
-    this.el.carry.textContent = me?.haul
-      ? `carrying a crate of ${said(me.haul)} `
-        + '— tap where it goes, or hold a square to set it down'
-      : me?.carry
-        ? `carrying ${said(me.carry)} `
-          + '— tap where it goes, or hold a square to put it down'
-        : '';
+    // What is in your hands, a row per pile — see `setCarry`.
+    this.setCarry(me?.haul ?? null, me?.carry ?? null);
     this.updatePrompt(me?.action ?? null);
     // Which seed is chosen is the SERVER's answer, mirrored down rather than
     // kept alongside. Two copies of it disagreed in both directions: sowing
@@ -2111,6 +2583,12 @@ export class UI {
       if (who !== this._staffKey) { this._staffKey = who; this.renderHotbar(); }
     }
 
+    // The upgrades bar had a branch here — it shipped drawn once and never
+    // redrawn, so buying something left the tile saying the price next to a
+    // menu that said Owned: yes. The list is a panel section again and
+    // `paintSection` already does exactly this off the section's own `live`,
+    // which is the general answer this was a special case of.
+
     // A menu that belongs to one thing — a fixture, a hire — is a live window
     // onto it. Whatever opened it left a tick behind that redraws it when what
     // it shows moves, and only then. One hook rather than a branch per kind of
@@ -2151,7 +2629,7 @@ export class UI {
     const rciKey = (state.departments ?? []).map((d) => `${d.dept}${d.net}${d.event}`).join('|');
     if (rciKey !== this._rciKey) {
       this._rciKey = rciKey;
-      this.el.rci.innerHTML = rciHtml(state.departments);
+      this.el.rciRows.innerHTML = rciHtml(state.departments);
     }
 
     const flowKey = `${state.stats?.revenue}/${state.stats?.spent}/`
@@ -2178,6 +2656,7 @@ export class UI {
     this._cash = state.cash;
 
     this.rail.update();
+    this.markBuilding();
     // An open section is a live window too. Each one declares a signature of
     // everything its rows read; redraw only when that moves, not at 10Hz.
     const sec = sectionById(this.openPanel);
@@ -2190,12 +2669,109 @@ export class UI {
     }
 
     if (state.log?.length) {
+      // Two questions, not one. A new `id` is a new event and gets its own line;
+      // the SAME id with a different `msg` is a line the shop amended — see
+      // `logGoods` — and has to repaint the line already on screen rather than
+      // stack a second copy of it on top.
       const last = state.log[state.log.length - 1];
-      if (last.msg !== this._lastLog) {
-        this._lastLog = last.msg;
-        this.pushLog(last.msg);
+      if (last.id !== this._lastLog?.id || last.msg !== this._lastLog?.msg) {
+        this._lastLog = { id: last.id, msg: last.msg };
+        this.pushLog(last);
       }
     }
+  }
+
+  /**
+   * One hire, as a picture of *that hire* — at their grade, in their skin.
+   *
+   * Resolved from the roster at paint time rather than stamped on the line when
+   * it was written: a bot who gets promoted or repainted should look like
+   * themselves in every line that names them. Nothing for a hire who has since
+   * been let go, and the line keeps its words, which is why the server puts the
+   * name in `msg` as well as the id in `by`.
+   */
+  hireArt(hireId) {
+    if (!hireId) return null;
+    const entry = (this.state?.roster ?? []).find((h) => h.id === hireId);
+    if (!entry) return null;
+    const kind = (this.catalog.workers ?? []).find((w) => w.id === entry.kind) ?? null;
+    const art = artForWorker(kind, entry.tier, (this.catalog.skins ?? [])
+      .find((s) => s.id === entry.skin) ?? null);
+    if (!art) return null;
+    const el = document.createElement('span');
+    el.className = 'lg-who';
+    el.title = entry.name;
+    el.innerHTML = art;
+    return el;
+  }
+
+  /**
+   * What is in your hands, bottom right — one row per pile.
+   *
+   * It was one sentence, and it grew sideways: three kinds of goods ran it the
+   * width of the screen and pushed the half that matters — how to put the thing
+   * down — off the right-hand edge. A column cannot do that however mixed an
+   * armful is, and it puts the counts under each other so "how much" is a look
+   * rather than a read.
+   *
+   * The art is `artForModel`, the same call the log chips and the board tip
+   * make. The name stays beside it: this is the one readout you consult while
+   * *deciding* where to walk, and a picture of a tin at 19px is not a thing you
+   * want to squint at to find out it is the soup.
+   *
+   * Signature-tested, because this is on the 10Hz path and rebuilding a handful
+   * of rows ten times a second to redraw the same armful is work nobody sees.
+   */
+  setCarry(haul, carry) {
+    const stacks = lotStacks(haul ?? carry);
+    const key = `${haul ? 'h' : 'c'}|${stacks.map((s) => `${s.item_id}:${s.qty}`).join(',')}`;
+    if (key === this._carryKey) return;
+    this._carryKey = key;
+
+    this.el.carry.textContent = '';
+    // `#carry:empty` is what hides it, so empty hands must leave nothing behind.
+    if (!stacks.length) return;
+
+    const add = (cls, text) => {
+      const el = document.createElement('div');
+      el.className = cls;
+      el.textContent = text;
+      this.el.carry.append(el);
+      return el;
+    };
+
+    // A crate and an armful are two different places goods can be, and the
+    // difference decides what your hands can do next — see the chevrons.
+    add('cy-what', haul ? 'carrying a crate' : 'carrying');
+
+    for (const s of stacks) {
+      const row = add('cy-row', '');
+      const n = document.createElement('span');
+      n.className = 'cy-n';
+      n.textContent = `${s.qty}x`;
+      row.append(n);
+      const art = artForModel(this.itemById(s.item_id)?.model);
+      if (art) {
+        const holder = document.createElement('div');
+        holder.innerHTML = art;
+        // The svg itself, not a wrapper: the row's rules size a direct child.
+        row.append(holder.firstElementChild);
+      }
+      const name = document.createElement('span');
+      name.className = 'cy-name';
+      name.textContent = this.itemName(s.item_id);
+      row.append(name);
+    }
+
+    // "Hold", not "tap", is the honest verb for both: pointing at a square NAMES
+    // it and the ring is what spends it, which is the one thing about putting
+    // goods down that nothing else on screen can say. The tap stays in front of
+    // it because a tap on a shelf is still the common way to spend an armful,
+    // and a crate says the same sentence now — `takers` reads the shoulder too,
+    // so a shelf pours it straight off the box.
+    add('cy-hint', haul
+      ? 'tap where it goes, or hold a square to set it down'
+      : 'tap where it goes, or hold a square to put it down');
   }
 
   /**
@@ -2230,15 +2806,122 @@ export class UI {
    * minute, and a line evicted that way goes at once rather than fading,
    * because its slot is already spoken for.
    */
-  pushLog(msg) {
-    const line = document.createElement('div');
-    line.textContent = msg;
-    this.el.log.prepend(line);
+  pushLog(e) {
+    // An amended line keeps its slot and gets its clock back. Moving it to the
+    // top would be the shop's fifth order shoving the fourth one's line off the
+    // bottom, which is the pile this exists to stop.
+    const top = this.el.log.firstChild;
+    const line = (e.id != null && top?._logId === e.id)
+      ? (clearTimeout(top._timer), top)
+      : document.createElement('div');
+    line._logId = e.id;
+    this.paintLogLine(line, e);
+    if (line !== top) this.el.log.prepend(line);
+
+    this.ageLogLine(line);
+    while (this.el.log.children.length > 6) this.dropLogLine(this.el.log.lastChild);
+  }
+
+  /** Start (or restart) a line's seven seconds. */
+  ageLogLine(line) {
+    clearTimeout(line._timer);
     line._timer = setTimeout(() => {
       line.classList.add('out');
       line._timer = setTimeout(() => line.remove(), 300);
     }, 7000);
-    while (this.el.log.children.length > 6) this.dropLogLine(this.el.log.lastChild);
+  }
+
+  /**
+   * Point at a line and it stays until you look away.
+   *
+   * Hit-tested against the lines' own rectangles rather than done with
+   * `:hover`, because that would need the feed to take the pointer — and the
+   * feed sits in the bottom-left corner of the *floor*, so every pill would be
+   * a patch of shop you cannot tap to walk to. (It was, until this: `#log` had
+   * no `pointer-events` rule, so it swallowed presses, and a press that lands
+   * on nothing reads as a press you got wrong rather than as a UI bug.) This
+   * reads the position the window already reports and leaves the click going
+   * through to the canvas.
+   *
+   * Holding is the timer, not a paused animation: a line is either counting
+   * down or it is not, so leaving simply restarts its seven seconds — which is
+   * also the right answer for a line you nearly missed.
+   */
+  hoverLog(x, y) {
+    let over = null;
+    for (const line of this.el.log.children) {
+      const r = line.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) { over = line; break; }
+    }
+    if (over === this._logHover) return;
+    // The one it WAS on may have been evicted by the six-line cap in between,
+    // in which case there is nothing left to restart.
+    if (this._logHover?.isConnected) {
+      this._logHover.classList.remove('held');
+      this.ageLogLine(this._logHover);
+    }
+    this._logHover = over;
+    if (!over) return;
+    clearTimeout(over._timer);
+    over._timer = null;
+    over.classList.remove('out');
+    over.classList.add('held');
+  }
+
+  /**
+   * A line's contents — words, or words with the goods drawn in them.
+   *
+   * `goods` is the same list the `msg` spells out in names (see `logGoods`), and
+   * this takes the pictures instead: five items named is a sentence you have to
+   * read and five icons is one you take in. The art is `artForModel`, the same
+   * call the board tip and the heap on the shelf make — a glyph here would be
+   * the five-floors-one-grey-icon bug again, since goods differ by their art and
+   * by nothing else.
+   *
+   * The name goes on the `title`, so the one thing a picture cannot say is a
+   * hover away, and it falls back to the whole sentence for an item whose row
+   * has been deleted since the line was written.
+   */
+  paintLogLine(line, e) {
+    line.textContent = '';
+
+    // Who did it, as a face. The name is already in the words (`saidBy` on the
+    // server), so this is the half text cannot carry — four hires reading as
+    // four names is the staff-glyph bug wearing a font.
+    //
+    // Its own flex child beside the sentence rather than floated into it: a
+    // float pins to the FIRST line, so a wrapped message left the face level
+    // with the top of a two-line pill instead of level with the pill.
+    const who = this.hireArt(e.by);
+    if (who) line.append(who);
+
+    const text = document.createElement('span');
+    text.className = 'lg-text';
+    line.append(text);
+    const say = (t) => { if (t) text.append(document.createTextNode(t)); };
+
+    const goods = Array.isArray(e.goods) ? e.goods : null;
+    if (!goods?.length) { say(e.msg); return; }
+
+    say(e.pre);
+    goods.forEach((g, i) => {
+      const item = this.itemById(g.item_id);
+      const art = artForModel(item?.model);
+      // Plain inline, NOT a flex box. A flex chip centres its own "8x" against
+      // its icon, and the count then sits at a different height from the words
+      // either side of it — the number shares the sentence's baseline and only
+      // the picture wants centring.
+      const chip = document.createElement('span');
+      chip.className = 'lg-good';
+      chip.title = item?.name ?? g.item_id;
+      chip.innerHTML = `${g.qty}x${art ?? ''}`;
+      // No art means no picture, so the name has to be in the line itself or
+      // the count is standing next to nothing.
+      if (!art) chip.append(document.createTextNode(` ${chip.title}`));
+      if (i) say(' ');
+      text.append(chip);
+    });
+    say(e.post);
   }
 
   dropLogLine(line) {
@@ -2347,7 +3030,7 @@ export class UI {
   closePanel() {
     this.openPanel = null;
     this.setFixtureRef(null);
-    this.workerRef = null;
+    this.setWorkerRef(null);
     // A doorway is not a thing, so this is a lattice line rather than an id —
     // see client/edge-menu.js.
     this.wayRef = null;
@@ -2368,33 +3051,52 @@ export class UI {
    * One press, one layer. What you typed, then an open menu, then the fixture
    * in your hands, then build mode itself — so Escape never quits building when
    * all you wanted was to clear a search box.
+   *
+   * **Returns whether it actually backed out of anything**, which is the whole
+   * of what lets the right button walk. The bottom of the ladder has always been
+   * a no-op — nothing open, not building, nothing to shed — and a press that
+   * does nothing is a press the world can have instead. Every rung says so
+   * rather than the caller guessing from state it would have to re-read: the
+   * ladder is the only thing that knows which rung it was on.
    */
   escape() {
     // Outermost rung of all: it floats over everything, it owns no world state,
     // and it is the most recent thing you opened whenever it is up.
-    if (this.shapesOn) { this.toggleShapes(false); return; }
-    if (this.openPanel && this.query) { this.clearFilter(); this.repaint(); return; }
-    if (this.openPanel) { this.closePanel(); return; }
+    if (this.shapesOn) { this.toggleShapes(false); return true; }
+    if (this.openPanel && this.query) { this.clearFilter(); this.repaint(); return true; }
+    if (this.openPanel) { this.closePanel(); return true; }
     // A selection with no menu over it is its own rung, and it has to be one:
     // it is the only thing on screen at this point, and a teal ring nothing can
     // dismiss is a ring that follows you round the shop. Below the panel rung
     // rather than beside it, because `closePanel` already clears the ref — with
     // a fixture menu up these two are one press, which is what it looks like.
-    if (this.fixtureRef) { this.setFixtureRef(null); return; }
-    // The roster bar is a rung of its own. It arms nothing and owns no world
+    if (this.fixtureRef) { this.setFixtureRef(null); return true; }
+    // A browse bar is a rung of its own. It arms nothing and owns no world
     // state, so it comes off before anything that does — and it is the only
     // thing on screen at this point, which is what makes it the next thing out.
-    if (this.bar === 'staff') { this.showBar(null); return; }
-    if (!this.buildOn) return;
-    if (this.holding) { this.net.send('build-cancel', {}); return; }
+    //
+    // BOTH of them. This said `'staff'` and the upgrades bar has been the other
+    // browse bar since it existed — `renderHotbar` tests for exactly this pair —
+    // so backing out of the upgrades strip fell through to the build rungs
+    // below, found `buildOn` false, and returned having done nothing at all. A
+    // press that does nothing is indistinguishable from one that was not
+    // received, which is what "right click doesn't close it" is.
+    if (this.bar === 'staff') { this.showBar(null); return true; }
+    if (!this.buildOn) return false;
+    if (this.holding) { this.net.send('build-cancel', {}); return true; }
     // Put down what is armed before leaving the mode. One rung, in the place the
     // ladder's own logic puts it: everything above this is something on screen,
     // and an armed tool is the last thing that is *loaded* before the mode
     // itself. So the first press empties your hand and the second shuts the bar,
     // which is what makes backing out of a mis-armed shelf cost one press rather
     // than a mode you then have to turn back on.
-    if (this.toolArmed) { this.disarmTool(); return; }
+    if (this.toolArmed) { this.disarmTool(); return true; }
+    // The palette is its own rung now that it is its own press. One press, one
+    // layer: the shelves go away and you are still building, which is where the
+    // second press of G put you and is where most of building happens.
+    if (this.bar === 'build') { this.showBar(null); return true; }
     this.toggleBuild(false);
+    return true;
   }
 
   /**
@@ -2460,8 +3162,20 @@ export class UI {
 
     // innerHTML because a fixture menu's title leads with its icon, and an
     // icon is now an inline SVG rather than a character.
-    this.el.panelTitle.innerHTML = title;
-    this.el.panelBody.innerHTML = html;
+    //
+    // Written only when it says something DIFFERENT (`setHtml`, client/paint.js).
+    // A menu's signature is coarser than its markup — a fixture's carries stock,
+    // queues, hands and cash — so a shopper paying two aisles away repaints
+    // forty rows that come out byte for byte the same, and a repaint that
+    // changes nothing still drops `:hover` off whatever the pointer is on. That
+    // is the flicker: the row you are reading blinks in time with the snapshot.
+    setHtml(this.el.panelTitle, title);
+    const rebuilt = setHtml(this.el.panelBody, html);
+    // Whatever the last menu was holding itself at, it is not this one's
+    // business (`steadyHeight`). Cleared here rather than there because a
+    // fixture's menu and a hire's never go through `paintSection` at all — they
+    // would have inherited the upgrade list's height and stood there half empty.
+    if (rebuilt) this.el.panelBody.style.minHeight = '';
     // Which of the two layouts this content wants. A menu that declared a
     // middle pane gets three panes — head, scroller, foot — and the body itself
     // stops scrolling; everything else stays one plain scrolling column.
@@ -2472,6 +3186,14 @@ export class UI {
     // the scroller: the scrollbar ran the full height behind both pinned
     // regions, which reads as a bar that has lost track of what it is scrolling.
     this.el.panelBody.classList.toggle('paned', !!this.el.panelBody.querySelector('.pnl-mid'));
+    // ...and how wide it wants to be, by the same rule and for the same reason.
+    // The Shop report is a picture in two columns and asks for the room; every
+    // other menu in here is a list, where a wider panel is a longer line to
+    // read and nothing gained. Declared by the CONTENT rather than set by
+    // whoever opened it, because a width somebody sets is a width somebody
+    // forgets to set back — and the class comes off on the next redraw of any
+    // other menu without anybody remembering to take it off.
+    this.el.panel.classList.toggle('wide', !!this.el.panelBody.querySelector('.pnl-wide'));
     this.el.panel.classList.add('show');
     // After `show`, or the element has no size to clamp a position against.
     restorePos(this.el.panel, this.openPanel);
@@ -2480,6 +3202,12 @@ export class UI {
     // Over-scrolling clamps itself, so a list that got shorter lands at its new
     // bottom rather than refusing.
     if (keep) scrollerOf(this.el.panelBody).scrollTop = keep;
+    // Dragged rather than scrollbarred, and faded at whichever end has more —
+    // the same deal the bottom bar's strip gets. After the restore above, since
+    // both marks are questions about where it is scrolled to; and on whichever
+    // of the two elements is the one that scrolls, or a paned menu wires a body
+    // that never moves and fades the list that does at neither end.
+    wireScroll(scrollerOf(this.el.panelBody), { axis: 'y' });
     // Only a section has anything to filter. `paintSection` turns it back on
     // straight after; a fixture menu never does, so it can't inherit the
     // supplier's search box.

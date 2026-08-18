@@ -21,6 +21,7 @@ import { requiredFixture, homeKind } from '../../shared/tags.js';
 import { canPlaceCleanly, shelfKind } from '../../shared/build.js';
 import { WALKABLE } from '../../shared/tiles.js';
 import { lotStacks, lotTotal, lotMain } from '../../shared/lot.js';
+import { REP_BY_ID } from '../../shared/reputation.js';
 
 /**
  * @param {object} opts
@@ -136,6 +137,13 @@ export function simulate({
     // exchange, which is what tells a department that served nine asks out of ten
     // apart from one nobody has ever asked for.
     asked: {}, served: {}, moved: {},
+    // ...and what moved reputation, by cause, over the whole run. `reputation`
+    // below is where the shop finished, which is the one number a balance run
+    // could never act on: a run that ends at 0.31 says the shop is disliked and
+    // not a word about why, and the seven causes pull in different directions
+    // at very different rates. Same shape as the tallies above — a map to a
+    // running sum — the values are just signed rather than counts.
+    repMoves: {},
   };
 
   // Run until the calendar says so, not until a step count says so. A day used
@@ -245,6 +253,15 @@ export function simulate({
       spoiledValue: round2(totals.spoiledValue),
       leftEmpty: totals.leftEmpty,
       impulse: totals.impulse,
+      // Signed, in reputation (0..1), summed over the run — so `-0.9` against a
+      // `+0.6` is a shop that gained from the people it served and lost more
+      // than that from the ones it didn't. Rounded to a tenth of a point, which
+      // is what the shop's own report shows.
+      repMoves: Object.fromEntries(
+        Object.entries(totals.repMoves)
+          .map(([k, v]) => [k, Math.round(v * 1000) / 1000])
+          .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])),
+      ),
     },
     bestSellers,
     deadStock,
@@ -327,6 +344,18 @@ function verdict({
     .map((d) => `${d.dept} (${d.boards})`);
   if (idle.length) {
     notes.push(`Shelf space not earning: ${idle.join(', ')} — boards held for departments that barely sold. Relabel them.`);
+  }
+  // What is eating the shop's name, named. Reputation is the slowest number in
+  // the game and the one a run can least afford to report as a bare level:
+  // footfall is downstream of it, so a shop losing a point a day is a shop
+  // whose takings are falling for a reason that never appears in the takings.
+  // Only the biggest cause, and only when the run went DOWN overall — a shop
+  // that gained is not being told about the eleven people it annoyed.
+  const rep = Object.entries(totals.repMoves ?? {});
+  const netRep = rep.reduce((a, [, v]) => a + v, 0);
+  const worst = rep.filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1])[0];
+  if (netRep < -0.05 && worst) {
+    notes.push(`Reputation fell ${Math.abs(netRep * 100).toFixed(1)} points over the run — mostly ${REP_BY_ID[worst[0]]?.why ?? worst[0]} (${Math.abs(worst[1] * 100).toFixed(1)}).`);
   }
   return notes;
 }
@@ -899,7 +928,7 @@ function accumulate(totals, s) {
   // above is explicit on purpose — a scalar that gains a key silently starts
   // reporting `undefined` — but these four are all "map of tag to a count", so a
   // fifth costs a word here instead of five lines.
-  for (const key of ['unmet', 'passed', 'asked', 'served', 'moved']) {
+  for (const key of ['unmet', 'passed', 'asked', 'served', 'moved', 'repMoves']) {
     for (const [tag, n] of Object.entries(s[key] ?? {})) {
       totals[key][tag] = (totals[key][tag] ?? 0) + n;
     }

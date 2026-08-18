@@ -1,9 +1,10 @@
 /**
- * One menu per hire.
+ * One menu per unit.
  *
- * Tapping a name on the roster opens that person, exactly the way tapping a
+ * Tapping a name on the roster opens that unit, exactly the way tapping a
  * shelf opens that shelf — and for the same reason. Two stockers are two
- * people, and the only thing that can tell them apart is which row you pressed.
+ * machines, and the only thing that can tell them apart is which row you
+ * pressed.
  *
  * Everything on this screen is *theirs*, not their kind's: the job list was
  * copied off the kind the day they were taken on, and from then on it is a row
@@ -16,15 +17,22 @@
 import { ICONS, icon } from './icons.js';
 import { money, signed } from './money.js';
 import { actIcon } from './fixture-menu.js';
+// A hire's avatar asks the same question a palette tile does — tap for the
+// obvious thing, hold for what it comes in — so it asks it over the same
+// interval rather than one of its own.
+import { HOLD_MS } from './bar.js';
+import { artForWorker, spinForWorker } from './thumb.js';
 // One sell-back rate for the whole shop, not one per ladder: a rung handed back
 // is worth what a fixture torn out is worth, and two copies of that number would
 // be two different amounts of money — which is the argument the constant itself
 // makes about the button printing it and the server paying it.
 import { FIXTURE_REFUND } from '../shared/build.js';
 import { lotStacks, lotTotal } from '../shared/lot.js';
-// A swatch is drawn from the kind's own art, so this menu resolves a model the
-// same way the renderer does rather than keeping a second idea of one.
-import { partsAt } from '../shared/model.js';
+// How much of a day there is to hand out. The same module the server refuses
+// with, or the `+` offers a weight the shop hands straight back.
+import {
+  jobBudget, jobsAffordable, jobsTotal, JOB_POINTS_PER_RUNG,
+} from '../shared/jobs.js';
 
 /** Worker names and kind names come out of the database, so never raw. */
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
@@ -71,6 +79,16 @@ const WEIGHT_MAX = 10;
  */
 const FIRE_ARM_MS = 4000;
 
+/**
+ * How long one turn of the avatar takes.
+ *
+ * Slow on purpose: this is a card you read, and a bot whipping round in the
+ * corner of it competes with every number beside it. Paired with
+ * `SPIN_FRAMES` it is also the step length — six frames a second — which is
+ * where a flipbook stops reading as a stutter.
+ */
+const SPIN_SECONDS = 4;
+
 const titleCase = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 const infoFor = (job) => JOB_INFO[job] ?? { name: titleCase(job), doing: String(job), blurb: '' };
 const mult = (n) => `${Number(n) % 1 === 0 ? n : Number(n).toFixed(1)}×`;
@@ -85,8 +103,8 @@ export const bodyOf = (ui, entry) => (ui.state?.players ?? [])
 /** What a hire is doing right now. Read by the roster list and by their menu. */
 export function doingNow(ui, entry, body) {
   if (!body) return 'not turned up — their kind was deleted';
-  // A break outranks what is in their hands: "carrying 4× tomato" while they
-  // are sat outside vaping is the wrong half of the truth.
+  // A charge outranks what is in their hands: "carrying 4× tomato" while they
+  // are stood on a dock topping up is the wrong half of the truth.
   if (body.job === 'break') return onBreakNow(ui, body);
   if (body.carry) {
     // Pile by pile. A hire with mixed hands is doing a trip that clears three
@@ -97,10 +115,18 @@ export function doingNow(ui, entry, body) {
   return body.job ? infoFor(body.job).doing : 'looking for something to do';
 }
 
-/** The authored line for the break they are on, or that they are off to take one. */
+/**
+ * The authored line for the charge they are on, or that they are off to take one.
+ *
+ * A charge taken out of boredom says so. It is the same picture as any other —
+ * a unit in the break room with a mug — and the difference is the whole of what
+ * a promoted one does differently, so a menu that could not tell you would make
+ * "wandered off while I had nothing for them" read as "wandered off".
+ */
 function onBreakNow(ui, body) {
   const p = (ui.catalog.pastimes ?? []).find((x) => x.id === body.pastime);
-  return p ? p.doing : 'off for a break';
+  const doing = p ? p.doing : 'off to charge';
+  return body.idleCharge ? `${doing} — nothing to do` : doing;
 }
 
 /** Worn out enough that the menu should say so rather than just show a bar. */
@@ -123,10 +149,18 @@ export function showWorker(ui, workerId) {
   const entry = rosterEntry(ui, workerId);
   if (!entry) { ui.closePanel(); return; }
 
+  // The paint card belongs to the avatar you opened it off, and this function
+  // is also every redraw — so it closes when the person changes and not when
+  // their energy ticks. Before `workerRef` is written, which is what says so.
+  if (ui.workerRef !== workerId) ui._wkLook = false;
+
   ui.openPanel = 'worker';
   // Like a fixture's menu, this isn't a section, so nothing on the rail is lit.
   ui.rail.setOpen(null);
-  ui.workerRef = workerId;
+  // Through the setter, so the shop floor marks who this menu is about — the
+  // panel names them and the world is where you are looking. Same deal
+  // `setFixtureRef` makes, and it matters more here because they walk.
+  ui.setWorkerRef(workerId);
   // One callback, called every snapshot, that redraws only when what this shows
   // has actually moved. The same hook the fixture menu registers.
   ui.panelTick = tickWorker;
@@ -143,52 +177,29 @@ export function showWorker(ui, workerId) {
   // no ceiling on its length — the job vocabulary is server-side and grows —
   // and it was pushing Promote and Let-them-go off the end of a scroll that
   // started with five lines of read-out you had already read.
-  const parts = [`<div class="pnl-head">${detail(ui, entry, kind, body)}</div>`];
+  const parts = [`<div class="pnl-head">${profile(ui, entry, kind, body)}</div>`];
 
-  // The scrolling half, tabbed by the same rule the fixture menu uses: two or
-  // more groups earns tabs, one does not. What they do and what they look like
-  // are both long and neither ever wants the other on screen — a job list you
-  // scroll past to reach the skins is the shape that made the fixture menu grow
-  // tabs in the first place.
-  const groups = [
-    {
-      label: 'What they do',
-      icon: ICONS.staff,
-      html: vocabulary.map((j) => jobRow(j, weights.get(j) ?? 0)).join('')
-        // With the rows it explains, rather than in the pinned foot: it is read
-        // once, and two lines of standing prose is more than the foot now has.
-        + '<div class="foot">A weight is how much of their day a job gets, and '
-        + 'a job with nothing to do only hands its turn to the ones near it. '
-        + 'Nothing means never — and everyone needs at least one.</div>',
-    },
-  ];
-
-  // A look is free and changes no number, so it is a browse rather than a
-  // decision — the same call `styleRows` makes about a fixture's shape. A shop
-  // where nobody has authored a skin gets no tab at all, rather than a tab
-  // holding one row that says "as built".
-  const skins = skinRows(ui, entry);
-  if (skins.length > 1) {
-    groups.push({ label: 'Look', icon: ICONS.floor, rows: skins });
-  }
-
-  const at = Math.min(ui._wkTab ?? 0, groups.length - 1);
-  // Tabs sit OUTSIDE the scroller — they choose what it holds, so scrolling
-  // them away would leave you in a list with no way back to the other one.
-  if (groups.length > 1) {
-    parts.push(`<div class="tabs">${groups.map((g, n) => `
-      <button class="tab${n === at ? ' on' : ''}" data-wktab="${n}" title="${esc(g.label)}"
-        aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`);
-  }
-
-  // The one pane that scrolls. A real element rather than whatever is left
-  // between two sticky ones, so the scrollbar belongs to the list instead
-  // of running the whole height of the panel behind the pinned regions.
-  const open = groups[at];
-  // Named above its rows even with the tabs up, because an icon row is a shape
-  // you learn and a heading is a thing you read.
-  parts.push(`<div class="pnl-mid"><div class="sep">${esc(open.label)}</div>`
-    + (open.html ?? open.rows.map((r, i) => ui.rowHtml(r, i)).join(''))
+  // The one pane that scrolls, and the only thing left that could — there is no
+  // second list to tab to any more, because a look is picked off the avatar that
+  // is wearing it. What tabs bought was keeping a job list and a paint list off
+  // one screen; what they cost was the paint being three presses from a picture
+  // of the thing being painted, which is the whole argument for `thumb.js`.
+  //
+  // TWO COLUMNS, because the list is a fixed vocabulary of nine short rows and
+  // one column of them is a scroll for no reason. `auto-fit` rather than a flat
+  // `1fr 1fr`: the panel is `min(430px, 100vw - 24px)`, so on a phone the same
+  // grid is one column and the rows do not squeeze to a stepper and an ellipsis.
+  //
+  // The heading carries the budget and there is no prose under the list. Three
+  // paragraphs explaining that a weight is a share of a day is a thing you read
+  // once and then scroll past for the rest of the game — and a counter running
+  // out as you press `+` teaches the same rule in the place you are pressing.
+  const spent = jobsTotal([...weights].map(([job, weight]) => ({ job, weight })));
+  const budget = jobBudget(kind, entry.tier);
+  parts.push(`<div class="pnl-mid"><div class="sep">Directives${
+    kind ? `<b class="wk-cap${spent > budget ? ' over' : ''}">${round1(spent)}<i>/${budget}</i></b>` : ''}</div>`
+    + `<div class="wk-jobs">${vocabulary
+      .map((j) => jobRow(j, weights.get(j) ?? 0, spent < budget)).join('')}</div>`
     + '</div>');
 
   const foot = [];
@@ -212,9 +223,15 @@ export function showWorker(ui, workerId) {
     // wrapping description rather than the one-line title — the same call the
     // fixture menu makes, for the same reason. The title is the verb, which is
     // short and fixed; the line under it says what you are actually buying.
-    const blurb = `${esc(next.name)} — ${tierBlurb(next)}`;
-    foot.push(actIcon('promote', ICONS.tierup, 'Promote',
-      afford ? blurb : `${blurb} You cannot afford it yet.`, 'Promote',
+    // The one perk that is not on the rung and not a number: everything above
+    // the bottom rung takes itself off to charge when the shop is quiet, so it
+    // is NEW at this step and only at this step. Said on the button that grants
+    // it, because a unit that starts wandering off with no warning reads as
+    // something having gone wrong with the promotion you just paid for.
+    const learns = next.tier === 2 ? ' Starts charging itself when there is nothing on.' : '';
+    const blurb = `${esc(next.name)} — ${tierBlurb(next, JOB_POINTS_PER_RUNG)}${learns}`;
+    foot.push(actIcon('promote', ICONS.tierup, 'Install firmware',
+      afford ? blurb : `${blurb} You cannot afford it yet.`, 'Install',
       // A purely cosmetic rung is free, and `$0` reads as a broken number.
       { off: !afford, right: next.cost > 0 ? money(next.cost) : 'free' }));
   }
@@ -225,10 +242,13 @@ export function showWorker(ui, workerId) {
   // promoted — the row appears when there is a rung under them.
   const back = prevTier(kind, entry.tier);
   if (back) {
-    const saving = back.saves > 0 ? ` Saves ${money(back.saves)} a day in wages.` : '';
-    foot.push(actIcon('demote', ICONS.tierdown, 'Demote',
-      `Back to ${esc(back.name)} — ${tierBlurb(back)}${saving} Half of that grade back.`,
-      'Demote', { right: back.refund > 0 ? signed(back.refund) : '' }));
+    const saving = back.saves > 0 ? ` Saves ${money(back.saves)} a day in lease.` : '';
+    // ...and the same sentence pointed the other way. Losing it silently is the
+    // half of a rollback nobody would connect to the button.
+    const forgets = back.tier === 1 ? ' Stops charging itself between jobs.' : '';
+    foot.push(actIcon('demote', ICONS.tierdown, 'Roll back',
+      `Back to ${esc(back.name)} — ${tierBlurb(back, -JOB_POINTS_PER_RUNG)}${forgets}${saving} Half of that firmware back.`,
+      'Roll back', { right: back.refund > 0 ? signed(back.refund) : '' }));
   }
 
   // The latch has to be visible in a square, and it used to be visible in the
@@ -238,19 +258,20 @@ export function showWorker(ui, workerId) {
   // walk past, because the next tap is a person leaving and nothing comes back.
   const armed = armedToFire(ui, entry.id);
   foot.push(actIcon('fire', ICONS.remove,
-    armed ? 'Tap again to let them go' : 'Let them go',
-    armed ? 'They walk out now, and nothing comes back.' : 'No refund — you cannot sell a person back.',
-    armed ? 'Sure?' : 'Let go',
+    armed ? 'Tap again to decommission' : 'Decommission',
+    armed ? 'It wipes itself and walks out now. Nothing comes back.'
+      : 'No refund — a unit off its lease is worth nothing to anyone.',
+    armed ? 'Sure?' : 'Retire',
     { danger: true, armed }));
 
   parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
 
-  // Who, and which tab of them. Nudging a weight or picking a skin redraws the
-  // whole menu and must keep your place; changing tab or opening someone else
-  // is a different list and must not.
+  // Who. Nudging a weight or picking a paint redraws the whole menu and must
+  // keep your place in it; opening somebody else is a different list and must
+  // not.
   ui.showPanel(`${icon(entry.kind, ICONS.staff)} ${esc(entry.name)}`, parts.join(''),
-    `worker:${entry.id}:${at}`);
-  wireWorkerMenu(ui, entry, weights, vocabulary, open.rows ?? []);
+    `worker:${entry.id}`);
+  wireWorkerMenu(ui, entry, weights, vocabulary);
 }
 
 /**
@@ -280,7 +301,12 @@ function workerSignature(ui, entry, body) {
     ui.state?.cash?.toFixed(0), ui.catalog.version, armedToFire(ui, entry.id),
     // Walking away turns the follow off from outside this menu, and the verb
     // has to stop saying Following when it does.
-    ui.follow === entry.id]);
+    ui.follow === entry.id,
+    // The paint card is opened and shut from inside this menu, so a redraw
+    // driven by the snapshot has to put it back the way you left it — without
+    // this the next sale closes a rack you are choosing out of. `entry` above
+    // already carries the skin, so which one is lit needs nothing extra.
+    !!ui._wkLook]);
 }
 
 /** The authored kind behind a hire, or null if it has since been deleted. */
@@ -297,33 +323,165 @@ function jobVocabulary(ui, entry) {
   return [...new Set([...known, ...(entry.jobs ?? []).map((j) => j.job)])];
 }
 
-/** The read-out at the top: who this is and what they are doing about it. */
-function detail(ui, entry, kind, body) {
-  const line = (label, value) => `<div class="fx-line"><span>${label}</span><b>${value}</b></div>`;
+/**
+ * The read-out at the top: who this is, what they look like, and what they are
+ * doing about it.
+ *
+ * A profile rather than five lines of label-and-value, and the avatar is what
+ * makes it one — a name and a model number describe a machine, and the machine
+ * itself is stood right there. Everything else is the same five readings, in two
+ * columns beside it instead of five rows under it, which costs the head about
+ * forty pixels less and hands them to the list below.
+ *
+ * Doing spans both columns because it is the only one that is a sentence, the
+ * only one that changes while you watch, and the longest — put in a column it
+ * wraps to three lines and sets the height of the row it is in.
+ *
+ * The four figures under it stay in two columns, and they stay on ONE LINE
+ * each. Firmware is why that had to be said: a rung's name is AUTHORED — "New
+ * behind the counter" is a real one — so unlike Charge, Model and Lease its
+ * length is content rather than a fact about the layout, and wrapped it dragged
+ * the label beside it out of line with the row above. That reads as the grid
+ * being broken rather than as a long name. Clipped with the whole of it on the
+ * hover, which is the deal every row in this panel already makes with its
+ * caption; spanning the row instead was tried and is worse, because it turns a
+ * tidy 2×2 into a widow.
+ */
+function profile(ui, entry, kind, body) {
+  // `hint` goes on the element rather than into the value, because a figure in
+  // here is clipped to one line (see `.wk-grid` in index.html) and the hover is
+  // where the whole of a long one lives — the same deal every row in this panel
+  // makes with its caption.
+  const line = (label, value, hint = null) => `<div class="fx-line"${
+    hint ? ` title="${hint}"` : ''}><span>${label}</span><b>${value}</b></div>`;
   const tiers = kind?.tiers?.length ? kind.tiers : null;
   const rung = tiers?.[Math.min(Math.max(1, entry.tier ?? 1), tiers.length) - 1] ?? null;
-  return `<div class="fx-detail">
-    ${line('Doing', esc(doingNow(ui, entry, body)))}
-    ${energyLine(body)}
-    ${line('Taken on as', esc(kind?.name ?? entry.kind))}
-    ${rung ? line('Grade', esc(rung.name)) : ''}
-    ${kind?.wage > 0 ? line('Wage', `${money(wageAt(kind, entry.tier))} a day`) : ''}
+  const looks = skinChoices(ui);
+  return `<div class="wk-profile">
+    ${avatar(ui, entry, kind, looks.length > 1)}
+    <div class="wk-facts">
+      ${line('Doing', esc(doingNow(ui, entry, body)))}
+      <div class="wk-grid">
+        ${energyLine(body)}
+        ${line('Model', esc(kind?.name ?? entry.kind))}
+        ${rung ? line('Firmware', esc(rung.name), esc(rung.name)) : ''}
+        ${kind?.wage > 0 ? line('Lease', `${money(wageAt(kind, entry.tier))} a day`) : ''}
+      </div>
+    </div>
+    ${ui._wkLook && looks.length > 1 ? paintCard(ui, entry, kind, looks) : ''}
   </div>`;
 }
 
 /**
- * How much is left in the tank, as a bar and a word.
+ * The hire, turning, and the one control in the game that is a picture of what
+ * it changes.
+ *
+ * Tap repaints them and hold asks what paints there are — the palette tile's
+ * sentence, over the same `HOLD_MS`, and for the same reason it grew there: a
+ * look is cosmetic enough that a hidden gesture would simply read as the game
+ * not having any. Hence the chevron, which is that door with a handle on it.
+ *
+ * The phase is stamped as a NEGATIVE DELAY off the page clock, and that is the
+ * whole of what makes the turn survive this menu. Every snapshot that moves a
+ * number in the head redraws the panel — a sale moves the cash the foot prices
+ * against, so on a busy afternoon that is several times a second — and a fresh
+ * element starts its animation at frame zero. A bot that jumped back to facing
+ * you every time somebody paid would read as the shop being what stopped it.
+ */
+function avatar(ui, entry, kind, pickable) {
+  const skin = skinById(ui, entry.skin);
+  const frames = spinForWorker(kind, entry.tier, skin);
+  const art = frames
+    // One long strip of stills slid sideways by `steps()`. A negative delay is
+    // "start this far in", so `-(now mod loop)` is exactly where the last copy
+    // of this element had got to.
+    ? `<span class="wk-turn" style="--n:${frames.length};--spin:${SPIN_SECONDS}s;animation-delay:${
+      (-(performance.now() / 1000) % SPIN_SECONDS).toFixed(2)}s">${
+      frames.map((f) => `<span>${f}</span>`).join('')}</span>`
+    : `<span class="wk-still">${artForWorker(kind, entry.tier, skin) ?? ICONS.staff}</span>`;
+  // A div where there is nothing to choose between — a shop with no skins
+  // authored has one look, and a button that only ever picks it is a button
+  // that lies about being one.
+  if (!pickable) return `<div class="wk-face">${art}</div>`;
+  return `<button class="wk-face" data-face="1"
+    title="Tap to repaint them. Hold for the range."
+    aria-label="Repaint">${art}<span class="more">▾</span></button>`;
+}
+
+/**
+ * Every paint they could be wearing, as pictures of them wearing it.
+ *
+ * A list of rows rather than a wrapped block of chips, and the same `.shape`
+ * row the build bar's shape card is made of — it is the same question with the
+ * same shape of answer, and two spellings of "here is that thing in its other
+ * looks" is two things to keep matching.
+ *
+ * The picture is the bot, not a swatch of the colours. It used to be three
+ * colour bars, which was the honest picture while this was a tab of names; with
+ * the card hanging off an avatar of the machine, a row that showed paint chips
+ * next to a robot would be answering in a different language from the question.
+ */
+function paintCard(ui, entry, kind, looks) {
+  const here = entry.skin ?? null;
+  return `<div class="wk-skins">${looks.map((s) => `
+    <button class="shape${s.id === here ? ' on' : ''}" data-skin="${esc(s.id ?? '')}"
+      title="${esc(s.blurb)}">
+      <span class="ico art">${artForWorker(kind, entry.tier, s.row) ?? ICONS.staff}</span>
+      <span class="nm">${esc(s.name)}</span>
+    </button>`).join('')}</div>`;
+}
+
+/**
+ * The looks on offer, "as built" first.
+ *
+ * A real row with a null id rather than a special case, the same shape
+ * `variantsOf` gives a fixture's Standard — it is how you get back out of a
+ * paint without there having to be a default row somebody could delete.
+ *
+ * Nothing here is priced, and that is the point rather than an omission: a
+ * paint moves no number, so there is no affordability to check and no
+ * confirmation to ask for. Compare the foot of this menu, where both are the
+ * whole story.
+ */
+function skinChoices(ui) {
+  return [
+    { id: null, name: 'As built', row: null, blurb: 'The colours their kind was drawn in.' },
+    ...(ui.catalog.skins ?? []).map((s) => ({
+      id: s.id, name: s.name, row: s, blurb: extrasBlurb(s),
+    })),
+  ];
+}
+
+const skinById = (ui, id) => (id ? (ui.catalog.skins ?? []).find((s) => s.id === id) ?? null : null);
+
+/**
+ * Round to the next paint, which is what a tap on the avatar means.
+ *
+ * Wrapping past the end lands back on "as built", so the tap alone can reach
+ * every look and get back out of one — the card is the shortcut, not the only
+ * way through.
+ */
+function cycleSkin(ui, entry) {
+  const looks = skinChoices(ui);
+  if (looks.length < 2) return;
+  const at = looks.findIndex((s) => s.id === (entry.skin ?? null));
+  const next = looks[(Math.max(0, at) + 1) % looks.length];
+  ui.net.send('set-skin', { workerId: entry.id, skin: next.id });
+}
+
+/**
+ * How much is left in the cell, as a bar and a word.
  *
  * A bar on its own says a number; the word says what it *means* for them, which
- * is the thing you would otherwise have to learn by watching someone slow down
- * and wander off. A worker stopping for reasons the player cannot see reads as
- * the same bug this whole section came out of.
+ * is the thing you would otherwise have to learn by watching a unit slow down
+ * and wander off to a dock. A worker stopping for reasons the player cannot see
+ * reads as the same bug this whole section came out of.
  */
 function energyLine(body) {
   if (body?.energy == null) return '';
   const e = Math.max(0, Math.min(1, body.energy));
-  const word = e > 0.66 ? 'fresh' : e > SPENT ? 'flagging' : 'worn out';
-  return `<div class="fx-line"><span>Energy</span>
+  const word = e > 0.66 ? 'charged' : e > SPENT ? 'draining' : 'flat';
+  return `<div class="fx-line"><span>Charge</span>
     <b class="wk-energy${e <= SPENT ? ' low' : ''}">
       <i style="width:${Math.round(e * 100)}%"></i>${word}
     </b></div>`;
@@ -336,98 +494,43 @@ function energyLine(body) {
  * and a job missing from the list are the same thing to the sim, and two
  * controls standing for one number is how they end up disagreeing.
  *
+ * `room` is whether the budget has anything left in it, and it greys every `+`
+ * in the list at once rather than only the one you are over — there is one pot
+ * and every directive spends out of it, so a row that still offered a point
+ * would be offering somebody else's. `disabled` rather than a refusal on the
+ * press, because the counter in the heading is right there saying why: a
+ * stepper that looks live and does nothing is the thing that reads as broken.
+ *
  * Its own row rather than `ui.rowHtml`, for the same reason `act` in the
  * fixture menu is: that shape carries at most one button, and a stepper is
  * three controls. The classes are the shared ones, so it still matches.
  */
-function jobRow(job, weight) {
+function jobRow(job, weight, room) {
   const info = infoFor(job);
   const off = weight <= 0;
   return `<div class="row wk-job${off ? ' owned' : ''}" title="${esc(info.blurb)}">
     <div class="name">${esc(info.name)}<span class="tags">${esc(info.blurb)}</span></div>
     <div class="fx-price wk-w">
-      <button data-job="${esc(job)}" data-step="-1" aria-label="less">−</button>
-      <b>${off ? '·' : weight}</b>
-      <button data-job="${esc(job)}" data-step="1" aria-label="more">+</button>
+      <button data-job="${esc(job)}" data-step="-1" aria-label="less"${off ? ' disabled' : ''}>−</button>
+      <b>${off ? '·' : round1(weight)}</b>
+      <button data-job="${esc(job)}" data-step="1" aria-label="more"${room ? '' : ' disabled'}>+</button>
     </div>
   </div>`;
 }
 
-/**
- * The tint slots, in the order a swatch reads them. One spelling, shared by the
- * swatch and the fallback merge below — `shared/schemas.js` owns the vocabulary
- * and this is the client's single copy of the order to draw them in.
- */
-const SLOTS = ['chassis', 'trim', 'glow'];
-
-/** Only ever paint with something the schema would have accepted. */
-const isHex = (c) => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+/** A weight is authored as a decimal and stepped as an integer, so print both. */
+const round1 = (n) => (Number(n) % 1 === 0 ? String(n) : Number(n).toFixed(1));
 
 /**
- * What this kind was drawn in — the colour each slot has when nothing is worn.
+ * Say what a paint brings beyond colour.
  *
- * Read off the art rather than kept as a second list, the same argument
- * `surfacesAt` makes about shelf boards: the model already says what colour its
- * chassis is, and a swatch that held its own copy would quietly disagree with
- * the bot the day somebody redrew it over MCP.
+ * A bolted-on piece is the one thing about a skin the picture beside it may not
+ * tell you — a part the size of a badge is a few pixels at avatar size, and it
+ * is the only way a look changes the silhouette rather than the palette.
  */
-function authoredSlots(kind) {
-  const parts = partsAt(kind?.model, 0);
-  const out = {};
-  for (const s of SLOTS) out[s] = parts.find((p) => p.tint === s)?.color ?? null;
-  return out;
-}
-
-/**
- * A skin as a picture, out of the skin's own colours.
- *
- * Three bars rather than a drawn robot, and that is a deliberate stop short of
- * `thumb.js`: what tells two skins apart IS the palette, so the palette is the
- * honest picture. What it must not do is hold colours of its own — hence the
- * merge with what the kind was authored in, so a skin that sets only `glow`
- * swatches the two colours it is actually leaving alone rather than blanks.
- */
-function skinSwatch(slots) {
-  const cols = SLOTS.map((s) => slots?.[s]).filter(isHex);
-  if (!cols.length) return ICONS.staff;
-  const w = 16 / cols.length;
-  return `<svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true">${cols.map((c, i) => `<rect x="${(i * w).toFixed(2)}" y="2" width="${w.toFixed(2)}" height="12" fill="${c}"/>`).join('')}</svg>`;
-}
-
-/**
- * Every look this person could have on, as pickable rows.
- *
- * "As built" is a real row with a null id rather than a special case, the same
- * shape `variantsOf` gives a fixture's Standard — it is how you get back out of
- * a skin without there having to be a "default" row somebody could delete.
- *
- * Nothing here is priced, and that is the point rather than an omission: a skin
- * moves no number, so there is no affordability to check and no confirmation to
- * ask for. Compare the foot of this menu, where both are the whole story.
- */
-function skinRows(ui, entry) {
-  const here = entry.skin ?? null;
-  const base = authoredSlots(kindOf(ui, entry));
-  const all = [{ id: null, name: 'As built', slots: null }, ...(ui.catalog.skins ?? [])];
-  return all.map((s) => ({
-    // Merged, not the skin's own slots: an unset slot keeps the authored colour
-    // when the renderer draws it, so the swatch has to say the same thing.
-    icon: skinSwatch({ ...base, ...(s.slots ?? {}) }),
-    name: esc(s.name),
-    sub: s.id === here ? 'what they have on'
-      : s.id === null ? 'back to the colours their kind was drawn in'
-        : extrasBlurb(s),
-    picked: s.id === here,
-    // A look is free and instant, so the row IS the action — no button, no
-    // arming, nothing to undo it but picking another one.
-    run: s.id === here ? null : () => ui.net.send('set-skin', { workerId: entry.id, skin: s.id }),
-  }));
-}
-
-/** Say what a skin brings beyond paint, since a bolted-on part is the one thing about it you cannot read off the swatch. */
 function extrasBlurb(skin) {
   const n = skin.extras?.length ?? 0;
-  return n ? `free — repaints them, and adds ${n === 1 ? 'a piece' : `${n} pieces`}` : 'free — repaints them head to toe';
+  return n ? `Repaints them, and adds ${n === 1 ? 'a piece' : `${n} pieces`}.` : 'Repaints them head to toe.';
 }
 
 /** The next rung up, or null when they are already at the top of the ladder. */
@@ -475,13 +578,72 @@ function wageAt(kind, tier) {
   return (kind?.wage ?? 0) * (tiers[at - 1]?.wage_mult ?? 1);
 }
 
-/** Say what a promotion actually buys, out of its own numbers. */
-function tierBlurb(tier) {
+/**
+ * Say what a rung actually buys, out of its own numbers.
+ *
+ * `points` is the one thing on the list that is NOT read off the rung: every
+ * rung grants the same slice of a day (`JOB_POINTS_PER_RUNG`), so it is the
+ * caller that knows which way this move goes. It is also what retired the "no
+ * change to any number" line for a hire — a rung with three multipliers of 1 on
+ * it used to be a badge, and now it is always at least more to hand out.
+ */
+function tierBlurb(tier, points = 0) {
   const gains = [];
   if ((tier.speed_mult ?? 1) !== 1) gains.push(`walks ${mult(tier.speed_mult)} as fast`);
   if ((tier.pace_mult ?? 1) !== 1) gains.push(`starts the next job ${mult(tier.pace_mult)} as quick`);
   if ((tier.carry_mult ?? 1) !== 1) gains.push(`carries ${mult(tier.carry_mult)} as much`);
-  return gains.length ? `${gains.join(', ')}.` : 'No change to any number — just a better hat.';
+  if (points > 0) gains.push(`${points} more directive points`);
+  if (points < 0) gains.push(`${-points} fewer directive points`);
+  return gains.length ? `${gains.join(', ')}.` : 'No change to any number — just a better badge.';
+}
+
+/**
+ * Two things a press on the avatar can mean, told apart by how long it lasts —
+ * the palette tile's gesture, wired the palette tile's way (`bar.js`).
+ *
+ * The chevron is the same door with a handle on it, so it is checked before the
+ * tap: pressing the arrow is asking for the list, not for the next paint.
+ *
+ * The move guard matters here for a reason it does not on the bar: this panel is
+ * DRAGGED by its header and sits over a canvas that pans, so a press that
+ * travels is somebody moving something. Without it a slipped press repaints a
+ * hire who was only in the way.
+ */
+function wireAvatar(ui, entry) {
+  const face = ui.el.panelBody.querySelector('[data-face]');
+  if (!face) return;
+  let timer = null;
+  let held = false;
+  let from = null;
+  const stop = () => { clearTimeout(timer); timer = null; };
+  face.onpointerdown = (e) => {
+    held = false;
+    from = { x: e.clientX, y: e.clientY };
+    timer = setTimeout(() => {
+      held = true;
+      ui._wkLook = !ui._wkLook;
+      showWorker(ui, entry.id);
+    }, HOLD_MS);
+  };
+  face.onpointermove = (e) => {
+    if (!timer || !from) return;
+    if (Math.hypot(e.clientX - from.x, e.clientY - from.y) > 8) stop();
+  };
+  face.onpointerup = stop;
+  face.onpointerleave = stop;
+  face.onpointercancel = stop;
+  face.onclick = (e) => {
+    stop();
+    // The hold already answered this press. Cycling as well would repaint them
+    // under a card that has just opened to let you choose.
+    if (held) { held = false; return; }
+    if (e.target.closest('.more')) {
+      ui._wkLook = !ui._wkLook;
+      showWorker(ui, entry.id);
+      return;
+    }
+    cycleSkin(ui, entry);
+  };
 }
 
 /** Is the let-go row armed for this person, and has that not timed out? */
@@ -492,18 +654,18 @@ function armedToFire(ui, id) {
   return true;
 }
 
-function wireWorkerMenu(ui, entry, weights, vocabulary, rows) {
-  // Which tab is showing belongs to the MENU rather than to the person, the
-  // same call the fixture menu makes: opening two hires in a row to compare
-  // their weights should not put you back on Look every time.
-  ui.el.panelBody.querySelectorAll('[data-wktab]').forEach((el) => {
-    el.onclick = () => { ui._wkTab = Number(el.dataset.wktab); showWorker(ui, entry.id); };
-  });
+function wireWorkerMenu(ui, entry, weights, vocabulary) {
+  wireAvatar(ui, entry);
 
-  // The Look tab's rows are ordinary picker rows, so they wire the ordinary
-  // way. The job rows are not — a stepper is three controls and `rowHtml`
-  // carries one button — which is why they keep their own template below.
-  ui.wireRows(rows);
+  ui.el.panelBody.querySelectorAll('[data-skin]').forEach((el) => {
+    el.onclick = () => {
+      // Left open. Picking a paint is the one thing in this menu you would do
+      // twice in a row — the card is a rack of them and the avatar behind it is
+      // wearing whichever one you last pressed, so shutting it after every pick
+      // would make comparing two looks a hold apiece.
+      ui.net.send('set-skin', { workerId: entry.id, skin: el.dataset.skin || null });
+    };
+  });
 
   ui.el.panelBody.querySelectorAll('[data-step]').forEach((el) => {
     el.onclick = () => setWeight(ui, entry, weights, vocabulary, el.dataset.job, Number(el.dataset.step));
@@ -563,6 +725,15 @@ function setWeight(ui, entry, weights, vocabulary, job, step) {
   // The server refuses an empty list; say why here rather than letting them
   // press it and read a rejection.
   if (!jobs.length) { ui.toast('Everyone needs at least one job', true); return; }
+
+  // ...and the same for the budget. The `+` is already greyed, so this only
+  // fires on a weight authored past the cap or a hire left over their allowance
+  // by a rollback — the one path where a step UP can still be asked for.
+  const kind = kindOf(ui, entry);
+  if (!jobsAffordable(kind, entry.tier, jobs, entry.jobs)) {
+    ui.toast(`Only ${jobBudget(kind, entry.tier)} to hand out at this firmware`, true);
+    return;
+  }
 
   // Arming a let-go and then fiddling with weights is not a confirmation.
   ui._wkFire = null;

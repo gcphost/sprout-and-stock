@@ -32,7 +32,12 @@ const WANTED = {
   supplier: 'game-icons:shopping-cart',
   upgrades: 'game-icons:upgrade',
   report: 'game-icons:chart',
-  staff: 'game-icons:person',
+  // Everybody who works here is a machine — see the top of CLAUDE.md — and this
+  // was the last place the interface still drew one as a person. A full standing
+  // figure rather than one of the set's robot HEADS, because it stands in for
+  // `person` in a column of marks read at 15px: a silhouette says "somebody" at
+  // that size and a face says "a smudge".
+  staff: 'game-icons:vintage-robot',
   help: 'game-icons:help',
   // The milestone ladder, and the medal the modal wears. Two glyphs rather than
   // one: the rail wants a small mark that reads at 15px in a column of other
@@ -93,6 +98,11 @@ const WANTED = {
   ambient: 'game-icons:mason-jar',
   cold: 'game-icons:snowflake-2',
   fixtures: 'game-icons:cog',
+  // The Decoration tab, which wore `fixtures`' cog — a machine part standing
+  // for the one group in the palette that does nothing at all. A potted plant
+  // instead: it is a thing you can actually buy in there, which is the same
+  // argument every other tab's glyph makes.
+  decor: 'game-icons:flower-pot',
   // The shop's own shortlist, and the switches. `settings-knobs` rather than a
   // second cog on purpose: Shape already wears `cog` and the two tabs sit next
   // to each other, so one gear beside another gear is a row you have to read.
@@ -102,6 +112,16 @@ const WANTED = {
   // interface chrome
   search: 'ri:search-line',
   close: 'ri:close-line',
+  // The two ends of a strip that has more on it. Remix rather than game-icons
+  // for the reason the doors are: these are chrome sitting on top of the row,
+  // and a hand-drawn arrow among a line of shelves would read as a fixture.
+  back: 'ri:arrow-left-s-line',
+  on: 'ri:arrow-right-s-line',
+  // The Lease tab, beside a strip of tabs that are each a *kind* of unit. Those
+  // say what you are looking at; this one says what you would be doing, so a
+  // plain plus rather than another picture of a robot — `upgrades`' rising
+  // chevrons were a ladder, which is what a tier is and hiring is not.
+  hire: 'ri:add-line',
   // The two switches on the clock. Remix rather than game-icons even though a
   // door is a thing in the world: these sit in the HUD next to the search and
   // close glyphs, and one hand-drawn dungeon door among them would read as a
@@ -110,6 +130,16 @@ const WANTED = {
   shut: 'ri:door-closed-fill',
   pause: 'ri:pause-fill',
   play: 'ri:play-fill',
+  // Sound. Remix rather than game-icons for the same reason the doors are:
+  // these are settings rows, and a hand-drawn horn among the close and search
+  // glyphs would read as something you can buy. Two speaker glyphs because the
+  // mute row is a switch and the honest test of a switch is that it moved.
+  speaker: 'ri:volume-up-fill',
+  muted: 'ri:volume-mute-fill',
+  // The music row and the credits tab. A note rather than a third speaker: they
+  // sit next to the Sound tab, and two speakers side by side is a strip you
+  // have to read rather than recognise.
+  music: 'ri:music-2-fill',
 };
 
 const sets = {};

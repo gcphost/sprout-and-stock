@@ -1,7 +1,12 @@
 import { ICONS, icon } from './icons.js';
-import { money, signed } from './money.js';
+import { compact, money } from './money.js';
 import { pinLast, KEYED } from './bar.js';
-import { FIXTURES, isProp, isGround, FLOOR_KIND, STOCK_KINDS, shelfKind } from '../shared/build.js';
+// FIXTURE_REFUND is the shop's one sell-back rate — a constant with FIXTURE in
+// its name, imported here for an upgrade, the same way the worker menu imports
+// it for a grade. There is one rate and everything that goes down uses it.
+import {
+  FIXTURES, isProp, isGround, FLOOR_KIND, STOCK_KINDS, shelfKind, FIXTURE_REFUND,
+} from '../shared/build.js';
 import { homeKind } from '../shared/tags.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { variantsOf } from '../shared/model.js';
@@ -10,6 +15,13 @@ import { doingNow, bodyOf, kindSummary } from './worker-menu.js';
 // What is on a van. Shared with the shelf menu, which asks the same two
 // questions of it — see client/orders.js.
 import { comingByItem, comingWhy, nextVan } from './orders.js';
+import { mix } from './audio/mix.js';
+import { music } from './audio/music.js';
+import { SOUNDS, TRACKS } from './audio/manifest.js';
+import { sfx } from './audio/sfx.js';
+import { reportHtml } from './report.js';
+import { CORNERS, isOff, setOff } from './corner.js';
+import { deptOf } from './aisles.js';
 
 /**
  * Every browsable list that renders into #panel.
@@ -163,9 +175,9 @@ export const BUILD_GROUPS = [
       // it behind the one word that says it is not indoors.
       {
         id: 'staff',
-        name: 'Staff',
+        name: 'Crew',
         icon: ICONS.staff,
-        blurb: 'Ground for the people who work here. Paint a break area and that is where they rest.',
+        blurb: 'Ground for the machines that work here. Paint a charging bay and that is where they dock.',
       },
       // And the same argument once more, one step further out. Staff is ground
       // for the people on your payroll; this is ground for everybody else. A
@@ -183,7 +195,7 @@ export const BUILD_GROUPS = [
   {
     id: 'decor',
     name: 'Decoration',
-    icon: ICONS.fixtures,
+    icon: ICONS.decor,
     blurb: 'Looks. Weighs nothing and stops nobody.',
     subs: DECOR_SUBS,
   },
@@ -262,6 +274,14 @@ export const KIND_TOOLS = {
     group: 'farm',
     blurb: 'Earth, outside. Turn it over before it takes a seed.',
   },
+  bin: {
+    icon: ICONS.close,
+    // Shop rather than Building, and it is a judgement rather than a fact about
+    // the code: a skip is a thing you stand somewhere, like a till, not part of
+    // the shell. Filed under the tab you are on when you notice you need one.
+    group: 'shop',
+    blurb: 'Somewhere to throw things away. Rot goes out to it instead of vanishing.',
+  },
   'prop-floor': {
     icon: ICONS.fixtures,
     group: 'decor',
@@ -305,7 +325,7 @@ export const KIND_TOOLS = {
     icon: ICONS.staff,
     group: 'shell',
     sub: 'staff',
-    blurb: 'Drag out an area. Staff take their breaks here instead of wherever they finished, and come back fresher. One cell seats one.',
+    blurb: 'Drag out an area. Your crew dock and charge here instead of topping up wherever they finished, and come back fuller. One cell holds one unit.',
   },
   // The fourth pad, on the one sub-tab where it is not filed under somebody
   // else's job.
@@ -744,25 +764,44 @@ export function staffGroups(ui) {
   }));
 
   const seen = [...new Set(roster.map((e) => e.kind))];
+
+  // Everyone, in runs of a kind, each run wearing its name in the gap before it.
+  //
+  // The tabs beside it can only ever show ONE kind, which is the question
+  // nobody has: "who is on the tills" is asked of the whole shop, and a strip
+  // of six identical robots with names of their own — since step 6 they are
+  // "AR-Bobbin" rather than "Stocker 3" — answers it only if you already know
+  // who is what. Sorting is what makes the label cheap: one word per run rather
+  // than a line on every tile, which is the third line a fixed-height roster
+  // entry has no room for.
+  //
+  // Only with two kinds in the shop. One run is a label over the entire strip
+  // saying what the tab already says, which is the same call `splitGroup` makes
+  // about a lone sub-tab.
+  const everyone = seen.flatMap((k) => {
+    const run = roster.filter((e) => e.kind === k).map(person);
+    return seen.length >= 2 ? [{ ...run[0], head: nameOfKind(k) }, ...run.slice(1)] : run;
+  });
+
   return [
     // No roster means no tabs about the roster: "Everyone" over an empty strip
     // is a tab that opens onto nothing, and the fall-through in `groupAt` then
     // lands you on Hire, which is the only thing there is to do.
     ...(roster.length ? [
-      { id: 'all', name: 'Everyone', icon: ICONS.staff, blurb: 'Everybody on shift.', items: roster.map(person) },
+      { id: 'all', name: 'Everyone', icon: ICONS.staff, blurb: 'Everybody on shift.', items: everyone },
       ...seen.map((k) => ({
         id: `kind:${k}`,
         name: nameOfKind(k),
         icon: icon(k, ICONS.staff),
-        blurb: `Everyone taken on as a ${nameOfKind(k).toLowerCase()}.`,
+        blurb: `Every unit on the floor as a ${nameOfKind(k).toLowerCase()}.`,
         items: roster.filter((e) => e.kind === k).map(person),
       })),
     ] : []),
     {
       id: 'hire',
-      name: 'Hire',
-      icon: ICONS.upgrades,
-      blurb: 'Take somebody new on.',
+      name: 'Lease',
+      icon: ICONS.hire,
+      blurb: 'Put a new unit on the floor.',
       items: forHire,
     },
   ];
@@ -786,11 +825,17 @@ const RETIRED = {
   // Hiring is the roster now: two of somebody, letting one go, promotions.
   // An upgrade is a permanent boolean and can express none of that.
   staff: true,
-  // The shop used to grow by buying land and letting the generator re-flow it.
-  // You draw your own walls, so the shape of the building is something you make
-  // rather than something you unlock — and an upgrade that silently rearranged
-  // the place you had just laid out was the last thing doing that.
-  space: true,
+  // `space` was retired here, and this is what it said: "the shop used to grow
+  // by buying land and letting the generator re-flow it. You draw your own
+  // walls, so the shape of the building is something you make rather than
+  // something you unlock — and an upgrade that silently rearranged the place you
+  // had just laid out was the last thing doing that."
+  //
+  // Every word of that was true of what it did and none of it is an argument
+  // against LAND. It sells world tiles now — east and south, the building
+  // untouched and pinned by `shell.x`/`shell.z` — so it rearranges nothing and
+  // grants exactly the one thing drawing your own walls needs more of. Back on
+  // the list.
   // An appliance is not something you own — it is the price of that machine,
   // and you buy machines in build mode, one at a time, on a tile you chose.
   station: true,
@@ -810,7 +855,7 @@ export function buyableUpgrades(ui) {
 }
 
 /**
- * What is left, as tabs for the bar.
+ * What is left, as tabs.
  *
  * Grouped by who the money is spent on rather than by `kind`, which would be
  * seven tabs of one row each. A fixture discount, a bigger rucksack and a better
@@ -834,34 +879,98 @@ export const UPGRADE_GROUPS = [
   },
 ];
 
-export function upgradeGroups(ui) {
-  const owned = ui?.ownedUpgrades ?? [];
-  const cash = ui?._cash ?? 0;
-  const rows = buyableUpgrades(ui).map((u) => {
+/**
+ * What one does, in a clause, off its own payload.
+ *
+ * Read from `payload` rather than from the authored description for the reason
+ * the card that used to hold this made: the description is prose somebody
+ * typed and the payload is what the sim obeys, so a row edited over MCP to 30%
+ * off says 30% here without anybody remembering to rewrite its sentence.
+ *
+ * A kind nobody has a clause for falls through to the description, which is the
+ * honest answer for one nobody has — and the same shape `sells` had, which is
+ * what stops a new payload field silently printing nothing.
+ */
+function upgradeWhat(u) {
+  const p = u.payload ?? {};
+  if (p.discount != null) {
+    const what = FIXTURES[u.kind]?.label?.toLowerCase() ?? 'one';
+    return `${Math.round(p.discount * 100)}% off every ${what} you build`;
+  }
+  if (p.carry != null) return `carry ${p.carry} at once, up from six`;
+  if (p.speedMult != null) return `walk ${p.speedMult}× faster`;
+  if (p.reach != null) return `+${p.reach} people within reach of the shop`;
+  return u.description;
+}
+
+/**
+ * The catalogue as rows, tabbed by `UPGRADE_GROUPS`.
+ *
+ * Each row is a small card and the caption is the point of it: it says what the
+ * thing DOES, so reading the list is reading, rather than pointing at fourteen
+ * tiles in turn and waiting for a tooltip. Comparing two of them is possible for
+ * the first time, which a tooltip cannot do at any size — it shows one.
+ *
+ * The other half is what a press means, and it is on the row rather than in a
+ * confirmation: a price when it is not yours, and the sell-back when it is. An
+ * upgrade you cannot act on has no `run` at all — the row says why in its own
+ * caption, so a press that could only ever be refused is a press that is not
+ * offered.
+ */
+function upgradeRows(ui) {
+  const owned = ui.ownedUpgrades ?? [];
+  const cash = ui._cash ?? 0;
+  const all = buyableUpgrades(ui);
+  const rowsFor = (list) => list.map((u) => {
     const have = owned.includes(u.id);
-    const locked = (u.requires ?? []).filter((r) => !owned.includes(r));
+    const locked = (u.requires ?? [])
+      .filter((r) => !owned.includes(r))
+      .map((r) => all.find((o) => o.id === r)?.name ?? r);
+    // Half back, the rate everything in this shop sells at.
+    const back = Math.round(u.cost * FIXTURE_REFUND * 100) / 100;
+    // What is standing on this rung. `sellUpgrade` refuses for the same reason;
+    // this is the row saying so first, in the line it already has.
+    const held = all
+      .filter((o) => owned.includes(o.id) && (o.requires ?? []).includes(u.id))
+      .map((o) => o.name);
+    const poor = !have && !locked.length && cash < u.cost;
+    const stuck = have && held.length > 0;
     return {
-      id: u.id,
-      upgrade: u.id,
-      kind: u.kind,
       icon: ICONS.upgrades,
       name: u.name,
-      note: have ? 'owned' : money(u.cost),
-      badge: have ? '✓' : '',
-      // Dim is not a thing the bar draws, so an entry you cannot act on says so
-      // in the one line it has. A locked row still shows: what it needs first is
-      // the reason to go and buy that, and hiding it hides the ladder.
-      warn: !have && (locked.length > 0 || cash < u.cost),
-      title: `${u.name} — ${u.description}`,
+      sub: have
+        ? (stuck ? `${upgradeWhat(u)} · ${held.join(', ')} needs it`
+          : `${upgradeWhat(u)} · press to sell back`)
+        : (locked.length ? `${upgradeWhat(u)} · needs ${locked.join(', ')} first`
+          : upgradeWhat(u)),
+      // The price, under the icon, where every price in this panel goes. Owned,
+      // it is what pressing hands back — the one number that is not on the row
+      // otherwise, and the reason the caption can say "press to sell back"
+      // without also saying a figure.
+      right: have ? (stuck ? '✓' : money(back)) : money(u.cost),
+      // Yours. `picked` rather than `dim`, because it is a thing you have rather
+      // than a thing you have lost — and it is still pressable, in the other
+      // direction.
+      picked: have,
+      // Two weights of no, which is the split `rowHtml` already draws: `dim` is
+      // CANNOT — the rung below is not yours — and `soft` is CAN, BUT, which is
+      // a price you have not reached yet and will.
+      dim: !have && locked.length > 0,
+      soft: poor,
+      run: (locked.length || poor || stuck)
+        ? null
+        : () => ui.net.send(have ? 'sell-upgrade' : 'buy-upgrade', { upgradeId: u.id }),
     };
   });
-  return UPGRADE_GROUPS
-    .map((g) => ({
-      ...g,
-      items: rows.filter((r) => (g.kinds ? g.kinds.includes(r.kind) : !UPGRADE_GROUPS
-        .some((o) => o.kinds?.includes(r.kind)))),
-    }))
-    .filter((g) => g.items.length);
+
+  const other = (u) => !UPGRADE_GROUPS.some((g) => g.kinds?.includes(u.kind));
+  return UPGRADE_GROUPS.flatMap((g) => {
+    const mine = all.filter((u) => (g.kinds ? g.kinds.includes(u.kind) : other(u)));
+    if (!mine.length) return [];
+    // An icon on the `sep` is what makes it a tab — `tabGroups`' opt-in, so the
+    // strip is the same three alternatives the bar had.
+    return [{ sep: g.name, icon: g.icon }, ...rowsFor(mine)];
+  });
 }
 
 /** Shelves at or under this fraction of a stack are worth restocking. */
@@ -890,6 +999,16 @@ const ORDER_CAPS = [null, 25, 50, 100, 250, 500, 1000];
 const capLabel = (n) => (n > 0 ? money(n) : 'No cap');
 
 /**
+ * What to call the unit an item has to live on, per `STOCK_KINDS`.
+ *
+ * A player has never seen the word "warmer" — they bought a Hot Counter — and
+ * the message this feeds is the one telling somebody what to go and buy, so it
+ * has to name the thing on the palette. A missing key reads as "unit", which is
+ * the right shape of wrong for a fourth kind nobody has written a word for yet.
+ */
+const UNIT_NAME = { shelf: 'shelf', freezer: 'freezer', warmer: 'hot counter' };
+
+/**
  * Every item, as a row that says what to do about it.
  *
  * The three things a shopkeeper is actually asking of this list — how many have
@@ -909,6 +1028,36 @@ function itemRows(ui) {
   // reason: a shop with no hot counter would have listed a roast chicken as
   // perfectly buyable.
   const owns = new Set(shelves.map((s) => shelfKind(s.kind)));
+  // ...and owning one is not the same as there being a BOARD free on it, which
+  // is the half that made the panel lie. Every rule the shop acts on is asked
+  // per unit — `shelvesFor` for a stocker with an armful, `buy` for the order
+  // itself, both of which answer nothing at all for an item with no home — so a
+  // list that asked only "do I own a freezer" would go on printing "below your
+  // minimum of 6" beside a minimum that could never be acted on, for ever.
+  // Measured on a real save: three freezers, eight boards, every one reserved,
+  // and six frozen items the shop could not order and would not say why.
+  //
+  // The three tests are the three the sim makes, in the same order (see
+  // `Game.shelfAccepts` and `shelvesFor`): the right kind of unit, not set aside
+  // for something else, and a board of its own or room on the board it is
+  // already on. Deliberately no more than that — `homeShelves` narrows it
+  // further and `droppedItem` can veto outright, both of which only ever make
+  // the shop stricter, and a caption that cried wolf about a board the shop
+  // would in fact have used is worse than one that stays quiet.
+  const boardFor = (it) => {
+    const home = homeKind(it);
+    return shelves.some((s) => {
+      if (shelfKind(s.kind) !== home) return false;
+      const kept = s.assigned ?? [];
+      if (kept.length && !kept.includes(it.id)) return false;
+      const stacks = s.stacks ?? [];
+      const on = stacks.find((k) => k.item_id === it.id);
+      // On it already: room is room on that board. Otherwise it needs a board
+      // nothing is standing on — a unit can be out of boards while every board
+      // on it has space, which is exactly the state that strands an item.
+      return on ? on.qty < (on.cap ?? 0) : stacks.length < (s.boards ?? 0);
+    });
+  };
   const cash = ui._cash ?? 0;
   // Anything a recipe outputs cannot be ordered at all — `buyStock` refuses it,
   // and it has refused it since appliances existed. The supplier listed them
@@ -918,8 +1067,17 @@ function itemRows(ui) {
   for (const r of ui.catalog.recipes ?? []) if (!madeBy.has(r.output_id)) madeBy.set(r.output_id, r.station);
   const applianceName = (id) => (ui.catalog.fixtures ?? []).find((f) => f.id === id)?.name ?? id;
   const coming = comingByItem(ui);
+  // What the shop has stopped stocking by itself, which until now was a state
+  // with no surface anywhere in the game: the mark lived on the save, rode in
+  // the snapshot, and nothing in `client/` had ever read it. All you got was one
+  // log line at the moment it happened, and seven of them in five days on a real
+  // shop scrolled away before anybody looked — leaving the crew standing still
+  // beside crates nothing would lift, with no screen in the game that could say
+  // why. The server hands the list ready-lapsed (`Game.droppedItems`), so the
+  // panel cannot disagree with the sim about which items it is talking about.
+  const off = new Map((ui.state?.orders?.notStocking ?? []).map((d) => [d.itemId, d]));
 
-  return ui.catalog.items.map((it) => {
+  const rows = ui.catalog.items.map((it) => {
     const rule = ui.state?.orders?.items?.[it.id] ?? {};
     const held = ui.heldOf(it.id);
     const due = coming.get(it.id) ?? null;
@@ -929,7 +1087,12 @@ function itemRows(ui) {
     // Nowhere to put it is a stronger fact than anything about demand: buying
     // it is a mistake whatever the town thinks, and the old tabs said so only
     // by which of three headings you happened to be under.
-    const homeless = !owns.has(homeKind(it));
+    // Two ways to have nowhere to put it, and they are different problems with
+    // different answers: buy the unit, or free up a board on one you own. The
+    // row says which, because "no freezer to put it in" in front of three
+    // freezers reads as the panel being broken.
+    const noUnit = !owns.has(homeKind(it));
+    const homeless = noUnit || !boardFor(it);
     // Below a floor you set beats below the shop's own default, because one of
     // them is a thing you asked for. Both are "short".
     // `<=` rather than `<`, to match `restockQueue` — the sim calls a board thin
@@ -948,19 +1111,67 @@ function itemRows(ui) {
       .some((k) => k.item_id === it.id && k.qty > 0)).length;
 
     const crafted = madeBy.has(it.id);
+    // The shop's own judgement, and it outranks every reason below including
+    // "nowhere to put it" — those are all things the shop would act on if it
+    // could, and this one is the shop having decided not to. Told as what the
+    // crew will do and when, because the complaint it answers is not that the
+    // shop stopped stocking something, it is being unable to find out that it
+    // had.
+    const dropped = off.get(it.id) ?? null;
+
+    /**
+     * The three states that are a glyph rather than a sentence.
+     *
+     * What they have in common is that they are the SAME words on every row
+     * that has them and none of them is a number you scan the list for: the
+     * crew stopped stocking this, it is on a shelf already, it is made in an
+     * appliance. Spelled out they took the caption and then ellipsised anyway —
+     * a 214px panel clamped `your crew stopped stocking this — bac…`, which
+     * stops one word before the part with the information in it.
+     *
+     * Everything left in `why` below is the opposite: a number, a clock or a
+     * thing to go and do, different on every row, and worth the two lines.
+     *
+     * The countdown is in the tip rather than on the glyph because a badge with
+     * a number on it reads as a count of something — this panel already has one
+     * of those, in the next column.
+     */
+    const mark = dropped
+      ? {
+        icon: ICONS.close,
+        warn: true,
+        title: `Your crew stopped stocking ${it.name} — nothing was selling. `
+          + `Back on the list in ${dropped.left} day${dropped.left === 1 ? '' : 's'}, `
+          + 'or press Stock to put it back now.',
+      }
+      : crafted
+        ? { icon: ICONS.station, title: `Made in the ${applianceName(madeBy.get(it.id))}, not ordered.` }
+        : (!homeless && !inbound && !short && !hot && held > 0)
+          ? { icon: ICONS.crate, title: `On ${on} shelf${on === 1 ? '' : 'ves'}.` }
+          : null;
+
     // Nowhere to put it still wins, because that is a refusal rather than news.
     // Everything under it gives way to the van: what is already on its way is
     // the newest true thing about the row and the one you cannot see from the
     // shop floor — a shelf you can walk over and look at, an order you cannot.
-    const why = crafted ? `made in the ${applianceName(madeBy.get(it.id))}`
-      : homeless ? 'no freezer to put it in'
+    //
+    // The three that became marks are gone from here rather than said twice.
+    // A row whose whole caption was one of them falls through to its tags,
+    // which is a line spent on something the glyph does not already say.
+    const why = noUnit ? `no ${UNIT_NAME[homeKind(it)] ?? 'unit'} to put it in`
+      // The one that used to hide behind "below your minimum of 6": the shop
+      // has the right kind of unit and not one board left it may use.
+      : homeless ? `no free ${UNIT_NAME[homeKind(it)] ?? 'unit'} board`
         : inbound ? comingWhy(due)
           : rule.auto === false ? "you've told staff not to order this"
             : short ? (rule.min > 0 ? `below your minimum of ${rule.min}` : 'running low')
-              : hot ? 'in demand right now'
-                : held > 0 ? `on ${on} shelf${on === 1 ? '' : 'ves'}` : '';
+              : hot ? 'in demand right now' : '';
 
     return {
+      // Its own id on the row, which nothing needed until the list stopped
+      // re-sorting: a frozen order is a map from something stable to a place,
+      // and a name is neither stable nor unique.
+      id: it.id,
       name: it.name,
       heat: ui.heatPill(it),
       // How many you have, in its own column, so scanning the list is reading
@@ -978,13 +1189,22 @@ function itemRows(ui) {
       countClass: thin && held ? 'short' : '',
       // Why this row is here, instead of three tags that said the same word on
       // every row in a department. Plain text — it also becomes the hover title.
+      //
+      // A row whose reason became a `mark` falls through to its tags, which is
+      // the point of moving it: the glyph says the state, and the line under
+      // the name goes back to saying something else.
       sub: why || it.tags.slice(0, 3).join(' · '),
       subWarn: homeless,
+      mark,
       right: money(it.base_cost),
       // Search still reaches the tags even though the row has stopped printing
       // them — "organic" was always a search, never a heading.
       facets: it.tags,
       tags: it.tags,
+      // Which aisle, for the strip under the tabs — the same one the shelf menu
+      // draws, off the same function. See client/aisles.js for why the question
+      // "show me produce" is the one this list could not answer.
+      dept: deptOf(it),
       held,
       inbound,
       // Soonest first, and a finite stand-in for "no van" rather than Infinity,
@@ -997,17 +1217,67 @@ function itemRows(ui) {
       hot,
       homeless,
       crafted,
+      dropped: !!dropped,
+      // Soonest back first inside the tab, so the list is a queue that empties
+      // rather than an alphabet. Everything else in the panel gets the same
+      // finite stand-in `dueIn` uses and falls straight through to the keys it
+      // always sorted on.
+      backIn: dropped ? dropped.left : 1e9,
       dim: homeless || (!crafted && cash < it.base_cost * 6),
       // No rule and no buy button on something you make. A stepper that sets a
       // minimum nothing will ever act on is worse than an absent one — it reads
       // as a shop ignoring an instruction you gave it.
-      ...(crafted ? {} : {
-        ...ruleFor(ui, it),
-        button: { label: '×6', run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }) },
-      }),
+      ...(crafted ? {} : ruleFor(ui, it)),
+      /**
+       * The one button slot.
+       *
+       * Ordering and un-ordering share it, because they are one decision seen
+       * from either side and a row with both would be two buttons of which one
+       * is always wrong. What is already loaded is not offered — `cancelOrder`
+       * refuses it, and a control the shop will refuse is the green-ghost bug
+       * wearing a price.
+       *
+       * **`Stock` is not one of the buying controls, and it sits outside the
+       * `crafted` guard for that reason.** It went inside first, which produced
+       * the one row in the panel that could not be true: a made-here item that
+       * the crew had stopped putting out, wearing the ✕ that says so, in the tab
+       * built to list exactly that — and no way whatever to undo it, because the
+       * guard above it is about *ordering* and this press is not an order. The
+       * whole complaint this feature answers is a shop decision you cannot see;
+       * showing it and then withholding the switch is a worse version of the
+       * same thing. Nothing about a sourdough recipe stops the shop giving up on
+       * the loaf, so nothing about it should stop you saying carry on.
+       *
+       * And it takes the slot outright while the mark is up, for the reason the
+       * paragraph above gives: buying six of something your crew will carry
+       * straight back out to the yard is the one press on this row that cannot
+       * work.
+       */
+      button: dropped
+        ? { label: 'Stock', run: () => ui.net.send('stock-again', { itemId: it.id }) }
+        : crafted
+          ? null
+          : (inbound > 0 && !(due?.legs ?? []).every((l) => l.onVan))
+            ? {
+              label: 'Cancel',
+              danger: true,
+              run: () => ui.net.send('cancel-order', { itemId: it.id }),
+            }
+            : { label: '×6', run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }) },
     };
-  }).sort((a, b) => a.dueIn - b.dueIn || b.hot - a.hot || a.held - b.held
-    || a.name.localeCompare(b.name));
+  }).sort((a, b) => a.backIn - b.backIn || a.dueIn - b.dueIn || b.hot - a.hot
+    || a.held - b.held || a.name.localeCompare(b.name));
+
+  // ...and then held still. Every key in that sort is a live number — what is
+  // due, what is hot, what you hold — so the list re-sorted itself under the
+  // pointer on every repaint: the row you were reaching for slid two places
+  // because a shopper bought a loaf. That is right for a *readout* and wrong for
+  // the thing this panel actually is, which is a list you work down.
+  //
+  // The freeze is over POSITION only (see `UI.freezeOrder`). Counts, prices,
+  // the `+6` and which tab a row belongs to all stay live — what is pinned is
+  // where a row sits, so the numbers can move without the list moving.
+  return ui.freezeOrder('stock', rows, (r) => r.id);
 }
 
 /**
@@ -1044,7 +1314,7 @@ function ruleFor(ui, it) {
   return {
     rule: `<span class="rule">
       <button class="rbtn tog ${auto ? 'on' : 'off'}" data-act="auto"
-        title="${auto ? `Staff may order ${it.name}.` : `Staff never order ${it.name}.`}"
+        title="${auto ? `Your crew may order ${it.name}.` : `Your crew never order ${it.name}.`}"
         aria-label="auto-order ${it.name}">${auto ? ICONS.supplier : ICONS.close}</button>
       <span class="stack">${num('min', rule.min ?? null)}${num('max', rule.max ?? null)}</span>
     </span>`,
@@ -1089,7 +1359,7 @@ function orderRows(ui) {
       icon: ICONS.supplier,
       name: 'Order stock',
       sub: auto
-        ? 'Staff refill shelves from the supplier on their own.'
+        ? 'Your crew refill shelves from the supplier on their own.'
         : 'Nobody orders. They still unload, shelve and tidy.',
       picked: auto,
       tail: auto ? 'On' : 'Off',
@@ -1142,6 +1412,27 @@ const VAN_TAB = 'On the way';
  * about THIS item rather than a heading over forty.
  */
 const STOCK_TABS = [
+  // First, and it earns the place the same way Short does: it is the most
+  // urgent true thing about a row, and it is the only one nothing else in the
+  // game will ever tell you. The shop hand writes a line off after four days of
+  // nothing selling, shop-wide, and for as long as the feature existed the only
+  // trace was a log entry that scrolls. What that reads as, days later, is a
+  // shop that has quietly stopped restocking half its range and a crew standing
+  // still beside crates nothing will lift — with no screen that can say why.
+  //
+  // An empty bucket is dropped (see `grouped`), so on a shop where this has
+  // never happened the panel is exactly what it was and opens on Short.
+  //
+  // `crafted` is deliberately NOT excluded, unlike every buying tab below. You
+  // cannot order a toastie and the row says so, but the shop can absolutely
+  // stop putting one out — and a made-here line that has quietly gone off the
+  // shelves with the appliance still running is the least visible version of
+  // this there is.
+  {
+    label: 'Not stocking',
+    icon: ICONS.close,
+    test: (r) => r.dropped,
+  },
   // Every buying tab has to say `!crafted`, rather than the made-here bucket
   // simply sitting first and swallowing them. `grouped` takes the first
   // bucket that fits, so first place is also the tab the panel OPENS on —
@@ -1201,58 +1492,70 @@ const STOCK_TABS = [
  * only honest answer, and it is why this is handed the built list rather than
  * building its own.
  */
-function vanLead(ui, list) {
+/**
+ * What is on the road, in the panel's own title bar.
+ *
+ * It was a `lead` row — above the tabs, drawn on every one of them — which is
+ * the right *place* for it and the wrong shape: a full-width row with a name and
+ * a right-hand column, spending a whole line of a 214px panel on six words, and
+ * pushing the list it is about further down the screen every time a van is out.
+ * The header is the one strip that is already on screen on every tab and already
+ * has nothing on its right-hand side.
+ *
+ * It stops being pressable, which it was (a jump to the van tab). That is paid
+ * for rather than lost: every bucket draws its tab now, counted, so the van tab
+ * is on screen whether or not anything is in it — and the header is the panel's
+ * drag handle, where a button is something you hit while trying to move the
+ * window.
+ *
+ * The clock is sanitised rather than escaped because it is a clock: `at` is a
+ * server-formatted time and anything in it that is not a digit or a colon is not
+ * a time, so stripping is both the escape and the format.
+ */
+export function vanNote(ui) {
   const pending = ui.state?.orders?.pending ?? [];
-  if (!pending.length) return [];
+  // The one control in here, and it is always drawn: a button that came and
+  // went with the van would be a button you cannot find when you want it, and
+  // re-sorting is worth asking for on a quiet morning too.
+  // "Take the list again", which is now two things — the order and the tabs —
+  // and the title says the consequence rather than the mechanism, because what
+  // you press it for is a row that has stopped being where it ought to be.
+  const sort = '<button class="pnl-btn" data-resort title="Take a fresh list">'
+    + `${ICONS.report}</button>`;
+  if (!pending.length) return `<span class="pnl-note">${sort}</span>`;
   const units = pending.reduce((n, p) => n + (p.qty ?? 0), 0);
   const next = pending.reduce((a, b) => ((b.in ?? 0) < (a.in ?? 0) ? b : a));
-  const at = list.filter((r) => r.sep && r.icon).map((r) => r.sep).indexOf(VAN_TAB);
-  return [{
-    // No sub-line, deliberately. It would be a second line on every tab in the
-    // panel to say something the tab it sends you to says per item, and this
-    // list has already been too tall twice.
-    plain: true,
-    name: `${units} on the way`,
-    right: next.onVan ? 'arriving' : next.at,
-    ...(at >= 0 ? { run: (u) => { u.tab = at; u.paintSection(); } } : {}),
-  }];
-}
-
-function stockRows(ui) {
-  const list = grouped(itemRows(ui), STOCK_TABS);
-  return [...vanLead(ui, list), ...list, ...orderRows(ui)];
+  return `<span class="pnl-note"><span class="n">${units} on the way</span>`
+    + `<span class="clock${next.onVan ? ' now' : ''}">${
+      next.onVan ? 'arriving' : String(next.at ?? '').replace(/[^0-9:]/g, '')}</span>${sort}</span>`;
 }
 
 /**
- * The line under the list: when the vans come, and what the yard will take.
+ * The supplier's list, in the order and the tabs it was taken in.
  *
- * Both are rules of the world rather than settings, which is why they are a
- * caption and not rows — nothing here can be pressed. They are also the two
- * facts that explain every refusal and every wait above them: a shop that has
- * been told "only room for 4 more at the bay" once, at the moment it was
- * refused, has been told it in the least useful place there is.
- *
- * The soonest arrival is picked on `in` rather than on the label, because
- * `at` is a clock face — "08:00" is the next van at ten past two in the
- * afternoon and yesterday's at nine in the morning, and sorting text would say
- * the wrong one every afternoon.
+ * Both freezes are the same list-you-work-down argument and neither is worth
+ * much without the other: pinning where a row *sits* while letting it change
+ * which tab it sits in means the row still disappears out from under the press
+ * that moved it, just tidily. The refresh button in the title bar
+ * (`vanNote`'s `data-resort`) takes a fresh list of both.
  */
-function stockFoot(ui) {
-  const o = ui.state?.orders ?? {};
-  const pending = o.pending ?? [];
-  const runs = (o.runs ?? []).join(' and ');
-  const bay = o.bayRoom == null ? ''
-    : o.bayRoom > 0 ? ` Room for ${o.bayRoom} more at the bay.`
-      : ' No room at the bay for another order.';
-  if (!pending.length) {
-    return `${runs ? `Vans come at ${runs}. ` : ''}An order lands at the bay as a pallet.${bay}`;
-  }
-  const units = pending.reduce((n, p) => n + (p.qty ?? 0), 0);
-  const next = pending.reduce((a, b) => ((b.in ?? 0) < (a.in ?? 0) ? b : a));
-  const when = next.onVan ? 'the van is pulling in' : `next at ${next.at}`;
-  return `${units} unit${units === 1 ? '' : 's'} on the way, ${when}.${bay}`;
+function stockRows(ui) {
+  const pin = (r, live) => ui.freezeBin('stock:tab', r.id, live);
+  return [...grouped(itemRows(ui), STOCK_TABS, pin), ...orderRows(ui)];
 }
 
+/**
+ * The supplier has no caption, and the last one to go was the yard's.
+ *
+ * It read "An order lands at the bay as a pallet. Room for 82 more." under every
+ * tab — a rule of the world stated permanently, in a panel whose whole job is
+ * the list above it. The van timetable went first (a caption that enumerates a
+ * set gets worse as the game gets richer), then what was on the way (the header
+ * says it), and this is the same trade: three lines of a 214px panel spent on a
+ * number that only matters at the moment it refuses you, which is where it is
+ * said — `fixture-menu.js` prints "No room at the bay" on the order button, and
+ * the shop logs the refusal. `bayRoom` is still on the snapshot for those.
+ */
 /**
  * Sections, in rail order.
  *
@@ -1274,18 +1577,33 @@ function stockFoot(ui) {
  * This is the piece that lets a list generated from the database be tabbed at
  * all: the groups are declared by what a row *is*, not by where it sits.
  */
-function grouped(rows, buckets) {
+function grouped(rows, buckets, pin) {
   const bins = buckets.map(() => []);
   for (const r of rows) {
-    const i = buckets.findIndex((b) => !b.test || b.test(r));
+    // Where the row belongs *now*. `pin` is what a section hands in to say
+    // "and where did it belong when the list was taken" — see `UI.freezeBin`.
+    // It is asked with the live answer rather than instead of it, because a row
+    // nobody has filed yet has to be filed somewhere.
+    const live = buckets.findIndex((b) => !b.test || b.test(r));
+    const i = pin ? pin(r, live) : live;
     if (i >= 0) bins[i].push(r);
   }
   // `passive` rides along on the heading, because a bucket is what knows
   // whether there is anything to DO in it and `tabGroups` is what has to not
   // open onto one. See the van tab, and `UI.tabIndex`.
-  return buckets.flatMap((b, i) => (
-    bins[i].length ? [{ sep: b.label, icon: b.icon, passive: b.passive }, ...bins[i]] : []
-  ));
+  //
+  // EVERY bucket, empty ones included, and the count on the heading. Dropping
+  // an empty one made the tab strip change shape as the shop did: Short appears
+  // when something runs low, the van tab comes and goes with the lorry, and the
+  // tab you were about to press moved under your finger. A row of tabs is
+  // something you learn the position of, and it can only be learned if it is the
+  // same row every time — so what an empty bucket costs you now is a zero rather
+  // than a tab, which is also the answer to "is anything short" without having
+  // to press anything. `tabIndex` is what stops a menu OPENING on an empty one.
+  return buckets.flatMap((b, i) => [
+    { sep: b.label, icon: b.icon, passive: b.passive, count: bins[i].length },
+    ...bins[i],
+  ]);
 }
 
 /**
@@ -1311,29 +1629,15 @@ export const BUILD_MODE = {
 };
 
 /**
- * The rail's Upgrades press, and the second thing that is not a section.
- *
- * Its list is the bottom bar (`upgradeGroups`) and one row of that list is its
- * own menu (`showUpgrade`), so there is nothing left for a panel of rows to do.
- * Same shape as `BUILD_MODE`, but it claims the bar rather than a world mode.
+ * How many are worth buying right now — the badge, shared by both shapes this
+ * list has worn.
  */
-export const UPGRADE_BAR = {
-  id: 'upgrades',
-  icon: ICONS.upgrades,
-  name: 'Upgrades',
-  key: 'u',
-  bar: 'upgrades',
-  // What the keys list in Help prints under the name. A section says this with
-  // `title`, which is its panel's header; a bar has no panel and no header.
-  blurb: 'What there is to buy, once',
-  badge: (ui) => {
-    const owned = ui.ownedUpgrades ?? [];
-    const n = buyableUpgrades(ui)
-      .filter((u) => !owned.includes(u.id) && (ui._cash ?? 0) >= u.cost
-        && (u.requires ?? []).every((r) => owned.includes(r))).length;
-    return n ? String(n) : null;
-  },
-};
+function affordableUpgrades(ui) {
+  const owned = ui.ownedUpgrades ?? [];
+  return buyableUpgrades(ui)
+    .filter((u) => !owned.includes(u.id) && (ui._cash ?? 0) >= u.cost
+      && (u.requires ?? []).every((r) => owned.includes(r))).length;
+}
 
 /**
  * The rail's Staff press, and the third thing that is not a section.
@@ -1342,15 +1646,16 @@ export const UPGRADE_BAR = {
  * could hire, i.e. everybody who does *not* work here — and the bar underneath
  * it held one button that opened it. Both halves are the bar now (`staffGroups`):
  * the roster is its tabs, hiring is the last tab, and a tap on a kind hires.
- * Nothing is left for a panel of rows to do, exactly as with `UPGRADE_BAR`.
+ * Nothing is left for a panel of rows to do. Upgrades made the same move and
+ * then made it back — see the section above for what a tile could not say.
  */
 export const STAFF_BAR = {
   id: 'staff',
   icon: ICONS.staff,
-  name: 'Staff',
+  name: 'Crew',
   key: 'h',
   bar: 'staff',
-  blurb: 'Who works here, and who you could take on',
+  blurb: 'What works here, and what you could put on lease',
   // The roster is the ledger of who works here; the NPC on the floor is only
   // its body. Reading the roster rather than counting bodies means someone
   // whose kind was deleted still shows up — as a problem, which is what they
@@ -1369,9 +1674,17 @@ export const STAFF_BAR = {
  * guessing from the id. Reputation is the odd one out and has to be: it is a
  * 0..1 the HUD already draws as a bar, and "0.75 / 0.75" is a number nobody
  * reading a shop has ever thought in.
+ *
+ * Money is `compact` rather than `money`, and this row is the only place in the
+ * game that is true of. A milestone's value is stacked under its icon in a
+ * column sized for a price (see `rowHtml`), and it is printed twice with a
+ * slash between — so the far end of the ladder is the one readout in the client
+ * asking that column to hold eighteen characters. It wrapped, and then it
+ * overflowed the panel. Nothing under $10,000 is abbreviated, so every rung a
+ * shop is actually working on still reads exactly.
  */
 function amount(n, unit) {
-  if (unit === 'money') return money(n);
+  if (unit === 'money') return compact(n);
   if (unit === 'percent') return `${Math.round(n * 100)}%`;
   if (unit === 'day') return `day ${Math.round(n)}`;
   return String(Math.round(n));
@@ -1421,6 +1734,8 @@ export const SECTIONS = [
      * at exactly the same moment. See `nextVan` for why it takes two numbers.
      */
     ring: (ui) => nextVan(ui),
+    /** Drawn on the right of the panel's own title — see `vanNote`. */
+    note: vanNote,
     /**
      * Everything the rows read, and nothing that merely ticks.
      *
@@ -1441,18 +1756,40 @@ export const SECTIONS = [
     live: (ui) => {
       const o = ui.state?.orders ?? {};
       const van = (o.pending ?? []).map((p) => `${p.item_id}${p.qty}@${p.at}${p.onVan ? '!' : ''}`);
+      // What is on the units, and — since `boardFor` — what they are set aside
+      // for and how many boards they have. Ticking a board free is the one
+      // action that answers "no free freezer board", so a signature that did
+      // not watch it would leave the row saying no until something else moved.
       const shelved = (ui.state?.shelves ?? [])
-        .flatMap((s) => (s.stacks ?? []).map((k) => `${k.item_id}${k.qty}`));
+        .flatMap((s) => [
+          `${s.kind}${s.boards}:${(s.assigned ?? []).join('+')}`,
+          ...(s.stacks ?? []).map((k) => `${k.item_id}${k.qty}`),
+        ]);
+      // ...and what the shop has stopped stocking, which is the one thing in
+      // here a PRESS changes on its own. Everything else in this signature also
+      // moves for reasons of the shop's — a sale, a delivery, a stocker filling
+      // a board — so leaving one out is survivable in a way that reads as
+      // sluggish rather than as broken: the panel catches up on the next thing
+      // that happens. This one has nothing behind it. Press Stock in a shut shop
+      // with the crew idle and NOTHING else in the signature moves, so the row
+      // sat there with its Stock button and its ✕ for as long as it took the
+      // shop to do something unrelated — a press that lands, makes a sound, and
+      // visibly does nothing, which is the worst answer a button can give.
+      //
+      // The day is in it because the countdown is in days: a row saying "back in
+      // 4 days" has to become 3 at the roll, and `left` is the only field here
+      // that changes without anybody touching anything.
+      const off = (o.notStocking ?? []).map((d) => `${d.itemId}:${d.left}`);
       return [
         // `spent` to the cent, unlike the till: it only moves when an order is
         // placed, so it cannot be the thing that never settles, and the cap row
         // prints it to the cent.
         Math.floor(ui._cash ?? 0), o.auto, o.assign, o.budget, o.spent,
-        o.bayRoom, JSON.stringify(o.items ?? null), van.join(','), shelved.join(','),
+        JSON.stringify(o.items ?? null), van.join(','), shelved.join(','),
+        off.join(','),
       ].join('|');
     },
     rows: stockRows,
-    foot: stockFoot,
   },
 
   {
@@ -1479,61 +1816,78 @@ export const SECTIONS = [
       if (y === undefined) return profit >= 0 ? '▲' : '▼';
       return profit >= y ? '▲' : '▼';
     },
-    live: (ui) => JSON.stringify([ui.state?.stats, ui.state?.fixtures, ui.state?.modifiers?.length,
+    // Everything the picture draws, which is a wider net than the list needed:
+    // the old rows read `stats` and a shelf count, and the meters and the week
+    // also move on beds, tills and a day rolling over. A signature that misses
+    // one is a panel that is right until you look away.
+    // `reputation` is in it for the block that draws it: `stats.repMoves` says
+    // what moved today, which is not the same fact as where the number now
+    // stands — a shop that opens on 62% and is left alone all morning moves
+    // neither, and one restored from a save moves the level without any of
+    // today's causes. It arrives rounded to the cent-equivalent (two decimals),
+    // so it is not a field that never settles.
+    live: (ui) => JSON.stringify([ui.state?.stats, ui.state?.reputation,
+      ui.state?.fixtures, ui.state?.modifiers?.length,
       ui.state?.ledger?.length, ui.state?.ledger?.at(-1)?.day,
-      (ui.state?.shelves ?? []).filter((s) => !(s.stacks ?? []).some((k) => k.qty > 0)).length]),
-    rows: (ui) => {
-      const s = ui.state;
-      if (!s) return [];
-      const st = s.stats ?? {};
-      const shelves = s.shelves ?? [];
-      const plots = s.plots ?? [];
-      const stat = (name, right, sub) => ({ name, right, sub, plain: true });
-      const best = Object.entries(st.byItem ?? {}).sort((a, b) => b[1] - a[1])[0];
-      const profit = (st.revenue ?? 0) - (st.spent ?? 0);
-      const past = dayProfits(s);
-      const yesterday = past.at(-1);
-      const mean = past.length ? past.reduce((a, b) => a + b, 0) / past.length : null;
+      (ui.state?.shelves ?? []).filter((s) => !(s.stacks ?? []).some((k) => k.qty > 0)).length,
+      (ui.state?.plots ?? []).filter((p) => p.crop_id).length,
+      (ui.state?.plots ?? []).filter((p) => p.ready).length,
+      (ui.state?.queues ?? []).reduce((a, q) => a + q.queue, 0)]),
+    /**
+     * ONE drawn block instead of fourteen rows across three tabs.
+     *
+     * Every number that was in the list is still in it — see `client/report.js`,
+     * which is where the shape and the reasons live. What this section keeps is
+     * everything the panel machinery needs and the picture does not care about:
+     * the key, the title, the badge and the signature above.
+     */
+    rows: (ui) => [{ html: reportHtml(ui) }],
+  },
 
-      return [
-        { sep: 'Today', icon: ICONS.today },
-        stat('Taken', money(st.revenue ?? 0), `${st.sold ?? 0} sold`),
-        stat('Spent', money(st.spent ?? 0), 'stock, seed and building'),
-        stat('Profit', money(profit), 'what is actually left'),
-        // Signed, because a delta is the one number here where the direction is
-        // the whole of the reading — `money()` marks a loss and says nothing at
-        // all about a gain, so "$40" would leave you to work out which of the
-        // two days it belonged to.
-        yesterday === undefined
-          ? null
-          : stat('vs yesterday', signed(profit - yesterday), `yesterday made ${money(yesterday)}`),
-        mean === null
-          ? null
-          : stat('Daily average', money(mean),
-            `across the last ${past.length} day${past.length === 1 ? '' : 's'}`),
-        best ? stat('Best seller', `${best[1]}`, ui.itemName(best[0])) : null,
-
-        { sep: 'Going wrong', icon: ICONS.trouble },
-        stat('Walked out', String(st.abandoned ?? 0), 'queued too long or could not find it'),
-        stat('Found nothing', String(st.leftEmpty ?? 0), 'came in, shelf was bare'),
-        // The VALUE is the headline and the count is the caption, which is the
-        // other way round from how this read for as long as it has existed. A
-        // shop binning 47 units has no idea whether that mattered; a shop
-        // binning $61.40 knows immediately, because it is the same unit as
-        // every other number on this panel. Nothing is deducted for it — that
-        // money left when the stock was bought — so this is where it gets said.
-        stat('Binned', money(st.spoiledValue ?? 0),
-          `${st.spoiled ?? 0} unit${(st.spoiled ?? 0) === 1 ? '' : 's'} past their shelf life`),
-
-        { sep: 'The shop', icon: ICONS.shop },
-        stat('Shelves', `${shelves.filter((x) => (x.stacks ?? []).some((k) => k.qty > 0)).length} / ${shelves.length}`, 'holding something'),
-        stat('Plots', `${plots.filter((p) => p.ready).length} ready`,
-          `${plots.filter((p) => p.crop_id).length} planted of ${plots.length}`),
-        stat('Queueing', String((s.queues ?? []).reduce((a, q) => a + q.queue, 0)),
-          `across ${(s.queues ?? []).length} till${(s.queues ?? []).length === 1 ? '' : 's'}`),
-        stat('Harvested', String(st.harvested ?? 0), 'picked today'),
-      ].filter(Boolean);
+  {
+    /**
+     * WHAT THERE IS TO BUY ONCE — a list again, and this time it says what each
+     * one does without being asked.
+     *
+     * Three shapes in three steps, which is worth recording because each fixed
+     * the last one's complaint and introduced its own. It was a panel of rows
+     * that opened a card; then the rows became bar tiles and the card stayed;
+     * then the card went and the tile did the buying. What was left was the
+     * worst of it: a 76px tile holding a name that did not fit, a price, and a
+     * description reachable only by hovering — so reading the catalogue meant
+     * pointing at each thing in turn and waiting, and *comparing* two of them
+     * was impossible, because a tooltip is one at a time by construction.
+     *
+     * A row is 214px wide and has a caption line, which is the whole fix: the
+     * name fits, and what the thing does is printed under it. `upgradeWhat`
+     * reads that off `payload` rather than off the authored prose — the same
+     * call the card made, and it survives the card because it was the only part
+     * of it doing any work.
+     *
+     * The tabs are `UPGRADE_GROUPS`, unchanged, as `sep` rows with icons —
+     * which is `tabGroups`' own opt-in, so the strip is the same three
+     * alternatives it was on the bar.
+     */
+    id: 'upgrades',
+    icon: ICONS.upgrades,
+    name: 'Upgrades',
+    key: 'u',
+    title: 'What there is to buy, once',
+    // Seven rows on one tab and two on another, so the window would double in
+    // height as you pressed along the strip — and this is a list you press
+    // along precisely to compare. See `steadyHeight`.
+    steady: true,
+    badge: (ui) => {
+      const n = affordableUpgrades(ui);
+      return n ? String(n) : null;
     },
+    // What you own, and what you can afford. `affordStep` rather than the cash
+    // itself for the reason the bar used it: prices are fixed, so a count of the
+    // ones within reach steps at each price instead of moving on every sale —
+    // a signature off `cash` would redraw this list at the till.
+    live: (ui) => JSON.stringify([ui.ownedUpgrades ?? [], ui.affordStep(ui._cash ?? 0),
+      ui.catalog?.version ?? 0]),
+    rows: (ui) => upgradeRows(ui),
   },
 
   {
@@ -1605,19 +1959,49 @@ export const SECTIONS = [
   },
 
   {
+    // `help` is the id a save, a key binding and `docs/audio.md` all spell, so
+    // it stays; what the player reads is the Menu, behind a hamburger. The
+    // question mark was always a lie about what is in here — the keys are one
+    // of four things it holds, beside the shop you are in, the sound and the
+    // credits — and three bars is the one glyph every player already reads as
+    // "everything else".
     id: 'help',
-    icon: ICONS.help,
-    name: 'Controls',
+    icon: ICONS.menus,
+    name: 'Menu',
     key: '/',
-    title: 'Controls',
+    title: 'Menu',
+    /**
+     * The Sound rows, and nothing else in this menu.
+     *
+     * Every other row here is a fixed sentence about a key, so this section
+     * never had a `live` and never needed one. A switch does: one that did not
+     * redraw would read as a press that didn't land, and the honest test of a
+     * switch is that it moved. `orderRows` made the same call about the
+     * supplier's three. The track name is in it too, so the Music row keeps up
+     * with the playlist while you have the tab open.
+     */
+    live: () => `${mix.signature()}|${music.nowPlaying()?.id ?? '-'}`
+      + `|${CORNERS.map((c) => (isOff(c.id) ? '-' : '+')).join('')}`,
     // Every line here is clamped to one line in a 214px panel, so the copy has
     // to be short enough to survive it — an ellipsis mid-word is worse than a
     // blunter phrase. The long version lives in `sub`, which is also the hover.
+    //
+    // THREE tabs, and the split is by what a row IS rather than by what it is
+    // about: something you do (the save, the volume), something you look up
+    // (every key in the game), something you are owed (the credits). It was
+    // seven, split by topic — Camera and Building are perfectly good headings
+    // and hopeless tabs, because "which quarter of the keyboard is this key in"
+    // is a question you have to answer before you can look a key up. A tab
+    // strip is a promise that the tabs are alternatives, and four flavours of
+    // one reference list are not alternatives. `tabGroups` reads an icon on a
+    // `sep` as the opt-in, so demoting a heading to a plain divider is the
+    // whole change — the four are still there, in order, one scroll apart.
     rows: (ui) => [
-      // Which shop you are in, and the way out of it. Top of the Controls menu
-      // rather than a new rail icon: leaving is the rarest thing you do, and the
-      // rail is for what you reach for from anywhere (see docs/ui-shell.md).
-      { sep: 'This shop', icon: ICONS.shop },
+      // Which game you are in, the way out of it, and how loud it is: the only
+      // rows in the menu that DO something. Leaving is here rather than on the
+      // rail because it is the rarest thing you do, and the rail is for what
+      // you reach for from anywhere (see docs/ui-shell.md).
+      { sep: 'Game', icon: ICONS.settings },
       { name: ui.net?.world?.name ?? 'This shop', sub: 'the save you are playing', plain: true },
       {
         icon: ICONS.close,
@@ -1625,22 +2009,30 @@ export const SECTIONS = [
         sub: 'saves, and back to the shop list',
         run: () => ui.leaveToMenu(),
       },
-      { sep: 'Getting about', icon: ICONS.walk },
+      ...soundRows(ui),
+      ...cornerRows(ui),
+
+      { sep: 'Controls', icon: ICONS.walk },
+      { sep: 'Getting about' },
       { name: 'Go there', sub: 'point at a thing and you walk over and do it', right: 'click', plain: true },
       { name: 'Walk yourself', sub: 'takes the wheel back off a route', right: 'WASD', plain: true },
       { name: 'Use a thing', sub: 'stand by it — walk off to stop', right: 'wait', plain: true },
       { name: 'Open its menu', sub: 'the same press, held still', right: 'hold', plain: true },
-      { sep: 'Camera', icon: ICONS.camera },
+      { sep: 'Camera' },
       { name: 'Look around', sub: 'stays put until you go somewhere', right: 'drag', plain: true },
       { name: 'Zoom', sub: 'or pinch', right: 'scroll', plain: true },
       { name: 'Turn the view', sub: 'a quarter turn each way', right: ', .', plain: true },
       { name: 'or swing to turn', sub: 'right button, or twist two fingers', right: 'R-drag', plain: true },
-      { sep: 'Menus', icon: ICONS.menus },
+      { sep: 'Menus' },
       ...SECTION_KEYS(),
       { name: 'Back out', sub: 'menu, then hands, then build mode', right: 'Esc', plain: true },
       { name: 'Back out on the world', sub: 'a click, not a drag — drops a half-drawn wall first', right: 'R-click', plain: true },
-      { sep: 'Building', icon: ICONS.build },
-      { name: 'Build mode', sub: 'opens with nothing armed — pick something to place', right: 'G', plain: true },
+      { sep: 'Building' },
+      { name: 'Build mode', sub: 'rearrange what is already there — nothing armed', right: 'G', plain: true },
+      // The second press, listed as its own row because it is its own press. A
+      // key that does something different the second time you press it is not a
+      // thing anybody finds by pressing it once.
+      { name: 'and the palette', sub: 'press again for the catalogue, again to leave', right: 'G', plain: true },
       // The same press as "open its menu" up under Getting about, doing the
       // other thing a press can do to a thing you own. Listed here rather than
       // there because it is the mode that gives the press this second meaning.
@@ -1651,9 +2043,164 @@ export const SECTIONS = [
       { name: 'Turn a fixture', sub: 'a quarter turn', right: 'R', plain: true },
       { name: 'Bottom bar', sub: 'the open tab — nothing with the bar down', right: '1–9', plain: true },
       { name: 'Next tab', sub: 'every tab in turn, and every part of a split one', right: 'Tab', plain: true },
+
+      ...creditRows(),
     ],
   },
 ];
+
+/**
+ * One volume, as a stepper.
+ *
+ * There is no slider in this game and there does not need to be one. A drag
+ * inside a panel fights the panel's own drag (`panel-drag.js`) and wants a
+ * pointer, and ten steps is finer than anybody has ever adjusted a game volume.
+ * `stp` is the widget the supplier's min/max nudgers are built from, so this is
+ * markup that already exists, is already styled and is already wired — see
+ * `wireRows`, which knows nothing about which menu a `data-act` landed in.
+ */
+function volRow(ui, bus, icon, name, sub) {
+  const now = mix.volume(bus);
+  const pct = Math.round(now * 100);
+  const step = (d) => () => {
+    mix.setVolume(bus, Math.round((now + d) * 10) / 10);
+    // Repainted at once rather than on the next snapshot: a tenth of a second
+    // is long enough for a press on a stepper to read as having missed.
+    ui.paintSection();
+  };
+  return {
+    icon,
+    name,
+    sub,
+    rule: `<span class="rule"><span class="stp">
+      <button class="rbtn" data-act="down" aria-label="quieter ${name}">−</button>
+      <b class="${pct ? '' : 'none'}">${pct}%</b>
+      <button class="rbtn" data-act="up" aria-label="louder ${name}">+</button>
+    </span></span>`,
+    acts: { down: step(-0.1), up: step(0.1) },
+  };
+}
+
+/**
+ * The volumes, under the Game tab.
+ *
+ * They live in this menu rather than in one of their own because this is the
+ * only menu in the game about the *game*: everything else on the rail is about
+ * the shop — what it owns, what it sells, how it is doing — which is also why
+ * the way out to the shop list is above them. `orderRows` already made this
+ * call once: they are settings, and settings are somewhere you go.
+ *
+ * A plain `sep` rather than an icon'd one, which is what demotes them from a
+ * tab of their own to a heading inside the Game tab. Four volume rows is not
+ * enough to be worth a click, and a menu that opened on the save and hid the
+ * sound one tab away is a settings menu you have to go looking for the settings
+ * in.
+ *
+ * Only a bus that exists gets a row. A knob that turns nothing is the same trap
+ * as a tier that changes no number — it looks finished, it takes an input, and
+ * nothing happens.
+ */
+function soundRows(ui) {
+  const off = mix.muted;
+  const track = music.nowPlaying();
+  return [
+    { sep: 'Sound' },
+    {
+      icon: off ? ICONS.muted : ICONS.speaker,
+      name: 'Sound',
+      sub: off ? 'Silent. Everything else keeps running.' : 'On.',
+      picked: !off,
+      tail: off ? 'Off' : 'On',
+      run: () => { mix.setMuted(!off); ui.paintSection(); },
+    },
+    volRow(ui, 'master', ICONS.speaker, 'Overall', 'everything, together'),
+    volRow(ui, 'sfx', ICONS.shop, 'The shop', 'tills, crates, your own hands'),
+    volRow(ui, 'music', ICONS.music, 'Music', track ? `now: ${track.name}` : 'between tracks'),
+  ];
+}
+
+/**
+ * What is showing in the corner, under the Game tab.
+ *
+ * The rows exist because the ✕ does: a widget you closed is off screen, so the
+ * only way back has to be somewhere you can find without it. Under Game rather
+ * than a tab of their own for the reason `soundRows` gives — two switches is
+ * not a click's worth of menu, and this is already the one menu about the game
+ * rather than about the shop.
+ *
+ * Drawn from `CORNERS` rather than written out, so anything wired with
+ * `wireCorner` is listed here the day it exists. A widget that could be closed
+ * and was not on this list would be one nobody could bring back, which is the
+ * one way to get this wrong that a player finds before you do.
+ */
+function cornerRows(ui) {
+  return [
+    { sep: 'In the corner' },
+    ...CORNERS.map((c) => {
+      const off = isOff(c.id);
+      return {
+        icon: icon(c.icon, ICONS.settings),
+        name: c.name,
+        sub: off ? 'Put away.' : c.sub,
+        picked: !off,
+        tail: off ? 'Off' : 'On',
+        // Repainted at once, the same call the Sound switch makes: the honest
+        // test of a switch is that it moved, and the thing this one moves is
+        // in the other corner of the screen.
+        run: () => { setOff(c.id, !off); ui.paintSection(); },
+      };
+    }),
+  ];
+}
+
+/**
+ * Who made it, generated from the manifest.
+ *
+ * `passive` — it reports rather than offers work, so it is drawn and reachable
+ * like any other tab and simply never the one `/` opens on. A licence list is
+ * the last thing anybody wants when they pressed the menu key to find out how
+ * to turn a shelf round.
+ *
+ * Nothing here is typed. Every row is a manifest entry, which is what makes a
+ * credit a property of the sound rather than a list somebody has to remember to
+ * update — see `client/audio/manifest.js`.
+ */
+function creditRows() {
+  return [
+    { sep: 'Credits', icon: ICONS.music, passive: true },
+    // Every row plays. A credits list is the one screen in the game that names
+    // all of it in one place, so it is also the only place you can *audition* a
+    // sound — and a sound you cannot trigger on demand is one you can only tune
+    // by waiting for a shopper to lose their temper. Tapping a sound plays it;
+    // tapping a track puts the radio on it.
+    ...SOUNDS.map((c) => ({
+      icon: ICONS.speaker,
+      name: c.name,
+      sub: `${c.by} · ${c.from}`,
+      right: c.licence,
+      // The robot is the one sound that is not a whole file — it is a slice, at
+      // a pitch, so previewing the raw five seconds would audition something
+      // the game never plays. See `CHIRP` in client/audio/events.js.
+      run: () => (c.id === 'robot'
+        ? sfx.play('robot', null, { rate: 0.65, dur: 0.3, every: 0 })
+        : sfx.play(c.id, null, { every: 0 })),
+    })),
+    ...TRACKS.map((c) => ({
+      icon: ICONS.music,
+      name: c.name,
+      sub: `${c.by} · ${c.from}`,
+      right: c.licence,
+      picked: music.nowPlaying()?.id === c.id,
+      run: () => music.playById(c.id),
+    })),
+    {
+      icon: ICONS.help,
+      name: 'Icons',
+      sub: 'game-icons.net (CC BY 3.0) and Remix Icon (Apache 2.0)',
+      right: 'CC BY',
+    },
+  ];
+}
 
 /**
  * The menu keys, listed from the same array that binds them.
@@ -1673,10 +2220,16 @@ function SECTION_KEYS() {
 export const sectionById = (id) => SECTIONS.find((s) => s.id === id) ?? null;
 
 /**
- * The rail, top to bottom. The three that own the bottom bar lead it — Build
- * because it is the mode you are in most, then the two that are a bar rather
- * than a panel — and the panels follow. None of the first three is a section.
+ * The rail, top to bottom. Build leads it, because it is the mode you are in
+ * most, and the roster follows it — the two you reach for while the shop is
+ * running. Neither is a section.
+ *
+ * Upgrades used to sit second, with them, on the argument that the three which
+ * own the bottom bar belong together. It reads better beside Milestones: both
+ * are the shop's long game rather than this afternoon, and the ladder you are
+ * saving for is the reason to open either — and it is a section again, so it
+ * sits in `SECTIONS` in that order rather than being spliced in here.
  */
-export const RAIL_ITEMS = [BUILD_MODE, UPGRADE_BAR, STAFF_BAR, ...SECTIONS];
+export const RAIL_ITEMS = [BUILD_MODE, STAFF_BAR, ...SECTIONS];
 
 export const railItemById = (id) => RAIL_ITEMS.find((s) => s.id === id) ?? null;

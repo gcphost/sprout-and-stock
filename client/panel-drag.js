@@ -131,6 +131,10 @@ export function wireDrag(el, handle, idOf) {
   // problem and pinning it here would quietly make every panel dragged.
   addEventListener('resize', () => {
     if (!el.style.left) return;
+    // A widget that has been put away (client/corner.js) measures 0×0, and
+    // clamping against that files it hard against the right-hand edge for
+    // whenever it is brought back — a resize with nothing on screen moving it.
+    if (!el.offsetWidth) return;
     const r = el.getBoundingClientRect();
     place(el, r.left, r.top);
   });

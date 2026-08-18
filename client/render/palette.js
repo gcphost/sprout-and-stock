@@ -135,6 +135,10 @@ export const FIXTURE_LOOK = {
   // A plot is the ground, so its own tile is the whole look and a block on top
   // would bury the soil. Zero height, and `syncPlots` draws the bed.
   plot: { color: PALETTE.soilRough, h: 0 },
+  // Only ever seen by a shop whose skip nobody has drawn — the shipped row has
+  // art. Waist-high and blocking, so an undrawn one is still a thing you can
+  // see you would walk into.
+  bin: { color: PALETTE.station, h: 0.6 },
   'prop-floor': { color: PALETTE.floor, h: 0.3 },
   'prop-ceiling': { color: PALETTE.floor, h: 0.3 },
 };
@@ -281,8 +285,26 @@ export function edgeBands(style) {
  * above the wall top pokes through the roof of a building that has no roof —
  * which on a 45° camera reads as a lamp floating outside the shop. Derived, so
  * restyling a wall taller takes the ceiling with it.
+ *
+ * `LIFT` is the half that was missing, and it only became visible once a
+ * hanging prop could be put where you actually want one. A wall is 1.1 and a
+ * head tops out at 0.96, so the "ceiling" was barely above standing height:
+ * anything that hangs DOWN from it — a string of lights, a pendant on a flex —
+ * arrived resting on top of the shelving it was bought to light. What that
+ * reads as is the fitting being the wrong size, and it is the room being too
+ * short. Lifted rather than making the walls taller, because wall height is the
+ * whole silhouette of the building and this is a question about one prop kind;
+ * the cost is that a fitting now sits above the wall line, which from a camera
+ * looking into a roofless building reads as depth rather than as error.
+ *
+ * What sets the number is not the walls, though — it is the READOUTS. A unit
+ * waiting for stock floats a thought bubble a little over its own top, so the
+ * band just above the shelving is already spoken for, and a fitting hung into
+ * it tangles with the one thing in the shop whose whole job is being legible at
+ * a glance. So the ceiling clears that band rather than clearing the shelf.
  */
-export const CEILING_Y = EDGE_STYLE[E.WALL].h;
+const LIFT = 0.8;
+export const CEILING_Y = EDGE_STYLE[E.WALL].h + LIFT;
 
 /** Slightly vary a colour per tile so big flat areas don't look dead. */
 export function jitter(hex, amount, seed) {

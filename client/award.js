@@ -27,8 +27,7 @@
  */
 
 import { ICONS } from './icons.js';
-
-const money = (n) => `$${Number(n).toFixed(2)}`;
+import { money } from './money.js';
 
 export class Award {
   constructor(ui, el) {
@@ -58,11 +57,17 @@ export class Award {
         <div class="award-more"></div>
       </div>`;
     this.card = this.el.querySelector('.award-card');
+    // The button, and only the button.
+    //
+    // Click-outside-to-close is right for a menu you opened and wrong for
+    // something that arrived on its own: the card takes the screen *while you
+    // are mid-click on the shop*, so the first press after it appears is aimed
+    // at whatever you were doing — and a backdrop that dismissed would eat that
+    // press, close the award, and leave you having read nothing. There is
+    // exactly one thing to do here and it is a large green button in the middle
+    // of it. Esc and Enter still work, because a modal that traps the keyboard
+    // has to give the keyboard a way out.
     this.el.querySelector('.award-go').onclick = () => this.dismiss();
-    // The backdrop dismisses too, but the card itself must not — a click that
-    // lands on the medal while you are reading would close the thing you are
-    // reading.
-    this.el.querySelector('.award-back').onclick = () => this.dismiss();
   }
 
   get open() { return this.showing !== null; }

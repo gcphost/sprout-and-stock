@@ -76,7 +76,7 @@ gameServer.define('mart', MartRoom).filterBy(['worldId']);
 
 await gameServer.listen(PORT);
 
-console.log(`\n  🌱 Sprout & Stock`);
+console.log(`\n  ⚙️  Sprocket & Stock`);
 console.log(`  game server  ws://localhost:${PORT}`);
 console.log(`  control api  http://localhost:${PORT}/api/health`);
 if (DEV) console.log(`  client       http://localhost:5173  (npm run dev)`);

@@ -88,11 +88,57 @@ export class Rail {
       // a mode (Build) toggles the world, a bar (Staff) claims the bottom
       // strip, and everything else opens a panel.
       b.onclick = () => {
-        if (item?.mode) this.ui.toggleBuild();
+        if (item?.mode) this.ui.pressBuild();
         else if (item?.bar) this.ui.toggleBar(item.bar);
         else this.ui.toggleSection(b.dataset.rail);
       };
     });
+  }
+
+  /**
+   * A word above the rail, for a couple of seconds.
+   *
+   * The toast says what happened (`Build mode enabled`) and it says it at the
+   * top of the screen, which is where the shop talks to you. What a *second
+   * press* of a button does is not news about the shop — it is a fact about the
+   * nav, and it belongs over the nav, or it is an instruction about something at
+   * the bottom of the screen delivered at the top of it.
+   *
+   * Same pill, same place and the same job as `#build-hint`, which is the line
+   * that says what the palette is holding — this is that line for the press
+   * before the palette exists.
+   *
+   * One element, made once, the way the tooltip is: there is only ever one of
+   * these on screen.
+   */
+  note(text) {
+    clearTimeout(this._noteTimer);
+    if (!this.noteEl) {
+      this.noteEl = document.createElement('div');
+      this.noteEl.id = 'rail-note';
+      document.body.appendChild(this.noteEl);
+    }
+    const el = this.noteEl;
+    el.textContent = text;
+    // Centred on the whole rail rather than on the button that raised it, which
+    // is the build hint's shape and the same reason: a pill that jumps sideways
+    // to sit over whichever icon is talking reads as a different thing each
+    // time, where one that always arrives in the middle is a place you learn.
+    // The rail is centred on the screen, so `left: 50%` does the sideways half
+    // in CSS and the only measurement here is how high up the rail's top edge
+    // is — which moves when it wraps on a narrow window.
+    el.style.bottom = `${window.innerHeight - this.el.getBoundingClientRect().top + 8}px`;
+    // Two frames for the same reason the tooltip takes two: the box has to be
+    // where it is going before the fade starts, or it slides in from wherever
+    // the last one was.
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+    this._noteTimer = setTimeout(() => el.classList.remove('show'), 3200);
+  }
+
+  /** ...and take it away, because the thing it was telling you to do is done. */
+  clearNote() {
+    clearTimeout(this._noteTimer);
+    this.noteEl?.classList.remove('show');
   }
 
   /** Light the icon whose bar is up. `null` when the bottom strip is empty. */
@@ -121,7 +167,16 @@ export class Rail {
     // Build mode is a state of the world rather than an open menu, so its button
     // is lit by the mode itself. An armed ghost with nothing on screen explaining
     // it is the whole complaint this answers.
-    this.el.querySelector('[data-rail="build"]')?.classList.toggle('on', !!this.ui.buildOn);
+    //
+    // Two states rather than one, because it is two presses (`pressBuild`): lit
+    // says the world is in build mode, and `open` says the palette is up. The
+    // first press used to always bring the second's bar with it, so a mode with
+    // no bar was a mode nothing on screen mentioned — this button is now the
+    // only thing that says it, which makes the difference between the two the
+    // thing it has to draw rather than a nicety.
+    const b = this.el.querySelector('[data-rail="build"]');
+    b?.classList.toggle('on', !!this.ui.buildOn);
+    b?.classList.toggle('open', this.ui.bar === 'build');
 
     for (const s of RAIL_ITEMS) {
       if (!s.badge) continue;

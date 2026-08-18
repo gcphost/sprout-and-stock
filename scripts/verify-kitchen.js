@@ -151,6 +151,26 @@ const TEST_PIECE = {
  * One job and one only. A hire who could also `shelve` would carry the finished
  * brew off to a shelf mid-assertion, and section 6 counts what is in a hopper.
  */
+/**
+ * How much brew this kitchen has produced, wherever it ended up.
+ *
+ * Three places, and the third one is new: the tray, somebody's hands, and a
+ * CRATE. Counting the first two was right for as long as a hire with no `tidy`
+ * had no way to put anything down — which is what `TEST_HAND` below exists to
+ * work around, and what `stepStaff` stopped being true of when `putDown` became
+ * something anybody can do rather than a job you have to have been given.
+ *
+ * The claim being made is "the kitchen made things". A chef who made three
+ * trays and walked them out to the drop-off has made three trays, and a sweep
+ * that reports zero for that is measuring who is holding the goods rather than
+ * whether they exist — which is the same class of mistake as the balance bot
+ * that stopped modelling a player (see CLAUDE.md): a broken instrument reads as
+ * a broken feature, and this one read as a kitchen that had stopped.
+ */
+const brewMade = (g, st) => (st.output?.qty ?? 0)
+  + Object.values(g.players).reduce((n, p) => n + lotQty(p.carry, 'zz-kit-brew'), 0)
+  + (g.deliveries ?? []).reduce((n, c) => n + lotQty(c, 'zz-kit-brew'), 0);
+
 const TEST_WORKER = {
   id: 'zz-kit-chef', name: 'Test Chef', color: '#d98b4a',
   jobs: [{ job: 'craft', weight: 1 }], cost: 0, wage: 0, speed: 20, pace: 0.05,
@@ -320,6 +340,27 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   eq(part.loaded, 2, 'it takes exactly what fits');
   eq(st2.contents['zz-kit-bean'], cap, 'filling the hopper');
   eq(lotTotal(g2.players.me.carry), 4, 'and hands the remainder back');
+
+  // ...and the same out of a CRATE on the shoulder, which is the one hand this
+  // funnel never learned about. `loadStation` read `p.carry` and nothing else,
+  // so a machine you walked a box of beans over to armed no action, gave no
+  // refusal and said nothing — and a machine that offers nothing is a machine
+  // that reads as broken. The shelves have poured straight out of a crate since
+  // hauling existed (`stockFromCrate`); this was the hole beside it.
+  //
+  // Both halves matter and only one of them is visible: the beans go in, AND
+  // they come off the shoulder rather than being copied off it. A load that
+  // filled the hopper and left the crate full is goods created out of nothing,
+  // which looks exactly like a load that worked.
+  const g3 = fresh();
+  const st3 = urn(g3);
+  g3.players.me.carry = null;
+  g3.players.me.haul = { stacks: [{ item_id: 'zz-kit-bean', qty: 4 }] };
+  const off = g3.loadStation('me', st3.id, { from: 'haul' });
+  check(off.ok, 'a crate on the shoulder feeds the hopper', off.error ?? '');
+  eq(st3.contents['zz-kit-bean'], 4, 'and the beans land in it');
+  eq(lotTotal(g3.players.me.haul), 0, 'and leave the crate, rather than being copied out of it');
+  eq(lotTotal(g3.players.me.carry), 0, 'without going through your hands on the way');
 }
 
 // ---------------------------------------------------------------------------
@@ -588,9 +629,9 @@ function content_inputs(recipeId) {
   check(peak >= Math.min(cap, g.carryCapacity()),
     'and carries as much as their hands hold toward filling it',
     `peak ${peak}, hands hold ${g.carryCapacity()}`);
-  check((st.output?.qty ?? 0) + lotQty(chef.carry, 'zz-kit-brew') > BREW_PER_BATCH,
+  check(brewMade(g, st) > BREW_PER_BATCH,
     'and the machine gets through more than one batch while they do it',
-    `tray ${st.output?.qty ?? 0}`);
+    `tray ${st.output?.qty ?? 0}, all told ${brewMade(g, st)}`);
 
   // Nobody is wedged. A chef holding something the machine has no room for used
   // to walk back to it forever; the job has to hand that armful to `shelve`.
@@ -616,8 +657,7 @@ function content_inputs(recipeId) {
   g.step(0.1);
 
   for (let i = 0; i < 900; i++) g.step(0.1);
-  const made = (st.output?.qty ?? 0)
-    + Object.values(g.players).reduce((n, p) => n + lotQty(p.carry, 'zz-kit-brew'), 0);
+  const made = brewMade(g, st);
   check(made > 0, 'a kitchen with nowhere to stockpile still makes things', `made ${made}`);
   check(shelf.stacks[0].qty > 30,
     'and the shop floor is borrowed from a batch at a time rather than stripped',
@@ -684,6 +724,119 @@ function content_inputs(recipeId) {
   check(onShelf + inHand > 0,
     'give it a board and the tray comes out to fill it',
     `shelf ${onShelf}, hands ${inHand}, tray ${st.output?.qty ?? 0}`);
+}
+
+// ---------------------------------------------------------------------------
+// 9. A tap is ONE, a hold is the lot, and a machine grades in both directions.
+//
+// The grade every goods gesture in the shop draws, said about an appliance —
+// which is the one fixture with an opening at each end, and had neither.
+//
+// Going IN: a right-tap sent `shelf-one`, so the shop answered **"no such
+// shelf"** — an error naming a thing you were not pointing at, about a gesture
+// that works one press either side of it. The hold poured the armful throughout,
+// which is what made it read as feeding being all-or-nothing rather than as a
+// hole. Same shape the skip left when it fell through that branch.
+//
+// Coming OUT: a machine with a batch ready is `readyToTake`, so a left tap sent
+// you to *walk* to it — and standing there, that walk is a no-op. A full tray, a
+// press that visibly did nothing, and the goods only moving once you found the
+// hold.
+//
+// None of it is visible in a screenshot: a tray of twelve and a tray of eleven
+// are the same picture, and a press that did nothing looks exactly like a press
+// you have not made yet.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const st = urn(g);
+
+  // ---- in ----
+  hold(g, 'zz-kit-bean', 6);
+  const one = g.tapStation('me', st.id, true);
+  check(one.ok, 'a tap on an appliance loads it', one.error ?? '');
+  eq(one.loaded, 1, 'with exactly one unit');
+  eq(st.contents['zz-kit-bean'], 1, 'which is what lands in the hopper');
+  eq(lotTotal(g.players.me.carry), 5, 'and the rest stays in your hands');
+
+  // The errand is spent, or the press that armed the pour is still standing and
+  // the next machine you walk past takes your armful.
+  eq(g.players.me.errand, null, 'and the tap spends the errand it fired');
+
+  // ...and the hold is untouched: the same hands, the same machine, the lot.
+  const rest = g.loadStation('me', st.id);
+  check(rest.ok, 'and a hold still pours the whole armful in', rest.error ?? '');
+  eq(rest.loaded, 5, 'all of it');
+  eq(g.players.me.carry, null, 'leaving your hands empty');
+
+  // ---- out ----
+  run(g, 30);
+  const made = st.output?.qty ?? 0;
+  check(made > 1, 'the machine makes a tray worth grading', `tray ${made}`);
+
+  const took = g.tapStation('me', st.id);
+  check(took.ok, 'a tap on a ready machine collects', took.error ?? '');
+  eq(took.collected, 1, 'one portion off the tray');
+  eq(st.output?.qty, made - 1, 'and the rest is still in the tray');
+  eq(lotTotal(g.players.me.carry), 1, 'with one in your hands');
+  eq(g.players.me.errand, null, 'and this tap spends its errand too');
+
+  // The hold is the tray — capped by your hands, which is the one thing that
+  // can make it less than the lot, and what does not fit stays in the tray
+  // rather than going anywhere.
+  const all = g.collectStation('me', st.id);
+  check(all.ok, 'and a hold takes what is left', all.error ?? '');
+  check(all.collected > 1, 'more than the tap did — the grade is real', `took ${all.collected}`);
+  eq(lotTotal(g.players.me.carry), g.carryCapacity(g.players.me),
+    'filling your hands to the brim');
+  eq(all.collected + 1 + (st.output?.qty ?? 0), made,
+    'and every portion is either in your hands or still in the tray');
+
+  // Empty-handed, the hold clears it outright — which is the press that actually
+  // frees the machine, since a tray with anything in it blocks the next batch.
+  g.players.me.carry = null;
+  check(g.collectStation('me', st.id).ok, 'and empty hands take the rest');
+  eq(st.output, null, 'leaving the tray empty and the machine free');
+
+  // ---- and the two do not fight ----
+  // A tray waiting used to take the right button away outright: `actionAt` read
+  // the output first, so a ring wound on the button that means "put this in" and
+  // collected instead. A machine you cannot feed until you have emptied it is
+  // not a rule anybody wrote — and with a chef stood at a full tray it is a
+  // kitchen that quietly stops.
+  hold(g, 'zz-kit-bean', 2);
+  g.loadStation('me', st.id);
+  run(g, 30);
+  check((st.output?.qty ?? 0) > 0, 'the machine has a tray ready again');
+
+  hold(g, 'zz-kit-bean', 4);
+  g.aimAt('me', st.id);
+  check(!!g.players.me.errand?.put, 'the right press says which direction it means');
+  const armed = g.errandAction(g.players.me);
+  eq(armed?.kind, 'load', 'so the ring loads rather than collecting, tray and all');
+
+  // ...and the left press still means the other thing, from the same spot.
+  g.walkToFixture('me', st.id);
+  eq(g.errandAction(g.players.me)?.kind, 'collect', 'while the left press collects');
+
+  // ---- a refusal is still a refusal ----
+  // One funnel, one rule: a tap that bypassed the recipe check would fill a
+  // hopper with ingredients that can only come out by tipping it up.
+  const g2 = fresh();
+  const st2 = urn(g2);
+  check(g2.setStationRecipe('me', st2.id, TEA).ok, 'a machine is set to its second recipe');
+  hold(g2, 'zz-kit-bean', 6);
+  const wrong = g2.tapStation('me', st2.id, true);
+  check(!wrong.ok, 'a tap of the wrong ingredient is refused', JSON.stringify(wrong));
+  eq(lotTotal(g2.players.me.carry), 6, 'and nothing leaves your hands');
+
+  // And a tap from across the shop is refused rather than reaching: the walk is
+  // what the tap does out there, and `collectStation` makes no reach test of its
+  // own — every caller it had was already standing there.
+  const away = { x: g2.players.me.x, z: g2.players.me.z };
+  Object.assign(g2.players.me, { x: 1, z: 1 });
+  check(!g2.tapStation('me', st2.id, true).ok, 'and a tap from across the shop reaches nothing');
+  Object.assign(g2.players.me, away);
 }
 
 // ---------------------------------------------------------------------------

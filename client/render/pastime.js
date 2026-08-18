@@ -6,6 +6,12 @@
  * one who was busy, and the only place that said otherwise was their menu. This
  * is the other half: a prop, and some motion.
  *
+ * Everybody who works here is a machine, which changes what the CODE half is
+ * allowed to do and not what the authored half is. See `SINK` below: the
+ * original said "off duty" by leaning the body onto one hip and breathing, and
+ * both of those are a body rather than a machine. A break is a *charge* now, so
+ * the body powers down — straight down, head dipped, idling on a slow pulse.
+ *
  * The split is the same one the rest of the game uses.
  *
  *   AUTHORED — the prop itself, in the pastime's `model`, staged by how far
@@ -32,9 +38,29 @@
 import { buildLoopingProp, animatePuffs, animateMotion } from './motion.js';
 import { partsAt } from '../../shared/model.js';
 
-/** Radians the body tips onto one hip while resting. */
-const LEAN = 0.2;
-/** How fast the slump eases in and out, per frame. */
+/**
+ * How far the body sinks on its legs while docked, in tiles.
+ *
+ * This used to be `LEAN` — 0.2 radians onto one hip — and a hip is the whole
+ * problem. Everybody who works here is a machine, and the two things this
+ * function did to say "off duty" were the two most human things in the game: it
+ * tipped the body sideways the way somebody shifts their weight, and it BREATHED
+ * — a sine on height, roll and pitch at 1.7Hz, which is a resting chest and
+ * nothing else. Neither is authorable around, because both are applied to every
+ * pastime that will ever exist, over the top of whatever prop it drew.
+ *
+ * So a unit at rest powers down instead: it settles straight down on its legs,
+ * dips its head, and idles on a slow pulse. Straight down rather than sideways
+ * is the whole distinction — a machine parks, it does not lounge.
+ */
+const SINK = 0.055;
+/** Radians the head tips forward when it powers down. */
+const DIP = 0.13;
+/** Cycles a second of the idle pulse. Deliberately well under a resting pulse. */
+const IDLE_HZ = 0.55;
+/** How far the idle pulse moves the body, in tiles. A tell, not a movement. */
+const IDLE_RISE = 0.008;
+/** How fast the power-down eases in and out, per frame. */
 const SETTLE = 0.07;
 /** Close enough to the target to stop easing and sit still. */
 const SETTLED = 0.004;
@@ -44,9 +70,14 @@ const SETTLED = 0.004;
  *
  * Nothing on a person casts a shadow — the body already does, and a mug laying
  * its own shadow across the floor from chest height reads as litter.
+ *
+ * `skin` is the palette of the unit holding it. A prop part with a `tint` slot
+ * takes its colour from that, exactly as the body's parts do — so a cable or a
+ * status lamp belongs to the machine on the end of it. Without it the flag was
+ * accepted by the schema, authorable, and silently did nothing.
  */
-export function buildPastimeProp(model, t = 0) {
-  return buildLoopingProp(partsAt(model, t), { castShadow: false });
+export function buildPastimeProp(model, t = 0, skin = null) {
+  return buildLoopingProp(partsAt(model, t), { castShadow: false, skin });
 }
 
 /**
@@ -60,7 +91,7 @@ export function buildPastimeProp(model, t = 0) {
  * are on a break, `pastime` is the prop if the pastime has one authored, and
  * `slump` is our own eased 0..1 that we keep on it.
  */
-export function animateRest(rec, now) {
+export function animateRest(rec, now, camYaw = null) {
   const want = rec.resting ? 1 : 0;
   const at = rec.slump ?? 0;
   const slump = Math.abs(want - at) < SETTLED ? want : at + (want - at) * SETTLE;
@@ -69,17 +100,43 @@ export function animateRest(rec, now) {
   // in the shop and every worker who is working, so it wants to be the cheap case.
   if (!slump && !rec.pastime) return;
 
+  // Turn to the camera while they are sat down.
+  //
+  // A break is the one time a body is doing something worth LOOKING at — the
+  // slump, the mug going down, whatever the pastime authored — and where they
+  // face when they stop is wherever the last leg of their walk happened to
+  // point. Half of them sat with their backs to you, and what is behind a robot
+  // is a flat panel.
+  //
+  // Blended by `slump` off a stored base rather than eased toward the camera
+  // frame by frame, and that is the load-bearing bit: `rotation.y` is rewritten
+  // from the server on every sync, so a turn that accumulated would be yanked
+  // back ten times a second and never arrive. `rec.yaw` is what the shop says
+  // they face, this is the whole offset, and standing up unwinds it for free.
+  if (camYaw != null && rec.yaw != null) {
+    const TAU = Math.PI * 2;
+    // Shortest way round, or a bot two degrees the wrong side of south spins
+    // most of a full turn to face you.
+    const d = ((camYaw - rec.yaw + Math.PI) % TAU + TAU) % TAU - Math.PI;
+    rec.obj.rotation.y = rec.yaw + d * slump;
+  }
+
   const t = now / 1000;
   const phase = rec.phase ?? 0;
-  const breath = Math.sin(t * 1.7 + phase);
+  const idle = Math.sin(t * IDLE_HZ * Math.PI * 2 + phase);
 
   // The body. This is the half that reads from across the shop: at this camera
-  // a mug is a few pixels, but a silhouette that has stopped standing to
+  // a status lamp is a few pixels, but a silhouette that has stopped standing to
   // attention is obvious even out of focus. `rotation.y` is the facing and is
   // rewritten every sync — these two axes are ours alone.
-  rec.obj.position.y = (breath * 0.028 - 0.035) * slump;
-  rec.obj.rotation.z = (LEAN + breath * 0.045) * slump;
-  rec.obj.rotation.x = breath * 0.02 * slump;
+  //
+  // Down and forward, never sideways. The sink is a constant and the pulse only
+  // rides on top of it, so a docked unit sits at a fixed height and *ticks*
+  // rather than rising and falling: the pulse is small enough to be a sign of
+  // life rather than a movement, which is the difference between an idling
+  // machine and a sleeping one.
+  rec.obj.position.y = (idle * IDLE_RISE - SINK) * slump;
+  rec.obj.rotation.x = DIP * slump;
 
   const g = rec.pastime;
   if (!g) return;

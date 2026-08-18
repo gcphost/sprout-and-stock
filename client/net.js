@@ -8,6 +8,41 @@
 
 import { Client } from 'colyseus.js';
 
+/**
+ * WHO YOU ARE, ACROSS CONNECTIONS.
+ *
+ * A `sessionId` is minted per socket, so as far as the shop was concerned every
+ * reload was a different person walking in — which is why you came back at the
+ * door with empty hands however carefully you had positioned yourself. This is
+ * the id that outlives the socket: step 3 of docs/shipping.md, and the thing
+ * `removePlayer`'s own comment says is missing.
+ *
+ * In localStorage rather than a cookie or a server-issued token, because it has
+ * exactly one job — being the same string tomorrow — and this is where the name
+ * and the last world played already live. Two browsers are two people on
+ * purpose: a shop you open on the laptop should not walk the shopkeeper out of
+ * the tab on the desktop.
+ */
+const ME = 'sns-me';
+
+function whoAmI() {
+  try {
+    const had = localStorage.getItem(ME);
+    if (had) return had;
+    // `randomUUID` needs a secure context and a tunnel is one; the fallback is
+    // for plain-http LAN play, where a collision between two people would mean
+    // one of them spawning in the other's shoes.
+    const made = crypto.randomUUID?.()
+      ?? `me-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(ME, made);
+    return made;
+  } catch {
+    // Private mode, or storage turned off. No stable id means the old behaviour
+    // — the door, empty-handed — rather than a crash.
+    return null;
+  }
+}
+
 export class Net {
   constructor() {
     this.room = null;
@@ -41,7 +76,7 @@ export class Net {
     const endpoint = `${proto}://${location.hostname}${port ? `:${port}` : ''}`;
 
     const client = new Client(endpoint);
-    this.room = await client.joinOrCreate('mart', { name, worldId });
+    this.room = await client.joinOrCreate('mart', { name, worldId, who: whoAmI() });
 
     this.room.onMessage('you', (m) => {
       this.myId = m.id;

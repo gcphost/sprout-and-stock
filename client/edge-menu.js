@@ -186,6 +186,11 @@ export function showEdgeMenu(ui, at) {
   const choices = choicesFor(L, at);
 
   ui.openPanel = 'way';
+  // ...and whoever's menu was open before this one is no longer the subject, so
+  // their ring goes. A hire's marker means "this menu is about them" and nothing
+  // else — unlike a fixture's, which doubles as the build selection R and M act
+  // on and is meant to outlive the panel.
+  ui.setWorkerRef(null);
   // Not a section, so nothing on the rail is lit — a fixture's menu and a hire's
   // both behave this way.
   ui.rail.setOpen(null);

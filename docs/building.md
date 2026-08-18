@@ -666,6 +666,18 @@ green-ghost bug wearing a marker. It draws the aim frame's own amber along the
 line (`setEdgeGhost`'s `aim` state, which is not a verdict) plus a pointer cursor,
 the same pair a hire gets.
 
+**And only while you are building.** Everything on that menu is a build verb, and
+a wall is not a thing you interact with while shopkeeping — but the deciding half
+is that a doorway is *everywhere*: the shop front is a line of them, so a bar that
+lit up along it whenever the pointer crossed the front of the building was
+advertising a menu at the one moment nobody wants one, over the awning, the till
+and the queue. The veto is on `pickWay`, so the highlight, the hold and the tap go
+on agreeing, and it is `paletteArmed` rather than `buildOn` — the same test
+`aimable` uses to keep decorations unpointable outside the mode, and for the same
+reason: the mode a fixture menu borrows for one press of Empty puts no bar on
+screen, so it must not quietly make the walls clickable. `toggleBuild` shuts an
+open way menu on the way out, beside the fixture menu it already shut.
+
 Precedence is: a person, then a fixture, then a crate, then the way. That ordering
 is what keeps the shop front usable — the awning stands on the very tile the front
 door opens onto (`defaultAwning`), so pointing at the canopy reaches the canopy,

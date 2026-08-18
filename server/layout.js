@@ -116,6 +116,32 @@ const storeNorth = (shell) => {
 };
 
 /**
+ * ...and the same question on the other axis, which only became a question the
+ * day the WORLD could grow.
+ *
+ * The building has always been centred east-west — `(worldW - storeW) / 2`,
+ * derived fresh every re-flow — and that was safe for exactly as long as
+ * `worldW` was a constant. Now that land is bought, a re-derived centre slides
+ * the whole building sideways the moment you buy any, and every fixture in it
+ * is an absolute tile: the shop would move out from under its own contents, and
+ * `applyPlacements` would hand the strays back with a refund. That is the
+ * `shell.z` disaster exactly (see `Game.buyUpgrade`), on the axis nobody had
+ * pinned.
+ *
+ * So a stamped shop remembers where it stands. A shell written before this
+ * field falls back to `baseW` — the width the world would be with no land
+ * bought — which is where it is standing right now, because no save that
+ * predates the field can have bought land under the new rule. `WORLD_W` alone
+ * would not do: a shop with a big building or a wide farm already sits in a
+ * world wider than the minimum, and centring it in the minimum would move it.
+ */
+const storeWest = (shell, worldW, storeW, baseW) => {
+  if (!shell) return Math.floor((worldW - storeW) / 2);
+  if (shell.x == null) return Math.floor((baseW - storeW) / 2);
+  return Math.max(1, Math.trunc(shell.x));
+};
+
+/**
  * How far apart the generator spaces things, and it is three numbers now
  * because they were one number doing three jobs.
  *
@@ -177,6 +203,9 @@ export function generateLayout({
   // three around it this is always whatever `budgetOf` counted, and 0 for every
   // shop that has not bought one.
   warmers = 0,
+  // Placed only — a shop is never generated one, so this is always whatever
+  // `budgetOf` counted and 0 for every shop that has never bought one.
+  bins = 0,
   checkouts = 1,
   plots = 4,
   stations = [],
@@ -188,7 +217,7 @@ export function generateLayout({
   shell = null,
 } = {}) {
   const req = {
-    seed, shelves, freezers, warmers, checkouts, plots, stations,
+    seed, shelves, freezers, warmers, bins, checkouts, plots, stations,
     placements: placements ?? [],
     // Walls, windows and doorways the player drew. An overlay for the same
     // reason `placements` is one: the generator rebuilds the shell from scratch
@@ -198,6 +227,12 @@ export function generateLayout({
     /** ...and the same again for ground, for exactly the same reason. */
     ground: ground ?? [],
     doorShift: Math.trunc(doorShift) || 0,
+    /**
+     * Land you bought, in extra world tiles east and south — NOT extra
+     * building. See `compose`, where it is applied, and the note in stage 2
+     * below for why it moved.
+     */
+    grow: grow ?? { w: 0, h: 0 },
     // Whether this shop has been stamped, which `compose` needs for exactly one
     // decision: what a dropped placement does to the budget. See `shed`.
     shell: shell ?? null,
@@ -232,13 +267,6 @@ export function generateLayout({
     return attempt.layout;
   }
 
-  // Bought floor area is added on top of whatever the contents need, not used
-  // as a minimum. A shop that had already grown past the minimum to fit its
-  // shelving would otherwise swallow most of an extension and hand back a
-  // single tile for it.
-  const growW = Math.max(0, Math.trunc(grow?.w ?? 0));
-  const growH = Math.max(0, Math.trunc(grow?.h ?? 0));
-
   // Grow the building until it genuinely holds everything. A formula that
   // *usually* fits is how both historical off-by-ones got in; measuring is
   // cheap (a few dozen attempts worst case, each one a 500-tile fill).
@@ -262,10 +290,19 @@ export function generateLayout({
     else fitH++;
   }
 
-  // Stage 2: build at that size plus whatever floor area has been bought.
+  // Stage 2: build at that size.
+  //
+  // Bought land used to be added HERE, as extra building — `space` grew the
+  // shell and the shell re-stamped its walls three tiles further out. That is
+  // the wrong shape for a game where you draw your own rooms: what you had
+  // customised got a new outer wall stamped past it and the old one left
+  // stranded inside as a line to knock through, and the thing you actually
+  // wanted more of — ground to build ON — only appeared once the building had
+  // grown past `WORLD_W - 8`. `grow` is the world's size now (see `compose`),
+  // and the building is only ever as big as its own contents need.
   for (const allowDrops of [false, true]) {
-    let storeW = fitW + growW;
-    let storeH = fitH + growH;
+    let storeW = fitW;
+    let storeH = fitH;
     let attempt = null;
     for (let i = 0; i < 60; i++) {
       attempt = compose(req, storeW, storeH, allowDrops);
@@ -293,11 +330,22 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const rng = makeRng(req.seed);
   const totalUnits = req.shelves + req.freezers;
 
-  // ---- world size, sized around the building and the fields ---------------
+  // ---- world size, sized around the building, the fields and what you own --
+  //
+  // `grow` is bought LAND, and it is the world's size rather than the
+  // building's. Everything the shop is made of is something you draw — walls on
+  // edges, floor with a brush, fixtures on tiles you picked — so the thing an
+  // extension should sell is somewhere to draw it, not a bigger box stamped
+  // around what you already drew.
+  const growW = Math.max(0, Math.trunc(req.grow?.w ?? 0));
+  const growH = Math.max(0, Math.trunc(req.grow?.h ?? 0));
   const farmHalfSpan = 2 + (PLOTS_PER_SIDE - 1) * ROW_PITCH;
-  const worldW = Math.max(WORLD_W, storeW + 8, farmHalfSpan * 2 + 10);
+  // The two widths a stamped shop needs to tell apart: what the world would be
+  // with no land bought, and what it is. See `storeWest`.
+  const baseW = Math.max(WORLD_W, storeW + 8, farmHalfSpan * 2 + 10);
+  const worldW = Math.max(baseW, WORLD_W + growW);
 
-  const storeX = Math.floor((worldW - storeW) / 2);
+  const storeX = storeWest(req.shell, worldW, storeW, baseW);
   const storeZ = storeNorth(req.shell);
   const store = { x: storeX, z: storeZ, w: storeW, h: storeH };
 
@@ -369,8 +417,12 @@ function compose(req, storeW, storeH, allowDrops = true) {
    * — `doorLine + FRONT_DEPTH` is 22 for the starting building, which is what
    * `WORLD_H` already was.
    */
+  // ...plus bought land, the same way the width takes it. Only the south edge
+  // moves: the building is pinned to `storeZ` and everything in it is an
+  // absolute tile, so growing northward would push the whole shop off its own
+  // contents — which is the `shell.z` disaster in CLAUDE.md.
   const worldH = Math.max(
-    WORLD_H,
+    WORLD_H + growH,
     doorLine + FRONT_DEPTH,
     plotTop + plotRows * PLOT_PITCH + FRONT_DEPTH,
   );
@@ -589,12 +641,13 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const stationsOut = [];
   const plotsOut = [];
   const propsOut = [];
+  const binsOut = [];
   const layoutSoFar = () => ({
     w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ },
     bay, drop, break: breakRoom,
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
-    props: propsOut,
+    props: propsOut, bins: binsOut,
     ground: groundOut,
     blocked,
   });
@@ -621,6 +674,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     shelf: req.shelves,
     freezer: req.freezers,
     warmer: req.warmers,
+    bin: req.bins,
     checkout: req.checkouts,
     plot: req.plots,
   });
@@ -758,6 +812,19 @@ function compose(req, storeW, storeH, allowDrops = true) {
       plotsOut.push(Object.assign(makePlot(p.id, p.x, p.z), {
         tier: p.tier ?? 1, variant: p.variant ?? '', piece: p.piece ?? null,
       }));
+    } else if (p.kind === 'bin') {
+      // Its own branch, and the `else` below is why it needs one: everything
+      // that is not a plot, a till or an appliance falls through to
+      // `makeShelf`, which normalises whatever it is handed into shelving. A
+      // bin with no branch is not refused, it is silently BUILT AS A SHELF —
+      // the exact shape CLAUDE.md records the hot counter dying in twice.
+      occupy(p.x, p.z);
+      const bin = makeBin(p.id, p.x, p.z, p.rot ?? 2);
+      bin.tier = p.tier ?? 1;
+      bin.variant = p.variant ?? '';
+      bin.piece = p.piece ?? null;
+      binsOut.push(bin);
+      reserve(bin.useAt);
     } else if (p.kind === 'checkout') {
       occupy(p.x, p.z);
       const till = makeCheckout(layoutSoFar(), p.id, p.x, p.z, p.rot ?? 1, checkoutsOut);
@@ -1003,6 +1070,12 @@ function compose(req, storeW, storeH, allowDrops = true) {
       /** Decorations. Placed only, never generated. */
       props: propsOut,
       /**
+       * Where rubbish goes. Placed only — a shop starts without one, and every
+       * shop that already exists opens with an empty list and plays exactly as
+       * it did.
+       */
+      bins: binsOut,
+      /**
        * Which design of floor is painted on each cell that has one.
        *
        * Sparse, and separate from `tiles` on purpose: `tiles` says what may
@@ -1153,6 +1226,31 @@ function makeStation(id, station, x, z, rot) {
     // decision, the way a shelf's `assigned` is, and it survives the same two
     // things: a re-flow (`carryOver`) and a restart (`persist`).
     recipe: null,
+  };
+}
+
+/**
+ * The bin, which is the simplest fixture in here: a tile and a side to stand at.
+ *
+ * No contents, and that is a decision rather than an omission. A skip that
+ * FILLS UP would need emptying, which is a second job, a second readout and a
+ * second way for the shop to jam — and the thing it would model is a chore
+ * nobody is asking for. What goes in is gone, and what limits it is the walk.
+ *
+ * `kind` on the record for the reason `makeStation`'s note gives at length:
+ * `pieceFor` matches on `piece` AND `kind`, so a constructor that forgets it
+ * resolves to no catalog row and `fixtureStats` quietly answers 1/1/1.
+ */
+function makeBin(id, x, z, rot) {
+  return {
+    tier: 1,
+    variant: '',
+    id,
+    kind: 'bin',
+    x,
+    z,
+    rot,
+    useAt: anchorTile(x, z, rot),
   };
 }
 

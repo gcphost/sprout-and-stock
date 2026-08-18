@@ -285,9 +285,27 @@ export function buildVehicle(model, { t = 1 } = {}) {
 
 /**
  * The little floating bubble above a customer showing what they're after,
- * and above a player showing what they're carrying.
+ * above a player showing what they're carrying, and over a bare board showing
+ * what it is waiting for.
+ *
+ * The look is the original one, restored. It was rebuilt once — icon in front
+ * of the shell, unlit dark badge, `modelExtent` fitting each item to fill it —
+ * on the argument that a translucent shell painted over its own subject and
+ * that one fixed scale suits no item. Every word of that is true and it came
+ * out worse in the hand: a solid badge is a hard-edged sticker floating over a
+ * soft-shaded shop, and an icon sized to fill it is a lump rather than a
+ * glance. What reads is a small thing in a soft bubble.
+ *
+ * Left here because the reasoning is worth not repeating: if this is picked up
+ * again, the thing to change is the ART — a flat sprite of the same 2D item
+ * drawing the HUD uses — not the size of a model in a ball.
+ *
+ * Pass the model and it builds the icon; pass nothing for a bubble with a
+ * thought and no subject. That much of the rebuild stays, because two callers
+ * measuring an item two ways is two badges that disagree about how big a
+ * tomato is.
  */
-export function buildBubble() {
+export function buildBubble(model = null) {
   const g = new THREE.Group();
   // Translucent, and big enough to hold the icon. It used to be an opaque
   // sphere smaller than the thing inside it, so every shopper walked around
@@ -306,6 +324,14 @@ export function buildBubble() {
     g.add(dot);
   }
 
+  if (model) {
+    const icon = buildModel(model, { castShadow: false });
+    // Sized to sit *inside* the shell rather than burst out of it.
+    icon.scale.setScalar(0.52);
+    icon.position.y = -0.17;
+    g.add(icon);
+  }
+
   g.position.y = 1.32;
   // The shell is a sphere and could not care less, but the two trailing dots
   // are placed off one shoulder to read as a thought coming *from* whoever is
@@ -319,7 +345,7 @@ let bubbleMat = null;
 function bubbleMaterial() {
   if (!bubbleMat) {
     bubbleMat = new THREE.MeshLambertMaterial({
-      color: 0xffffff, transparent: true, opacity: 0.62,
+      color: 0xffffff, transparent: true, opacity: 0.5,
       depthWrite: false, flatShading: true,
     });
   }
@@ -524,7 +550,7 @@ export const CRATE_STEP = CRATE_DECK + CRATE_H;
  * crate says what is in it in words instead: the one place in the game a crate
  * has ever needed to name itself is when you cannot see into it.
  */
-export function buildPallet(piles, { covered = false, cap = 6 } = {}) {
+export function buildPallet(piles, { covered = false, cap = 6, waste = false } = {}) {
   const g = new THREE.Group();
   const qty = piles.reduce((n, p) => n + p.qty, 0);
 
@@ -538,7 +564,15 @@ export function buildPallet(piles, { covered = false, cap = 6 } = {}) {
   }
 
   // Crate walls, open-topped so the goods read from above.
-  const crateMat = material('#a8763f');
+  //
+  // Rubbish is the same box in a different wood, and that is the whole of the
+  // difference on purpose: what tells you it is rubbish is WHERE it is and the
+  // fact that somebody is carrying it to the skip. A second silhouette would be
+  // a new object to learn for a crate that behaves like every other crate —
+  // you can pick it up, it stacks, it holds the same goods. Grey-green and
+  // darker, so it reads as spoiled from across the shop without the goods
+  // inside having to change colour.
+  const crateMat = material(waste ? '#6d6a58' : '#a8763f');
   const rim = (CRATE - CRATE_WALL) / 2;
   const wall = (sx, sz, px, pz) => {
     const m = new THREE.Mesh(GEO.box, crateMat);
@@ -609,16 +643,27 @@ export function buildPallet(piles, { covered = false, cap = 6 } = {}) {
   // crate above, which reads as that crate's number rather than as this one's.
   // Sprites already ignore depth, so a buried crate's label stays legible
   // through everything standing on it — which is the whole point of it.
-  // A covered crate has to NAME what is in it, because the box on top is a lid
-  // in every sense but the word and the sample below is invisible. With more
-  // than one pile there is no single name, so it says how many kinds instead —
-  // which is the fact the samples would have carried.
-  const said = piles.length > 1
-    ? `${qty}x, ${piles.length} kinds`
-    : (piles[0]?.name ? `${qty}x ${piles[0].name}` : `x${qty}`);
-  const label = covered
-    ? buildTextSprite(said, { fill: '#ffe9b8', scale: 0.62 })
-    : buildTextSprite(`x${qty}`, { fill: '#ffe9b8', scale: 0.7 });
+  // Every crate NAMES what is in it, pile by pile, a row each.
+  //
+  // Only a covered one used to, on the argument that an open box shows you its
+  // goods — and it does, at about eight pixels a unit from this camera, which
+  // is enough to tell a box of something from an empty box and not enough to
+  // find the coffee. So an open crate said `x12` and a mixed one said "2
+  // kinds", and looking for a particular thing in a yard meant walking up to
+  // every box in turn. The count was never the hard question.
+  //
+  // A row per pile rather than a list, because `LOT_KINDS` is 3 and three names
+  // run together shrink to an unreadable width — see `paintText`, which now
+  // takes the height out of the size instead.
+  const said = piles.some((p) => p.name)
+    ? piles.map((p) => `${p.qty}x ${p.name || '?'}`).join('\n')
+    : `x${qty}`;
+  const label = buildTextSprite(said, {
+    fill: '#ffe9b8',
+    // A buried crate's label sits on its own front between two boxes, so it has
+    // less room than one hanging in clear air above the pile.
+    scale: covered ? 0.62 : 0.7,
+  });
   label.position.y = covered ? CRATE_DECK + CRATE_H / 2 : 0.78;
   g.add(label);
 
@@ -1125,6 +1170,14 @@ const MARKER_LOOK = {
   // a person occupies about a third of a tile and a tile-sized frame under one
   // in an aisle rings the shelf behind them as well.
   person: { color: 0xffd66b, half: 0.34, band: 0.07, chevron: true },
+  // The one whose menu is open, said about somebody rather than about a shelf.
+  // It is `selected` and `person` crossed, and both halves are load-bearing:
+  // the teal because it is not a verb — nothing is about to happen to them,
+  // they are the thing you are reading about — and the tighter frame because a
+  // person occupies about a third of a tile. Corner arms rather than a closed
+  // frame for the same reason `selected` has them: the amber aim frame has to
+  // be able to sit inside it when you point at the hire you already opened.
+  personSelected: { color: 0x5fd6c4, half: 0.38, band: 0.07, arm: 0.2, chevron: false },
   // One pile of goods on a unit that holds several. The same amber as the aim
   // frame, because it is the same sentence — and with no chevron, which is the
   // only thing separating the two: the arrow is drawn well clear of the box it
@@ -1181,6 +1234,45 @@ export function buildTargetMarker(mode = 'aim') {
     g.add(arrow);
     g.userData.arrow = arrow;
   }
+  return g;
+}
+
+/**
+ * The same signpost, for a target that is off the edge of the screen.
+ *
+ * A chevron over a shelf answers "which one" and says nothing at all about a
+ * shelf you cannot see — and the shop is bigger than the view at any zoom worth
+ * playing at, so an armful of bread routinely lights up units that are simply
+ * not on screen. What you are left looking at is a shop with nowhere to put
+ * anything, which is the same picture as a shop with nowhere to put anything.
+ *
+ * So the marker gets pushed to the frame and turned to point at what it belongs
+ * to — the off-screen indicator every game with a map bigger than its camera
+ * has. It is the same cone and the same green on purpose: it is not a second
+ * kind of readout, it is the *same* readout, seen from too far away.
+ *
+ * Built pointing along +Y in its own space, so whoever places it turns it with
+ * one rotation about the view axis. Flattened on z because it is only ever seen
+ * face on — a solid cone at the screen edge picks up its own shading and reads
+ * as a lump rather than as an arrowhead.
+ */
+export function buildEdgeArrow(color = 0x7cc46a) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.95, depthTest: false,
+  });
+  const head = new THREE.Mesh(GEO.cone, mat);
+  head.scale.set(0.8, 1, 0.2);
+  head.renderOrder = 14;
+  g.add(head);
+  // A stub of a tail. The head alone is a triangle, and a triangle at the edge
+  // of the screen is as much a warning sign as a pointer; the tail is what makes
+  // it read as travelling that way.
+  const tail = new THREE.Mesh(GEO.box, mat);
+  tail.scale.set(0.26, 0.42, 0.2);
+  tail.position.y = -0.62;
+  tail.renderOrder = 14;
+  g.add(tail);
   return g;
 }
 
@@ -1431,30 +1523,53 @@ export function setTextSprite(sprite, text) {
   return sprite;
 }
 
-/** The drawing itself, so building one and rewriting one cannot drift apart. */
+/**
+ * The drawing itself, so building one and rewriting one cannot drift apart.
+ *
+ * `\n` is a real line break. A mixed crate names each pile on its own row, and
+ * run together on one line those shrink-to-fit down to about 18px — legible
+ * words turned into a grey smear, which is the same failure as clipping wearing
+ * a smaller font. Height is a bound as well as width for that reason: the canvas
+ * is fixed and the sprite's shape is fixed, so three rows have to be paid for
+ * out of the size of each.
+ */
 function paintText(ctx, canvas, text, fill) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Shrunk to fit rather than clipped. The canvas is a fixed size and the
-  // sprite is a fixed shape, so a string longer than "x12" — a crate naming
-  // what is in it — used to run off both ends and lose its first and last
-  // letters. A smaller word is readable; half a word is not.
+  const lines = String(text).split('\n');
   const MAX_W = canvas.width - 20;
+  const MAX_H = canvas.height - 12;
+  const LEADING = 1.15;
+
+  // Shrunk to fit rather than clipped, on whichever of the two runs out first.
   let px = 58;
   ctx.font = `bold ${px}px system-ui, sans-serif`;
-  const wide = ctx.measureText(text).width;
-  if (wide > MAX_W) {
-    px = Math.max(18, Math.floor(px * (MAX_W / wide)));
+  const wide = Math.max(...lines.map((l) => ctx.measureText(l).width));
+  const fit = Math.min(
+    wide > MAX_W ? MAX_W / wide : 1,
+    MAX_H / (px * LEADING * lines.length),
+    1,
+  );
+  if (fit < 1) {
+    px = Math.max(16, Math.floor(px * fit));
     ctx.font = `bold ${px}px system-ui, sans-serif`;
   }
+
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   // Outline first so the number stays readable against grass or floorboards.
   ctx.lineWidth = Math.max(4, px / 5.8);
   ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-  ctx.strokeText(text, 128, 50);
   ctx.fillStyle = fill;
-  ctx.fillText(text, 128, 50);
+
+  const step = px * LEADING;
+  // Centred on the same point one line used to sit on, so a crate that gains a
+  // second pile grows in both directions rather than sliding up the box.
+  const top = 50 - ((lines.length - 1) * step) / 2;
+  lines.forEach((line, i) => {
+    ctx.strokeText(line, 128, top + i * step);
+    ctx.fillText(line, 128, top + i * step);
+  });
 }
 
 /**

@@ -642,9 +642,19 @@ function totalOnFloor(g, itemId) {
   // happens — a milestone gift — is headed off in `fresh`.)
   g.orders.auto = false;
 
-  // Three full crates in the yard, and three porters. Every shelf bare, so
-  // every one of them is a legal destination and the only thing that can spread
-  // the hires out is `inbound`.
+  // Three full crates in the yard, and three porters — and three boards ticked
+  // for what is in them, which is what makes three destinations legal at all.
+  //
+  // "Every shelf bare, so every one is legal" was the setup here for as long as
+  // an item could land anywhere with room. `Game.homeShelves` retired that: the
+  // shop keeps a thing in ONE place now, so a bare shop offers one legal board
+  // for one item and two of these porters would correctly walk their crates
+  // back to the pad — which would test the home rule and say nothing at all
+  // about `inbound`. A reservation is the player's own override of the home
+  // rule, so ticking three units is the shortest way back to the world this
+  // claim is about: three boards that will each take the same goods, where the
+  // only thing that can stop two hires choosing the same one is `inbound`.
+  for (const sh of g.layout.shelves.slice(0, 3)) sh.assigned = [TEST_SPUD.id];
   g.deliveries = [];
   for (const cell of bay.cells.slice(0, 3)) {
     g.dropGoods(TEST_SPUD.id, g.crateCapacity(), cell);

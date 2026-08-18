@@ -282,26 +282,47 @@ for (let s = 0; s < Math.min(SEEDS, 12); s++) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3: bought floor area and a moved door.
+// Phase 3: bought LAND and a moved door.
 //
-// An extension has to actually add floor. The obvious implementation — treat it
-// as a minimum size — gives back almost nothing, because the shop has usually
-// already grown past the minimum to fit its own shelving.
+// An extension has to actually add somewhere to build. It used to add it to the
+// *building* — bigger shell, re-stamped walls — which is the wrong shape for a
+// game where the walls and the floor are things you draw: what you had drawn got
+// a new outer wall stamped three tiles past it and the old one left stranded
+// inside. So `grow` is the WORLD's size now, and the claims flip with it.
+//
+// The one that matters is not "the world got bigger" — it is that **the
+// building did not move**. Every fixture in a stamped shop is an absolute tile
+// and the shop has always been *centred* east-west, derived fresh from the
+// world's width. That was safe only while the width was a constant: the moment
+// land could widen it, a re-derived centre slides the whole building sideways
+// out from under its own contents, and `applyPlacements` hands the strays back
+// with a refund. It is the `shell.z` disaster on the axis nobody had pinned, and
+// a screenshot of it looks like a shop that is simply somewhere else.
 // ---------------------------------------------------------------------------
 
 for (let s = 0; s < Math.min(SEEDS, 8); s++) {
   const seed = `grow-${s}`;
   const base = { seed, shelves: 8, freezers: 2, checkouts: 2, plots: 8, stations: ['blender'] };
   const L0 = generateLayout(base);
+  // A stamped shop — which is every shop anybody is playing, and the only kind
+  // that can have bought anything.
+  const shell = { w: L0.store.w, h: L0.store.h, x: L0.store.x, z: L0.store.z };
 
   for (const [gw, gh] of [[3, 0], [0, 3], [3, 3], [6, 2]]) {
-    const L = generateLayout({ ...base, grow: { w: gw, h: gh } });
-    check(L.store.w === L0.store.w + gw,
-      'bought width did not all arrive',
-      `${seed}: +${gw} gave ${L0.store.w} -> ${L.store.w}`);
-    check(L.store.h === L0.store.h + gh,
-      'bought depth did not all arrive',
-      `${seed}: +${gh} gave ${L0.store.h} -> ${L.store.h}`);
+    const L = generateLayout({ ...base, shell, grow: { w: gw, h: gh } });
+    check(L.w === L0.w + gw,
+      'bought width did not all arrive as world',
+      `${seed}: +${gw} gave ${L0.w} -> ${L.w}`);
+    check(L.h === L0.h + gh,
+      'bought depth did not all arrive as world',
+      `${seed}: +${gh} gave ${L0.h} -> ${L.h}`);
+    // The centrepiece. Same building, same corner, whatever you bought.
+    check(L.store.x === L0.store.x && L.store.z === L0.store.z,
+      'buying land moved the building',
+      `${seed}: +${gw},${gh} moved ${L0.store.x},${L0.store.z} -> ${L.store.x},${L.store.z}`);
+    check(L.store.w === L0.store.w && L.store.h === L0.store.h,
+      'buying land resized the building',
+      `${seed}: +${gw},${gh} gave ${L.store.w}x${L.store.h}, was ${L0.store.w}x${L0.store.h}`);
     check(L.shelves.length === base.shelves + base.freezers,
       'expanding changed the shelf count', `${seed}: got ${L.shelves.length}`);
     check(L.plots.length === base.plots,
@@ -309,6 +330,17 @@ for (let s = 0; s < Math.min(SEEDS, 8); s++) {
     check(L.checkouts.length === base.checkouts,
       'expanding changed the till count', `${seed}: got ${L.checkouts.length}`);
   }
+
+  // ...and a shell written before `x` existed does not move either, which is
+  // the whole of the migration. Such a save cannot have bought land under the
+  // new rule, so the honest fallback is the centre of the world it is standing
+  // in — and `WORLD_W` alone would not do it, because a shop with a big
+  // building or a wide farm already sits in a world wider than the minimum.
+  const { x: _dropped, ...legacy } = shell;
+  const Lold = generateLayout({ ...base, shell: legacy });
+  check(Lold.store.x === L0.store.x,
+    'a shell with no x moved the building',
+    `${seed}: ${L0.store.x} -> ${Lold.store.x}`);
 
   // The door slides along the south wall. The yard behind is anchored to the
   // *building* rather than to the door, on purpose — the pads sit at the two

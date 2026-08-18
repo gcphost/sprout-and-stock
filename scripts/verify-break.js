@@ -120,7 +120,12 @@ for (const r of TEST_GROUND) {
 const TEST_WORKER = {
   id: 'verify-break-hand', name: 'Test Hand', color: '#7a9e4b',
   jobs: [{ job: 'serve', weight: 1 }], cost: 0, wage: 0, speed: 20, pace: 0.05,
-  tiers: [{ name: 'Standard', cost: 0 }],
+  // TWO rungs, and the second one moves nothing. Sections 1-6 are all about a
+  // hire on rung 1, so a rung above them has to be provably free — every
+  // multiplier defaults to 1, so this is the ladder existing and nothing else.
+  // It exists for section 7, where being above the bottom rung is the whole
+  // condition.
+  tiers: [{ name: 'Standard', cost: 0 }, { name: 'Promoted', cost: 0 }],
 };
 process.on('exit', () => { try { remove('workers', TEST_WORKER.id); } catch { /* best effort */ } });
 {
@@ -218,6 +223,8 @@ const atSpot = (s, spot) => spot != null && Math.hypot(s.x - spot.x, s.z - spot.
 
 /** What one break restores, off the row they actually drew. */
 const restoresOf = (id) => content().byId.pastimes[id]?.restores ?? 0.5;
+/** ...and the other authored number, for the claim about how LONG a break is. */
+const secondsOf = (id) => Math.max(1, content().byId.pastimes[id]?.seconds ?? 20);
 
 // ---------------------------------------------------------------------------
 // 1. A shop with no break area is the shop that was here before.
@@ -285,10 +292,18 @@ const restoresOf = (id) => content().byId.pastimes[id]?.restores ?? 0.5;
 }
 
 // ---------------------------------------------------------------------------
-// 3. A break in the room is worth more than the same break out of it.
+// 3. A break in the room is worth more than the same break out of it, and it is
+//    over sooner.
 //
-// The number that makes it worth painting. Without it the room is ground you
+// The numbers that make it worth painting. Without them the room is ground you
 // pay for that only ever costs you the walk.
+//
+// Two of them rather than one, and they are different currencies: restoring
+// more means FEWER breaks, finishing sooner means SHORTER ones. Both are
+// asserted because either alone would leave the other free to be quietly
+// dropped — and neither is visible in play, since what you would have to notice
+// is a break that did NOT happen, or one that ended a few seconds earlier than
+// the same break somewhere else.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -298,10 +313,26 @@ const restoresOf = (id) => content().byId.pastimes[id]?.restores ?? 0.5;
   check(until(g, () => s.pastime != null) != null, 'a hire takes a break in the room');
   const drew = s.pastime;
   check(s.breakAt != null, 'in it');
+  // Read off the deadline the moment it is set rather than timed with a wall
+  // clock: the span IS the claim, and watching for the end measures the walk
+  // back as well.
+  const span = g.elapsed != null ? s.breakUntil - s.breakFrom : 0;
+  near(span, secondsOf(drew) * 0.7, 0.05,
+    'and their break is the shorter for it', `${span.toFixed(2)}s`);
   check(until(g, () => s.pastime == null) != null, 'and comes back off it');
   near(s.energy, DRAINED + restoresOf(drew) * 1.5, 0.02,
     'having restored half again what that same break restores outside it');
   eq(s.breakAt, null, 'and gives the seat back on standing up');
+
+  // …and the same break with no room to take it in is the authored length, or
+  // the multiplier above is being asserted against itself.
+  const g2 = fresh();
+  const [s2] = hire(g2);
+  drain(s2);
+  check(until(g2, () => s2.pastime != null) != null, 'a hire in a shop with no room takes one too');
+  eq(s2.breakAt, null, 'standing up somewhere');
+  near(s2.breakUntil - s2.breakFrom, secondsOf(s2.pastime), 0.05,
+    'and it runs for exactly as long as the pastime says');
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +442,172 @@ const restoresOf = (id) => content().byId.pastimes[id]?.restores ?? 0.5;
   check(/last break tile/.test(back.warn ?? ''), 'with a warning that it was the last of it',
     back.warn ?? 'none');
   check(g.layout.break === null, 'leaving the shop with no break area');
+}
+
+// ---------------------------------------------------------------------------
+// 7. A promoted unit takes ITSELF off to charge, and puts itself back.
+//
+// Everything in here is invisible twice over. A bot in the break room because
+// it is worn out and a bot in the break room because there is nothing on are
+// the same still frame — and the two claims that matter most are about somebody
+// who did NOT go, and about a charge that ENDED. What it would read as if any
+// of it broke is a promotion you paid for that made a unit lazy.
+//
+// `energy` is set by hand throughout rather than worked for. Every other route
+// to a part-empty tank is a hire doing jobs, and a hire doing jobs is a hire who
+// is not idle, which is the one state this whole section is about.
+// ---------------------------------------------------------------------------
+
+/**
+ * Below full and comfortably above `SPENT`, so nothing in here is a tired break
+ * — and low enough that a whole seated charge still lands short of the clamp at
+ * 1, or every energy assertion below would be measuring `clamp01` rather than
+ * what a charge is worth.
+ */
+const TOPPABLE = 0.32;
+
+/** Long enough to clear `BORED_SECONDS` (15s) and walk across a small shop. */
+const BORED_ENOUGH = 26;
+
+{
+  // 7a. The bottom rung never does it, which is every shop that exists today.
+  const g = fresh();
+  paintBreak(g, g.layout.store.x + 1, yardRow(g), 2);
+  const [s] = hire(g);
+  s.energy = TOPPABLE;
+  until(g, () => false, BORED_ENOUGH * 10);
+  eq(s.pastime, null, 'a hire on the bottom rung stands about rather than charging');
+  eq(s.breakAt, null, 'and takes no seat in the room');
+  near(s.energy, TOPPABLE, 1e-9, 'and gains nothing, because nothing happened');
+}
+
+{
+  // 7b. A rung up, and the same shop sends them to the room on their own.
+  const g = fresh();
+  paintBreak(g, g.layout.store.x + 1, yardRow(g), 2);
+  const [s] = hire(g);
+  const res = g.promote(g.roster[0].id);
+  check(res.ok, 'the hire can be promoted', res.error ?? '');
+  s.energy = TOPPABLE;
+
+  // Nothing for the first twelve seconds, so this cannot pass on a hire who
+  // simply goes the moment they are idle — which is a unit that never works.
+  eq(until(g, () => s.pastime != null, 12 * 10), null,
+    'a short lull is not boredom — nothing happens for the first 12s');
+
+  check(until(g, () => s.pastime != null, BORED_ENOUGH * 10) != null,
+    'a promoted hire with nothing to do takes itself off to charge');
+  const drew = s.pastime;
+  check(s.breakAt != null, 'and it is a SEAT in the room, never a spot on the floor');
+  check(s.idleCharge === true, 'flagged as a charge rather than a break, or nothing tells them apart');
+
+  // Sat all the way out, it is an ordinary break in every way but why it began.
+  // Both halves of what the room is worth, read off what they DREW —
+  // `choosePastime` weights across everything authored, so asserting against
+  // this sweep's own row would be asserting against a coin toss.
+  //
+  // The span is the sharp one: unlike the energy below it can never be clamped,
+  // so a charge that quietly stopped being a *seated* break would show up here
+  // whatever the tank happened to be.
+  near(s.breakUntil - s.breakFrom, secondsOf(drew) * 0.7, 0.05,
+    'running for the shorter seated span', `${(s.breakUntil - s.breakFrom).toFixed(2)}s`);
+  check(until(g, () => s.pastime == null, 60 * 10) != null, 'the charge finishes on its own');
+  near(s.energy, Math.min(1, TOPPABLE + restoresOf(drew) * 1.5), 0.02,
+    'and pays the seated rate, the same as any other break in the room');
+  eq(s.breakAt, null, 'giving the seat back on standing up');
+}
+
+{
+  // 7c. No room, no charge. The half that keeps every existing shop unchanged —
+  // a bored unit must not start leaning on shelves in the middle of the floor,
+  // which is what it would do if this reached for `spotFor` like a break does.
+  const g = fresh();
+  const [s] = hire(g);
+  g.promote(g.roster[0].id);
+  s.energy = TOPPABLE;
+  until(g, () => false, BORED_ENOUGH * 10);
+  eq(g.layout.break, null, 'the shop never painted a break area');
+  eq(s.pastime, null, 'so a bored unit does not charge at all');
+}
+
+{
+  // 7d. A full tank is nothing to gain, so the walk is not worth making.
+  const g = fresh();
+  paintBreak(g, g.layout.store.x + 1, yardRow(g), 2);
+  const [s] = hire(g);
+  g.promote(g.roster[0].id);
+  s.energy = 1;
+  until(g, () => false, BORED_ENOUGH * 10);
+  eq(s.pastime, null, 'a unit on a full tank stays put rather than charging for nothing');
+}
+
+{
+  // 7e. THE CENTREPIECE: anything at all outranks it.
+  //
+  // This is the whole difference between a charge and a break, and it is a claim
+  // about a thing that did NOT happen — a job that did not wait. A break holds
+  // the tick against the job list by design; if a charge did the same, promoting
+  // your clerk would buy you a till nobody is on for twenty seconds at a time,
+  // and the tell would be a shop that got slower when you spent money on it.
+  //
+  // Judged against their OWN deadline rather than against a stopwatch. Timed
+  // instead, this passes on a charge that simply ran out — which is the same
+  // picture and the exact bug being guarded.
+  const g = fresh();
+  paintBreak(g, g.layout.store.x + 1, yardRow(g), 2);
+  const [s] = hire(g);
+  g.promote(g.roster[0].id);
+  // A job a pallet can wake, unlike `serve` in a shop with no till.
+  const jobs = g.assignJobs(g.roster[0].id, [{ job: 'unload', weight: 1 }]);
+  check(jobs.ok, 'the hire is given a job that a delivery can wake', jobs.error ?? '');
+  s.energy = TOPPABLE;
+
+  check(until(g, () => s.pastime != null, BORED_ENOUGH * 10) != null,
+    'they settle into a charge with the bay empty');
+  const drew = s.pastime;
+  const from = s.breakFrom;
+  const deadline = s.breakUntil;
+  const banked = s.energy;
+  check(s.breakAt != null, 'in a real seat');
+
+  // A quarter of the way in, the shop takes a delivery. A QUARTER rather than a
+  // flat second, because the pastime they drew could be any authored length, and
+  // what the assertion below needs is that the share they sat is worth more than
+  // the drain of the one job that woke them — which a fixed slice of a
+  // forty-second charge would not be.
+  const sit = (deadline - from) * 0.25;
+  while (g.elapsed < from + sit) g.step(0.1);
+  const item = content().items
+    .find((it) => !it.tags.includes('frozen') && !it.tags.includes('needs-freezer'));
+  check(!!item, 'the catalog has an ambient item to deliver');
+  g.dropGoods(item.id, 4, g.layout.bay);
+
+  check(until(g, () => s.pastime == null, 60 * 10) != null, 'and they get up');
+  check(g.elapsed < deadline, 'BEFORE their own charge was due to end, which is the whole claim',
+    `${g.elapsed.toFixed(1)}s against a deadline of ${deadline.toFixed(1)}s`);
+  eq(s.idleCharge, false, 'the charge is over rather than merely paused');
+  eq(s.breakAt, null, 'and the seat is handed back for somebody else');
+
+  // Pro-rata, which is neither of the two easy wrong answers: crediting nothing
+  // makes one delivery arriving strictly worse for the shop than none, and
+  // crediting the whole `restores` makes being interrupted the best thing that
+  // can happen to a hire.
+  //
+  // The ceiling is exact; the floor is where they sat down, and is deliberately
+  // loose by one job. The tick they stand up is also the tick they TAKE the job
+  // that woke them, so `spend` draws `DRAIN` off the same number a few lines
+  // before `endCharge` adds to it — and naming `DRAIN` here would mean a balance
+  // retune failing a sweep about breaks. Both wrong answers are still excluded:
+  // crediting nothing leaves them below where they sat down, and crediting the
+  // lot puts them over the ceiling.
+  const full = restoresOf(drew) * 1.5;
+  const share = Math.max(0, Math.min(1, (g.elapsed - from) / (deadline - from)));
+  check(share > 0 && share < 1, 'having sat part of it', share.toFixed(3));
+  check(s.energy > banked, 'they are better off than when they sat down',
+    `${banked.toFixed(4)} -> ${s.energy.toFixed(4)}`);
+  check(s.energy <= banked + full * share + 1e-9,
+    'by no more than the share of the charge they actually took',
+    `${s.energy.toFixed(4)} against a ceiling of ${(banked + full * share).toFixed(4)}`);
 }
 
 // ---------------------------------------------------------------------------

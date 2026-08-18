@@ -35,8 +35,9 @@
 import { content } from '../content.js';
 import { findPath, followPath } from './pathing.js';
 import { suggestedPrice, wholesalePrice } from './economy.js';
-import { isPadAt, shelfKind } from '../../shared/build.js';
+import { isPadAt, shelfKind, isWalkableTile, REACH } from '../../shared/build.js';
 import { homeKind } from '../../shared/tags.js';
+import { hash01 } from '../../shared/hash.js';
 import { lotStacks, lotTotal, lotQty, lotHas, lotMain } from '../../shared/lot.js';
 
 /** Don't let a hire spend the shop down to nothing restocking. */
@@ -83,6 +84,37 @@ const TIRED_PACE = 1.8;
  * full, which means fewer of them, which is what pays for the walk.
  */
 const SEATED_RESTORE = 1.5;
+/**
+ * ...and how long that break takes, against the same break taken standing up.
+ *
+ * The other half of the same sentence, and the half a player asks for first: a
+ * proper room with somewhere to sit gets you back on the floor sooner, not only
+ * fuller. They are genuinely different currencies — restoring more means FEWER
+ * breaks, finishing sooner means SHORTER ones — and a room is worth painting
+ * for either reason, so it does both rather than trading one off against the
+ * other.
+ *
+ * It is a multiplier on the pastime's own `seconds` rather than a number of its
+ * own, for the reason `SEATED_RESTORE` multiplies `restores`: what a break IS
+ * stays authored, and the room is a modifier on it. A flat "breaks in here take
+ * 8 seconds" would quietly delete the difference between a brew and a sandwich.
+ *
+ * `breakProgress` needs nothing: it divides by the span it is given, so a
+ * shorter break plays the same flipbook faster, which is what a stage arc means.
+ */
+const SEATED_SPEED = 0.7;
+
+/**
+ * How long a hire stands about with nothing on before taking themselves off to
+ * charge.
+ *
+ * Long enough that it is a *quiet shop* rather than a gap: the job list is asked
+ * every `IDLE` (0.6s), so fifteen seconds is twenty-five consecutive draws in
+ * which nothing anywhere wanted doing. A busy shop never reaches it, which is
+ * the whole guard — there is no other test for "is there work", because "the
+ * whole list declined, repeatedly" already is one.
+ */
+const BORED_SECONDS = 15;
 
 /** 1 when fresh, TIRED_PACE when empty. Everything they do stretches by this. */
 const tiredness = (s) => 1 + (TIRED_PACE - 1) * (1 - clamp01(s.energy ?? 1));
@@ -181,6 +213,10 @@ export function syncStaff(game) {
       pastime: null,
       /** Which cell of the break area is theirs, while they have one. */
       breakAt: null,
+      /** Since when they have had nothing to do — see `tryCharge`. */
+      idleFrom: null,
+      /** ...and whether the charge they are on is one they took for that reason. */
+      idleCharge: false,
     };
   }
 }
@@ -256,10 +292,35 @@ export function stepStaff(game, dt) {
     // between one tick and the next would then have no job left that could
     // relieve them, and the crate would be welded on for the rest of the shift.
     if (s.haul) {
-      if (unload(game, s)) { s.job = 'unload'; spend(s); continue; }
+      // ...unless the box is rubbish, which `unload` would carry to a SHELF.
+      // Asked first and by the same argument the branch itself makes: a crate
+      // on the shoulder is not a job you may be drawn off, so the one job that
+      // knows how to put THIS box down is the one that has to be offered.
+      if (s.haul.waste) {
+        if (tidy(game, s)) { s.job = 'tidy'; spend(s); s.idleFrom = null; continue; }
+        s.job = null;
+        if (tryBreak(game, s, true)) continue;
+        idle(game, s);
+        continue;
+      }
+      if (unload(game, s)) { s.job = 'unload'; spend(s); s.idleFrom = null; continue; }
       // Could not even set it down. Stand still rather than fall through to a
-      // job that would ignore the box.
+      // job that would ignore the box — but take the break first, which is the
+      // half this branch was missing.
+      //
+      // `onBreak`'s own note says a hire whose hands cannot be emptied must not
+      // defer their break for ever, and the job list below has always had that
+      // fallback (`tryBreak(game, s, true)`, at the bottom). A haul never
+      // reaches it: it is answered up here, so `continue` skipped the one line
+      // that protects them. What that cost is not a slower worker — energy sits
+      // at zero and `tiredness` pins them at `TIRED_PACE` permanently, holding a
+      // crate nobody else will lift.
+      //
+      // It goes after `unload` rather than before it for the same reason the job
+      // list's does: an errand with somewhere to go outranks a rest, and a break
+      // taken on the way to the pad would be a hire who never delivers.
       s.job = null;
+      if (tryBreak(game, s, true)) continue;
       idle(game, s);
       continue;
     }
@@ -283,9 +344,59 @@ export function stepStaff(game, dt) {
         s.job = null;
       }
     }
-    if (took) continue;
+    if (took) {
+      // A charge taken out of boredom is over the moment there is anything to
+      // do — that is the whole difference between it and a break, and this is
+      // the line that makes it true. See `onBreak`, which hands the tick back
+      // instead of holding it precisely so the draw above could run.
+      if (s.pastime) endCharge(game, s);
+      s.idleFrom = null;
+      continue;
+    }
 
-    s.job = null;
+    /**
+     * ANYBODY CAN EMPTY THEIR OWN HANDS, whatever is on their list.
+     *
+     * Called directly rather than through the draw, and the argument is the one
+     * `s.haul` makes twenty lines above, word for word: a hire who cannot put
+     * down what they are holding has no job left that could relieve them, so
+     * the crate — or here the armful — is welded on for the rest of the shift.
+     * `putDown` lived only inside `tidy`, which is a job you have to have been
+     * *given*, and four of the eight hires in a real shop had not been.
+     *
+     * What welds them is not the hands, it is the ARMFUL being one the shop has
+     * given up on. `shelve` rightly refuses an item on `orders.dropped` — that
+     * is `giveUpBoard` doing its job — and `unload` goes on lifting the crates
+     * anyway, so the loop is: pick it up, nothing will take it, stand there.
+     * Found in a live shop with five bots holding jam, peas and coffee and
+     * eleven crates of the same on the floor, which reads as the staff being
+     * stupid rather than as a job list with a hole in it.
+     *
+     * It is LAST, after the whole draw has declined, and it waits out
+     * `STUCK_SECONDS` first — which is not caution, it is the difference
+     * between the two kinds of full hands. **An armful in transit is not an
+     * armful with nowhere to go.** A chef crossing the shop with beans for a
+     * machine declines the draw on any tick they are between things, and
+     * without the dwell this fired on that tick and walked their ingredients
+     * out to the yard — so the kitchen made nothing at all, while looking like
+     * a chef busily carrying something somewhere. `verify:kitchen` caught it on
+     * "still makes things — made 0"; nothing about the code looked wrong.
+     *
+     * `idleFrom` is the right clock and needs no new one, because the `took`
+     * branch above clears it on every tick anybody does anything: a working
+     * hire can never accumulate, and only one the whole shop has no use for
+     * does. It is above the break for the same reason the deferral below
+     * exists — finish what is in your hands first.
+     */
+    if (s.carry && stuckFor(game, s, STUCK_SECONDS) && putDown(game, s)) {
+      s.job = 'tidy'; spend(s); s.idleFrom = null; continue;
+    }
+
+    // A charge in progress is still what they are doing, even on a tick where
+    // the job list was asked and declined. Written as `null` flat, this cleared
+    // the readout every 0.4s for the whole charge, so a bot sat in the room with
+    // a mug would report "looking for something to do" half the time.
+    s.job = s.pastime ? 'break' : null;
     // ...and here is what stops "finish first" becoming "never rest". Their
     // hands are full and the whole job list just declined: no shelf will take
     // it, no station wants it, and nobody gave this hire `tidy`. There is
@@ -293,6 +404,13 @@ export function stepStaff(game, dt) {
     // exactly what every break did before. The deferral can only ever last as
     // long as there is genuinely something to do with what they are carrying.
     if (tryBreak(game, s, true)) continue;
+    if (tryCharge(game, s)) continue;
+    // ...and if there is no case for a rest, there is still no case for standing
+    // still. Last of the three, which is the whole of the ordering: a tired hire
+    // rests, a bored promoted one charges, and anybody else gets on with
+    // something. Above `idle` rather than inside it because `idle` is also the
+    // no-op tick for a clerk walking back to their till, and a chore is not one.
+    if (tryChore(game, s)) continue;
     idle(game, s);
   }
 }
@@ -300,23 +418,167 @@ export function stepStaff(game, dt) {
 /**
  * `onBreak`, with the throw dealt with.
  *
- * A stuck break must not cost a hire their shift, and this is now called twice
- * a tick, so the recovery belongs in one place rather than in two catches that
+ * A stuck break must not cost a hire their shift, and this is now called three
+ * times a tick, so the recovery belongs in one place rather than in catches that
  * can drift apart.
  */
-function tryBreak(game, s, evenCarrying = false) {
+function tryBreak(game, s, evenCarrying = false, bored = false, chore = false) {
   try {
-    return onBreak(game, s, evenCarrying);
+    return onBreak(game, s, evenCarrying, bored, chore);
   } catch {
     s.breakFrom = 0;
     s.breakUntil = 0;
     s.pastime = null;
+    s.idleCharge = false;
+    s.chore = false;
     // The seat goes back with everything else. A claim left on a worker who is
     // no longer on a break is a cell of the room nobody may ever sit in again.
     s.breakAt = null;
     s.energy = 1;   // rather than leaving them stuck at empty and useless
     return false;
   }
+}
+
+/**
+ * A hire with nothing to do takes themselves off to the break area — the second
+ * thing a rung on the ladder sells that is not a multiplier.
+ *
+ * The idea is the shop's own: a unit stood in an aisle doing nothing is a unit
+ * that will be tired later for no reason, and the room is *right there*. What
+ * makes it a promotion rather than a rule is that it is judgement — a Casual
+ * waits to be told, a Trusted works out that now is the moment. Which is why the
+ * gate is "any rung above the first" rather than a hardcoded 2: a kind with one
+ * rung never does it, and a kind with five does it from its second.
+ *
+ * Four things it needs, and each of them is doing work:
+ *
+ * - **A seat, and only a seat.** `seatIn` rather than `spotFor`, so a shop that
+ *   never painted a break area plays exactly as it always did. The authored
+ *   fallback is where a *tired* hire rests when there is nowhere to go; a bored
+ *   one has no business leaning on a shelf in the middle of the shop floor,
+ *   which is a picture of a robot loitering rather than one charging.
+ * - **Empty hands.** `onBreak` defers a break for the same reason and says why:
+ *   a charge with a crate in your arms is a hire who forgot the errand.
+ * - **Somewhere for the energy to go.** A hire at a full tank gains nothing from
+ *   a charge, so they would walk to the room, sit through it and come back
+ *   identical — dead time bought with a walk. Anything short of full qualifies,
+ *   which is deliberately nothing like `SPENT`: this is topping up, not downing
+ *   tools, and a bot that waited until it was worn out would be using the room
+ *   for the thing it already had a reason to use it for.
+ * - **Not already charging.** `stepStaff` reaches here on every declined tick
+ *   *including* the ones in the middle of a charge, since `onBreak` hands those
+ *   back — so without this a bored hire starts a fresh charge every 0.4s.
+ */
+const FULL = 1;
+
+function tryCharge(game, s) {
+  if (s.pastime || s.carry || s.haul) return false;
+  if ((s.energy ?? 1) >= FULL) return false;
+  if ((s.tier ?? 1) <= 1) return false;
+  // `elapsed` restarts at zero on every load (see CLAUDE.md), so a stamp from
+  // the future is a stamp from the last run of the process and reads as "not
+  // bored yet" rather than as "bored for ever".
+  const since = s.idleFrom;
+  if (since == null || game.elapsed < since || game.elapsed - since < BORED_SECONDS) return false;
+  if (!seatIn(game, s)) return false;
+
+  // Everything below is `onBreak`'s own opening, and it is called rather than
+  // copied: which pastime, the walk, the snack and both ends of the clock are
+  // one flow with two ways in, or a charge is a second implementation of a break
+  // that quietly stops matching it.
+  //
+  // The clock is NOT cleared here, and that is the non-obvious half: the room
+  // may be right across the shop, so this returns true for every tick of the
+  // walk and is asked again on the tick they arrive. Cleared on the way in, they
+  // would turn up at the seat no longer bored, stand there, and take the charge
+  // fifteen seconds later — in the room, which is the one place it would look
+  // like nothing was wrong. `onBreak` clears it when the charge actually starts.
+  return tryBreak(game, s, false, true);
+}
+
+/** How long with nothing on before a hire finds something to be getting on with. */
+const CHORE_SECONDS = 3;
+
+/** ...and how long holding something the whole shop declined before they put it down. */
+const STUCK_SECONDS = 5;
+
+/**
+ * Has this hire had nothing to do for `secs`?
+ *
+ * The `elapsed < since` half is the guard `tryCharge` and `tryChore` both make
+ * and is worth having in one place: `elapsed` restarts at zero on every load, so
+ * a stamp left by the last run of the process is in the future, and it has to
+ * read as "not yet" rather than as "for ever".
+ */
+function stuckFor(game, s, secs) {
+  const since = s.idleFrom;
+  return since != null && game.elapsed >= since && game.elapsed - since >= secs;
+}
+
+/**
+ * A hire with nothing to do gets on with something, on the shop floor.
+ *
+ * This is the answer to a question `tryCharge` only half answered: a bot with
+ * nothing on used to stand *perfectly still* wherever it finished, which reads
+ * as broken rather than as quiet — the shop looks like it has crashed. The
+ * charge fixed that for exactly the hires who were promoted, worn out and had a
+ * room to go to, which on any given quiet afternoon is none of them.
+ *
+ * So a chore is the charge's opposite number, and every gate the charge holds is
+ * one this deliberately drops:
+ *
+ * - **Any rung.** Judgement is what the charge sells; sweeping up is not a
+ *   perk, it is what you do rather than stand there.
+ * - **Any tank.** A chore puts nothing back, so there is nothing to be full of.
+ * - **No seat, and no room.** It happens on the floor by definition — see
+ *   `spotFor`, which is where a chore stops being sent to the break area.
+ * - **Three seconds, not fifteen.** The charge is a decision about the shop's
+ *   afternoon; this is somebody looking round for something to do.
+ *
+ * What it keeps is the two that are not about rest at all. Empty hands, because
+ * a hire who wanders off mid-errand is a hire who forgot the errand. And
+ * `idleCharge`, which is what makes the whole thing safe: a chore hands the tick
+ * back, the job draw runs underneath it every tick, and the first real job in
+ * the shop ends it (`endCharge`). A chore can never make the shop slower — the
+ * worst it can do is have somebody two aisles further away, which is exactly
+ * what standing still risked anyway.
+ */
+function tryChore(game, s) {
+  if (s.pastime || s.carry || s.haul) return false;
+  // The same stamp-from-the-future guard `tryCharge` makes, and for the same
+  // reason: `elapsed` restarts at zero on every load, so a stamp left by the
+  // last run of the process has to read as "not yet" rather than as "for ever".
+  const since = s.choreFrom;
+  if (since == null || game.elapsed < since || game.elapsed - since < CHORE_SECONDS) return false;
+  return tryBreak(game, s, false, true, true);
+}
+
+/**
+ * Stand up early, with credit for as much of the charge as was taken.
+ *
+ * Pro-rata rather than nothing, and rather than the lot: a hire pulled off after
+ * two seconds who banked a whole `restores` would make interrupting the charge
+ * the best thing that can happen to them, and one who banked nothing would make
+ * a quiet shop that gets one customer strictly worse than a quiet shop that gets
+ * none. `breakProgress` is the same 0..1 the renderer flips the mug with, so
+ * what they got is exactly what you watched them get.
+ */
+function endCharge(game, s) {
+  const done = content().byId.pastimes?.[s.pastime];
+  const share = breakProgress(s, game.elapsed) ?? 0;
+  s.energy = clamp01((s.energy ?? 0)
+    + (done?.restores ?? 0.5) * share * (s.breakAt ? SEATED_RESTORE : 1));
+  s.pastime = null;
+  s.breakAt = null;
+  s.idleCharge = false;
+  // Broken off because there is work, so both clocks start again — this is the
+  // one exit where that is unambiguously right for each of them. A chore ended
+  // by a customer walking in is a hire who is no longer idle at all, so leaving
+  // the boredom clock running would have them wander off to charge in the middle
+  // of the first job they have had all afternoon.
+  s.idleFrom = null;
+  s.choreFrom = null;
+  s.chore = false;
 }
 
 /**
@@ -476,10 +738,20 @@ function claim(s, kind, id) {
  * hire whose hands cannot be emptied would defer their break forever and stay
  * pinned at `TIRED_PACE`, which is a worse bug than the one the deferral fixes.
  */
-function onBreak(game, s, evenCarrying = false) {
+function onBreak(game, s, evenCarrying = false, bored = false, chore = false) {
   // Mid-break: sit it out, then come back with the tank topped up.
   if (s.pastime) {
-    if (game.elapsed < s.breakUntil) { s.cooldown = 0.4; return true; }
+    if (game.elapsed < s.breakUntil) {
+      s.job = 'break';
+      s.cooldown = 0.4;
+      // A charge somebody took because there was nothing on does NOT outrank the
+      // job list — that inversion is the whole of what tells the two apart. So
+      // the tick is handed back rather than held, the draw in `stepStaff` runs
+      // as it would on any idle tick, and whatever it takes calls `endCharge`.
+      // The cooldown above is still set, so a bot in the room is asked at the
+      // same rate an idle one is rather than ten times a second.
+      return !s.idleCharge;
+    }
     const done = content().byId.pastimes?.[s.pastime];
     // `breakAt` is set when and only when a seat in the break area was claimed,
     // so it is the whole test for "was this break taken in the room" — no
@@ -487,11 +759,21 @@ function onBreak(game, s, evenCarrying = false) {
     s.energy = clamp01((s.energy ?? 0) + (done?.restores ?? 0.5) * (s.breakAt ? SEATED_RESTORE : 1));
     s.pastime = null;
     s.breakAt = null;   // the seat is free again the moment they stand up
+    s.idleCharge = false;
+    // Whichever clock this one ran off starts again from here. A charge that
+    // did not reset the boredom clock would top the same bot up on a loop with
+    // no gap at all; a chore that DID reset it would be the bug the other way
+    // round — a sweeper is not resting, so the fifteen seconds that earn a
+    // charge have to keep running underneath the sweeping.
+    if (s.chore) s.choreFrom = null; else s.idleFrom = null;
+    s.chore = false;
     s.job = null;
     return false;
   }
 
-  if ((s.energy ?? 1) > SPENT) return false;
+  // Being bored is the other way in, and it stands in for exactly this test and
+  // nothing else — `tryCharge` has already made its own case, and a harder one.
+  if (!bored && (s.energy ?? 1) > SPENT) return false;
   // Finish what is in your hands first. Checked *before* the draw below, and
   // that ordering is load-bearing: a deferred break must consume no rng, or the
   // deferral shifts the whole stream and two `simulate` runs of one seed stop
@@ -503,10 +785,26 @@ function onBreak(game, s, evenCarrying = false) {
   // down before anything else on the way there.
   if ((s.carry || s.haul) && !evenCarrying) return false;
 
-  const pick = choosePastime(game, s);
+  const pick = choosePastime(game, s, chore);
   // Nothing authored to do, so they soldier on rather than freezing at empty.
   // A shop with no pastimes in the database plays exactly as it did before.
-  if (!pick) { s.breakAt = null; s.energy = 1; return false; }
+  //
+  // The tank is only topped up on the REST side of that. A shop with no chores
+  // authored has to be a shop where nothing happens — handing a full tank to
+  // somebody who merely had no floor to sweep would make the chore table a
+  // source of free energy by being empty, which is the funniest possible way to
+  // break the break area.
+  if (!pick) { if (!chore) { s.breakAt = null; s.energy = 1; } return false; }
+
+  // Set BEFORE the walk, not with the flags at the bottom, and this is the one
+  // line in here that is purely about what you can see. `spotFor` can send them
+  // the length of the shop, and everything below it only runs on the tick they
+  // arrive — so a flag written down there leaves the sweeper crossing the floor
+  // with its brush stopped, which is precisely the frozen-robot frame the whole
+  // chore exists to get rid of. `endCharge` and the completion branch both clear
+  // it, and so does the `catch` in `tryBreak`, so there is no path that leaves
+  // somebody permanently sweeping.
+  s.chore = chore;
 
   const spot = spotFor(game, s, pick);
   if (spot && !goTo(game, s, spot, 1.2)) { s.job = 'break'; return true; }
@@ -520,7 +818,29 @@ function onBreak(game, s, evenCarrying = false) {
   // the number a pastime's authored stages are flipped by, and you cannot get
   // it back from a deadline alone — see `breakProgress`.
   s.breakFrom = game.elapsed;
-  s.breakUntil = game.elapsed + Math.max(1, pick.seconds ?? 20);
+  // `s.breakAt` is already answered by `spotFor` above — it is set when and only
+  // when a seat in the break area was claimed — so the same one test decides
+  // both halves of what the room is worth, and there is no second flag to keep
+  // in step with where they actually went.
+  s.breakUntil = game.elapsed
+    + Math.max(1, (pick.seconds ?? 20) * (s.breakAt ? SEATED_SPEED : 1));
+  // Which of the two this is, and the one thing a charge keeps that a break does
+  // not. It has to be set here rather than by the caller: `spotFor` above can
+  // send them on a walk first, and a flag written after the walk would be
+  // written on the tick they SIT DOWN — so the tick in between is a charge that
+  // outranks the job list, which is the bug this flag exists to prevent.
+  s.idleCharge = bored;
+  // ...and whether this is work or a rest, which the renderer needs and the
+  // roster reads. Set here for exactly the reason `idleCharge` is: `spotFor`
+  // above can send them on a walk first, and a flag written after the walk is
+  // written on the tick they ARRIVE — so the whole way across the shop the
+  // sweeper would be drawn standing still with its brush stopped, which is the
+  // one frame this feature exists to get rid of.
+  // Each clock is cleared by the thing that runs off it, and only by that. A
+  // chore clearing `idleFrom` would be a hire who never gets bored enough to
+  // charge; a charge clearing `choreFrom` is harmless and is done for tidiness
+  // on the way out below.
+  if (bored) { if (chore) s.choreFrom = null; else s.idleFrom = null; }
   s.job = 'break';
   s.cooldown = 0.4;
   return true;
@@ -550,15 +870,23 @@ export function breakProgress(s, elapsed) {
  * still match. A pastime tagged for a kind of worker is only offered to one
  * carrying that tag; an untagged one is for anybody.
  */
-function choosePastime(game, s) {
+function choosePastime(game, s, chore = false) {
   const mine = new Set(kindOf(s)?.tags ?? []);
   const options = (content().pastimes ?? [])
     .filter((p) => (p.weight ?? 1) > 0)
+    .filter((p) => isChore(p) === chore)
     .filter((p) => !p.tags?.length || p.tags.some((t) => mine.has(t)));
   if (!options.length) return null;
 
+  // Which side of the draw this is decides where the number comes from, and it
+  // is not a style choice. A rest happens a handful of times a day and belongs
+  // in the measured stream. A chore is asked of every spare hire on every quiet
+  // tick — put that in `this.rng` and the stream is not shifted, it is shredded,
+  // so two `simulate` runs of one seed diverge the moment a shop has somebody
+  // standing about. Hashed on the hire and the stretch of quiet, so it is stable
+  // across the walk and different next time round. See `shared/hash.js`.
   const total = options.reduce((n, p) => n + (p.weight ?? 1), 0);
-  let r = game.rng.next() * total;
+  let r = (chore ? hash01(`${s.id}:chore:${s.idleFrom ?? 0}`) : game.rng.next()) * total;
   for (const p of options) {
     r -= p.weight ?? 1;
     if (r <= 0) return p;
@@ -582,8 +910,26 @@ function choosePastime(game, s) {
  * act, or two hires pick the same cell and stand inside each other.
  */
 function spotFor(game, s, p) {
-  return seatIn(game, s) ?? authoredSpot(game, p);
+  // ...and the one exception, which is not a hole in that rule but the other
+  // side of it. The room outranks where a REST happens, because half your hires
+  // resting in the aisle would make the room read as broken. A chore is not a
+  // rest — a bot sweeping the staff room is a bot not sweeping the shop — so it
+  // keeps the spot it authored, which is the floor. Said as `isChore` rather
+  // than `spot === 'roam'` so that a second kind of chore inherits it.
+  if (isChore(p)) { s.breakAt = null; return authoredSpot(game, p, s); }
+  return seatIn(game, s) ?? authoredSpot(game, p, s);
 }
+
+/**
+ * Is this pastime a job of work rather than a sit down?
+ *
+ * One test, asked in five places, because the alternative is five spellings of
+ * `spot === 'roam'` that have to be found together the day there is a second
+ * kind of chore — and four of the five are rules a chore *breaks*, so missing
+ * one is a sweeper who gets sent to the break room, or a chore that quietly
+ * recharges somebody.
+ */
+const isChore = (p) => p?.spot === 'roam';
 
 /**
  * A cell of the break area for this worker, or null to take it where they are.
@@ -647,12 +993,71 @@ const reaches = (game, s, c) => findPath(game.walk, game.layout, s, c) !== null;
 const tendSpot = (till) => (till ? (till.tendAt ?? { x: till.x, z: till.z - 1 }) : null);
 
 /** Where the pastime itself says. `here` is wherever they finished, so it has none. */
-function authoredSpot(game, p) {
+function authoredSpot(game, p, s = null) {
   const L = game.layout;
   if (p.spot === 'bay') return L.bay;
   if (p.spot === 'outside') return { x: L.door.x, z: L.door.z + 2 };
   if (p.spot === 'till') return tendSpot(L.checkouts[0]);
+  if (p.spot === 'roam') return roamSpot(game, s);
   return null;
+}
+
+/**
+ * Somewhere else on the shop floor — the destination of one leg of a chore.
+ *
+ * **Hashed, never drawn.** This is asked for every idle worker on every quiet
+ * tick, so it is the single hungriest caller of anything random in the game: an
+ * `rng.next()` here would not nudge the measured stream, it would shred it, and
+ * two `simulate` runs of one seed would stop matching the moment a shop had a
+ * spare hire. `hash01` costs no draw at all. See `shared/hash.js`.
+ *
+ * **Keyed on `idleFrom`, which is what makes them arrive.** `onBreak` asks for
+ * the spot again on every tick of the walk — the pastime is not taken until they
+ * are standing on it — so a key that moved with the clock would hand them a new
+ * destination every tick and they would drift about never getting anywhere. The
+ * stamp is written once when the quiet stretch began and is not touched again
+ * until the chore actually starts, so it is stable for exactly the walk and
+ * different for the next leg.
+ *
+ * The tile is picked out of the shop's own walkable floor rather than off a
+ * radius, because a circuit that can pick a tile nobody can stand on is a hire
+ * who walks at a wall until something else comes up. An empty list — a shop
+ * whose floor is entirely under fixtures — answers null, and `onBreak` treats
+ * that as a pastime with no spot: they do it where they stand, which is what
+ * every break did before there was anywhere to go.
+ */
+function roamSpot(game, s) {
+  const floor = roamTiles(game.layout);
+  if (!s || !floor.length) return null;
+  return floor[Math.floor(hash01(`${s.id}:roam:${s.idleFrom ?? 0}`) * floor.length)] ?? null;
+}
+
+/**
+ * Every indoor cell a hire could stand on, worked out once per layout.
+ *
+ * Cached ON the layout rather than on the game, which is the whole of why this
+ * needs no invalidation: a re-flow builds a fresh layout object, so the list
+ * goes with the shop it described. A cache on `game` would survive the wall you
+ * just knocked through and send somebody to sweep inside it.
+ *
+ * Indoors only, and that is a choice rather than an oversight — a shop floor is
+ * what a chore is for, and a sweeper who wandered off down the farm would be
+ * three-quarters of a field away the moment a customer walked in. It also means
+ * a shop whose walls have been taken out (`computeIndoor` answers *zero* cells,
+ * not fewer — see CLAUDE.md) hands back an empty list, and an empty list is a
+ * chore taken where they stand. That is the right failure: no walls, no circuit,
+ * and nothing pins anybody at a tile they can never reach.
+ */
+function roamTiles(L) {
+  if (L._roam) return L._roam;
+  const out = [];
+  for (let z = 0; z < L.h; z++) {
+    for (let x = 0; x < L.w; x++) {
+      if (L.indoor?.[z * L.w + x] && isWalkableTile(L, x, z)) out.push({ x, z });
+    }
+  }
+  L._roam = out;
+  return out;
 }
 
 /**
@@ -684,7 +1089,7 @@ function buySnack(game, s, p) {
   game.stats.revenue += paid;
   game.stats.sold += 1;
   game.stats.byItem[stack.item_id] = (game.stats.byItem[stack.item_id] ?? 0) + 1;
-  game.pushLog(`${s.name} bought a ${items[stack.item_id]?.name ?? stack.item_id} on their break.`);
+  game.pushLog(`${s.name} bought a ${items[stack.item_id]?.name ?? stack.item_id} while charging.`);
 }
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -705,7 +1110,36 @@ const round2 = (n) => Math.round(n * 100) / 100;
  */
 function idle(game, s) {
   s.cooldown = IDLE;
-  if (s.carry || topJob(game, s) !== 'serve') return;
+  // Since when. Only stamped if it is not already running, or every declined
+  // draw would push it forward and nobody would ever reach `BORED_SECONDS` —
+  // the clock has to measure the whole quiet stretch, not the last gap in it.
+  s.idleFrom ??= game.elapsed;
+  /**
+   * ...and a second clock, for the same instant, that is deliberately NOT the
+   * same clock.
+   *
+   * A chore runs every few seconds and a charge is a decision about the
+   * afternoon, so they cannot share a stamp: reset `idleFrom` each time
+   * somebody swept up and it never reaches `BORED_SECONDS` again, and the
+   * charge — the thing a promotion actually sells, with a whole sweep written
+   * about it — silently stops happening for ever. Nothing would say a word,
+   * because a bot doing chores all afternoon looks *more* alive than one that
+   * charges, not less.
+   *
+   * So the boredom clock measures the whole quiet stretch and the chore clock
+   * measures the gap since the last one, and a hire who has been pottering
+   * about for fifteen seconds still takes themselves off to the room.
+   */
+  s.choreFrom ??= game.elapsed;
+  // A charge in progress is not somewhere to be moved from. `stepStaff` reaches
+  // here on every declined tick of one (see `onBreak`), so without this a clerk
+  // sat in the break room is walked back to their till and charges standing at
+  // the counter — the whole feature, undone one line below where it was done.
+  // Nobody stands inside anybody else. Before the post below, because that one
+  // is only about clerks and this is about all thirteen of them.
+  if (stepAside(game, s)) return;
+
+  if (s.carry || s.pastime || topJob(game, s) !== 'serve') return;
 
   const tills = game.layout.checkouts;
   const servers = (game.roster ?? [])
@@ -714,6 +1148,68 @@ function idle(game, s) {
 
   const post = tills[servers.indexOf(s)];
   if (post) goTo(game, s, tendSpot(post), 0.6);
+}
+
+/**
+ * Two hires on one tile: one of them takes a step.
+ *
+ * A seat in the break area is claimed for exactly as long as the break lasts
+ * (`seatIn`), which is right — a room seats as many as you painted it — and it
+ * says nothing at all about afterwards. `idle` only ever walked a *clerk*
+ * anywhere, so everybody else stops where they finished, and where a lot of
+ * them finish is the break room: the charge ends, the seat is handed back, and
+ * the bot stands on that cell until something happens. Two of them end up
+ * inside one another and it reads as a rendering fault, which is exactly what
+ * the same bug at the tills read as before posts were handed out by roster
+ * order — see the note above.
+ *
+ * Three things keep it from being worse than the overlap.
+ *
+ * **Exactly one of the pair moves.** Decided by id, not by who asked first: two
+ * bots that both stepped aside would swap tiles forever, and a tie broken on
+ * turn order is a tie broken differently in `simulate` than in the live game.
+ *
+ * **It costs no rng.** Which way they step is hashed off the pair, so the shop
+ * that budges is the same shop in two runs of one seed — the reason
+ * `shared/hash.js` exists. A draw here would be one per idle worker per quiet
+ * tick.
+ *
+ * **It is a step, not a walk.** One tile, orthogonally, onto floor nobody else
+ * is on. If all four are taken or blocked they stay put and overlap, which is
+ * the old behaviour and the honest answer for a hire boxed into a corner —
+ * better than pathing across the shop to stand somewhere else doing nothing.
+ */
+const STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+function stepAside(game, s) {
+  const at = (p) => `${Math.round(p.x)},${Math.round(p.z)}`;
+  const mine = at(s);
+  // The whole shop's bodies, once. Staff and the player both, because standing
+  // inside the shopkeeper is the same picture as standing inside a colleague.
+  const here = [];
+  const busy = new Set();
+  for (const o of Object.values(game.players)) {
+    const cell = at(o);
+    busy.add(cell);
+    if (o !== s && cell === mine) here.push(o);
+  }
+  if (!here.length) return false;
+  // Whoever sorts lowest holds the tile. Nothing about that is fair and it does
+  // not need to be — what it buys is that the decision is the same on every
+  // machine and in every replay.
+  if (here.every((o) => String(s.id) > String(o.id))) return false;
+
+  const spin = Math.floor(hash01(`${s.id}:aside:${mine}`) * STEPS.length);
+  for (let i = 0; i < STEPS.length; i++) {
+    const [dx, dz] = STEPS[(spin + i) % STEPS.length];
+    const x = Math.round(s.x) + dx;
+    const z = Math.round(s.z) + dz;
+    if (busy.has(`${x},${z}`)) continue;
+    if (!isWalkableTile(game.layout, x, z)) continue;
+    goTo(game, s, { x, z }, 0.4);
+    return true;
+  }
+  return false;
 }
 
 /** The job this hire gives most of their day to. */
@@ -732,6 +1228,43 @@ function goTo(game, s, goal, reach = 1.2) {
 }
 
 /**
+ * ...and the same for a SHELF, where "am I there yet" is not the walk's question
+ * to answer.
+ *
+ * A route aims at `browseAt` — the tile you stand on to work the unit — but
+ * every shelf verb in `Game` gates on `near(p, shelf)`, which measures `REACH`
+ * from the unit's own ANCHOR. Two circles with different centres and different
+ * radii, and the gap between them is somewhere a hire can actually stand:
+ * `browseAt` is a tile off the anchor, so 1.2 from `browseAt` on the far side is
+ * 2.2 from the shelf. `goTo` says arrived, `stockFromCrate` says "too far from
+ * that shelf", and the job asks again next tick with the same answer.
+ *
+ * Nobody has to walk into that band for it to bite, which is why it survived:
+ * `goTo` returns true WITHOUT MOVING for anyone already inside it, so a hire
+ * parked there by some earlier errand never takes the step that would fix it.
+ *
+ * With empty hands it is a stutter — the next draw sends them elsewhere. With a
+ * CRATE it is permanent, because `stepStaff` sends a haul straight to `unload`
+ * and will not offer a break to somebody it believes is busy with their box: the
+ * hire is pinned at `TIRED_PACE` holding it for the rest of the save. Found in a
+ * live shop on a shop-hand stood two tiles from a lettuce shelf, 37 refusals
+ * deep and not moving.
+ *
+ * So arrival is asked of the anchor at the radius the shop will use, and only
+ * the WALK aims at `browseAt`. Anything that approaches a shelf in order to call
+ * one of those verbs belongs here rather than on `goTo` — and the test for that
+ * is whether the next line is gated on `near`, not whether it touches a shelf.
+ */
+function goToShelf(game, s, shelf) {
+  if (Math.hypot(s.x - shelf.x, s.z - shelf.z) <= REACH) return true;
+  if (!game.pathTo(s, shelf.browseAt ?? shelf)) {
+    s.cooldown = 1;
+    return false;
+  }
+  return false;
+}
+
+/**
  * Nowhere legal to put what they're holding: walk it round to the drop-off and
  * crate it. Staff used to just have the goods deleted out of their hands, which
  * meant an over-full shop quietly binned every harvest. Now the stock survives,
@@ -742,11 +1275,24 @@ function goTo(game, s, goal, reach = 1.2) {
  * arrived, and piling both on one pad makes the yard unreadable.
  */
 function putDown(game, s) {
+  // WHICH pad, asked of what is actually in their hands. Everything the shop is
+  // still trying to sell goes to the drop-off, which is what this always did;
+  // a line the shop has stopped stocking goes to the bay instead, because the
+  // drop-off is the production buffer and `padRoom` is what the farm and the
+  // kitchen are gated on — see `Game.dropAt`. Asked of the biggest pile, since
+  // a pair of hands can hold three kinds and the pad is one place.
+  //
   // A shop can have no drop-off at all now that the pads are ground somebody
   // paints — see `Game.freezeYard`. Nothing to walk to, so they keep hold of it
   // and try again later rather than pathing to `undefined`.
-  const pad = game.dropPad();
-  if (!pad) { s.cooldown = 2; return; }
+  const main = lotMain(s.carry);
+  const pad = main ? game.dropAt(main.item_id) : game.dropPad();
+  if (!pad) { s.cooldown = 2; return false; }
+  // Which one they ended up at, so `stow` is asked about the pad they are
+  // standing on rather than about the pad it would have picked. Compared by
+  // identity: `dropAt` hands back one of the two objects on the layout, so
+  // there is nothing to keep in step.
+  const want = pad === game.layout.bay ? 'bay' : null;
   // The nearest CELL of the pad, not the pad's middle. `stow` refuses anybody
   // not standing on the ground itself (`onPad`), and `pad.x/z` is only the cell
   // closest to the centre — on an L-shaped stockroom, or from the wrong side,
@@ -755,8 +1301,8 @@ function putDown(game, s) {
   const cell = (pad.cells ?? [pad]).reduce((best, c) => (
     Math.hypot(c.x - s.x, c.z - s.z) < Math.hypot(best.x - s.x, best.z - s.z) ? c : best
   ), pad.cells?.[0] ?? pad);
-  if (!goTo(game, s, cell, 0.6)) return;
-  const res = game.stow(s.id);
+  if (!goTo(game, s, cell, 0.6)) return true;
+  const res = game.stow(s.id, want);
   // KEEP HOLDING IT. This branch used to read `s.carry = null`, which is the
   // exact bug the note above says was fixed — "staff used to just have the goods
   // deleted out of their hands" was made true again by the failure path, and it
@@ -765,8 +1311,9 @@ function putDown(game, s) {
   // emptied defers the break rather than blocking it (see `stepStaff`), so a
   // worker holding something the shop has no room for is idle, visible, and
   // still holding it — all three of which are better than stock evaporating.
-  if (!res.ok) { s.cooldown = 2; return; }
+  if (!res.ok) { s.cooldown = 2; return false; }
   s.cooldown = paceOf(s);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -861,7 +1408,7 @@ function restock(game, s) {
   // milk that is already standing at the bay — which is the very deadlock the
   // per-item version of this guard was written to fix, arriving again through
   // the container growing a second kind.
-  const atTheBay = new Set(game.deliveries
+  const atTheBay = new Set(game.stockCrates()
     .flatMap((d) => lotStacks(d))
     .filter((s) => shelfFor(game, s.item_id, c))
     .map((s) => s.item_id));
@@ -881,6 +1428,20 @@ function restock(game, s) {
   // job's: it is what the player set in the shelf menu, and a second copy of it
   // here is the one that would drift from what the menu promised.
   const busy = claimed(game, s);
+  // Where the shop keeps each thing, worked out once for the whole queue. A
+  // board that is not the item's home is a board no stocker will ever walk to
+  // (`shelvesFor`), so ordering a van for it buys goods that go from the lorry
+  // to the pad and stay there — which is the *spread* bug arriving one step
+  // earlier, through the door that spends the money.
+  const homes = new Map();
+  const homedAt = (shelf, id) => {
+    if (!homes.has(id)) homes.set(id, game.homeShelves(id));
+    return game.homedAt(shelf, id, homes.get(id));
+  };
+  // ...and which machines each stockroom unit is the larder for, once for the
+  // whole queue and for the same reason. Null in every shop with no appliance
+  // or no back room, which is the cheap path and most shops.
+  const larders = game.larderRanges();
   for (const target of game.restockQueue()) {
     // Somebody else is already ordering for this board, or walking to it with an
     // armful. `homeSupply` counts the pending order the moment it is placed, so
@@ -916,6 +1477,16 @@ function restock(game, s) {
     const buy = (id) => {
       const rule = game.itemRule(id);
       if (rule.auto === false) return 0;
+      // Not where the shop keeps this. Nothing will shelve it here, so a van of
+      // it lands on the pad and stays.
+      if (!homedAt(target, id)) return 0;
+      // ...and the same for a back room whose machines have no use for it, with
+      // the same reservation override. Asked here as well as in `shelvesFor`
+      // because this is the half that spends money: a board in the stockroom
+      // that already holds something no machine can use would otherwise go on
+      // being topped up for ever, which is the complaint said about the van
+      // rather than about the shelf.
+      if (!kept.includes(id) && !game.backRoomTakes(target, id, larders)) return 0;
       // Already stood at the bay waiting to be shelved. Ordering more of THIS
       // while a crate of it is on the floor is the thing the old shop-wide
       // guard was reaching for, said about the item it is actually about.
@@ -931,11 +1502,19 @@ function restock(game, s) {
     // your range should be, so it is the only one `assign` gates. Topping up a
     // board that already holds something is not a decision anybody has to
     // approve — you put it there.
+    //
+    // The top-up half skips a board that is not this item's home, rather than
+    // letting it win the "emptiest board" sort and answer zero: a unit with a
+    // draining spare board beside a live one would otherwise pick the spare,
+    // order nothing, and the live board would never get its van. The bare-unit
+    // fallback still asks whether the unit is bare *at all*, or `pickItem` would
+    // be choosing a range for a unit that already has boards in use.
     const item = kept.length
       ? c.byId.items[[...kept].sort((a, b) => buy(b) - buy(a))[0]]
-      : (c.byId.items[game.shelfStacks(target)
+      : (c.byId.items[game.shelfStacks(target).filter((k) => homedAt(target, k.item_id))
         .slice().sort((a, b) => a.qty - b.qty)[0]?.item_id]
-        ?? (game.orders.assign ? pickItem(game, target, c) : null));
+        ?? (!game.shelfStacks(target).length && game.orders.assign
+          ? pickItem(game, target, c) : null));
     if (!item) continue;
 
     const unit = wholesalePrice(item, game.folded(), game.season);
@@ -1020,9 +1599,12 @@ function unload(game, s) {
         claim(s, 'pad', 'home');
         if (!goTo(game, s, pad)) return true;
       }
-      game.dropCrate(s.id);
-      s.cooldown = paceOf(s);
-      return true;
+      const res = game.dropCrate(s.id);
+      s.cooldown = res.ok ? paceOf(s) : 1;
+      // A refusal is not work — see the note below. `dropCrate` has its own two
+      // ways to say no (the tile is not walkable, or it is out of reach), and
+      // both of them repeat for as long as the hire stands where they are.
+      return res.ok;
     }
 
     // ...otherwise carry it over and POUR IT IN. The crate never touches the
@@ -1040,10 +1622,18 @@ function unload(game, s) {
     // lifts it, fills every board that will have it, and walks the remainder
     // home.
     claim(s, 'shelf', shelf.id);
-    if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
+    if (!goToShelf(game, s, shelf)) return true;
     const res = game.stockFromCrate(s.id, shelf.id);
     s.cooldown = res.ok ? paceOf(s) : 1;
-    return true;
+    // A REFUSAL IS NOT WORK, and saying it was is what welded a crate to a
+    // shop-hand. `stepStaff` reads this `true` as "busy with their box" and
+    // therefore declines to offer them a break — so a refusal that repeats is a
+    // hire that never rests again, at `TIRED_PACE`, holding the same two lettuce
+    // for the rest of the save. `goToShelf` closes the refusal this actually hit;
+    // this closes the SHAPE of it, for whichever way `stockFromCrate` learns to
+    // say no next. Walking there is still true — that is work in progress and
+    // ends by itself.
+    return res.ok;
   }
   // Carrying already? Then this is a TOP-UP and not a new errand. A crate holds
   // twice an armful, so a Stocker with big hands takes a crate and a half in
@@ -1116,7 +1706,7 @@ function unload(game, s) {
   let fallback = null;
   let fallbackBest = 0;
   let fallbackMoves = 0;
-  for (const d of game.deliveries) {
+  for (const d of game.stockCrates()) {
     // No "same item only" filter any more, and it is not needed: `fit` already
     // scores a box your hands have no room for at zero, whether that is out of
     // units or out of kinds. The filter was the single-kind spelling of a
@@ -1177,7 +1767,7 @@ function unload(game, s) {
   // room for none of it. A crate cannot satisfy both, so a box can never be
   // carried out and back.
   if (!pallet && !s.carry) {
-    const home = game.deliveries.find((d) => !onAPad(game, d)
+    const home = game.stockCrates().find((d) => !onAPad(game, d)
       && !busy.has(key('crate', d.id))
       && game.crateOnTop(d));
     if (home && game.dropPad()) {
@@ -1300,7 +1890,7 @@ function fillHands(game, s, from) {
     if (!room.has(id)) room.set(id, roomAcross(game, id, c, spoken).room);
     return room.get(id);
   };
-  for (const d of game.deliveries.slice()) {
+  for (const d of game.stockCrates()) {
     if (d.id === from.id) continue;
     if (lotTotal(s.carry) >= hands) return;
     // Only more of what is ALREADY in these hands, which is what keeps this a
@@ -1360,16 +1950,100 @@ function shelve(game, s) {
     .find(Boolean);
   if (!shelf) return false;                        // `tidy` deals with that
   claim(s, 'shelf', shelf.id);
-  if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
+  if (!goToShelf(game, s, shelf)) return true;
   game.stockShelf(s.id, shelf.id);
   s.cooldown = paceOf(s);
   return true;
 }
 
-/** Crate up something with nowhere to go, out at the drop-off. */
+/**
+ * Clean up: crate what has nowhere to go, and take the rubbish out.
+ *
+ * **One job, because it is one chore.** Carrying rot to the skip was its own
+ * entry in `JOBS` for exactly as long as the skip existed, and that was a record
+ * to say a thing the shop already had a word for: tidying up. What it cost is
+ * the shape of the mistake — a job nobody had, on five authored worker kinds
+ * that all carry `tidy`, so a live shop stood 305 units of rot beside a skip it
+ * had paid for with seven hires who were all, in their own terms, tidying.
+ *
+ * A new *routine* does not need a new job. It needs a new branch in the job
+ * whose sentence already covers it, or every kind in the game has to be
+ * re-authored for a chore that was always part of clearing up.
+ *
+ * The rubbish half keeps its own guard, and the guard is the whole of it:
+ * **`waste` crates and nothing else.** docs/workers.md draws that line about the
+ * shop hand — *"what something is worth is the player's question, and a worker
+ * answering it is a worker spending your money"* — and it is why Clear walks a
+ * dead board to the drop-off rather than to a skip. A hire may carry out what
+ * has already rotted, because that is worth nothing and no judgement was made; a
+ * hire may never decide six loaves are not worth keeping.
+ *
+ * Ordering is what makes it one function rather than two called in a row. Hands
+ * come first: an armful with nowhere to go is what `tidy` has always been, and a
+ * hire holding stock must not walk off to the bins with it. Then the shoulder,
+ * because a crate you are already carrying outranks choosing a better one — the
+ * same sentence `unload`'s haul branch opens with. Then the search.
+ *
+ * The crate is hauled rather than emptied by hand. It is one trip either way and
+ * a box of rot going up on a shoulder is the picture the whole feature is for:
+ * spoilage used to be a line in the log at midnight, and what you watch now is
+ * somebody carrying it across the shop.
+ *
+ * Nothing scores which bin. `findPath` decides whether the walk is possible and
+ * the shop has one skip in practice; a nearest-of-several search would be a rule
+ * nobody can see the effect of.
+ */
 function tidy(game, s) {
-  if (!s.carry) return false;
-  putDown(game, s);
+  // An armful with nowhere to go — the original whole of this job.
+  //
+  // **It has to report the refusal**, and that is the one line in here that is
+  // not obvious. `putDown` deliberately keeps hold of goods the shop has no room
+  // for (see its note), so on a full yard this branch walks somebody to the pad,
+  // fails to stow, and comes back — and answering `true` to that told the draw
+  // the job had been done. The draw is then spent, every tick, on a hire who
+  // moved nothing.
+  //
+  // Which would be merely wasteful if tidying were still one routine. With the
+  // rubbish folded in it is a deadlock with a shape: the pad is full *of rot*, so
+  // the thing that would free it is the branch below, and this branch was
+  // swallowing every draw that could have reached it. A live shop sat at 548
+  // units of rubbish with six of seven hires holding stock they could not put
+  // down — every one of them tidying, none of them able to finish.
+  //
+  // False falls the draw through to `shelve`, `craft`, anything: a hire whose
+  // hands the shop cannot take is better spent on a job that does not need them
+  // emptied first.
+  if (s.carry && !s.haul?.waste) return putDown(game, s);
+
+  const bin = game.anyBin();
+  if (!bin) return false;
+
+  // Carrying it already? Then there is one thing to do with it.
+  if (s.haul?.waste) {
+    if (!goTo(game, s, bin.useAt ?? bin)) return true;
+    // Straight off the shoulder. Not through `binGoods`, which is the player's
+    // verb and would take an armful of good stock with it — a hire arriving at
+    // the skip holding rubbish in one hand and cheese in the other must lose
+    // only the rubbish, and only this branch knows which is which.
+    s.haul = null;
+    s.cooldown = paceOf(s);
+    return true;
+  }
+  if (s.carry || s.haul) return false;
+
+  const busy = claimed(game, s);
+  const rubbish = game.deliveries.find((d) => d.waste && !busy.has(key('crate', d.id)));
+  if (!rubbish) return false;
+  claim(s, 'crate', rubbish.id);
+  if (!goTo(game, s, rubbish)) return true;
+  // Straight onto the shoulder as a crate that knows it is rubbish. A `haul` is
+  // ordinarily a lot, and `stepStaff` sends anybody holding one to `unload`
+  // before the draw — which would walk this to a SHELF. The flag is what makes
+  // the branch above win instead, and it is on the hands rather than looked up,
+  // because the crate is gone from `deliveries` the moment it is lifted.
+  game.deliveries = game.deliveries.filter((d) => d.id !== rubbish.id);
+  s.haul = { stacks: lotStacks(rubbish), waste: true, crateId: rubbish.id };
+  s.cooldown = paceOf(s);
   return true;
 }
 
@@ -1425,7 +2099,7 @@ function merchandise(game, s) {
   for (const { shelf, stack, days } of game.staleBoards()) {
     if (busy.has(key('shelf', shelf.id))) continue;
     claim(s, 'shelf', shelf.id);
-    if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
+    if (!goToShelf(game, s, shelf)) return true;
     const res = game.unshelve(s.id, shelf.id, stack.item_id);
     if (!res.ok) { s.cooldown = 1; return true; }
     // Marked on the FIRST armful rather than when the board finally empties: a
@@ -1471,7 +2145,7 @@ function merchandise(game, s) {
       // two hires end up visibly undoing each other — one filling the board the
       // other is emptying.
       claim(s, 'shelf', shelf.id);
-      if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
+      if (!goToShelf(game, s, shelf)) return true;
       const res = game.unshelve(s.id, shelf.id, stack.item_id);
       if (!res.ok) { s.cooldown = 1; return true; }
       if (res.left <= 0) game.clearStack(shelf, stack.item_id);
@@ -1503,7 +2177,7 @@ function deliver(game, s) {
   const shelf = game.layout.shelves.find((sh) => sh.id === to);
   if (!shelf) { s.shifting = null; return false; }
   claim(s, 'shelf', shelf.id);
-  if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
+  if (!goToShelf(game, s, shelf)) return true;
   const res = game.stockShelf(s.id, shelf.id);
   // Full, sold back, reserved for something else while we walked. Hand it to
   // the rest of the job list rather than carrying it back.
@@ -1702,7 +2376,7 @@ function craft(game, s) {
       // put them away, and preferring it would have a chef intercepting the
       // delivery every stocker is trying to unload.
       if (!from) {
-        const crate = game.deliveries.find((d) => lotQty(d, input.item_id) > 0
+        const crate = game.stockCrates().find((d) => lotQty(d, input.item_id) > 0
           && !busy.has(key('crate', d.id)));
         if (!crate) continue;
         if ((st.contents[input.item_id] ?? 0) >= game.stationHopperCap(st, input.item_id)) continue;
@@ -1729,6 +2403,12 @@ function craft(game, s) {
       const short = target - (st.contents[input.item_id] ?? 0);
       if (short <= 0) continue;
       claim(s, 'station', st.id);
+      // `goTo` and not `goToShelf`, which is the one shelf approach in the file
+      // that stays. The line below takes the goods by hand rather than through a
+      // `Game` verb, so there is no `near` to disagree with and nothing here can
+      // stall — the test for `goToShelf` is whether the next line is gated on
+      // reach, not whether a shelf is involved. Move this and you widen a fetch
+      // by half a tile to fix a deadlock it does not have.
       if (!goTo(game, s, shelf.browseAt ?? shelf)) return true;
       // Off that BOARD, so fetching the cheese never quietly eats the milk
       // standing beside it.
@@ -1743,7 +2423,9 @@ function craft(game, s) {
 }
 
 /** The vocabulary, and the only thing an authored job name is checked against. */
-const JOBS = { serve, restock, unload, shelve, tidy, merchandise, till, sow, harvest, craft };
+const JOBS = {
+  serve, restock, unload, shelve, tidy, merchandise, till, sow, harvest, craft,
+};
 
 const total = (contents) => Object.values(contents ?? {}).reduce((a, b) => a + b, 0);
 
@@ -1799,7 +2481,7 @@ export function shelfFor(game, itemId, c, spoken = null) {
  */
 function hasHome(game, itemId, c, spoken = null) {
   if (!itemId) return false;
-  if (game.deliveries.some((d) => lotQty(d, itemId) > 0)) return false;
+  if (game.stockCrates().some((d) => lotQty(d, itemId) > 0)) return false;
   return !!shelfFor(game, itemId, c, spoken);
 }
 
@@ -1854,12 +2536,80 @@ function shelvesFor(game, itemId, c, spoken = null) {
   // otherwise Clear is a loop that changes nothing: the crate it made is a
   // pallet like any other, `unload` sees a board with room and `shelve` puts
   // the same goods back where they came from, inside a minute. Your own hands
-  // are unaffected (`stockShelf` never reads it) and a reservation lifts it
-  // outright (`assignShelf`) — the shop giving up is a judgement about its own
-  // range, which is the line `orders.assign` already draws.
-  if (game.droppedItem(itemId)) return [];
+  // are unaffected (`stockShelf` never reads it) — the shop giving up is a
+  // judgement about its own range, which is the line `orders.assign` draws.
+  //
+  // **A RESERVATION OUTRANKS IT, and that has to be asked HERE.** `assignShelf`
+  // clears the mark when you tick a board, which reads like the whole answer
+  // and is only the answer for that ordering: mark first, tick second. Every
+  // other way round leaves a shop refusing to fill a board with the item's own
+  // name on it — and there is no shortage of ways round, because the mark can
+  // be re-set by a hand-clear elsewhere, ride in on a save, or be set while the
+  // reservation already existed. What that presents as is the one thing a
+  // player cannot argue with: "I have a shelf for coffee and the shop will not
+  // put the coffee on it", with nothing on screen connecting it to a judgement
+  // the shop made about a different board four days ago. Found on a live save
+  // holding 58 units of jam, peas and coffee on the floor, boards ticked for
+  // two of them, and a crew stood around with nothing to do.
+  //
+  // Clearing it rather than merely ignoring it is deliberate, and it is
+  // `assignShelf`'s own argument: a shop carrying "we don't stock that" against
+  // something it is actively shelving is a state nothing else in here would
+  // ever say out loud, and it would go on showing in the supplier's `Not
+  // stocking` tab while the board filled up behind it.
+  if (game.droppedItem(itemId)) {
+    if (!game.keptFor(itemId)) return [];
+    game.stockAgain(itemId);
+  }
+  // One place, and the shop decides where — `Game.homeShelves`, which lives
+  // there rather than here for the reason `restockQueue` does: which unit an
+  // item is kept on is a fact about the shop and about what the player ticked.
+  //
+  // This used to be only a preference — the sort below still ranks the unit
+  // already holding it first — and a preference is not a rule the moment that
+  // unit fills up. The next armful claimed a bare board next door, and the shop
+  // had two homes for one thing for good: each is its own line in
+  // `restockQueue`, so it then bought for both.
+  //
+  // The sentence that used to end this paragraph — "goods with nowhere to go
+  // are not stranded by this, they go back to the pad" — was true of an ARMFUL
+  // and false of everything already on the pad, which is where the goods this
+  // refuses actually are. Nothing lifts a crate no shelf will take (`unload`
+  // asks `roomAcross` before it bends down), so a full home meant that item's
+  // crates stood in the yard until something sold. Five items at once on a real
+  // save, a dozen legal shelves standing empty behind them, and a crew with
+  // nothing to do parked alongside — every refusal correct, the sum of them a
+  // shop that had stopped working.
+  const homes = game.homeShelves(itemId);
+  // So the rule binds while it CAN. A home with no room left has nothing to
+  // keep together, and goods the shop has already paid for may overflow onto
+  // any other legal unit — see `Game.homeFull` for why this does not hand the
+  // spread bug back. Per SIDE and hoisted out of the filter: it walks the
+  // shelves, and this function is asked per pile per worker per tick.
+  const spill = {
+    floor: game.homeFull(itemId, false, homes),
+    back: game.homeFull(itemId, true, homes),
+  };
+  // ...and the same sentence about the back room, walked ONCE rather than per
+  // shelf: every larder's range is one pass over the machines, and this function
+  // is asked per pile per worker per tick. A stockroom is the kitchen's larder,
+  // so nothing the machines beside it cannot use is walked in there — see
+  // `Game.larderRanges`.
+  const larders = game.larderRanges();
   const usable = game.layout.shelves.filter((sh) => {
     if (shelfKind(sh.kind) !== home) return false;
+    // ...unless you TICKED that unit for it, which is the override every other
+    // judgement the shop makes about its own range already bows to — the same
+    // one `droppedItem` and `homedAt` honour. A stockroom kept for what the
+    // kitchen makes is a real thing to want, and `verify:kitchen` authors
+    // exactly it: the tray has to come out onto a board somebody reserved.
+    if (!kept(sh).includes(itemId) && !game.backRoomTakes(sh, itemId, larders)) return false;
+    // Not the unit the shop keeps this on. Your own hands are unaffected
+    // (`boardFor` never reads it) and ticking a second shelf for it makes that
+    // one a home too, which is the whole override. Waived once the home is out
+    // of room, which is the only state in which this rule was refusing goods
+    // rather than gathering them.
+    if (!game.homedAt(sh, itemId, homes) && !spill[sh.boh === true ? 'back' : 'floor']) return false;
     // Set aside for something else is a no even when it's bare — otherwise a
     // stocker with an armful fills the shelf you reserved and the reservation
     // only means anything until the next delivery lands. A LIST of reservations
@@ -1923,17 +2673,34 @@ function pickItem(game, shelf, c) {
   // Reservations count as "already stocked" even where the shelf is still bare.
   // Choosing for a free shelf is a choice about the *range*, and something
   // another shelf is being kept for is already in it.
+  //
+  // Counted per SIDE, which is the same split `homeShelves` makes and for the
+  // same reason: a stockroom board backing up what is out front is the one
+  // second home that is the point rather than the bug. Counted shop-wide, the
+  // back room could only ever take an ingredient nobody sells — and tomatoes on
+  // the shop floor is exactly what a salsa maker's larder wants more of, so the
+  // rule above would have found nothing left to choose and the stockroom would
+  // have stayed bare. That reads as the same bug wearing the opposite face.
   const already = new Set(game.layout.shelves
+    .filter((sh) => (sh.boh === true) === (shelf.boh === true))
     .flatMap((sh) => [
       ...game.shelfStacks(sh).map((k) => k.item_id),
       ...(Array.isArray(sh.assigned) ? sh.assigned : [sh.assigned]),
     ]).filter(Boolean));
 
   const crafted = new Set(c.recipes.map((r) => r.output_id));
+  // What a stockroom is FOR, and the reason this function needed telling at all.
+  // It scores by margin × who wants it, which is the shop floor's question — so
+  // a unit you marked as the back room was filled with whatever sells well out
+  // front, where no shopper could ever see it and no machine could use it.
+  // Walked once for the whole scoring pass; null on an ordinary shelf, and in
+  // any shop with no appliance, which `backRoomTakes` reads as "no rule yet".
+  const larders = shelf.boh === true ? game.larderRanges() : null;
 
   const scored = c.items
     .filter((it) => {
       if (crafted.has(it.id)) return false;   // whoever has `craft` makes these
+      if (!game.backRoomTakes(shelf, it.id, larders)) return false;
       // "Never order this" has to bite here as well as on the quantity, or the
       // shop keeps choosing a banned item for every bare shelf, orders nothing,
       // and quietly never stocks that shelf with anything else either.
@@ -1956,8 +2723,18 @@ function pickItem(game, shelf, c) {
     })
     .sort((a, b) => b.score - a.score);
 
-  // Spread across the range rather than putting the same winner everywhere.
-  return (scored.find((x) => !already.has(x.it.id)) ?? scored[0])?.it ?? null;
+  // Spread across the RANGE rather than putting the same winner everywhere —
+  // and answer nothing at all when the range is already on the shelves.
+  //
+  // The fallback used to be `?? scored[0]`, which is the best-selling item in
+  // the shop, and it fired precisely when every item that fits this unit was
+  // already stocked somewhere. That was a second board for the winner, chosen
+  // deliberately, by the one function whose whole job is deciding the range —
+  // so the shop bought a second shelf of the thing it already sold most of.
+  // Since `shelvesFor` now sends that item home instead, the goods would land
+  // on the pad and stay there. A bare unit with nothing new to put on it is a
+  // bare unit; that is a shop with room to grow, not a shelf of duplicates.
+  return scored.find((x) => !already.has(x.it.id))?.it ?? null;
 }
 
 /**
@@ -1997,7 +2774,7 @@ function feasibleRecipe(game, st) {
   // Crates count as stock. They are the same goods one step earlier — see the
   // fetch in `craft` — and leaving them out here is what made this gate say
   // "cannot be finished" about a fryer with two dozen chips on the pad.
-  for (const d of game.deliveries) {
+  for (const d of game.stockCrates()) {
     for (const k of lotStacks(d)) stock.set(k.item_id, (stock.get(k.item_id) ?? 0) + k.qty);
   }
 

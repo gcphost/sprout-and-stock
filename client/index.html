@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>Sprout &amp; Stock</title>
+  <title>Sprocket &amp; Stock</title>
   <style>
     :root {
       --ink: #3a3128;
@@ -60,6 +60,59 @@
       touch-action: none;
       overscroll-behavior: none;
       -webkit-touch-callout: none;
+    }
+
+    /* ---- THE EDGE: what the whole screen is doing -------------------------
+     *
+     * Three states, one frame. Each is a fact about the world rather than about
+     * a thing in it, and each was being said by one small control at the bottom
+     * or the corner of a screen you are looking at the MIDDLE of: build mode by
+     * a 40px button, the shutters by a door in the readout, the pause by a
+     * struck-through clock. A frame round the glass is the one mark that is in
+     * view wherever you happen to be looking, which is exactly the property all
+     * three of those lack.
+     *
+     * The colour is the whole vocabulary, so it is one variable and one shape:
+     * gold you are building, grey the shop is shut, red the clock is stopped.
+     *
+     * PRECEDENCE IS THE ORDER OF THESE RULES, and it is deliberate: shut, then
+     * paused (the clock's own note says why — a shut shop is still a shop having
+     * a night, a paused one is not having anything), then building LAST, because
+     * it is the only one of the three that changes what your hands do. Building
+     * at night is a thing you do on purpose and the gold is the answer you need
+     * while you are doing it.
+     *
+     * Under `.hud` (z-index 10) on purpose: this is a fact about the world below
+     * the HUD, so the bar, the panel and the toast sit over it rather than
+     * inside it. Behind the pointer entirely (`pointer-events: none`) — a band
+     * that ate the first click near an edge of the screen would be a mode you
+     * cannot build in.
+     *
+     * The glow is the whole of why it is not just a border: at a hairline,
+     * against a canvas of grass and floorboards, a line round the edge reads as
+     * the window rather than as a state. The band is 3px and the spread carries
+     * it another 44px inward, which is what makes it a tint belonging to the
+     * game rather than a rule drawn on the glass.
+     */
+    #edge {
+      position: fixed; inset: 0; pointer-events: none; z-index: 9;
+      opacity: 0; transition: opacity .22s;
+      box-shadow: inset 0 0 0 3px var(--edge), inset 0 0 44px var(--edge-glow);
+    }
+    /* Shut is the quiet one: it is true every single night, so it says "not
+       trading" at the weight of dusk rather than of an alarm. */
+    body.shut #edge {
+      opacity: 1; --edge: rgba(58,49,40,.5); --edge-glow: rgba(58,49,40,.3);
+    }
+    /* Held is the loud one, and it breathes on the clock's own 1.6s so the two
+       marks for one state cannot fall out of step. */
+    body.held #edge {
+      opacity: 1; --edge: rgba(226,86,74,.9); --edge-glow: rgba(226,86,74,.26);
+      animation: clockhold 1.6s ease-in-out infinite;
+    }
+    body.building #edge {
+      opacity: 1; --edge: rgba(255,214,107,.95); --edge-glow: rgba(255,214,107,.26);
+      animation: none;
     }
 
     #boot {
@@ -234,11 +287,25 @@
        looking at. Everything in here scales together — type, bars, sparkline,
        padding — because a panel where only some of it shrank reads as a panel
        with a mistake in it. */
+    /* One line, and the spacing is a rule rather than a per-cell guess: groups
+       are separated by a divider, and inside the date/money block a grid owns
+       every gap there is (`.rows` below).
+       The old row was five cells of five heights held apart by whatever margin
+       each happened to carry, which is what put a hole between the balance and
+       the clock. */
     #stats {
       background: var(--panel); border-radius: 11px;
-      padding: 4px 9px; box-shadow: 0 3px 11px rgba(58,49,40,.14);
-      display: flex; gap: 8px; align-items: center;
+      padding: 5px 10px; box-shadow: 0 3px 11px rgba(58,49,40,.14);
+      display: flex; gap: 10px; align-items: center;
     }
+    /* NOTHING IN HERE SHRINKS. The card is a fixed readout in a corner, not a
+       column of a page, and flex's default is to shrink an item that does not
+       fit — so the widest cell (the rate: a number, an arrow and a 56px
+       sparkline) was squeezed until its own contents wrapped, which put the
+       arrow on one line and the balance on the next with the bars hanging off
+       the end. There is no width to compete for here: the panel is as wide as
+       what is in it. */
+    #stats > * { flex: 0 0 auto; }
 
     /* ---- top centre: what to do about it ---------------------------------
        A single line, sized to clear the stats panel on the left and the rail on
@@ -261,23 +328,88 @@
        get crossing $10,000 or Day 100. Sized to what a shop plausibly reaches
        rather than to today's value, since a floor that today's value already
        exceeds is a floor that does nothing. */
-    /* The date is a CAPTION over the balance, not a column beside it.
-       Day and season used to be their own two-line cell wedged between the
-       balance and the rate — a stack of small type holding apart the two numbers
-       you actually watch, for about 60px of a row whose whole job is five
-       figures at a glance. Over the money it is the same two lines of text in
-       the same panel height, one column fewer, and the order a game HUD usually
-       reads in: what day it is, then what you have.
-       It goes with the MONEY rather than with the clock, which was the other
-       obvious home for it. A balance is a thing measured over days and seasons,
-       so the date is its unit; the clock is the hour, which is the one readout
-       up here that is not about the ledger. Splitting the pair — season by the
-       time, day by the cash — would break one date across two cells.
-       `#money` carries the width floor now, because it is the cell: the caption
-       is shorter than the balance at every plausible figure, so the number is
-       still what sets it. */
-    #money { display: flex; flex-direction: column; align-items: flex-start; min-width: 92px; }
-    #when { display: flex; align-items: baseline; gap: 4px; line-height: 1.2; }
+    /* ---- A GROUP IS A LINE ------------------------------------------------
+       WHAT IS BESIDE WHAT IS THE WHOLE DESIGN, and the card is small — so the
+       groups are the two ROWS, and each row is read straight across:
+
+         Day 122   00:26    Summer
+         $32,906   $0.00 ▼  ▁▃█▅
+
+       Both wrong shapes this went through are worth keeping written down,
+       because they are the two obvious ones. Five cells in a row, each a
+       two-line stack, is what a "column per number" gets you: whatever sits
+       under a thing reads as belonging to it, so the date captioned the balance
+       and the clock captioned a week of trading. Putting every group on one
+       long line fixes that and makes the panel as wide as the screen, which for
+       a corner readout is worse than what it fixed.
+
+       Two rows, one subject each, is both: nothing stacks *across* subjects,
+       and the card stays about 250px. What is above what still matters — but
+       now the thing above the money is the date AND the hour, which is a row
+       about when, not a caption on a number.
+
+       A divider rather than a wider gap between the rows and what is beside
+       them, because a gap is ambiguous by nature: "which side of this space
+       does that belong to" is a question the eye answers by proximity, which is
+       what put the clock with the money in the first place. */
+    /* ONE GRID, SO THE TWO ROWS SHARE THEIR COLUMNS.
+       They were two flex rows spread with `space-between`, which fills the width
+       and lines nothing up: each row divides its own slack among its own items,
+       so where the clock falls depends on how long "Day 122" is and where the
+       sparkline falls depends on how many digits are in the balance. Two rows
+       of three things each, none of them over the other — which is the "hard to
+       read" and it is not a spacing problem, it is the absence of a column.
+       Three columns, both rows in them: day over balance, hour over the day's
+       take, season over the week. Widths are `auto`, so a column is as wide as
+       the wider of its two cells and neither row can push the other about.
+       `#flow` is `display: contents` (below) so its number and its sparkline are
+       two cells here rather than one, or the money row would have two cells to
+       the date row's three and the third column would mean nothing. */
+    .rows {
+      display: grid; grid-template-columns: auto auto auto;
+      column-gap: 12px; row-gap: 1px; align-items: center;
+    }
+    /* The last column ends the card, so it is set against the right edge rather
+       than left-aligned inside whatever slack the wider of the two cells left —
+       that slack is the hole that was between the season and the sparkline. */
+    #season, .spark { justify-self: end; }
+    /* Dividers only where a SUBJECT changes. Named rather than "every child
+       after the first", because the door is not a group — it is the sign for
+       the whole card, standing down the left of both rows the way it used to
+       stand down the edge of the panel. */
+    #town, .gauges { border-left: 1px solid var(--line); padding-left: 12px; }
+    /* ...and the sign stands down the left of BOTH rows, which is what it is:
+       one fact about the whole shop rather than a field in either line. It was
+       a 5px stripe in exactly this position — quiet, which was the point, and a
+       colour with no glyph on it can only ever say "some state changed", never
+       which one. The door says which one, and being the full height of the card
+       it is a target you can hit rather than 13px of its edge. */
+    #sign {
+      align-self: stretch; display: flex; align-items: center;
+      border: 0; background: none; color: inherit; font: inherit;
+      padding: 2px 4px; margin: -2px -2px -2px -4px; border-radius: 8px;
+      cursor: pointer; transition: background .12s;
+    }
+    /* Presses in rather than down, the same as the clock beside it: these are
+       pieces of text, and text that jumps a pixel reads as the HUD twitching. */
+    #sign:hover { background: rgba(58,49,40,.11); }
+    #sign:active { background: rgba(58,49,40,.2); }
+    /* The floors stay where the jitter is — the date (which grows a digit at Day
+       100) and the balance — and they are per GROUP now, since a group is the
+       cell. See the note above about nothing in this row moving sideways. */
+    #when { min-width: 50px; }
+    #cash { min-width: 62px; }
+    /* Lit while trading, and a shut door dropped to the weight of a caption —
+       being shut is already said twice over (the clock is struck through and #hq
+       puts up a hot chip naming the key), so this is the glance rather than the
+       announcement. */
+    #doorway {
+      font-size: 19px; line-height: 1; display: block; color: var(--good);
+      transition: color .15s, opacity .15s;
+    }
+    #doorway svg { display: block; }
+    #sign.shut #doorway { color: var(--ink); opacity: .38; }
+    #when { display: flex; align-items: baseline; gap: 5px; line-height: 1.2; }
     #cash {
       font-size: 14px; font-weight: 800; letter-spacing: -.02em;
       font-variant-numeric: tabular-nums; line-height: 1.15;
@@ -298,8 +430,12 @@
        Nothing about that is discoverable from a glyph, which is fine, because
        neither was a play triangle: the words were in `title` before and they
        still are, and the shutters have a hot chip in #hq naming the key. */
+    /* It is the last word of the WHEN group — "Day 117 · Spring · 16:07", one
+       sentence about when it is, read straight across. It used to be two cells
+       further along, past the balance and the sparkline, and then (worse) above
+       them: an hour captioning a week of takings. */
     #clock {
-      border: 0; padding: 1px 3px; margin: -1px 0; background: none; cursor: pointer;
+      border: 0; padding: 1px 3px; background: none; cursor: pointer; margin: 0 -3px;
       color: inherit; font: inherit;
       font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px;
       border-radius: 5px; transition: background .12s;
@@ -327,43 +463,57 @@
        Quiet on purpose: it is a number that moves a handful of times in a whole
        game, so it sits at the weight of a caption rather than competing with
        the money. `tabular-nums` because the day it does move, the icon beside
-       it must not shuffle. */
+       it must not shuffle.
+
+       TWO CEILINGS, and the old readout drew one number against the wrong one.
+       "9 / 51" put the headcount over the TOWN, which is not a capacity and can
+       never be reached — nobody has ever had fifty-one people in a corner shop
+       — so the fraction read as a shop that was 18% full when it might have been
+       turning people away. What the near number is out of is what the building
+       holds (`shopCapacity`), and the town is a second fact underneath it: how
+       many could come at all, and what share of them your reputation brings in
+       (`pull`). Three numbers, in the order the sentence goes.
+
+       The word TOWN went with it. It was there because "3 / 50" of what is not
+       obvious from a pair of numbers — but the icon says people, and the caption
+       was naming the smaller half of what this now shows. */
     #town {
-      display: flex; align-items: center; gap: 4px;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
       font-size: 11px; font-weight: 700; opacity: .55;
       font-variant-numeric: tabular-nums;
     }
-    #town .ico { font-size: 13px; display: block; }
+    #town .tn { display: flex; align-items: baseline; gap: 4px; }
+    #town .ico { font-size: 13px; display: block; align-self: center; }
+    /* The ceiling, at the weight of a unit rather than of a number: "3" is what
+       you are reading and "/50" is what it is out of, and drawn at the same
+       weight the pair reads as a fraction you have to work out. */
+    #town .of { font-size: 8.5px; font-weight: 700; opacity: .6; margin-left: -1px; }
+    /* The town, under the shop. Caption weight because it is the slow half — it
+       moves a handful of times in a game, where the line above it moves every
+       minute — and flush left, not indented to the numbers above: an indent
+       reserves the icon's column on a row the icon is not on, which draws as a
+       glyph rowspanning two lines and a hole under it. The icon belongs to its
+       own row. */
+    #town .tw {
+      font-size: 8px; font-weight: 700; opacity: .62;
+      white-space: nowrap;
+    }
+    #town .tw:empty { display: none; }
+    /* `.cap` lived here — the caption family shared with `.gg-tag`. Its one user
+       was the word TOWN, and the icon says it now. */
 
-    /* ---- the shutters, as the EDGE of the panel --------------------------
-       An open sign belongs on the door, not in a toolbar. This is the left edge
-       of the readout you are already looking at — lit while the shop is trading,
-       dull while it is shut — and it costs the row no width worth the name,
-       because it lives in padding #stats was already spending. It is also a
-       bigger target than the 18px pip it replaces, since it is as tall as the
-       panel.
-       This one says what is TRUE, where the pip said what pressing it would do.
-       That is the right way round for something with no glyph on it: a coloured
-       stripe cannot mean "shut" and "shutting" at once, and the whole reason it
-       is allowed to be this quiet is that being shut is already shouted twice —
-       the clock is struck through and #hq puts up a hot chip naming the key.
-       The paint is 5px and the button is 13, so the reach is comfortable
-       without the stripe becoming a slab; hence `::before` rather than a
-       background, which would have to be the whole hit area. The left margin
-       stops 3px short of the card so the stripe never pokes through the 11px
-       corner. */
-    #shutter {
-      align-self: stretch; width: 13px; padding: 0 8px 0 0; margin: 0 -4px 0 -6px;
-      border: 0; background: none; cursor: pointer;
-      display: flex; align-items: stretch;
-    }
-    #shutter::before {
-      content: ''; width: 5px; border-radius: 3px; background: var(--good);
-      transition: background .15s, opacity .15s;
-    }
-    #shutter:hover::before { filter: brightness(1.1); }
-    #shutter.shut::before { background: var(--ink); opacity: .17; }
-    #shutter.shut:hover::before { filter: none; opacity: .32; }
+    /* ---- the shutters -----------------------------------------------------
+       An open sign belongs on the door, not in a toolbar — which is why this
+       has never been a labelled button in a row of them, and why it is now a
+       door drawn on the readout you are already looking at (`#sign` above).
+       The two shapes it wore before were both about being quiet: an 18px pip
+       that said what pressing it would DO, then a 5px stripe down the card's
+       edge that said what was TRUE. The stripe is the better half of that and
+       still could not say WHICH state — a colour with no glyph on it means "not
+       the other one", and you have to have seen the other one.
+       What the door adds is that it is legible cold, and what the block adds is
+       the target: the sign and the thing you press to work it are the same
+       object now, and it is the size of the card rather than 13px of its edge. */
 
     /* ---- cashflow: the rate, beside the balance -------------------------------
        Cash on hand was the only money on screen, and a balance is not a rate —
@@ -381,12 +531,20 @@
        nearest. Nothing was wrong with either the floor or the sparkline; they
        simply were not told about each other. Matched, the widget IS the floor
        and there is no slack for a gap to be made of. */
-    #flow {
-      display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
-      min-width: 56px;
-    }
+    /* A ROW now, not a column: the number and the week's shape are both about
+       the money, so they belong on the money LINE — stacked, they were a second
+       two-line cell inside a panel that is already two lines, and the card had
+       four different ideas of where a row was. */
+    /* `contents`, not a box: the day's take and the week's shape are two
+       CELLS of the card's grid (see `.rows`) — one under the clock, one under
+       the season — and a wrapper round them would be a single cell holding both,
+       which is exactly the alignment this card kept failing to have. It is still
+       one element in the markup and one `innerHTML` write, because the two are
+       drawn together by `cashflowHtml`. */
+    #flow { display: contents; }
     .flow {
       display: inline-flex; align-items: baseline; gap: 3px;
+      flex: 0 0 auto; white-space: nowrap;
       font-variant-numeric: tabular-nums; font-size: 10.5px; font-weight: 800;
       letter-spacing: -.01em;
     }
@@ -460,17 +618,116 @@
        which is why nothing here hardcodes a `top`. See the note above #topleft
        for what happened the last time anything up here did. */
     #rci {
+      position: relative;
       width: 146px;
-      display: flex; flex-direction: column; gap: 2px;
       background: var(--panel); border-radius: 13px; padding: 7px 10px;
       box-shadow: 0 4px 14px rgba(58,49,40,.14);
       opacity: .45; transition: opacity .12s ease;
       cursor: grab; touch-action: none;
     }
+    /* The rows are a child rather than the panel's own children, because the
+       close button is a child too and `ui.update` rewrites the meter from
+       `innerHTML` ten times a second — anything sharing that element with the
+       bars lives about a tenth of a second. See client/corner.js. */
+    #rci-rows { display: flex; flex-direction: column; gap: 2px; }
     /* `:active` as well as `:hover`, because a drag captures the pointer and can
        take it outside the element — without it the meter fades out from under
        you halfway through moving it, which reads as having dropped it. */
     #rci:hover, #rci:active { opacity: 1; }
+
+    /* ---- putting a corner readout away ------------------------------------
+       Both of these are always on screen and neither is urgent, so both can be
+       closed and both come back from the Menu — see client/corner.js for why
+       the way back may not be on the thing you closed.
+
+       One class rather than a rule per widget, and `!important` because #rci
+       sets its own `display` at an id's specificity: a widget you put away must
+       not come back the next time somebody edits the rule above. */
+    .corner-off { display: none !important; }
+    /* A chip on the corner rather than a button inside it. The meter is twelve
+       rows on a fixed pitch and the radio is a screen with four buttons under
+       it — neither has a spare line, and hanging it off the edge means adding
+       one costs no layout at all. Hidden until you point at the widget, which
+       is the same moment the widget itself comes up to full strength: it is a
+       control for a thing you are already looking at. */
+    .corner-x {
+      position: absolute; top: -6px; right: -6px;
+      width: 17px; height: 17px; padding: 0; border: 0; border-radius: 50%;
+      display: grid; place-items: center;
+      background: var(--panel); color: var(--ink);
+      box-shadow: 0 2px 6px rgba(58,49,40,.22);
+      font-size: 9px; line-height: 0; cursor: pointer;
+      opacity: 0; transition: opacity .12s ease, background .1s ease;
+    }
+    /* Focus as well, or the button is unreachable by keyboard — it is invisible
+       until a pointer is over it, and a pointer is not the only way in. */
+    #rci:hover .corner-x, #rci:active .corner-x,
+    #radio:hover .corner-x, #radio:active .corner-x,
+    .corner-x:focus-visible { opacity: .75; }
+    .corner-x:hover { opacity: 1; background: var(--accent, #7a9a5b); color: #fff; }
+
+    /* ---- the shop radio ---------------------------------------------------
+       A player rather than a row in a menu, because the thing it is for is
+       *changing your mind about the music*, and a control you have to open a
+       panel to reach is one you use once and then stop noticing.
+
+       Sized and pinned like #rci, and draggable the same way, so the top-left
+       column stays one column. It dims when idle for the same reason that one
+       does: it is a readout you glance at, sitting over the thing you are
+       actually looking at. */
+    #radio {
+      position: relative;
+      width: 146px;
+      background: var(--panel); border-radius: 13px; padding: 7px 8px 6px;
+      box-shadow: 0 4px 14px rgba(58,49,40,.14);
+      opacity: .45; transition: opacity .12s ease;
+      cursor: grab; touch-action: none;
+    }
+    #radio:hover, #radio:active { opacity: 1; }
+    #radio:active { cursor: grabbing; }
+    /* The screen. Dark, inset and slightly green — a little LCD, which is the
+       one place in this HUD allowed to look like hardware rather than paper. */
+    #lcd {
+      background: #24301f; border-radius: 5px; overflow: hidden;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,.5);
+      padding: 3px 0; margin-bottom: 4px;
+    }
+    #lcdtrack {
+      display: flex; gap: 34px; width: max-content;
+      animation: lcdroll 13s linear infinite;
+    }
+    /* Two copies of the text, scrolled by exactly half the track's width, so
+       the second one is where the first was when the loop restarts. One copy
+       would leave a gap the width of the screen on every pass; a percentage of
+       the *track* rather than of the screen is what makes it seamless at any
+       title length. */
+    #lcdtrack span {
+      font: 700 9.5px ui-monospace, "SF Mono", Menlo, monospace;
+      letter-spacing: .08em; text-transform: uppercase;
+      color: #9ede7a; text-shadow: 0 0 5px rgba(158,222,122,.45);
+      white-space: nowrap;
+    }
+    @keyframes lcdroll { to { transform: translateX(calc(-50% - 17px)); } }
+    /* Stopped: the screen holds still, so a paused radio is legible rather than
+       a title sliding past forever. */
+    #radio.off #lcdtrack { animation-play-state: paused; }
+    #radio.off #lcdtrack span { color: #6a8459; text-shadow: none; }
+
+    #lcdbtns { display: flex; gap: 4px; }
+    #lcdbtns button {
+      flex: 1; border: 0; border-radius: 5px; padding: 2px 0;
+      background: rgba(58,49,40,.09); color: var(--ink);
+      font-size: 8.5px; letter-spacing: .04em; cursor: pointer;
+      transition: background .1s ease;
+    }
+    #lcdbtns button:hover { background: rgba(58,49,40,.19); }
+    #lcdbtns button:active { background: rgba(58,49,40,.29); }
+    /* Repeat is a state, not an action, so it stays lit while it is on — the
+       same call `.picked` makes on a palette button. Without it the only way to
+       know is to wait and see whether the track changes. */
+    #lcdbtns button.on {
+      background: var(--accent, #7a9a5b); color: #fff;
+    }
     #rci:active { cursor: grabbing; }
     .mtr { display: grid; grid-template-columns: 1fr 56px; align-items: center; gap: 7px; }
     .mtr-tag {
@@ -499,7 +756,10 @@
        same snapshot — no new server field — and capped at three, because a
        to-do list you can't finish is wallpaper rather than a prompt. */
     #todo { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-    #todo:empty, #rci:empty { display: none; }
+    /* `:has`, because the meter's rows are a child now and the panel itself is
+       never empty — it holds its own close button. Without it an unfurnished
+       shop draws an empty card with a ✕ on it before the first snapshot. */
+    #todo:empty, #rci:has(> #rci-rows:empty) { display: none; }
     .todo {
       background: var(--panel); border-radius: 99px; padding: 2px 9px 2px 7px;
       font-size: 11.5px; font-weight: 600; color: var(--ink);
@@ -533,9 +793,31 @@
       font: inherit; transition: background .12s, transform .12s;
     }
     .rail-btn:hover { transform: translateY(-2px); }
+    /* A click focuses the button, and the browser's own focus ring is a heavy
+       blue box in somebody else's colours — on a row of buttons whose whole job
+       is to show you which one is lit, a second, louder "this one" that follows
+       the last thing you pressed is worse than no state at all.
+
+       So the ring is ours, one rule for the whole rail, and only for the
+       keyboard: `:focus-visible`, so a mouse press leaves nothing behind and Tab
+       still shows you where you are. Drawn in `--ink` rather than in the lit
+       yellow, and OUTSIDE the button (`outline-offset`) where the open state is
+       a fill and the palette's is an inset ring — three marks that cannot be
+       mistaken for one another. */
+    .rail-btn:focus { outline: none; }
+    .rail-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
     /* Lit means "this menu is open" — except on Build, which is a mode rather
-       than a menu, where it means the world is in it. */
+       than a menu, where it means the world is in it.
+
+       Build says two things, because it is two presses (`pressBuild`): lit is
+       the mode, and the pressed-in ring on top of it is the palette. The mode
+       on its own now has no bar on screen, so this button is the whole of what
+       says you are in it — and a mode you cannot see you are in is the complaint
+       the lit state exists for. */
     .rail-btn.on { background: #ffd66b; }
+    .rail-btn.on.open {
+      box-shadow: inset 0 0 0 2px var(--ink), 0 4px 14px rgba(58,49,40,.15);
+    }
     .rail-btn .ico { font-size: 18px; line-height: 1; }
     .rail-btn .kb { position: absolute; bottom: 2px; right: 5px; font-size: 8px; font-weight: 800; opacity: .35; }
     .rail-btn .badge {
@@ -681,18 +963,87 @@
 
     /* The drag joystick draws nothing — see client/main.js. */
 
-    /* bottom-left: event log */
-    #log { left: 12px; max-width: 300px; display: flex; flex-direction: column; gap: 3px; }
-    #log div {
-      background: var(--panel); border-radius: 9px; padding: 3px 9px;
-      font-size: 11.5px; line-height: 1.35; box-shadow: 0 2px 7px rgba(58,49,40,.09);
-      transition: opacity .3s, transform .3s;
+    /* bottom-left: event log.
+       `align-items: start` so a short line is a short pill — the column is a
+       width bound, not a shape every line has to fill. */
+    #log {
+      left: 12px; max-width: min(520px, 46vw);
+      display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+      /* The feed sits over the bottom-left corner of the FLOOR, so every pill
+         was a patch of shop you could not tap to walk to — quietly, because a
+         press that lands on nothing looks like a press you got wrong. It has
+         never needed the pointer, and now that hovering means something it
+         still doesn't: `hoverLog` hit-tests rectangles instead. */
+      pointer-events: none;
     }
+    /* Quieter at rest than anything you are meant to be reading — this is a feed
+       you glance at over the top of the shop, and six opaque cards in the corner
+       of the floor is a wall. Pointing at one gives it back in full; see
+       `hoverLog` for why that is hit-tested rather than `:hover`. */
+    #log div {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--panel); border-radius: 9px; padding: 4px 10px;
+      font-size: 11.5px; line-height: 1.35; box-shadow: 0 2px 7px rgba(58,49,40,.09);
+      opacity: .74; transition: opacity .18s, transform .3s;
+    }
+    #log div.held { opacity: 1; }
+    /* Last, so it beats both of the above — a line on its way out fades from
+       wherever it happened to be. */
     #log div.out { opacity: 0; transform: translateX(-8px); }
-    #carry { right: 12px; font-weight: 700; background: var(--panel);
-             border-radius: 9px; padding: 3px 9px; font-size: 11.5px;
-             box-shadow: 0 2px 7px rgba(58,49,40,.09); }
+    /* Who did it, in front of the sentence that names them. Round, because the
+       plate under an item is a shelf and the plate under a person is not — the
+       two want telling apart at a glance down a column of lines. A flex child
+       rather than a float, so it centres against a wrapped message instead of
+       pinning to its first line. */
+    #log .lg-who {
+      flex: none; width: 21px; height: 21px;
+      margin-left: -3px; border-radius: 99px; padding: 2px;
+      background: rgba(58,49,40,.07);
+    }
+    #log .lg-who > svg { width: 100%; height: 100%; display: block; }
+    /* Goods inside a line, as "2x <picture>" — see `paintLogLine`. The count is
+       the loud half: what the icon says is *which*, and you already know which
+       shop you are in. The plate behind the art is the board tip's, and for the
+       same reason — item art is authored in shop colours, so a dark loaf on a
+       dark card is a smudge whatever somebody authors next.
+
+       Inline, so the count keeps the sentence's baseline; only the picture is
+       centred on it. Made a flex box, the chip centres its own number against
+       its icon and the number then floats off the line of the words. */
+    #log .lg-good { font-weight: 800; white-space: nowrap; }
+    #log .lg-good > svg {
+      width: 17px; height: 17px; display: inline-block; vertical-align: middle;
+      margin-left: 2px;
+      padding: 1px; border-radius: 5px; background: rgba(58,49,40,.05);
+    }
+    /* bottom-right: what is in your hands, a row per pile.
+       It was one long sentence, which at three kinds ran the width of the
+       screen and put the *verb* — the half telling you how to put it down —
+       off the right-hand edge. A column stops growing sideways however mixed
+       an armful is, and lines the counts up under each other so a glance
+       reads how much rather than parsing a list. */
+    #carry {
+      right: 12px; background: var(--panel); font-size: 11.5px;
+      border-radius: 11px; padding: 6px 9px 7px;
+      box-shadow: 0 2px 7px rgba(58,49,40,.09);
+      display: flex; flex-direction: column; gap: 3px; max-width: 220px;
+    }
     #carry:empty { display: none; }
+    #carry .cy-what {
+      font-size: 9.5px; font-weight: 800; letter-spacing: .07em;
+      text-transform: uppercase; opacity: .5;
+    }
+    #carry .cy-row { display: flex; align-items: center; gap: 5px; }
+    /* Right-aligned so "2x" and "12x" share an edge down the column. */
+    #carry .cy-n { font-weight: 800; min-width: 24px; text-align: right; flex: none; }
+    #carry .cy-row > svg {
+      width: 19px; height: 19px; flex: none; display: block;
+      padding: 1px; border-radius: 5px; background: rgba(58,49,40,.05);
+    }
+    #carry .cy-name {
+      font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #carry .cy-hint { font-size: 10.5px; font-weight: 600; opacity: .55; line-height: 1.3; }
 
     /* "Harvesting…" — what standing here is about to do. Sits low and centre,
        near where your hand already is, and vanishes the moment nothing is in
@@ -778,6 +1129,23 @@
     #toast.show { opacity: 1; transform: translate(-50%, 0); }
     #toast.bad { background: var(--accent); }
 
+    /* A word above the rail — see `Rail.note`. The build hint's pill exactly,
+       because it is the build hint's job one press earlier: what the mode is
+       holding, said over the nav, before there is a bar for the real one to sit
+       on. Only the height is set in JS (the rail wraps); centring is `left: 50%`
+       here, since the rail is centred on the screen itself.
+
+       z-index over the bar and the panel (both 10), or a note about the button
+       under it would open beneath whatever the press just put up. */
+    #rail-note {
+      position: fixed; z-index: 12; left: 50%; pointer-events: none;
+      background: rgba(58,49,40,.82); color: #fff; border-radius: 99px;
+      padding: 4px 12px; font-size: 12px; font-weight: 600;
+      opacity: 0; transform: translate(-50%, 7px);
+      transition: opacity .15s, transform .18s;
+    }
+    #rail-note.show { opacity: 1; transform: translate(-50%, 0); }
+
     /* The panel is what the nav expands into: it rises out of the button you
        pressed, above whatever bar is up, and is the top of the same column. */
     #panel {
@@ -807,7 +1175,41 @@
       padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 800;
       cursor: move; touch-action: none;
     }
-    #panel-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
+    /* `flex: 1` so a note inside it can be pushed to the far end — the header is
+       space-between over two children, which only ever puts the close button on
+       the right. `min-width: 0` because the title is the elastic one now and a
+       long section name must shrink rather than shove the clock off the edge. */
+    #panel-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; flex: 1; min-width: 0; }
+    /* What is on the road, on the right of the title bar. `auto` rather than a
+       spacer element, and `pointer-events: none` because this strip is the drag
+       handle: a readout you can accidentally grab-and-not-drag reads as the
+       window having stuck. */
+    .pnl-note {
+      margin-left: auto; display: flex; align-items: center; gap: 6px;
+      font-weight: 600; pointer-events: none;
+    }
+    .pnl-note .n { font-size: 10.5px; opacity: .6; white-space: nowrap; }
+    /* The clock as a pill rather than loose text. Tabular figures so it does not
+       jitter as the digits change — a countdown whose width moves reads as the
+       panel twitching — and a fixed ink so it stays legible when the title beside
+       it is a long section name at .6. */
+    .pnl-note .clock {
+      font-size: 10.5px; font-variant-numeric: tabular-nums; letter-spacing: .02em;
+      padding: 2px 6px; border-radius: 999px; white-space: nowrap;
+      background: rgba(58,49,40,.09); color: var(--ink); opacity: .85;
+    }
+    /* Pulling in. The one state worth colouring: it is the difference between a
+       number to plan around and a thing about to happen on the floor. */
+    .pnl-note .clock.now { background: #ffd66b; opacity: 1; }
+    /* The one thing in the note you can press, so it opts back into the pointer
+       its parent gave up. Sized off the close button beside it — two controls in
+       one header that are different sizes read as one of them being broken. */
+    .pnl-note .pnl-btn {
+      pointer-events: auto; border: 0; background: none; padding: 2px; margin: -2px;
+      color: var(--ink); opacity: .45; cursor: pointer; font-size: 12px; line-height: 0;
+      border-radius: 6px;
+    }
+    .pnl-note .pnl-btn:hover { opacity: 1; background: rgba(58,49,40,.08); }
     #panel-close {
       border: 0; background: none; font: inherit; cursor: pointer; font-size: 15px;
       color: var(--ink); opacity: .5; padding: 0;
@@ -835,36 +1237,61 @@
     #panel-body.paned .pnl-mid { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     #panel-body.paned .pnl-head,
     #panel-body.paned .pnl-foot,
-    #panel-body.paned .tabs { flex: none; }
+    #panel-body.paned .tabs,
+    /* The aisle strip is a chooser like the tabs above it, so it is pinned like
+       them: it decides what the middle holds, and a strip that scrolled away
+       would leave you in a narrowed list with no way back to the whole one. */
+    #panel-body.paned .dtabs { flex: none; }
     /* Sticky was how these pinned themselves when the whole body scrolled.
        Nothing scrolls past them now, so the offsets that cancelled the body's
        padding would only shift them by it. */
     #panel-body.paned .pnl-head,
     #panel-body.paned .pnl-foot,
-    #panel-body.paned .tabs { position: static; }
+    #panel-body.paned .tabs,
+    #panel-body.paned .dtabs { position: static; }
 
-    /* A game does not get the operating system's scrollbar. Thin, in the
-       panel's own ink, and only over the pane that actually scrolls — the
-       default is 15px of grey chrome down the side of a 214px panel, which is
-       7% of the width spent looking like a settings dialog.
+    /* A game does not get the operating system's scrollbar — and it does not
+       get a hand-drawn one either. It was thin and in the panel's own ink,
+       which is better than 15px of grey chrome down a 214px panel and still a
+       strip of settings dialog stood beside a shop.
 
-       Both spellings, because they are not the same feature: `scrollbar-width`
-       is the standard one Firefox has, `::-webkit-scrollbar` is what Chrome and
-       Safari read, and neither is a fallback for the other. */
+       So the list is DRAGGED, the way the bottom bar's is (`client/scroll.js`),
+       and what is left is the question the bar was answering badly: is there
+       more. That is a fade at whichever end has any — a mask rather than an
+       overlay, because a scroll container's own `::before` is part of its
+       content and would scroll away with it, and because the panel behind is
+       glass and a gradient painted in one flat colour would read as a smear.
+
+       Both spellings of the hiding, because they are not the same feature:
+       `scrollbar-width` is the standard one Firefox has, `::-webkit-scrollbar`
+       is what Chrome and Safari read, and neither is a fallback for the other. */
     #panel-body, #panel-body .pnl-mid {
-      scrollbar-width: thin;
-      scrollbar-color: rgba(58,49,40,.22) transparent;
+      scrollbar-width: none;
+      /* A drag over a list of words selects them, and a half-highlighted menu
+         is what a scroll would leave behind on every pull. Given back to the
+         fields you type in — the Menu names a shop and a player in there, and a
+         box you cannot select the contents of is a box you cannot correct. */
+      user-select: none; -webkit-user-select: none;
+    }
+    #panel-body input, #panel-body textarea {
+      user-select: text; -webkit-user-select: text;
     }
     #panel-body::-webkit-scrollbar,
-    #panel-body .pnl-mid::-webkit-scrollbar { width: 6px; height: 6px; }
-    #panel-body::-webkit-scrollbar-track,
-    #panel-body .pnl-mid::-webkit-scrollbar-track { background: transparent; }
-    #panel-body::-webkit-scrollbar-thumb,
-    #panel-body .pnl-mid::-webkit-scrollbar-thumb {
-      background: rgba(58,49,40,.2); border-radius: 99px;
+    #panel-body .pnl-mid::-webkit-scrollbar { display: none; }
+    /* 20px, and the same at both ends. Any more eats the row it is fading; any
+       less reads as a rendering seam rather than as "there is more". */
+    #panel-body.more-back, #panel-body .pnl-mid.more-back {
+      mask-image: linear-gradient(180deg, transparent 0, #000 20px);
+      -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px);
     }
-    #panel-body::-webkit-scrollbar-thumb:hover,
-    #panel-body .pnl-mid::-webkit-scrollbar-thumb:hover { background: rgba(58,49,40,.34); }
+    #panel-body.more-on, #panel-body .pnl-mid.more-on {
+      mask-image: linear-gradient(0deg, transparent 0, #000 20px);
+      -webkit-mask-image: linear-gradient(0deg, transparent 0, #000 20px);
+    }
+    #panel-body.more-back.more-on, #panel-body .pnl-mid.more-back.more-on {
+      mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
+      -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
+    }
 
     /* Search and tag chips. A comprehensive catalogue you cannot search is
        what mods get written to fix, and ours grows live while you play. */
@@ -900,10 +1327,91 @@
     .tab:hover { opacity: .8; background: rgba(58,49,40,.06); }
     .tab.on { opacity: 1; background: #ffd66b; }
     .tab svg { display: block; }
+    /* How many are behind the tab. `position: relative` on the button and the
+       count in the corner rather than beside the glyph: these are six equal
+       columns of a 214px panel, so a number ON the row would halve the icon,
+       and the icon is what you actually aim at. */
+    /* ---- the aisle strip --------------------------------------------------
+       Departments, under the icon tabs, in a shelf's item list. Text rather
+       than icons because there is no picture of "condiment" and these are read
+       rather than aimed at — see `deptStrip` in client/fixture-menu.js.
+
+       It WRAPS instead of scrolling sideways, which is the opposite call the
+       build bar makes about its tools, and the reason is that this set is
+       twelve short words with no order you can predict a position from: a strip
+       you have to scroll hides the very aisle you came for, and there is no
+       "further right" to learn when the words are produce, dairy, bakery. Two
+       lines of chips is the whole set at a glance. */
+    /* Sticky under the sticky tab strip. `top` is set in JS off where the tabs
+       end (`paintSection`) — a written-down offset would be a copy of this
+       file's own padding, and it would be wrong the day a tab gets taller. In
+       the paned layout (a fixture menu) nothing here applies: the middle
+       scrolls and this is pinned outside it. */
+    .dtabs {
+      position: sticky; top: 0; z-index: 1;
+      display: flex; flex-wrap: wrap; gap: 3px;
+      padding: 1px 0 5px; margin-bottom: 4px;
+      background: var(--panel-solid);
+      border-bottom: 1px solid var(--line);
+    }
+    /* Caption type, not row type. These name the list rather than being IN it,
+       so they sit at the weight of `.sep` above the rows — anything bigger
+       competes with the item names, which are the thing you came to read.
+
+       Equal cells with the text centred, and a hairline between them: the same
+       shape as the icon tabs a row up, which is what makes it read as a second
+       row of tabs rather than as a paragraph of words. A `font` SHORTHAND does
+       not work here — `font: 700 9px inherit` names no family, so the whole
+       declaration is invalid and dropped, and what you get is body type in a
+       pill. Separate properties. */
+    /* Badges, each as wide as its own word. Two shapes were tried first and both
+       are worth naming. Equal cells with rules between them made the last line
+       stretch three words across the whole panel — a second paragraph rather
+       than a rule under the tabs. Content-width cells with rules between them
+       fixed the stretching and left the dividers meaning nothing, since a gap
+       already separates two chips. So: no rules, a chip each, and the badge
+       shape the rest of this panel already uses for a small fact on a row. */
+    .dtab {
+      flex: 0 0 auto; text-align: center;
+      border: 0; border-radius: 99px;
+      padding: 2px 7px; color: var(--ink);
+      background: rgba(58,49,40,.07);
+      font-size: 8px; font-weight: 800; letter-spacing: .04em;
+      text-transform: uppercase; line-height: 1.5;
+      opacity: .5; cursor: pointer; transition: opacity .1s, background .1s;
+    }
+    .dtab:hover { opacity: .9; background: rgba(58,49,40,.14); }
+    /* The same yellow the icon tab uses for "you are here", because it is the
+       same fact one row down — two colours for one state would read as two
+       different kinds of selection. */
+    .dtab.on { opacity: 1; background: #ffd66b; }
+
+    .tab { position: relative; }
+    .tab .tcount {
+      position: absolute; top: 0; right: 2px;
+      font-size: 8.5px; font-weight: 700; font-style: normal; line-height: 1;
+      opacity: .75; pointer-events: none;
+    }
+    /* An empty tab is still drawn — that is what keeps the strip the same shape
+       morning to morning — but it must not read as a place worth pressing. Faded
+       past `.tab`'s resting .4, and its zero fades further: the tab is the
+       answer, and the digit is only there so the fade is not ambiguous with the
+       panel having failed to draw. */
+    .tab.none { opacity: .22; }
+    .tab.none .tcount { opacity: .5; }
+    .tab.none.on { opacity: 1; }
 
     .row { display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 9px; }
     .row:hover { background: rgba(58,49,40,.05); }
     .row.owned { opacity: .5; }
+    /* "There is already one of these somewhere" — a nudge, not a refusal, so it
+       has to stay clearly darker than `.owned`. At the same .5 a row you can
+       still press looked exactly like one with nothing to press, and the list
+       read as half disabled. The name keeps its weight and only the sub-line
+       steps back, because what is muted is the ARGUMENT for the row, not the
+       item's name — which is the thing you are scanning for. */
+    .row.muted { opacity: .82; }
+    .row.muted .tags { opacity: .72; }
     /* The title stays on one line — it's short, and a wrapping bold heading
        reads as two rows. The description wraps but is clamped at two lines, so
        a menu fed from a live database still can't grow taller than the screen;
@@ -930,6 +1438,17 @@
     .row .name > .t { overflow: hidden; text-overflow: ellipsis; }
     .row .meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
     .row .meta .tags { min-width: 0; }
+    /* A state the row is in, as one glyph with the sentence in its tooltip —
+       see `rowHtml`. `flex: none` for the reason the heat pill has it: this
+       shares the line with the only elastic thing in the panel, and a glyph
+       that could be squeezed would take its width out of the caption instead
+       of holding its own. Sized off the text around it rather than in pixels,
+       so it sits on the same baseline as the tags it stands in for. */
+    .row .mark {
+      flex: none; display: inline-flex; align-items: center;
+      font-size: 12px; opacity: .5; cursor: help;
+    }
+    .row .mark.warn { color: var(--accent); opacity: .75; }
     .row .heat {
       flex: none; padding: 0 5px; border-radius: 99px;
       font-size: 9.5px; font-weight: 800; letter-spacing: .01em;
@@ -947,6 +1466,12 @@
       border: 0; background: var(--good); color: #fff; border-radius: 8px;
       padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; flex: none;
     }
+    /* Un-ordering, in the slot ordering lives in. `.row button.danger` rather
+       than `.danger` alone for the reason the steppers below spell out: a bare
+       class loses to `.row button`, and a Cancel pill would come out the same
+       green as Buy — which is the one pair in this panel that must never look
+       alike. */
+    .row button.danger { background: var(--accent); }
     .row .have { font-size: 10.5px; opacity: .6; }
 
     /* How far along a row is. One rule, in the row system rather than in the
@@ -1042,6 +1567,21 @@
     .sec-row { align-items: flex-start; }
     .sec-row.clickable { cursor: pointer; }
     .sec-row.picked { background: #fff3d0; box-shadow: inset 0 0 0 2px #ffd66b; }
+    /* A row is a chip and a list of them is not a table, so they need air
+       between them. Without it the failure is only visible when two rows are
+       LIT: their rings meet and the pair reads as one block with a rule through
+       it, since two 2px inset borders touching is a 4px seam and nothing else
+       in the panel draws one. Adjacent-sibling, so a heading — which brings its
+       own margin and its own rule — is not double-spaced, and the last row does
+       not push against the panel's padding. */
+    .sec-row + .sec-row, .fx-act + .fx-act { margin-top: 3px; }
+    /* ...and the glyph is centred while the words stay top-aligned. Both rules
+       are right about their own half: a caption that wraps to two lines should
+       hang off the name, and a single mark for the WHOLE row lining up with the
+       first line of it looks like it slipped. `align-self` rather than moving
+       the row to `center`, which would take the price, the count and the
+       steppers with it. */
+    .sec-row > .lead, .fx-act > .bico { align-self: center; }
     .sec-row .bico { font-size: 14px; line-height: 1.2; width: 19px; text-align: center; }
     /* A row whose lead is a PICTURE of the thing rather than a glyph for its
        kind — a shape in the fixture menu, drawn from the same catalog row the
@@ -1064,6 +1604,285 @@
       opacity: .45; padding: 6px 7px 2px; border-top: 1px solid var(--line); margin-top: 4px;
     }
     .foot { font-size: 10px; opacity: .55; padding: 6px 7px; line-height: 1.35; }
+
+    /* ---- the shop report -------------------------------------------------
+       The one menu that is a PICTURE rather than a list. Everything else in
+       this panel is `.row`, which is right for anything you might press and
+       wrong for a report: a list gives every number the same size, and the
+       whole reading here is that today's profit and "4 picked" are not the
+       same size of fact. See client/report.js for what each block is and why.
+
+       Two colours do all the work and they are the ones the rest of the game
+       already uses for this: --good and --accent, the same pair as the corner
+       cashflow readout and every heat pill. They are also the worst pair alive
+       for a red-green colourblind reader, so nothing in here rests on them —
+       the week's sign is which side of the axis a column is on, the hero says
+       "profit" or "loss" in words, and every delta carries an arrow. */
+    .rp { padding: 2px 3px 6px; }
+    .rp-blk { padding: 8px 8px 10px; }
+    /* One column until there is room for two, and a real GRID when there is —
+       cells in step across a row, not two independent columns side by side.
+       That distinction is the whole of what makes it look segmented: two
+       columns end wherever their own content ends, so the seam between them is
+       ragged and a tall block on one side is marooned beside empty panel. Cells
+       in a row are the same height by construction, so the lines run all the
+       way across and meet the one down the middle.
+
+       The lines ARE the grid gap: a 1px gutter with the rule colour behind it,
+       and each cell painting itself back in over the top. One declaration draws
+       every line in the panel, they cross exactly, and no cell has to know
+       which of its four edges is an outside edge — which is the part that gets
+       wrong by hand the moment a block moves. `--panel-solid` rather than
+       `--panel`, because 94% over 94% is a line you can see through the cell
+       next to it.
+
+       The panel's own width moves on the same query: a 620px panel with one
+       column of content in it is just a long line to read. */
+    @media (min-width: 700px) {
+      #panel.wide { width: 620px; }
+      .rp.pnl-wide {
+        display: grid; grid-template-columns: 1fr 1fr;
+        gap: 1px; background: var(--line); padding: 0;
+      }
+      .rp.pnl-wide > .rp-blk { background: var(--panel-solid); }
+      /* The gap draws every divider now. The stacked rule would double up on
+         the one down the middle and miss the one across. */
+      .rp.pnl-wide > .rp-blk + .rp-blk { border-top: none; }
+      /* What went wrong belongs to neither column — it is the evidence for
+         both — so it takes the whole bottom row, which is also the width its
+         three tiles want. */
+      .rp.pnl-wide > .rp-full { grid-column: 1 / -1; }
+    }
+    .rp-blk + .rp-blk { border-top: 1px solid var(--line); }
+    .rp-blk h4 {
+      margin: 0 0 8px; font-size: 9px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: .06em; opacity: .45;
+      display: flex; align-items: baseline; gap: 6px;
+    }
+    .rp-blk h4 small { font-weight: 700; letter-spacing: 0; text-transform: none; opacity: .8; }
+    /* Sentences under a block. Same size and weight as a row's `.tags`, because
+       a caption in a report and a caption on a row are the same kind of thing
+       and there is no reason for the panel to have two of them. */
+    .rp-note { margin: 8px 0 0; font-size: 10.5px; line-height: 1.35; opacity: .55; }
+    .rp-note b { font-weight: 800; opacity: .85; }
+
+    /* --- today ---------------------------------------------------------- */
+    /* THE hero figure — one per view. 34px against an 12px panel is three
+       times the body, which is what "hero" means here; the 48px the desktop
+       rule asks for is a number scaled to a full-page dashboard and would be a
+       quarter of the width of this one. Proportional figures, not tabular:
+       tabular gives every digit the width of a `0`, which at this size makes
+       a number like $121 look full of holes. */
+    .rp-hero { display: flex; align-items: baseline; gap: 10px; }
+    .rp-hero > b { font-size: 34px; font-weight: 800; line-height: 1; letter-spacing: -.02em; }
+    .rp-hero.up > b { color: var(--good); }
+    .rp-hero.down > b { color: var(--accent); }
+    /* Before the first sale of the day it is neither, and stays the panel's own
+       ink — a green $0.00 is a claim about a day nothing has happened in. */
+    .rp-hero.idle > b { opacity: .3; }
+    .rp-heroside { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .rp-heroside > em { font-style: normal; font-size: 10.5px; font-weight: 700; opacity: .5; }
+    .rp-delta {
+      display: flex; align-items: baseline; gap: 4px;
+      font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+    }
+    .rp-delta > i { font-style: normal; font-size: 9px; }
+    .rp-delta > em { font-style: normal; font-weight: 600; opacity: .45; font-size: 10px; }
+    .rp-delta.up { color: var(--good); }
+    .rp-delta.down { color: var(--accent); }
+    .rp-delta.flat { opacity: .55; }
+
+    /* Taken split into what went back out and what stayed. The gap between the
+       two segments is 2px of the panel's own colour — a border round a fill is
+       ink that isn't data, and at this height it would be most of the mark. */
+    .rp-split { margin-top: 10px; }
+    .rp-track {
+      display: flex; gap: 2px; height: 10px; border-radius: 5px;
+      background: rgba(58,49,40,.08);
+    }
+    .rp-seg { display: block; height: 100%; }
+    .rp-seg:first-child { border-radius: 5px 0 0 5px; }
+    .rp-seg:last-child { border-radius: 0 5px 5px 0; }
+    .rp-seg:only-child { border-radius: 5px; }
+    .rp-seg.base { background: rgba(58,49,40,.3); }
+    .rp-seg.kept { background: var(--good); }
+    .rp-seg.short { background: var(--accent); }
+    .rp-split.empty .rp-track { background: rgba(58,49,40,.06); }
+    .rp-legend {
+      margin: 5px 0 0; display: flex; justify-content: space-between; gap: 8px;
+      font-size: 10.5px; opacity: .55;
+    }
+    .rp-legend b { font-weight: 800; opacity: .85; font-variant-numeric: tabular-nums; }
+
+    /* --- the week ------------------------------------------------------- */
+    /* Two label bands, one at each end of the plot, and they are not optional.
+       The best day's bar reaches the top of the plot BY CONSTRUCTION — it is
+       what the scale is built from — so its value label always sits outside,
+       and the worst day's always sits under the bottom edge. Without the bands
+       the top one rides up into the heading and the bottom one lands exactly on
+       the row of day numbers. Neither is visible in a week that happens to have
+       its extremes in the middle of the range, because there is no such week. */
+    .rp-week { padding-top: 14px; }
+    /* The columns and the two hairlines share one positioning context, so the
+       axis and the average are placed by the same arithmetic the bars are. */
+    .rp-plot {
+      position: relative; height: var(--plot);
+      display: flex; align-items: stretch; gap: 4px; margin-bottom: 30px;
+    }
+    .rp-col { position: relative; flex: 1 1 0; min-width: 0; }
+    /* Two stacked halves: everything above the axis, everything below it. The
+       bar sits at the axis end of its half, which is what makes both signs
+       grow OUT of the same line. */
+    .rp-up, .rp-dn { display: flex; justify-content: center; }
+    .rp-up { align-items: flex-end; }
+    .rp-dn { align-items: flex-start; }
+    .rp-up > i, .rp-dn > i { display: block; width: 18px; max-width: 100%; }
+    .rp-up > i { background: var(--good); border-radius: 4px 4px 0 0; }
+    .rp-dn > i { background: var(--accent); border-radius: 0 0 4px 4px; }
+    /* The day number, under the plot. `tabular-nums` here and NOT on the hero,
+       because these are a row of figures that have to line up with each other. */
+    .rp-col > b {
+      position: absolute; top: calc(var(--plot) + 16px); left: 0; right: 0;
+      text-align: center; font-size: 9px; font-weight: 700; opacity: .4;
+      font-variant-numeric: tabular-nums;
+    }
+    /* Only the best day and the worst carry a value — a number on every column
+       is chaos and goes unread. It rides the far end of its own bar, so it can
+       never sit on top of the mark it is labelling. */
+    .rp-pin {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      font-style: normal; font-size: 9.5px; font-weight: 800; white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .rp-pin.over { margin-bottom: 2px; color: var(--good); }
+    .rp-pin.under { margin-top: 2px; color: var(--accent); }
+    .rp-axis, .rp-avg {
+      position: absolute; left: 0; right: 0; height: 0;
+      border-top: 1px solid rgba(58,49,40,.22); pointer-events: none;
+    }
+    /* The average is a reference, so it is quieter than zero. Solid, like the
+       axis: a dashed rule reads as a projection, and this is arithmetic on bars
+       that are right there.
+       It carries no label of its own — the figure is in the heading, because
+       the only two places a chip on this line could sit are on top of a bar and
+       in the band the best day's label already owns. The line says WHERE, the
+       heading says what, and neither has to dodge the other. */
+    .rp-avg { border-top-color: rgba(58,49,40,.14); }
+
+    /* The same week in the shop's other currency, sharing the x axis and
+       nothing else. It is deliberately the junior row: a third of the height,
+       10px bars against the plot's 18, and a heading in the panel's quietest
+       ink — two charts of equal weight stacked would read as a dashboard, and
+       this is one chart with a footnote you can see the shape of. Colours are
+       the same green and red as the plot above ON PURPOSE, because the whole
+       job of the strip is to be compared with it row for row. */
+    /* Air above it, and it is load-bearing: the plot reserves 30px under itself
+       for the day numbers, so a strip that starts where that margin ends puts
+       its own heading 3px under a row of labels and the two read as one
+       jumbled band. The gap is what says the numbers belong to the chart above
+       and the words below start something new. */
+    .rp-strip { display: flex; flex-direction: column; gap: 4px; margin-top: 9px; }
+    .rp-shead {
+      font-size: 8.5px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .06em; opacity: .32;
+    }
+    .rp-rep { position: relative; height: var(--rep); display: flex; align-items: stretch; gap: 4px; }
+    .rp-rcol { position: relative; flex: 1 1 0; min-width: 0; }
+    .rp-rup, .rp-rdn { display: flex; justify-content: center; }
+    .rp-rup { align-items: flex-end; }
+    .rp-rdn { align-items: flex-start; }
+    .rp-rup > i, .rp-rdn > i { display: block; width: 12px; max-width: 100%; }
+    .rp-rup > i { background: var(--good); border-radius: 3px 3px 0 0; }
+    .rp-rdn > i { background: var(--accent); border-radius: 0 0 3px 3px; }
+    .rp-raxis {
+      position: absolute; left: 0; right: 0; height: 0;
+      border-top: 1px solid rgba(58,49,40,.22); pointer-events: none;
+    }
+
+    /* --- going wrong ---------------------------------------------------- */
+    .rp-tiles { display: flex; gap: 6px; }
+    .rp-tile {
+      flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 1px;
+      padding: 6px 7px; border-radius: 10px; background: rgba(58,49,40,.05);
+    }
+    /* Status colour only where there is something to say. A tile at zero stays
+       in the panel's own ink, so the eye finds the lit ones without reading. */
+    .rp-tile.bad { background: #f9e2dd; }
+    .rp-tile.warn { background: #fbeed3; }
+    .rp-tile > b { font-size: 17px; font-weight: 800; line-height: 1.1; }
+    /* NOT --accent and --warn themselves. Those are mark colours — they are
+       measured against the panel and they are the right red and amber on a
+       10px bar — and at 17px of text on a tinted tile they come out at 2.99:1
+       and 3.14:1, under the 4.5:1 a figure this size owes a reader. These are
+       the same two hues stepped down until they pass (4.8 and 5.4), and the red
+       is the one the heat pills already use, so the shop has one dark red
+       rather than two. The 34px hero is the other way round and stays on the
+       mark colours: over 18.66px bold the bar is 3:1, and it clears it. */
+    .rp-tile.bad > b { color: #a8442f; }
+    .rp-tile.warn > b { color: #8a5410; }
+    .rp-tname { font-size: 10px; font-weight: 700; }
+    /* .7 rather than the .55 every caption in the panel wears: those sit on the
+       panel's own cream, and a tinted tile is a lighter ground to be read off. */
+    .rp-tsub {
+      font-size: 9.5px; line-height: 1.25; opacity: .7;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+    }
+
+    /* --- reputation ------------------------------------------------------
+       Where it stands, then what moved it. 20px is deliberately well under the
+       hero's 34: there is one hero per view and it is today's profit, and this
+       is the second-biggest fact in the panel rather than a rival to it. */
+    .rp-rnow { display: flex; align-items: baseline; gap: 8px; }
+    .rp-rnow > b { font-size: 20px; font-weight: 800; line-height: 1; letter-spacing: -.01em; }
+
+    /* One row per cause, all of them measured off the same centre line: gains
+       to the right of it, losses to the left. The sign is therefore carried by
+       WHICH SIDE a bar is on and by the signed figure beside it, and the colour
+       only agrees — which is what keeps the block legible to a reader who
+       cannot tell this green from this red, and they are the worst pair alive
+       for exactly that. */
+    .rp-causes { margin-top: 9px; display: flex; flex-direction: column; gap: 7px; }
+    .rp-cause { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; align-items: baseline; }
+    .rp-cname { font-size: 11px; font-weight: 700; }
+    /* NOT --good and --accent. Those are mark colours — right on the bar below
+       and on the week's columns — and as 10.5px text on the panel's cream they
+       come out at 3.0:1 and 3.6:1, under the 4.5:1 a figure this size owes a
+       reader. These are the same two hues stepped down until they pass (5.1 and
+       5.8), and the red is the one the heat pills and the warning tiles already
+       use, so the shop still has one dark red rather than two. */
+    .rp-cval { font-size: 10.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .rp-cval.up { color: #3f7a3c; }
+    .rp-cval.down { color: #a8442f; }
+    .rp-ctrack {
+      grid-column: 1 / -1; position: relative; height: 6px; border-radius: 99px;
+      background: rgba(58,49,40,.06);
+    }
+    /* The centre. A hairline rather than a gap, because with one row on each
+       side a gap is invisible and the whole reading rests on there being a line
+       both are measured from. */
+    .rp-ctrack::before {
+      content: ''; position: absolute; left: 50%; top: -1px; bottom: -1px;
+      width: 1px; background: rgba(58,49,40,.2);
+    }
+    .rp-ctrack > i { position: absolute; top: 0; bottom: 0; display: block; }
+    .rp-ctrack > i.up { background: var(--good); border-radius: 0 99px 99px 0; }
+    .rp-ctrack > i.dn { background: var(--accent); border-radius: 99px 0 0 99px; }
+
+    /* --- the shop ------------------------------------------------------- */
+    .rp-meter { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-bottom: 8px; }
+    .rp-mname { font-size: 11px; font-weight: 700; }
+    .rp-mval { font-size: 10.5px; opacity: .55; font-variant-numeric: tabular-nums; }
+    /* The empty part of the track is a lighter step of the fill rather than
+       neutral grey, so how full it is reads across the whole bar. */
+    .rp-mtrack {
+      grid-column: 1 / -1; height: 5px; border-radius: 99px;
+      background: rgba(90,163,86,.18); overflow: hidden;
+    }
+    .rp-mtrack > i {
+      display: block; height: 100%; border-radius: 99px;
+      background: var(--good); transition: width .25s ease;
+    }
+    .rp-clear { margin: 0; font-size: 11px; opacity: .55; line-height: 1.4; }
 
     /* ---- a menu with more rows than fit ----------------------------------
        What the thing IS stays at the top, what you can DO stays at the bottom,
@@ -1255,14 +2074,140 @@
     .fx-act.off { cursor: default; opacity: .42; }
     .fx-act.off:hover { background: none; }
 
-    /* One hire's own menu: the dial on each job row saying how much of their
-       day it gets. It borrows the fixture price control wholesale — same
-       buttons, same tabular value — and only shrinks it, because a weight is
-       one digit where a price is five. */
+    /* ---- one hire's own menu ---------------------------------------------
+       A PROFILE: the machine on the left, everything read off it on the right.
+       It was five label-and-value lines stacked down a pinned head, which is a
+       spec sheet for a thing you never see — a bot spends the game two tiles
+       away with its back to you, and this menu is the one place it can be stood
+       up and turned round. */
+    .wk-profile { position: relative; display: flex; gap: 10px; padding: 6px 8px 7px; }
+
+    /* The well the avatar turns in — the same radial the palette stands its art
+       in, at the size a portrait wants. `overflow: hidden` is doing real work:
+       it is the window the filmstrip below slides past. */
+    .wk-face {
+      flex: none; position: relative; width: 78px; height: 86px;
+      border: 0; padding: 0; border-radius: 12px; overflow: hidden;
+      background: radial-gradient(120% 100% at 50% 16%, rgba(255,255,255,.95), rgba(58,49,40,.075));
+      box-shadow: inset 0 0 0 1px rgba(58,49,40,.07);
+      color: var(--ink); font: inherit;
+    }
+    /* Only a shop with more than one look gets a button here — see `avatar`. */
+    button.wk-face { cursor: pointer; }
+    button.wk-face:hover { box-shadow: inset 0 0 0 1.5px rgba(58,49,40,.2); }
+    /* The same handle the palette tile wears on the same gesture, so a hold is
+       a thing you can see is on offer rather than one you have to be told. */
+    .wk-face .more { position: absolute; right: 4px; bottom: 2px; font-size: 10px; opacity: .35; }
+    button.wk-face:hover .more { opacity: .9; }
+
+    /* THE TURNTABLE, and it is a filmstrip rather than a renderer: `thumb.js`
+       hands over twenty-four stills of the same bot at fifteen degrees apart,
+       laid in one row `--n` faces wide, and this slides it one face at a time.
+       `steps(var(--n))` never reaches the -100% it animates to — it stops one
+       frame short — which is exactly the frame before the first one comes round
+       again. Nothing ticks, nothing is measured, and the whole animation costs a
+       transform.
+
+       The phase comes in as a NEGATIVE `animation-delay` from the menu, because
+       this element is rebuilt every time the panel redraws. See `avatar`. */
+    .wk-turn {
+      display: flex; height: 100%; width: calc(100% * var(--n));
+      /* Longhands rather than the shorthand, because the delay arrives inline
+         and the two have to be read as one animation — a shorthand here would
+         also be re-declaring the delay it is being handed. */
+      animation-name: wk-spin;
+      animation-duration: var(--spin);
+      animation-timing-function: steps(var(--n));
+      animation-iteration-count: infinite;
+    }
+    @keyframes wk-spin { to { transform: translateX(-100%); } }
+    .wk-turn > span { flex: none; width: calc(100% / var(--n)); height: 100%; padding: 6px; }
+    /* A kind nobody drew a model for. One still, in the same well. */
+    .wk-still { display: block; height: 100%; padding: 6px; }
+    .wk-turn svg, .wk-still svg { width: 100%; height: 100%; display: block; }
+    /* A card you are reading, so the one moving thing on it gives way. */
+    @media (prefers-reduced-motion: reduce) { .wk-turn { animation: none; } }
+
+    /* What is read off them. Doing spans the block because it is the only one
+       that is a sentence and the only one that moves while you watch; the four
+       standing figures go in two columns under it, which is where the head got
+       back the forty pixels the avatar costs. `auto-fit` so the same block is
+       one column on a phone rather than two squeezed to an ellipsis. */
+    .wk-facts { flex: 1; min-width: 0; }
+    .wk-facts > .fx-line {
+      border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-bottom: 3px;
+    }
+    .wk-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      column-gap: 14px;
+    }
+    /* One line per figure, whatever the content says. A rung is NAMED by
+       content ("New behind the counter"), so the one cell in here that can be
+       four words long is the one nothing in this file controls — and wrapped it
+       took the label beside it out of line with the row above, which reads as a
+       broken grid rather than as a long name. The whole of it is on the hover,
+       the same deal every row in this panel makes with its caption.
+       `min-width: 0` because a flex child will not shrink past its content
+       without it, and an ellipsis that never triggers is not an ellipsis. */
+    .wk-grid .fx-line { align-items: baseline; }
+    .wk-grid .fx-line b {
+      min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* The paints, out of the avatar you held. Rows are `.shape` — the build
+       bar's shape card, which is the same question with the same shape of
+       answer — so only where it hangs is new. Positioned against `.wk-profile`
+       and not the head, because the head is `position: static` while the panel
+       is paned and would hand the card the whole panel to be measured from. */
+    .wk-skins {
+      position: absolute; z-index: 5; left: 8px; top: calc(100% - 6px);
+      display: flex; flex-direction: column; gap: 2px;
+      width: 188px; max-width: calc(100% - 16px); max-height: 232px; overflow-y: auto;
+      background: var(--panel-glass); border-radius: 12px; padding: 5px;
+      backdrop-filter: blur(14px) saturate(1.15);
+      -webkit-backdrop-filter: blur(14px) saturate(1.15);
+      box-shadow: 0 10px 24px rgba(58,49,40,.28), inset 0 0 0 1px rgba(58,49,40,.09);
+    }
+    /* A bot is taller than it is broad, where a shelf is the other way about —
+       so the well `.shape` stands its picture in gets the other proportion
+       here. Everything else about the row is the build bar's. */
+    .wk-skins .shape { padding: 3px 8px 3px 3px; }
+    .wk-skins .shape .ico.art { width: 30px; height: 36px; }
+
+    /* The directives, in TWO COLUMNS. It is a fixed vocabulary of nine short
+       rows and one column of them was a scroll for no reason — with the tabs
+       gone and the head shorter, the whole list now sits on screen at once,
+       which is the difference between reading a hire's shift and hunting
+       through it. `auto-fit` again, and again for the phone. */
+    .wk-jobs {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(184px, 1fr));
+      column-gap: 4px;
+    }
+    /* The dial on each job row. It borrows the fixture price control wholesale
+       — same buttons, same tabular value — and only shrinks it, because a
+       weight is one digit where a price is five. */
     .wk-w { flex: none; gap: 4px; padding: 0; }
     .wk-w b { min-width: 16px; font-size: 11px; }
     .wk-w button { width: 24px; height: 24px; }
+    .wk-job { padding: 3px 4px; }
     .wk-job .name { padding: 2px 0; }
+
+    /* What is left of their day, in the heading of the list that spends it.
+       There is one pot and nine rows drawing on it, so the count belongs above
+       all of them rather than on any one — and it is the reason the standing
+       paragraph explaining what a weight is could go: a number running out
+       under your thumb says it where you are pressing. */
+    .sep .wk-cap {
+      float: right; font-size: 10px; letter-spacing: 0; opacity: .85;
+      font-variant-numeric: tabular-nums;
+    }
+    .sep .wk-cap i { font-style: normal; opacity: .5; }
+    /* Only ever reached by rolling firmware BACK — a rung takes points away and
+       deliberately does not touch the list, so this is somebody carrying more
+       than they are allowed until you trim them. It has to be visible: every `+`
+       in the list is dead until it clears, and a dead stepper with nothing
+       saying why is the thing that reads as broken. */
+    .sep .wk-cap.over { color: var(--accent); opacity: 1; }
 
     /* How much is left in the tank. The bar sits behind the word rather than
        beside it, because the row is already two columns wide and a third one
@@ -1370,15 +2315,79 @@
     .subcat .ico { font-size: 12px; line-height: 1; }
 
     /* Tier three: that tab's entries. Scrolls rather than wraps, so the bar keeps
-       one row's height however much anybody authors. */
+       one row's height however much anybody authors.
+
+       NO SCROLLBAR. A grey pill under a row of cards is an operating system in
+       the middle of a shop — and it was answering two questions at once, badly:
+       "is there more" and "take me there". Those are split now. The strip is
+       DRAGGED (`wireStrip`, bar.js), which is the same gesture the world behind
+       it already answers to, and each end that has more wears an arrow you can
+       press — so the answer to "is there more" is a thing you can act on rather
+       than a bar you have to hit.
+
+       THE SCROLLER OWNS THE INSET so those ends are the panel's ends: it is
+       pulled out over `#build-bar`'s 6px and given that 6px back as padding of
+       its own, which puts the tiles exactly where they sat while letting the
+       row scroll the full width of the panel. Without it a tile parks 6px short
+       of the edge and the fade beside it has a margin of dead glass to sit in.
+       `scroll-padding` is the other half — `scrollIntoView` aligns to the
+       scrollport, so the tile a number key selects would otherwise land flush
+       against the panel edge with none of the inset the rest of the row has. */
+    /* CLIPPED TO THE PANEL'S OWN CORNERS. Pulling the strip out to the bar's
+       edges is what puts the ends of the row at the ends of the bar — and it
+       also hands the scroll a square box where the bar has a 16px radius, so a
+       tile scrolled hard against either end pokes its corner out over the world
+       and reads as the bar having sprung a leak. The rounding cannot go on
+       `#build-bar` itself: `#build-shapes` hangs off the top of it on purpose,
+       and clipping there would cut the shape card off at the bar.
+       Bottom corners only, because that is the pair this element shares with
+       the panel — its top edge is in the middle of it. */
+    #build-strip {
+      position: relative; margin: 0 -6px -6px;
+      border-radius: 0 0 16px 16px; overflow: hidden;
+    }
     #build-tools {
       display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
-      scrollbar-width: thin; scrollbar-color: rgba(58,49,40,.25) transparent;
+      padding: 0 6px 6px; scroll-padding-inline: 22px;
+      scrollbar-width: none;
+      /* A drag scrolls it; a touch still flicks it natively, which is why the
+         pointer handler ignores anything that isn't a mouse. */
+      touch-action: pan-x;
     }
-    #build-tools::-webkit-scrollbar { height: 5px; }
-    #build-tools::-webkit-scrollbar-thumb {
-      background: rgba(58,49,40,.22); border-radius: 99px;
+    #build-tools::-webkit-scrollbar { display: none; }
+    /* The ends, when there is more past them. A fade rather than a hard edge,
+       so a tile half off the strip reads as *continuing* instead of as cut —
+       and it is `pointer-events: none` because the tile under it is still a
+       button you can press. Painted in the panel's own glass, which is what
+       makes it read as the bar rather than as a shadow on the row. */
+    #build-strip::before, #build-strip::after {
+      content: ''; position: absolute; top: 0; bottom: 6px; width: 46px;
+      pointer-events: none; z-index: 2; opacity: 0; transition: opacity .12s;
     }
+    #build-strip::before {
+      left: 0; background: linear-gradient(90deg, var(--panel-glass) 22%, rgba(255,252,245,0));
+    }
+    #build-strip::after {
+      right: 0; background: linear-gradient(270deg, var(--panel-glass) 22%, rgba(255,252,245,0));
+    }
+    #build-strip.more-back::before, #build-strip.more-on::after { opacity: 1; }
+    /* …and the arrow in it. A round chip rather than a bare glyph: it is a
+       button, it sits over a row of buttons, and the one thing it must not read
+       as is part of whichever tile it happens to be floating over. */
+    .nudge {
+      position: absolute; top: 50%; transform: translateY(calc(-50% - 3px));
+      z-index: 3; width: 22px; height: 22px; padding: 0;
+      display: grid; place-items: center; cursor: pointer;
+      border: 0; border-radius: 99px; font: inherit; font-size: 14px; line-height: 1;
+      color: var(--ink); background: linear-gradient(#fffdf8, #f1e8d6);
+      box-shadow: 0 2px 6px rgba(58,49,40,.24), inset 0 0 0 1px rgba(58,49,40,.11);
+      opacity: .92; transition: opacity .1s, transform .1s;
+    }
+    .nudge:hover { opacity: 1; transform: translateY(calc(-50% - 3px)) scale(1.08); }
+    .nudge[hidden] { display: none; }
+    .nudge svg { display: block; }
+    #build-back { left: 2px; }
+    #build-on { right: 2px; }
     /* An entry, and it is a slot rather than a line of text: the thing itself in
        a recessed well, its name under it, what it costs under that. Sized by a
        floor and a ceiling rather than its contents — a person's note is
@@ -1537,6 +2546,29 @@
        the ceiling above, and both lines ellipsise into it. The tooltip carries
        the whole sentence, which is where an ellipsis sends you. */
     #build.browse .tool { width: 108px; min-width: 108px; max-width: 108px; }
+    /* A RUN LABEL — the word in the gap before the first entry of a kind.
+       Upright, because the strip's whole budget here is horizontal: a heading
+       laid flat costs as much room as another hire, and the bar is a row you
+       scroll. The rotation is on the inner `i` rather than on the label itself,
+       or the hairline that separates one run from the last comes out on the
+       wrong side of it.
+
+       Quiet and small on purpose. It is a caption for the four buttons after
+       it, and a heading that reads louder than the names it is grouping is a
+       strip you scan twice. No hairline on the first, which would be a rule
+       down the left of the whole bar rather than between anything. */
+    #build-tools .run {
+      flex: none; display: flex; align-items: center; justify-content: center;
+      width: 15px; padding-left: 5px; border-left: 1px solid rgba(58,49,40,.13);
+    }
+    #build-tools .run:first-child { border-left: 0; padding-left: 0; }
+    #build-tools .run i {
+      writing-mode: vertical-rl; transform: rotate(180deg);
+      font-size: 9px; font-weight: 800; font-style: normal;
+      letter-spacing: .1em; text-transform: uppercase;
+      color: var(--ink); opacity: .42; white-space: nowrap;
+      max-height: 100%; overflow: hidden;
+    }
     /* …and it gets TWO lines to say it in, centred, clamped. One line of 108px
        cut "carrying 4x tomato" down to about "carrying 4x to", which is a
        readout you have to hover to read. Two lines is most of what anybody is
@@ -1802,19 +2834,26 @@
 </head>
 <body>
   <canvas id="game"></canvas>
+  <div id="edge" aria-hidden="true"></div>
   <div id="boot">Opening the shop…</div>
   <div id="menu" hidden></div>
 
   <div id="topleft" class="hud">
     <div id="stats">
-      <button id="shutter" type="button" title="Open the shop (O)"></button>
-      <div id="money">
-        <div id="when"><span id="day">Day 1</span><span id="season">spring</span></div>
+      <button id="sign" type="button" title="Close the shop (O)">
+        <span id="doorway" aria-hidden="true"></span>
+      </button>
+      <div class="rows">
+        <span id="when"><span id="day">Day 1</span></span>
+        <button id="clock" type="button" title="Stop the clock (P)">08:00</button>
+        <span id="season">spring</span>
         <span id="cash">$0.00</span>
+        <div id="flow"></div>
       </div>
-      <div id="flow"></div>
-      <button id="clock" type="button" title="Stop the clock (P)">08:00</button>
-      <div id="town"><span class="ico"></span><b>–</b></div>
+      <div id="town">
+        <span class="tn"><span class="ico"></span><b>–</b><span class="of"></span></span>
+        <span class="tw"></span>
+      </div>
       <div class="gauges">
         <div class="gg"><span class="gg-tag">Rep</span>
           <div class="repwrap"><div id="rep" style="width:50%"></div></div></div>
@@ -1824,7 +2863,16 @@
           <div class="repwrap"><div id="full" style="width:100%"></div></div></div>
       </div>
     </div>
-    <div id="rci"></div>
+    <div id="rci"><div id="rci-rows"></div></div>
+    <div id="radio" title="Shop radio">
+      <div id="lcd"><div id="lcdtrack"><span></span><span></span></div></div>
+      <div id="lcdbtns">
+        <button data-m="prev" type="button" aria-label="previous track">◀◀</button>
+        <button data-m="play" type="button" aria-label="play or pause">❚❚</button>
+        <button data-m="next" type="button" aria-label="next track">▶▶</button>
+        <button data-m="rep" type="button" aria-label="repeat this track">↻</button>
+      </div>
+    </div>
   </div>
   <div id="hq" class="hud">
     <div id="todo"></div>
@@ -1843,7 +2891,11 @@
         <div id="build-groups"></div>
         <div id="build-subs" hidden></div>
       </div>
-      <div id="build-tools"></div>
+      <div id="build-strip">
+        <div id="build-tools"></div>
+        <button id="build-back" class="nudge" type="button" hidden aria-label="More to the left"></button>
+        <button id="build-on" class="nudge" type="button" hidden aria-label="More to the right"></button>
+      </div>
       <div id="build-shapes" hidden></div>
     </div>
   </div>

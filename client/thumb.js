@@ -107,10 +107,17 @@ function ring(part) {
  * ten-sided cylinder drawing ten quads and hiding its own front behind its
  * back. The bottom is never kept: the camera is above everything.
  */
-function facesOf(part) {
-  const [px, py, pz] = part.pos ?? [0, 0, 0];
+function facesOf(part, yaw = 0) {
   const height = (part.scale ?? [1, 1, 1])[1];
-  const rot = ((part.rot ?? 0) * Math.PI) / 180;
+  // The turntable, and it has to turn where a part SITS as well as which way it
+  // faces: spin only the ring and a bot comes apart as it goes round — the head
+  // pivots on the spot while the visor stays out in front of where its face
+  // used to be. Same sign convention as `rot` below, so the two simply add.
+  const spin = (yaw * Math.PI) / 180;
+  const [ox, py, oz] = part.pos ?? [0, 0, 0];
+  const px = ox * Math.cos(spin) + oz * Math.sin(spin);
+  const pz = oz * Math.cos(spin) - ox * Math.sin(spin);
+  const rot = (((part.rot ?? 0) + yaw) * Math.PI) / 180;
   const cos = Math.cos(rot);
   const sin = Math.sin(rot);
   // The same turn props.js gives the mesh (`rotation.y`), so a sign leant on a
@@ -158,17 +165,37 @@ function facesOf(part) {
  * because a palette wants every entry the same *size* — a rug that honoured its
  * real scale next to a shelf would be four pixels of nothing.
  */
-function draw(parts, { shadow = true } = {}) {
-  const faces = parts.flatMap(facesOf).sort((a, b) => a.depth - b.depth);
-  if (!faces.length) return null;
+function draw(parts, opts) {
+  return spin(parts, [0], opts)[0] ?? null;
+}
+
+/**
+ * The same model at a list of angles, as pictures that share ONE view box.
+ *
+ * The shared box is the whole reason this is not `draw` called in a loop. A box
+ * fitted to each still is fitted to how wide the thing happens to be from THAT
+ * side, so a bot deeper than it is broad swells and shrinks as it turns and the
+ * ground under it slides about — which reads as the drawing being wrong rather
+ * than the framing, and is invisible in any one frame.
+ *
+ * The shadow is likewise taken once, from the model at rest, and never turned:
+ * it is what the thing stands ON. A footprint that swung round with the body
+ * would be the floor moving under a bot standing still.
+ */
+function spin(parts, yaws, { shadow = true } = {}) {
+  const shots = yaws.map((y) => parts.flatMap((p) => facesOf(p, y))
+    .sort((a, b) => a.depth - b.depth));
+  if (!shots.some((f) => f.length)) return [];
 
   let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
-  for (const f of faces) {
-    for (const [x, y] of f.pts) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+  for (const faces of shots) {
+    for (const f of faces) {
+      for (const [x, y] of f.pts) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
     }
   }
 
@@ -194,11 +221,13 @@ function draw(parts, { shadow = true } = {}) {
   const pad = Math.max(maxX - minX, maxY - minY) * 0.06;
   const w = (maxX - minX) + pad * 2;
   const h = (maxY - minY) + pad * 2;
-  const body = faces.map((f) => `<polygon points="${f.pts.map(([x, y]) => `${r3(x)},${r3(y)}`).join(' ')}"
-    fill="${f.fill}"${f.alpha < 1 ? ` opacity="${r3(f.alpha)}"` : ''}/>`).join('');
+  const box = `viewBox="${r3(minX - pad)} ${r3(minY - pad)} ${r3(w)} ${r3(h)}"`;
 
-  return `<svg viewBox="${r3(minX - pad)} ${r3(minY - pad)} ${r3(w)} ${r3(h)}"
-    preserveAspectRatio="xMidYMid meet" aria-hidden="true">${under}${body}</svg>`;
+  return shots.map((faces) => {
+    const body = faces.map((f) => `<polygon points="${f.pts.map(([x, y]) => `${r3(x)},${r3(y)}`).join(' ')}"
+      fill="${f.fill}"${f.alpha < 1 ? ` opacity="${r3(f.alpha)}"` : ''}/>`).join('');
+    return `<svg ${box} preserveAspectRatio="xMidYMid meet" aria-hidden="true">${under}${body}</svg>`;
+  });
 }
 
 /** Where a model sits, and how wide, for its shadow. */
@@ -229,6 +258,7 @@ const r3 = (n) => Math.round(n * 1000) / 1000;
 
 const modelArt = new WeakMap();
 const workerArt = new WeakMap();
+const workerSpin = new WeakMap();
 const pieceArt = new WeakMap();
 const groundArt = new WeakMap();
 const edgeArt = new Map();
@@ -277,6 +307,43 @@ export function artForWorker(kind, tier = 1, skin = null) {
   const art = draw(skinnedParts(parts, skin));
   byLook.set(key, art);
   return art;
+}
+
+/**
+ * How many stills one turn of a hire is.
+ *
+ * A flipbook rather than a renderer: the projector is a pure function of an
+ * angle, so twenty-four calls to it is a whole animation with no canvas, no
+ * context and nothing to tick — see `.wk-turn` in index.html, which slides the
+ * strip with `steps()` and is the only moving part. Twenty-four is 15° a frame,
+ * which on a bot made of six boxes reads as a turntable rather than as a stutter;
+ * every extra frame is another twenty-five polygons in the panel.
+ */
+export const SPIN_FRAMES = 24;
+
+/**
+ * One hire, turning: the same picture `artForWorker` draws, all the way round.
+ *
+ * A profile card wants the thing itself and a still of a bot is a thing you have
+ * already seen from across the shop — the whole reason to stand one in a card is
+ * to see the back of a machine that spends the game facing away from you.
+ *
+ * Cached exactly the way `artForWorker` is, and beside it rather than inside it,
+ * because the two are framed differently on purpose: a roster row wants the
+ * tightest box round one angle and this wants one box that fits every angle.
+ */
+export function spinForWorker(kind, tier = 1, skin = null) {
+  if (!kind?.model) return null;
+  const key = `${tier}:${skinKey(skin)}`;
+  let byLook = workerSpin.get(kind.model);
+  if (!byLook) { byLook = new Map(); workerSpin.set(kind.model, byLook); }
+  if (!byLook.has(key)) {
+    const parts = partsAt(kind.model, tierProgress(tier, kind.tiers?.length ?? 1));
+    const art = spin(skinnedParts(parts, skin),
+      Array.from({ length: SPIN_FRAMES }, (_, i) => (i / SPIN_FRAMES) * 360));
+    byLook.set(key, art.length ? art : null);
+  }
+  return byLook.get(key);
 }
 
 /**
