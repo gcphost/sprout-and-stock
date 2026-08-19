@@ -385,6 +385,7 @@ Keep to your side and you'll almost never touch the same file.
 | Look of things (colours, props, characters) | `client/render/palette.js`, `client/render/props.js` | Safe, self-contained, very visible. Good place for a kid to start. |
 | UI and HUD | `client/ui.js`, `client/index.html` | |
 | What a palette button shows | `client/thumb.js` | Draws a fixture, a floor or a wall from its own art, as inline SVG. Reads `palette.js` — never its own colours. |
+| The tutorial | `client/tutor.js` | Client-only, localStorage-only, one file. A step is a predicate over the snapshot — never a press it intercepted. See docs/tutorial.md. |
 | How the shop is doing | `client/report.js` | The one menu that is a picture rather than a list. Pure snapshot → HTML, like `hud-meters.js`. |
 | Rendering internals | `client/render/scene.js` | |
 | Economy and balance | `server/sim/economy.js` | Re-run `simulate` after every change. |
@@ -464,6 +465,7 @@ what the next step was meant to be.
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
+| [docs/tutorial.md](docs/tutorial.md) | the robot who shows you round a shop you have just made — a veil that blocks rather than only darkens, a step that is a predicate over the snapshot rather than a press it caught, and the third answer to "where is the hole" that stops it ever wedging | step 1 built; 2–4 proposed |
 | [docs/audio.md](docs/audio.md) | a bus per slider, why the sounds cannot come from the log, the four caps that stop a busy shop being a slot machine, sound as a column on a catalog row, the Sound rows and the Credits tab in the Menu — and why the ambient bed was built, played and cut | steps 2, 3, 5 built; 1 cut; 4, 6 proposed |
 | [docs/waste.md](docs/waste.md) | the shop's way out — the skip, why a hire may carry out rot and never your stock, rot becoming a box on the floor only if you own one, and the one spelling that keeps rubbish from reading as supply | step 1 built; 2–3 proposed |
 | [docs/pickups.md](docs/pickups.md) | the customer who never comes in — a collection point as a till whose queue is fed by the road, why picking is `serve` rather than a new job, why a staged tote is not stock, and the share that is a consequence of owning one | all proposed |

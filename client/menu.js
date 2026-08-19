@@ -14,6 +14,7 @@
 
 import { money } from './money.js';
 import { START_TIERS, DEFAULT_TIER, startTier } from '../shared/start.js';
+import { markWorldNew } from './tutor.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
@@ -223,6 +224,13 @@ export class Menu {
     };
     await this.act(async () => {
       const { world } = await api('POST', '/worlds', asked);
+      // This browser made this shop, so this browser is the one that owes
+      // somebody a tour of it. Marked HERE and not inferred from `day === 1`
+      // once the game is up: that is also true of a shop somebody made
+      // yesterday, closed on the first morning and came back to — and being
+      // handed the tour again on a shop you have already furnished is the thing
+      // that makes people switch tutorials off. See client/tutor.js.
+      markWorldNew(world.id);
       this.play(world);
     });
   }

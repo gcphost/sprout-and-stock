@@ -129,6 +129,12 @@ export function renderBar(el, {
 
   renderSubTabs(el.subs, subs, sub?.id);
 
+  // `data-entry` is the tile's own id, beside the slot index the press is wired
+  // off. It exists so something outside this file can NAME a tile — the tutorial
+  // lights one and blacks out the rest, and an index cannot say which: a slot
+  // number is a fact about the tab that happens to be open, so the shelf that
+  // was slot 3 this morning is a chandelier once somebody authors a lamp.
+  //
   // `poor` is drawn and not `disabled`: a disabled button takes no pointer
   // events in some browsers, and the tip explaining WHY it cannot be pressed is
   // a hover away — so the one state that most needs its explanation would be the
@@ -137,7 +143,7 @@ export function renderBar(el, {
     ${it.head ? `<span class="run" aria-hidden="true"><i>${esc(it.head)}</i></span>` : ''}
     <button class="tool${it.id === picked ? ' on' : ''}${it.warn ? ' warn' : ''}${
   it.poor ? ' poor' : ''}"
-      data-slot="${i}" title="${esc(it.title ?? it.name)}"
+      data-slot="${i}" data-entry="${esc(it.id)}" title="${esc(it.title ?? it.name)}"
       ${it.poor ? 'aria-disabled="true"' : ''}>
       ${i < KEYED ? `<span class="key">${i + 1}</span>` : ''}
       ${it.badge ? `<span class="have">${esc(it.badge)}</span>` : ''}

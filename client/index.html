@@ -2731,6 +2731,150 @@
        z-index 45 puts it over the tip (40) and under the front door (60): it
        covers everything in the shop, and the shop list is not in the shop.
        See client/award.js — the world is paused underneath it. */
+    /* ---- the tutorial ------------------------------------------------------
+       A veil that BLOCKS, a hole that does not, a ring round the hole and a
+       robot beside it. See client/tutor.js for why the veil is four boxes
+       rather than one with a hole cut in it.
+
+       z-index 30 is over the whole HUD (10) and its notes (12) and under the
+       tip (40) and the award (45). Both of those are right: an award is the
+       shop congratulating you and outranks anything, and a tooltip belongs on
+       top of the button it describes even when that button is the lit one. */
+    #tutor { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+    #tutor[hidden] { display: none; }
+
+    /* The blackout. `pointer-events: auto` is the whole feature — a veil that
+       only darkened would be a picture of a tutorial. Positioned by JS, all
+       four, every frame the target could have moved. */
+    .tt-veil {
+      position: absolute; pointer-events: auto;
+      background: rgba(28, 24, 20, .58);
+      opacity: 0; transition: opacity .2s ease;
+      /* A tap on the dark is a tap on nothing, and a cursor that still says
+         "you could click here" is the veil lying about itself. */
+      cursor: not-allowed;
+    }
+    #tutor.show .tt-veil { opacity: 1; }
+
+    /* The hole's outline. It is drawn OUTSIDE the rect (a spread shadow rather
+       than a border) so it never covers a pixel of the thing it is pointing at
+       — a 3px border on a 40px rail button eats the badge in its corner. */
+    .tt-ring {
+      position: absolute; border-radius: 14px; pointer-events: none;
+      box-shadow: 0 0 0 3px var(--good), 0 0 0 9px rgba(90, 163, 86, .3);
+      animation: ttpulse 1.9s ease-in-out infinite;
+    }
+    .tt-ring[hidden] { display: none; }
+    @keyframes ttpulse {
+      0%, 100% { box-shadow: 0 0 0 3px var(--good), 0 0 0 8px rgba(90, 163, 86, .28); }
+      50% { box-shadow: 0 0 0 3px var(--good), 0 0 0 15px rgba(90, 163, 86, 0); }
+    }
+
+    /* ...and the same mark for something standing in the shop, which has no
+       rectangle — a crate, a shelf, a tile. Centred on the point rather than
+       cornered at it, because what it is marking is a position and not a box. */
+    .tt-aim {
+      position: absolute; width: 0; height: 0; pointer-events: none;
+    }
+    .tt-aim[hidden] { display: none; }
+    .tt-aim i {
+      position: absolute; left: 50%; top: 50%; width: 54px; height: 54px;
+      margin: -27px 0 0 -27px; border-radius: 50%;
+      border: 3px solid var(--good); opacity: 0;
+      animation: ttaim 2.1s ease-out infinite;
+    }
+    /* Two rings, half a beat apart, so the mark reads as radiating rather than
+       as one circle appearing and disappearing. */
+    .tt-aim i:last-child { animation-delay: 1.05s; }
+    @keyframes ttaim {
+      0% { transform: scale(.35); opacity: 0; }
+      25% { opacity: .95; }
+      100% { transform: scale(1.25); opacity: 0; }
+    }
+
+    /* The card. Pinned beside whatever is lit (`pin`), or centred when nothing
+       is — the first and last beats, which are read rather than acted on. */
+    .tt-card {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: min(360px, calc(100vw - 24px));
+      display: grid; grid-template-columns: 62px 1fr; gap: 12px;
+      align-items: start; pointer-events: auto;
+      background: var(--panel-solid); color: var(--ink);
+      border-radius: 18px; padding: 14px 16px 12px;
+      box-shadow: 0 14px 34px rgba(58, 49, 40, .34);
+      animation: ttpop .22s cubic-bezier(.2, 1.4, .4, 1);
+    }
+    /* Once JS has measured a place for it the transform has to go, or the card
+       is offset half its own size from the point it was carefully put at. */
+    .tt-card.pinned { transform: none; }
+    .tt-card.big { width: min(420px, calc(100vw - 24px)); }
+    @keyframes ttpop {
+      from { opacity: 0; transform: translateY(8px) scale(.96); }
+    }
+    .tt-card.pinned { animation-name: ttpop-pinned; }
+    @keyframes ttpop-pinned { from { opacity: 0; } }
+
+    .tt-bot { grid-row: span 2; }
+    .tt-face { width: 62px; height: 62px; display: block; }
+    .tt-face .tt-ant { stroke: #b9ad97; }
+    .tt-face .tt-bulb { fill: var(--good); animation: ttbulb 2.4s ease-in-out infinite; }
+    @keyframes ttbulb { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    .tt-face .tt-eye { fill: #8fe3ff; animation: ttblink 5.2s infinite; transform-origin: center; }
+    /* The blink is a scale on the eye rather than a lid drawn over it: there is
+       no face behind these to reveal, so a lid would be a rectangle of body
+       colour sliding over a screen. */
+    @keyframes ttblink {
+      0%, 92%, 100% { transform: scaleY(1); }
+      95% { transform: scaleY(.08); }
+    }
+    .tt-face .tt-eye2 { animation-delay: .04s; }
+    .tt-face .tt-smile { stroke: #b9ad97; }
+
+    .tt-kicker {
+      font-size: 10px; font-weight: 700; letter-spacing: .09em;
+      text-transform: uppercase; color: rgba(58, 49, 40, .5); margin-bottom: 2px;
+    }
+    .tt-say { margin: 0; font-size: 14.5px; font-weight: 650; line-height: 1.3; }
+    .tt-hint {
+      margin: 6px 0 0; font-size: 11.5px; line-height: 1.42;
+      color: rgba(58, 49, 40, .68);
+    }
+    /* Waiting on the world rather than on you — the van. The card says so by
+       breathing, because a step you cannot complete and a step you have not
+       understood are otherwise the same card. */
+    .tt-card.holding .tt-say { animation: ttwait 1.8s ease-in-out infinite; }
+    @keyframes ttwait { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+
+    .tt-feet {
+      grid-column: 1 / -1; display: flex; align-items: center; gap: 8px;
+      margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line);
+    }
+    /* Where you are, as ticks. A "4 of 18" invites you to work out how much is
+       left, which is not the question the card wants asked. */
+    .tt-dots { display: flex; gap: 3px; flex: 1; flex-wrap: wrap; }
+    .tt-dots i {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(58, 49, 40, .18);
+    }
+    .tt-dots i.was { background: rgba(58, 49, 40, .38); }
+    .tt-dots i.at { background: var(--good); transform: scale(1.5); }
+    .tt-next, .tt-skip {
+      font: inherit; cursor: pointer; border-radius: 9px; padding: 5px 11px;
+      border: 1px solid var(--line); background: transparent; color: rgba(58, 49, 40, .6);
+      font-size: 11px;
+    }
+    .tt-next {
+      background: var(--good); border-color: transparent; color: #fff;
+      font-weight: 650; font-size: 12px; padding: 6px 16px;
+    }
+    .tt-next[hidden] { display: none; }
+    .tt-skip:hover { color: var(--ink); border-color: rgba(58, 49, 40, .3); }
+
+    /* The drawn tooltip is a shorter, worse version of the sentence already on
+       the card, and it lands on top of it — the card is pinned beside the lit
+       button and so is the tip. One explanation at a time. */
+    body.tutoring #tip { display: none !important; }
+
     #award {
       position: fixed; inset: 0; z-index: 45;
       display: grid; place-items: center; padding: 16px;
@@ -2934,6 +3078,7 @@
   </div>
 
   <div id="award" hidden></div>
+  <div id="tutor" hidden></div>
 
   <div id="panel" class="hud">
     <header><span id="panel-title">Panel</span><button id="panel-close">✕</button></header>

@@ -21,6 +21,7 @@ import { SOUNDS, TRACKS } from './audio/manifest.js';
 import { sfx } from './audio/sfx.js';
 import { reportHtml } from './report.js';
 import { CORNERS, isOff, setOff } from './corner.js';
+import { tutorOff, setTutorOff, replayTutor } from './tutor.js';
 import { deptOf } from './aisles.js';
 
 /**
@@ -2138,7 +2139,11 @@ export const SECTIONS = [
      * with the playlist while you have the tab open.
      */
     live: () => `${mix.signature()}|${music.nowPlaying()?.id ?? '-'}`
-      + `|${CORNERS.map((c) => (isOff(c.id) ? '-' : '+')).join('')}`,
+      + `|${CORNERS.map((c) => (isOff(c.id) ? '-' : '+')).join('')}`
+      // ...and the tour's switch, for the reason every other switch is in here:
+      // `run` repaints, but `live` is what stops the repaint being thrown away
+      // by the next snapshot's diff deciding nothing has changed.
+      + `|${tutorOff() ? '-' : '+'}`,
     // Every line here is clamped to one line in a 214px panel, so the copy has
     // to be short enough to survive it — an ellipsis mid-word is worse than a
     // blunter phrase. The long version lives in `sub`, which is also the hover.
@@ -2166,6 +2171,7 @@ export const SECTIONS = [
         sub: 'saves, and back to the shop list',
         run: () => ui.leaveToMenu(),
       },
+      ...tutorRows(ui),
       ...soundRows(ui),
       ...cornerRows(ui),
 
@@ -2257,6 +2263,52 @@ function volRow(ui, bus, icon, name, sub) {
  * as a tier that changes no number — it looks finished, it takes an input, and
  * nothing happens.
  */
+/**
+ * The tutorial's two rows, under Game.
+ *
+ * A switch AND a Replay, which is one row more than a settings list wants and
+ * the second one is why the first is safe. The switch is about the person and
+ * is remembered across every shop they open; Replay is about *this* shop, and
+ * it exists because the tour marks a world done the moment you skip it — so
+ * without a way back, the press that says "not now" is a press that says
+ * "never", on the one screen where somebody has least idea what they are turning
+ * down.
+ *
+ * Replay starts it there and then rather than arming it for the next load: the
+ * shop is already in front of you, and a row that quietly changed what happens
+ * tomorrow is the same dead press as a switch with nothing behind it.
+ */
+function tutorRows(ui) {
+  const off = tutorOff();
+  return [
+    {
+      icon: ICONS.help,
+      name: 'Show me round',
+      sub: off
+        ? 'Off. New shops open with no tour.'
+        : 'On. A new shop gets shown round once.',
+      picked: !off,
+      tail: off ? 'Off' : 'On',
+      // Repainted at once, the same call the Sound switch makes and for the
+      // same reason: the honest test of a switch is that it moved.
+      run: () => { setTutorOff(!off); ui.paintSection(); },
+    },
+    {
+      icon: ICONS.walk,
+      name: 'Run the tour again',
+      sub: 'here, now, in this shop',
+      run: () => {
+        // The mark first, then the start. `maybeStart` reads it — so a Replay
+        // that only called `start` would run the tour and then be refused by
+        // its own bookkeeping the moment you reloaded mid-way through it.
+        replayTutor(ui.worldId);
+        ui.closePanel();
+        ui.tutor?.maybeStart(ui.worldId);
+      },
+    },
+  ];
+}
+
 function soundRows(ui) {
   const off = mix.muted;
   const track = music.nowPlaying();

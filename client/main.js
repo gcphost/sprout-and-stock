@@ -17,6 +17,7 @@ import { showWorker } from './worker-menu.js';
 import { showEdgeMenu, hasEdgeMenu, sameFamily, kindAt } from './edge-menu.js';
 import { Menu, preselectedWorld } from './menu.js';
 import { Award } from './award.js';
+import { Tutor } from './tutor.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
 import { mix } from './audio/mix.js';
@@ -33,6 +34,16 @@ ui.scene = scene;
 // The award card. It owns its own element and stops the world while it is up —
 // see client/award.js.
 const award = new Award(ui, document.getElementById('award'));
+/**
+ * The fitter who shows you round a shop you have just made — client/tutor.js.
+ *
+ * Built here beside the award for the same reason: both take the screen, both
+ * own their own element, and neither is a panel. `ui.tutor` is the back
+ * reference the Menu's two rows press — the switch and Replay — which is the one
+ * place in `sections.js` that needs to reach it.
+ */
+const tutor = new Tutor(ui, net, scene, document.getElementById('tutor'));
+ui.tutor = tutor;
 
 let latestState = null;
 
@@ -161,6 +172,11 @@ net.on('state', (m) => {
   latestState = m;
   scene.syncState(m, net.myId);
   ui.update(m);
+  // ...and the tour, which is nothing but a predicate over this snapshot. After
+  // `ui.update` on purpose: every step asks a question about the UI as well as
+  // about the shop ("is the supplier open"), so it has to be handed a HUD that
+  // has already caught up with the frame it is being asked about.
+  tutor.update(m);
   // Every sound in the game comes off this diff — see client/audio/events.js
   // for why it is a diff and not the log.
   events.update(m, net.myId);
@@ -1609,7 +1625,16 @@ canvas.addEventListener('pointerdown', (e) => {
   // button that had just come up, and the whole thing would read as a press that
   // did nothing until you pressed again — which is the four-step version of this
   // that board aiming exists to delete.
-  if (e.button === 0 && !ui.demolishArmed()) {
+  // `paletteArmed` for the same reason `boardTakes` carries it one line down,
+  // and this is the half that was missing: a crate was named on the way down
+  // whatever mode you were in, so pressing on a box while building lifted it —
+  // the one goods gesture build mode never suspended. The shop refuses it now
+  // (`notWhileBuilding`) and it is refused OUT LOUD, which is exactly why this
+  // arming has to stop happening here rather than being left to be told off: it
+  // is speculative — the press may still turn out to be a pan — and this branch
+  // is under a press whose release *places a fixture*, so leaving it in would
+  // mean one press that both puts a shelf down and says you may not build.
+  if (e.button === 0 && !ui.demolishArmed() && !ui.paletteArmed) {
     // `aimCrate`, which is `pickPallet` plus "is it in a pile" — the crate named
     // is the one the ray met, buried or not, so the ring winds on the box you
     // are pointing at and that is the box that comes away.
@@ -2980,6 +3005,13 @@ async function openWorld(worldId, name) {
   // trying to say is said where it applies now — the ring names what a press is
   // about to do at the thing you pressed, and the line above the build bar says
   // what is in your hands and what a tap would cost.
+  //
+  // ...and a shop you have just MADE gets the tour, which is the other half of
+  // that argument: nothing above is discoverable by pressing things, and the
+  // answer to that is a thing that shows you rather than a line you read past.
+  // It asks its own three questions and usually decides not to — see
+  // `maybeStart`.
+  tutor.maybeStart(worldId);
   loop();
 }
 
