@@ -185,6 +185,8 @@ export class UI {
      */
     this.shopOpen = true;
     this.paused = false;
+    /** Did WE stop the clock to open the Menu? See `holdForMenu`. */
+    this.menuHeld = false;
     /**
      * The fixtures picked BESIDE the one the menu is about — see `togglePicked`.
      *
@@ -591,6 +593,13 @@ export class UI {
    * Dropping `?world` is what makes the menu show rather than rejoining.
    */
   leaveToMenu() {
+    // Hand the clock back BEFORE the reload, because this is the one way out of
+    // the Menu that never closes it: `location.replace` takes the page with the
+    // panel still up, so nothing would ever run the release. A pause is a
+    // persisted stamp (see `setPaused` on the server), so the shop you walked
+    // out of would still be stopped when you walked back in — with the press
+    // that stopped it three screens ago and nothing to connect the two.
+    this.holdForMenu(false);
     const url = new URL(location.href);
     url.searchParams.delete('world');
     location.replace(url);
@@ -2395,8 +2404,9 @@ export class UI {
     return rows.filter((r) => {
       // A heading with everything under it filtered away is a heading over
       // nothing, so headings only survive an unfiltered list. A drawn block is
-      // the same case: it has no name to match and is not a result.
-      if (r.sep || r.html != null) return false;
+      // the same case: it has no name to match and is not a result — and so is
+      // a block of switches, which has several names and is not one of them.
+      if (r.sep || r.html != null || r.grid) return false;
       return `${r.name} ${r.sub ?? ''} ${(r.facets ?? []).join(' ')}`.toLowerCase().includes(q);
     });
   }
@@ -2481,6 +2491,60 @@ export class UI {
     // no use for. It carries no `name`, so `applyFilter` drops it the way it
     // drops a heading, and no `run`, so `wireRows` never looks at it.
     if (r.html != null) return r.html;
+    /**
+     * SEVERAL SWITCHES AS ONE BLOCK.
+     *
+     * A row is a sentence — a name, a caption, a state on the right — and that
+     * shape is worth its height for anything you have to read. It is pure cost
+     * for a switch you already know the name of: four of them down the Menu's
+     * Game tab spent four full-width rows and two headings saying "on" four
+     * times, which is the menu describing itself.
+     *
+     * So a `grid` row is a row that holds several presses, each a tile with a
+     * glyph, a word and its state. It goes through `data-acts` — the same
+     * plumbing a stepper uses — so `wireRows` needs to know nothing about it,
+     * and a tile may hang a second small press off its corner (`extra`) for the
+     * rare verb that would otherwise cost a row of its own.
+     *
+     * The caption is a `title` rather than a line, which is the `mark` argument
+     * made about a whole row: these are the only words that say what the switch
+     * does, and a tile is not wide enough to print them.
+     */
+    /**
+     * A ROW THAT IS A BUTTON.
+     *
+     * Its own markup rather than a class on `.row`, and the reason is the one
+     * thing centring a row cannot do. A row is `[icon][name][…]` in a line, and
+     * `.name` is the elastic column the whole panel is built around — so it is
+     * as wide as its widest line, which is the caption. Centre the row and what
+     * you get is the glyph pinned to the left of a column the width of the
+     * caption, with the label centred somewhere off in the middle of it: the
+     * two halves of one label a hundred pixels apart, and the label not over the
+     * middle of the panel either, because the glyph is outside the stack it is
+     * meant to belong to. It looks like a mistake because it is one.
+     *
+     * So the glyph goes INSIDE, on the label's own line, and the caption sits
+     * under both — which is a button, and is what this row always was. `data-row`
+     * on the button itself, so `wireRows` needs no more than it already has.
+     */
+    if (r.mid) {
+      return `<button class="midrow" data-row="${i}">
+        <span class="midtop">${r.icon ?? ''}<b>${r.name}</b></span>
+        ${r.sub ? `<span class="midsub">${r.sub}</span>` : ''}
+      </button>`;
+    }
+    if (r.grid) {
+      return `<div class="grid" data-acts="${i}">${r.grid.map((t) => `
+        <div class="gcell">
+          <button class="gtile${t.on ? ' on' : ''}" data-act="${t.id}"
+            title="${esc(t.title ?? t.name)}" aria-pressed="${t.on ? 'true' : 'false'}">
+            <span class="gico">${t.icon}</span>
+            <span class="gname">${t.name}</span>
+            <span class="gstate">${t.on ? 'On' : 'Off'}</span>
+          </button>
+          ${t.extra ?? ''}
+        </div>`).join('')}</div>`;
+    }
     const cls = ['row', 'sec-row'];
     if (r.picked) cls.push('picked');
     if (r.dim) cls.push('owned');
@@ -2781,8 +2845,18 @@ export class UI {
     }
   }
 
-  /** Stop or start the world. Same shape, same reason — see `shopOpen`. */
-  setPaused(paused) { this.net.send('pause', { paused: !!paused }); }
+  /**
+   * Stop or start the world. Same shape, same reason — see `shopOpen`.
+   *
+   * `quiet` is the one thing on top: a hold nobody pressed (see `holdForMenu`)
+   * moves the same switch and writes no line in the feed. It is an argument
+   * rather than a second message because it is the same state change — a second
+   * message would be a second kind of stopped world on the wire, which is
+   * exactly what the hold is written to avoid.
+   */
+  setPaused(paused, quiet = false) {
+    this.net.send('pause', { paused: !!paused, quiet: !!quiet });
+  }
 
   /**
    * The hour, and the two states that are now worn by things already on screen.
@@ -3547,6 +3621,66 @@ export class UI {
   }
 
   // ---- panels --------------------------------------------------------------
+
+  /**
+   * WHICH PANEL IS UP — and the one thing that follows from the Menu being it.
+   *
+   * An accessor rather than a plain field because five places set it and they
+   * are in four files (`showSection`, `closePanel`, and the fixture, worker and
+   * doorway menus, each of which assigns `ui.openPanel` itself). A hook on each
+   * would be four chances to add the next menu and forget, and the failure is
+   * silent in the worst direction — a shop left stopped.
+   */
+  get openPanel() { return this._openPanel ?? null; }
+
+  set openPanel(id) {
+    const was = this._openPanel ?? null;
+    this._openPanel = id ?? null;
+    if (was !== this._openPanel) this.holdForMenu(this._openPanel === 'help');
+  }
+
+  /**
+   * THE WORLD STOPS WHILE THE MENU IS OPEN.
+   *
+   * The Menu is the one panel you open to do something to the *game* rather
+   * than to the shop — leave it, switch the tour off, look a key up — and every
+   * one of those is a thing you do while not playing. Reading the whole Controls
+   * tab with the tills running is a queue you lost for a reason that was not the
+   * shop's fault. Every other panel is deliberately not this: the supplier, the
+   * roster and the shelf menu are all things you do *while* trading, and a shop
+   * that froze whenever you ordered stock would be a different game.
+   *
+   * `menuHeld` is what makes "unless it was already paused" work, and it is a
+   * record of OUR OWN press rather than a copy of the state: if the clock was
+   * already stopped when the menu went up we never touched it, so closing the
+   * menu has nothing to hand back. Pressing P inside the menu still wins — it
+   * sets the state directly, and the release below asks for what we asked for
+   * rather than for the opposite of whatever is true at the time.
+   *
+   * It goes through the ordinary `pause` message, so it is the same stop the
+   * clock and the P key send: struck-through clock, blinking window edge, the
+   * renderer told. That is the honest signal — a world that quietly stopped with
+   * nothing on screen to say so is worse than one that says it.
+   *
+   * ⚠️ It is therefore SHOP-WIDE. A shop is something two people can be in, and
+   * pause has always been the whole world rather than one person's view — so a
+   * guest opening the Menu stops the host's shop too. That is a consequence of
+   * there being one clock, not of this: giving the Menu a hold of its own would
+   * mean a second kind of stopped world on the wire.
+   */
+  holdForMenu(on) {
+    if (!this.net) return;
+    if (on) {
+      // Nothing to hand back if somebody already stopped it. Read now, because
+      // by the time the menu closes the mirror is our own pause looking back.
+      this.menuHeld = !this.paused;
+      if (this.menuHeld) this.setPaused(true, true);
+      return;
+    }
+    if (!this.menuHeld) return;
+    this.menuHeld = false;
+    this.setPaused(false, true);
+  }
 
   closePanel() {
     this.openPanel = null;

@@ -1168,6 +1168,29 @@ which value each half reads, and they are **not the same value**:
 | the panel's left edge | `state.shutters` — your switch alone | at 22:00 with the shutters up there is nothing for you to do about the hour, so the edge stays lit while the clock is struck through. Reading one value for both would put the open sign out every night, on a shop you had not closed |
 | the to-do chip | `state.shutters` | same reason, louder: read `isOpen` and it nags every single night about four in the morning |
 
+**The Menu holds the pause while it is open**, which is the one thing that moves
+the clock without anybody pressing it (`holdForMenu`, `client/ui.js`). It is the
+only panel that does, and the line is what a panel is *about*: the Menu is the
+one you open to do something to the **game** — leave it, switch the tour off,
+look a key up — and all of those are things you do while not playing. The
+supplier, the roster and a shelf menu are things you do while trading, and a shop
+that froze whenever you ordered stock would be a different game.
+
+Three things it rests on. It only hands the clock back **if it took it** — the
+Menu opened over a stopped shop leaves it stopped, which is the same
+`restore` bookkeeping the milestone card already keeps (`client/award.js`), and
+for the same reason: a hold is a record of your own press, never a copy of the
+state. It goes through the ordinary `pause` message with a `quiet` flag, so it
+is the same stop the P key sends — struck-through clock, blinking edge, the
+renderer told — with no line in the feed, because two of those per menu open is
+a feed people stop reading. And `leaveToMenu` releases it *before* the reload:
+that is the one way out of the Menu that never closes it, and a pause is a
+persisted stamp, so the shop would still be stopped when you came back.
+
+⚠️ Pause is **shop-wide**, so a guest in their Menu stops the host's shop. That
+is a consequence of there being one clock rather than of the hold — a Menu with
+a stop of its own would be a second kind of stopped world on the wire.
+
 The switch can only ever take hours **away** — `isOpen()` is `open && trading()`
 — so it shuts you early rather than trading late. A switch that extended the day
 would make "never close" simply correct, and a button whose right answer is

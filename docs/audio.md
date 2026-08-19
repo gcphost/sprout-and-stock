@@ -289,15 +289,24 @@ turns any `sep` row **with an icon** into a tab and leaves a bare one as an
 ordinary divider, so the two land differently on purpose:
 
 ```js
-{ sep: 'Sound' },                                 // a heading in the Game tab
-{ sep: 'Credits', icon: ICONS.music, passive: true },   // a tab of its own
+{ sep: 'Sound', icon: ICONS.music, passive: true },   // a tab: volumes, then
+{ sep: 'Credits' },                                   // a heading inside it
 ```
 
-Sound is a divider rather than a tab because four volume rows are not worth a
-click, and a menu that opened on the save with the settings hidden one tab away
-is a settings screen you have to go looking for the settings in. Credits is a
-tab because a licence list is long and nobody is ever looking for it while they
-are looking for something else.
+They shipped the other way round — a `Sound` divider inside the Game tab
+holding a mute and three volumes, beside a `Credits` tab — on the argument that
+four volume rows are not worth a click and settings you have to go looking for
+are not settings. Half of that survived and half did not, and the line between
+them is **switch or degree**. The *switch* is what you open this menu for and it
+stayed on the Game tab, in the block of tiles with the tour and the two corner
+widgets (`switchGrid`); the three steppers are a thing you set once, ever, so
+they moved next to the playlist they are about. What is left is one tab about
+sound — how loud each part is, and who made it — which is one subject, and a
+Game tab whose every row is a press you might actually make today.
+
+`Credits` is a bare divider inside it for the reason `Sound` used to be one:
+a licence list is long, but it is not an *alternative* to the volumes, and a
+tab strip is a promise that the tabs are alternatives.
 
 `passive` is what stops it *opening* on that list. It marks a tab that
 **reports** rather than offers work, and all it forfeits is being the one the
@@ -309,8 +318,12 @@ There is no slider in this game and there does not need to be one. Two shapes
 already in `sections.js` do the whole job, and both are already styled, already
 keyboard-reachable and already redraw off `live`:
 
-- **Mute is a switch** — the `picked` / `tail` / `run` shape the supplier
-  settings use (`orderRows`). On/Off, with a sentence under it.
+- **Mute is a switch** — one tile in the Game tab's `grid`, beside the tour and
+  the corner widgets. It was the `picked` / `tail` / `run` row shape the
+  supplier settings use, and a row is a sentence: glyph, name, caption, state.
+  A switch has no use for the middle two — you know which one you want before
+  the panel is up, and all you need back is that it moved — so the caption is
+  the tile's `title` and the state is the tile being lit.
 - **A volume is a stepper** — the `stp` widget from `ruleFor`, `− 60% +`, in
   steps of ten. A row per bus: Shop, Music, Effects.
 

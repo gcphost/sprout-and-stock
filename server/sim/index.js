@@ -2706,13 +2706,25 @@ export class Game {
    * have saved after it, which by construction nothing does. See the field for
    * why it is stamped rather than stored as a boolean.
    */
-  setPaused(paused, by = null) {
+  setPaused(paused, by = null, quiet = false) {
     const want = !!paused;
     if (want === this.paused) return ok({ paused: this.paused });
     this.paused = want;
     this.pausedAt = want ? Date.now() : null;
     const who = by ? `${by} ` : '';
-    this.pushLog(want ? `${who}stopped the clock.` : `${who}started the clock.`);
+    // ...unless nobody pressed anything. The client stops the world while its
+    // Menu is open (`holdForMenu`, client/ui.js), which is two of these lines
+    // every time somebody looks a key up — and a feed that says "stopped the
+    // clock / started the clock" six times an afternoon is a feed you stop
+    // reading, which costs it the lines that are about the shop.
+    //
+    // The co-op cost is real and is taken deliberately: a guest in their Menu
+    // stops the host's shop and the feed says nothing, which is the case the
+    // name in this line exists for. What is left saying it is the clock and the
+    // window edge, which both wear the state either way — so it is quieter than
+    // a press rather than silent, and the alternative is the announcement
+    // firing on something nobody chose to do.
+    if (!quiet) this.pushLog(want ? `${who}stopped the clock.` : `${who}started the clock.`);
     this.persist();
     return ok({ paused: this.paused });
   }

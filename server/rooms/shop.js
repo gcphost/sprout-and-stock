@@ -529,9 +529,11 @@ export const ShopRoom = (Base) => class extends Base {
       client.send('action-result', this.game.setOpen(!!m?.open, by));
     });
 
+    // `quiet` is a hold rather than a press — the client's Menu stopping the
+    // world while it is open. Same switch, same stamp, no line in the feed.
     this.onMessage('pause', (client, m) => {
       const by = this.game.players[client.sessionId]?.name;
-      client.send('action-result', this.game.setPaused(!!m?.paused, by));
+      client.send('action-result', this.game.setPaused(!!m?.paused, by, !!m?.quiet));
     });
 
     this.onMessage('buy-upgrade', (client, m) => {

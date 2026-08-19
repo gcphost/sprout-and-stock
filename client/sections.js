@@ -2129,7 +2129,7 @@ export const SECTIONS = [
     key: '/',
     title: 'Menu',
     /**
-     * The Sound rows, and nothing else in this menu.
+     * The switches and the volumes, and nothing else in this menu.
      *
      * Every other row here is a fixed sentence about a key, so this section
      * never had a `live` and never needed one. A switch does: one that did not
@@ -2149,8 +2149,9 @@ export const SECTIONS = [
     // blunter phrase. The long version lives in `sub`, which is also the hover.
     //
     // THREE tabs, and the split is by what a row IS rather than by what it is
-    // about: something you do (the save, the volume), something you look up
-    // (every key in the game), something you are owed (the credits). It was
+    // about: something you do (the save, the switches), something you look up
+    // (every key in the game), something about the sound — how loud it is, and
+    // who made it, which is one tab because it is one subject. It was
     // seven, split by topic — Camera and Building are perfectly good headings
     // and hopeless tabs, because "which quarter of the keyboard is this key in"
     // is a question you have to answer before you can look a key up. A tab
@@ -2159,21 +2160,26 @@ export const SECTIONS = [
     // `sep` as the opt-in, so demoting a heading to a plain divider is the
     // whole change — the four are still there, in order, one scroll apart.
     rows: (ui) => [
-      // Which game you are in, the way out of it, and how loud it is: the only
+      // Which game you are in, what is switched on, and the way out: the only
       // rows in the menu that DO something. Leaving is here rather than on the
       // rail because it is the rarest thing you do, and the rail is for what
       // you reach for from anywhere (see docs/ui-shell.md).
       { sep: 'Game', icon: ICONS.settings },
       { name: ui.net?.world?.name ?? 'This shop', sub: 'the save you are playing', plain: true },
+      ...switchGrid(ui),
+      // The way out, LAST and full width. It used to sit second, directly under
+      // the name of the shop, on the argument that the shop and the way out of
+      // it are one thought — which is true and puts the one press you can't take
+      // back at the top of the tab you open to turn the music down. It is also
+      // the rarest thing on the tab, and a list is read top down: the switches
+      // are what you came for, so they come first and this closes the tab off.
       {
         icon: ICONS.close,
         name: 'Leave to menu',
         sub: 'saves, and back to the shop list',
+        mid: true,
         run: () => ui.leaveToMenu(),
       },
-      ...tutorRows(ui),
-      ...soundRows(ui),
-      ...cornerRows(ui),
 
       { sep: 'Controls', icon: ICONS.walk },
       { sep: 'Getting about' },
@@ -2207,7 +2213,7 @@ export const SECTIONS = [
       { name: 'Bottom bar', sub: 'the open tab — nothing with the bar down', right: '1–9', plain: true },
       { name: 'Next tab', sub: 'every tab in turn, and every part of a split one', right: 'Tab', plain: true },
 
-      ...creditRows(),
+      ...soundTab(ui),
     ],
   },
 ];
@@ -2245,50 +2251,68 @@ function volRow(ui, bus, icon, name, sub) {
 }
 
 /**
- * The volumes, under the Game tab.
+ * EVERY SWITCH IN THE GAME, AS ONE BLOCK.
  *
- * They live in this menu rather than in one of their own because this is the
- * only menu in the game about the *game*: everything else on the rail is about
- * the shop — what it owns, what it sells, how it is doing — which is also why
- * the way out to the shop list is above them. `orderRows` already made this
- * call once: they are settings, and settings are somewhere you go.
+ * Four things you can turn on and off — the tour, the sound, and each widget in
+ * the corner — and they were four full-width rows under two headings. That is a
+ * screenful to say four words and four states, on the one tab you open to do
+ * something small and leave: "In the corner" was a heading over two switches,
+ * which is a heading that costs more height than the thing it names.
  *
- * A plain `sep` rather than an icon'd one, which is what demotes them from a
- * tab of their own to a heading inside the Game tab. Four volume rows is not
- * enough to be worth a click, and a menu that opened on the save and hid the
- * sound one tab away is a settings menu you have to go looking for the settings
- * in.
+ * So they are tiles (`grid`, see `rowHtml`). A switch is the one control where
+ * a row's shape buys nothing: you are not comparing them, you are not reading
+ * them, you know which one you want before the panel is up — you want to see
+ * that it moved, which a lit tile says as well as a lit row and in a quarter of
+ * the space. The caption each row was printing lives in the tile's `title`,
+ * which is the only place those words exist now.
  *
- * Only a bus that exists gets a row. A knob that turns nothing is the same trap
- * as a tier that changes no number — it looks finished, it takes an input, and
- * nothing happens.
+ * The corner two are drawn from `CORNERS` rather than written out, so anything
+ * wired with `wireCorner` is listed here the day it exists — a widget you could
+ * close and that was not on this list would be one nobody could bring back,
+ * which is the one way to get this wrong that a player finds before you do.
+ *
+ * Replay hangs off the corner of its own tile rather than taking a row back.
+ * It is the press nobody makes twice, and it starts the tour there and then
+ * rather than arming it for the next load: the shop is already in front of you,
+ * and a press that quietly changed what happens tomorrow is the same dead press
+ * as a switch with nothing behind it.
  */
-/**
- * The tutorial, in ONE row.
- *
- * It was two — a switch and a Replay — which is two of the six rows on the tab
- * you open to change the volume, for a feature you use once per shop. Two rows
- * about a thing you have already finished is the menu telling you what it can
- * do rather than what you came to do.
- *
- * So the row is the switch (a press toggles it, which is what every other
- * switch on this tab does) and Replay is a chip on the same line, the way a
- * volume is. That keeps the press that matters cheap and stops the one you
- * almost never want from costing a row of its own.
- *
- * Replay starts it there and then rather than arming it for the next load: the
- * shop is already in front of you, and a row that quietly changed what happens
- * tomorrow is the same dead press as a switch with nothing behind it.
- */
-function tutorRows(ui) {
-  const off = tutorOff();
+function switchGrid(ui) {
+  const tutOff = tutorOff();
+  const soundOff = mix.muted;
   return [{
-    icon: ICONS.help,
-    name: 'Tutorial',
-    sub: off ? 'Off. New shops start with no tutorial.' : 'Shown once in a new shop.',
-    picked: !off,
-    rule: '<span class="rule"><button class="rbtn wide" data-act="replay">Replay</button></span>',
+    grid: [
+      {
+        id: 'tutor',
+        icon: ICONS.help,
+        name: 'Tutorial',
+        on: !tutOff,
+        title: tutOff ? 'Off. New shops start with no tutorial.' : 'Shown once in a new shop.',
+        extra: `<button class="gsub" data-act="replay" title="Replay the tutorial"
+          aria-label="Replay the tutorial">${ICONS.play}</button>`,
+      },
+      {
+        id: 'sound',
+        icon: soundOff ? ICONS.muted : ICONS.speaker,
+        name: 'Sound',
+        on: !soundOff,
+        title: soundOff
+          ? 'Silent. Everything else keeps running.'
+          : 'On. How loud each part is, under the music tab.',
+      },
+      ...CORNERS.map((c) => ({
+        id: `corner:${c.id}`,
+        icon: icon(c.icon, ICONS.settings),
+        name: c.name,
+        on: !isOff(c.id),
+        title: isOff(c.id) ? 'Put away.' : c.sub,
+      })),
+    ],
+    // Every one repaints at once rather than waiting for the next snapshot: the
+    // honest test of a switch is that it moved, and two of these move something
+    // in the other corner of the screen where you would not see it happen.
     acts: {
+      tutor: () => { setTutorOff(!tutOff); ui.paintSection(); },
       replay: () => {
         // The mark first, then the start. `maybeStart` reads it — so a Replay
         // that only called `start` would run the tutorial and then be refused
@@ -2297,81 +2321,48 @@ function tutorRows(ui) {
         ui.closePanel();
         ui.tutor?.maybeStart(ui.worldId);
       },
+      sound: () => { mix.setMuted(!soundOff); ui.paintSection(); },
+      ...Object.fromEntries(CORNERS.map((c) => [
+        `corner:${c.id}`, () => { setOff(c.id, !isOff(c.id)); ui.paintSection(); },
+      ])),
     },
-    // Repainted at once, the same call the Sound switch makes: the honest test
-    // of a switch is that it moved.
-    run: () => { setTutorOff(!off); ui.paintSection(); },
   }];
 }
 
-function soundRows(ui) {
-  const off = mix.muted;
+/**
+ * How loud each part is, and who made the sounds.
+ *
+ * One tab, because they are one subject and neither half fills one. The volumes
+ * were four rows under Game, beside the switch that silences the lot — which
+ * put three steppers you touch once, ever, in front of the two presses you
+ * actually open this menu for. The switch stays there (it is a switch, and it
+ * is in the block with the others); the *degrees* moved here, next to the
+ * playlist they are about.
+ *
+ * `passive` — it reports rather than offers work, so it is drawn and reachable
+ * like any other tab and simply never the one `/` opens on. That still holds
+ * with the volumes in it: a licence list and three steppers are both the last
+ * thing anybody wants when they pressed the menu key to find out how to turn a
+ * shelf round.
+ *
+ * Only a bus that exists gets a row. A knob that turns nothing is the same trap
+ * as a tier that changes no number — it looks finished, it takes an input, and
+ * nothing happens.
+ *
+ * Nothing in the credits half is typed. Every row is a manifest entry, which is
+ * what makes a credit a property of the sound rather than a list somebody has
+ * to remember to update — see `client/audio/manifest.js`.
+ */
+function soundTab(ui) {
   const track = music.nowPlaying();
   return [
-    { sep: 'Sound' },
-    {
-      icon: off ? ICONS.muted : ICONS.speaker,
-      name: 'Sound',
-      sub: off ? 'Silent. Everything else keeps running.' : 'On.',
-      picked: !off,
-      tail: off ? 'Off' : 'On',
-      run: () => { mix.setMuted(!off); ui.paintSection(); },
-    },
+    { sep: 'Sound', icon: ICONS.music, passive: true },
     volRow(ui, 'master', ICONS.speaker, 'Overall', 'everything, together'),
     volRow(ui, 'sfx', ICONS.shop, 'The shop', 'tills, crates, your own hands'),
     volRow(ui, 'music', ICONS.music, 'Music', track ? `now: ${track.name}` : 'between tracks'),
-  ];
-}
-
-/**
- * What is showing in the corner, under the Game tab.
- *
- * The rows exist because the ✕ does: a widget you closed is off screen, so the
- * only way back has to be somewhere you can find without it. Under Game rather
- * than a tab of their own for the reason `soundRows` gives — two switches is
- * not a click's worth of menu, and this is already the one menu about the game
- * rather than about the shop.
- *
- * Drawn from `CORNERS` rather than written out, so anything wired with
- * `wireCorner` is listed here the day it exists. A widget that could be closed
- * and was not on this list would be one nobody could bring back, which is the
- * one way to get this wrong that a player finds before you do.
- */
-function cornerRows(ui) {
-  return [
-    { sep: 'In the corner' },
-    ...CORNERS.map((c) => {
-      const off = isOff(c.id);
-      return {
-        icon: icon(c.icon, ICONS.settings),
-        name: c.name,
-        sub: off ? 'Put away.' : c.sub,
-        picked: !off,
-        tail: off ? 'Off' : 'On',
-        // Repainted at once, the same call the Sound switch makes: the honest
-        // test of a switch is that it moved, and the thing this one moves is
-        // in the other corner of the screen.
-        run: () => { setOff(c.id, !off); ui.paintSection(); },
-      };
-    }),
-  ];
-}
-
-/**
- * Who made it, generated from the manifest.
- *
- * `passive` — it reports rather than offers work, so it is drawn and reachable
- * like any other tab and simply never the one `/` opens on. A licence list is
- * the last thing anybody wants when they pressed the menu key to find out how
- * to turn a shelf round.
- *
- * Nothing here is typed. Every row is a manifest entry, which is what makes a
- * credit a property of the sound rather than a list somebody has to remember to
- * update — see `client/audio/manifest.js`.
- */
-function creditRows() {
-  return [
-    { sep: 'Credits', icon: ICONS.music, passive: true },
+    // A plain `sep` rather than an icon'd one, which is what keeps this a
+    // heading inside the tab instead of a fourth tab of its own.
+    { sep: 'Credits' },
     // Every row plays. A credits list is the one screen in the game that names
     // all of it in one place, so it is also the only place you can *audition* a
     // sound — and a sound you cannot trigger on demand is one you can only tune
