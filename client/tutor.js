@@ -230,8 +230,8 @@ const STEPS = [
     id: 'hello',
     kicker: 'New shop',
     say: 'Morning. I fit shops out — give me five minutes.',
-    hint: 'Stock on the shelves, somebody behind the till, and the doors open. '
-      + 'Skip is bottom right of this card and it is on every one of them.',
+    hint: 'Stock on the shelves, somebody on the till, doors open. Skip is '
+      + 'bottom right, on every card.',
     big: true,
   },
 
@@ -243,9 +243,8 @@ const STEPS = [
     // and the camera is the thing a new player reaches for first and finds by
     // accident. Either button drags the view; which one decides whether it
     // slides or swings.
-    hint: 'To move the camera, hold down a mouse button and drag. Left or '
-      + 'right, both do the same thing. The wheel zooms in and out, and WASD '
-      + 'walks you around without clicking.',
+    hint: 'Hold a mouse button and drag to move the camera — left or right, '
+      + 'same thing. Wheel zooms. WASD walks you without clicking.',
     at: () => ({ el: '#game', soft: true }),
     start(t) { this.from = meOf(t) ? { ...meOf(t) } : null; },
     done(t) {
@@ -263,11 +262,10 @@ const STEPS = [
       ? 'Buy a case of something cheap.'
       : 'Nothing to sell yet. Open the supplier.'),
     hint: (t) => (t.ui.openPanel === 'stock'
-      ? 'It does not appear on a shelf. It goes on a lorry and gets dropped at '
-        + 'the pad behind the shop, and somebody has to carry it in. That '
-        + 'somebody is you, until you hire a stocker.'
-      : 'Everything you sell is bought in here, grown in the beds out the side, '
-        + 'or made on a machine.'),
+      ? 'It comes by lorry to the pad behind the shop. You carry it in from '
+        + 'there, until you hire a stocker to do it.'
+      : 'Stock comes from three places: bought in here, grown in the beds out '
+        + 'the side, or made on a machine.'),
     at: (t) => (t.ui.openPanel === 'stock'
       ? { el: '#panel' }
       : { el: '[data-rail="stock"]' }),
@@ -283,12 +281,9 @@ const STEPS = [
     hint: (t) => {
       const row = clerkKind(t);
       return t.ui.bar === 'staff'
-        ? `${row ? `${money(row.cost)} now, ` : ''}and a lease off the till every `
-          + 'morning whether they earn it or not. A clerk stands at the checkout '
-          + 'and serves. Nobody on the till means nobody pays, and shoppers walk '
-          + 'out with a full basket.'
-        : 'Everybody who works here is a machine you lease. There is no one to '
-          + 'hire from — you pick a kind, and it turns up.';
+        ? `${row ? `${money(row.cost)} now, plus a lease every morning. ` : ''}A `
+          + 'clerk works the till. Without one nobody can pay.'
+        : 'Everyone here is a machine you lease. Pick a kind and it turns up.';
     },
     at: (t) => {
       if (t.ui.bar !== 'staff') return { el: '[data-rail="staff"]' };
@@ -315,12 +310,10 @@ const STEPS = [
       ? 'Move a point around. Take one off a job they will not be doing.'
       : 'Open them up — click their tile on the strip.'),
     hint: (t) => (t.ui.openPanel === 'worker'
-      ? 'This is a budget, not a set of dials. The total is capped until you pay '
-        + 'for a rung of firmware, so a point on one job is a point off another '
-        + '— and a job at its ceiling has a dead +, which is the cap telling you '
-        + 'so. A clerk who never touches a bed is points you are not spending.'
-      : 'A hire is not fixed. You set what they spend the day on: the till, '
-        + 'putting stock out, sweeping up, the beds.'),
+      ? 'Each number is a share of their day. The total is capped, so adding to '
+        + 'one takes from another. A greyed-out + means that job is already full.'
+      : 'You choose what they spend the day on: the till, putting stock out, '
+        + 'sweeping up, the beds.'),
     // The whole list, never the Serve `+`. That button goes dead the moment the
     // shift is full — which on a fresh clerk it usually already is — so a hole
     // cut round it is a hole round a button that cannot be pressed, with the
@@ -355,21 +348,19 @@ const STEPS = [
     hint: (t) => {
       const p = cheapestFreezer(t);
       if (t.ui.toolId?.() !== p?.id) {
-        return `${p ? `${money(p.cost)}. ` : ''}Anything tagged frozen goes off on `
-          + 'an ordinary shelf and keeps in here — stock that rots is money you '
-          + 'already spent. (I opened this for you: the Build button is one press '
-          + 'for the mode, two for the catalogue.)';
+        return `${p ? `${money(p.cost)}. ` : ''}Frozen goods rot on a normal shelf `
+          + 'and keep in here. I opened the catalogue for you — normally that is '
+          + 'the Build button, pressed twice.';
       }
       // Turning it is the half you need BEFORE you put it down, so it goes
       // first — a facing you fix afterwards is a fixture you have already paid
       // to stand in the wrong direction. The wheel stops zooming while
       // something is armed, which is worth saying outright: a control that
       // quietly changes job is one you find by accident or never.
-      return 'R turns the ghost, and so does the mouse wheel — while something '
-        + 'is armed the wheel turns it instead of zooming. Green means it fits. '
-        + 'Amber means it fits and will cost you something — a shelf walled in, '
-        + 'a queue with nowhere to stand — and the shop lets you anyway, because '
-        + 'blocking your own aisle is a decision.';
+      return 'R turns it before you place it, and so does the wheel — while '
+        + 'something is armed the wheel turns instead of zooming. Green means it '
+        + 'fits. Amber means it fits but will block something, and the shop lets '
+        + 'you do it anyway.';
     },
     at: (t) => {
       const p = cheapestFreezer(t);
@@ -431,15 +422,11 @@ const STEPS = [
     // so you click again, which re-books the same job and looks just as dead.
     hint: (t) => {
       const c = nearestCrate(t);
-      if (!c) return 'Somebody has to carry it in off the pad, and today that is you.';
-      if (!atIt(t, c)) {
-        return 'A click on something you are not stood at only ever walks you '
-          + 'there. Nothing is taken, nothing is spent — you just go.';
-      }
-      return 'Standing at it, you get four presses, and they are the same four '
-        + 'on every crate, shelf and machine in the shop. LEFT click takes one. '
-        + 'HOLD LEFT takes the whole box. RIGHT click puts one back. HOLD RIGHT '
-        + 'pours in everything you are carrying.';
+      if (!c) return 'Somebody has to carry it in off the pad. Today that is you.';
+      if (!atIt(t, c)) return 'Clicking something you are not stood at just walks you there.';
+      return 'Left click picks up one. Press and hold to pick up the whole box. '
+        + 'Right click is for dropping off instead. Same on every crate, shelf '
+        + 'and machine in the shop.';
     },
     arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
     at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
@@ -454,11 +441,8 @@ const STEPS = [
     id: 'shelve-one',
     kicker: 'Stock',
     say: 'RIGHT-click a shelf to put the unit on it.',
-    hint: 'LEFT TAKES, RIGHT PUTS. That is the rule everywhere in the shop — you '
-      + 'took the unit with a left click, so it goes down with a right one. Not '
-      + 'stood at the shelf yet? The first click walks you there, same as the '
-      + 'crate. Chevrons appear over every unit that will take what you are '
-      + 'holding, so you never have to remember which shelf is for what.',
+    hint: 'Left picks up, right drops off. Hold right to drop off everything at '
+      + 'once. Arrows point at every shelf that will take what you are holding.',
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     done(t) { return lotSize(meOf(t)?.carry) === 0; },
   },
@@ -470,13 +454,10 @@ const STEPS = [
       ? 'Now HOLD the RIGHT button on a shelf to tip the box in.'
       : 'One at a time is a long afternoon. Stand at the crate and HOLD the left button.'),
     hint: (t) => (meOf(t)?.haul
-      ? 'Right, because it is going OUT of your hands — left takes, right puts, '
-        + 'and holding is the whole lot rather than one. It empties onto the '
-        + 'shelf board by board and stops when the shelf is full; whatever is '
-        + 'left stays on your shoulder.'
-      : 'Standing at it, hold the button down and a ring winds round the crate. '
-        + 'Let go early and nothing happens. Let it finish and the whole box '
-        + 'goes up on your shoulder, which carries far more than your arms do.'),
+      ? 'Right drops off, and holding drops off the lot. It stops when the shelf '
+        + 'is full; the rest stays on your shoulder.'
+      : 'Hold it down and a ring winds round. Let go early and nothing happens. '
+        + 'A box carries far more than your arms do.'),
     at: (t) => (meOf(t)?.haul
       ? { world: anyShelf(t), y: SHELF_Y }
       : { world: nearestCrate(t), y: CRATE_Y }),
@@ -494,9 +475,8 @@ const STEPS = [
     id: 'open',
     kicker: 'Opening up',
     say: 'Last thing. Click the sign to raise the shutters.',
-    hint: 'The shop starts shut so you can lay it out with nobody in it. Press '
-      + 'this and the town starts arriving — and everything you just did starts '
-      + 'earning or costing. Good luck.',
+    hint: 'A new shop starts shut so you can set it up in peace. Open it and the '
+      + 'town starts turning up. Good luck.',
     at: () => ({ el: '#sign', pad: 8 }),
     done(t) { return t.state?.shutters === true; },
   },
