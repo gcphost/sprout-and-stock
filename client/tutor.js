@@ -393,15 +393,21 @@ const STEPS = [
     id: 'take-one',
     kicker: 'Stock',
     say: (t) => (nearestCrate(t)
-      ? 'Click the crate. One click takes one unit out.'
+      ? 'Click the crate. You walk over, and a unit comes off when you get there.'
       : 'Van is on its way. Crates get left on the pad round the back.'),
     // The four presses, said once, in the one place the player is holding the
     // mouse over the thing they are about. This is the sentence the whole tour
     // exists to deliver — everything else is scaffolding round it.
-    hint: 'Here the two buttons mean opposite things, and it is the same four '
-      + 'presses on every crate, shelf and machine in the shop. LEFT takes one. '
-      + 'HOLD LEFT takes the lot. RIGHT puts one back. HOLD RIGHT pours in '
-      + 'everything you are carrying.',
+    // The walk is part of the press, and saying so is the whole point of this
+    // line: one click books the job, and the unit does not move until you are
+    // stood at it. Without that, the walk reads as the click having missed —
+    // so you click again, which re-books the same job and looks just as dead.
+    hint: 'One click is the whole thing — do not click again on the way over. A '
+      + 'ring winds when you arrive and the unit comes off at the end of it; '
+      + 'walk away mid-ring and it is cancelled. Then the two buttons mean '
+      + 'opposite things, the same four on every crate, shelf and machine: LEFT '
+      + 'takes one, HOLD LEFT takes the lot, RIGHT puts one back, HOLD RIGHT '
+      + 'pours in what you are carrying.',
     arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
     at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
     // Nobody's fault and nothing to press. Without this the card reads as an
@@ -414,7 +420,7 @@ const STEPS = [
   {
     id: 'shelve-one',
     kicker: 'Stock',
-    say: 'Now click a shelf. It goes on.',
+    say: 'Now click a shelf. You walk over and it goes on.',
     hint: 'Chevrons appear over every unit that would take what you are holding, '
       + 'the moment your hands are full — so you never have to remember which '
       + 'shelf is for what. A shelf with no chevron will refuse you.',
