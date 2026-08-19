@@ -53,7 +53,7 @@
  */
 
 import { money } from './money.js';
-import { REACH } from '../shared/build.js';
+import { REACH, isWalkableTile } from '../shared/build.js';
 
 /** Off for everybody, everywhere. The Menu's switch. */
 const OFF_KEY = 'sns-tutor-off';
@@ -163,6 +163,38 @@ function anyShelf(t) {
   return units.find((s) => (s.stacks ?? []).length) ?? units[0] ?? null;
 }
 
+/**
+ * A tile to send somebody to, a few steps off.
+ *
+ * "Click a bit of floor" is an instruction with no target, on the one card whose
+ * whole job is teaching you that clicking a target is how you get anywhere — so
+ * the tour picks one and rings it, the same way it rings a crate.
+ *
+ * Two things decide the shape. It searches OUTWARD from a ring at a fixed
+ * distance rather than taking the first walkable cell it finds, because a tile
+ * one step away is a target you are already standing on. And it is worked out
+ * ONCE, in `start`, and held: asked every frame it would re-answer as you moved,
+ * so the marker would slide away from you and the walk would never end.
+ *
+ * `isWalkableTile` is the shop's own test, off the layout the renderer is
+ * holding — a ring on a tile the server will refuse to route to is the
+ * green-ghost bug wearing a marker.
+ */
+function spotToWalk(t) {
+  const me = meOf(t);
+  const L = t.scene?.storeLayout;
+  if (!me || !L) return null;
+  const from = { x: Math.round(me.x), z: Math.round(me.z) };
+  for (const r of [4, 3, 5, 2, 6]) {
+    for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, -r], [r, -r], [-r, r]]) {
+      const x = from.x + dx;
+      const z = from.z + dz;
+      if (isWalkableTile(L, x, z)) return { x, z };
+    }
+  }
+  return null;
+}
+
 /** The cheapest chiller in the catalogue, so the step lights one you can afford. */
 function cheapestFreezer(t) {
   const rows = (t.ui.catalog?.fixtures ?? []).filter((f) => (f.kind ?? f.id) === 'freezer');
@@ -238,20 +270,29 @@ const STEPS = [
   {
     id: 'walk',
     kicker: 'Getting about',
-    say: 'Click a bit of floor. You walk to it.',
+    say: (t) => (t.step?.spot ? 'Click the marked tile. You walk to it.' : 'Click a bit of floor. You walk to it.'),
     // Both halves of the mouse, because a press that MOVED is never a walk —
     // and the camera is the thing a new player reaches for first and finds by
     // accident. Either button drags the view; which one decides whether it
     // slides or swings.
     hint: 'Hold a mouse button and drag to move the camera — left or right, '
       + 'same thing. Wheel zooms. WASD walks you without clicking.',
-    at: () => ({ el: '#game', soft: true }),
-    start(t) { this.from = meOf(t) ? { ...meOf(t) } : null; },
+    // Ringed on the floor rather than "somewhere over there". The tile is
+    // chosen once and held, or the mark walks away from you as you approach it.
+    at(t) {
+      this.spot ??= spotToWalk(t);
+      return { world: this.spot, y: 0.04 };
+    },
+    start(t) { this.spot = spotToWalk(t); },
+    // Arriving OR simply having gone a fair way. The ringed tile is the
+    // instruction, not the test: somebody who clicks two tiles to its left has
+    // done the thing this card teaches, and a card that then still wanted that
+    // exact square would be a tutorial arguing with a player who understood it.
     done(t) {
       const me = meOf(t);
       if (!me) return false;
-      if (!this.from) { this.from = { ...me }; return false; }
-      return dist(me, this.from) > 2.5;
+      this.from ??= { ...me };
+      return (this.spot && dist(me, this.spot) < 1.6) || dist(me, this.from) > 2.5;
     },
   },
 
