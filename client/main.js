@@ -2472,6 +2472,24 @@ addEventListener('blur', () => {
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+/**
+ * The browser's own idea of what a held press is.
+ *
+ * `user-select: none` stops the *highlight*, and these two are the half it does
+ * not stop: the browser still opens a selection from the canvas and still
+ * offers to drag off it, which is where the I-beam cursor, the caret and the
+ * ghost image of the page come from. Every gesture in this game is a press held
+ * still and then moved, so that is not an edge case — it is the shape of a pan,
+ * a camera turn, a wall drag and every long press in the game.
+ *
+ * On the CANVAS and not on the document, which is the whole safety of it: the
+ * Menu names a shop and a player in text fields, and a blanket refusal would be
+ * a box you cannot select the contents of to correct. Same line `#panel-body`
+ * draws in the stylesheet.
+ */
+canvas.addEventListener('selectstart', (e) => e.preventDefault());
+canvas.addEventListener('dragstart', (e) => e.preventDefault());
+
 // The bar is a game toolbar, not a document — a browser menu over it is never
 // what anybody meant by right-clicking there. No `escape()` though: pressing it
 // on a button is a miss, not a decision to leave.

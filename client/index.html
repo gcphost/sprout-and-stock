@@ -67,7 +67,12 @@
       color: var(--ink);
       background: #cfe9f5;
       -webkit-font-smoothing: antialiased;
-      user-select: none;
+      /* Both spellings, for the reason `#panel-body` gives further down: these
+         are not the same feature, and neither is a fallback for the other. The
+         unprefixed one alone left every HUD label in the game selectable on
+         WebKit — so a press and hold anywhere on the screen highlighted the
+         nearest words and put a text caret in a shop. */
+      user-select: none; -webkit-user-select: none;
     }
     /*
      * `touch-action: none` is not a nicety — without it the browser claims
@@ -86,6 +91,11 @@
       touch-action: none;
       overscroll-behavior: none;
       -webkit-touch-callout: none;
+      /* Said again here rather than left to `body`, because this is the element
+         a drag STARTS on: every gesture in the game is a press held on the
+         canvas and then moved, which is also the shape of a text selection, and
+         a selection that begins here runs on across whatever HUD it reaches. */
+      user-select: none; -webkit-user-select: none;
     }
 
     /* ---- THE EDGE: what the whole screen is doing -------------------------
