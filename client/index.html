@@ -2769,7 +2769,9 @@
        of the step, and it is the RAIL and the other menus that a press must not
        reach. */
     body.tutoring .hud { pointer-events: none; }
-    body.tutoring #tutor, body.tutoring .tt-card { pointer-events: auto; }
+    /* The CARD, and never `#tutor` itself — that is a full-screen fixed box, so
+       making it live swallows every press aimed at the shop underneath it. */
+    body.tutoring .tt-card { pointer-events: auto; }
 
     /* The hole's outline. It is drawn OUTSIDE the rect (a spread shadow rather
        than a border) so it never covers a pixel of the thing it is pointing at
