@@ -53,7 +53,7 @@
  */
 
 import { money } from './money.js';
-import { REACH, isWalkableTile } from '../shared/build.js';
+import { REACH, isWalkableTile, insideStore } from '../shared/build.js';
 
 /** Off for everybody, everywhere. The Menu's switch. */
 const OFF_KEY = 'sns-tutor-off';
@@ -170,29 +170,39 @@ function anyShelf(t) {
  * whole job is teaching you that clicking a target is how you get anywhere — so
  * the tour picks one and rings it, the same way it rings a crate.
  *
- * Two things decide the shape. It searches OUTWARD from a ring at a fixed
- * distance rather than taking the first walkable cell it finds, because a tile
- * one step away is a target you are already standing on. And it is worked out
- * ONCE, in `start`, and held: asked every frame it would re-answer as you moved,
- * so the marker would slide away from you and the walk would never end.
+ * Three things decide the shape. It must be INDOORS: the shop is a small
+ * building in a big field, so the first walkable cell four steps out is very
+ * often grass, and a tour whose opening move is to send you outside has taught
+ * you to leave. It searches outward from a ring at a fixed distance rather than
+ * taking the first cell it finds, because a tile one step away is a target you
+ * are already standing on. And it is worked out ONCE, in `start`, and held:
+ * asked every frame it would re-answer as you moved, so the marker would slide
+ * away and the walk would never end.
  *
- * `isWalkableTile` is the shop's own test, off the layout the renderer is
- * holding — a ring on a tile the server will refuse to route to is the
- * green-ghost bug wearing a marker.
+ * `isWalkableTile` and `insideStore` are the shop's own tests, off the layout
+ * the renderer is holding — a ring on a tile the server will refuse to route to
+ * is the green-ghost bug wearing a marker.
  */
 function spotToWalk(t) {
   const me = meOf(t);
   const L = t.scene?.storeLayout;
   if (!me || !L) return null;
   const from = { x: Math.round(me.x), z: Math.round(me.z) };
-  for (const r of [4, 3, 5, 2, 6]) {
-    for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, -r], [r, -r], [-r, r]]) {
-      const x = from.x + dx;
-      const z = from.z + dz;
-      if (isWalkableTile(L, x, z)) return { x, z };
+  const ok = (x, z) => isWalkableTile(L, x, z) && insideStore(L, x, z);
+  // Every cell in the building, furthest first, so the walk is a walk rather
+  // than a step — and a shop with no room to cross still answers with whatever
+  // it has instead of sending you out of the door.
+  let best = null;
+  for (let z = 0; z < (L.h ?? 0); z += 1) {
+    for (let x = 0; x < (L.w ?? 0); x += 1) {
+      if (!ok(x, z)) continue;
+      const d = Math.hypot(x - from.x, z - from.z);
+      // Far enough to be a journey, near enough to stay on screen.
+      if (d < 2.5 || d > 9) continue;
+      if (!best || Math.abs(d - 5) < Math.abs(best.d - 5)) best = { x, z, d };
     }
   }
-  return null;
+  return best ? { x: best.x, z: best.z } : null;
 }
 
 /** The cheapest chiller in the catalogue, so the step lights one you can afford. */
