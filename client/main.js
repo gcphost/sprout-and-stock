@@ -2323,7 +2323,23 @@ let dwell = { key: null, at: 0, timer: null };
  */
 function settledBoard(f, board) {
   const key = f && board ? `${f.id}:${board}` : null;
-  if (key !== dwell.key) {
+  // A null aim does NOT restart the clock, and that is the whole of what keeps
+  // this usable after you have actually taken something.
+  //
+  // Goods are drawn as themselves, so a board whose count changed rebuilds its
+  // welded group — and for the frame in between, the ray meets nothing and the
+  // aim comes back with no board on it. Restarting the dwell there means that
+  // on a shelf you are actively taking from, the 240ms never elapses: the pile
+  // re-syncs every snapshot, the clock resets ten times a second, and the cage
+  // simply never appears again. Which reads exactly as he described it — one
+  // unit comes off, and from then on the shop will only let you point at the
+  // whole unit, whose errand with full hands is a PUT.
+  //
+  // Keeping the old key is safe because `ripeBoard` matches it against the
+  // board being asked about right now: a stale key can only ever ripen for the
+  // same pile you had settled on, and pointing at a different one replaces it
+  // on the first frame that names one.
+  if (key !== null && key !== dwell.key) {
     if (dwell.timer) clearTimeout(dwell.timer);
     dwell = {
       key,
