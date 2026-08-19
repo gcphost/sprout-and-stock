@@ -18,8 +18,12 @@ import { DIFFICULTIES, NEW_DIFFICULTY, difficultyOf } from '../shared/difficulty
 import { markWorldNew } from './tutor.js';
 import { mix } from './audio/mix.js';
 import { music } from './audio/music.js';
-import { spinForWorker } from './thumb.js';
+import { loadCrew, greeterOfTheDay, turntable } from './greeter.js';
+import { api } from './front-api.js';
+import { bootHide } from './boot.js';
 import { wireScroll } from './scroll.js';
+
+export { setMenuApi } from './front-api.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
@@ -89,46 +93,6 @@ function ago(ms) {
   if (h < 36) return `${Math.round(h)} hr ago`;
   return `${Math.round(h / 24)} days ago`;
 }
-
-/**
- * The menu over HTTP — the server build, and the default.
- *
- * Four calls: list the shops, list the worker kinds a card draws a bot from,
- * make one, throw one away.
- */
-async function httpApi(method, path, body) {
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers: { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => ({ ok: false, error: `${res.status}` }));
-  if (!res.ok || json.ok === false) throw new Error(json.error ?? `${res.status}`);
-  return json;
-}
-
-let transport = httpApi;
-
-/**
- * Point the menu at something other than HTTP.
- *
- * The web build has no HTTP and no server; its worker owns the store and
- * answers the same four calls in the same shapes (`LocalNet.api`). A swap here
- * rather than a branch inside `api` for the reason the whole port is built on:
- * the thing being replaced is a *transport*, and the moment this file can tell
- * which one it has, the menu has learned which build it is in.
- *
- * Deliberately module-level rather than a constructor argument. `Menu` is
- * created in more than one place (the front door, and Leave from the Controls
- * panel), and a parameter is a parameter somebody forgets at one of them — at
- * which point one route into the menu quietly tries to `fetch` in a build with
- * nothing to fetch from.
- */
-export function setMenuApi(fn) {
-  transport = fn ?? httpApi;
-}
-
-const api = (method, path, body) => transport(method, path, body);
 
 const REMEMBERED = 'sns-world';
 
@@ -224,16 +188,13 @@ export class Menu {
     try {
       const { worlds } = await api('GET', '/worlds');
       this.worlds = worlds;
-      // The crew, for the turntable over the title. Off the same content API the
-      // rest of the menu uses rather than the catalog, because there is no
-      // socket yet — this screen runs before there is a shop to be told about
-      // one. Fetched once and kept: `refresh` runs on every delete and every
-      // arm, and a bot that changed identity each time you armed a Delete would
-      // read as the page reloading under you.
-      if (!this.crew) {
-        const got = await api('GET', '/content/worker').catch(() => null);
-        this.crew = got?.rows ?? [];
-      }
+      // The crew, for the turntable over the title. `loadCrew` keeps it for the
+      // life of the page, which is what makes this cheap to call from
+      // `refresh` — that runs on every delete and every arm, and a bot that
+      // changed identity each time you armed a Delete would read as the page
+      // reloading under you. The loading screen behind this one has usually
+      // fetched it already.
+      await loadCrew(api);
       this.error = null;
     } catch (err) {
       this.error = `Can't reach the shop: ${err.message}`;
@@ -242,36 +203,13 @@ export class Menu {
   }
 
   /**
-   * One of your crew, turning, over the title.
-   *
-   * The same filmstrip the worker sheet uses (`spinForWorker` — twenty-four
-   * stills fifteen degrees apart, slid one frame at a time by `steps()`), for
-   * the reason it is a filmstrip there: there is no renderer on this screen and
-   * there is no socket either, so anything that needed either would be a second
-   * way of drawing a robot that has to be kept matching the first.
-   *
-   * **Which** one is `hash01`'s argument said about a day rather than a person:
-   * picked off the date, so the front door has somebody different on it when you
-   * come back tomorrow and the same one all evening. Drawn from `this.crew`
-   * rather than re-picked per render, or arming a Delete would swap the bot.
-   *
-   * A shop with no worker art authored gets nothing at all — no placeholder,
-   * because a grey silhouette over the title is worse than a title.
+   * One of your crew, turning, over the title. See client/greeter.js — the
+   * loading screen stands the same bot in front of the same sky, and the pick
+   * is per-DAY rather than per-render so neither screen has to tell the other
+   * which machine it chose.
    */
   greeter() {
-    const rows = (this.crew ?? []).filter((w) => w.model);
-    if (!rows.length) return '';
-    this.who ??= rows[Math.floor(Date.now() / 864e5) % rows.length];
-    const frames = spinForWorker(this.who, 1, null);
-    if (!frames?.length) return '';
-    // A negative delay is "start this far in", so the turn survives the
-    // rebuild `render` does on every keystroke that matters — without it the
-    // bot snaps back to facing front each time you type in the name box.
-    const phase = (-(performance.now() / 1000) % 9).toFixed(2);
-    return `<div class="menu-bot" aria-hidden="true">
-      <span class="wk-turn" style="--n:${frames.length};--spin:9s;animation-delay:${phase}s">${
-  frames.map((f) => `<span>${f}</span>`).join('')}</span>
-    </div>`;
+    return turntable(greeterOfTheDay());
   }
 
   get name() {
@@ -473,6 +411,14 @@ export class Menu {
   }
 
   render() {
+    // The loading screen steps aside HERE rather than when the menu is
+    // unhidden, and the gap between the two is a fetch. Both screens draw the
+    // same sky (`.outdoors`), so they cannot both be up — two copies composite
+    // and the sun doubles — and hiding the loader at `choose()` would leave an
+    // empty sky for as long as `/worlds` takes, which is precisely the wait the
+    // loader exists for. Unconditional and idempotent: after the shop opens the
+    // element is gone, and the Leave path builds a second Menu against it.
+    bootHide();
     const name = localStorage.getItem('sns-name') ?? '';
     // The LIST is the scroll container now, and it is inside the thing being
     // rebuilt — so emptying `root` collapses it and the browser pins it to 0.

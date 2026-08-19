@@ -16,6 +16,7 @@ import { showFixture, refreshFixture, ONE_AT_A_TIME } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
 import { showEdgeMenu, hasEdgeMenu, sameFamily, kindAt } from './edge-menu.js';
 import { Menu, preselectedWorld, setMenuApi, enableJoin } from './menu.js';
+import { bootSay, bootDone, bootFail } from './boot.js';
 import { Award } from './award.js';
 import { Tutor } from './tutor.js';
 import { wireDrag, restorePos } from './panel-drag.js';
@@ -3194,7 +3195,6 @@ function loop() {
 // ---------------------------------------------------------------------------
 
 const params = new URLSearchParams(location.search);
-const boot = document.getElementById('boot');
 
 /**
  * Put the shop you're in in the address bar.
@@ -3215,11 +3215,11 @@ function rememberInUrl(worldId) {
 }
 
 async function openWorld(worldId, name) {
-  boot.textContent = 'Opening the shop…';
+  bootSay('Opening the shop…');
   ui.worldId = worldId;
   await net.connect(name, worldId);
   rememberInUrl(worldId);
-  boot.remove();
+  bootDone();
   // No welcome toast. There was one — "Drag to move · tap a plot to sow · walk up
   // to things to use them" — and every clause of it had stopped being true: a
   // drag pans the camera rather than moving you, walking up to something stopped
@@ -3287,12 +3287,15 @@ async function start() {
       const url = new URL(location.href);
       url.searchParams.delete('world');
       history.replaceState(null, '', url);
-      boot.textContent = 'Loading…';
+      bootSay('Loading the shops…');
       pendingError = `That shop is gone — ${err.message}`;
     }
   }
 
-  boot.textContent = 'Loading…';
+  // Stays up until the front door has something on it — `Menu.render` is what
+  // stands this down, because the two screens draw the same sky and the wait
+  // between opening the menu and its first paint is a fetch.
+  bootSay('Loading the shops…');
   const menu = new Menu(document.getElementById('menu'), pendingError);
   const picked = await menu.choose();
   // Joining is not picking a shop: `guest` is a live connection to somebody
@@ -3312,9 +3315,9 @@ async function start() {
  * save this browser does not have.
  */
 async function openAsGuest(channel, name) {
-  boot.textContent = 'Joining the shop…';
+  bootSay('Joining the shop…');
   net.becomeGuest(channel, name);
-  boot.remove();
+  bootDone();
   // No `?world=` in the address bar: the shop is not ours, and the link would
   // open a save this browser does not have. The invite code is the only way in.
   loop();
@@ -3322,5 +3325,5 @@ async function openAsGuest(channel, name) {
 
 start().catch((err) => {
   document.getElementById('menu').hidden = true;
-  boot.textContent = `Could not reach the shop: ${err.message}`;
+  bootFail(`Could not reach the shop: ${err.message}`);
 });
