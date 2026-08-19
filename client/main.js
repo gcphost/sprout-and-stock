@@ -3862,9 +3862,57 @@ function pollInput(dt) {
  */
 let lastFrame = performance.now();
 
+/**
+ * The frame clock, on screen, for `?perf`.
+ *
+ * Off unless the URL asks, because it is a developer's readout and not a
+ * feature: it sits over the shop, it updates four times a second, and nobody
+ * playing has a use for a number that only means something next to another
+ * number. It exists because "it feels chunky" is a report nobody can act on and
+ * "38fps, 21ms, 940 draws" is — and because the machine it is chunky on is
+ * never the machine you are sitting at.
+ *
+ * Frame time as well as fps, and the two are not the same claim: fps averages
+ * away the hitch that is actually being complained about, so the WORST frame in
+ * each window is printed beside the mean. Draw calls and triangles come off
+ * `renderer.info`, which is the difference between "this machine is slow" and
+ * "this shop is heavy" — and `render.calls` is per frame, reset by three on
+ * every draw, so it is read rather than accumulated.
+ */
+const perfOn = new URLSearchParams(location.search).has('perf');
+const perf = { at: 0, frames: 0, worst: 0, el: null };
+
+function stepPerf(now, ms) {
+  if (!perfOn) return;
+  if (!perf.el) {
+    perf.el = document.createElement('div');
+    // Its own element with its own styles rather than a HUD class: the HUD is
+    // laid out in stacks that other things measure (`--build-h` and friends),
+    // and a debug readout that pushed the toolbar around would be changing the
+    // thing it was brought in to measure.
+    perf.el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99;'
+      + 'font:600 11px/1.4 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,.62);'
+      + 'padding:4px 7px;border-radius:6px;pointer-events:none;white-space:pre';
+    document.body.append(perf.el);
+  }
+  perf.frames += 1;
+  perf.worst = Math.max(perf.worst, ms);
+  if (now - perf.at < 250) return;
+  const fps = Math.round((perf.frames * 1000) / (now - perf.at));
+  const info = scene.renderer?.info;
+  perf.el.textContent = `${fps} fps  ${(1000 / Math.max(1, fps)).toFixed(1)}ms`
+    + `  worst ${perf.worst.toFixed(1)}ms\n`
+    + `${info?.render?.calls ?? 0} draws  ${((info?.render?.triangles ?? 0) / 1000).toFixed(0)}k tris`
+    + `  dpr ${scene.renderer?.getPixelRatio?.().toFixed(2) ?? '?'}`;
+  perf.at = now;
+  perf.frames = 0;
+  perf.worst = 0;
+}
+
 function loop() {
   const now = performance.now();
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  stepPerf(now, now - lastFrame);
   lastFrame = now;
   pollInput(dt);
   if (ui.buildOn) refreshGhost();

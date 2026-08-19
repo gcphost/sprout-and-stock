@@ -128,7 +128,7 @@ const BOARD_SNAP_PX = 7;
  *  hangs a fixed distance over the same spot, so the two cannot drift apart. */
 const CASH_Y = 0.95;
 const ZOOM_MIN = 0.7;         // wider than the old fixed view, for finding things
-const ZOOM_MAX = 5.0;         // ~3.4 tiles tall: one unit and what is on it
+const ZOOM_MAX = 12.0;        // ~1.4 tiles tall: a bot fills two thirds of it
 const ZOOM_DEFAULT = 1.45;    // ~12 tiles tall: the shop, not the whole county
 /** Per notch. Multiplicative, so a notch is the same *proportion* in or out. */
 const ZOOM_STEP = 1.12;
@@ -144,17 +144,21 @@ const ZOOM_STEP = 1.12;
  * stand in the very corner of the grid.
  *
  * The pitch in that sum is `PITCH_MIN` and not the home 40°, which is the half
- * that had to change when the view learned to tilt: 1/sin goes from 1.56 to
- * 3.63 on the way down, so the flattest view looks about 44 tiles up the ground
- * from the middle of the screen where the pose this number was settled against
- * managed 19 — and what running out looks like is the world ending in mid-air
- * along the top of the screen, at one angle, on one monitor.
+ * that had to change when the view learned to tilt — and it is the half that
+ * had to change AGAIN when the tilt cap came off. 1/sin is 1.56 at the home
+ * pose, was 3.63 at the old 16° floor, and is 19.1 at 3°: the flattest view now
+ * looks about 232 tiles up the ground from the middle of the screen where the
+ * pose this number was first settled against managed 19. What running out looks
+ * like is the world ending in mid-air along the top of the screen, at one angle,
+ * on one monitor — which is precisely the angle somebody flattens the camera to
+ * reach, so an apron left at 120 would have presented as the new tilt being
+ * broken rather than as this constant being stale.
  *
  * It's one box either way — the only thing a bigger apron costs is a bigger
  * number in a geometry constructor. Note `pickTile` intersects a mathematical
  * plane rather than this mesh, so no amount of apron can affect aiming.
  */
-const GROUND_MARGIN = 120;
+const GROUND_MARGIN = 320;
 
 // `MODEL_REPLACES_TILE` retired here. It answered "does this fixture's model
 // stand instead of the coloured block its tile drew" — a question that only
@@ -280,6 +284,43 @@ function plantSpots(count, seed = 0) {
  * with you. It's the one cue that the rotation is a camera move and not the
  * whole farm turning.
  */
+/**
+ * How many pixels this renderer is willing to draw in one frame, before the
+ * device pixel ratio doubles them again.
+ *
+ * `min(devicePixelRatio, 2)` is the usual advice and it is a rule about the
+ * SCREEN when the thing that costs money is the AREA. On a 1440p laptop at dpr 1
+ * that is 3.7 megapixels; on a 27" 5K at dpr 2 the same rule asks for 14.7, four
+ * times the work for a picture at the same apparent sharpness — and this scene
+ * is fill-heavy in every direction at once: MSAA, a second full draw into a
+ * 2048² soft shadow map, and up to eight forward lights, each of which is
+ * another pass over every fragment. The shop looks identical and walks like
+ * treacle, which is exactly the report: fine still, chunky moving.
+ *
+ * So the budget is on the product. 5.0MP is a shade over 2560×1920 — a full 4K
+ * window still gets dpr 1.08 rather than 1, and a small window on a retina
+ * screen is untouched at 2. Nothing else in here has to know: `resize` folds it
+ * into `setPixelRatio`, so the canvas is still exactly `innerWidth × innerHeight`
+ * CSS pixels and every unproject, pick and readout is unchanged.
+ */
+const PIXEL_BUDGET = 5.0e6;
+
+/**
+ * ...as a ratio, for a window this size.
+ *
+ * Never ABOVE what the device actually has (2 on a retina panel, 1 on a plain
+ * one) — supersampling a display that cannot show it is spending four pixels to
+ * draw one — and never below 1, which is the floor a picture stops being sharp
+ * at. In between it is whatever the budget affords, so the cost of a frame is
+ * roughly flat across monitors instead of scaling with the fourth power of how
+ * much somebody paid for theirs.
+ */
+const pixelRatioFor = (w, h) => {
+  const want = Math.min(devicePixelRatio || 1, 2);
+  const area = Math.max(1, w * h);
+  return Math.max(1, Math.min(want, Math.sqrt(PIXEL_BUDGET / area)));
+};
+
 const SUN_OFFSET = new THREE.Vector3(26, 40, 14);
 
 /**
@@ -408,22 +449,30 @@ const PITCH_HOME = Math.asin(BASE_CAM_OFFSET.y / CAM_DIST);   // ~40°
 /**
  * How far the view may be tilted, in radians.
  *
- * The floor is where the shop stops being a shop rather than where anything
- * breaks. It is deliberately well under the angle at which the picture is at its
- * *best*: a front row that hides the aisle behind it is a view you chose to look
- * along, and the range is only worth having if its ends are extreme. What is
- * over the line is a view with no ground left in it, which is a first-person
- * camera wearing an orthographic projection and reads as the tilt being broken.
+ * The floor used to be 16°, held there on the argument that a view with no
+ * ground left in it is a first-person camera wearing an orthographic projection
+ * and reads as the tilt being broken. That is a claim about how it *looks*, and
+ * the only way to settle one of those is to go and look — so the cap is off in
+ * all but name and 3° is the degeneracy guard rather than a taste decision: at
+ * 0 the ground plane is edge-on to the camera, which is a plane `pickTile`'s ray
+ * runs parallel to and therefore never meets.
  *
- * The goods on a canopied board go out of sight some way above the floor — see
+ * Two things are honestly worse down there and neither is a bug to fix. The
+ * goods on a canopied board go out of sight some way above the floor — see
  * `CAM_RISE` in shared/model.js, which is written against the home pitch and is
- * the one thing here a tilt can make quietly wrong.
+ * the one thing here a tilt can make quietly wrong. And the shop occludes
+ * itself: at 3° the front row is in front of everything behind it, which is what
+ * looking along an aisle means and is the point of going down there at all.
+ *
+ * What it does cost, in code rather than in taste, is `GROUND_MARGIN` — the
+ * apron is sized off 1/sin of this number, and that term went from 3.6 to 19.
+ * See the note there.
  *
  * The ceiling is short of straight down for the opposite reason: at 90° a
  * fixture is its own footprint and the shop reads as a floor plan, and an ortho
  * camera gives you no perspective back to say which way anything is facing.
  */
-const PITCH_MIN = 16 * (Math.PI / 180);
+const PITCH_MIN = 3 * (Math.PI / 180);
 const PITCH_MAX = 62 * (Math.PI / 180);
 
 /** How far the view may be shoved off the player it follows, in tiles. */
@@ -765,6 +814,8 @@ export class Scene {
       // Required so the MCP screenshot tool can read the canvas back out.
       preserveDrawingBuffer: true,
     });
+    // Set properly by `resize`, which is the only place that knows how big the
+    // window is. Here so the very first frame is not drawn at dpr 1.
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -951,6 +1002,13 @@ export class Scene {
     this.camera.near = -200;
     this.camera.far = 400;
     this.camera.updateProjectionMatrix();
+    // The ratio is decided HERE and not in the constructor, because it is a
+    // question about the window rather than about the monitor — see
+    // `PIXEL_BUDGET`. Recomputed on every resize for the same reason: dragging a
+    // window from a laptop screen onto a 5K one changes the answer, and a ratio
+    // baked at boot would leave that session drawing four times what it should
+    // until the page was reloaded.
+    this.renderer.setPixelRatio(pixelRatioFor(w, h));
     this.renderer.setSize(w, h, false);
   }
 

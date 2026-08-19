@@ -236,6 +236,32 @@ export const EDGE_STYLE = {
 export const GLASS = 0.35;
 
 /**
+ * The line an edge's own detail has to start above: the tallest ground the shop
+ * can be standing on.
+ *
+ * An edge is drawn from world zero and the ground is not — a floor slab is 0.06
+ * tall and a delivery bay 0.07 (`TILE_STYLE`) — so every number in `edgeBands`
+ * under this is a band drawn *inside the floor*. That is fine for the one band
+ * whose job is to span the whole wall, which is solid and taller than anything
+ * it passes through, and it is wrong for everything else, in two ways that look
+ * like different bugs:
+ *
+ * - A doorway's threshold sat at 0.02..0.05, entirely under the floor's top
+ *   face. Two near-coplanar surfaces, one depth buffer, and the winner depends
+ *   on the camera — which is why it read as the bottom of a door bleeding
+ *   through the ground at *some* angles and being fine at others.
+ * - A shopfront's glass started at 0.05, so the pane passed clean through the
+ *   floor slab. A transparent box intersecting an opaque one draws a bright
+ *   seam along the intersection, and the kick plate below it (0 to 0.05) was
+ *   never once visible in the whole life of the piece.
+ *
+ * So it is the *floor line* rather than a number nudged until the artefact went
+ * away on one camera — the two callers below both clamp to it, and a fifth
+ * glazing authored with its sill on the deck gets the fix by construction.
+ */
+const GROUND_LINE = 0.08;
+
+/**
  * The stack of boxes one edge is built from, bottom to top.
  *
  * Lives here, beside the style it reads, because two things draw an edge now:
@@ -257,7 +283,19 @@ export function edgeBands(style) {
   if (style.opening) {
     return [
       { y0: style.h - 0.16, y1: style.h },
-      { y0: 0.02, y1: style.mark ? 0.07 : 0.05, color: style.mark },
+      // Up FROM the deck rather than starting at the floor line, and the two are
+      // not the same picture: a way through is cut in whatever the shop is
+      // standing on, so a gate in a fence sits on grass at 0.01 and a doorway on
+      // floor at 0.06. A band that began at the line would hang a finger's width
+      // of air under every gate in the game. What had to clear the ground was
+      // only ever the band's TOP face — the buried half of a solid box is
+      // nobody's problem.
+      // ...and it stops AT the line, which is the same lip a shopfront's kick
+      // plate stops at — the two sit in the same wall a tile apart, so a stoop
+      // that stood proud of it read as a step somebody had left in. A signed way
+      // through keeps a little of the extra, because that stripe is the only
+      // thing on screen saying who a door is for and it is being read edge-on.
+      { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
     ];
   }
   // Glazed: sill, header, and a see-through band filling the gap. Where that gap
@@ -265,7 +303,12 @@ export function edgeBands(style) {
   // and a strip up under the lintel — so this is four looks in three numbers, and
   // the defaults ARE the window that has always been here.
   if (style.glass) {
-    const sill = style.sill ?? 0.34;
+    // Where the glass starts is authored, and where the ground stops is not the
+    // author's business — a shopfront asks for its pane to come down as far as
+    // it can, which is the deck as far as `GLAZING` is concerned and the floor
+    // line as far as the renderer is. Clamped rather than re-authored, so the
+    // number in `EDGE_STYLE` goes on saying what it means.
+    const sill = Math.max(GROUND_LINE, style.sill ?? 0.34);
     const head = style.head ?? 0.9;
     const out = style.out ?? 0;
     return [
