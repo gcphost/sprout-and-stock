@@ -661,55 +661,52 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   stand(g, shelf.browseAt);
   eq(g.actionFor(g.players.me)?.kind, 'take', 'arriving is what arms it');
 
-  // One unit per turn of the ring, and the ring goes round again while the
-  // button is down — into a CRATE on your shoulder, because a board holds more
-  // than a pair of hands and "take it all" is the thing anybody wants off a
-  // shelf. `stepActions` is one turn however long its `dt` is, so counting
-  // calls is counting units.
+  // ONE RING, THE WHOLE BOARD — into a CRATE on your shoulder, because a board
+  // holds more than a pair of hands and "take it all" is the thing anybody
+  // wants off a shelf. It was metered for four steps, one unit per turn of the
+  // ring across a second, and the reason that went is the reason this asserts
+  // the count rather than a duration: a hold whose length is computed from the
+  // world is a hold that can finish inside `LONG_PRESS_MS`, and then an
+  // ordinary tap comes away with a crate. Every other hold in the game is one
+  // ring and then the thing happens.
   const onBoard = qtyOn(shelf, plainItem.id);
   g.stepActions(5);
-  eq(lotTotal(g.players.me.haul), 1, 'one turn of the ring is one unit');
+  eq(lotTotal(g.players.me.haul), onBoard, 'one ring takes the whole board');
+  eq(qtyOn(shelf, plainItem.id), 0, 'and leaves it bare');
   eq(g.players.me.carry, null, 'onto your shoulder, leaving your hands free');
-  check(g.players.me.errand !== null, 'the errand outlives its first unit, or a hold takes one');
+  eq(lotTotal(g.players.me.haul) + qtyOn(shelf, plainItem.id), onBoard,
+    'and nothing is created on the way off');
+  eq(g.players.me.errand, null, 'and a pull that emptied the board spends its errand');
+
+  // A board bigger than a crate leaves the rest standing rather than losing it.
+  // The one place this could destroy goods, and the reason `crateBoard` bounds
+  // the take by the crate's own room rather than by the board's count.
+  Object.assign(g.players.me, { haul: null, carry: null, action: null, errand: null });
+  put(shelf, plainItem, g.crateCapacity() + 8, { price: 3 });
+  const over = qtyOn(shelf, plainItem.id);
+  g.take('me', { shelfId: shelf.id, itemId: plainItem.id });
+  stand(g, shelf.browseAt);
   g.stepActions(5);
-  g.stepActions(5);
-  eq(lotTotal(g.players.me.haul), 3, 'holding on takes another, and another');
-  eq(qtyOn(shelf, plainItem.id) + 3, onBoard, 'and nothing is created on the way off');
+  eq(lotTotal(g.players.me.haul), g.crateCapacity(), 'a crate takes what a crate holds');
+  eq(qtyOn(shelf, plainItem.id), over - g.crateCapacity(), 'and the rest stays on the board');
+  check(g.crateCapacity() > g.carryCapacity(),
+    'which is more than a pair of hands, or the crate has bought nothing');
 
   // ...and it takes them off the SHELF rather than putting them back on it.
   // This used to need a latch (`tookFrom`): stocking armed on full hands beside
   // a shelf that would have them — exactly the state a pickup leaves you in —
-  // so a board emptied by hand refilled itself on the very next tick. What
-  // keeps it honest now is that a named board outranks stocking, and the pull
-  // owns its errand until it ends.
+  // so a board emptied by hand refilled itself on the very next tick.
+  Object.assign(g.players.me, { haul: null, carry: null, action: null, errand: null });
+  g.take('me', { shelfId: shelf.id, itemId: plainItem.id });
+  stand(g, shelf.browseAt);
   eq(g.actionFor(g.players.me)?.kind, 'take',
     'the shelf you are pulling from does not offer to take it back');
-
-  // Letting go stops it where it is. There is no partial charge anywhere in
-  // this game, and a pull is the first thing that could have banked one.
-  g.players.me.pressing = false;
-  const crated = lotTotal(g.players.me.haul);
-  g.stepActions(5);
-  g.stepActions(5);
-  eq(lotTotal(g.players.me.haul), crated, 'and letting go is how much you wanted');
-  g.players.me.pressing = true;
-
-  // A full crate ends it by itself and spends the errand with it. The board is
-  // topped up past a crate's worth first, or this measures the board running
-  // out instead — which is the same assertion pointed at the other end.
-  put(shelf, plainItem, g.crateCapacity() + 8, { price: 3 });
-  for (let i = 0; i < g.crateCapacity() + 8; i += 1) g.stepActions(5);
-  eq(lotTotal(g.players.me.haul), g.crateCapacity(), 'a hold fills the crate and stops');
-  check(g.crateCapacity() > g.carryCapacity(),
-    'which is more than a pair of hands, or the crate has bought nothing');
-  eq(g.players.me.errand, null, 'and a pull that ran out spends its errand');
 
   // A TAP is the fine end of the same grade — exactly one, into your HANDS. A
   // lone crate has drawn this line since it became rummageable: a tap is one, a
   // hold is the box.
-  g.players.me.haul = null;
-  g.players.me.carry = null;
-  g.players.me.action = null;
+  Object.assign(g.players.me, { haul: null, carry: null, action: null });
+  put(shelf, plainItem, 5, { price: 3 });
   const before = qtyOn(shelf, plainItem.id);
   const tapped = g.tapBoard('me', shelf.id, plainItem.id);
   check(tapped.ok, `a tap takes one (${tapped.error ?? ''})`);
@@ -718,39 +715,37 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   eq(qtyOn(shelf, plainItem.id), before - 1, 'one off the board, no more');
   eq(g.players.me.errand, null, 'and it spends whatever the press had armed');
 
-  // ...and the release that ENDS a hold is not also a tap. A board with little
-  // on it hands its first unit over before the client rules the press a hold,
-  // so the same press sends both — and without this you would walk away with
-  // the board in a crate and a loaf in your hand you never asked for.
-  g.players.me.carry = null;
-  g.players.me.action = { kind: 'take', target: shelf.id, repeat: true, took: 4, elapsed: 0 };
-  const tail = g.tapBoard('me', shelf.id, plainItem.id);
-  check(tail.ok && !tail.took, 'a tap that is really the end of a hold is swallowed');
-  eq(g.players.me.carry, null, 'and costs the board nothing twice');
+  // HANDS AND A SHOULDER NO LONGER REFUSE EACH OTHER, which is a claim about
+  // two verbs that each used to veto the other's state. One rule said twice —
+  // goods may only be in one place at a time — and it predates there being two
+  // buttons: a left press takes and a right press puts, so nothing about the
+  // direction is in doubt, and picking one loaf up should never be what stops
+  // you clearing the board it came off.
+  Object.assign(g.players.me, { haul: null, carry: null, action: null, errand: null });
+  put(shelf, plainItem, g.carryCapacity() + 4, { price: 3 });
+  const bothStart = qtyOn(shelf, plainItem.id);
+  g.unshelve('me', shelf.id, plainItem.id);
+  const inArms = lotTotal(g.players.me.carry);
+  check(inArms > 0, 'an armful first');
+  const both = g.crateBoard('me', shelf.id, plainItem.id);
+  check(both.ok, `and the board still crates with your hands full (${both.error ?? ''})`);
+  eq(lotTotal(g.players.me.carry), inArms, 'the armful is untouched');
+  check(lotTotal(g.players.me.haul) > 0, 'and the crate has the board');
+  eq(lotTotal(g.players.me.carry) + lotTotal(g.players.me.haul) + qtyOn(shelf, plainItem.id),
+    bothStart, 'with nothing created or destroyed between the two');
 
-  // How long a hold takes is a property of the GESTURE, not of how full the
-  // shelf happens to be. The interval is one pull's worth of time divided by
-  // how much is coming, so a bare board and a brimming one finish at the same
-  // moment — which is what makes "let go at half and you have half of it" true
-  // of every board rather than of one.
-  //
-  // Two pulls compared against each other rather than either against a number:
-  // a literal here would be re-asserting `PULL_SECONDS`, which passes whatever
-  // that constant happens to say. What is being claimed is the division.
-  const wholePull = (qty) => {
-    Object.assign(g.players.me, { haul: null, carry: null, action: null, errand: null });
-    put(shelf, plainItem, qty, { price: 3 });
-    g.take('me', { shelfId: shelf.id, itemId: plainItem.id });
-    stand(g, shelf.browseAt);
-    return g.actionFor(g.players.me).time * Math.min(qty, g.crateCapacity());
-  };
-  const bare = wholePull(3);
-  const full = wholePull(g.crateCapacity() + 5);
-  check(Math.abs(bare - full) < 1e-9,
-    `a board of three and a full one take the same hold (${bare} vs ${full})`);
-  check(bare > 0, 'and a hold is not instant');
+  // ...and the same the other way round: a box on your shoulder does not stop
+  // your hands. This is the direction that actually bit — `unshelve` refused
+  // outright, so a crate up meant no shelf in the shop would give you a single
+  // unit of anything.
+  put(shelf, plainItem, 6, { price: 3 });
+  g.players.me.carry = null;
+  const armful = g.unshelve('me', shelf.id, plainItem.id);
+  check(armful.ok, `an armful comes off with a crate up (${armful.error ?? ''})`);
+  check(lotTotal(g.players.me.carry) > 0, 'and fills your hands');
 
   Object.assign(g.players.me, { haul: null, carry: null, action: null, errand: null });
+  put(shelf, plainItem, 6, { price: 3 });
   g.unshelve('me', shelf.id, plainItem.id);
 
   // Putting it back on the very same unit is one tap and needs no walk away

@@ -30,6 +30,7 @@ import { world as loadWorld, saveWorld, DEFAULT_WORLD } from './content.js';
 // which is where `createWorld` is now also called from. See docs/browser.md.
 import { rooms, primaryRoom } from './rooms/shop.js';
 import { startTier, tierFixtures } from '../shared/start.js';
+import { cleanName, SHOP_NAME_MAX } from '../shared/names.js';
 import { startDifficulty, difficultyOf } from '../shared/difficulty.js';
 import { PREP_HOUR } from './sim/index.js';
 
@@ -214,7 +215,7 @@ function startingState({ cash, tier, difficulty, shelves, plots }) {
  * into a building.
  */
 export function createWorld({ name, seed, cash, tier, difficulty, shelves, plots } = {}) {
-  const label = String(name ?? '').trim().slice(0, 32) || `Shop ${listWorldRows().length + 1}`;
+  const label = cleanName(name, SHOP_NAME_MAX) || `Shop ${listWorldRows().length + 1}`;
   const id = mintId(label);
   const useSeed = String(seed ?? '').trim() || randomSeed();
   const start = startingState({
@@ -264,7 +265,7 @@ export function createWorld({ name, seed, cash, tier, difficulty, shelves, plots
 }
 
 export function renameWorld(id, name) {
-  const label = String(name ?? '').trim().slice(0, 32);
+  const label = cleanName(name, SHOP_NAME_MAX);
   if (!label) return null;
   const row = renameWorldRow(id, label);
   return row ? summarise(row) : null;

@@ -14,7 +14,10 @@
 
 import { money } from './money.js';
 import { START_TIERS, DEFAULT_TIER, startTier } from '../shared/start.js';
-import { DIFFICULTIES, NEW_DIFFICULTY, difficultyOf } from '../shared/difficulty.js';
+import { DIFFICULTIES, NEW_DIFFICULTY } from '../shared/difficulty.js';
+import { defaultPiece } from '../shared/pieces.js';
+import { NAME_MAX, SHOP_NAME_MAX } from '../shared/names.js';
+import { artForPiece } from './thumb.js';
 import { markWorldNew } from './tutor.js';
 import { mix } from './audio/mix.js';
 import { music } from './audio/music.js';
@@ -66,22 +69,63 @@ const NO_FILL = 'autocomplete="off" '
   + 'data-1p-ignore data-lpignore="true" data-bwignore="true" '
   + 'data-protonpass-ignore="true" data-form-type="other"';
 
-/** `2 shelves`, `1 freezer` — a count and the word for it, agreeing. */
-const some = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/**
+ * The build catalog, for the pictures in the new-shop form.
+ *
+ * The fifth thing this screen asks for over HTTP, and added on purpose the way
+ * `client/worker.js` says a fifth should be. Off the content API rather than
+ * the game's catalog for the reason `loadCrew` gives about the worker kinds:
+ * neither screen that wants art has a socket yet.
+ *
+ * Module-level and fetched once, so the form repainting on every keystroke that
+ * matters is not a request. Not remembered in localStorage the way the crew is
+ * — the crew is there to cover a loading screen that is up for less time than a
+ * fetch, and this is drawn *after* one.
+ */
+let pieces = null;
+let piecesPending = null;
+
+async function loadPieces() {
+  if (pieces) return pieces;
+  piecesPending ??= api('GET', '/content/fixture')
+    .then((got) => got?.rows ?? [])
+    .catch(() => []);
+  pieces = await piecesPending;
+  return pieces;
+}
+
+/** The four things a starting kit is counted in, and the word for each. */
+const KIT = [
+  { kind: 'shelf', one: 'shelf', many: 'shelves' },
+  { kind: 'freezer', one: 'freezer', many: 'freezers' },
+  { kind: 'checkout', one: 'till', many: 'tills' },
+  { kind: 'plot', one: 'bed', many: 'beds' },
+];
 
 /**
- * What a tier comes with, in shop words rather than field names.
+ * What a tier comes with, as the things themselves.
  *
- * Derived from the same `fixtures` the server furnishes from, so the button
- * cannot promise a cooler the shop opens without — the rule `client/thumb.js`
- * follows about drawing a fixture from its own catalog row, said about a list.
+ * A tile per kind, and the art is `defaultPiece` → `artForPiece` — the same two
+ * calls a fixture standing in the shop is drawn through, so the form cannot
+ * promise a cooler the shop opens without and no second picture of a shelf has
+ * to be kept matching the first. That is `client/thumb.js`'s whole rule, said
+ * about a form rather than about a palette button.
+ *
+ * A kind with no art draws its number and its word and nothing else, which is
+ * the same answer the front door already gives a build with no worker art
+ * authored: a grey silhouette is worse than a gap.
  */
-const kitLine = (t) => [
-  some(t.fixtures.shelf, 'shelf', 'shelves'),
-  some(t.fixtures.freezer, 'freezer'),
-  some(t.fixtures.checkout, 'till'),
-  some(t.fixtures.plot, 'bed'),
-].join(' · ');
+function kitTiles(t) {
+  return KIT.map(({ kind, one, many }) => {
+    const n = t.fixtures[kind] ?? 0;
+    if (!n) return '';
+    const art = artForPiece(defaultPiece(pieces, kind), kind);
+    return `<div class="kitem">
+        <div class="kart">${art ?? ''}</div>
+        <div class="knum"><b>&times;${n}</b> <span>${n === 1 ? one : many}</span></div>
+      </div>`;
+  }).join('');
+}
 
 /** "3 days ago" beats a timestamp when the question is "which one was I in". */
 function ago(ms) {
@@ -188,6 +232,14 @@ export class Menu {
     try {
       const { worlds } = await api('GET', '/worlds');
       this.worlds = worlds;
+      // A list of nothing is not a choice, so the form is what this screen IS
+      // on a first run: opening on an empty list and a button that says "+ New
+      // shop" is one press spent on the only thing there is to do. Here rather
+      // than in the constructor because it is a fact about the answer, not
+      // about the screen — and it comes back if you delete your last shop,
+      // which is the same first run wearing a later day. Cancel still shuts it
+      // (that redraws without refetching), so it is a default and not a latch.
+      if (!this.worlds.length) this.creating = true;
       // The crew, for the turntable over the title. `loadCrew` keeps it for the
       // life of the page, which is what makes this cheap to call from
       // `refresh` — that runs on every delete and every arm, and a bot that
@@ -195,6 +247,10 @@ export class Menu {
       // reloading under you. The loading screen behind this one has usually
       // fetched it already.
       await loadCrew(api);
+      // Before the paint rather than after it: the strip is drawn from these
+      // rows, and art that lands a tick late is a form that reflows under
+      // somebody reading it. Both are one fetch for the life of the page.
+      await loadPieces();
       this.error = null;
     } catch (err) {
       this.error = `Can't reach the shop: ${err.message}`;
@@ -290,8 +346,8 @@ export class Menu {
     this.root.querySelectorAll('[data-tier]').forEach((el) => {
       el.classList.toggle('on', el.dataset.tier === id);
     });
-    const detail = this.root.querySelector('.tdetail');
-    if (detail) detail.innerHTML = `<b>${esc(kitLine(t))}</b> ${esc(t.blurb)}`;
+    const kit = this.root.querySelector('.kitrow');
+    if (kit) kit.innerHTML = kitTiles(t);
     const cash = this.root.querySelector('#menu-new-cash');
     if (cash) cash.placeholder = t.cash;
   }
@@ -299,18 +355,16 @@ export class Menu {
   /**
    * ...and the same for how hard the town is, in place for the same reason.
    *
-   * Two things depend on it and neither is the cash box: which button is lit,
-   * and the line under the row. Kept as its own method rather than folded into
-   * `pickTier` because the two rows are two questions — a redraw of one must not
-   * touch the other's choice, which is exactly what a shared `render` would do.
+   * One thing depends on it — which button is lit. Kept as its own method
+   * rather than folded into `pickTier` because the two rows are two questions:
+   * a redraw of one must not touch the other's choice, which is exactly what a
+   * shared `render` would do.
    */
   pickDifficulty(id) {
     this.difficulty = id;
     this.root.querySelectorAll('[data-diff]').forEach((el) => {
       el.classList.toggle('on', el.dataset.diff === id);
     });
-    const detail = this.root.querySelector('.ddetail');
-    if (detail) detail.textContent = difficultyOf(id).blurb;
   }
 
   /**
@@ -455,7 +509,7 @@ export class Menu {
 
         <label class="menu-field">
           <span>You are</span>
-          <input id="menu-name" maxlength="20" placeholder="your name"
+          <input id="menu-name" maxlength="${NAME_MAX}" placeholder="your name"
             ${NO_FILL} value="${esc(name)}" />
         </label>
 
@@ -469,11 +523,29 @@ export class Menu {
              down the page each time. -->
         ${this.creating
           ? `<div class="menu-new">
-              <label class="menu-field">
-                <span>Called</span>
-                <input id="menu-new-name" maxlength="32" placeholder="Corner Shop"
-                  ${NO_FILL} />
-              </label>
+              <!-- The two things you TYPE, on one line. They were three rows
+                   apart with the sizes and the difficulty between them, which
+                   made the money read as a consequence of the choices rather
+                   than as a box — and the cash box is the one field whose whole
+                   job is to disagree with the size you picked. Two thirds to the
+                   name because it wraps and a number does not. -->
+              <div class="menu-duo">
+                <label class="menu-field">
+                  <span>Called</span>
+                  <input id="menu-new-name" maxlength="${SHOP_NAME_MAX}" placeholder="Corner Shop"
+                    ${NO_FILL} />
+                </label>
+                <!-- No paragraph under it. Everything one said is said by the
+                     thing it was describing: the placeholder is the default for
+                     the size that is lit, and a silly number is clamped rather
+                     than refused. "You can only choose this now" is a rule about
+                     a form you are looking at once. -->
+                <label class="menu-field mf-cash">
+                  <span>Cash</span>
+                  <input id="menu-new-cash" type="number" min="0" max="1000000"
+                    ${NO_FILL} placeholder="${startTier(this.tier).cash}" />
+                </label>
+              </div>
               <!-- No seed box. It was a field whose honest label is "type
                    something and the building will be different", which is a
                    question nobody starting a shop has an answer to — and the
@@ -489,14 +561,23 @@ export class Menu {
                    comes with. See shared/start.js. -->
               <div class="tiers">
                 ${START_TIERS.map((t) => `
-                  <button class="tier${t.id === this.tier ? ' on' : ''}" data-tier="${t.id}">
+                  <button class="tier${t.id === this.tier ? ' on' : ''}" data-tier="${t.id}"
+                    title="${esc(t.blurb)}">
                     <b>${esc(t.name)}</b><span>${money(t.cash)}</span>
                   </button>`).join('')}
               </div>
-              <p class="tdetail">
-                <b>${esc(kitLine(startTier(this.tier)))}</b>
-                ${esc(startTier(this.tier).blurb)}
-              </p>
+              <!-- ...and what that size actually is, in things rather than in a
+                   sentence. It was two lines of prose — the four counts spelled
+                   out, then a paragraph saying the same in shop words — sitting
+                   directly above a second paragraph about the difficulty, which
+                   is a form that reads as a page of notes. The pictures say the
+                   counts, so what is left in words is the one thing no picture
+                   can show: what the town is like. The tier's own sentence is
+                   still on the button it belongs to. -->
+              <div class="kit">
+                <span class="kithead">You open with</span>
+                <div class="kitrow">${kitTiles(startTier(this.tier))}</div>
+              </div>
               <!-- ...and how hard the town is, which is the OTHER axis and
                    deliberately its own row. Size is where you begin; this is
                    what happens next, and folding them into one list of six
@@ -510,27 +591,24 @@ export class Menu {
                    blurb says what it feels like instead. -->
               <div class="tiers">
                 ${DIFFICULTIES.map((d) => `
-                  <button class="tier${d.id === this.difficulty ? ' on' : ''}" data-diff="${d.id}">
+                  <button class="tier${d.id === this.difficulty ? ' on' : ''}" data-diff="${d.id}"
+                    title="${esc(d.blurb)}">
                     <b>${esc(d.name)}</b>
                   </button>`).join('')}
               </div>
-              <p class="tdetail ddetail">${esc(difficultyOf(this.difficulty).blurb)}</p>
-              <label class="menu-field">
-                <span>Cash</span>
-                <input id="menu-new-cash" type="number" min="0" max="1000000"
-                  ${NO_FILL} placeholder="${startTier(this.tier).cash}" />
-              </label>
-              <!-- ...and no paragraph under it either. Everything it said is
-                   said by the thing it was describing: the cash box's
-                   placeholder is its own default, a silly number is clamped
-                   rather than refused, and the sizes above already name what
-                   they come with. "You can only choose this now" is a rule
-                   about a form you are looking at once. -->
               <div class="wacts">
                 <button class="wplay" id="menu-create">Start it</button>
                 <button class="wghost" id="menu-cancel">Cancel</button>
               </div>
-            </div>`
+            </div>
+            <!-- Joining outlives the form, which it did not have to before the
+                 form could be what you land on. A guest is somebody with no
+                 saves of their own — exactly the empty list that now opens this
+                 — so hiding Join behind Cancel would put the one thing they
+                 came for behind a button that reads as backing out. -->
+            ${JOIN_ENABLED ? `<div class="menu-adds menu-alt">
+              <button class="menu-add menu-side" id="menu-join">⇄ Join a friend</button>
+            </div>` : ''}`
           : `<div class="menu-adds"><button class="menu-add" id="menu-open-new">+ New shop</button>${
             JOIN_ENABLED ? '<button class="menu-add menu-side" id="menu-join">⇄ Join a friend</button>' : ''}</div>`}
 

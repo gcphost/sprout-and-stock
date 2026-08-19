@@ -57,6 +57,25 @@ const SHUTTER_KEY = 'sns.shutterUsed';
  * (`#prompt.going`), and a glyph with a colour of its own would go on being
  * white on gold.
  */
+/**
+ * How long the press pill goes on eating presses after it has gone.
+ *
+ * See `paintPrompt`. Long enough to cover a tap already on its way to a button
+ * that just left, short enough that it is never the reason a deliberate press
+ * did nothing — a finger that has seen the pill go and re-aimed has taken far
+ * longer than this.
+ */
+const PROMPT_GUARD_MS = 400;
+
+/**
+ * How long a press on a HOLD row has to last before it arms anything.
+ *
+ * See the pointerdown handler in `paintPrompt`. Well under `LONG_PRESS_MS` — it
+ * is not a second definition of a hold, only the shortest press that is
+ * obviously not a tap, and every millisecond of it is one the ring does not get.
+ */
+const HOLD_ARM_MS = 150;
+
 function mouseGlyph(right) {
   // The pressed cap, drawn as the corner it actually is: down the divider,
   // along the top under the shoulder, and back. Mirrored about x=7 for the
@@ -1559,7 +1578,8 @@ export class UI {
   }
 
   /**
-   * How far in the to-do chips have to start, so they clear the readouts.
+   * How far in — and on a narrow screen, how far down — the to-do chips have to
+   * start, so they clear the readouts.
    *
    * The horizontal twin of `measureBar`, and it exists for the same reason that
    * one does: the left-hand column has no fixed width, so a stylesheet that
@@ -1585,11 +1605,27 @@ export class UI {
    */
   watchTopLeft() {
     const box = document.getElementById('topleft');
+    const bar = document.getElementById('stats');
     if (!box || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
-      document.documentElement.style.setProperty(
-        '--hq-left', `${12 + box.offsetWidth + 12}px`,
-      );
+      const css = document.documentElement.style;
+      css.setProperty('--hq-left', `${12 + box.offsetWidth + 12}px`);
+      // ...and how far DOWN they have to start, which is the same question on
+      // the other axis and only has an answer on a narrow screen: under 640px
+      // the card is a full-width bar across the top (see the query at the foot
+      // of index.html), so there is no width left to clear and the clearance is
+      // its height. It wraps onto a second line when the shop grows a longer
+      // season word or a fifth digit, so this is a measurement for exactly the
+      // reason the width is one. Published always rather than behind a
+      // `matchMedia`: the var costs nothing where nothing reads it, and a
+      // second place that has to be told which layout is up is a second place
+      // that can disagree with the stylesheet about it.
+      //
+      // #stats and not #topleft, because the column also holds the meter and
+      // the radio and the chips only have to clear the bar. Observing the
+      // column alone is enough to see this change — the bar is a child of it,
+      // so a bar that grows a line grows the column.
+      if (bar) css.setProperty('--hud-h', `${bar.offsetHeight}px`);
     };
     this._topLeftObs = new ResizeObserver(measure);
     this._topLeftObs.observe(box);
@@ -3332,6 +3368,24 @@ export class UI {
    * many things it has to say.
    */
   setPressHints(hints) {
+    // POINTING AT THE PILL IS NOT POINTING AWAY FROM THE THING IT IS ABOUT.
+    //
+    // The list is re-derived from the pointer every frame, and reaching for one
+    // of its rows takes the pointer off the shop — so by the time it arrived the
+    // aim had gone, the list was empty, and the button under the cursor was a
+    // dead row of a card in its guard. Every single press missed, and it missed
+    // in the way that is hardest to read: the words were still there.
+    //
+    // A finger does not have this problem and that is exactly why it survived
+    // being tried — a tap on the pill fires no canvas move, so the aim sticks.
+    // It is the same bug either way, though: the pill is a control ABOUT
+    // something, and a control cannot be about a thing that stops existing when
+    // you go to use it.
+    //
+    // So an empty update is refused while the pointer is on the pill. Only an
+    // empty one: a list that changed to a different list is a real answer about
+    // a real target and must land, or the rows would freeze under your hand.
+    if (!hints?.length && this._overPill && this._hints) return;
     this._hints = hints?.length ? hints : null;
     this.paintPrompt();
   }
@@ -3355,14 +3409,111 @@ export class UI {
     this._promptKey = key;
 
     if (!hints) {
-      this.el.prompt.className = 'hud';
+      // ...and it goes on SWALLOWING presses for a moment after it goes.
+      //
+      // The rows are buttons on a touchscreen, so the pill is a stack of targets
+      // that appears and disappears under your thumb as the aim changes — and
+      // the moment it leaves is exactly the moment somebody is pressing at it.
+      // What that press lands on is the shop floor behind it, which is never
+      // nothing: it walks you somewhere, opens a unit, or spends an errand you
+      // did not mean to make. It reads as the game doing something at random,
+      // because from where you are sitting you pressed a button.
+      //
+      // So for `PROMPT_GUARD_MS` the pill keeps the pointer and does nothing
+      // with it. Both halves are needed and neither is enough: it takes the
+      // press (`.guard` gives the element itself `pointer-events`, which it
+      // never has otherwise) and the press cannot fire a row either, because
+      // `_hints` is already null and the handler looks the run up there rather
+      // than capturing it. A guard that only hid the rows would let the tap
+      // through; one that only kept them would run the verb you were too late
+      // for.
+      //
+      // Short enough that it can never be the reason a deliberate press did
+      // nothing: it is about the tap that was already on its way.
+      this.el.prompt.className = 'hud guard';
+      clearTimeout(this._promptGuard);
+      this._promptGuard = setTimeout(() => {
+        this.el.prompt.className = 'hud';
+      }, PROMPT_GUARD_MS);
       return;
     }
+    clearTimeout(this._promptGuard);
 
     this.el.prompt.textContent = '';
-    for (const h of hints) {
+    // One listener on the pill rather than one per row, because this element is
+    // rewritten every time the pointer moves onto something else — a handler
+    // bound to a row would be thrown away several times a second. The index is
+    // read back out of `this._hints` at press time and never captured: the words
+    // are what `_promptKey` diffs on, so an identical list about a DIFFERENT
+    // shelf does not rebuild the DOM, and a captured thunk would then be aimed
+    // at the unit you were pointing at a moment ago.
+    if (!this._promptWired) {
+      this._promptWired = true;
+      // Whether the pointer is on the card, which is what `setPressHints` needs
+      // to tell "you looked away" from "you reached for a button". `pointerover`
+      // rather than `mouseenter` so a pen and a finger count, and cleared on
+      // `pointerleave` (which does not fire crossing between children the way
+      // `pointerout` does).
+      this.el.prompt.addEventListener('pointerover', () => { this._overPill = true; });
+      this.el.prompt.addEventListener('pointerleave', () => { this._overPill = false; });
+      // Half of these rows have to be HELD, and a long press on a control is
+      // also how a browser is asked for its own menu — so the gesture the pill
+      // is built around is the one gesture that puts Chrome's context menu over
+      // it, mid-ring. The canvas has refused this since the first fixture menu
+      // (see `contextmenu` in client/main.js); the pill is the second surface in
+      // the game where a press is measured in how long it lasts, so it refuses
+      // it for exactly the same reason. `touch-action` and the callout are the
+      // other two halves and live in the stylesheet, on the rows.
+      this.el.prompt.addEventListener('contextmenu', (e) => e.preventDefault());
+      // `pointerdown` and NOT `click`, which is the whole of what makes a held
+      // row a hold: a click fires on release, so holding the button did nothing
+      // until you let go and then behaved exactly like a tap. Firing on the way
+      // down means the ring winds under your finger and letting go part way
+      // leaves you with part of the board — the real gesture. A tap is still the
+      // whole action; see `pillLetGo` in client/main.js for who owns the
+      // release. `preventDefault` because the row is inside a fixed overlay and
+      // the browser would otherwise start a text selection under the press.
+      this.el.prompt.addEventListener('pointerdown', (e) => {
+        const row = e.target?.closest?.('.pr-say');
+        if (!row || e.button > 0) return;
+        e.preventDefault();
+        const h = this._hints?.[Number(row.dataset.i)];
+        if (!h?.run) return;
+        // A HOLD ROW IS NOT ARMED UNTIL THE PRESS IS ONE, and that is the whole
+        // of what makes a quick tap on it do nothing *visible*. It already did
+        // nothing to your goods — the release comes long before the ring lands —
+        // but firing on the way down still SENT the errand, and an errand is a
+        // change: the shop re-answers what the pointer is on, the row you were
+        // aiming at is no longer offered, and the pill goes. So a tap read as
+        // "the button worked once and then vanished", which is worse than a
+        // button that refuses, because there is nothing left on screen to press
+        // again.
+        //
+        // Well under `LONG_PRESS_MS` (420ms, client/main.js): this is not a
+        // second definition of a hold, it is the shortest press that is
+        // obviously not a tap. Every millisecond here is one the ring does not
+        // get, and the ring is the part somebody is waiting through.
+        if (h.tag === 'hold') {
+          clearTimeout(this._pillArm);
+          this._pillArm = setTimeout(() => { this._pillArm = 0; h.run(); }, HOLD_ARM_MS);
+          return;
+        }
+        h.run();
+      });
+      // A press that ended before it was a hold never happened. On the window,
+      // because a finger that slid off the row before lifting has still let go.
+      const drop = () => { clearTimeout(this._pillArm); this._pillArm = 0; };
+      addEventListener('pointerup', drop);
+      addEventListener('pointercancel', drop);
+    }
+    hints.forEach((h, i) => {
       const right = h.btn === 'r';
-      const row = document.createElement('span');
+      // A BUTTON when there is a press behind it, and a span when there is not:
+      // the armed-action line (`doing`) is a statement about what is happening,
+      // and a thing that looks pressable and is not is the green-ghost bug with
+      // words on it. `type="button"`, or it is a submit inside nothing.
+      const row = document.createElement(h.run ? 'button' : 'span');
+      if (h.run) { row.type = 'button'; row.dataset.i = String(i); }
       // `pr-r` is a `row-reverse`, so a right-button job puts its mouse on the
       // right of its own words. The side is doing the talking, and a right
       // press drawn glyph-first would argue with the only thing this says.
@@ -3385,7 +3536,7 @@ export class UI {
       b.textContent = h.say;
       row.append(b);
       this.el.prompt.append(row);
-    }
+    });
     // Keep `hud` — it carries position:fixed, and dropping it drops the
     // element out of the overlay and into the document flow, invisible.
     this.el.prompt.className = 'hud show going';
@@ -3720,6 +3871,12 @@ export class UI {
     if (this.shapesOn) { this.toggleShapes(false); return true; }
     if (this.openPanel && this.query) { this.clearFilter(); this.repaint(); return true; }
     if (this.openPanel) { this.closePanel(); return true; }
+    // A pile you pressed is a selection too, and the lightest one there is: it
+    // owns no world state, nothing is armed by it, and it is almost always the
+    // last thing you did. Above the fixture rung because it is finer — a board
+    // is one pile on a unit, so backing out of it should not also give up the
+    // unit. `main.js` registers it; nothing here knows what a board is.
+    if (this.dropBoardPick?.()) return true;
     // A selection with no menu over it is its own rung, and it has to be one:
     // it is the only thing on screen at this point, and a teal ring nothing can
     // dismiss is a ring that follows you round the shop. Below the panel rung

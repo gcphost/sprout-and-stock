@@ -517,6 +517,25 @@ function refreshGhost(force = false) {
   if (!kind) {
     if (ghostKey !== null || force) { ghostKey = null; scene.setBuildGhost(null); }
     ui.setBuildVerdict(null);
+    // EVERY MARKER BELOW HOLDS STILL WHILE A RING IS WINDING — see `charging`.
+    // A return rather than a set of guards, and that is the point: what is
+    // wanted is not a different answer, it is the *last* answer, and leaving
+    // every marker exactly as the press found it is the only way to be sure
+    // nothing under here re-derives one. The floor ghost above is skipped for
+    // `dropping()` already, so a square you are setting a crate down on is
+    // untouched too.
+    if (charging()) {
+      // ...except the ring round a PERSON, which is the one marker that has to
+      // be put away rather than frozen. Everything else here marks something
+      // that stands still, so holding the last answer holds it in place; a hire
+      // walks, so their marker is re-positioned off the mesh every frame and a
+      // frozen one goes for a walk with them. Nothing you can charge is a
+      // person — a charge is a fixture, a crate or a tile — so there is never a
+      // reason for one to be lit while a ring is winding.
+      scene.setPersonAim(null);
+      canvas.style.cursor = '';
+      return;
+    }
     // No ghost outside build mode, but still ring whatever is under the
     // pointer: a tap opens that thing's menu now, and a target you can click
     // with nothing marking it is a secret rather than a feature.
@@ -568,7 +587,10 @@ function refreshGhost(force = false) {
     // which board the pointer has, and on a stocked unit the piles are only a
     // few pixels apart. The frame comes back the moment you point at the unit's
     // own frame, which is still the whole unit and still opens its menu.
-    const board = boardTakes() ? settledBoard(aim?.fixture ?? null, aim?.board ?? null) : null;
+    // ...and it stays named for a moment after the pointer leaves it, which is
+    // what makes the dwell worth paying for — see `heldBoard`.
+    const held = boardTakes() ? heldBoard(aim) : null;
+    const board = held?.board ?? null;
     // The box under the pointer, when a full shoulder has turned it into the
     // square it stands on — see `haulSquare`. Worked out up here because two
     // markers read it: the ring round the crate has to stand down (it would be
@@ -576,13 +598,29 @@ function refreshGhost(force = false) {
     // with a highlight), and the green square below has to be lit on the crate's
     // own cell rather than on whatever `pickTile` finds behind it.
     const onPile = aim?.crate ? haulSquare(aim.crate) : null;
-    scene.setAimTarget((onPile ? null : aim?.crate) ?? aim?.fixture ?? null, 'aim', board);
+    // `held.f` last, and only reachable when the pointer is on nothing: the
+    // stick is what draws the cage while your hand wanders off the shelf, and
+    // the marker has to be on the unit that pile stands on or there is nothing
+    // to measure the cage against.
+    scene.setAimTarget(
+      (onPile ? null : aim?.crate) ?? aim?.fixture ?? held?.f ?? null,
+      'aim',
+      board,
+    );
     // ...and what that pile IS, which the cage cannot say. Off `aim.board`
     // rather than off `board`, so it is not gated on `boardTakes`: the cage is
     // a promise about a press and this is a label, and the moment you most want
     // to know what a board holds and how full it is, is with an armful in your
     // hands looking for somewhere to put it.
-    ui.setBoardTip(shelfById(aim?.fixture?.id), aim?.board ?? null, pointer.x, pointer.y);
+    // ...and it lingers with the cage. The card follows the pointer as it always
+    // has, which is what you want here: the thing you were reading stays beside
+    // your hand while it moves rather than sitting back on the shelf you left.
+    const tipOn = aim?.fixture ?? held?.f ?? null;
+    ui.setBoardTip(
+      shelfById(tipOn?.id),
+      (tipOn === held?.f ? held.board : aim?.board) ?? null,
+      pointer.x, pointer.y,
+    );
     // The other half of "you can press this", the way it is for a hire: the cage
     // says which pile, the cursor says there is one to take at all. A crate gets
     // no cursor because a crate is a whole object you can see you are on; a board
@@ -1038,7 +1076,11 @@ function armPut(cx, cy) {
     // only a hint: `tapBoard` reads it off your HANDS, so pointing at the bread
     // with milk in them puts the milk on the unit. Naming the board is what makes
     // "top this one up" the obvious gesture it looks like.
-    return { kind: 'board', f: hit.f, itemId: ripeBoard(hit.f, hit.board), ring: true };
+    // The right button names a pile the same way the left one does, so it picks
+    // it too — one board, one selection, whichever direction the goods went.
+    const itemId = ripeBoard(hit.f, hit.board);
+    pickBoard(hit.f, itemId);
+    return { kind: 'board', f: hit.f, itemId, ring: true };
   }
 
   // A square beside you. Named without walking you onto it (`placeAt`), so the
@@ -1136,6 +1178,85 @@ function hold() {
 
 /** Mirrors what the server thinks, so neither edge is sent twice. */
 let held = false;
+
+/**
+ * How long a held press lasts when it was made by TAPPING a hint.
+ *
+ * The pill's rows are buttons on a touchscreen (`pressHints`), and half of them
+ * describe a press you have to keep down: the ring winds only while `press` is
+ * true (`Game.stepActions`), and a pull empties a board across the second it
+ * takes rather than at the end of it. A finger tapping a row in a list is not
+ * holding anything, so the press has to be held on its behalf and let go again.
+ *
+ * This is the BACKSTOP and not the mechanism — `pillLetGo` is what normally ends
+ * one, on the pointerup. It is here for a press whose release never arrives: a
+ * hidden tab, a pointer captured out from under the row, a browser that swallows
+ * the event. A stuck `press` is a shop that goes on doing things nobody asked
+ * for, which is the state `release`'s one-exit rule exists to prevent. Longer
+ * than `ACTION_TIME` (0.5s) and `PULL_SECONDS` (1s) with room for a round trip,
+ * so it can never cut short a hold somebody is genuinely making.
+ */
+const PILL_HOLD_MS = 1800;
+let pillTimer = 0;
+
+/**
+ * Make a hint's press, from the pill rather than from the shop floor.
+ *
+ * `fire` is the same call the pointer handler makes — never a second opinion
+ * about what that press means, which is the rule the whole of `pressHints` is
+ * written under. What this adds is the half a list cannot express: a press has a
+ * beginning and an end, and a row in a list has neither.
+ *
+ * Any previous pill press is let go first. Two rings cannot wind at once and the
+ * shop only has one `press` bit, so a second row tapped while the first is still
+ * held would otherwise be one press the release clock closes twice.
+ */
+function pillPress(fire, holdIt = false) {
+  endPillPress();
+  fire();
+  if (!holdIt) return;
+  pillAt = performance.now();
+  hold();
+  pillTimer = setTimeout(endPillPress, PILL_HOLD_MS);
+}
+
+/** Let go of whatever the pill was holding. Idempotent, like `release`. */
+function endPillPress() {
+  if (pillTimer) { clearTimeout(pillTimer); pillTimer = 0; }
+  pillAt = 0;
+  release();
+}
+
+/** When the finger went down on a pill row, or 0 for no held pill press. */
+let pillAt = 0;
+
+/**
+ * The finger came off a pill row, which is letting go and nothing else.
+ *
+ * A ROW THAT SAYS HOLD MUST BE HELD, and a quick tap on one has to do nothing at
+ * all. Completing it on the clock was tried and is wrong for the reason the hold
+ * exists: the ring IS the consent, and it is worth most on the one row that can
+ * never be undone — a tap that emptied your arms into the skip is exactly the
+ * stray press `armPut` refuses to give the bin a tap for. So the release is
+ * unconditional, the ring gets as long as you actually held it, and a tap ends
+ * before anything fires — which is the same nothing a quick right-click does in
+ * the shop.
+ *
+ * That leaves `pillPress`'s clock as a BACKSTOP rather than the mechanism: a
+ * pointerup that never arrives (the tab hidden, a pointer captured elsewhere)
+ * would otherwise leave the press stuck down, and a stuck press is a shop that
+ * goes on doing things nobody asked for.
+ *
+ * On the window rather than on the row, because the row is rewritten several
+ * times a second and because a finger that slid off it before lifting has still
+ * let go — the same reason the canvas captures its own pointer.
+ */
+function pillLetGo() {
+  if (!pillAt) return;
+  endPillPress();
+}
+addEventListener('pointerup', pillLetGo);
+addEventListener('pointercancel', pillLetGo);
 
 /**
  * Two fingers: pinch to zoom, twist to turn.
@@ -1715,6 +1836,8 @@ canvas.addEventListener('pointerdown', (e) => {
     // exactly the case where the ring can wind under the same press, and the
     // release below still names a board you have to walk to.
     else if (ripeBoard(hit?.f, hit?.board) && boardTakes() && inReachOf(hit.f)) {
+      // ...and that pile is now the one you are working out of, until Escape.
+      pickBoard(hit.f, hit.board);
       net.send('take', { shelfId: hit.f.id, itemId: hit.board });
       drag.took = true;
     }
@@ -2188,12 +2311,37 @@ const myCarry = () => latestState?.players
  *
  * Asked separately rather than folded into the one above, exactly as the server
  * keeps `haul` out of `carry`: every reader that means *hands* goes on meaning
- * hands. The two are never both set — you cannot shoulder a box while holding
- * tomatoes — so the only thing anybody asks both for is "am I holding goods at
- * all", which is one `||` at the single call site that wants it.
+ * hands. They CAN both be set now — an armful and a box on your shoulder are two
+ * places goods can be and neither refuses the other any more — so anything that
+ * means "am I holding goods at all" has to ask for both.
  */
 const myHaul = () => latestState?.players
   ?.find((p) => p.id === net.myId)?.haul ?? null;
+
+/**
+ * IS A PRESS PART-WAY THROUGH? Then the pointer stops choosing.
+ *
+ * Everything in the hover pass is a question about where the pointer is *right
+ * now*, which is exactly right until a press has already answered it. From the
+ * tick a ring starts winding, what the pointer is over is not a decision any
+ * more — the decision was made, it is on screen, and it is being confirmed.
+ *
+ * What it costs to leave that live is a shop full of things that move. A hire
+ * walking between you and the crate you are setting down takes the whole branch
+ * (`pickPerson` returns early and clears the floor ghost), so the green square
+ * you are aiming at blinks out and comes back as they pass — and the same walk
+ * past a shelf swaps the cage onto whatever is behind them. Nothing has gone
+ * wrong and nothing you did caused it, which is the worst kind of funny: the
+ * markers argue with the press you are in the middle of making.
+ *
+ * `progress` rather than "is a button down", because a button being down is
+ * also a drag, a pan and a camera turn — all three of which the pointer very
+ * much does still own. A ring that has started is the one state where it does
+ * not, and the server is the only thing that knows it has (`stepActions`), which
+ * is also what makes this agree with the ring you can see.
+ */
+const charging = () => ((latestState?.players
+  ?.find((p) => p.id === net.myId)?.action?.progress ?? 0) > 0);
 
 /**
  * A shelf's live record, boards and all.
@@ -2328,8 +2476,13 @@ function pickWay(cx, cy, blocked = false) {
  *   and a tool that quietly handed you an armful instead would be the one that
  *   does the opposite of what it says.
  * - **you are carrying a fixture** — every tile is somewhere to put it down.
- * - **a crate is on your shoulder** — the server refuses it outright
- *   (`unshelve`): your hands are full of crate, and there is no armful to add to.
+ *
+ * **A crate on your shoulder is no longer one of them either.** It was, and it
+ * was the client half of a refusal the server has now dropped (`unshelve`,
+ * `crateBoard`): hands and a shoulder are two places goods can be, and the rule
+ * that they may not both be full predates the direction being on the button.
+ * What it cost is the thing a box is FOR — walking the aisles filling it — since
+ * the moment one was up, every board in the shop stopped being pointable.
  *
  * **An armful of stock is no longer one of them**, and that is the whole of what
  * the two buttons bought. It used to be: full hands meant a shelf was somewhere
@@ -2342,8 +2495,7 @@ function pickWay(cx, cy, blocked = false) {
  * Written once and asked by all three of hover, press and tap, or the highlight
  * would offer something the press then did differently.
  */
-const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed()
-  && !myHaul();
+const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed();
 
 /**
  * How long the pointer has to SETTLE on a pile before that pile is the target.
@@ -2379,6 +2531,72 @@ const BOARD_DWELL_MS = 240;
 let dwell = { key: null, at: 0, timer: null };
 
 /**
+ * How long a settled board STAYS settled once the pointer has left it.
+ *
+ * The dwell alone is only half a gesture. It costs you 240ms to name a pile and
+ * then hands it back the instant the ray misses — and the ray misses constantly
+ * for reasons that have nothing to do with what you meant: a pile of bread is a
+ * few pixels of a shelf drawn at 45°, the gaps between two piles are real gaps,
+ * and the goods re-weld on every sale so the group under the pointer stops
+ * existing for a frame ten times a second. What that feels like is a cage that
+ * flickers while your hand is still, and a decision you have to make again every
+ * time you look away.
+ *
+ * So leaving is delayed the way arriving is. Long enough to cover a wander and
+ * a re-weld, short enough that it is gone before you have started aiming at
+ * something else.
+ */
+const BOARD_STICK_MS = 700;
+
+/**
+ * ...and the pile it stays on. Held by ID rather than as the record `pickAim`
+ * handed over, because a re-flow re-mints every fixture — a record kept across
+ * one would draw a cage on a shelf that no longer exists, which is the same
+ * staleness `setFixtureRef` documents about a selection.
+ */
+let stick = { id: null, board: null, at: 0 };
+
+/**
+ * THE PILE YOU ACTUALLY PRESSED, which stays pressed until you say otherwise.
+ *
+ * The dwell and the stick are both guesses about where your hand is going, and
+ * a guess has to expire. A press is not a guess: pointing at the bread and
+ * taking a loaf says which pile you are working out of about as plainly as
+ * anything in the game, so from that moment the shop can simply *know* it and
+ * stop asking. That is what makes the whole gesture cheap — the second loaf,
+ * and the third, cost no dwell and no aim at all, because the pile is still the
+ * one you named.
+ *
+ * Set by both buttons, because both are a sentence about that pile: a tap takes
+ * one out, a right-tap puts one back, and neither is a question about which.
+ *
+ * Released by Escape (`ui.escape`, through `dropBoardPick`), by pressing a
+ * different pile, and by the pile ceasing to exist. Nothing else: it is a
+ * selection rather than an aim, so pointing somewhere else does not take it
+ * away — what happens there is that the aim marker on the thing you ARE pointing
+ * at wins the frame, which is the same way a picked fixture behaves.
+ */
+let pick = { id: null, board: null };
+
+/** A press landed on a pile: that is the one, until something says otherwise. */
+function pickBoard(f, board) {
+  if (f && board) pick = { id: f.id, board };
+}
+
+/**
+ * ...and Escape lets it go. Registered on `ui` rather than reached for, because
+ * the ladder that owns Escape is `ui.escape` and one listener owning the key is
+ * the rule the keydown handler is written around — two would mean one press
+ * dropping a pile AND closing a panel.
+ */
+ui.dropBoardPick = () => {
+  if (!pick.id) return false;
+  pick = { id: null, board: null };
+  refreshGhost(true);
+  return true;
+};
+
+/**
  * Note which pile is under the pointer, and answer the one it has settled on.
  *
  * The timer is not a nicety. Nothing fires while a pointer is still, so a dwell
@@ -2412,7 +2630,85 @@ function settledBoard(f, board) {
       timer: key ? setTimeout(() => { dwell.timer = null; refreshGhost(true); }, BOARD_DWELL_MS) : null,
     };
   }
-  return ripeBoard(f, board);
+  const ripe = ripeBoard(f, board);
+  // Stamped on every frame it is still under the pointer, so the grace below
+  // runs from when you LEFT rather than from when you arrived — otherwise
+  // resting on a pile for a second would use the whole stick up standing still.
+  if (ripe) stick = { id: f.id, board: ripe, at: performance.now() };
+  return ripe;
+}
+
+/**
+ * The pile the pointer settled on, still lit a moment after it left.
+ *
+ * `settledBoard` first, so a live aim always wins and nothing here can hold a
+ * board the pointer has moved off onto another one. The grace only applies when
+ * the pointer is over **nothing at all** — no fixture, no crate — which is the
+ * one state where holding it promises nothing about a press that is not already
+ * true. Point at another pile, at the unit's own frame, at a crate or at a hire
+ * and it is gone on that frame: those are all targets with presses of their own,
+ * and a cage lit over one of them would be the green-ghost bug with a marker on
+ * it, which is the whole thing `boardTakes` and the dwell exist to keep out.
+ *
+ * Re-resolved by id every frame rather than kept as a record, and dropped the
+ * moment either the unit or the pile has gone — a cage is measured off the
+ * meshes, so one held over goods that have sold falls back to a frame on the
+ * tile, which says the wrong thing about a shelf you are not even pointing at.
+ */
+function heldBoard(aim) {
+  // WHAT THE POINTER IS ON WINS, always. A pick is where the marker RESTS —
+  // the pile you go back to when you are pointing at nothing — rather than a
+  // lock on the pointer, because the thing you do with a board selected is walk
+  // the aisle with it, and an aisle you cannot see the boards of is an aisle you
+  // have to stop in. Pressing another pile is what moves the selection; hovering
+  // one only ever shows it to you.
+  const board = settledBoard(aim?.fixture ?? null, aim?.board ?? null);
+  if (board) { unstickLater(0); return { f: aim.fixture, board }; }
+  if (aim?.fixture || aim?.crate) { unstickLater(0); return null; }
+  // The pick has no deadline; the stick is the 700ms grace under an unpicked
+  // pile. Both go through the same liveness test, so a board that sells out
+  // takes whichever was resting on it with it.
+  const on = pick.id ? pick : stick;
+  const left = pick.id ? Infinity : BOARD_STICK_MS - (performance.now() - stick.at);
+  if (!on.id || left <= 0) { unstickLater(0); return null; }
+  const held = liveBoard(on);
+  if (!held) {
+    if (pick.id === on.id) pick = { id: null, board: null };
+    else stick = { id: null, board: null, at: 0 };
+    unstickLater(0);
+    return null;
+  }
+  // The same reason the dwell has a timer: nothing fires while the pointer is
+  // still, so a hand that stops on bare floor beside the shelf would hold the
+  // cage for ever — the grace would only ever expire on the next thing you did.
+  unstickLater(left);
+  return held;
+}
+
+/**
+ * Is this remembered pile still there? A cage is measured off the meshes, so one
+ * held over goods that have sold falls back to a plain frame on the tile — which
+ * says the wrong thing about a unit you may not even be pointing at. By id and
+ * re-resolved every frame, because a re-flow re-mints every fixture.
+ */
+function liveBoard(at) {
+  const f = scene.fixtureById(at.id);
+  if (!f) return null;
+  if (!shelfById(at.id)?.stacks?.some((k) => k.item_id === at.board)) return null;
+  return { f, board: at.board };
+}
+
+let stickTimer = null;
+
+/**
+ * Re-run the hover pass when the grace runs out. `0` just cancels, and so does
+ * `Infinity` — a pick has no deadline, so there is nothing to wake up for.
+ */
+function unstickLater(ms) {
+  if (stickTimer) clearTimeout(stickTimer);
+  stickTimer = ms > 0 && ms !== Infinity
+    ? setTimeout(() => { stickTimer = null; refreshGhost(true); }, ms + 16)
+    : null;
 }
 
 /**
@@ -2425,6 +2721,13 @@ function settledBoard(f, board) {
  */
 function ripeBoard(f, board) {
   if (!f || !board) return null;
+  // A picked pile needs no dwell — naming one is paid for once, so the second
+  // loaf and the third cost no holding still. It does NOT close the other piles
+  // though, and that is deliberate: you walk an aisle with a board selected and
+  // want to see what the next unit is holding, so every other pile goes on
+  // ripening the ordinary way and a PRESS is what moves the selection. The pick
+  // is where the marker rests, not a lock on the pointer.
+  if (pick.id === f.id && pick.board === board) return board;
   if (dwell.key !== `${f.id}:${board}`) return null;
   return performance.now() - dwell.at >= BOARD_DWELL_MS ? board : null;
 }
@@ -2471,7 +2774,16 @@ function pressHints({ aim, board, onPile, drop }) {
   // it (`hold`) or the number of them (`twice`). It is a word rather than a
   // boolean because a shelf needed a third: select, open, and a double press
   // that goes, which is three meanings on one button and no room for a flag.
-  const add = (btn, tag, say) => { if (out.length < 4) out.push({ btn, tag, say }); };
+  // `run` is what makes the row a BUTTON on a touchscreen — the same press,
+  // made from the pill. It is written at each site rather than derived from
+  // `say`, because the site is the only place that already knows which press
+  // this sentence is about; a lookup from the words back to a call would be the
+  // second opinion this whole function is written not to be. Held presses say so
+  // by passing `true` to `pillPress`, which is the one thing a list cannot
+  // express on its own — see there.
+  const add = (btn, tag, say, run = null) => {
+    if (out.length < 4) out.push({ btn, tag, say, run });
+  };
   const carry = myCarry();
   const haul = myHaul();
   const crate = aim?.crate ?? null;
@@ -2482,27 +2794,36 @@ function pressHints({ aim, board, onPile, drop }) {
     // stands on — see `haulSquare`, and the ring round the crate stands down for
     // the same reason. So the only thing on offer is putting yours down there.
     if (onPile) {
-      if (canDropAt(onPile)) add('r', 'hold', 'Set the crate down here');
+      if (canDropAt(onPile)) {
+        add('r', 'hold', 'Set the crate down here',
+          () => pillPress(() => net.send('place', { x: onPile.x, z: onPile.z }), true));
+      }
       return out;
     }
     if (!inReachOf(crate)) {
-      add('l', null, 'Go to it');
+      const go = () => net.send('take', { palletId: crate.id });
+      add('l', null, 'Go to it', go);
       // Both buttons walk. The right one's own jobs all need you standing there
       // (`armPut` opens with `dropping()` and refuses a box out of reach), so
       // out here it falls down its ladder to the same tail the left button has
       // — see the end of the right-button `pointerup`. Said rather than left to
       // be discovered, because a button that works at four tiles and does
       // nothing at eight reads as the shop being unreliable.
-      add('r', null, 'Go to it');
+      add('r', null, 'Go to it', go);
       return out;
     }
+    const lift = () => pillPress(() => net.send('take', { palletId: crate.id }), true);
     // A buried box is a box and nothing else: one unit out of a band of a dozen
     // pixels is never the tin anybody meant, so a pile offers the lift only.
-    if (crate.stacked) { add('l', 'hold', 'Pick this box up'); return out; }
+    if (crate.stacked) { add('l', 'hold', 'Pick this box up', lift); return out; }
     if (haul) return out;
-    add('l', null, 'Take one');
-    add('l', 'hold', carry ? 'Take an armful' : 'Pick the crate up');
-    if (carry) add('r', null, 'Put one back');
+    add('l', null, 'Take one',
+      () => net.send('crate-one', { palletId: crate.id, put: false }));
+    add('l', 'hold', carry ? 'Take an armful' : 'Pick the crate up', lift);
+    if (carry) {
+      add('r', null, 'Put one back',
+        () => net.send('crate-one', { palletId: crate.id, put: true }));
+    }
     return out;
   }
 
@@ -2516,40 +2837,81 @@ function pressHints({ aim, board, onPile, drop }) {
     // carries the direction, so you arrive with the put armed) or, empty-handed,
     // down its own ladder to the plain walk at the tail of `pointerup`.
     if (!nearFixture(f) && !atWorkSpotOf(f)) {
-      add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it');
-      add('l', 'twice', 'Go to it');
-      add('r', null, (carry || haul) ? 'Take it there' : 'Go to it');
+      add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it', () => openInTwo(f));
+      add('l', 'twice', 'Go to it', () => walkTo({ fixture: f.id }));
+      add('r', null, (carry || haul) ? 'Take it there' : 'Go to it',
+        () => walkTo({ fixture: f.id, put: !!(carry || haul) }));
       return out;
     }
+    // SELECTING IS WHAT THE LEFT BUTTON DOES WHEN NOTHING ELSE IS ON OFFER, and
+    // for three kinds it was the one press this pill never mentioned. A station,
+    // a skip and a plot each answer here and return, so a machine you are
+    // standing at with an empty tray and empty hands produced NO rows at all —
+    // and a pill with nothing in it is not on screen. What that reads as is
+    // "some of my appliances have the helper and some don't", because the ones
+    // across the room do: the out-of-reach branch above offers it to everything.
+    //
+    // Worked out first and added last so it stays where it belongs in the order
+    // — the left button's own jobs come before backing off to a selection, which
+    // is the precedence `tapAtPointer` reads them in.
+    const selects = out.length;
+    const select = () => add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it',
+      () => openInTwo(f, { walk: true }));
     // `readyToTake` and never a field on `f`: the pointer hands back the LAYOUT
     // record, and whether there is a tray to empty or fruit on the bed is on the
     // snapshot. Same call the tap makes, so the two cannot disagree.
     if (f.kind === 'station') {
       if (readyToTake(f)) {
-        add('l', null, 'Take one out');
-        add('l', 'hold', 'Empty the tray');
+        add('l', null, 'Take one out', () => net.send('station-one', { stationId: f.id }));
+        // The errand and not a message of its own: a hold is `p.action` winding
+        // off whatever the errand named, and naming a fixture you are already
+        // standing at is a walk with no steps in it. Same four kinds of address
+        // every other target uses.
+        add('l', 'hold', 'Empty the tray',
+          () => pillPress(() => walkTo({ fixture: f.id }), true));
       }
       if (carry || haul) {
-        add('r', null, 'Put one in');
-        add('r', 'hold', 'Load it up');
+        add('r', null, 'Put one in',
+          () => net.send('station-one', { stationId: f.id, put: true }));
+        add('r', 'hold', 'Load it up',
+          () => pillPress(() => net.send('place', { fixture: f.id }), true));
       }
+      // Only when the left button has nothing else to do with it: with a tray to
+      // empty, the tap is "Take one out" and offering the menu beside it would
+      // name two different things for one press.
+      if (out.length === selects) select();
       return out;
     }
     // The one fixture whose whole meaning is that nothing comes back, so it is
     // the hold and never the tap — `armPut` gives it no tap at all.
     if (f.kind === 'bin') {
-      if (carry || haul) add('r', 'hold', 'Throw it away');
+      if (carry || haul) {
+        add('r', 'hold', 'Throw it away',
+          () => pillPress(() => net.send('place', { fixture: f.id }), true));
+      }
+      // The skip's left button has no job at all — everything it does is the
+      // hold on the right — so this is the only row it ever offers empty-handed.
+      select();
       return out;
     }
     if (f.kind === 'plot') {
-      if (readyToTake(f)) add('l', null, 'Harvest it');
+      // The one action that charges with no button down (`auto`), so naming the
+      // bed is the whole of it — there is nothing for the pill to hold.
+      if (readyToTake(f)) add('l', null, 'Harvest it', () => walkTo({ fixture: f.id }));
+      else select();
       return out;
     }
     // A board the pointer has settled on. `boardTakes` is the same test the
     // press asks, so the cage round the pile, the tap and this line agree.
     if (ripeBoard(f, board) && boardTakes()) {
-      add('l', null, 'Take one');
-      add('l', 'hold', 'Crate the lot');
+      add('l', null, 'Take one', () => {
+        pickBoard(f, board);
+        net.send('shelf-one', { shelfId: f.id, itemId: board });
+      });
+      add('l', 'hold', 'Crate the lot', () => pillPress(() => {
+        pickBoard(f, board);
+        net.send('take', { shelfId: f.id, itemId: board });
+      }, true));
     } else {
       // **The left button does not walk you to a unit, and saying it did was
       // this pill's own version of the green ghost.** `openInTwo` grades one
@@ -2559,11 +2921,22 @@ function pressHints({ aim, board, onPile, drop }) {
       // did something else entirely. Which of the three is offered depends on
       // what is already selected, read through `ui.isSelected` because that is
       // the same question `openInTwo` asks a frame later.
-      add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it');
+      add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it', () => openInTwo(f));
     }
     if (carry || haul) {
-      add('r', null, 'Put one on');
-      add('r', 'hold', 'Stock it');
+      add('r', null, 'Put one on', () => {
+        const itemId = ripeBoard(f, board);
+        pickBoard(f, itemId);
+        net.send('shelf-one', { shelfId: f.id, itemId, put: true });
+      });
+      // `place` and NOT a walk, which is the difference between pouring a crate
+      // out and putting one unit down. `armPut` sends exactly this when the
+      // right button goes down at a unit you are standing at, and the errand a
+      // `walk-to` sets is the other one — measured: a 1.7s hold moved a single
+      // carrot, which reads as the button being broken rather than as the wrong
+      // errand having been armed. Same message for every right-hand hold below.
+      add('r', 'hold', 'Stock it',
+        () => pillPress(() => net.send('place', { fixture: f.id }), true));
     }
     return out;
   }
@@ -2571,7 +2944,8 @@ function pressHints({ aim, board, onPile, drop }) {
   // Bare ground, which only has anything to say while your hands are full — a
   // hint on every empty square you cross is a pill that never goes away.
   if (drop && canDropAt(drop)) {
-    add('r', 'hold', haul ? 'Set the crate down here' : 'Put it down here');
+    add('r', 'hold', haul ? 'Set the crate down here' : 'Put it down here',
+      () => pillPress(() => net.send('place', { x: drop.x, z: drop.z }), true));
   }
   return out;
 }
@@ -2963,6 +3337,7 @@ function tapAtPointer(cx, cy) {
       // a rummage server-side would mean tapping a shelf across the shop did
       // different things depending on where you were standing.
       if (ripeBoard(hit?.f, hit?.board) && boardTakes()) {
+        pickBoard(over, hit.board);
         scene.ripple(over.x, over.z);
         if (nearFixture(over)) net.send('shelf-one', { shelfId: over.id, itemId: hit.board });
         else net.send('take', { shelfId: over.id, itemId: hit.board });

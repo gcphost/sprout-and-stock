@@ -91,14 +91,13 @@ self.onmessage = (e) => {
 };
 
 /**
- * The four things the menu asks, answered in the shape `client/menu.js` already
+ * The five things the menu asks, answered in the shape `client/menu.js` already
  * expects from `fetch('/api/…')`.
  *
  * Deliberately not a general RPC over `server/api.js`: that module is express,
- * twenty-eight routes, and every one of the other twenty-four is an agent tool
- * for a surface this build does not have. Four cases is the honest size of what
- * a menu needs, and anything that wants a fifth should have to add it here on
- * purpose.
+ * twenty-eight routes, and every one of the rest is an agent tool for a surface
+ * this build does not have. Five cases is the honest size of what a menu needs,
+ * and anything that wants a sixth should have to add it here on purpose.
  */
 async function rpc({ id, method, path, body }) {
   await booted;
@@ -109,6 +108,13 @@ async function rpc({ id, method, path, body }) {
   }
   if (method === 'GET' && path === '/content/worker') {
     return answer({ rows: content().workers });
+  }
+  // The build catalog, for the pictures of what a starting kit is in the
+  // new-shop form. The fifth case, added the way the note above asks for: a
+  // form that says "2 shelves" in words in one build and draws the shelf in the
+  // other is the two builds disagreeing about what the game looks like.
+  if (method === 'GET' && path === '/content/fixture') {
+    return answer({ rows: content().fixtures });
   }
   if (method === 'POST' && path === '/worlds') {
     return answer({ world: createWorld(body ?? {}) });

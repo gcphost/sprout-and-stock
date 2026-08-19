@@ -141,19 +141,24 @@ for (const shelf of g.layout.shelves) {
   const r = g.walkToFixture('me', shelf.id);
   if (!r.ok) { check(false, `every shelf is reachable (${shelf.id})`, r.error); continue; }
   step(g, 60);
+  // A working SIDE, not the anchor. `browseAt` is one stored tile — the side the
+  // generator laid the unit against — and a gondola in an aisle is worked from
+  // both, so a walk pinned to the anchor took you round the end of the unit to
+  // the far aisle whenever you asked from the near one. The route goes to the
+  // nearest of `spotsNearest` now, so what is asserted is membership rather than
+  // a literal: any side the shop itself calls a working spot is a right answer.
+  const sides = g.reachSpots(shelf);
   check(
-    at(p)[0] === shelf.browseAt.x && at(p)[1] === shelf.browseAt.z,
-    `${shelf.id} lands on its working side`,
-    `at ${at(p)}, wanted ${shelf.browseAt.x},${shelf.browseAt.z}`,
+    sides.some((s) => at(p)[0] === s.x && at(p)[1] === s.z),
+    `${shelf.id} lands on a working side`,
+    `at ${at(p)}, sides ${sides.map((s) => `${s.x},${s.z}`).join(' ')}`,
   );
   // And the claim that actually matters: arriving means the sim's own reach
   // check finds it, which is what makes "tap it and it happens" true. Asserted
-  // against `nearest` rather than against a distance of our own, because a
-  // sweep that invents its own idea of reach passes while the game refuses.
-  check(
-    g.nearest(g.layout.shelves, p, 1.6, (s) => s.browseAt)?.id === shelf.id,
-    `${shelf.id} is in reach on arrival`,
-  );
+  // through `atFixture` rather than against a distance of our own, because a
+  // sweep that invents its own idea of reach passes while the game refuses —
+  // and because that is the function every verb in the game asks.
+  check(g.atFixture(p, shelf), `${shelf.id} is in reach on arrival`);
 }
 
 check(!g.walkToFixture('me', 'no-such-fixture').ok, 'an unknown fixture is refused');

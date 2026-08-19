@@ -113,15 +113,17 @@ const WIND_LEAN = 0.16;
  * board's stock stands on a shelf about a tile deep, and the frame, base and
  * end panels around it are what still open the unit's own menu — so a radius
  * wide enough to swallow those has taken the menu away on any stocked shelf.
- * 14 was tried and was too much: a stocked unit is three piles a few pixels
- * apart, so three 14px haloes cover the whole top of it and there is nowhere
- * left to press for the menu — the fix for one target being small ate the other
- * one whole. 4 is a forgiving edge on a pile rather than a claim on the
- * furniture around it — about a loaf's width of slack, settled by hand against
- * a stocked unit. Anything that raises this has to check the same thing: can
- * you still open a FULL shelf.
+ * Two numbers have failed at each end. 14 covers the whole top of a stocked
+ * unit and leaves nowhere to press for the menu; no bound at all is worse
+ * again, because "nearest pile on this fixture" across a three-tile shelf run
+ * lights a cage at the far end of it. 4 was the first honest answer and is
+ * tight; 7 is the same idea with a hand's tremor in it, and it is affordable
+ * because a pile you have PRESSED stays picked (`pick`, client/main.js) — the
+ * radius only does work on the first press of a board. Anything that raises
+ * this has to check the same thing it always did: can you still open a FULL
+ * shelf.
  */
-const BOARD_SNAP_PX = 4;
+const BOARD_SNAP_PX = 7;
 /** Where a pile of takings sits: on the counter, not inside it. Its label
  *  hangs a fixed distance over the same spot, so the two cannot drift apart. */
 const CASH_Y = 0.95;
@@ -3384,14 +3386,21 @@ export class Scene {
     // exactly on a loaf, and being one pixel off did not miss — it silently
     // answered "the whole unit", which is a different job.
     //
-    // A radius rather than a bigger hit volume, because the thing that needs
-    // to keep working is the OTHER answer: a tap on the frame, the base or an
-    // end panel is still the unit and still opens its menu (see `boardTakes`).
-    // Padding the piles out until they touch would eat the gaps between them
-    // and there would be nowhere left on a full shelf to press for the menu.
-    // Measured in pixels for the same reason: what is hard here is a distance
-    // on the screen, and a distance in the world is a different number at
-    // every zoom.
+    // A RADIUS rather than a bigger hit volume, and the two things it is holding
+    // apart are both real. The thing that has to keep working is the OTHER
+    // answer: a tap on the frame, the base or an end panel is still the unit and
+    // still opens its menu (see `boardTakes`), so padding the piles until they
+    // touch leaves nowhere on a stocked shelf to press for it.
+    //
+    // Unbounded was tried and is worse than either. A shelf run is several tiles
+    // long, so "the nearest pile on this fixture" with no ceiling answers with a
+    // pile at the far end of the unit — you point at the empty bottom board and
+    // a cage lights up three tiles away, which is not a forgiving hitbox, it is
+    // the pointer naming something you cannot see yourself pointing at.
+    //
+    // Measured in pixels for the same reason it is measured at all: what is hard
+    // here is a distance on the SCREEN, and a distance in the world is a
+    // different number at every zoom.
     if (got?.f && !got.board) {
       const near = this.nearestBoard(got.f, clientX, clientY);
       if (near) return { ...got, board: near };

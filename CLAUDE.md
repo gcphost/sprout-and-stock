@@ -848,45 +848,43 @@ what the next step was meant to be.
   (1.7) and `serve` stay where they are — one is effort you can see, the other is
   a throughput number the checkout ladder divides.
 - **…and a shelf board grades two ways: a tap is one unit into your hands, a
-  hold is the whole board into a crate you watch fill.** The hold is the only
-  action in the game that fires more than once (`repeat` in `stepActions`,
-  `crateBoard`), and the crate was always its ending — a board holds more than a
-  pair of hands, so "take it all" only means anything if what it fills is a box.
-  What is new is that the box fills *across* the second the ring already cost
-  instead of appearing at the end of it, so letting go at half a second leaves
-  you with half the board. Six things fall out of it.
-  **`PULL_SECONDS` is a duration, not a rate.** The interval is a second divided
-  by how many units are coming (`pullEvery`), so a board of three and a full one
-  take the same hold — a per-item timer makes a big board a chore and the
-  gesture stops being one decision. Worked out ONCE, at the tick it arms:
-  `p.action` lives for the whole pull and `stepActions` resets only its clock,
-  because a board that is draining answers a smaller `n` every tick and a pull
-  that re-read it would accelerate to nothing.
-  **Onto the shoulder, not the floor.** `p.haul` is the point — walking off with
-  the lot — and a crate at your feet is a second gesture to pick up. Which is
-  also why loose goods in your hands refuse the whole pull: nobody shoulders a
-  box while holding six loaves.
-  The **errand outlives its own units** — spent on the first one, the second has
-  nothing to arm from and a hold takes exactly one — so "an errand is spent when
-  it fires and nothing re-arms" now reads *except while the button that fired it
-  is still down*. Walking away spends it (`stepActions`), or it would still be
-  armed when you came back to that shelf for something else.
-  A pull is the **first job that spans ticks while what you are carrying
-  changes**, and two verbs driven by the POINTER were written on the assumption
-  that nothing does: `aimAt` and `clearAim` say where a load should GO, which
-  goes live the moment the crate exists, and either one arriving mid-pull ends
-  the gesture in your hand. `pulling(p)` is the yield — `repeat` **and** `took`,
-  so the offer is the pointer's right up until goods actually move.
-  It is **said once, at the end, with the total** (`endPull`): twelve lines of
-  "Took 1x Bread" is one event told twelve times. A job loop has no button to
-  let go of, so the staff callers leave `unshelve` alone and still sweep a board
-  in one step.
-  And **a release that ends a hold is not also a tap.** The client rules a press
-  a hold at `LONG_PRESS_MS`, and a nearly-bare board hands its first unit over
-  before that — so a short hold sends the tap as well, and you would come away
-  with the board in a crate *and* a loaf you never asked for. `tapBoard`
-  swallows it on `pulling`, which is the test the client cannot make: only the
-  shop knows whether goods actually crossed under that button.
+  hold is the whole board into a crate.** The crate was always the ending — a
+  board holds more than a pair of hands, so "take it all" only means anything if
+  what it fills is a box — and it goes **onto the shoulder, not the floor**
+  (`p.haul` is the point: walking off with the lot, where a crate at your feet is
+  a second gesture to pick up). It is `ACTION_TIME` like every other hold, and
+  `crateBoard` moves everything that fits in one call, bounded by the crate's own
+  room so a board bigger than a box leaves the rest standing.
+  It was **metered** for four steps — one unit per turn of a repeating ring
+  across a second (`PULL_SECONDS`, `pullEvery`, `repeat` in `stepActions`), so
+  you watched the box fill and letting go at half a second left you with half the
+  board. It read beautifully and it is gone, because it was the only gesture in
+  the game shaped that way and a single exception is not a rule anybody learns.
+  **Two traps died with it, and both are worth knowing before anything else in
+  here grows a computed duration.** It was the only action whose time came from
+  the *world* rather than from a constant, and `pullEvery` floors at 50ms — so on
+  a stocked board the first unit crated itself a twentieth of a second after the
+  button went down, which is inside `LONG_PRESS_MS` (420ms), the mark the client
+  rules a press a hold at. An ordinary tap therefore came away with a crate
+  holding one loaf, *intermittently*, because a nearly-empty board pulls slowly
+  enough to be safe. And it was the only job that spanned ticks while your hands
+  changed, which is the whole reason `pulling` had to exist: `aimAt` and
+  `clearAim` say where a load should GO, which becomes a live question the moment
+  the first unit lands, so both had to yield mid-pull. One ring needs none of
+  that. The count is still **said once, with the total** (`endPull`) — twelve
+  lines of "Took 1x Bread" is one event told twelve times.
+- **…and hands and a shoulder stopped refusing each other.** `crateBoard`
+  refused with `p.carry` set ("nobody shoulders a box while holding six loaves")
+  and `unshelve` refused with `p.haul` set, which is one rule said twice: goods
+  may only ever be in one place at a time. That rule predates there being two
+  buttons. A left press takes and a right press puts, so the direction is never
+  in doubt — and what the pair actually cost is that picking ONE loaf up was what
+  stopped you clearing the board it came off, and a box on your shoulder meant no
+  shelf in the shop would hand you a single unit of anything. Both stores stay
+  separate everywhere else; they simply fill independently. `tapCrate` keeps its
+  own `p.haul` refusal, which is a different claim — a box on the floor becomes
+  a *square* once there is one on your shoulder (`haulSquare`), so the gesture is
+  taken, not the rule.
 - **Build mode is the exception: it arms nothing but the till.** `actionFor`
   answers `serveCandidate` and nothing else the moment `p.build.on` is set — the
   one job in the game that is not a question about the pointer. A shopper at the

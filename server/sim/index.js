@@ -34,6 +34,7 @@ import { hourLabel } from '../../shared/clock.js';
 import { R, netRep } from '../../shared/reputation.js';
 import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { difficultyOf } from '../../shared/difficulty.js';
+import { cleanName } from '../../shared/names.js';
 import { makeNamer } from './names.js';
 import { stepStaff, syncStaff, breakProgress, carryOf } from './staff.js';
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
@@ -870,33 +871,27 @@ const ACTION_TIMES = {
 };
 
 /**
- * How long it takes to pull a board into a crate — the WHOLE board, whatever
- * is on it.
+ * A HOLD ON A BOARD TAKES THE LOT, IN ONE RING.
  *
- * A duration, not a rate, and that is the entire design. The hold used to be
- * one ring and then a crate, which is a second of nothing followed by a result;
- * now the goods cross one at a time across the same second, so what you are
- * watching is the box filling and letting go at half of it leaves you with half
- * the board. That only reads as one gesture if the *time* is the constant: a
- * per-item timer makes a board of twenty take four times as long as a board of
- * five, and then the hold is a chore rather than a decision.
+ * It was metered for four steps — the units crossed one at a time across a
+ * second, so you watched the box fill and letting go halfway left you with half
+ * the board. It read well and it was the only gesture in the game that worked
+ * that way, which is what retired it: every other hold here is one ring and
+ * then the thing happens, and a single exception is not a rule anybody learns,
+ * it is a control that behaves oddly. Half a board was also never a thing
+ * anybody asked for — you hold to clear the board.
  *
- * So the interval between units is `PULL_SECONDS / n`, worked out once at the
- * start of the pull (see `pullEvery`) and never re-derived — a board that is
- * draining answers a smaller `n` every tick, and a pull that re-read it would
- * accelerate to nothing.
+ * What it costs to say it in one go is nothing, and what it buys is two traps
+ * gone. A metered pull is the only action in the game whose duration is
+ * computed from the world (`PULL_SECONDS / n`), so on a full board the first
+ * unit landed 50ms after the button went down — inside `LONG_PRESS_MS`, which
+ * is the mark a press is ruled a hold at, so an ordinary TAP came away with a
+ * crate holding one loaf. And it was the only job that spanned ticks while your
+ * hands changed, which is why `pulling` had to exist at all.
+ *
+ * So the hold is `ACTION_TIME` like everything else, and `crateBoard` moves
+ * everything that fits in one call.
  */
-const PULL_SECONDS = 1.0;
-
-/**
- * ...and the floor under that interval, which is one simulation tick.
- *
- * Nothing can be handed over faster than the sim can say it happened. A crate
- * caps the pull at `crateCapacity` units, so at any sane `CRATE_UNITS` this
- * never binds — it is here so that authoring a huge crate makes the pull take
- * longer than a second rather than silently dropping units on the floor.
- */
-const PULL_STEP_MIN = 0.05;
 
 /**
  * The same sale with the balance bot standing in for you (`autoServe`).
@@ -3812,23 +3807,6 @@ export class Game {
       // fixture it was aimed at does, and so does a rummage that spends the
       // errand the press had armed. Nothing to tally and nothing to repeat.
       if (p.action) p.action.took = (p.action.took ?? 0) + (res?.took ?? 0);
-      // A repeating job goes round again rather than ending: the charge starts
-      // from zero, the button is still down, and the next turn of it is the
-      // next unit. It stops when the thing it is pulling from says there is no
-      // more to have (`more`), when it refuses, or when you let go — which is
-      // the one that makes it a decision instead of a duration.
-      //
-      // Only the CLOCK is reset. `p.action` is the pull — it was spread from
-      // the candidate on the tick this armed and it stays that object for the
-      // life of the gesture — so its `time` is the interval worked out against
-      // the board as it stood at the start (`pullEvery`). Taking the fresh
-      // candidate's instead would re-derive it against a board that is draining
-      // and the crate would fill faster and faster as it went.
-      if (p.action && candidate.repeat && res?.ok && res.more) {
-        p.actionBlocked = null;
-        p.action.elapsed = 0;
-        continue;
-      }
       this.endPull(p);
       p.action = null;
       if (!res?.ok) {
@@ -3865,23 +3843,6 @@ export class Game {
     a.took = 0;
   }
 
-  /**
-   * Is a repeating action part-way through?
-   *
-   * Both halves matter. `repeat` alone is any board you are stood at with the
-   * offer showing, which the pointer is still entitled to change its mind
-   * about; `took` is what says the gesture has *started* — goods have moved,
-   * and the thing that moved them is a button somebody is still holding down.
-   *
-   * It exists because a pull is the first job in the game that spans ticks
-   * while your hands change, and two verbs driven by the POINTER (`aimAt`,
-   * `clearAim`) were written on the assumption that nothing does: they say
-   * where an armful should GO, which becomes a live question the moment the
-   * first unit lands. Cleared by `endPull`, so letting go hands the offer back.
-   */
-  pulling(p) {
-    return !!p.action?.repeat && !!p.action.took;
-  }
 
   /**
    * The shopper waiting at the counter you are standing at, as a job.
@@ -4082,27 +4043,16 @@ export class Game {
       // works while you are holding some of the same thing.
       if (itemId) {
         const said = content().byId.items[itemId]?.name ?? itemId;
-        // A HOLD pulls the whole board into a crate on your shoulder, and you
-        // watch it fill — see `crateBoard` and `PULL_SECONDS`.
+        // A HOLD takes the whole board into a crate on your shoulder — one ring,
+        // then the box, the way every other hold in the game works. See the note
+        // on `crateBoard` for what was there before and why it went.
         //
-        // Two things it is answering, and they are one thing really. A board
-        // holds more than a pair of hands, so "take it all" only means anything
-        // if what it fills is a box — and the box was already the ending, it
-        // just arrived all at once at the end of a ring. Metering it (`repeat`)
-        // is what turns a duration into a decision: the ring winds again from
-        // zero, the errand survives, and letting go halfway is half the board.
-        // Nothing got slower — the whole pull is the second the single ring
-        // already cost.
-        //
-        // The count is said ONCE, by `done`: twelve lines of "Took 1x Bread" is
-        // one event told twelve times, and it would push the rest of the log
-        // off the end.
+        // A board holds more than a pair of hands, so "take it all" only means
+        // anything if what it fills is a box.
         return {
           kind: 'take',
           target: f.id,
           label: `Crate the ${said}`,
-          time: this.pullEvery(p, f, itemId),
-          repeat: true,
           at,
           run: () => this.crateBoard(p.id, f.id, itemId),
           done: (n) => this.logGoods(`crate:${f.id}`, {
@@ -4445,7 +4395,20 @@ export class Game {
     // question `browseAt` answers for a shelf, and it is a list rather than a
     // point because any of four sides will do and only some of them may be
     // reachable — a crate against a wall, or one in the middle of a full bay.
-    const spots = palletId ? this.beside(p, target) : [target.browseAt ?? target];
+    // ...and a shelf has more than one side, which this asked for the whole time
+    // and never used. `browseAt` is the ANCHOR — one stored tile, the side the
+    // generator laid it against — and an aisle gondola is worked from both. So
+    // clicking a board while stood in the right-hand aisle walked you round the
+    // end of the unit to the left-hand one: not a routing bug, a route to the
+    // wrong goal, which is why it reads as the shop having its own idea about
+    // where you should be.
+    //
+    // The same list `atFixture` and `spotNearest` already answer with, nearest
+    // first — so the ring the marker paints under your feet and the tile the
+    // walk ends on are finally the same answer to the same question. It falls
+    // back to the anchor for anything with no sides (`reachSpots`), which is
+    // what this line used to be.
+    const spots = palletId ? this.beside(p, target) : this.spotsNearest(p, target);
     let walk = null;
     for (const s of spots) {
       walk = this.walkTo(playerId, s.x, s.z);
@@ -5803,7 +5766,12 @@ export class Game {
     this.players[id] = {
       id,
       who: who ?? null,
-      name: name || `Player ${humans + 1}`,
+      // Clamped HERE and nowhere else, because this is the one door every human
+      // comes through — the host who typed it into the front door, a guest whose
+      // browser sent it over a data channel, and the balance bot that was handed
+      // one. A `maxlength` on the box is a hint to whoever is using the box, and
+      // since co-op that is not always us. See shared/names.js.
+      name: cleanName(name) || `Player ${humans + 1}`,
       x: stood ? back.x : spawn.x + (humans % 2 === 0 ? -1 : 1),
       z: stood ? back.z : spawn.z - 1,
       facing: stood ? (back.facing ?? 0) : 0,
@@ -6098,9 +6066,16 @@ export class Game {
   walkToFixture(id, fixtureId, put = false) {
     const f = this.findFixture(fixtureId);
     if (!f) return err('no such fixture');
-    const spot = workSpot(f);
-    const walk = this.walkTo(id, spot.x, spot.z);
-    if (!walk.ok) return walk;
+    // The near side, then the others — the same list and the same order `take`
+    // walks, because they are the same walk with two buttons on it. `workSpot`
+    // alone is the stored anchor, which on a double-sided unit is one of two
+    // right answers and never the one you are stood next to.
+    let walk = null;
+    for (const s of this.spotsNearest(this.players[id], f)) {
+      walk = this.walkTo(id, s.x, s.z);
+      if (walk.ok) break;
+    }
+    if (!walk?.ok) return walk ?? err('No way through to there');
     this.players[id].errand = {
       at: fixtureId, itemId: null, put, btn: put ? 'right' : 'left',
     };
@@ -6165,13 +6140,22 @@ export class Game {
    * was never true, and the whole of what reads as the game being fussy.
    */
   spotNearest(p, f) {
-    let best = null;
-    let bestD = Infinity;
-    for (const s of this.reachSpots(f)) {
-      const d = Math.hypot(s.x - p.x, s.z - p.z);
-      if (d < bestD) { bestD = d; best = s; }
-    }
-    return best ?? workSpot(f);
+    return this.spotsNearest(p, f)[0] ?? workSpot(f);
+  }
+
+  /**
+   * ...and all of them in that order, for the walk.
+   *
+   * A marker wants one tile and a route wants a list: the near side may be
+   * behind a wall you have just drawn, or occupied, and falling through to the
+   * next side is the difference between walking round the gondola and being told
+   * there is no way through to a unit you are standing next to.
+   */
+  spotsNearest(p, f) {
+    return this.reachSpots(f)
+      .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
+      .sort((a, b) => a.d - b.d)
+      .map((e) => e.s);
   }
 
   /**
@@ -6216,13 +6200,7 @@ export class Game {
     if (Math.round(f.x) !== Math.round(p.x) || Math.round(f.z) !== Math.round(p.z)) {
       p.facing = Math.atan2(f.x - p.x, f.z - p.z);
     }
-    // `itemId` null: this names the UNIT. A board is `take`'s job, and the two
-    // used to be unable to race — a board was only ever named with empty hands
-    // and this only ever with full ones. A held take broke that: it spans ticks
-    // and its first unit lands in your arms, so from that tick on the pointer
-    // has an opinion about where the armful should GO while the pull it came
-    // from is still running. See `pulling`.
-    if (this.pulling(p)) return ok({ at: p.errand?.at ?? null });
+    // `itemId` null: this names the UNIT. A board is `take`'s job.
     // **`put` is the direction, SAID rather than inferred**, and this is the one
     // place in the game that can say it for a *hold*: `aimAt` is the right button
     // and nothing else — one sentence, "this is where what I am holding goes" —
@@ -6259,11 +6237,6 @@ export class Game {
   clearAim(id) {
     const p = this.players[id];
     if (!p) return err('no such player');
-    // ...and the same yield, which matters more on this end: this one is sent
-    // when the pointer wants NOTHING, so a mouse that drifted off the shelf
-    // would take the errand out from under a pull that is mid-armful, and the
-    // hold would go dead in your hand. See `pulling`.
-    if (this.pulling(p)) return ok({ cleared: false });
     const e = p.errand;
     if (!e || e.at === 'pad' || e.at === 'ground') return ok({ cleared: false });
     const f = this.findFixture(e.at);
@@ -7807,14 +7780,12 @@ export class Game {
    * what lets one press be either — so a tap that left it standing would empty
    * the next board you held anything near into a crate.
    *
-   * **And a release that ends a pull is not a tap**, which is the one thing
-   * here that is not obvious. The client rules a press a hold at 420ms, and a
-   * pull of a nearly-empty board hands over its first unit before that — so a
-   * short hold on a board of three sends this as well, and you would get the
-   * board in a crate AND a loaf in your hand from one press. `pulling` is the
-   * test the client cannot make: it knows whether goods have actually crossed
-   * under this button. Swallowed rather than refused — nothing went wrong, the
-   * press simply already meant something.
+   * A release that ends a hold is not a tap either, and that one is the
+   * client's: the press is ruled a hold at 420ms and a crate takes the whole
+   * `ACTION_TIME` after it, so nothing can have happened yet when a tap is still
+   * a tap. It was the server's job while the hold was metered — a pull of a
+   * nearly-empty board handed its first unit over inside the 420ms — and it is
+   * not any more, which is one of the two traps that retired the metering.
    *
    * `say: false` for the same reason a rummage says nothing: the unit landing
    * in your hands is the message, and a tap is a thing you do six times.
@@ -7836,16 +7807,33 @@ export class Game {
   tapBoard(playerId, shelfId, itemId, put = false) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
-    // Ahead of the pull, which cannot be running anyway: a hold that spans ticks
-    // needs an errand, and no errand is armed while the mode is on.
     const busy = this.notWhileBuilding(p);
     if (busy) return busy;
-    if (this.pulling(p)) return ok({ took: 0, item_id: itemId, pulled: true });
+
+    // OUT OF REACH IS A WALK, NEVER A REFUSAL.
+    //
+    // "Too far from that shelf" was a real sentence about a press nobody makes
+    // on purpose: you point at a board, and whether the tap acts or routes was
+    // decided on the CLIENT by a distance (`nearFixture`) against the shop's own
+    // distance here (`near`). Two measurements of one thing, on two machines,
+    // over a player who is still walking — so along the band where they
+    // disagree the press did neither. It refused, out loud, at about a tile,
+    // while the same press from three tiles away walked you over and worked
+    // perfectly, which reads as the shop being closest-first fussy.
+    //
+    // So the distance stops being a gate. Either the goods move because you are
+    // there, or the errand is set and you go — and the arriving press is what
+    // fires it, which is the ordinary path every far tap already takes.
+    const unit = this.layout.shelves.find((sh) => sh.id === shelfId);
+    if (!unit) return err('no such shelf');
+    if (!near(p, unit)) {
+      return put
+        ? this.walkToFixture(playerId, shelfId, true)
+        : this.take(playerId, { shelfId, itemId });
+    }
 
     if (put) {
-      const shelf = this.layout.shelves.find((s) => s.id === shelfId);
-      if (!shelf) return err('no such shelf');
-      if (!near(p, shelf)) return err('too far from that shelf');
+      const shelf = unit;
       // **Both places goods can be**, which is the trap `p.haul` sets for every
       // verb written before it existed: a crate is not a `carry`, so a put that
       // only read your hands answered "nothing in hand" to somebody standing
@@ -8684,11 +8672,14 @@ export class Game {
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
     if (!near(p, shelf)) return err('too far from that shelf');
-    // Same refusal `tapCrate` gives, and it was missing here: hands are what
-    // this fills, and a shoulder holding a box does not stop them being full of
-    // box. Reachable through the shelf menu's Take row, which is why the guard
-    // belongs on the verb rather than on the gesture that arms it.
-    if (p.haul) return err('put the crate down first');
+    // A box on your shoulder does NOT stop your hands filling. It used to —
+    // the mirror of the refusal `crateBoard` carried — and both were one rule
+    // said twice: goods may only ever be in one place at a time. That rule
+    // predates the two buttons. Now that a left press takes and a right press
+    // puts, the direction is never in doubt, so there is no reason a shopkeeper
+    // with a crate up cannot also pick a loaf off the next shelf along. The two
+    // stores stay separate everywhere else (`p.carry`, `p.haul`) — this only
+    // stops them refusing each other.
 
     const stack = this.shelfStack(shelf, itemId);
     if (!stack || stack.qty <= 0) return err('nothing on that board');
@@ -8745,38 +8736,25 @@ export class Game {
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
     if (!near(p, shelf)) return err('too far from that shelf');
-    if (p.carry) return err('put what you are holding down first');
+    // An armful in your hands is NOT a refusal here any more. It was one on the
+    // grounds that nobody shoulders a box while holding six loaves, which is
+    // true of a person and was a rule about the wrong thing: hands and a
+    // shoulder are two places goods can be (`p.carry`, `p.haul`), the two
+    // buttons already say which direction goods are going, and the only thing
+    // the refusal ever achieved was that picking one loaf up stopped you
+    // clearing the board it came off. Both places fill independently now.
 
     const stack = this.shelfStack(shelf, itemId);
     if (!stack || stack.qty <= 0) return err('nothing on that board');
-    if (lotRoom(p.haul ?? null, itemId, this.crateLot()) <= 0) return err('that crate is full');
-
-    stack.qty -= 1;
-    p.haul = lotAdd(p.haul ?? null, itemId, 1, this.crateLot()).lot;
-    const more = stack.qty > 0 && lotRoom(p.haul, itemId, this.crateLot()) > 0;
-    return ok({ took: 1, item_id: itemId, left: stack.qty, more });
-  }
-
-  /**
-   * How often a unit crosses, so the whole pull lands in `PULL_SECONDS`.
-   *
-   * The board and the crate both bound it — you cannot take twenty off a board
-   * of five, and you cannot put twenty into a box that holds twelve — so `n` is
-   * the smaller, and the interval is a second divided by it. A board of twelve
-   * ticks every 83ms and a board of three every third of a second, and both
-   * finish at the same moment, which is the whole claim: how long a hold takes
-   * is a property of the GESTURE, not of how full the shelf happens to be.
-   *
-   * Asked once, at the tick the pull arms, because `stepActions` keeps
-   * `p.action` for the life of the pull and only ever resets its clock. Asked
-   * every tick it would answer a smaller `n` each time and the box would fill
-   * faster and faster as the board emptied.
-   */
-  pullEvery(p, shelf, itemId) {
-    const on = this.shelfStack(shelf, itemId)?.qty ?? 0;
     const room = lotRoom(p.haul ?? null, itemId, this.crateLot());
-    const n = Math.max(1, Math.min(on, room));
-    return Math.max(PULL_STEP_MIN, PULL_SECONDS / n);
+    if (room <= 0) return err('that crate is full');
+
+    // THE WHOLE BOARD, in one go — bounded by what the crate will take, so a
+    // board bigger than a box leaves the rest standing rather than vanishing.
+    const take = Math.min(stack.qty, room);
+    stack.qty -= take;
+    p.haul = lotAdd(p.haul ?? null, itemId, take, this.crateLot()).lot;
+    return ok({ took: take, item_id: itemId, left: stack.qty });
   }
 
   /**
