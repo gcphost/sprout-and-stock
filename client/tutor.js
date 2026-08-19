@@ -419,11 +419,12 @@ const STEPS = [
   {
     id: 'shelve-one',
     kicker: 'Stock',
-    say: 'Click a shelf to walk over. Then click it to put the unit on.',
-    hint: 'Same as the crate: the first click is the walk if you are not there '
-      + 'yet, and the next one does the job. Chevrons appear over every unit '
-      + 'that would take what you are holding, so you never have to remember '
-      + 'which shelf is for what — one with no chevron will refuse you.',
+    say: 'RIGHT-click a shelf to put the unit on it.',
+    hint: 'LEFT TAKES, RIGHT PUTS. That is the rule everywhere in the shop — you '
+      + 'took the unit with a left click, so it goes down with a right one. Not '
+      + 'stood at the shelf yet? The first click walks you there, same as the '
+      + 'crate. Chevrons appear over every unit that will take what you are '
+      + 'holding, so you never have to remember which shelf is for what.',
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     done(t) { return lotSize(meOf(t)?.carry) === 0; },
   },
@@ -432,12 +433,13 @@ const STEPS = [
     id: 'crate',
     kicker: 'Stock',
     say: (t) => (meOf(t)?.haul
-      ? 'Walk to a shelf, then HOLD the left button on it to tip the box in.'
+      ? 'Now HOLD the RIGHT button on a shelf to tip the box in.'
       : 'One at a time is a long afternoon. Stand at the crate and HOLD the left button.'),
     hint: (t) => (meOf(t)?.haul
-      ? 'Hold it down and a ring winds. Let it finish and the box empties onto '
-        + 'the shelf board by board, stopping when the shelf is full — whatever '
-        + 'is left stays on your shoulder.'
+      ? 'Right, because it is going OUT of your hands — left takes, right puts, '
+        + 'and holding is the whole lot rather than one. It empties onto the '
+        + 'shelf board by board and stops when the shelf is full; whatever is '
+        + 'left stays on your shoulder.'
       : 'Standing at it, hold the button down and a ring winds round the crate. '
         + 'Let go early and nothing happens. Let it finish and the whole box '
         + 'goes up on your shoulder, which carries far more than your arms do.'),
