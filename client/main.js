@@ -60,8 +60,24 @@ const award = new Award(ui, document.getElementById('award'));
  */
 const tutor = new Tutor(ui, net, scene, document.getElementById('tutor'));
 ui.tutor = tutor;
+// The one thing a panel needs from the shop floor's own input: a press it can
+// keep down across a walk. Hung on `ui` the way `tutor` is, because the press
+// bit and its one-exit release live here and a second sender of `press` would
+// be a second opinion about whether the button is down. See `errandHold`.
+ui.errandHold = (fire) => errandHold(fire);
 
 let latestState = null;
+
+/**
+ * Where you stood on the previous snapshot, so the next one can ask whether you
+ * have moved since.
+ *
+ * Kept here rather than read off `scene`, because what is wanted is the SHOP's
+ * answer at 10Hz and not the interpolated body the renderer is easing between
+ * two of them — which is never twice in the same place and would read as
+ * walking for ever.
+ */
+let wasAt = null;
 
 /**
  * Wake the audio up on the first real input, whatever it was.
@@ -234,7 +250,32 @@ net.on('state', (m) => {
   // On the snapshot rather than per frame: what you can do changes when the shop
   // does, at 10Hz, and this raycasts. Build mode already runs it every frame for
   // the ghost and is excluded so it is not run twice.
-  if (!ui.buildOn) refreshGhost(true);
+  //
+  // ...but NOT while you are walking, which is the same claim `refreshGhost`
+  // already makes about a camera drag and a trek, arriving by the one door that
+  // was left open. The camera rides your body, so every step slides the whole
+  // shop under a hand that has not moved — and this fires ten times a second, so
+  // a walk across the floor lights up every shelf it drags past, opens and shuts
+  // board cages, and rewrites the pill, all of it about targets nobody aimed at.
+  // With a finger it is worse than untidy: there IS no hover, so the pointer is
+  // wherever you last touched, and the only thing re-answering can do is be
+  // wrong about it more often.
+  //
+  // Freezing rather than blanking, for the reason the trek gives: the aim you
+  // are walking to is the one you chose, and it should stay lit until you get
+  // there. The tick you stop is the tick it re-answers.
+  //
+  // Deliberately HERE and not inside `refreshGhost`: a `pointermove` during a
+  // walk is somebody aiming, and that still has to work. What is being refused
+  // is the clock, not the hand.
+  // ...and the one press that is still down from a menu row several seconds ago.
+  // Before `refreshGhost`, because letting go is a fact about what you can do
+  // next and the hints are drawn from it.
+  stepErrandHold(m);
+  const at = ui.me();
+  const stirring = at && wasAt && (Math.abs(at.x - wasAt.x) > 0.001 || Math.abs(at.z - wasAt.z) > 0.001);
+  wasAt = at ? { x: at.x, z: at.z } : null;
+  if (!ui.buildOn && !stirring) refreshGhost(true);
   // ...and the tour, which is nothing but a predicate over this snapshot. After
   // `ui.update` on purpose: every step asks a question about the UI as well as
   // about the shop ("is the supplier open"), so it has to be handed a HUD that
@@ -743,8 +784,16 @@ function refreshGhost(force = false) {
     // the tile under the pointer is the one BEHIND it — the same reason
     // `pickFixture` exists. Through the same function the press uses, or the
     // ghost lights one square and the hold fills another.
-    const drop = dropping() && pointer.onCanvas && !aim?.fixture && (!aim?.crate || onPile)
-      ? (onPile ?? scene.pickTile(pointer.x, pointer.y)) : null;
+    //
+    // ...and where the pill drives, the pointer is not asked: it is a stale tap
+    // that has already walked you somewhere, so it names a square you are no
+    // longer beside. `myTile` is the answer there — see it for why a finger
+    // cannot make this choice at all. `pointer.onCanvas` goes with it, because a
+    // press made FROM the pill is a pointer that is not on the canvas, which is
+    // every setdown on a phone.
+    const aimed = pointer.onCanvas ? scene.pickTile(pointer.x, pointer.y) : null;
+    const drop = dropping() && !aim?.fixture && (!aim?.crate || onPile)
+      ? (onPile ?? (pillDrives() ? myTile() : aimed)) : null;
     const show = drop && inReachOf(drop);
     if (dropping()) {
       scene.setFloorGhost(show ? [drop] : null, show ? (canDropAt(drop) ? 'ok' : 'no') : null);
@@ -992,6 +1041,28 @@ function inReachOf(at) {
   const me = ui.me();
   if (!me || !at) return false;
   return Math.hypot(me.x - at.x, me.z - at.z) <= UNLOAD_REACH;
+}
+
+/**
+ * The square you are standing on — which is what "put it down" means on a phone.
+ *
+ * A setdown names a cell, and on a desktop the pointer names it: eight squares
+ * are in reach, they are a tile apart on screen, and `placeAt` is the whole
+ * gesture for choosing between them without walking onto the one you chose.
+ *
+ * A finger has no version of that. Pointing IS tapping, and a tap on a nearby
+ * tile is a walk (`walkTo`) — so the only way to name the square next to you was
+ * to go and stand on it, by which point it is not the square next to you any
+ * more. Every attempt lands somewhere else, and it looks like the drop being
+ * inaccurate rather than like the aim being impossible.
+ *
+ * So there the pointer is not asked at all and the answer is your own feet: one
+ * cell, always in reach, always the one you can see yourself on. What is lost is
+ * the choice between the eight, which is a choice a phone never had.
+ */
+function myTile() {
+  const me = ui.me();
+  return me ? { x: Math.round(me.x), z: Math.round(me.z) } : null;
 }
 
 /**
@@ -1353,6 +1424,67 @@ function endPillPress() {
 
 /** When the finger went down on a pill row, or 0 for no held pill press. */
 let pillAt = 0;
+
+/**
+ * A button that says "go there and do it", holding the press for the journey.
+ *
+ * Nothing in this game fires with the button up (`Game.stepActions` charges on
+ * `p.pressing`), and a walk-to errand does not change that — it names the target
+ * and the ring still has to wind on arrival. On the shop floor that is free and
+ * invisible, because the gesture that named the thing IS a finger holding a
+ * button: press on the board, walk, arrive with it still down, ring, take. Same
+ * trick `spin.trek` is built on, said about the left button.
+ *
+ * A MENU ROW has no version of it. A click is down and up in the same
+ * millisecond, so the shelf's own Take button sent you across the shop and left
+ * you standing at the board with the action armed at zero and nothing pressing
+ * it — a button whose tooltip promises an armful and delivers a walk. It is not
+ * even wrong-looking: you go where you were sent, and then nothing.
+ *
+ * So the press is held on your behalf, exactly as `pillPress` does for the pill,
+ * and let go when the thing you asked for HAPPENS rather than on a clock — the
+ * whole difference is that this one has a walk in the middle of it and the pill's
+ * rows are about what is already in front of you. `acted` is the count the sim
+ * keeps of things you have actually done (see `stepActions`), so watching it
+ * cannot mistake a long walk for a failure.
+ *
+ * The cap is a backstop and nothing else, for the errand that never lands: the
+ * shelf was sold, somebody emptied the board, the route never completed. A stuck
+ * press is a shop that goes on doing things nobody asked for, which is the state
+ * `release`'s one-exit rule exists to prevent.
+ */
+const ERRAND_HOLD_MS = 20000;
+let errandAt = 0;
+let errandActs = 0;
+
+function errandHold(fire) {
+  endPillPress();
+  endErrandHold();
+  errandActs = ui.me()?.acted?.n ?? 0;
+  fire();
+  errandAt = performance.now();
+  hold();
+}
+
+/** Let go of whatever an errand was holding. Idempotent, like `release`. */
+function endErrandHold() {
+  if (!errandAt) return;
+  errandAt = 0;
+  release();
+}
+
+/**
+ * Watch the one held press that outlives its own gesture.
+ *
+ * On the snapshot rather than on a timer, because what ends it is a fact about
+ * the shop — you did the thing — and the shop says so ten times a second.
+ */
+function stepErrandHold(m) {
+  if (!errandAt) return;
+  const me = (m?.players ?? []).find((p) => p.id === net.myId) ?? null;
+  const acts = me?.acted?.n ?? 0;
+  if (acts !== errandActs || performance.now() - errandAt > ERRAND_HOLD_MS) endErrandHold();
+}
 
 /**
  * The finger came off a pill row, which is letting go and nothing else.

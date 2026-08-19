@@ -1579,8 +1579,18 @@ function wireFixtureMenu(ui, f, live) {
   // off a shelf is shopkeeping, not building, and the server gates it on
   // standing there instead. The menu stays open — the count on this row is
   // what tells you it worked, and it drops as you arrive.
+  //
+  // Through `errandHold` and not `send`, because a walk-to errand only NAMES
+  // the board: the ring still has to wind on arrival, and it winds while a
+  // button is down (`Game.stepActions`). A press on the shop floor is a finger
+  // that stays down for the journey, and a click on a menu row is down and up
+  // in the same millisecond — so this button sent you to the shelf and left you
+  // standing at it with the action armed and nothing pressing it, which is a row
+  // that promises an armful and delivers a walk.
   ui.el.panelBody.querySelectorAll('[data-take]').forEach((el) => {
-    el.onclick = () => send('take', { shelfId: f.id, itemId: el.dataset.take });
+    el.onclick = () => ui.errandHold(
+      () => send('take', { shelfId: f.id, itemId: el.dataset.take }),
+    );
   });
 
   // Ordering is shopkeeping, not building, and it is not gated on standing
