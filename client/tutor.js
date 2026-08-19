@@ -83,10 +83,22 @@ export const setTutorOff = (off) => write(OFF_KEY, off ? '1' : '0');
  *
  * Called by the new-shop form rather than inferred from `day === 1`, because
  * that is also true of a shop somebody made yesterday, closed on the first
- * morning and came back to — and being handed the tour again on a shop you have
- * already furnished is the thing that makes people turn tutorials off.
+ * morning and came back to — and being handed the tutorial again on a shop you
+ * have already furnished is the thing that makes people turn tutorials off.
+ *
+ * It clears the DONE mark as well, and that half is not tidiness. `mintId`
+ * slugifies the name and only counts rows that still exist, so deleting a shop
+ * frees its id: make another one called the same thing and you get the same
+ * string back. It is a brand new save with a second-hand name, and without this
+ * it inherits a "already been shown round" mark from the shop you just binned —
+ * which presents as the tutorial being broken for new worlds, intermittently,
+ * depending on what you called them.
  */
-export const markWorldNew = (id) => addTo(NEW_KEY, id);
+export const markWorldNew = (id) => {
+  if (!id) return;
+  dropFrom(DONE_KEY, id);
+  addTo(NEW_KEY, id);
+};
 
 /**
  * ...and one worth doing it in again, which is the Menu's other press.
