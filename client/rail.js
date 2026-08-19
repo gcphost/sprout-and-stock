@@ -131,13 +131,25 @@ export class Rail {
     // Two frames for the same reason the tooltip takes two: the box has to be
     // where it is going before the fade starts, or it slides in from wherever
     // the last one was.
-    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+    // Held, because `clearNote` has to be able to cancel it. Two frames is two
+    // frames in which the thing the note was telling you to do can already have
+    // happened — press Build twice quickly, or let the tutorial press it for
+    // you, and the clear lands BEFORE this does: the note is then put up by a
+    // callback nobody can still reach, over a palette that is already open,
+    // saying "click again for the menu". Which reads as the second press not
+    // having registered, because the only thing on screen reporting on it says
+    // it didn't.
+    this._noteFrame = requestAnimationFrame(() => {
+      this._noteFrame = requestAnimationFrame(() => el.classList.add('show'));
+    });
     this._noteTimer = setTimeout(() => el.classList.remove('show'), 3200);
   }
 
   /** ...and take it away, because the thing it was telling you to do is done. */
   clearNote() {
     clearTimeout(this._noteTimer);
+    cancelAnimationFrame(this._noteFrame ?? 0);
+    this._noteFrame = null;
     this.noteEl?.classList.remove('show');
   }
 
