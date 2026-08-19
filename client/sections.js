@@ -2264,15 +2264,17 @@ function volRow(ui, bus, icon, name, sub) {
  * nothing happens.
  */
 /**
- * The tutorial's two rows, under Game.
+ * The tutorial, in ONE row.
  *
- * A switch AND a Replay, which is one row more than a settings list wants and
- * the second one is why the first is safe. The switch is about the person and
- * is remembered across every shop they open; Replay is about *this* shop, and
- * it exists because the tour marks a world done the moment you skip it — so
- * without a way back, the press that says "not now" is a press that says
- * "never", on the one screen where somebody has least idea what they are turning
- * down.
+ * It was two — a switch and a Replay — which is two of the six rows on the tab
+ * you open to change the volume, for a feature you use once per shop. Two rows
+ * about a thing you have already finished is the menu telling you what it can
+ * do rather than what you came to do.
+ *
+ * So the row is the switch (a press toggles it, which is what every other
+ * switch on this tab does) and Replay is a chip on the same line, the way a
+ * volume is. That keeps the press that matters cheap and stops the one you
+ * almost never want from costing a row of its own.
  *
  * Replay starts it there and then rather than arming it for the next load: the
  * shop is already in front of you, and a row that quietly changed what happens
@@ -2280,33 +2282,26 @@ function volRow(ui, bus, icon, name, sub) {
  */
 function tutorRows(ui) {
   const off = tutorOff();
-  return [
-    {
-      icon: ICONS.help,
-      name: 'Tutorial',
-      sub: off
-        ? 'Off. New shops start with no tutorial.'
-        : 'On. A new shop runs the tutorial once.',
-      picked: !off,
-      tail: off ? 'Off' : 'On',
-      // Repainted at once, the same call the Sound switch makes and for the
-      // same reason: the honest test of a switch is that it moved.
-      run: () => { setTutorOff(!off); ui.paintSection(); },
-    },
-    {
-      icon: ICONS.walk,
-      name: 'Replay the tutorial',
-      sub: 'here, now, in this shop',
-      run: () => {
+  return [{
+    icon: ICONS.help,
+    name: 'Tutorial',
+    sub: off ? 'Off. New shops start with no tutorial.' : 'Shown once in a new shop.',
+    picked: !off,
+    rule: '<span class="rule"><button class="rbtn wide" data-act="replay">Replay</button></span>',
+    acts: {
+      replay: () => {
         // The mark first, then the start. `maybeStart` reads it — so a Replay
-        // that only called `start` would run the tour and then be refused by
-        // its own bookkeeping the moment you reloaded mid-way through it.
+        // that only called `start` would run the tutorial and then be refused
+        // by its own bookkeeping the moment you reloaded mid-way through it.
         replayTutor(ui.worldId);
         ui.closePanel();
         ui.tutor?.maybeStart(ui.worldId);
       },
     },
-  ];
+    // Repainted at once, the same call the Sound switch makes: the honest test
+    // of a switch is that it moved.
+    run: () => { setTutorOff(!off); ui.paintSection(); },
+  }];
 }
 
 function soundRows(ui) {

@@ -1725,6 +1725,13 @@
       display: grid; place-items: center; flex: none; opacity: .5;
     }
     .row .rbtn:hover { background: rgba(58,49,40,.14); opacity: 1; }
+    /* A WORD rather than a nudge. The steppers are 15px squares because they
+       sit either side of a number; this one is the whole control, so it has to
+       be wide enough to read and sit up like something you press. */
+    .row .rbtn.wide {
+      width: auto; height: 20px; padding: 0 9px; font-size: 11px; opacity: .6;
+      background: rgba(58,49,40,.08); border-radius: 7px;
+    }
     /* The one that is a state rather than a nudge. Off is the loud one, because
        "never order this" is the exception and the default has nothing to say. */
     .row .rbtn.tog {
