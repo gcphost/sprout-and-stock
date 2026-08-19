@@ -1233,6 +1233,21 @@
     /* The one that is costing you money right now, rather than merely pending. */
     .todo.hot { background: #ffd66b; box-shadow: 0 2px 9px rgba(200,150,20,.32); }
     .todo.hot svg { opacity: .9; }
+    /* A chip with something to press behind it (see `todoList`). It has to be
+       INDISTINGUISHABLE from the ones without, so this is a reset and nothing
+       else — the browser's own control has a border, an outline and a font of
+       its own, and one chip in the strip wearing them reads as a bug rather than
+       as an invitation. `font-size` and `font-weight` are deliberately not
+       inherited back: `.todo` already sets both, and a shorthand here would
+       out-specify them and shrink the chip. `pointer-events`, because #hq is
+       behind the pointer entirely and its children opt back in one at a time. */
+    button.todo {
+      appearance: none; -webkit-appearance: none;
+      border: 0; margin: 0; font-family: inherit; color: inherit;
+      text-align: inherit; outline: none;
+      pointer-events: auto; cursor: pointer;
+    }
+    button.todo:active { transform: translateY(1px); }
 
     /* The nav: one icon per menu, along the bottom centre. The only thing on
        screen that says the game has menus at all — before it, three unrelated
@@ -3298,6 +3313,44 @@
        the bar; the feed is not. */
     #carry, #prompt { bottom: calc(var(--nav-top) + var(--build-h) + 8px); }
 
+    /* ---- turning the thing you are about to place -------------------------
+       R turns the ghost, and so does the wheel. A phone has neither, and two
+       fingers are already the camera — so on a touch screen the one decision
+       you have to make BEFORE you spend the money was the one decision you
+       could not make. Everything else here is reachable with a finger; this
+       button is the missing quarter turn.
+
+       It does NOT ride `--build-h` the way `#carry` and `#prompt` do, and that
+       is the whole of where it sits. That variable is the height of the bar
+       *and* the hint above it, so every warning that appeared — amber, a line
+       or two, arriving exactly when you are lining a fixture up — shoved the
+       button up the screen and out from under the thumb already on its way to
+       it. A control that moves when the thing it is about goes wrong is worse
+       than one in an awkward place. So: the right edge, halfway up, pinned to
+       nothing that can change size.
+
+       Hidden by default and shown by `syncRotate`, which is also what keeps it
+       off a desktop: a button standing in for two controls you already have is
+       clutter over the shop. */
+    #rotbtn {
+      right: 12px; top: 50%; transform: translateY(-50%);
+      width: 46px; height: 46px; border-radius: 50%; border: 0;
+      background: var(--panel-solid); color: var(--ink);
+      box-shadow: 0 4px 14px rgba(58,49,40,.3);
+      display: none; align-items: center; justify-content: center;
+      pointer-events: auto; cursor: pointer; padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #rotbtn.show { display: flex; }
+    #rotbtn svg { width: 22px; height: 22px; }
+    /* It is pressed repeatedly — four taps is all the way round — so the press
+       has to read on the button itself. A toast or a hint would be four lines of
+       news about a quarter turn you can see. */
+    /* The press has to keep the centring transform in it, or pressing the button
+       drops it half its own height down the screen — a transform is one
+       property, and the second declaration is not an addition to the first. */
+    #rotbtn:active { transform: translateY(-50%) scale(.94); background: #ffd66b; }
+
     /* ---- the award card ---------------------------------------------------
        The one thing on screen that is allowed to look like a game rather than
        like a shop's paperwork. Everything else in this HUD is cream, rounded
@@ -4115,6 +4168,7 @@
   <div id="rail" class="hud"></div>
   <div id="log" class="hud"></div>
   <div id="carry" class="hud"></div>
+  <button id="rotbtn" class="hud" type="button" aria-label="Turn it"></button>
   <div id="prompt" class="hud"></div>
   <div id="boardtip" class="hud"></div>
   <div id="toast" class="hud"></div>

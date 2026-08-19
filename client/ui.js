@@ -11,6 +11,7 @@ import { fixtureLabel, pieceFor, kindOf } from '../shared/pieces.js';
 import { spotsOf } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel } from '../shared/clock.js';
+import { pillDrives } from './input.js';
 import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups,
 } from './sections.js';
@@ -311,6 +312,7 @@ export class UI {
       buildOn: document.getElementById('build-on'),
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
+      rotate: document.getElementById('rotbtn'),
       prompt: document.getElementById('prompt'),
       rail: document.getElementById('rail'),
       search: document.getElementById('panel-search'),
@@ -339,6 +341,18 @@ export class UI {
     this.watchTopLeft();
     this.el.shutter.onclick = () => this.setOpen(!this.shopOpen);
     this.el.clock.onclick = () => this.setPaused(!this.paused);
+    // The touch quarter-turn. Same call R makes, so the pin that stops the
+    // auto-facing arguing with you comes along with it — see `rotateBuild`.
+    this.el.rotate.innerHTML = ICONS.rotate;
+    this.el.rotate.onclick = () => this.rotateBuild();
+    // One listener on the strip rather than one per chip: the list is rewritten
+    // whenever it reads differently, so a handler bound to a chip would be
+    // thrown away with it. The index is read back out of `_todoRuns` at press
+    // time and never captured — see the comment there.
+    this.el.todo.addEventListener('click', (e) => {
+      const chip = e.target?.closest?.('button.todo');
+      if (chip) this._todoRuns?.[Number(chip.dataset.i)]?.();
+    });
     document.getElementById('search-icon').innerHTML = ICONS.search;
     this.el.town.querySelector('.ico').innerHTML = ICONS.town;
     this.el.search.oninput = () => { this.query = this.el.search.value; this.repaint(); };
@@ -1131,6 +1145,34 @@ export class UI {
   }
 
   /**
+   * The quarter turn, for a hand that has no R key and no wheel.
+   *
+   * Every other build decision is reachable with a finger — what to place, where
+   * to put it, and since the aim-hold, which tile exactly — and this one was
+   * not, on the one control you need BEFORE the money is spent. Two fingers were
+   * already the camera, so there was nowhere left to put it as a gesture: it had
+   * to be a button.
+   *
+   * It shows only where the pill drives (`pillDrives`) and only over a FIXTURE
+   * ghost. A wall, a floor and a paint brush have no facing at all, and a button
+   * that turns nothing is worse on a small screen than no button — it is the
+   * "tier that changes no number" trap wearing a fingertip.
+   *
+   * Nothing calls `refreshGhost` afterwards, and that is not an omission: build
+   * mode re-runs it every frame for the ghost (see the frame loop in main.js).
+   * A call from here would be the second opinion, one frame early.
+   */
+  syncRotate() {
+    const el = this.el.rotate;
+    if (!el) return;
+    const on = pillDrives()
+      && (!!this.holding || (this.paletteArmed && !this.armedEdgeTool() && !this.demolishArmed()));
+    if (on === this._rotOn) return;
+    this._rotOn = on;
+    el.classList.toggle('show', on);
+  }
+
+  /**
    * The bottom bar, whichever of the two things is using it.
    *
    * Never both: they are one strip of screen, so turning one on takes it off
@@ -1153,6 +1195,10 @@ export class UI {
     // so without this the "Nothing armed" line would still be marked as read the
     // next time build mode opens, and having closed the bar once would be enough
     // to never see it again.
+    // Here as well as on the snapshot, because arming a tool is a press and a
+    // press that has to wait up to a tenth of a second for its own button to
+    // appear is a button that reads as intermittent.
+    this.syncRotate();
     if (!this.bar) { this.forgetHint(); this.measureBar(true); return; }
     const browse = this.browseGroups();
     if (browse) return this.renderBrowseBar(browse, (it) => this.openBarEntry(it), this.litEntry());
@@ -1529,7 +1575,12 @@ export class UI {
         : { text: 'Nobody has authored a kind of worker — there is no one to hire' };
     }
     if (this.holding) {
-      return { text: `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · R or the wheel turns it · Esc puts it back` };
+      // The turn is named differently in the two grammars because it IS a
+      // different control — R and the wheel on a mouse, the round button by the
+      // bar on a finger. Naming a key at somebody holding a phone is the same
+      // failure the tour's `perInput` exists for.
+      const turn = pillDrives() ? 'the turn button' : 'R or the wheel';
+      return { text: `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · ${turn} turns it · Esc puts it back` };
     }
     // Aiming a bulldozer at something is not looking at it, and the line that
     // says "tap to open it" over a thing a tap would delete is the one piece of
@@ -1573,7 +1624,12 @@ export class UI {
     if (v && !v.ok) return { text: v.reason, bad: true };
     // An amber ghost means it will land and cost you something. Saying what,
     // before the tap rather than after it, is the whole point of the colour.
-    if (v?.warn) return { text: `${v.warn} — tap anyway if you meant it · R rotates`, warn: true };
+    if (v?.warn) {
+      return {
+        text: `${v.warn} — tap anyway if you meant it · ${pillDrives() ? 'the turn button' : 'R'} rotates`,
+        warn: true,
+      };
+    }
     return null;
   }
 
@@ -2794,7 +2850,15 @@ export class UI {
     // every single night, nagging about a shop that is shut because it is four
     // in the morning. A to-do you cannot do is noise.
     if (state.shutters === false) {
-      out.push({ icon: 'shop', hot: true, text: 'The shop is <b>shut</b> — open up (O)' });
+      // ...and it is the one chip that is also the BUTTON. Every other line in
+      // here names something you go and do somewhere else — get a tag in, sow a
+      // bed, hire somebody — but opening up is one switch, already reachable
+      // from the sign and from a key that a phone does not have. A chip that
+      // names the key and cannot be pressed is a to-do you can only read.
+      out.push({
+        icon: 'shop', hot: true, text: 'The shop is <b>shut</b> — open up (O)',
+        run: () => this.setOpen(true),
+      });
     }
 
     // Only tags you're actually failing to serve. A hot tag you already have
@@ -3203,10 +3267,21 @@ export class UI {
     // so redraw only when the list actually reads differently.
     const todo = this.todoList(state);
     const key = todo.map((t) => t.icon + t.text).join('|');
+    // Outside the redraw guard on purpose: the words are what the guard diffs
+    // on, so an identical list about a *later* snapshot does not rebuild the DOM
+    // — and a run captured at the last rebuild would then be acting on a shop
+    // several seconds old. Same rule the pill's rows keep (see `paintPrompt`).
+    this._todoRuns = todo.map((t) => t.run ?? null);
     if (key !== this._todoKey) {
       this._todoKey = key;
+      // A `<button>` where there is something to press and a `<span>` where
+      // there is not, which is the pill's rule again: a chip that looks
+      // pressable and is not is the green ghost with words on it.
       this.el.todo.innerHTML = todo
-        .map((t) => `<span class="todo${t.hot ? ' hot' : ''}">${ICONS[t.icon]}${t.text}</span>`)
+        .map((t, i) => (t.run
+          ? `<button type="button" class="todo${t.hot ? ' hot' : ''}" data-i="${i}">`
+            + `${ICONS[t.icon]}${t.text}</button>`
+          : `<span class="todo${t.hot ? ' hot' : ''}">${ICONS[t.icon]}${t.text}</span>`))
         .join('');
     }
 
@@ -3217,6 +3292,12 @@ export class UI {
 
     this.rail.update();
     this.markBuilding();
+    // On the snapshot as well as at the moment a tool is armed, because two of
+    // the three things it reads are not presses: picking a fixture up is the
+    // server answering, and turning the phone sideways can cross `pillDrives`
+    // with nothing having happened in the shop at all. It early-returns unless
+    // the answer moved, so 10Hz costs a boolean.
+    this.syncRotate();
     // An open section is a live window too. Each one declares a signature of
     // everything its rows read; redraw only when that moves, not at 10Hz.
     const sec = sectionById(this.openPanel);

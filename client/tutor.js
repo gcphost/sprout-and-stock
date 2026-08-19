@@ -53,7 +53,28 @@
  */
 
 import { money } from './money.js';
+import { pillDrives } from './input.js';
 import { REACH, isWalkableTile, insideStore } from '../shared/build.js';
+
+/**
+ * The same sentence for each grammar — see `pillDrives`.
+ *
+ * The tour was written when every verb in the game was a mouse button, and half
+ * of what it teaches is *which* button. On a phone there is one, the verbs live
+ * on the pill along the bottom, and a tap on something you are stood at asks a
+ * question rather than doing anything — so every one of those sentences is not
+ * merely clumsy, it names a press that cannot be made. A tutorial that does that
+ * is worse than none: the player does exactly what the card says, nothing
+ * happens, and the thing they conclude is that the game is broken.
+ *
+ * Asked at paint time and never at module load, because `say` and `hint` are
+ * re-read every frame and a browser window can cross the line mid-tour.
+ *
+ * The word for the pill is "the bar along the bottom" everywhere in here. It has
+ * no name on screen, so the tour is the only thing that can give it one, and two
+ * names for it would be two things as far as anybody reading is concerned.
+ */
+const perInput = (mouse, finger) => (pillDrives() ? finger : mouse);
 
 /** Off for everybody, everywhere. The Menu's switch. */
 const OFF_KEY = 'sns-tutor-off';
@@ -296,13 +317,26 @@ const STEPS = [
   {
     id: 'walk',
     kicker: 'Getting about',
-    say: (t) => (t.step?.spot ? 'Click the marked tile. You walk to it.' : 'Click a bit of floor. You walk to it.'),
+    say: (t) => perInput(
+      t.step?.spot ? 'Click the marked tile. You walk to it.' : 'Click a bit of floor. You walk to it.',
+      t.step?.spot ? 'Tap the marked tile. You walk to it.' : 'Tap a bit of floor. You walk to it.',
+    ),
     // Both halves of the mouse, because a press that MOVED is never a walk —
     // and the camera is the thing a new player reaches for first and finds by
     // accident. Either button drags the view; which one decides whether it
     // slides or swings.
-    hint: 'Hold a mouse button and drag to move the camera — left or right, '
-      + 'same thing. Wheel zooms. WASD walks you without clicking.',
+    //
+    // The finger's half is the same fact in the other grammar, and it has to be
+    // said at least as plainly: a drag is the camera there too, so the first
+    // thing anybody does by accident is slide the shop rather than walk. Two
+    // fingers is the whole of the rest of it — pinch and twist — and there is no
+    // wheel and no WASD to fall back on.
+    hint: () => perInput(
+      'Hold a mouse button and drag to move the camera — left or right, '
+        + 'same thing. Wheel zooms. WASD walks you without clicking.',
+      'Drag with one finger to move the camera. Two fingers pinch to zoom and '
+        + 'twist to swing it round.',
+    ),
     // Ringed on the floor rather than "somewhere over there". The tile is
     // chosen once and held, or the mark walks away from you as you approach it.
     at(t) {
@@ -343,7 +377,8 @@ const STEPS = [
     id: 'hire',
     kicker: 'The crew',
     say: (t) => (t.ui.bar === 'staff'
-      ? 'Click the Clerk twice. The second click is the confirm.'
+      ? perInput('Click the Clerk twice. The second click is the confirm.',
+        'Tap the Clerk twice. The second tap is the confirm.')
       : 'While that drives over — open the crew strip.'),
     hint: (t) => {
       const row = clerkKind(t);
@@ -376,7 +411,8 @@ const STEPS = [
     say: (t) => {
       if (t.ui.openPanel === 'worker') return 'Move a point around. Take one off a job they will not be doing.';
       if (t.ui.bar !== 'staff') return 'Open the crew strip again — the robot icon.';
-      return 'Open them up — click their tile on the strip.';
+      return perInput('Open them up — click their tile on the strip.',
+        'Open them up — tap their tile on the strip.');
     },
     hint: (t) => (t.ui.openPanel === 'worker'
       ? 'Each number is a share of their day. The total is capped, so adding to '
@@ -415,7 +451,9 @@ const STEPS = [
       if (t.ui.bar !== 'build') return 'Open build mode again — it is the hammer.';
       const p = cheapestFreezer(t);
       if (t.ui.toolId?.() !== p?.id) return `Pick the ${p?.name ?? 'chiller'} out of the Shop tab.`;
-      return 'Click a bit of floor to stand it there.';
+      return perInput('Click a bit of floor to stand it there.',
+        'Tap a bit of floor to stand it there. Press and hold instead and you '
+          + 'can slide it about before you let go.');
     },
     hint: (t) => {
       const p = cheapestFreezer(t);
@@ -429,10 +467,23 @@ const STEPS = [
       // to stand in the wrong direction. The wheel stops zooming while
       // something is armed, which is worth saying outright: a control that
       // quietly changes job is one you find by accident or never.
-      return 'R turns it before you place it, and so does the wheel — while '
-        + 'something is armed the wheel turns instead of zooming. Green means it '
-        + 'fits. Amber means it fits but will block something, and the shop lets '
-        + 'you do it anyway.';
+      //
+      // A finger has neither control, so on a phone the honest instruction is
+      // the other order: stand it down, then turn it from its own menu. Saying
+      // "R turns it" to somebody with no keyboard is the whole failure this
+      // helper exists for — and the shop turns it to face a wall by itself
+      // (`faceAlong`), which is what makes the later fix a fix rather than a
+      // chore.
+      return perInput(
+        'R turns it before you place it, and so does the wheel — while '
+          + 'something is armed the wheel turns instead of zooming. Green means it '
+          + 'fits. Amber means it fits but will block something, and the shop lets '
+          + 'you do it anyway.',
+        'It turns its back to a wall on its own. The round button by the bar '
+          + 'turns it a quarter at a time before you place it. Green means it '
+          + 'fits. Amber means it fits but will block something, and the shop '
+          + 'lets you do it anyway.',
+      );
     },
     at: (t) => {
       if (t.ui.bar !== 'build') return { el: '[data-rail="build"]' };
@@ -497,8 +548,16 @@ const STEPS = [
     say: (t) => {
       const c = nearestCrate(t);
       if (!c) return 'Van is on its way. Crates get left on the pad round the back.';
-      if (!atIt(t, c)) return 'Click the crate. You will walk over to it.';
-      return 'Now click it again to take one unit out.';
+      if (!atIt(t, c)) {
+        return perInput('Click the crate. You will walk over to it.',
+          'Tap the crate. You will walk over to it.');
+      }
+      // The second half is where the two grammars stop being the same sentence
+      // with a different verb in it. A press names a thing on a phone and never
+      // does anything to it, so "tap it again" is not a clumsy way of saying
+      // this — it is wrong, and following it does nothing at all.
+      return perInput('Now click it again to take one unit out.',
+        'Now press Take one, on the bar along the bottom.');
     },
     // The four presses, said once, in the one place the player is holding the
     // mouse over the thing they are about. This is the sentence the whole tour
@@ -510,10 +569,18 @@ const STEPS = [
     hint: (t) => {
       const c = nearestCrate(t);
       if (!c) return 'Somebody has to carry it in off the pad. Today that is you.';
-      if (!atIt(t, c)) return 'Clicking something you are not stood at just walks you there.';
-      return 'Left click picks up one. Press and hold to pick up the whole box. '
-        + 'Right click is for dropping off instead. Same on every crate, shelf '
-        + 'and machine in the shop.';
+      if (!atIt(t, c)) {
+        return perInput('Clicking something you are not stood at just walks you there.',
+          'Tapping something you are not stood at just walks you there.');
+      }
+      return perInput(
+        'Left click picks up one. Press and hold to pick up the whole box. '
+          + 'Right click is for dropping off instead. Same on every crate, shelf '
+          + 'and machine in the shop.',
+        'That bar lists everything this thing can do. A press does the top one; '
+          + 'the rows marked HOLD want holding down — that is how you shoulder '
+          + 'the whole box. Same for every crate, shelf and machine in the shop.',
+      );
     },
     arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
     at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
@@ -527,9 +594,19 @@ const STEPS = [
   {
     id: 'shelve-one',
     kicker: 'Stock',
-    say: 'RIGHT-click a shelf to put the unit on it.',
-    hint: 'Left picks up, right drops off. Hold right to drop off everything at '
-      + 'once. Arrows point at every shelf that will take what you are holding.',
+    say: () => perInput('RIGHT-click a shelf to put the unit on it.',
+      'Tap a shelf, then press Put one on.'),
+    // The direction is the lesson on a mouse and there is no direction on a
+    // phone: one button, and which way the goods go is whichever row you press.
+    // So the finger's version teaches the row instead — same fact, and the
+    // chevrons are worth naming in both, since they are the only thing on screen
+    // that answers "which shelf will take this".
+    hint: () => perInput(
+      'Left picks up, right drops off. Hold right to drop off everything at '
+        + 'once. Arrows point at every shelf that will take what you are holding.',
+      'Put one on is one unit; hold Stock it to pour in everything that fits. '
+        + 'Arrows point at every shelf that will take what you are holding.',
+    ),
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     done(t) { return lotSize(meOf(t)?.carry) === 0; },
   },
@@ -542,8 +619,13 @@ const STEPS = [
     // says so. It is the only way to reach what a thing can DO, and a player
     // who never finds it never prices anything, never sets a shelf aside and
     // never sells a fixture back.
-    hint: 'A click uses a thing. Holding the button opens what it can do. That '
-      + 'is true of every shelf, crate, machine and doorway in the shop.',
+    hint: () => perInput(
+      'A click uses a thing. Holding the button opens what it can do. That '
+        + 'is true of every shelf, crate, machine and doorway in the shop.',
+      'A tap picks a thing out and lists what it can do along the bottom. '
+        + 'Holding opens the whole menu — every shelf, crate, machine and '
+        + 'doorway in the shop has one.',
+    ),
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     done(t) { return t.ui.openPanel === 'fixture'; },
   },
@@ -559,7 +641,8 @@ const STEPS = [
         + 'will order more when it runs low. The same menu sets the price per '
         + 'board, hides the shelf out the back, tells the crew to leave it '
         + 'alone, and upgrades, moves or sells the unit.'
-      : 'You clicked off it, which closes the menu. Nothing was lost.'),
+      : perInput('You clicked off it, which closes the menu. Nothing was lost.',
+        'You tapped off it, which closes the menu. Nothing was lost.')),
     // Two phases, because the menu is a thing the player can shut — clicking on
     // the world is how you dismiss ANY panel, so a step that only ever pointed
     // at `#panel` had nothing to point at the moment somebody clicked the floor,
@@ -579,13 +662,22 @@ const STEPS = [
     id: 'crate',
     kicker: 'Stock',
     say: (t) => (meOf(t)?.haul
-      ? 'Now HOLD the RIGHT button on a shelf to tip the box in.'
-      : 'One at a time is a long afternoon. Stand at the crate and HOLD the left button.'),
+      ? perInput('Now HOLD the RIGHT button on a shelf to tip the box in.',
+        'Now tap a shelf and HOLD Stock it to tip the box in.')
+      : perInput('One at a time is a long afternoon. Stand at the crate and HOLD the left button.',
+        'One at a time is a long afternoon. At the crate, HOLD Pick the crate up.')),
     hint: (t) => (meOf(t)?.haul
-      ? 'Right drops off, and holding drops off the lot. It stops when the shelf '
-        + 'is full; the rest stays on your shoulder.'
-      : 'Hold it down and a ring winds round. Let go early and nothing happens. '
-        + 'A box carries far more than your arms do.'),
+      ? perInput(
+        'Right drops off, and holding drops off the lot. It stops when the shelf '
+          + 'is full; the rest stays on your shoulder.',
+        'It stops when the shelf is full; the rest stays on your shoulder.',
+      )
+      : perInput(
+        'Hold it down and a ring winds round. Let go early and nothing happens. '
+          + 'A box carries far more than your arms do.',
+        'Keep it held and the row fills up. Let go early and nothing happens. '
+          + 'A box carries far more than your arms do.',
+      )),
     at: (t) => (meOf(t)?.haul
       ? { world: anyShelf(t), y: SHELF_Y }
       : { world: nearestCrate(t), y: CRATE_Y }),
@@ -602,7 +694,8 @@ const STEPS = [
   {
     id: 'open',
     kicker: 'Opening up',
-    say: 'Last thing. Click the sign to raise the shutters.',
+    say: () => perInput('Last thing. Click the sign to raise the shutters.',
+      'Last thing. Tap the sign to raise the shutters.'),
     hint: 'A new shop starts shut so you can set it up in peace. Open it and the '
       + 'town starts turning up. Good luck.',
     at: () => ({ el: '#sign', pad: 8 }),

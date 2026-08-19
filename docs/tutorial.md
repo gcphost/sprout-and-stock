@@ -139,6 +139,40 @@ because that is also true of a shop somebody made yesterday, closed on the first
 morning and came back to — and being handed the tour again on a shop you have
 already furnished is the thing that makes people switch tutorials off for good.
 
+### It has to be told which grammar is live
+
+Every verb in this game used to be a mouse button, and half of what the tour
+teaches is *which* button. On a phone there is one: the verbs live on the pill
+along the bottom, and a tap on something you are stood at **names** it rather
+than doing anything to it. So "right-click a shelf" is not clumsy phrasing
+there, it is an instruction that cannot be followed — and a card that says it
+puts the player through exactly the sequence that reads as a broken game, which
+is worse than no tour at all.
+
+`perInput(mouse, finger)` is the fork, over `pillDrives()` from `client/input.js`
+— the same test `tapAtPointer` and `pressHints` ask, so what the tour SAYS and
+what a press DOES cannot drift apart. It is a file of its own because ui.js
+imports sections.js imports tutor.js, so keeping the test in ui.js would close
+an import cycle nobody meant. It is asked at paint time, never at module load:
+`say` and `hint` are re-read every frame and a window can cross the line
+mid-tour.
+
+Two of the twelve beats are not the same sentence with a different verb in it,
+and those are the ones worth reading before adding a beat:
+
+- **take-one** — "click it again to take one out" has no finger version, because
+  the second press is on the bar, not on the crate.
+- **freezer** — placing turns with `R` or the wheel, and a phone has neither.
+  That gap is why `#rotbtn` exists (`syncRotate` in ui.js): a round button beside
+  the bar, shown only where the pill drives and only over a *fixture* ghost — a
+  wall, a floor and a brush have no facing, and a button that turns nothing is
+  the "tier that changes no number" trap wearing a fingertip. The two standing
+  build hints name it in the finger grammar for the same reason the tour does.
+
+A world step's hole is the whole `#game` rect, so the pill sits inside the lit
+area and stays pressable — which is what makes a bar-driven beat finishable at
+all under the veil.
+
 ---
 
 ## Step 2 — the second lesson *(proposed)*

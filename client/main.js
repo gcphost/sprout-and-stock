@@ -11,6 +11,7 @@ import { E, SOLID, edgeBetween } from '../shared/edges.js';
 import { Scene } from './render/scene.js';
 import { Transport } from './transport.js';
 import { UI } from './ui.js';
+import { pillDrives } from './input.js';
 import { RAIL_ITEMS } from './sections.js';
 import { showFixture, refreshFixture, ONE_AT_A_TIME } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
@@ -2064,7 +2065,19 @@ canvas.addEventListener('pointermove', (e) => {
       // Fed the *frame* delta, not the distance from the origin — panning by the
       // total would move the camera by the whole drag again on every event, which
       // accelerates away from your finger the longer you hold it.
-      scene.panBy(e.clientX - drag.lx, e.clientY - drag.ly);
+      //
+      // ...and in build mode the drag FLIES the view instead of dragging the
+      // shop, which is the same inversion the keys already make (`flying`) and
+      // it is the mode rather than the device that decides it. Shopkeeping is a
+      // map: the world follows your hand, you pull the far aisle toward you.
+      // Building is the opposite errand — you are reaching for somewhere you
+      // cannot stand, so the drag is "go there", and a finger that swept toward
+      // the top right to put something in the top right corner got the bottom
+      // left, which reads as the scroll being backwards. Only ever reached by a
+      // finger, since a mouse drag in this game turns the view (`drag.turns`),
+      // so no desktop gesture changes.
+      const fly = flying() ? -1 : 1;
+      scene.panBy(fly * (e.clientX - drag.lx), fly * (e.clientY - drag.ly));
     }
   }
   drag.lx = e.clientX;
@@ -2624,8 +2637,12 @@ const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed();
  * pressable, or the actions have left the world and landed nowhere. A phone in
  * a desktop browser's device emulation is also the place this gets tested, and
  * it does not reliably report a coarse pointer.
+ *
+ * It lives in ui.js so that the TUTORIAL can ask it too. That is the same
+ * argument one level up: the tour teaches the game in words, and words that name
+ * a right button on a device with one are worse than no tour at all — so which
+ * grammar is live has to be one answer, not two that can drift.
  */
-const pillDrives = () => matchMedia('(max-width: 640px)').matches;
 
 /**
  * How long the pointer has to SETTLE on a pile before that pile is the target.
