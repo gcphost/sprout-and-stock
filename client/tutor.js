@@ -228,9 +228,9 @@ const STEPS = [
     // and the camera is the thing a new player reaches for first and finds by
     // accident. Either button drags the view; which one decides whether it
     // slides or swings.
-    hint: 'Drag instead of clicking and you move the CAMERA — left slides it '
-      + 'across, right swings it round and tilts. Let go without moving and it '
-      + 'counts as a click again. WASD walks you by hand, and the view stays '
+    hint: 'Drag with EITHER button and you move the camera instead — both do '
+      + 'the same job. Let go without having moved and it counts as a click '
+      + 'again. WASD walks you by hand, the wheel zooms, and the view stays '
       + 'wherever you left it until you go somewhere.',
     at: () => ({ el: '#game', soft: true }),
     start(t) { this.from = meOf(t) ? { ...meOf(t) } : null; },
