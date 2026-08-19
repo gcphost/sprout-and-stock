@@ -653,6 +653,7 @@ export class Tutor {
     this.el.hidden = true;
     this.el.classList.remove('show');
     document.body.classList.remove('tutoring');
+    this.live(null);
     if (this.world) { addTo(DONE_KEY, this.world); dropFrom(NEW_KEY, this.world); }
     if (why === 'done') this.ui.toast('Tour finished — press / for the key list');
   }
@@ -863,6 +864,20 @@ export class Tutor {
   }
 
   /**
+   * Give one HUD container its pointer back, and take it off the last one.
+   *
+   * Exactly one at a time, tracked rather than swept: a loop over every `.hud`
+   * on every frame is a write per element at 10Hz, and forgetting to clear the
+   * old one leaves a panel live behind a card that has moved on to the bar.
+   */
+  live(el) {
+    if (this._live === el) return;
+    if (this._live) this._live.style.pointerEvents = '';
+    this._live = el ?? null;
+    if (el) el.style.pointerEvents = 'auto';
+  }
+
+  /**
    * The way out of a step that cannot be finished.
    *
    * Every `done` in the script is a question about the shop, which is what makes
@@ -912,7 +927,7 @@ export class Tutor {
    * and `place` reads it as "get out of the way".
    */
   holeFor(want) {
-    if (!want) { this.aim = null; this.lost = false; this.soft = false; return null; }
+    if (!want) { this.aim = null; this.lost = false; this.soft = false; this.live(null); return null; }
     const pad = want.pad ?? 4;
 
     if ('world' in want) {
@@ -936,12 +951,14 @@ export class Tutor {
       // of it. The ring on the thing itself and the card beside where it
       // projects are the two halves the flag switches on.
       this.soft = true;
+      this.live(null);
       const c = document.getElementById('game')?.getBoundingClientRect();
       return c && want.world ? { x: c.left, y: c.top, w: c.width, h: c.height } : null;
     }
 
     this.aim = null;
     this.soft = !!want.soft;
+    this.live(null);
     // `up` climbs from the thing that can be NAMED to the thing that should be
     // LIT. A stepper's + carries the only attribute worth selecting on and is
     // half the control — see the jobs step.
@@ -950,6 +967,10 @@ export class Tutor {
     const r = t?.getBoundingClientRect();
     if (!r?.width || !r?.height) { this.lost = true; return null; }
     this.lost = false;
+    // The HUD is inert while the tour is up (see `body.tutoring .hud`), so the
+    // panel or bar the hole is cut in has to be handed the pointer back — a lit
+    // button inside a muted container is the green-ghost bug with a ring on it.
+    this.live(t.closest('.hud'));
     return { x: r.left - pad, y: r.top - pad, w: r.width + pad * 2, h: r.height + pad * 2 };
   }
 

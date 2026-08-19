@@ -2743,18 +2743,33 @@
     #tutor { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
     #tutor[hidden] { display: none; }
 
-    /* The blackout. `pointer-events: auto` is the whole feature — a veil that
-       only darkened would be a picture of a tutorial. Positioned by JS, all
-       four, every frame the target could have moved. */
+    /* The blackout, and it is a PICTURE — `pointer-events: none`.
+
+       It used to block, which is the obvious way to build this and is wrong
+       about the one thing under it: the world. The four boxes cover the whole
+       screen bar the hole, so on any step pointing at the HUD — the sign, a
+       panel, a tile of the bar — they covered the entire canvas, and the camera
+       died. You cannot drag a view you cannot press, so the shop froze solid
+       for no reason you could see and with no button you had pressed to blame.
+
+       Muting is done on the HUD instead (`body.tutoring .hud`), which is where
+       a wrong press actually costs something. A stray press on the WORLD is at
+       worst a walk, and being able to look around while somebody explains your
+       shop to you is not a wrong press at all. */
     .tt-veil {
-      position: absolute; pointer-events: auto;
+      position: absolute; pointer-events: none;
       background: rgba(28, 24, 20, .58);
       opacity: 0; transition: opacity .2s ease;
-      /* A tap on the dark is a tap on nothing, and a cursor that still says
-         "you could click here" is the veil lying about itself. */
-      cursor: not-allowed;
     }
     #tutor.show .tt-veil { opacity: 1; }
+
+    /* Everything in the HUD is inert while the tour is up, and `place` hands
+       the pointer back to whichever panel or bar the hole is cut in. Set on the
+       container rather than per-button: a panel you can scroll and read is part
+       of the step, and it is the RAIL and the other menus that a press must not
+       reach. */
+    body.tutoring .hud { pointer-events: none; }
+    body.tutoring #tutor, body.tutoring .tt-card { pointer-events: auto; }
 
     /* The hole's outline. It is drawn OUTSIDE the rect (a spread shadow rather
        than a border) so it never covers a pixel of the thing it is pointing at
