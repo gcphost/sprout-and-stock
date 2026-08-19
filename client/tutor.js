@@ -223,11 +223,15 @@ const STEPS = [
   {
     id: 'walk',
     kicker: 'Getting about',
-    say: 'Left-click a bit of floor. You walk to it.',
-    hint: 'Left-click a THING and that one press does two jobs: you walk over, '
-      + 'and then you work it. Click a crate and you arrive holding what was in '
-      + 'it. Click a shelf with your hands full and it goes on the shelf. WASD '
-      + 'walks you by hand, and the right button drags the camera round.',
+    say: 'Click a bit of floor. You walk to it.',
+    // Both halves of the mouse, because a press that MOVED is never a walk —
+    // and the camera is the thing a new player reaches for first and finds by
+    // accident. Either button drags the view; which one decides whether it
+    // slides or swings.
+    hint: 'Drag instead of clicking and you move the CAMERA — left slides it '
+      + 'across, right swings it round and tilts. Let go without moving and it '
+      + 'counts as a click again. WASD walks you by hand, and the view stays '
+      + 'wherever you left it until you go somewhere.',
     at: () => ({ el: '#game', soft: true }),
     start(t) { this.from = meOf(t) ? { ...meOf(t) } : null; },
     done(t) {
@@ -332,7 +336,7 @@ const STEPS = [
     say: (t) => {
       const p = cheapestFreezer(t);
       if (t.ui.toolId?.() !== p?.id) return `Pick the ${p?.name ?? 'chiller'} out of the Shop tab.`;
-      return 'Left-click a bit of floor to stand it there.';
+      return 'Click a bit of floor to stand it there.';
     },
     hint: (t) => {
       const p = cheapestFreezer(t);
@@ -382,14 +386,15 @@ const STEPS = [
     id: 'take-one',
     kicker: 'Stock',
     say: (t) => (nearestCrate(t)
-      ? 'Left-click the crate. One click takes one unit out.'
+      ? 'Click the crate. One click takes one unit out.'
       : 'Van is on its way. Crates get left on the pad round the back.'),
     // The four presses, said once, in the one place the player is holding the
     // mouse over the thing they are about. This is the sentence the whole tour
     // exists to deliver — everything else is scaffolding round it.
-    hint: 'Four presses, and they are the same four on every crate, shelf and '
-      + 'machine in the shop. LEFT takes one. HOLD LEFT takes the lot. RIGHT '
-      + 'puts one back. HOLD RIGHT pours in everything you are carrying.',
+    hint: 'Here the two buttons mean opposite things, and it is the same four '
+      + 'presses on every crate, shelf and machine in the shop. LEFT takes one. '
+      + 'HOLD LEFT takes the lot. RIGHT puts one back. HOLD RIGHT pours in '
+      + 'everything you are carrying.',
     arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
     at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
     // Nobody's fault and nothing to press. Without this the card reads as an
@@ -402,7 +407,7 @@ const STEPS = [
   {
     id: 'shelve-one',
     kicker: 'Stock',
-    say: 'Now left-click a shelf. It goes on.',
+    say: 'Now click a shelf. It goes on.',
     hint: 'Chevrons appear over every unit that would take what you are holding, '
       + 'the moment your hands are full — so you never have to remember which '
       + 'shelf is for what. A shelf with no chevron will refuse you.',
