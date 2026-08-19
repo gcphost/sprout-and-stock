@@ -792,16 +792,19 @@ server.registerTool('regenerate_layout', {
 }, async (args) => text(await call('POST', '/regenerate', args)));
 
 server.registerTool('run_director', {
-  title: 'Run the AI world director now',
+  title: 'Run the world director now',
   description:
     'Force the world director to decide what happens in town, instead of waiting for the next in-game day. '
-    + 'Falls back to a hand-written event if no ANTHROPIC_API_KEY is configured on the server.',
+    + 'There is no model behind this: it invents an event from the season and the tags the shop actually '
+    + 'carries, and draws an authored `events` row about a quarter of the time.',
   inputSchema: {},
 }, async () => text(await call('POST', '/director/run', {})));
 
 server.registerTool('get_director_context', {
-  title: 'See what the director is told',
-  description: 'Return the exact world summary passed to the AI director. Useful when its events feel off — usually the context is missing something.',
+  title: 'See the shop as the director sees it',
+  description:
+    'Return a one-screen summary of the shop as it stands — day, season, cash, reputation, what is on the '
+    + 'shelves, what is selling, which tags are in play. Read it before authoring an event for this shop by hand.',
   inputSchema: {},
 }, async () => text(await call('GET', '/director/context')));
 

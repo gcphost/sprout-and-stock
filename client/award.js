@@ -28,6 +28,7 @@
 
 import { ICONS } from './icons.js';
 import { money } from './money.js';
+import { SUPPORT_URL, SUPPORT_LABEL, awardSupport } from './links.js';
 
 export class Award {
   constructor(ui, el) {
@@ -55,6 +56,20 @@ export class Award {
         <div class="award-town"></div>
         <button class="award-go" type="button">Nice</button>
         <div class="award-more"></div>
+        <!-- The tip jar, on three of the forty-five rungs. See awardSupport in
+             client/links.js — and no backticks in here, they would end the
+             template literal this comment is written inside.
+
+             BELOW the button and never above it. The card exists to say one
+             thing and the green button is the one press on it; an ask sitting
+             between the blurb and the way out is a thing you have to get past
+             to dismiss a congratulation, which is how a nice moment turns into
+             an advert. Down here it is read by whoever is still reading.
+
+             Empty by default, with :empty display:none in the CSS the way
+             .award-town and .award-more already are, so forty-two rungs draw
+             nothing at all rather than a gap. -->
+        <div class="award-tip"></div>
       </div>`;
     this.card = this.el.querySelector('.award-card');
     // The button, and only the button.
@@ -101,6 +116,13 @@ export class Award {
       : '';
     this.el.querySelector('.award-more').textContent = this.queue.length
       ? `${this.queue.length} more to come`
+      : '';
+    // Keyed off the rung's id, so a milestone that is not in the table draws
+    // nothing and adding a rung can never accidentally add an ask.
+    const tip = awardSupport(won.id);
+    this.el.querySelector('.award-tip').innerHTML = tip
+      ? `<p>${tip}</p><a href="${SUPPORT_URL}" target="_blank" rel="noopener noreferrer"
+          >${ICONS.support}${SUPPORT_LABEL}</a>`
       : '';
 
     this.el.hidden = false;

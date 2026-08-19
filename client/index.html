@@ -4,6 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>Sprocket &amp; Stock</title>
+  <!-- The tab icon. A relative reference rather than an absolute one, and
+       rather than a data: URI: Vite resolves it, emits it with a content hash
+       and rewrites this href, which is why it works with `publicDir: false` —
+       there is no static folder in this project for a favicon to sit in.
+
+       `type` is not optional here. Without it some browsers sniff, and one that
+       guesses wrong on an SVG silently falls back to asking for /favicon.ico —
+       which does not exist, so what you get is the default page glyph and
+       nothing anywhere saying why. See client/favicon.svg for the art. -->
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   <style>
     :root {
       --ink: #3a3128;
@@ -286,7 +296,18 @@
       display: flex; flex-direction: column;
       max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px);
     }
-    .menu-box { width: min(440px, 100%); }
+    /* `min-width: 0` is not belt and braces, it is the whole of whether this
+       screen fits on a phone. `.outdoors` is a grid and the box is its item, so
+       the box's automatic minimum is its MIN-CONTENT — which means `width:
+       min(440px, 100%)` is a ceiling and not a limit, and any row inside that
+       cannot get narrower than the screen pushes the entire front door off the
+       right of it: the title, the name box, the buttons, all of it, with the sky
+       ending where the viewport does and the box carrying on past it. It was the
+       cash field beside the name that did it (an `<input>` carries an intrinsic
+       twenty-character width, so two of them side by side ask for 395px on a
+       390px phone), and the point of putting this here rather than there is that
+       the next row somebody adds must not be able to do the same thing. */
+    .menu-box { width: min(440px, 100%); min-width: 0; }
     /* The well the turntable spins in. Fixed height and `overflow: hidden`,
        because `.wk-turn` is a strip `--n` faces wide that slides sideways —
        without a clipping parent you get twenty-four robots in a row. */
@@ -572,6 +593,39 @@
                 box-shadow: 0 4px 16px rgba(58,49,40,.13); }
     .menu-new .menu-field { background: rgba(58,49,40,.06); box-shadow: none; }
     .menu-foot { text-align: center; font-size: 11px; opacity: .5; margin: 12px 0 0; }
+    /* The tip jar, and it is a TILE like everything else on this screen. As a
+       bare underlined link in `--accent` it was the only hyperlink on a page
+       made of buttons, wearing the colour this palette keeps for marks — so it
+       read as an error line rather than as an offer.
+
+       The line above it sits on the sky, so it takes `.menu-tag`'s stroke for
+       the same reason that one does: dark text straight onto grass has no
+       contrast at the bottom of its own descenders. */
+    .menu-tip { margin: 14px 0 0; text-align: center; }
+    .menu-tip p {
+      margin: 0 0 7px; font-size: 11.5px; font-weight: 700;
+      color: rgba(58,49,40,.58);
+      -webkit-text-stroke: 4px rgba(255,252,245,.72); paint-order: stroke fill;
+    }
+    /* `.menu-add`'s language at two thirds the weight — same cream, same inset
+       keyline, same press — because this must never compete with the button
+       somebody actually came here for. `inline-flex` and `fit-content` keep the
+       hit area on the words: a centred BLOCK link is clickable across the dead
+       space either side of it, which on a phone is a stray tap that leaves the
+       game with a shop unsaved behind it. */
+    .menu-support {
+      display: inline-flex; align-items: center; gap: 7px;
+      border-radius: 11px; padding: 8px 14px;
+      font-size: 12.5px; font-weight: 800; color: var(--ink);
+      text-decoration: none; cursor: pointer;
+      background: rgba(255,252,245,.6);
+      box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
+    }
+    .menu-support svg { opacity: .7; }
+    .menu-support:hover { background: var(--panel-solid); }
+    .menu-support:hover svg { opacity: 1; }
+    .menu-support:active { transform: translateY(3px); }
+    .menu-support:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
     .hud { position: fixed; z-index: 10; }
 
@@ -999,7 +1053,7 @@
 
        It used to draw the active world-event modifiers folded per tag, which
        looks like this and was a different thing entirely — the rows were
-       whichever tags the AI director had written about, so they appeared and
+       whichever tags the world director had written about, so they appeared and
        expired under you, mixed departments with moods (PANTRY next to TRENDY),
        and a week with no events drew nothing at all. You cannot learn to read a
        panel whose rows move; the only shape it ever had was "some things are
@@ -3549,6 +3603,32 @@
     .award-more { font-size: 11px; opacity: .5; margin-top: 7px; }
     .award-more:empty { display: none; }
 
+    /* The tip jar, under the button, on three rungs out of forty-five. A hairline
+       above it because it is the one thing on this card that is not about the
+       milestone — without the rule it reads as another line of the award. */
+    .award-tip {
+      margin-top: 12px; padding-top: 11px;
+      border-top: 1px solid rgba(58,49,40,.12);
+    }
+    .award-tip:empty { display: none; }
+    .award-tip p { margin: 0 0 8px; font-size: 11.5px; opacity: .65; }
+    /* Deliberately NOT `.award-go`'s green, and deliberately not `--accent`.
+       The card already has exactly one loud button on it and this must not be a
+       second: same cream tile the front door's jar wears, so the two places this
+       is ever offered are recognisably the same offer. */
+    .award-tip a {
+      display: inline-flex; align-items: center; gap: 7px;
+      border-radius: 11px; padding: 7px 13px;
+      font-size: 12.5px; font-weight: 800; color: var(--ink);
+      text-decoration: none; cursor: pointer;
+      background: rgba(58,49,40,.06);
+      box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
+    }
+    .award-tip a svg { opacity: .7; }
+    .award-tip a:hover { background: rgba(58,49,40,.1); }
+    .award-tip a:hover svg { opacity: 1; }
+    .award-tip a:active { transform: translateY(2px); }
+
     /* In with an overshoot, the same curve the tooltip springs on — it is the
        one motion in the game that is allowed to be pleased with itself. */
     #award.show .award-card { animation: award-pop .34s cubic-bezier(.34, 1.56, .64, 1); }
@@ -3623,12 +3703,17 @@
          sentence, where every other cell here would clip a number. */
       #town { min-width: 0; padding-left: 10px; }
       #town .tw { overflow: hidden; text-overflow: ellipsis; }
-      /* Bars, not tags. Three 6.5px words down the left of three 4px bars is
-         about 27px of the row spent naming gauges that are always in the same
-         order, and order is what you read them by at this size anyway. */
+      /* The tags STAY. They were dropped here on the arithmetic — three 6.5px
+         words is about 22px of a row that had none to spare — and the arithmetic
+         stopped being true two changes ago, once the row was one line and the
+         season and the sparkline had their own width to leave at. Three
+         unlabelled bars is the readout `.gg-tag` exists to prevent: they are a
+         reputation, a mood and a room, they all fill rightwards, and which is
+         which is a thing you would have to have learnt. The bars give the width
+         instead — 34px still reads as a fraction, and the label is the half that
+         cannot be inferred. */
       .gauges { padding-left: 10px; }
-      .gg { grid-template-columns: 34px; }
-      .gg-tag { display: none; }
+      .gg { grid-template-columns: 20px 34px; gap: 4px; }
       .repwrap { width: 34px; }
 
       /* The chips clear the bar's HEIGHT, because there is no width left to
@@ -3643,7 +3728,28 @@
         top: calc(var(--hud-h, 46px) + 6px);
         padding-left: 8px; padding-right: 8px;
       }
-      #toast { top: calc(var(--hud-h, 46px) + 58px); }
+      /* A pill is a shape for one line. A refusal is a sentence — "that shelf is
+         set aside for Carrot, change it in the shelf's menu" — and at this width
+         it is three of them, so the 99px radius cuts the corners off a block of
+         text and the pill runs edge to edge with nothing between the words and
+         the side of the screen. It is the same call the press card made: the
+         shape has to come off how much there is to say, not off how much there
+         was to say on a desktop.
+         `max-width` and not a width — a short refusal is still a pill, and this
+         only becomes a card when it has to. */
+      /* `width: max-content` IS THE FIX, and the `max-width` beside it only
+         bounds what that asks for. The toast is fixed with `left: 50%` and no
+         width, so the space a shrink-to-fit box is offered runs from the middle
+         of the screen to its right-hand edge — HALF the width, on an element
+         that is then translated back to the centre. It wrapped at 195px of a
+         390px screen and looked like a margin problem; the margin was never
+         there to be wrong. */
+      #toast {
+        top: calc(var(--hud-h, 46px) + 58px);
+        width: max-content; max-width: calc(100vw - 32px);
+        border-radius: 14px; padding: 8px 14px;
+        text-align: center; line-height: 1.35;
+      }
 
       /* The two consultations. See the note above for why they go rather than
          shrink, and why this is not `.corner-off`. */
@@ -3710,15 +3816,38 @@
          is about and no child can say it is the only kind. */
       #prompt:not(:has(.pr-say.pr-r)) .pr-say,
       #prompt:not(:has(.pr-say:not(.pr-r))) .pr-say { grid-column: 1 / -1; }
+      /* ...and TWO rows are one row, whichever buttons they belong to. The split
+         is a reading aid — takes down one side, puts down the other — and with a
+         pair there is nothing to read: you can see both at once, and putting
+         them one above the other spends a second line to say something the eye
+         got for free. Auto placement rather than a named column, so the pair
+         fills the width in the order the presses are decided.
+         `:has(:nth-child(2)):not(:has(:nth-child(3)))` is "exactly two", which
+         is the only way to count children in a stylesheet — and counting is
+         right here rather than a class from `paintPrompt`, because how many rows
+         there are is what the layout is about and nothing else needs to know. */
+      #prompt:has(.pr-say:nth-child(2)):not(:has(.pr-say:nth-child(3))) .pr-say {
+        grid-column: auto;
+      }
       /* THE TAG GETS A COLUMN. Stacked, the rows are four sentences that each
          start wherever the one before them ended — HOLD in front of two of
          them and not the other two — and a list whose left edge moves per row
          is the ragged thing wrapping was, one axis along. So each row is a
          two-column grid with the tag's column reserved whether or not that row
          has one, and every verb starts on the same line. */
+      /* Centred in the button, and the tag's column comes with it: `38px 1fr`
+         reserves a lane at the LEFT EDGE, so a row with no HOLD on it starts its
+         verb 38px in from a button whose text is the only thing in it — a column
+         of chips each indented past a gutter that is empty in half of them. What
+         the reserved lane was for is the verbs lining up with each other, and
+         inside a button they line up on the button. `auto auto` sizes the two
+         cells to what is in them and `justify-content: center` puts the pair in
+         the middle, so a row with a tag is [HOLD][verb] centred and a row
+         without is [verb] centred. */
       #prompt .pr-say {
-        display: grid; grid-template-columns: 38px 1fr; gap: 8px;
-        text-align: left;
+        display: grid; grid-template-columns: auto auto;
+        justify-content: center; align-items: center; gap: 7px;
+        text-align: center;
       }
       #prompt .pr-say.pr-r { flex-direction: row; }
       #prompt .pr-say > b { grid-column: 2; }
@@ -3757,7 +3886,28 @@
         -webkit-touch-callout: none;
         touch-action: none; user-select: none; -webkit-user-select: none;
       }
-      #prompt .pr-say:active { background: rgba(58,49,40,.24); }
+      #prompt .pr-say:active { background: rgba(58,49,40,.2); }
+      /* ---- the hold, drawn on the button ----------------------------------
+         THE BUTTON IS THE RING. In the world a held press winds a ring on the
+         thing you are pointing at, which is where you are already looking; on
+         the pill you are holding a chip at the bottom of the screen while that
+         ring turns somewhere behind your thumb, so the one gesture in the game
+         that is *made of* its duration had nothing anywhere to say how long was
+         left. It fills left to right off `--pr`, which `markPress` sets from the
+         same `action.progress` the ring is drawn from — one number, so the two
+         can never disagree about how far through you are.
+
+         A gradient rather than a child element or a `::before`, because the row
+         is rebuilt from `innerHTML` whenever its words change and anything
+         inside it goes with them. Hard stops at the same position, so it is a
+         bar with an edge rather than a smear — a soft one reads as a shadow.
+         `background-color` stays under it as the chip's own fill, since a
+         gradient with a transparent tail would show the pill through it. */
+      #prompt .pr-say.pr-busy {
+        background-image: linear-gradient(90deg,
+          rgba(58,49,40,.26) 0 calc(var(--pr, 0) * 100%),
+          rgba(0,0,0,0) calc(var(--pr, 0) * 100%));
+      }
       /* Gone, and still in the way — deliberately. The press that was on its way
          to a row that just left has to land on something that does nothing, or
          it lands on the shop. Invisible (no `.show`, so opacity 0) and inert:
@@ -3801,6 +3951,20 @@
         bottom: calc(var(--nav-top) + var(--build-h) + 8px) !important;
         max-height: none; border-radius: 16px;
       }
+      /* The header is the one row of a panel you aim at rather than read, and
+         both halves of it were sized for a pointer: a 15px ✕ is about 15px of
+         target, which is half of what a thumb can be asked to hit, and it is
+         pinned in the corner where the hand comes from. Bigger hit area rather
+         than a bigger glyph — the negative margin keeps the header the height
+         it was, so nothing below it moves. The title goes up a size with it: it
+         names what you are looking at, and at 12.5px it was the smallest thing
+         on a full-screen sheet. */
+      #panel header { padding: 9px 8px 9px 12px; }
+      #panel-title { font-size: 15px; gap: 8px; }
+      #panel-close {
+        font-size: 19px; padding: 6px 10px; margin: -6px -6px -6px 0;
+        opacity: .65; line-height: 1;
+      }
       /* ---- the nav ---------------------------------------------------------
          Seven 40px buttons on a 6px pitch is 322px of row, so anything under
          about 340 wraps — and three rows of nav is a third of a phone screen
@@ -3824,17 +3988,30 @@
          a shrunken button is a letterbox. `--nav-h` therefore becomes the
          button's CEILING rather than its size, which is the right way round for
          the stack above it: the panel clears the tallest the nav can be. */
-      :root { --nav-h: 34px; --nav-bot: 10px; }
-      #rail { gap: 4px; max-width: calc(100vw - 8px); flex-wrap: nowrap; }
+      :root { --nav-h: 52px; --nav-bot: 10px; }
+      /* IT FILLS THE ROW. `flex: 1 1 0` divides the width evenly between however
+         many items the rail holds, so the buttons are as big as one row allows
+         rather than a fixed size that happens to fit — which is the same trap a
+         narrower literal is: 34px fits a phone and is a postage stamp on it,
+         and neither number knows how wide the screen is or how many buttons
+         `RAIL_ITEMS` has. `--nav-h` is the CEILING (and what the panel and the
+         bar stack off, so it has to be the biggest they can get, never the
+         current size); `min-width` is the floor under which the row gives up and
+         wraps. `aspect-ratio` keeps them square while they move; without it a
+         stretched button is a letterbox. `#rail` needs a WIDTH and not only a
+         max — it is centred by a transform, so with content-sized width there is
+         nothing for the children to divide. */
+      #rail {
+        gap: 5px; width: calc(100vw - 8px); max-width: calc(100vw - 8px);
+        flex-wrap: nowrap;
+      }
       .rail-btn {
-        flex: 0 1 var(--nav-h); width: auto; height: auto;
-        aspect-ratio: 1; min-width: 26px; border-radius: 10px;
+        flex: 1 1 0; width: auto; height: auto;
+        aspect-ratio: 1; min-width: 26px; max-width: var(--nav-h);
+        border-radius: 12px;
       }
-      .rail-btn .ico { font-size: 16px; }
+      .rail-btn .ico { font-size: 22px; }
       .rail-btn .kb { display: none; }
-      .rail-btn .badge, .rail-btn .cargo {
-        min-width: 14px; height: 14px; padding: 0 3px; font-size: 9px;
-      }
 
       /* The front door has always been `min(440px, 100%)`, so the only things
          between it and the edges are the screen's own padding and a title sized

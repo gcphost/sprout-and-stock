@@ -285,7 +285,7 @@ CREATE TABLE IF NOT EXISTS world (
   value TEXT NOT NULL                     -- JSON
 );
 
--- Active demand/price modifiers. Written by the AI director, read by pricing.
+-- Active demand/price modifiers. Written by the world director, read by pricing.
 -- Scoped to one world: a heat wave in your shop is not a heat wave in mine.
 CREATE TABLE IF NOT EXISTS modifiers (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

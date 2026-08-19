@@ -100,7 +100,7 @@ export function onContentChange(fn) {
 
 /**
  * Validate + write a content row. This is the ONLY sanctioned write path —
- * MCP tools, the AI director and seed loading all funnel through here so
+ * MCP tools, the world director and seed loading all funnel through here so
  * nothing unvalidated can ever reach the DB.
  *
  * @returns {{ok: true, row: object, warnings: string[]} | {ok: false, error: string}}

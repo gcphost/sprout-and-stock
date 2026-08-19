@@ -13,6 +13,7 @@
     "tunnel": "node scripts/tunnel.js",
     "broker:dev": "cd broker && npx wrangler dev",
     "icons": "node scripts/build-icons.js",
+    "favicon": "node scripts/build-favicon.js",
     "seed": "node scripts/seed.js",
     "export": "node scripts/export-content.js",
     "docs:fixtures": "node scripts/document-fixtures.js",

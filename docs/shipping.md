@@ -106,13 +106,25 @@ comes back stopped, a night off does not. The renderer is told separately
 (`scene.paused`), because the one loop driven by the page's clock rather than
 the shop's would otherwise keep a blade turning in stopped time.
 
-### The director's fallback quietly becomes the whole game
+### ~~The director's fallback quietly becomes the whole game~~ — answered by cutting the model
 
-No API key means built-in events, which already works and is deliberate (the
-director is fire-and-forget with a hand-written fallback precisely so a dead API
-never blocks the tick). But in a shipped game **approximately nobody will set a
-key**, so the hand-written events stop being a safety net and become the world
-every player actually experiences.
+The worry was right and the fix was not "write more authored rows". In a shipped
+game approximately nobody sets a key, so the fallback *is* the world every player
+experiences — which meant the honest move was to stop calling it a fallback and
+make it good enough to be the thing. `inventEvent` (`server/director.js`) is that:
+a driver tag drawn from the season and filtered to tags something in the shop
+actually carries, allies riding along, a rival taking the other side, multipliers
+in bands, a duration, a headline from a template, and a no-repeat guard over the
+last three drivers — because a small pool deals the same story three days running.
+The authored `events` rows are drawn a quarter of the time and are the garnish
+rather than the supply.
+
+So there is no key, no network call, and `@anthropic-ai/sdk` has left the
+dependency list. The argument in full is [docs/steam.md](steam.md) §4, and the
+trap it names is the naming: while the API call was "the director" and this was
+"the fallback", the shipped game read as the degraded version of itself. It never
+was. Agents still author events over MCP, which is where a model belongs here —
+at the keyboard, not in the build.
 
 ---
 

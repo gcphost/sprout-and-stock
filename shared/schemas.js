@@ -2,7 +2,7 @@
  * VALIDATION — the safety rail for live editing.
  *
  * Every write into the content DB goes through one of these, whether it came
- * from a human, an MCP tool call, or the AI world director. If it doesn't
+ * from a human, an MCP tool call, or the world director. If it doesn't
  * validate, it's rejected with a readable error and the running game is
  * completely unaffected.
  *
@@ -303,7 +303,7 @@ export const ArchetypeSchema = z.object({
 });
 
 /**
- * A world event — the AI director's main lever.
+ * A world event — the world director's main lever.
  *
  * Effects are deliberately expressed against TAGS, not item ids, so an event
  * written today still works on an item invented next week.

@@ -158,14 +158,6 @@ const css = `
   text-decoration:underline;opacity:.85}
 .coop-alt button:active{transform:none}
 
-.coop-invite{position:fixed;left:12px;bottom:12px;z-index:400;
-  font:12.5px/1 ui-rounded,system-ui,sans-serif;font-weight:800;
-  padding:9px 13px;border-radius:999px;border:0;cursor:pointer;opacity:.6;
-  background:var(--panel-solid,#fffcf5);color:var(--ink,#3a3128);
-  box-shadow:0 3px 0 rgba(58,49,40,.14);transition:opacity .15s}
-.coop-invite:hover{opacity:1}
-.coop-invite.live{opacity:1;background:var(--good,#5aa356);color:#fff;
-  box-shadow:0 3px 0 #43793f}
 `;
 
 
@@ -346,7 +338,7 @@ async function hostWithCode(box, close, session, onJoined) {
     // lives, and pressing that brings this back.
     into.querySelector('#coop-hide').onclick = dismiss;
     into.querySelector('#coop-cancel').onclick = () => {
-      stop.abort(); session.cancel(); live = null; paintPill(); dismiss();
+      stop.abort(); session.cancel(); live = null; dismiss();
     };
 
     copyOnClick(into.querySelector('#coop-link'), link, 'Link copied');
@@ -355,7 +347,6 @@ async function hostWithCode(box, close, session, onJoined) {
 
   live = { code, render, stop };
   render(box, close);
-  paintPill();
 
   // Deliberately not awaited by the caller: `showHost` is finished the moment
   // there is something on screen to send, and everything after this happens
@@ -365,7 +356,6 @@ async function hostWithCode(box, close, session, onJoined) {
       const answer = await awaitAnswer(code, { signal: stop.signal });
       await session.accept(answer);
       live = null;
-      paintPill();
       onJoined?.();
       const sub = document.querySelector('#coop-sub');
       if (sub) { sub.className = 'coop-sub'; sub.textContent = 'They are in the shop 🎉'; }
@@ -373,10 +363,8 @@ async function hostWithCode(box, close, session, onJoined) {
     } catch (err) {
       if (stop.signal.aborted) return;
       live = null;
-      paintPill();
       const note = document.querySelector('.coop-note');
       if (note) { note.className = 'coop-note bad'; note.textContent = err.message; }
-      else if (pill) pill.title = err.message;
     }
   })();
 }
@@ -408,30 +396,22 @@ function copyOnClick(button, text, said) {
  * in `render` about why closing the box must not cancel the invite.
  */
 let live = null;
-let pill = null;
 /** How many people are in the shop who are not you. Kept by the transport. */
 let friends = 0;
 
 /**
- * Keep the corner button honest about what is happening behind it.
+ * What the Menu's row is currently saying, as a string to diff on.
  *
- * `friends` is a count the transport reports rather than a flag set once when
- * somebody arrives, and that is the whole of the fix: "⇄ Friend connected" was
- * written at the moment of joining and never unwritten, so a guest who closed
- * their tab left the host looking at a button that said they were still there —
- * which is the same lie the shop itself was telling, one layer up.
+ * The panel repaints when its `live()` signature moves, and both halves of this
+ * change behind the menu's back: a code is minted or spent by a promise nobody
+ * awaits, and the peer count arrives on a wire. `friends` is a count the
+ * transport reports rather than a flag set once when somebody joins, and that
+ * distinction is load-bearing — the old pill wrote "⇄ Friend connected" at the
+ * moment of joining and never unwrote it, so a guest who closed their tab left
+ * the host looking at a button claiming they were still there, which is the
+ * same lie the shop itself was telling one layer up.
  */
-function paintPill() {
-  if (!pill) return;
-  pill.classList.toggle('live', !!live || friends > 0);
-  // An invite that is OUT outranks a friend who is already in, because it is the
-  // one of the two with something still to happen — somebody is being read a
-  // code and the button is where it is written down. Inviting a second person
-  // while a first is in the shop is an ordinary thing to do.
-  pill.textContent = live ? `⇄ Waiting · ${live.code}`
-    : friends > 0 ? `⇄ ${friends} friend${friends === 1 ? '' : 's'} in the shop`
-      : '⇄ Invite a friend';
-}
+export const coopSignature = () => `${live?.code ?? '-'}:${friends}`;
 
 /**
  * GUEST: the shop has gone.
@@ -601,40 +581,65 @@ export async function showJoin({ name, code } = {}) {
 }
 
 /**
- * The button that starts a co-op session.
+ * Watch who is in the shop, so the Menu row can say.
  *
- * Its own floating pill rather than a rail item, and that is a placement to
- * revisit rather than a decision: `docs/ui-shell.md` is clear that anything
- * offering an action belongs in `#panel`, and this does not live there. It is
- * here so the feature can be *used* without editing `client/ui.js`, which is
- * the file most likely to be open in somebody else's editor. Moving it into
- * Controls is one line here and one there.
+ * THIS USED TO BE A FLOATING PILL, bottom left, and its own note said the
+ * placement was one to revisit: docs/ui-shell.md is clear that anything
+ * offering an action belongs in `#panel`, and a pill on the glass does not.
+ * What settled it is a phone — `left: 12px; bottom: 12px` is the corner the
+ * nav wraps into, so the one control in the game that says "somebody else can
+ * play this" sat under the row of buttons you press to do anything. A fixed
+ * corner is a promise about a screen size, and there is no corner left on a
+ * phone that nothing else has claimed.
  *
- * Only mounted when the transport can host — the server build has nothing to
+ * So the button is a row in the Menu (`switchGrid` in client/sections.js) and
+ * this keeps only the half that cannot live there: the peer count, which the
+ * transport reports and nothing else hears. Counting joins where the button is
+ * drawn is how the old pill came to claim a friend was connected for the rest
+ * of the session — a menu that is redrawn on a snapshot would have the same
+ * bug, so the count still lives here and the row asks for it.
+ *
+ * Only wired when the transport can host: the server build has nothing to
  * offer, because both people open the same URL.
  */
-export function mountHostButton(net) {
-  if (!net?.host || document.querySelector('.coop-invite')) return;
-  styles();
-  pill = document.createElement('button');
-  pill.className = 'coop-invite';
-  pill.textContent = '⇄ Invite a friend';
-  pill.title = 'Let somebody else into this shop';
-  // Who is actually in the shop, from the only thing that knows: the transport
-  // owns the wires, so it is the only thing that hears one go. Counting joins in
-  // here instead is how the button came to claim a friend was connected for the
-  // rest of the session.
-  net.on?.('peers', (e) => { friends = e?.count ?? 0; paintPill(); });
-  pill.onclick = () => {
-    // An invite already out is *reopened* rather than replaced. Minting a
-    // second code would quietly retire the one they are already typing in.
-    if (live) {
-      const { box, close } = mount();
-      live.render(box, close);
-      return;
-    }
-    showHost(net);
+export function watchCoop(net) {
+  if (!net?.host) return;
+  net.on?.('peers', (e) => { friends = e?.count ?? 0; });
+}
+
+/**
+ * What the Menu's row should say, and whether there is one at all.
+ *
+ * The same three states the pill wore, in the same order and for the same
+ * reason: an invite that is OUT outranks a friend already in, because it is the
+ * one with something still to happen — somebody is being read a code and this
+ * is where it is written down. Inviting a second person while a first is in the
+ * shop is an ordinary thing to do.
+ */
+export function coopStatus(net) {
+  if (!net?.host) return null;
+  return {
+    live: !!live,
+    friends,
+    on: !!live || friends > 0,
+    code: live?.code ?? null,
+    name: live ? `Waiting · ${live.code}`
+      : friends > 0 ? `${friends} friend${friends === 1 ? '' : 's'} in`
+        : 'Invite a friend',
+    sub: live ? 'the code is out — press to show it again'
+      : friends > 0 ? 'somebody else is playing this shop'
+        : 'let somebody else into this shop',
   };
-  document.body.appendChild(pill);
-  return pill;
+}
+
+/** Open the dialogue, or re-show the invite that is already out. */
+export function openCoop(net) {
+  // An invite already out is *reopened* rather than replaced. Minting a second
+  // code would quietly retire the one they are already typing in.
+  if (live) {
+    const { box, close } = mount();
+    live.render(box, close);
+    return;
+  }
+  showHost(net);
 }

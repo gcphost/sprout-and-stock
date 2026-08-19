@@ -21,8 +21,10 @@ import { SOUNDS, TRACKS } from './audio/manifest.js';
 import { sfx } from './audio/sfx.js';
 import { reportHtml } from './report.js';
 import { CORNERS, isOff, setOff } from './corner.js';
+import { coopStatus, openCoop, coopSignature } from './coop.js';
 import { tutorOff, setTutorOff, replayTutor } from './tutor.js';
 import { deptOf } from './aisles.js';
+import { SUPPORT_URL, SUPPORT_LINE, SUPPORT_LABEL, openLink } from './links.js';
 
 /**
  * Every browsable list that renders into #panel.
@@ -2140,6 +2142,11 @@ export const SECTIONS = [
      */
     live: () => `${mix.signature()}|${music.nowPlaying()?.id ?? '-'}`
       + `|${CORNERS.map((c) => (isOff(c.id) ? '-' : '+')).join('')}`
+      // ...and who is in the shop. Both halves of it move behind this menu's
+      // back — a code is minted by a promise nobody awaits, and a friend
+      // arriving or dropping is a wire — so without it the row would go on
+      // saying "Invite a friend" while somebody was already playing.
+      + `|${coopSignature()}`
       // ...and the tour's switch, for the reason every other switch is in here:
       // `run` repaints, but `live` is what stops the repaint being thrown away
       // by the next snapshot's diff deciding nothing has changed.
@@ -2167,6 +2174,59 @@ export const SECTIONS = [
       { sep: 'Game', icon: ICONS.settings },
       { name: ui.net?.world?.name ?? 'This shop', sub: 'the save you are playing', plain: true },
       ...switchGrid(ui),
+      // Letting somebody in. A row here rather than the floating pill it was,
+      // and the argument is docs/ui-shell.md's own: anything offering an action
+      // belongs in `#panel`. What settled it is a phone — the pill was pinned
+      // `left: 12px; bottom: 12px`, which is the corner the nav wraps into, so
+      // the one control that says this shop can be played by two people sat
+      // under the buttons you press to do anything at all.
+      //
+      // Absent rather than disabled on a build that cannot host: the server
+      // build has nothing to offer, because both people open the same URL, and
+      // a greyed row is a promise that something would happen if you were
+      // somewhere else. `coopStatus` answers null there, and `.filter(Boolean)`
+      // on the list below is what makes a row optional.
+      ...(coopStatus(ui.net) ? [{
+        icon: ICONS.staff,
+        name: coopStatus(ui.net).name,
+        sub: coopStatus(ui.net).sub,
+        mid: true,
+        run: () => openCoop(ui.net),
+      }] : []),
+      // The tip jar, on the tab `/` opens on rather than down in Credits with
+      // the sound licences. Credits is the honest *home* for it and is `passive`
+      // — the one tab the menu key never lands on — so a link put there is a
+      // link nobody is ever shown, which is the whole thing this is not meant to
+      // be. It is one row, it says what it is, and it is the only row in the
+      // game that leaves the game.
+      //
+      // ABOVE the way out and never below it: two rows in a stack that both take
+      // you off this screen, with the irreversible one second, is a misread
+      // waiting to happen. See client/links.js for why it is opened rather than
+      // navigated to — this tab is holding a shop.
+      //
+      // `mid` and an ICON rather than an emoji, both for the same reason: every
+      // other row on this tab that does something is a centred tile with an
+      // inline SVG on it, and a left-aligned line with an emoji on it read as a
+      // *label* sitting between two buttons. `ICONS.support` comes through the
+      // generator like the other fifty-four, never a glyph typed in here — a
+      // font's emoji is a different drawing on every machine. It was a coffee
+      // mug for a day; see client/links.js for why the mug had to go.
+      {
+        icon: ICONS.support,
+        name: SUPPORT_LABEL,
+        // The same line the front door carries, and not the URL it used to
+        // show: a bare domain under a button is a thing to verify rather than a
+        // thing to read, and this is the one row in the menu that is allowed to
+        // be a joke. Both spellings come off `links.js` so the tone cannot end
+        // up different in the two places it is said. Static in both, for the
+        // reason written over SUPPORT_LINE: the version of this that noticed how
+        // long you had played belongs on the award card, where the game has
+        // already stopped to say something.
+        sub: SUPPORT_LINE,
+        mid: true,
+        run: () => openLink(SUPPORT_URL),
+      },
       // The way out, LAST and full width. It used to sit second, directly under
       // the name of the shop, on the argument that the shop and the way out of
       // it are one thought — which is true and puts the one press you can't take

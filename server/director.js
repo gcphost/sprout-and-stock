@@ -337,18 +337,15 @@ function inventEvent(game) {
 }
 
 /**
- * No API key, an error, or a refusal — invent one locally instead.
- *
- * Hand-written `events` rows are still drawn from now and then, because a
- * set piece somebody wrote on purpose beats a generated one, and because
- * they're the place to put an event with a story the generator can't tell.
- * They're the garnish now rather than the whole supply.
- */
-/**
  * Today's event: an authored one a quarter of the time, otherwise an invented
  * one. This IS the director — it was called `applyFallback` while there was a
  * model in front of it, and the rename is the point rather than tidying, for
  * the reason at the top of this file.
+ *
+ * Hand-written `events` rows are still drawn from now and then, because a set
+ * piece somebody wrote on purpose beats a generated one, and because they're
+ * the place to put an event with a story the generator can't tell. They're the
+ * garnish rather than the whole supply.
  */
 function stageEvent(game, reason) {
   // Same don't-repeat rule the generator uses, for the same reason: the pool is

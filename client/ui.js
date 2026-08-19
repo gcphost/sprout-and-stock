@@ -3394,14 +3394,66 @@ export class UI {
     // Only while the ring is turning. `progress` is sent from the tick it arms
     // at zero, which is the whole armed-but-idle state the hints are better at.
     this._doing = action && action.progress > 0 ? action : null;
+    this._prog = action?.progress ?? 0;
     this.paintPrompt();
+    this.markPress();
+  }
+
+  /**
+   * How far through the row you are holding is, painted on the row itself.
+   *
+   * A hold is the one gesture in this game with no clock on it anywhere the eye
+   * is: in the world the ring winds on the thing you are pointing at, which is
+   * where you are already looking — and on the pill you are looking at a button
+   * at the bottom of the screen while the ring turns somewhere behind your
+   * thumb. So the button fills, left to right, and the fill IS the ring: the
+   * same number, off the same `action.progress` the shop sends.
+   *
+   * Written straight onto the node rather than through `paintPrompt`, and that
+   * is the whole reason this is its own method. The card is rebuilt from
+   * `innerHTML` whenever what it SAYS changes, so anything carried in that
+   * rebuild is lost and re-derived several times a second — a class went on and
+   * came off between repaints and read as a button flickering under a finger
+   * that had not moved. A property set on a node that is already there survives
+   * until the words themselves change, which is exactly the life a press has.
+   */
+  markPress() {
+    const rows = this._rowEls ?? [];
+    rows.forEach((el, i) => {
+      const on = i === this._pressed;
+      el.classList.toggle('pr-busy', on);
+      // Clamped, because a repeat pull reports its own cycle and can arrive at
+      // slightly over 1 between ticks — a fill wider than the button paints past
+      // its rounded corner, which reads as the chip having broken rather than as
+      // a bar that is full.
+      el.style.setProperty('--pr', on ? String(Math.max(0, Math.min(1, this._prog ?? 0))) : '0');
+    });
   }
 
   paintPrompt() {
     const doing = this._doing;
-    const hints = doing
+    // A ROW YOU ARE HOLDING MUST NOT LEAVE WHILE YOU HOLD IT.
+    //
+    // An armed action used to replace the whole list with one line naming it,
+    // which is right for a press made in the world — your hand is on the shop,
+    // and the pill is the only thing that can say what is happening. It is
+    // exactly wrong for a press made ON the pill: the button under your finger
+    // is deleted the instant it starts working, the card resizes to one row, and
+    // what is left is a label where the thing you were pressing was. Letting go
+    // early is a real part of this gesture (half a hold is half a board), so the
+    // one moment you most need that button to still be there is the one moment
+    // it went away.
+    //
+    // So a pill press keeps its list and marks the row instead. `_pressed` is
+    // the row the pointer went down on, which is the only thing that can tell
+    // the two cases apart — `doing` says what is running, never who started it.
+    const own = this._pressed != null && this._hints?.[this._pressed] ? this._pressed : null;
+    const hints = doing && own == null
       ? [{ btn: doing.btn === 'right' ? 'r' : 'l', tag: null, say: `${doing.label}…` }]
       : this._hints;
+    // The mark is NOT in this key, and must not be: it goes on the node in
+    // `markPress` precisely so that holding a button is not a reason to rebuild
+    // the card under the finger holding it.
     const key = hints
       ? hints.map((h) => `${h.btn}${h.tag ?? ''}:${h.say}`).join('|')
       : null;
@@ -3440,6 +3492,8 @@ export class UI {
     clearTimeout(this._promptGuard);
 
     this.el.prompt.textContent = '';
+    // The nodes, so `markPress` can paint a press onto one without a rebuild.
+    this._rowEls = [];
     // One listener on the pill rather than one per row, because this element is
     // rewritten every time the pointer moves onto something else — a handler
     // bound to a row would be thrown away several times a second. The index is
@@ -3493,6 +3547,11 @@ export class UI {
         // second definition of a hold, it is the shortest press that is
         // obviously not a tap. Every millisecond here is one the ring does not
         // get, and the ring is the part somebody is waiting through.
+        // Which row is being worked, for `paintPrompt` — set for both kinds,
+        // because a tap row's action is short and still repaints the pill under
+        // the finger that made it.
+        this._pressed = Number(row.dataset.i);
+        this.markPress();
         if (h.tag === 'hold') {
           clearTimeout(this._pillArm);
           this._pillArm = setTimeout(() => { this._pillArm = 0; h.run(); }, HOLD_ARM_MS);
@@ -3502,18 +3561,29 @@ export class UI {
       });
       // A press that ended before it was a hold never happened. On the window,
       // because a finger that slid off the row before lifting has still let go.
-      const drop = () => { clearTimeout(this._pillArm); this._pillArm = 0; };
+      const drop = () => {
+        clearTimeout(this._pillArm); this._pillArm = 0;
+        this._pressed = null;
+        this.markPress();
+      };
       addEventListener('pointerup', drop);
       addEventListener('pointercancel', drop);
     }
     hints.forEach((h, i) => {
       const right = h.btn === 'r';
+      // Both buttons, one sentence — see `add` in `pressHints`. A mouse on each
+      // outside edge says the same thing the two chips said, in the space of
+      // one: the side is still doing the talking, there is just nothing left to
+      // divide. No `pr-r`, because a reversal is what puts a lone mouse on its
+      // own edge and this row has both edges spoken for.
+      const both = h.btn === 'lr';
       // A BUTTON when there is a press behind it, and a span when there is not:
       // the armed-action line (`doing`) is a statement about what is happening,
       // and a thing that looks pressable and is not is the green-ghost bug with
       // words on it. `type="button"`, or it is a submit inside nothing.
       const row = document.createElement(h.run ? 'button' : 'span');
       if (h.run) { row.type = 'button'; row.dataset.i = String(i); }
+      this._rowEls.push(row);
       // `pr-r` is a `row-reverse`, so a right-button job puts its mouse on the
       // right of its own words. The side is doing the talking, and a right
       // press drawn glyph-first would argue with the only thing this says.
@@ -3522,7 +3592,7 @@ export class UI {
       // belongs to neither button (`p.pressing` is one bit that says a button is
       // down and nothing about which), so it gets no mouse rather than one with
       // neither cap lit, which would read as a third state nobody can make.
-      if (!doing || doing.btn) row.innerHTML = mouseGlyph(right);
+      if (!doing || doing.btn) row.innerHTML = mouseGlyph(both ? false : right);
       // What makes it something other than a click: how long you hold it, or how
       // many of them. Said in a word rather than drawn, because there is no
       // picture of "twice" that anybody reads as twice.
@@ -3535,8 +3605,16 @@ export class UI {
       const b = document.createElement('b');
       b.textContent = h.say;
       row.append(b);
+      // The second mouse, after the words rather than before them. `beforeend`
+      // on the row itself, because the glyph is markup and the rest of this loop
+      // is nodes — the same call `mouseGlyph` is already made with above.
+      if (both && (!doing || doing.btn)) row.insertAdjacentHTML('beforeend', mouseGlyph(true));
       this.el.prompt.append(row);
     });
+    // A rebuild throws away whatever was marked, so the press is put back on
+    // whichever node now sits at that index — the words are the same or this
+    // would not be the same press.
+    this.markPress();
     // Keep `hud` — it carries position:fixed, and dropping it drops the
     // element out of the overlay and into the document flow, invisible.
     this.el.prompt.className = 'hud show going';

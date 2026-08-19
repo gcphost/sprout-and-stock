@@ -28,7 +28,7 @@ export const TAG_GROUPS = {
   occasion: ['breakfast', 'lunch', 'dinner', 'party', 'holiday', 'gift', 'kids'],
   // Seasonal demand swings.
   season: ['spring', 'summer', 'autumn', 'winter'],
-  // Cultural momentum — the AI director loves messing with these.
+  // Cultural momentum — the world director loves messing with these.
   trend: ['trendy', 'classic', 'nostalgic', 'viral'],
   // Who works here. Same vocabulary idea as the rest: a world event that wants
   // to slow every hire down aims at a tag, never at a role id.

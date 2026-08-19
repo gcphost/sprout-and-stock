@@ -182,7 +182,15 @@ net.onScreenshot(() => scene.screenshot());
 //   __sns.state          -> the last snapshot the server sent
 //   __sns.scene          -> the renderer
 //   __sns.net.send(...)  -> send a raw message
-window.__sns = { net, scene, ui, get state() { return latestState; } };
+//   __sns.award.push({…}) -> put a milestone card up without earning it
+//
+// That last one is the only way to LOOK at the top of the ladder: `year-one` is
+// 365 in-game days away, and a card nobody can see until then is a card whose
+// wording gets fixed after it has shipped. It takes the same object the wire
+// carries (`achieved` — see `milestoneNews` in server/sim/goals.js), so it is
+// the real card rather than a mock of one:
+//   __sns.award.push({ id: 'year-one', name: 'A year', blurb: 'Still here.', catchment: 420 })
+window.__sns = { net, scene, ui, award, get state() { return latestState; } };
 
 net.on('layout', (m) => {
   scene.buildWorld(m);
@@ -213,6 +221,19 @@ net.on('state', (m) => {
   latestState = m;
   scene.syncState(m, net.myId);
   ui.update(m);
+  // ...and what pressing would DO, which is a question about the shop as much as
+  // about the pointer and was only ever re-answered when the pointer moved.
+  // Outside build mode `refreshGhost` runs on `pointermove` and nothing else, so
+  // every hint went stale the moment the world changed under a still hand: walk
+  // to a shelf and the pill still offers the walk, pick a crate up and it still
+  // offers the lift, empty your hands and the put rows stay. With a finger it
+  // never updates at all, because a tap is not a move — which is exactly the
+  // input the rows became buttons for.
+  //
+  // On the snapshot rather than per frame: what you can do changes when the shop
+  // does, at 10Hz, and this raycasts. Build mode already runs it every frame for
+  // the ghost and is excluded so it is not run twice.
+  if (!ui.buildOn) refreshGhost(true);
   // ...and the tour, which is nothing but a predicate over this snapshot. After
   // `ui.update` on purpose: every step asks a question about the UI as well as
   // about the shop ("is the supplier open"), so it has to be handed a HUD that
@@ -387,7 +408,11 @@ addEventListener('blur', () => ui.setKinPreview(false));
 const pointer = { x: innerWidth / 2, y: innerHeight / 2, onCanvas: true };
 addEventListener('pointermove', (e) => {
   pointer.x = e.clientX;
-  pointer.y = e.clientY;
+  // The lift lives HERE and nowhere else, because this is the one place the
+  // pointer is worked out — a second offset applied by the canvas handler would
+  // be overwritten by this one a moment later (it fires on the way up to the
+  // window), and the ghost would flicker between two tiles as you slid.
+  pointer.y = e.clientY - (drag.aiming ? TOUCH_AIM_LIFT : 0);
   pointer.onCanvas = e.target === canvas;
   refreshGhost();
 });
@@ -615,7 +640,20 @@ function refreshGhost(force = false) {
     // ...and it lingers with the cage. The card follows the pointer as it always
     // has, which is what you want here: the thing you were reading stays beside
     // your hand while it moves rather than sitting back on the shelf you left.
-    const tipOn = aim?.fixture ?? held?.f ?? null;
+    // ...and it is a HOVER, which is a thing a touchscreen does not have. There
+    // it becomes a card pinned to wherever you last tapped, naming a board that
+    // outlives the tap, over a shop that keeps moving underneath it: walk away
+    // and the name of a shelf you are nowhere near sits in the middle of the
+    // floor with nothing to say what it is about. Nothing takes it down, because
+    // the only thing that ever did was the pointer going somewhere else — and
+    // since the hints are re-answered on every snapshot now, "the pointer" is a
+    // position from several seconds ago that no longer means anything.
+    //
+    // So it is suppressed where the pill drives (`pillDrives`), which is also
+    // where it stopped being needed: the same tap puts that pile's verbs on
+    // screen, and what it is and what it costs are one press further in, in the
+    // unit's own menu.
+    const tipOn = pillDrives() ? null : (aim?.fixture ?? held?.f ?? null);
     ui.setBoardTip(
       shelfById(tipOn?.id),
       (tipOn === held?.f ? held.board : aim?.board) ?? null,
@@ -841,6 +879,23 @@ const TAP_SLOP = 7;
 const LONG_PRESS_MS = 420;
 
 /**
+ * How far above a finger the build ghost sits once you are aiming it.
+ *
+ * A hover is what makes building on a mouse honest: the ghost is green or red
+ * under the pointer for as long as you like before anything is spent. A finger
+ * has no hover — the press IS the aim — so on a phone the verdict arrives under
+ * the one thing on the screen guaranteed to be covering it, and a tap places on
+ * release having shown you nothing. That reads as the shop refusing placements
+ * at random, because the red frame was there and your thumb was on it.
+ *
+ * So a held press lifts the ghost clear (`drag.aiming`) and sliding nudges it
+ * rather than panning the shop. In CSS pixels and deliberately about a
+ * fingertip's worth: less and the thumb still covers the tile, more and the
+ * thing you are placing stops reading as being on the end of your finger.
+ */
+const TOUCH_AIM_LIFT = 72;
+
+/**
  * Does a long press open what you are pointing at?
  *
  * Yes — as the third way in, beside the two `openInTwo` gives you. A tap
@@ -877,6 +932,8 @@ const drag = {
   lift: null,       // the fixture this press would pull, once it moves
   moving: false,    // ...and it did: this drag is carrying something
   took: false,      // this press armed goods — so its hold is a pull, not a look
+  touch: false,     // a finger or a pen, which has no hover to build with
+  aiming: false,    // ...so this held press owns the ghost. See `TOUCH_AIM_LIFT`
 };
 
 /**
@@ -1146,6 +1203,7 @@ function endDrag() {
   drag.id = null;
   drag.lift = null;
   drag.moving = false;
+  drag.aiming = false;
   release();
 }
 
@@ -1779,6 +1837,11 @@ canvas.addEventListener('pointerdown', (e) => {
   // A stylus counts as a finger here, not as a mouse: it is held over a screen
   // that has the twist, and it has no second button to back out with either.
   drag.turns = e.pointerType !== 'touch' && e.pointerType !== 'pen';
+  // The same two pointer kinds, kept as their own field because the other half
+  // of this asks a different question about them: `turns` is what the drag does
+  // to the camera, and this is whether the press has a hover behind it.
+  drag.touch = !drag.turns;
+  drag.aiming = false;
   drag.spun = false;
   drag.travel = 0;
   drag.done = false;
@@ -1892,6 +1955,29 @@ canvas.addEventListener('pointerdown', (e) => {
       return;
     }
 
+    // ...and a held press on bare ground with something to place is the FINGER'S
+    // hover — see `TOUCH_AIM_LIFT`. It comes after the lift for the same reason
+    // that one comes first: a press that started on a fixture is about that
+    // fixture, and only a press with nothing under it is asking where to put
+    // something. A quick tap is untouched, which is the half that keeps this
+    // free: it places under your finger exactly as it always has, and this is
+    // only ever what happens when you keep holding instead.
+    //
+    // Touch and pen only. A mouse already has the hover this is standing in for,
+    // and taking its hold away would cost it `openAtPointer` for nothing.
+    if (drag.touch && (ui.paletteArmed || ui.holding) && !ui.demolishArmed()) {
+      drag.aiming = true;
+      // The hop IS the signal that sliding now moves the ghost rather than the
+      // shop. Nothing else says so — there is no cursor to change and no room on
+      // the pill for a mode — and a ghost that quietly started following the
+      // finger it was already under would look like nothing had happened.
+      pointer.y = drag.oy - TOUCH_AIM_LIFT;
+      pointer.x = drag.ox;
+      pointer.onCanvas = true;
+      refreshGhost(true);
+      return;
+    }
+
     if (!HOLD_OPENS) return;
     // ...and the other thing a hold already means. This press named goods on
     // the way down, so the ring you are watching is a board draining into a
@@ -1941,6 +2027,12 @@ canvas.addEventListener('pointermove', (e) => {
     return;
   }
   if (drag.id !== e.pointerId) return;
+  // Aiming owns the drag outright: the ghost has already moved (the window's own
+  // `pointermove` applies the lift and re-runs `refreshGhost`), so all that is
+  // left here is to keep the shop still underneath it. Swallowed before `travel`
+  // is counted as well, or the slop line would rule this a pan and `release()`
+  // would throw away a press that is still very much down.
+  if (drag.aiming) return;
   drag.travel = Math.max(drag.travel, Math.hypot(e.clientX - drag.ox, e.clientY - drag.oy));
   // Past the slop it is a pan and never becomes a tap again, so the long press
   // is disarmed for good rather than re-tested each move.
@@ -2054,7 +2146,15 @@ function endPress(e) {
   // already spent the gesture, so its release means nothing.
   const tapped = e && !drag.done && drag.travel < TAP_SLOP;
   const dropping = drag.moving && !!e;
+  // A press that spent itself aiming places where the GHOST is, not where the
+  // finger is — they are `TOUCH_AIM_LIFT` apart, and the ghost is the one you
+  // have been looking at. `pointer` is where it stands, so this is the same
+  // "what you see is what lands" the mouse has always had. No event at all (a
+  // cancelled pointer, a lost window) places nothing, the way a lost drag leaves
+  // a fixture in your hands rather than dropping it somewhere nobody chose.
+  const aimed = drag.aiming && !!e ? { x: pointer.x, y: pointer.y } : null;
   endDrag();
+  if (aimed) { tapAtPointer(aimed.x, aimed.y); return; }
   // Pulled something out and let go: it lands where you let go of it. A drag
   // that ends with no event at all — a cancelled pointer, a lost window — leaves
   // it in your hands instead, which is the recoverable half: Esc puts it back
@@ -2498,6 +2598,36 @@ function pickWay(cx, cy, blocked = false) {
 const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed();
 
 /**
+ * A TAP IS A QUESTION HERE, NOT A VERB.
+ *
+ * On a desktop a tap can be a verb because there is a second button to be the
+ * other half of the sentence: left takes, right puts, and pointing at a crate
+ * you are stood at can safely mean "take one" because putting one back is a
+ * press away. With one button that whole grammar is gone — every direction and
+ * every length of press has to come off the pill instead, which is why its rows
+ * became buttons at all.
+ *
+ * So the tap gives the pill its target and stops there. Tapping a crate no
+ * longer takes a tin out of it: you get the list, and the list has "Take one" on
+ * it, one press further and reversible. It is the same trade the fixture menu
+ * made when a tap stopped BEING the menu — a press that does something to your
+ * goods, made by the one gesture people use to look at things, is a press
+ * nobody meant.
+ *
+ * Only what you can already reach: out of reach, the tap is still the walk,
+ * because a tap on a shelf across the shop is how you get to it and the pill has
+ * nothing to offer somewhere you are not standing.
+ *
+ * The test is the WIDTH and not `pointer: coarse`, and it is the same one the
+ * rows' `pointer-events` uses in index.html — deliberately, since these are two
+ * halves of one decision: the tap may only stop being a verb where the pill is
+ * pressable, or the actions have left the world and landed nowhere. A phone in
+ * a desktop browser's device emulation is also the place this gets tested, and
+ * it does not reliably report a coarse pointer.
+ */
+const pillDrives = () => matchMedia('(max-width: 640px)').matches;
+
+/**
  * How long the pointer has to SETTLE on a pile before that pile is the target.
  *
  * A unit is one thing you point at and its boards are three, a few pixels
@@ -2781,13 +2911,38 @@ function pressHints({ aim, board, onPile, drop }) {
   // second opinion this whole function is written not to be. Held presses say so
   // by passing `true` to `pillPress`, which is the one thing a list cannot
   // express on its own — see there.
+  //
+  // ONE SENTENCE PER OUTCOME, NOT PER BUTTON. Where both buttons do the same
+  // thing by the same press — a crate out of reach is the walk either way — the
+  // list used to carry the row twice, so the pill read "Go to it | Go to it"
+  // with a mouse on each end: two chips, one divider, and one fact. The words
+  // are the promise here, so a twin is folded onto `btn: 'lr'` and the renderer
+  // puts a mouse on both sides of the one sentence. The tag has to match as well
+  // as the words, or a shelf's "Go to it" TWICE and its plain right-button walk
+  // — three presses that are genuinely different gestures — would collapse into
+  // a row that lies about how to make it.
   const add = (btn, tag, say, run = null) => {
+    const twin = out.find((h) => h.say === say && h.tag === tag && h.btn !== btn);
+    if (twin) { twin.btn = 'lr'; return; }
     if (out.length < 4) out.push({ btn, tag, say, run });
   };
   const carry = myCarry();
   const haul = myHaul();
   const crate = aim?.crate ?? null;
-  const f = aim?.fixture ?? null;
+  // THE THING YOU SENT YOURSELF TO IS STILL THE THING, and that is what makes
+  // "Go there" finish its own sentence. The list is re-derived from the POINTER
+  // every snapshot, and a walk moves the camera under a pointer that is not
+  // going to move again on a touchscreen — so pressing Go there took you to the
+  // shelf and then answered about whatever had drifted under your last tap,
+  // which is a press that works and then loses the thing it worked on.
+  //
+  // The selection is the answer because the tap already made it (`tapAtPointer`
+  // → `openInTwo` → `selectFixture`), so this is not a second kind of aim: it is
+  // the one the player can see, ringed, and it survives the journey. The pointer
+  // still wins where it has something to say, which keeps a deliberate aim at
+  // something else from being ignored — this is the fallback, not an override.
+  const f = aim?.fixture
+    ?? (pillDrives() && !crate ? scene.fixtureById(ui.fixtureRef?.id) ?? null : null);
 
   if (crate && !f) {
     // A box on the floor with one already on your shoulder is the SQUARE it
@@ -2802,13 +2957,17 @@ function pressHints({ aim, board, onPile, drop }) {
     }
     if (!inReachOf(crate)) {
       const go = () => net.send('take', { palletId: crate.id });
+      // Both buttons are the same journey, so with one pointer it is one row.
+      if (pillDrives()) { add('l', null, 'Go there', go); return out; }
       add('l', null, 'Go to it', go);
       // Both buttons walk. The right one's own jobs all need you standing there
       // (`armPut` opens with `dropping()` and refuses a box out of reach), so
       // out here it falls down its ladder to the same tail the left button has
       // — see the end of the right-button `pointerup`. Said rather than left to
       // be discovered, because a button that works at four tiles and does
-      // nothing at eight reads as the shop being unreliable.
+      // nothing at eight reads as the shop being unreliable. Both rows are still
+      // written, because the fact is about two buttons; `add` is what folds them
+      // into the one sentence with a mouse at each end.
       add('r', null, 'Go to it', go);
       return out;
     }
@@ -2837,6 +2996,17 @@ function pressHints({ aim, board, onPile, drop }) {
     // carries the direction, so you arrive with the put armed) or, empty-handed,
     // down its own ladder to the plain walk at the tail of `pointerup`.
     if (!nearFixture(f) && !atWorkSpotOf(f)) {
+      // ONE ROW WHERE THERE IS ONE BUTTON. The three below are three different
+      // presses on two mouse buttons — select, double-press to walk, right-press
+      // to walk carrying — and with a single pointer they collapse into the only
+      // thing you can mean about something you are not standing at: go to it.
+      // Selecting is not lost, it is the tap itself (`tapAtPointer`), so a row
+      // for it here would be the press you just made.
+      if (pillDrives()) {
+        add('l', null, (carry || haul) ? 'Take it there' : 'Go there',
+          () => walkTo({ fixture: f.id, put: !!(carry || haul) }));
+        return out;
+      }
       add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it', () => openInTwo(f));
       add('l', 'twice', 'Go to it', () => walkTo({ fixture: f.id }));
       add('r', null, (carry || haul) ? 'Take it there' : 'Go to it',
@@ -3221,6 +3391,10 @@ function tapAtPointer(cx, cy) {
       // it there anyway, so this is the half that makes the tap do the right
       // thing rather than the half that stops the wrong one.
       if (!crate.stacked && inReachOf(crate)) {
+        // ...unless the pill is where the verbs live. See `pillDrives`: the
+        // press already named the crate on the way down, so stopping here is
+        // exactly "you have the list now", and Take one is on it.
+        if (pillDrives()) return;
         net.send('crate-one', { palletId: crate.id, put: false });
         return;
       }
@@ -3300,6 +3474,10 @@ function tapAtPointer(cx, cy) {
         // is worked from its `useAt`, and standing against the thing itself is
         // equally close enough for the verb.
         if (over.kind === 'station' && (nearFixture(over) || atWorkSpotOf(over))) {
+          // The pill's job where it has one — see `pillDrives`. `openInTwo`
+          // rather than a bare return, because a machine has a menu worth
+          // reaching and the tap is the only way to it now.
+          if (pillDrives()) { openInTwo(over, { walk: true }); return; }
           net.send('station-one', { stationId: over.id });
           return;
         }
@@ -3339,8 +3517,14 @@ function tapAtPointer(cx, cy) {
       if (ripeBoard(hit?.f, hit?.board) && boardTakes()) {
         pickBoard(over, hit.board);
         scene.ripple(over.x, over.z);
-        if (nearFixture(over)) net.send('shelf-one', { shelfId: over.id, itemId: hit.board });
-        else net.send('take', { shelfId: over.id, itemId: hit.board });
+        // Standing at it, the tap NAMES the pile and stops — `pickBoard` above
+        // is the whole of what it does, and that selection is what keeps the
+        // pill about this board rather than about whatever the aim wanders onto.
+        // See `pillDrives`. The walk is untouched: out of reach, a tap is still
+        // how you get there.
+        if (nearFixture(over)) {
+          if (!pillDrives()) net.send('shelf-one', { shelfId: over.id, itemId: hit.board });
+        } else net.send('take', { shelfId: over.id, itemId: hit.board });
         return;
       }
 
@@ -3616,7 +3800,10 @@ async function openWorld(worldId, name) {
   tutor.maybeStart(worldId);
   // Only the web build can host a friend — see client/coop.js. Asked as a
   // capability, like everything else about which transport this is.
-  if (net.host) import('./coop.js').then((m) => m.mountHostButton(net));
+  // No button to mount any more — the invite is a row in the Menu, and this is
+  // only the peer count it reads. Still lazy for the same reason it always was:
+  // a build that cannot host never loads the module at all.
+  if (net.host) import('./coop.js').then((m) => m.watchCoop(net));
   loop();
 }
 

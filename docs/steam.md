@@ -1,6 +1,7 @@
 # Steam — a thing somebody buys, on Windows and macOS
 
-Status: **nothing built.** Everything here is proposed.
+Status: **step 7 built** (the model path is cut — §4, and it landed everywhere
+rather than only in the package). Everything else here is proposed.
 
 [docs/shipping.md](shipping.md) already decided the *shape*: a downloadable
 binary, single-player by default, one friend invited in, MCP shipped as the mod
@@ -123,7 +124,13 @@ cloud conflict is not "you lost a day", it is "you lost the twelve crops you
 authored". **Cloud is not required for launch.** Shipping v1 without it is
 defensible; shipping it wrong is not.
 
-### 4. The model path comes out, and we already wrote the thing that replaces it
+### 4. ~~The model path comes out~~ — **done, and everywhere rather than only in the package**
+
+This section asked for the cut before there was a web build to force it. The web
+build forced it, so the cut landed across the whole project rather than as a
+packaging step: there is no key, no network call and no `@anthropic-ai/sdk`
+anywhere, in any target, including dev. What follows is the argument as it was
+made, because it is still the reason.
 
 **The shipped director is `inventEvent`, and the LLM is the part that goes.**
 That is a decision, not a concession, and the order those two are written in
@@ -150,18 +157,23 @@ So the packaged build has no model in it at all, and three things fall out:
   the January 2026 clarification the exemption covers *development* tools only,
   so a shipped bring-your-own-key field would have put us squarely in it, and
   "the player supplied the key" is not an out.
-- **`@anthropic-ai/sdk` leaves the dependency list** for the packaged build. A
-  dependency that ships is a dependency that gets asked about.
-- **Nothing about dev changes.** `ANTHROPIC_API_KEY` still works here, still
-  writes better headlines, and is still fire-and-forget. It is a thing the two
-  of us run against our own shop, which is what it has always been.
+- **`@anthropic-ai/sdk` leaves the dependency list.** A dependency that ships is
+  a dependency that gets asked about — and it could not have gone in a browser
+  at all, which is what turned this from a good idea into a blocker.
+- **Dev changes too, and that is the half this section got wrong.** The plan was
+  that `ANTHROPIC_API_KEY` would go on working here, writing better headlines for
+  the two of us. It does not, and it should not: a director that phrases itself
+  one way on a dev machine and another way in every shipped build is a world
+  nobody can play-test. Authoring is where the model belongs — `create_event` and
+  `add_modifier` over MCP are untouched, and an agent at the keyboard writes a set
+  piece into `data/seed/events.json` that every player then gets.
 
-The one thing to check before cutting it, because it is invisible either way:
+What had to be checked before cutting it, because it was invisible either way:
 `inventEvent` draws from `game.rng`, and `runDirector` is the async path that is
-never awaited by the tick. Removing a *branch* that was never taken in a
-keyless build cannot move a balance number — but confirm the removal does not
-change how many times that stream is called on the path that IS taken, or two
-`simulate` runs either side of the cut diverge for a reason nothing prints.
+never awaited by the tick. Removing a *branch* that was never taken in a keyless
+build cannot move a balance number — but the removal had to leave the number of
+draws on the path that IS taken alone, or two `simulate` runs either side of the
+cut would diverge for a reason nothing prints. It did.
 
 ---
 
@@ -288,8 +300,10 @@ Steam never happens.
 5. **Electron shell.** Window, fullscreen, icons, `better-sqlite3` rebuilt for
    both platforms, server as a child process so its crash is not the window's.
 6. **Achievements.** Derived from `GOALS`, hooked to the room broadcast.
-7. **Model path cut.** `inventEvent` and the authored rows are the director;
-   the API call and `@anthropic-ai/sdk` are out of the packaged build.
+7. ~~**Model path cut.**~~ **Built**, out of order and out of scope — the web
+   build got there first, so `inventEvent` and the authored rows are the director
+   in every target, and the API call and `@anthropic-ai/sdk` are gone from the
+   repo rather than from the package.
 8. **Modding panel.** The `ELECTRON_RUN_AS_NODE` command, the tag vocabulary,
    where the database lives. (= shipping.md step 7, minus the token.)
 9. **Package + upload.** electron-builder, notarization on macOS, two depots,

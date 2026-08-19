@@ -385,7 +385,7 @@ export function createApi() {
     res.json({ ok: true, world: g.worldId, cleared: n });
   }));
 
-  // ---- the AI director ---------------------------------------------------
+  // ---- the world director ---------------------------------------------------
 
   api.post('/director/run', wrapAsync(async (req, res) => {
     const g = await gameFor(req);

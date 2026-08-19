@@ -140,6 +140,14 @@ const WANTED = {
   // sit next to the Sound tab, and two speakers side by side is a strip you
   // have to read rather than recognise.
   music: 'ri:music-2-fill',
+  // Supporting the game. Remix rather than game-icons, which is this file's own
+  // rule pointed the right way: the split is "a thing in the world" against
+  // "interface chrome", and this is the one control in the game that is not
+  // about the shop at all. It wore `game-icons:coffee-mug` for a day and the
+  // mug was the whole problem — it is the donation *platform's* branding, it
+  // said nothing about what the money is for, and a drink is not a thing this
+  // shop sells. A heart says "back this" in every interface anybody has used.
+  support: 'ri:heart-3-fill',
 };
 
 const sets = {};
