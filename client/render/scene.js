@@ -283,13 +283,82 @@ function plantSpots(count, seed = 0) {
 const SUN_OFFSET = new THREE.Vector3(26, 40, 14);
 
 /**
- * One shadow map per this many frames. See the constructor.
+ * How far either side of what the camera is looking at the shadow map reaches,
+ * and how many texels it spends doing it. Read by `setupLights`, which is the
+ * only place they are applied, and by the two rules below, which is why they
+ * are up here rather than inline down there: a span that disagreed with the
+ * texel size would leave the snap below rounding to the wrong grid, and nothing
+ * on screen would say so beyond the shimmer it was meant to remove.
+ */
+const SHADOW_SPAN = 30;
+const SHADOW_MAP = 2048;
+const SHADOW_TEXEL = (SHADOW_SPAN * 2) / SHADOW_MAP;
+
+/**
+ * The light's own basis, which is constant because `SUN_OFFSET` is: the shadow
+ * camera looks from `target + SUN_OFFSET` at `target` with world up, so its
+ * right and up axes never depend on where the target has got to.
  *
- * 3 is 20Hz at a 60fps draw, which is twice the rate the world itself arrives
- * at — the snapshot is 10Hz, so a shadow updated any faster than this is
- * interpolating a body position that has not moved on the server yet.
+ * Same construction three.js does in `lookAt`: z away from what is being looked
+ * at, x across it, y the remainder.
+ */
+const SUN_Z = SUN_OFFSET.clone().normalize();
+const SUN_X = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), SUN_Z).normalize();
+const SUN_Y = new THREE.Vector3().crossVectors(SUN_Z, SUN_X);
+
+/** Scratch for the snap in `render`, which runs once a frame. */
+const SUN_AT = new THREE.Vector3();
+
+/**
+ * Put a point on the shadow map's own texel grid.
+ *
+ * The shadow camera is parked over whatever the view is looking at, so it slides
+ * around the world every frame that you walk. A depth map sampled from a frustum
+ * that has moved by a fraction of a texel is a *different* map of the same
+ * building — every edge in it resamples — so shadows crawl and fizz along their
+ * borders for as long as the camera is moving, which is precisely while somebody
+ * is walking. Rounding the frustum's centre onto multiples of a texel, measured
+ * along the light's own axes rather than the world's, means the grid stands
+ * still in the world and the map moves a whole texel at a time or not at all.
+ *
+ * The component along the light is left alone: it is the distance from the sun,
+ * and rounding it would push the near plane about for nothing.
+ */
+function snapToShadowTexel(p, out) {
+  const a = Math.round(p.dot(SUN_X) / SHADOW_TEXEL) * SHADOW_TEXEL;
+  const b = Math.round(p.dot(SUN_Y) / SHADOW_TEXEL) * SHADOW_TEXEL;
+  return out
+    .copy(SUN_X)
+    .multiplyScalar(a)
+    .addScaledVector(SUN_Y, b)
+    .addScaledVector(SUN_Z, p.dot(SUN_Z));
+}
+
+/**
+ * One shadow map per this many frames, when nothing has moved far enough to
+ * need one sooner. See the constructor and `SHADOW_SLIP`.
  */
 const SHADOW_EVERY = 3;
+
+/**
+ * ...and how far a body may drift from the shadow it is standing in before that
+ * cadence is overruled and the map is drawn on the spot.
+ *
+ * The cadence was argued from the snapshot rate — 10Hz in, so anything above
+ * 20Hz out is redrawing a body that has not moved — and that argument retired
+ * the day `ACTOR_CHASE` started easing people every FRAME instead of on every
+ * packet. What it leaves is a body sliding smoothly with a shadow that steps
+ * along behind it two frames at a time, which is not a shadow anybody reads as
+ * stale: it is one that reads as *jittering*, because the only thing on screen
+ * to compare it against is the feet it is welded to.
+ *
+ * A quarter of a texel is the point below which redrawing could not change a
+ * pixel of the map anyway. So a shop with somebody walking in it pays for a
+ * shadow pass per frame — which is the shop that has a jitter to see — and a
+ * still one goes on paying every third frame, which is where the lever was
+ * bought and where it still is.
+ */
+const SHADOW_SLIP = SHADOW_TEXEL / 4;
 
 /** Scratch for `pickPropBox`, which runs per prop per pointer move. */
 const BOX_HIT = new THREE.Vector3();
@@ -713,6 +782,10 @@ export class Scene {
      */
     this.renderer.shadowMap.autoUpdate = false;
     this.shadowTick = 0;
+    // How far the furthest-moved body has travelled since the map was last
+    // drawn. See `SHADOW_SLIP`: the cadence is a floor now rather than a rule,
+    // because the things this shadow is most obviously *of* move every frame.
+    this.shadowSlip = 0;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(PALETTE.sky);
@@ -842,8 +915,8 @@ export class Scene {
     const sun = new THREE.DirectionalLight(0xfff4dd, 1.15);
     sun.position.set(26, 40, 14);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    const s = 30;
+    sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
+    const s = SHADOW_SPAN;
     Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 110 });
     sun.shadow.bias = -0.0012;
     this.sun = sun;
@@ -2796,25 +2869,43 @@ export class Scene {
    */
   animateActors(dt) {
     const move = 1 - Math.exp(-dt * ACTOR_CHASE);
+    let slip = 0;
     for (const map of [this.players, this.customers]) {
       for (const rec of map.values()) {
         if (rec?.tx === undefined) continue;
-        rec.obj.position.x += (rec.tx - rec.obj.position.x) * move;
-        rec.obj.position.z += (rec.tz - rec.obj.position.z) * move;
+        const dx = (rec.tx - rec.obj.position.x) * move;
+        const dz = (rec.tz - rec.obj.position.z) * move;
+        rec.obj.position.x += dx;
+        rec.obj.position.z += dz;
+        // The furthest anybody went, not the sum: a shadow map is one map, and
+        // it is redrawn for the one body that outran it. Adding them up would
+        // put a busy shop over the line with nobody having moved a pixel.
+        slip = Math.max(slip, Math.abs(dx), Math.abs(dz));
       }
     }
+    // Accumulated rather than compared, because the frames this is asked about
+    // are the ones where the map was NOT redrawn — a body creeping a fifth of a
+    // texel a frame is still a body a texel out of place five frames later.
+    this.shadowSlip += slip;
   }
 
   animateVehicles(dt) {
     if (!this.vehicleProps.size) return;
     const move = 1 - Math.exp(-dt * VEHICLE_CHASE);
     const turn = 1 - Math.exp(-dt * VEHICLE_TURN);
+    let slip = 0;
     for (const rec of this.vehicleProps.values()) {
-      rec.obj.position.x += (rec.x - rec.obj.position.x) * move;
-      rec.obj.position.z += (rec.z - rec.obj.position.z) * move;
+      const dx = (rec.x - rec.obj.position.x) * move;
+      const dz = (rec.z - rec.obj.position.z) * move;
+      rec.obj.position.x += dx;
+      rec.obj.position.z += dz;
       rec.yaw += turnTo(rec.yaw, rec.tyaw) * turn;
       rec.obj.rotation.y = rec.yaw;
+      slip = Math.max(slip, Math.abs(dx), Math.abs(dz));
     }
+    // A lorry is the biggest shadow in the yard and moves twice as fast as
+    // anybody on foot, so it wants the same rule for the same reason.
+    this.shadowSlip += slip;
   }
 
   /**
@@ -5298,8 +5389,14 @@ export class Scene {
     this.lights.update(this.camLook);
     this.camera.position.copy(this.camLook).add(this.camOffset);
     this.camera.lookAt(this.camLook);
-    this.sun.target.position.copy(this.camLook);
-    this.sun.position.copy(this.camLook).add(SUN_OFFSET);
+    // Onto the texel grid rather than onto the look point — see
+    // `snapToShadowTexel`. The light's DIRECTION is untouched by it (both ends
+    // move together, and `SUN_OFFSET` is what separates them), so nothing in
+    // the shading changes: this only decides where the depth map is sampled
+    // from, which is the half that was crawling.
+    snapToShadowTexel(this.camLook, SUN_AT);
+    this.sun.target.position.copy(SUN_AT);
+    this.sun.position.copy(SUN_AT).add(SUN_OFFSET);
     // Down here, after the view has finished moving, and that is not tidiness.
     // The off-screen signposts are the one thing in this loop whose *input* is
     // the camera — they project the world onto the frame and put something back
@@ -5317,7 +5414,18 @@ export class Scene {
     this.syncEdgeArrows(now);
     // See the constructor. Set the frame before it is wanted, not after: three
     // clears `needsUpdate` inside `render`, so this is a request for THIS draw.
-    this.renderer.shadowMap.needsUpdate = (this.shadowTick++ % SHADOW_EVERY) === 0;
+    //
+    // Two rules, and the cadence is the weaker of them now: whichever asks
+    // first. A shop with nobody walking in it redraws every third frame, and
+    // one with somebody in it redraws while they are moving — which is the
+    // frame budget spent exactly where there is something to see. `SHADOW_SLIP`
+    // has the argument.
+    // The tick is stepped whatever happens, or the cadence would only ever
+    // count the frames the drift rule had already declined.
+    const stale = (this.shadowTick++ % SHADOW_EVERY) === 0;
+    const draw = stale || this.shadowSlip > SHADOW_SLIP;
+    if (draw) this.shadowSlip = 0;
+    this.renderer.shadowMap.needsUpdate = draw;
     this.renderer.render(this.scene, this.camera);
   }
 

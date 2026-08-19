@@ -427,11 +427,53 @@ addEventListener('pointermove', (e) => {
 
 let ghostKey = null;
 
+/**
+ * Is a press driving the CAMERA rather than aiming at anything?
+ *
+ * A turn, a tilt, a one-finger pan, a two-finger pinch: in every one of them the
+ * hand is holding a *view* and the shop is sliding past underneath, so the
+ * pointer is over a different thing every frame without anybody having aimed at
+ * one. What that looks like is rings and cages flickering across the shop as you
+ * look around, which reads as the highlight being broken.
+ *
+ * Two drags are deliberately left out, and both are the opposite case — the
+ * pointer is the aim and the world is holding still:
+ *
+ * - `drag.aiming`, the touch hold that lifts the ghost off your thumb. Freezing
+ *   it would stop the thing following the finger placing it, which is the whole
+ *   gesture.
+ * - `drag.moving`, a fixture dragged out of the shop by its own press. The
+ *   camera never gets that drag at all (see the `pointermove` handler), so there
+ *   is nothing sliding and the preview has to track.
+ */
+const camBusy = () => !!pinch
+  || !!spin?.turned
+  || (drag.id !== null && drag.travel >= TAP_SLOP && !drag.aiming && !drag.moving);
+
 function refreshGhost(force = false) {
   // A wall tool previews the line under the pointer, not a tile. While a drag
   // is live the drag owns the ghost — it knows the whole run, this only ever
   // knows the one segment you are hovering. Same for a brush and its area.
   if (edgeDrag || floorDrag || faceDrag) return;
+
+  // ...and while a held press is WALKING you to what it named, for the same
+  // reason said the other way round: the pointer is holding still and the SHOP
+  // is moving, because the camera rides your body. So every frame of the journey
+  // re-answers "what are you pointing at" with whatever has drifted under a hand
+  // that has not moved — rings light on shelves you never aimed at, board cages
+  // open and close, and the pill rewrites itself, all of it about targets nobody
+  // chose. The press has already made its choice (`spin.trek`), so the last aim
+  // is the right one for the whole trip: freezing keeps the thing you are
+  // walking to lit, rather than blanking the screen and then lighting whatever
+  // you happen to arrive next to. Cleared by `cancelTrek`, which every way out
+  // of the press goes through.
+  //
+  // ...and the same claim about every other way the shop moves under a still
+  // hand: a turn, a tilt, a pan, a pinch. Same symptom, same answer — the
+  // pointer only means something while the thing under it is holding still, and
+  // during a camera drag nobody is aiming at anything. See `camBusy` for the two
+  // drags that are deliberately NOT in it.
+  if (spin?.trekking || camBusy()) return;
 
   // The bulldozer aims at a thing first and a line second. A shelf standing
   // against a wall covers the line behind it on screen, and "the wall" is never
@@ -987,6 +1029,29 @@ function nearFixture(f) {
   const me = ui.me();
   if (!me || !f) return false;
   return Math.hypot(me.x - f.x, me.z - f.z) <= REACH;
+}
+
+/**
+ * ...and STANDING on one, which is a different question and reads like the same.
+ *
+ * `atWorkSpotOf` is "within reach of a spot", which is what a press needs to
+ * know — you can work a shelf from a tile away, and that is the whole point of
+ * it. Whether the walk would MOVE you is the tile itself: from the cell
+ * diagonally off the corner you are in reach of two spots and standing on
+ * neither, so a walk really does take you somewhere, and the pill was hiding the
+ * one row that says so — over the whole of the in-reach branch, since being near
+ * a fixture at all is nearly always being near one of its spots.
+ *
+ * Rounded rather than a radius, which is `Math.round(p.x) === plot.x` again: the
+ * server routes to a spot and stops on it, so "will this move me" is exactly
+ * "am I on that tile".
+ */
+function onWorkSpotOf(f) {
+  const me = ui.me();
+  if (!me || !f) return false;
+  const spots = ui.spotsFor(f);
+  const at = spots.length ? spots : [workSpotOf(f)];
+  return at.some((s) => Math.round(me.x) === s.x && Math.round(me.z) === s.z);
 }
 
 function atWorkSpotOf(f) {
@@ -1721,6 +1786,8 @@ canvas.addEventListener('pointerdown', (e) => {
       const s = spin;
       s.trek = setTimeout(() => {
         s.trek = null;
+        // The pointer is about to stop being the question. See `refreshGhost`.
+        s.trekking = true;
         walkTo({ fixture: s.put.f.id, put: true });
       }, LONG_PRESS_MS);
     }
@@ -1998,6 +2065,19 @@ canvas.addEventListener('pointerdown', (e) => {
 
 canvas.addEventListener('pointermove', (e) => {
   if (spin && e.pointerId === spin.id) {
+    // ONCE THE WALK HAS STARTED, THE MOUSE IS NOT AN INSTRUCTION.
+    //
+    // The camera and the errand share this button, and the rule below settles
+    // which one a moving hand meant — everywhere except here, where the press
+    // has already committed: `spin.trek` fired, you are walking to a fixture you
+    // named, and the whole journey happens with the button still down. So the
+    // hand resting on a mouse for a second and a half is not a request to turn
+    // the shop, and treating it as one takes the put with it (`release`) — which
+    // lands as a walk that arrives and does nothing, from a press that was
+    // working a moment ago. Nothing is lost by ignoring it: letting go is still
+    // the way out, and it still leaves you standing there having simply walked
+    // over.
+    if (spin.trekking) return;
     const t = stepTurn(spin.ax, e.clientX, e.clientY, spin.turned);
     spin.ax = t.anchor;
     // Sticky: one turn anywhere in the press means the release was a drag, and
@@ -2232,7 +2312,14 @@ function dropCarried(cx, cy) {
  * left running is a walk that starts after the button is up.
  */
 function cancelTrek(s) {
-  if (!s?.trek) return;
+  if (!s) return;
+  // The freeze goes with it, and it has to go even when there is no timer left
+  // to clear: by then the walk is usually already running, and what this call
+  // means is that the press has stopped buying anything (the view turned, the
+  // button came up). A pointer that stayed frozen after that would be a shop
+  // that quietly stopped responding to the mouse.
+  s.trekking = false;
+  if (!s.trek) return;
   clearTimeout(s.trek);
   s.trek = null;
 }
@@ -2736,8 +2823,12 @@ function pickBoard(f, board) {
  * the rule the keydown handler is written around — two would mean one press
  * dropping a pile AND closing a panel.
  */
-ui.dropBoardPick = () => {
+ui.dropBoardPick = (dry = false) => {
   if (!pick.id) return false;
+  // `dry` is `escape`'s question rather than its press — see there. It has to be
+  // honoured here as well as in every rung above, or asking whether the button
+  // is spoken for would drop the pile the asker was about to describe.
+  if (dry) return true;
   pick = { id: null, board: null };
   refreshGhost(true);
   return true;
@@ -3044,6 +3135,29 @@ function pressHints({ aim, board, onPile, drop }) {
     const selects = out.length;
     const select = () => add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it',
       () => openInTwo(f, { walk: true }));
+    // ...AND THE RIGHT BUTTON STILL WALKS, which every branch below forgot to
+    // say. With empty hands the right press falls all the way down its ladder to
+    // a plain `walkTo` on whatever the pointer named (see the tail of the
+    // right-button `pointerup`), so an empty shelf you are standing *near* — not
+    // at its working side — answered with one row saying "Select it" while the
+    // other button quietly did the useful thing. Out of reach the pill has said
+    // this from the start; near it, it went silent, which reads as the button
+    // being live at eight tiles and dead at three.
+    //
+    // Three tests, and each is the press's own:
+    //   - hands, because a put outranks the walk and is already listed.
+    //   - `onWorkSpotOf` — STANDING on a working tile, not merely in reach of
+    //     one, which is the distinction that had this row hidden everywhere. In
+    //     reach is where you can work it from; on the spot is where the walk
+    //     would not move you, and a row that changes nothing is worse than none.
+    //   - `ui.escape(true)`, which is the ladder ABOVE the walk asked without
+    //     being made to act. A menu open, a pile picked, a selection standing —
+    //     any of those eat the press, and the commonest one is the selection this
+    //     same pill just told you to make.
+    const stepOver = () => {
+      if (carry || haul || onWorkSpotOf(f) || ui.escape(true)) return;
+      add('r', null, 'Go to it', () => walkTo({ fixture: f.id }));
+    };
     // `readyToTake` and never a field on `f`: the pointer hands back the LAYOUT
     // record, and whether there is a tray to empty or fruit on the bed is on the
     // snapshot. Same call the tap makes, so the two cannot disagree.
@@ -3067,6 +3181,7 @@ function pressHints({ aim, board, onPile, drop }) {
       // empty, the tap is "Take one out" and offering the menu beside it would
       // name two different things for one press.
       if (out.length === selects) select();
+      stepOver();
       return out;
     }
     // The one fixture whose whole meaning is that nothing comes back, so it is
@@ -3079,6 +3194,7 @@ function pressHints({ aim, board, onPile, drop }) {
       // The skip's left button has no job at all — everything it does is the
       // hold on the right — so this is the only row it ever offers empty-handed.
       select();
+      stepOver();
       return out;
     }
     if (f.kind === 'plot') {
@@ -3086,6 +3202,7 @@ function pressHints({ aim, board, onPile, drop }) {
       // bed is the whole of it — there is nothing for the pill to hold.
       if (readyToTake(f)) add('l', null, 'Harvest it', () => walkTo({ fixture: f.id }));
       else select();
+      stepOver();
       return out;
     }
     // A board the pointer has settled on. `boardTakes` is the same test the
@@ -3125,6 +3242,7 @@ function pressHints({ aim, board, onPile, drop }) {
       add('r', 'hold', 'Stock it',
         () => pillPress(() => net.send('place', { fixture: f.id }), true));
     }
+    stepOver();
     return out;
   }
 
@@ -3897,6 +4015,12 @@ async function openAsGuest(channel, name) {
   bootSay('Joining the shop…');
   net.becomeGuest(channel, name);
   bootDone();
+  // ...and a guest gets shown round too, which for the whole of co-op they were
+  // not: `maybeStart` is gated on a world this browser MADE, and a guest has no
+  // world at all — so the one person in the game who has never seen it before
+  // was the one person the tour never ran for. A different list, for a shop that
+  // is furnished, trading and somebody else's. See `guestStart`.
+  tutor.guestStart();
   // No `?world=` in the address bar: the shop is not ours, and the link would
   // open a save this browser does not have. The invite code is the only way in.
   loop();

@@ -4023,25 +4023,36 @@ export class UI {
    * does nothing is a press the world can have instead. Every rung says so
    * rather than the caller guessing from state it would have to re-read: the
    * ladder is the only thing that knows which rung it was on.
+   *
+   * `dry` asks the same question without answering it with an action, and it
+   * exists for the pill: "the right button goes there" is only true when nothing
+   * up here is going to eat the press first, and a hint that promised the walk
+   * with a menu open would be the green ghost with words on it. It is this
+   * function rather than a second list of the same tests — a copy of a ladder
+   * this long is a copy that is wrong within a month, and it would be wrong
+   * silently, since both halves look right on their own.
    */
-  escape() {
+  escape(dry = false) {
+    // Every rung is `condition → act → true`, so the dry half is one wrapper
+    // rather than a branch per rung: skip the doing, keep the answer.
+    const yes = (act) => { if (!dry) act(); return true; };
     // Outermost rung of all: it floats over everything, it owns no world state,
     // and it is the most recent thing you opened whenever it is up.
-    if (this.shapesOn) { this.toggleShapes(false); return true; }
-    if (this.openPanel && this.query) { this.clearFilter(); this.repaint(); return true; }
-    if (this.openPanel) { this.closePanel(); return true; }
+    if (this.shapesOn) return yes(() => this.toggleShapes(false));
+    if (this.openPanel && this.query) return yes(() => { this.clearFilter(); this.repaint(); });
+    if (this.openPanel) return yes(() => this.closePanel());
     // A pile you pressed is a selection too, and the lightest one there is: it
     // owns no world state, nothing is armed by it, and it is almost always the
     // last thing you did. Above the fixture rung because it is finer — a board
     // is one pile on a unit, so backing out of it should not also give up the
     // unit. `main.js` registers it; nothing here knows what a board is.
-    if (this.dropBoardPick?.()) return true;
+    if (this.dropBoardPick?.(dry)) return true;
     // A selection with no menu over it is its own rung, and it has to be one:
     // it is the only thing on screen at this point, and a teal ring nothing can
     // dismiss is a ring that follows you round the shop. Below the panel rung
     // rather than beside it, because `closePanel` already clears the ref — with
     // a fixture menu up these two are one press, which is what it looks like.
-    if (this.fixtureRef) { this.setFixtureRef(null); return true; }
+    if (this.fixtureRef) return yes(() => this.setFixtureRef(null));
     // A browse bar is a rung of its own. It arms nothing and owns no world
     // state, so it comes off before anything that does — and it is the only
     // thing on screen at this point, which is what makes it the next thing out.
@@ -4052,22 +4063,21 @@ export class UI {
     // below, found `buildOn` false, and returned having done nothing at all. A
     // press that does nothing is indistinguishable from one that was not
     // received, which is what "right click doesn't close it" is.
-    if (this.bar === 'staff') { this.showBar(null); return true; }
+    if (this.bar === 'staff') return yes(() => this.showBar(null));
     if (!this.buildOn) return false;
-    if (this.holding) { this.net.send('build-cancel', {}); return true; }
+    if (this.holding) return yes(() => this.net.send('build-cancel', {}));
     // Put down what is armed before leaving the mode. One rung, in the place the
     // ladder's own logic puts it: everything above this is something on screen,
     // and an armed tool is the last thing that is *loaded* before the mode
     // itself. So the first press empties your hand and the second shuts the bar,
     // which is what makes backing out of a mis-armed shelf cost one press rather
     // than a mode you then have to turn back on.
-    if (this.toolArmed) { this.disarmTool(); return true; }
+    if (this.toolArmed) return yes(() => this.disarmTool());
     // The palette is its own rung now that it is its own press. One press, one
     // layer: the shelves go away and you are still building, which is where the
     // second press of G put you and is where most of building happens.
-    if (this.bar === 'build') { this.showBar(null); return true; }
-    this.toggleBuild(false);
-    return true;
+    if (this.bar === 'build') return yes(() => this.showBar(null));
+    return yes(() => this.toggleBuild(false));
   }
 
   /**

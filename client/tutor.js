@@ -82,6 +82,17 @@ const OFF_KEY = 'sns-tutor-off';
 const DONE_KEY = 'sns-tutor-done';
 /** Worlds this browser MADE, and so believes are new. */
 const NEW_KEY = 'sns-tutor-new';
+/**
+ * ...and whether this person has ever been shown round SOMEBODY ELSE'S shop.
+ *
+ * One flag rather than a list of worlds, which is the whole difference between
+ * this and `DONE_KEY`. The host's tour is about a shop — it teaches you what to
+ * do with the one you just made, and a second shop is a second thing to be told
+ * about. The guest tour is about a pair of hands: it teaches the four gestures
+ * and nothing about anybody's shop, so being walked through it again at the next
+ * friend's place is the tutorial nagging somebody who already knows.
+ */
+const GUEST_KEY = 'sns-tutor-guest';
 
 const read = (k, fallback = null) => {
   try { return localStorage.getItem(k) ?? fallback; } catch { return fallback; }
@@ -703,6 +714,161 @@ const STEPS = [
   },
 ];
 
+/**
+ * ...AND THE SAME SHOP FROM THE OTHER SIDE OF THE DOOR.
+ *
+ * A guest arrives into a shop that is already furnished, already stocked, and
+ * already somebody else's — so two thirds of the tour above is not mis-phrased
+ * for them, it is about decisions that are not theirs to make on the first
+ * minute. Nothing STOPS them: the room gates nothing, a guest is a second
+ * shopkeeper with the same powers and the same drawer, which is what the cards
+ * say. But a tour that opened with "buy a case of something cheap" would be
+ * teaching a visitor to spend their friend's takings before they can walk, and
+ * the shutters are somebody else's decision about their own trade.
+ *
+ * What is left is the half that is about a pair of hands rather than about a
+ * shop, and it is exactly the half nothing in the game explains: a tap names,
+ * the left button takes, the right button puts, a hold does the lot, and a hold
+ * on a fixture opens what it can do. Five beats, no money, nothing that changes
+ * what the shop IS.
+ *
+ * **Every predicate here is a delta and never a level**, which is the trap this
+ * list is written around. `done(t) { return shelvesOf(t).length }` is a fine
+ * question in a shop you have just made and a *tautology* in one that has been
+ * trading for a hundred days: the tour would run its whole length in the first
+ * frame, ten cards flashing past, ending on a toast about a tutorial nobody
+ * saw. So each beat records what was true when it opened (`start`) and asks
+ * what has changed since — and the two that are about your hands latch what
+ * they have seen, because "holding nothing" is both the state before you pick
+ * anything up and the state after you have put it down.
+ */
+const GUEST_STEPS = [
+  {
+    id: 'g-hello',
+    kicker: 'Somebody else\'s shop',
+    say: 'You are in. Same shop, same till — you are the second shopkeeper.',
+    hint: 'Everything is shared, money included: you can order stock, take '
+      + 'somebody on and build, and it all comes out of the same drawer. This '
+      + 'shows you the hands-on half. Skip is bottom right, on every card.',
+    big: true,
+  },
+
+  {
+    id: 'g-walk',
+    kicker: 'Getting about',
+    say: (t) => perInput(
+      t.step?.spot ? 'Click the marked tile. You walk to it.' : 'Click a bit of floor. You walk to it.',
+      t.step?.spot ? 'Tap the marked tile. You walk to it.' : 'Tap a bit of floor. You walk to it.',
+    ),
+    hint: () => perInput(
+      'Hold a mouse button and drag to move the camera — left or right, '
+        + 'same thing. Wheel zooms. WASD walks you without clicking.',
+      'Drag with one finger to move the camera. Two fingers pinch to zoom and '
+        + 'twist to swing it round.',
+    ),
+    at(t) {
+      this.spot ??= spotToWalk(t);
+      return { world: this.spot, y: 0.04 };
+    },
+    start(t) { this.spot = spotToWalk(t); },
+    done(t) {
+      const me = meOf(t);
+      if (!me) return false;
+      this.from ??= { ...me };
+      return (this.spot && dist(me, this.spot) < 1.6) || dist(me, this.from) > 2.5;
+    },
+  },
+
+  {
+    id: 'g-take',
+    kicker: 'Stock',
+    /**
+     * A crate if there is one on the pad, else a shelf — and it has to be both,
+     * because which of them a guest arrives to is a fact about somebody else's
+     * afternoon. The host's tour can rely on a van having been sent, since it
+     * sent it a beat ago; this one relies on nothing.
+     */
+    say: (t) => {
+      const c = nearestCrate(t);
+      const target = c ?? anyShelf(t);
+      if (!target) return 'Nothing to hand just now. Skip on, or wait for the van.';
+      if (!atIt(t, target)) {
+        return perInput(`${c ? 'Click the crate' : 'Click the shelf'}. You will walk over to it.`,
+          `${c ? 'Tap the crate' : 'Tap the shelf'}. You will walk over to it.`);
+      }
+      return perInput('Now click it again to take one unit out.',
+        'Now press Take one, on the bar along the bottom.');
+    },
+    hint: () => perInput(
+      'Left click picks up one. Press and hold to pick up the whole box. '
+        + 'Right click is for dropping off instead. Same on every crate, shelf '
+        + 'and machine in the shop.',
+      'That bar lists everything this thing can do. A press does the top one; '
+        + 'the rows marked HOLD want holding down. Same for every crate, shelf '
+        + 'and machine in the shop.',
+    ),
+    at: (t) => {
+      const c = nearestCrate(t);
+      return c ? { world: c, y: CRATE_Y } : { world: anyShelf(t), y: SHELF_Y };
+    },
+    // Full hands on arrival are a real state — `Game.away` gives a returning
+    // guest back what they were holding — so this is what CHANGED rather than
+    // what is true. Without it, rejoining mid-armful skips the beat that the
+    // next one is written to follow.
+    start(t) { this.had = lotSize(meOf(t)?.carry); },
+    done(t) { return lotSize(meOf(t)?.carry) > (this.had ?? 0); },
+    waiting(t) { return !nearestCrate(t) && !anyShelf(t); },
+  },
+
+  {
+    id: 'g-shelve',
+    kicker: 'Stock',
+    say: () => perInput('RIGHT-click a shelf to put the unit on it.',
+      'Tap a shelf, then press Put one on.'),
+    hint: () => perInput(
+      'Left picks up, right drops off. Hold right to drop off everything at '
+        + 'once. Arrows point at every shelf that will take what you are holding.',
+      'Put one on is one unit; hold Stock it to pour in everything that fits. '
+        + 'Arrows point at every shelf that will take what you are holding.',
+    ),
+    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
+    // The latch the `crate` beat needs for the same reason: empty hands are
+    // where this started as well as where it ends, so the beat has to have SEEN
+    // them full. `g-take` leaves them that way, and a guest who put the lot down
+    // some other way has still done the thing.
+    start() { this.held = false; },
+    nudge(t) { if (lotSize(meOf(t)?.carry) > 0) this.held = true; },
+    done(t) { return this.held && lotSize(meOf(t)?.carry) === 0; },
+  },
+
+  {
+    id: 'g-menu',
+    kicker: 'Shelves',
+    say: 'Press and hold on a shelf to open its menu.',
+    hint: () => perInput(
+      'A click uses a thing. Holding the button opens what it can do — the '
+        + 'price, what it is kept for, what is on it. Every shelf, crate, '
+        + 'machine and doorway in the shop has one.',
+      'A tap picks a thing out and lists what it can do along the bottom. '
+        + 'Holding opens the whole menu — the price, what it is kept for, what '
+        + 'is on it. Every shelf, crate, machine and doorway has one.',
+    ),
+    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
+    done(t) { return t.ui.openPanel === 'fixture'; },
+  },
+
+  {
+    id: 'g-off',
+    kicker: 'That is the lot',
+    say: 'That is the hands. The rest of the shop works the same for you.',
+    hint: 'Crew, prices, ordering and building are all open to you — worth a '
+      + 'word with whoever invited you before you spend the takings. If they '
+      + 'leave, the shop goes with them, and whatever you were holding comes '
+      + 'back to you next time you join.',
+    big: true,
+  },
+];
+
 // ---------------------------------------------------------------------------
 // The robot
 // ---------------------------------------------------------------------------
@@ -750,6 +916,13 @@ export class Tutor {
     this.state = null;
     this.i = -1;
     this.step = null;
+    // WHICH tour. The host's by default, and swapped whole rather than filtered:
+    // a guest's beats are not the owner's with the money ones taken out, they
+    // are phrased for a shop that is somebody else's and already trading.
+    this.steps = STEPS;
+    // ...and which mark finishing it writes. A world for the owner, a person for
+    // the guest — see `GUEST_KEY`.
+    this.guest = false;
     this.on = false;
     this.camMoved = false;
     this.crateSeen = false;
@@ -792,9 +965,31 @@ export class Tutor {
    */
   maybeStart(worldId) {
     this.world = worldId ?? null;
+    this.steps = STEPS;
+    this.guest = false;
     if (!this.world || tutorOff()) return;
     if (listOf(DONE_KEY).includes(this.world)) return;
     if (!listOf(NEW_KEY).includes(this.world)) return;
+    this.start();
+  }
+
+  /**
+   * The other door in: somebody who joined a shop rather than making one.
+   *
+   * Its own entry point and not a flag on `maybeStart`, because the three
+   * questions that one asks are all about a *world* — is this shop new, has this
+   * shop been toured — and a guest has no world id at all (`openAsGuest` puts
+   * nothing in the address bar, on purpose: the shop is not theirs). The only
+   * question here is whether this person has ever been shown the gestures.
+   *
+   * The switch still wins. A guest who turned tutorials off is somebody who
+   * turned tutorials off.
+   */
+  guestStart() {
+    if (tutorOff() || read(GUEST_KEY) === '1') return;
+    this.world = null;
+    this.guest = true;
+    this.steps = GUEST_STEPS;
     this.start();
   }
 
@@ -824,16 +1019,17 @@ export class Tutor {
     this.el.classList.remove('show');
     document.body.classList.remove('tutoring');
     this.live(null);
-    if (this.world) { addTo(DONE_KEY, this.world); dropFrom(NEW_KEY, this.world); }
+    if (this.guest) write(GUEST_KEY, '1');
+    else if (this.world) { addTo(DONE_KEY, this.world); dropFrom(NEW_KEY, this.world); }
     if (why === 'done') this.ui.toast('Tutorial finished — press / for the key list');
   }
 
   // -- the script -----------------------------------------------------------
 
   go(i) {
-    if (i >= STEPS.length) { this.quit('done'); return; }
+    if (i >= this.steps.length) { this.quit('done'); return; }
     this.i = i;
-    this.step = STEPS[i];
+    this.step = this.steps[i];
     // A step that has nothing to teach in this shop — no crate on the floor, no
     // box on your shoulder — is stepped over rather than shown and failed. Asked
     // BEFORE `arm`, so a skipped step never opens a menu on its way past.
@@ -927,7 +1123,7 @@ export class Tutor {
     this.words();
     // Where you are, as ticks rather than "4 of 10" — a count invites you to
     // work out how much is left, which is not the question the card wants asked.
-    this.el.querySelector('.tt-dots').innerHTML = STEPS
+    this.el.querySelector('.tt-dots').innerHTML = this.steps
       .map((_, i) => `<i class="${i < this.i ? 'was' : ''}${i === this.i ? ' at' : ''}"></i>`)
       .join('');
     // Restart the pop, or every card after the first arrives already on screen.

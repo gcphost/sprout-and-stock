@@ -3,7 +3,7 @@
 *A robot who shows you round a shop you have just made, and holds the rest of
 the game still while it does.*
 
-Status: **step 1 built.** Steps 2–4 proposed.
+Status: **step 1 built**, plus the guest tour (1b). Steps 2–4 proposed.
 
 ---
 
@@ -174,6 +174,39 @@ area and stays pressable — which is what makes a bar-driven beat finishable at
 all under the veil.
 
 ---
+
+## Step 1b — the guest tour *(built)*
+
+`maybeStart` asks three questions about a **world**, and a guest has no world:
+`openAsGuest` deliberately puts nothing in the address bar, because the shop is
+not theirs. So for the whole of co-op the one person in the game who had never
+seen it before was the one person the tour never ran for.
+
+`GUEST_STEPS` is a second array, swapped in whole by `guestStart()` rather than
+filtered out of the first. **A guest is a second shopkeeper, not a lesser one** —
+`shop.js` gates nothing, so hiring, upgrades, building and the shutters are all
+theirs to press, out of the same drawer — and the cards say so. What the tour
+drops is not what they *cannot* do but what is not theirs to decide in the first
+minute: spending their friend's takings before they can walk. What is left is
+the half about a pair of hands — take one, put one on, hold for the menu — which
+is also the half nothing else in the game explains.
+
+Two things are load-bearing:
+
+- **Every predicate is a delta, never a level.** "There is stock on a shelf" is
+  a real question in a shop you just made and a tautology in one that has been
+  trading a hundred days — the whole tour would complete in the first frame and
+  end on a toast about something nobody saw. Each beat records what was true
+  when it opened (`start`) and asks what has changed; the two about your hands
+  latch what they have seen, since empty hands are both the before and the after.
+- **The mark is a person, not a world.** `sns-tutor-guest` is one flag, where
+  `sns-tutor-done` is a list of worlds. The host's tour is about a shop, so a
+  second shop earns a second telling; the guest tour is about gestures, so being
+  walked through it again at the next friend's place is nagging.
+
+Not wired: the Menu's Replay row reads `ui.worldId`, which a guest does not
+have, so a guest cannot replay their tour. Clearing the flag is the fix if
+anybody wants it.
 
 ## Step 2 — the second lesson *(proposed)*
 
