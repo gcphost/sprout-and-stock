@@ -531,22 +531,26 @@ const STEPS = [
   {
     id: 'assign',
     kicker: 'Shelves',
-    say: 'Under "Keep it for", pick something this shelf is for.',
-    hint: 'Now your crew will restock it with that and nothing else, and the '
-      + 'shop will order more when it runs low. The same menu sets the price per '
-      + 'board, hides the shelf out the back, tells the crew to leave it alone, '
-      + 'and upgrades, moves or sells the unit.',
-    at: () => ({ el: '#panel' }),
-    // The panel is a fixture menu opened on the last step, so it is already
-    // there. Re-opened only if it got closed — `arm` runs once and this can be
-    // stood at for a while.
-    // `repaintFixtureMenu` is the UI's own "put it back up" — reaching for
-    // `showFixture` here would be a second opinion about which fixture is
-    // selected, which is exactly how the menu starts following the wrong shelf.
-    nudge(t) {
-      if (t.ui.openPanel === 'fixture' || !t.ui.fixtureRef) return;
-      t.ui.repaintFixtureMenu?.();
-    },
+    say: (t) => (t.ui.openPanel === 'fixture'
+      ? 'Under "Keep it for", pick something this shelf is for.'
+      : 'Press and hold the shelf again to bring its menu back.'),
+    hint: (t) => (t.ui.openPanel === 'fixture'
+      ? 'Now your crew will restock it with that and nothing else, and the shop '
+        + 'will order more when it runs low. The same menu sets the price per '
+        + 'board, hides the shelf out the back, tells the crew to leave it '
+        + 'alone, and upgrades, moves or sells the unit.'
+      : 'You clicked off it, which closes the menu. Nothing was lost.'),
+    // Two phases, because the menu is a thing the player can shut — clicking on
+    // the world is how you dismiss ANY panel, so a step that only ever pointed
+    // at `#panel` had nothing to point at the moment somebody clicked the floor,
+    // and sat there stranded on a card asking about a menu that was not up.
+    //
+    // It asks for the menu back rather than re-opening it: the click that shut
+    // it was deliberate, and a panel that springs back up under you is a
+    // tutorial wrestling you for the mouse.
+    at: (t) => (t.ui.openPanel === 'fixture'
+      ? { el: '#panel' }
+      : { world: anyShelf(t), y: SHELF_Y }),
     start(t) { this.from = keptCount(t); },
     done(t) { return this.from !== null && keptCount(t) > this.from; },
   },
