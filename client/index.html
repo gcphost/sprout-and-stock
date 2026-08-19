@@ -124,18 +124,54 @@
        Pick a shop, or start one. Sits above #boot rather than inside the HUD:
        there is no world behind it yet, so none of the panel system's rules
        about floating over a live canvas apply. See client/menu.js. */
+    /* THE FRONT DOOR IS A PLACE, not a form on a page.
+       It was one flat fill behind a column of cards, which is a web page — and
+       the game behind it is a sunlit isometric shop. So: sky at the top, ground
+       across the bottom at the same horizon the shop is drawn on, and the tile
+       lattice the whole game is built out of laid faintly over it. All of it is
+       gradients on one element — nothing to load, nothing to render, and it
+       cannot go stale against art it is not made of. */
     #menu {
       position: fixed; inset: 0; z-index: 60; overflow-y: auto;
-      background: #cfe9f5; display: grid; place-items: center; padding: 24px 16px;
+      display: grid; place-items: center; padding: 24px 16px;
+      background:
+        /* The lawn, hard-edged at the horizon the way a floor meets a wall. */
+        linear-gradient(#8fbf6a 0 100%) bottom / 100% 34% no-repeat,
+        /* Sky, warmer at the bottom where the sun is. */
+        linear-gradient(#bfe2f2 0%, #d8eef7 55%, #eaf3e6 100%);
+    }
+    /* The lattice, and a haze along the horizon so the two do not meet on a
+       ruled line. `::before` rather than a fourth background layer because it
+       has to be able to fade out at the bottom of the screen, and a background
+       cannot mask itself. */
+    #menu::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none;
+      background:
+        repeating-linear-gradient(60deg, rgba(255,255,255,.14) 0 1px, transparent 1px 46px),
+        repeating-linear-gradient(-60deg, rgba(255,255,255,.14) 0 1px, transparent 1px 46px);
+      -webkit-mask-image: linear-gradient(transparent 46%, #000 70%);
+      mask-image: linear-gradient(transparent 46%, #000 70%);
+    }
+    /* Sun, top-left, well out of the way of anything you read. */
+    #menu::after {
+      content: ''; position: fixed; left: -80px; top: -110px;
+      width: 340px; height: 340px; border-radius: 50%; pointer-events: none;
+      background: radial-gradient(circle, rgba(255,246,214,.85) 0%, rgba(255,246,214,0) 68%);
     }
     #menu[hidden] { display: none; }
+    /* Over both. The box is the only thing on this screen you interact with. */
+    .menu-box { position: relative; z-index: 1; }
     .menu-box { width: min(440px, 100%); }
     /* The well the turntable spins in. Fixed height and `overflow: hidden`,
        because `.wk-turn` is a strip `--n` faces wide that slides sideways —
        without a clipping parent you get twenty-four robots in a row. */
     .menu-bot {
-      height: 104px; overflow: hidden; margin: 0 auto -6px;
-      width: 104px; pointer-events: none;
+      height: 132px; overflow: hidden; margin: 0 auto -10px;
+      width: 132px; pointer-events: none;
+      /* It stands ON something. A bot floating over a title reads as a sticker;
+         the same soft ellipse the shop draws under everything else makes it a
+         thing in the world the menu is sitting in. */
+      filter: drop-shadow(0 10px 10px rgba(40, 60, 30, .28));
     }
     .menu-bot .wk-turn > span { padding: 0; }
     /* Bottom-right of the SCREEN, not of the box. It is the only control here
@@ -147,14 +183,29 @@
       position: fixed; bottom: 16px; right: 16px; width: 38px; height: 38px;
       display: grid; place-items: center; font-size: 16px; line-height: 1;
       border: 1px solid var(--line); border-radius: 12px; cursor: pointer;
-      background: var(--panel-solid); opacity: .8; z-index: 1;
+      background: var(--panel-solid); opacity: .85; z-index: 1;
+      box-shadow: 0 3px 0 rgba(58,49,40,.14);
     }
     .menu-mute:hover { opacity: 1; }
+    .menu-mute:active { transform: translateY(3px); box-shadow: none; }
+    /* A LOGO rather than a heading. Bigger, tighter, and cut out of the sky
+       with a cream keyline and a shadow under it — which is the one thing that
+       stops a big dark word on a pale background reading as an article title.
+       `paint-order` puts the stroke behind the fill so the letterforms keep
+       their weight instead of being eaten from both sides. */
     .menu-box h1 {
-      margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -.02em; text-align: center;
+      margin: 0; font-size: 44px; font-weight: 800; letter-spacing: -.035em;
+      text-align: center; line-height: 1;
+      -webkit-text-stroke: 6px #fffcf5; paint-order: stroke fill;
+      filter: drop-shadow(0 3px 0 rgba(58,49,40,.16)) drop-shadow(0 8px 14px rgba(58,49,40,.2));
     }
     .menu-box h1 span { color: var(--accent); }
-    .menu-tag { margin: 2px 0 18px; text-align: center; opacity: .55; font-size: 12.5px; }
+    .menu-tag {
+      margin: 6px 0 20px; text-align: center; font-size: 12.5px; font-weight: 700;
+      color: rgba(58,49,40,.62);
+      /* Same trick, quieter: it sits on the sky too. */
+      -webkit-text-stroke: 4px rgba(255,252,245,.75); paint-order: stroke fill;
+    }
 
     .menu-field {
       display: flex; align-items: center; gap: 10px; background: var(--panel);
@@ -214,12 +265,24 @@
        looking at the list that answers it. */
     .menu-err.soft { background: #ffd66b; color: var(--ink); }
 
+    /* A card is a THING sitting on the grass, so it has a thickness: the second
+       shadow is a hard offset with no blur, which is what reads as an object
+       with a side to it rather than a rectangle with a glow under it. Hover
+       lifts it and shortens the base, the way picking something up does. */
     .wcard {
-      background: var(--panel); border-radius: 15px; padding: 11px 13px 10px;
-      box-shadow: 0 4px 16px rgba(58,49,40,.13);
+      background: var(--panel-solid); border-radius: 16px; padding: 12px 14px 11px;
+      box-shadow: 0 4px 0 rgba(58,49,40,.11), 0 8px 20px rgba(58,49,40,.16);
+      transition: transform .12s ease, box-shadow .12s ease;
+    }
+    .wcard:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 0 rgba(58,49,40,.11), 0 12px 26px rgba(58,49,40,.2);
     }
     /* The shop you were in last, so a family of four save slots opens on yours. */
-    .wcard.last { box-shadow: 0 4px 16px rgba(58,49,40,.13), inset 0 0 0 2px #ffd66b; }
+    .wcard.last {
+      box-shadow: 0 4px 0 rgba(58,49,40,.11), 0 8px 20px rgba(58,49,40,.16),
+        inset 0 0 0 2px #ffd66b;
+    }
     .wtop { display: flex; align-items: baseline; gap: 8px; }
     .wname { font-size: 16px; font-weight: 800; flex: 1; min-width: 0;
              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -235,7 +298,10 @@
     /* Armed to delete. The card itself changes, not just the button, because a
        list of five cards is scanned by shape — a single word swapped inside one
        of its buttons is exactly the thing a mis-click already wasn't reading. */
-    .wcard.arm { box-shadow: 0 4px 16px rgba(58,49,40,.13), inset 0 0 0 2px var(--accent); }
+    .wcard.arm {
+      box-shadow: 0 4px 0 rgba(58,49,40,.11), 0 8px 20px rgba(58,49,40,.16),
+        inset 0 0 0 2px var(--accent);
+    }
 
     /* Two things that take it in turns, stacked in one grid cell so the cell is
        always as big as the biggest of them and swapping which one shows moves
@@ -260,23 +326,38 @@
       color: var(--accent);
     }
 
-    .wacts { display: flex; gap: 6px; margin-top: 9px; }
+    /* Buttons you PRESS. The hard bottom shadow is the button's edge, and the
+       press moves the face down onto it — two lines of CSS for the one bit of
+       feedback that separates a game control from a link with a background on
+       it. No transition on the press: a squash that eases is a lag. */
+    .wacts { display: flex; gap: 7px; margin-top: 10px; }
     .wacts button {
-      border: 0; font: inherit; cursor: pointer; border-radius: 9px;
-      padding: 6px 14px; font-size: 12.5px; font-weight: 800;
+      border: 0; font: inherit; cursor: pointer; border-radius: 10px;
+      padding: 8px 14px; font-size: 13px; font-weight: 800;
+      box-shadow: 0 3px 0 rgba(58,49,40,.18);
+      transition: filter .12s ease;
     }
-    .wplay { background: var(--good); color: #fff; flex: 1; }
+    .wacts button:active {
+      transform: translateY(3px); box-shadow: none;
+    }
+    .wacts button:hover { filter: brightness(1.06); }
+    .wplay {
+      background: var(--good); color: #fff; flex: 1;
+      box-shadow: 0 3px 0 #43793f;
+    }
     .wghost { background: rgba(58,49,40,.08); color: var(--ink); }
     .wghost:hover { background: rgba(58,49,40,.16); }
     .wdel:hover { background: var(--accent); color: #fff; }
     .wdel.on { background: var(--accent); color: #fff; }
 
     .menu-add {
-      width: 100%; border: 0; font: inherit; cursor: pointer; border-radius: 12px;
-      padding: 10px; font-size: 13px; font-weight: 800; color: var(--ink);
+      width: 100%; border: 0; font: inherit; cursor: pointer; border-radius: 13px;
+      padding: 11px; font-size: 13.5px; font-weight: 800; color: var(--ink);
+      box-shadow: 0 3px 0 rgba(58,49,40,.14);
       background: rgba(255,252,245,.6); box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
     }
-    .menu-add:hover { background: var(--panel); }
+    .menu-add:hover { background: var(--panel-solid); }
+    .menu-add:active { transform: translateY(3px); box-shadow: none; }
     .menu-new { background: var(--panel); border-radius: 15px; padding: 11px 13px;
                 box-shadow: 0 4px 16px rgba(58,49,40,.13); }
     .menu-new .menu-field { background: rgba(58,49,40,.06); box-shadow: none; }
