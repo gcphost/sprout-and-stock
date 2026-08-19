@@ -14,7 +14,9 @@
 
 import { money } from './money.js';
 import { START_TIERS, DEFAULT_TIER, startTier } from '../shared/start.js';
+import { DIFFICULTIES, NEW_DIFFICULTY, difficultyOf } from '../shared/difficulty.js';
 import { markWorldNew } from './tutor.js';
+import { mix } from './audio/mix.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
@@ -94,6 +96,11 @@ export class Menu {
     // from `innerHTML` on every keystroke that matters — see `create`, which
     // learnt the same lesson about the text fields the hard way.
     this.tier = DEFAULT_TIER;
+    // The *creation* default, which is deliberately not the one a save with
+    // nothing to say reads as — see shared/difficulty.js. The form offering
+    // `relaxed` would quietly make the gentle game the one everybody keeps
+    // getting, which is the thing this whole preset exists to stop.
+    this.difficulty = NEW_DIFFICULTY;
     // `{ id, at }` for the one shop whose Delete is armed. By id, not by index:
     // a refresh re-sorts the list, and an armed row number would end up over
     // somebody else's shop.
@@ -199,6 +206,23 @@ export class Menu {
   }
 
   /**
+   * ...and the same for how hard the town is, in place for the same reason.
+   *
+   * Two things depend on it and neither is the cash box: which button is lit,
+   * and the line under the row. Kept as its own method rather than folded into
+   * `pickTier` because the two rows are two questions — a redraw of one must not
+   * touch the other's choice, which is exactly what a shared `render` would do.
+   */
+  pickDifficulty(id) {
+    this.difficulty = id;
+    this.root.querySelectorAll('[data-diff]').forEach((el) => {
+      el.classList.toggle('on', el.dataset.diff === id);
+    });
+    const detail = this.root.querySelector('.ddetail');
+    if (detail) detail.textContent = difficultyOf(id).blurb;
+  }
+
+  /**
    * Making a shop drops you straight into it.
    *
    * The alternative — create, then find it in the list, then press Play — is
@@ -220,6 +244,7 @@ export class Menu {
     const asked = {
       name: field('#menu-new-name'),
       tier: this.tier,
+      difficulty: this.difficulty,
       cash: field('#menu-new-cash'),
     };
     await this.act(async () => {
@@ -304,6 +329,16 @@ export class Menu {
     const scroll = this.root.scrollTop;
     this.root.innerHTML = `
       <div class="menu-box">
+        <!-- The one control on this screen that is not about choosing a shop.
+             The radio and the Sound rows both live in the HUD, and the HUD does
+             not exist yet — so the music starts on your first click here and
+             there is nothing anywhere to turn it off with. Somebody opening
+             this at their desk has no way to shut the game up short of the tab
+             mute, which is the browser doing the game's job. -->
+        <button id="menu-mute" type="button" class="menu-mute"
+          title="${mix.muted ? 'Sound off' : 'Sound on'}"
+          aria-label="${mix.muted ? 'Turn sound on' : 'Turn sound off'}"
+        >${mix.muted ? '🔇' : '🔊'}</button>
         <h1>Sprocket <span>&amp;</span> Stock</h1>
         <p class="menu-tag">Run a shop with a crew of robots. You're the only human in it.</p>
 
@@ -349,6 +384,24 @@ export class Menu {
                 <b>${esc(kitLine(startTier(this.tier)))}</b>
                 ${esc(startTier(this.tier).blurb)}
               </p>
+              <!-- ...and how hard the town is, which is the OTHER axis and
+                   deliberately its own row. Size is where you begin; this is
+                   what happens next, and folding them into one list of six
+                   buttons would mean the only way to play a hard game is to
+                   play a small one. See shared/difficulty.js.
+
+                   No numbers on these buttons, where the sizes carry their
+                   cash. A tier's number is a thing you can hold in your hand on
+                   day one; "a bad week settles at 22% reputation" is not a
+                   comparison anybody can make before they have played, so the
+                   blurb says what it feels like instead. -->
+              <div class="tiers">
+                ${DIFFICULTIES.map((d) => `
+                  <button class="tier${d.id === this.difficulty ? ' on' : ''}" data-diff="${d.id}">
+                    <b>${esc(d.name)}</b>
+                  </button>`).join('')}
+              </div>
+              <p class="tdetail ddetail">${esc(difficultyOf(this.difficulty).blurb)}</p>
               <label class="menu-field">
                 <span>Cash</span>
                 <input id="menu-new-cash" type="number" min="0" max="1000000"
@@ -385,6 +438,18 @@ export class Menu {
 
     q('#menu-open-new')?.addEventListener('click', () => { this.creating = true; this.render(); q('#menu-new-name')?.focus(); });
     q('#menu-cancel')?.addEventListener('click', () => { this.creating = false; this.render(); });
+    // Repainted in place rather than through `render`, which rebuilds the box
+    // from innerHTML and would throw away the name and cash somebody has typed
+    // — the trap `create` documents at length, and a mute button is exactly the
+    // sort of press you make while half way through filling the form in.
+    q('#menu-mute')?.addEventListener('click', (e) => {
+      mix.arm();
+      mix.setMuted(!mix.muted);
+      const b = e.currentTarget;
+      b.textContent = mix.muted ? '🔇' : '🔊';
+      b.title = mix.muted ? 'Sound off' : 'Sound on';
+      b.setAttribute('aria-label', mix.muted ? 'Turn sound on' : 'Turn sound off');
+    });
     q('#menu-create')?.addEventListener('click', () => this.create());
 
     // Enter anywhere in the new-shop form starts it. A form with a button you
@@ -396,6 +461,10 @@ export class Menu {
 
     this.root.querySelectorAll('[data-tier]').forEach((el) => {
       el.addEventListener('click', () => this.pickTier(el.dataset.tier));
+    });
+
+    this.root.querySelectorAll('[data-diff]').forEach((el) => {
+      el.addEventListener('click', () => this.pickDifficulty(el.dataset.diff));
     });
 
     this.root.querySelectorAll('[data-play]').forEach((el) => {

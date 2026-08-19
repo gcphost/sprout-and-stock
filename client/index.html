@@ -129,7 +129,16 @@
       background: #cfe9f5; display: grid; place-items: center; padding: 24px 16px;
     }
     #menu[hidden] { display: none; }
-    .menu-box { width: min(440px, 100%); }
+    .menu-box { width: min(440px, 100%); position: relative; }
+    /* Top-right of the box rather than floating over the page: it belongs to
+       this screen and goes away with it. */
+    .menu-mute {
+      position: absolute; top: 0; right: 0; width: 34px; height: 34px;
+      display: grid; place-items: center; font-size: 15px; line-height: 1;
+      border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+      background: transparent; opacity: .65;
+    }
+    .menu-mute:hover { opacity: 1; }
     .menu-box h1 {
       margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -.02em; text-align: center;
     }
@@ -1087,6 +1096,42 @@
     #prompt.show { opacity: 1; transform: translate(-50%, 0); }
     #prompt.going { background: #ffd66b; color: var(--ink); }
     #prompt b { font-weight: 800; }
+
+    /* ...and which button does it, once per press that means anything here. A
+       row each, because two or three of them side by side is a sentence you
+       have to parse and a stack is a list you scan — and the pill is at the
+       bottom of the screen where a column has nothing to push out of the way.
+       Left-button rows read glyph-first and right-button rows are reversed, so
+       the mice line up down the two edges: the side is the whole message. */
+    #prompt { display: flex; flex-direction: column; gap: 3px; }
+    #prompt .pr-say { display: flex; align-items: center; gap: 6px; }
+    #prompt .pr-say.pr-r { flex-direction: row-reverse; }
+    /* Tap and hold are the one thing about this shop nobody can guess, so the
+       longer press is labelled rather than implied. Small, dim, and in front of
+       the words on its own side. */
+    #prompt .pr-hold {
+      font-style: normal; font-size: 9.5px; font-weight: 800;
+      letter-spacing: .07em; text-transform: uppercase; opacity: .5;
+    }
+    /* The mouse nudges with its own button, which is most of what makes it read
+       as a press rather than as a light coming on. */
+    #prompt .pr-mouse {
+      width: 11px; height: 15.7px; flex: none; display: block;
+      animation: prNudge 2s ease-in-out infinite;
+    }
+    #prompt .pr-press { opacity: .32; animation: prClick 2s ease-in-out infinite; }
+    @keyframes prClick {
+      0%, 16%, 100% { opacity: .32; }
+      5%, 12% { opacity: 1; }
+    }
+    @keyframes prNudge {
+      0%, 16%, 100% { transform: none; }
+      5%, 12% { transform: translateY(.6px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #prompt .pr-press { animation: none; opacity: 1; }
+      #prompt .pr-mouse { animation: none; }
+    }
 
     /* ---- what is that pile? ----------------------------------------------
        A card that follows the pointer while it is over one board of a shelf.
