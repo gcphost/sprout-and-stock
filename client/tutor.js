@@ -287,7 +287,7 @@ const STEPS = [
   {
     id: 'hello',
     kicker: 'New shop',
-    say: 'Morning. I fit shops out — give me five minutes.',
+    say: 'Morning. I fit shops out — give me a minute.',
     hint: 'Stock on the shelves, somebody on the till, doors open. Skip is '
       + 'bottom right, on every card.',
     big: true,
