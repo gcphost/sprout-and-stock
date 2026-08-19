@@ -329,7 +329,7 @@ const STEPS = [
       ? 'Buy a case of something cheap.'
       : 'Nothing to sell yet. Open the supplier.'),
     hint: (t) => (t.ui.openPanel === 'stock'
-      ? 'It comes by lorry to the pad behind the shop. You carry it in from '
+      ? 'It comes on the van to the pad behind the shop. You carry it in from '
         + 'there, until you hire a stocker to do it.'
       : 'Stock comes from three places: bought in here, grown in the beds out '
         + 'the side, or made on a machine.'),
