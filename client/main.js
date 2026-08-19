@@ -61,12 +61,38 @@ let latestState = null;
  */
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
   addEventListener(ev, () => {
-    if (mix.armed) return;
-    mix.arm();
-    sfx.load();
-    music.start();
+    if (!mix.armed) {
+      mix.arm();
+      sfx.load();
+      music.start();
+      return;
+    }
+    // Armed already, which since the speculative start below is the ordinary
+    // case: the graph exists but the browser may have left the context
+    // SUSPENDED because nobody had gestured yet. `armed` is a fact about our
+    // own graph and says nothing about whether the browser is letting it
+    // through, so returning on it alone would leave a game that is silent
+    // forever — the one bug a speculative start can introduce.
+    mix.ctx?.resume?.();
   }, { capture: true, passive: true });
 }
+
+/**
+ * ...and try to start it before anybody has clicked anything.
+ *
+ * A browser will not run an `AudioContext` until the user has gestured, which
+ * is why the listeners above exist — but "has gestured" is a fact about the
+ * ORIGIN and not about this page load, so somebody coming back to a shop they
+ * play often is usually allowed to start straight away. That is the whole of
+ * what this buys: music over the loading screen and the shop list, instead of
+ * silence until the first thing you happen to press.
+ *
+ * It cannot fail into silence, because the listeners above resume a suspended
+ * context rather than checking `armed` and giving up.
+ */
+mix.arm();
+sfx.load();
+music.start();
 
 /**
  * A click for anything you press in the HUD.
@@ -367,6 +393,7 @@ function refreshGhost(force = false) {
     scene.setPersonAim(null);
     canvas.style.cursor = '';
     ui.setAim(razing);
+    ui.setPressHints([]);
     ui.setBuildVerdict(null);
     return;
   }
@@ -387,6 +414,7 @@ function refreshGhost(force = false) {
       scene.setPersonAim(null);
       canvas.style.cursor = 'pointer';
       ui.setAim(null);
+      ui.setPressHints([]);
       return;
     }
     const verdict = canPlaceEdges(scene.storeLayout, [seg], edgeKind);
@@ -397,6 +425,7 @@ function refreshGhost(force = false) {
     scene.setPersonAim(null);
     canvas.style.cursor = '';
     ui.setAim(null);
+    ui.setPressHints([]);
     return;
   }
   scene.setEdgeGhost(null, null);
@@ -423,6 +452,7 @@ function refreshGhost(force = false) {
     scene.setPersonAim(null);
     canvas.style.cursor = '';
     ui.setAim(null);
+    ui.setPressHints([]);
     return;
   }
   scene.setFaceGhost(null, null);
@@ -443,6 +473,7 @@ function refreshGhost(force = false) {
     scene.setPersonAim(null);
     canvas.style.cursor = '';
     ui.setAim(null);
+    ui.setPressHints([]);
     return;
   }
   // Nothing is painting a cell — unless a pair of full hands is about to, in
@@ -496,6 +527,7 @@ function refreshGhost(force = false) {
       scene.setAimTarget(null);
       ui.setBoardTip(null, null);
       ui.setAim(null);
+      ui.setPressHints([]);
       // A person is not a square, and this branch owns the ghost now (see the
       // guard above) — so pointing at a hire with your hands full has to put it
       // away rather than leave the last square lit.
@@ -572,6 +604,11 @@ function refreshGhost(force = false) {
     if (dropping()) {
       scene.setFloorGhost(show ? [drop] : null, show ? (canDropAt(drop) ? 'ok' : 'no') : null);
     }
+    // ...and what pressing would actually DO, in words, for every button that
+    // means something here. Computed off the same four things the markers were
+    // just drawn from, so the pill cannot describe a target the highlights
+    // disagree about — see `pressHints`.
+    ui.setPressHints(pressHints({ aim, board, onPile, drop: show ? drop : null }));
     return;
   }
   const tile = scene.pickTile(pointer.x, pointer.y);
@@ -583,6 +620,7 @@ function refreshGhost(force = false) {
     scene.setPersonAim(null);
     canvas.style.cursor = '';
     ui.setAim(null);
+    ui.setPressHints([]);
     return;
   }
 
@@ -611,6 +649,7 @@ function refreshGhost(force = false) {
   scene.setPersonAim(null);
   canvas.style.cursor = '';
   ui.setAim(null);
+  ui.setPressHints([]);
   // Validity involves a flood fill, so only ask when something actually moved —
   // the camera tracks the player, so the tile under a still pointer drifts and
   // this runs from the render loop too.
@@ -2362,6 +2401,125 @@ function ripeBoard(f, board) {
   if (!f || !board) return null;
   if (dwell.key !== `${f.id}:${board}`) return null;
   return performance.now() - dwell.at >= BOARD_DWELL_MS ? board : null;
+}
+
+/**
+ * Every press that would do something at whatever the pointer is on.
+ *
+ * The pill under the HUD has always been driven by `p.action` — the job the shop
+ * has ARMED — which is a different question from the one a player standing in
+ * their own shop is asking. An armed action exists only after you have named a
+ * target and walked to it, so the pill could name one job, in one direction,
+ * after you had already worked out how to start it. Everything before that
+ * moment said nothing at all: point at a crate and there is no word about
+ * picking it up, stand with a box on your shoulder looking for somewhere to put
+ * it and nothing anywhere says which button sets it down. The one gesture in the
+ * game that is genuinely undiscoverable — **a tap is one unit, a hold is the
+ * lot** — was never written down on screen either, because a hold and a tap are
+ * one armed action and the pill only ever had room for its name.
+ *
+ * So this answers the pointer instead, and it answers with a LIST: every button
+ * and every length of press that means something here, in the order the presses
+ * themselves are decided (left before right, tap before hold).
+ *
+ * It is deliberately a mirror of the press code rather than a second opinion
+ * about the rules — every test in here is the same call the press makes
+ * (`inReachOf`, `canDropAt`, `haulSquare`, `boardTakes`), because a hint that
+ * offers a press the shop then refuses is the green-ghost bug with words on it.
+ * Which MESSAGE a press is, is decided on this side (see `tapAtPointer` and
+ * `armPut`), so this is the only side that can list them; what it must never do
+ * is invent a rule of its own.
+ *
+ * Order matters and follows the pointer's own precedence: a person, then a
+ * crate, then a fixture, then bare ground. Same order `tapAtPointer` reads them
+ * in, or the pill would describe a press that lands on something else.
+ */
+function pressHints({ aim, board, onPile, drop }) {
+  // Build mode arms nothing but the till, so every sentence in here would be
+  // about a press the mode has suspended — the same three exclusions `dropping`
+  // and `boardTakes` already make, and for the same reason: with a bar up, the
+  // pointer belongs to the bar.
+  if (ui.paletteArmed || ui.holding || ui.demolishArmed()) return [];
+  const out = [];
+  const add = (btn, hold, say) => { if (out.length < 3) out.push({ btn, hold, say }); };
+  const carry = myCarry();
+  const haul = myHaul();
+  const crate = aim?.crate ?? null;
+  const f = aim?.fixture ?? null;
+
+  if (crate && !f) {
+    // A box on the floor with one already on your shoulder is the SQUARE it
+    // stands on — see `haulSquare`, and the ring round the crate stands down for
+    // the same reason. So the only thing on offer is putting yours down there.
+    if (onPile) {
+      if (canDropAt(onPile)) add('r', true, 'Set the crate down here');
+      return out;
+    }
+    if (!inReachOf(crate)) { add('l', false, 'Go to it'); return out; }
+    // A buried box is a box and nothing else: one unit out of a band of a dozen
+    // pixels is never the tin anybody meant, so a pile offers the lift only.
+    if (crate.stacked) { add('l', true, 'Pick this box up'); return out; }
+    if (haul) return out;
+    add('l', false, 'Take one');
+    add('l', true, carry ? 'Take an armful' : 'Pick the crate up');
+    if (carry) add('r', false, 'Put one back');
+    return out;
+  }
+
+  if (f) {
+    // Out of reach every press is a walk, and the direction rides along with it
+    // (`walkToFixture` carries `put`), so what is worth saying is which button
+    // gets you there holding what.
+    if (!nearFixture(f) && !atWorkSpotOf(f)) {
+      add('l', false, 'Go to it');
+      if (carry || haul) add('r', false, 'Take it there');
+      return out;
+    }
+    // `readyToTake` and never a field on `f`: the pointer hands back the LAYOUT
+    // record, and whether there is a tray to empty or fruit on the bed is on the
+    // snapshot. Same call the tap makes, so the two cannot disagree.
+    if (f.kind === 'station') {
+      if (readyToTake(f)) {
+        add('l', false, 'Take one out');
+        add('l', true, 'Empty the tray');
+      }
+      if (carry || haul) {
+        add('r', false, 'Put one in');
+        add('r', true, 'Load it up');
+      }
+      return out;
+    }
+    // The one fixture whose whole meaning is that nothing comes back, so it is
+    // the hold and never the tap — `armPut` gives it no tap at all.
+    if (f.kind === 'bin') {
+      if (carry || haul) add('r', true, 'Throw it away');
+      return out;
+    }
+    if (f.kind === 'plot') {
+      if (readyToTake(f)) add('l', false, 'Harvest it');
+      return out;
+    }
+    // A board the pointer has settled on. `boardTakes` is the same test the
+    // press asks, so the cage round the pile, the tap and this line agree.
+    if (ripeBoard(f, board) && boardTakes()) {
+      add('l', false, 'Take one');
+      add('l', true, 'Crate the lot');
+    } else {
+      add('l', false, 'Open it');
+    }
+    if (carry || haul) {
+      add('r', false, 'Put one on');
+      add('r', true, 'Stock it');
+    }
+    return out;
+  }
+
+  // Bare ground, which only has anything to say while your hands are full — a
+  // hint on every empty square you cross is a pill that never goes away.
+  if (drop && canDropAt(drop)) {
+    add('r', true, haul ? 'Set the crate down here' : 'Put it down here');
+  }
+  return out;
 }
 
 /**
