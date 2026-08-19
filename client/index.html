@@ -130,6 +130,14 @@
     }
     #menu[hidden] { display: none; }
     .menu-box { width: min(440px, 100%); }
+    /* The well the turntable spins in. Fixed height and `overflow: hidden`,
+       because `.wk-turn` is a strip `--n` faces wide that slides sideways —
+       without a clipping parent you get twenty-four robots in a row. */
+    .menu-bot {
+      height: 104px; overflow: hidden; margin: 0 auto -6px;
+      width: 104px; pointer-events: none;
+    }
+    .menu-bot .wk-turn > span { padding: 0; }
     /* Bottom-right of the SCREEN, not of the box. It is the only control here
        that is not about choosing a shop, and the box scrolls when the list of
        shops gets long — a button pinned inside it would scroll away from the

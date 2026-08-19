@@ -17,6 +17,7 @@ import { START_TIERS, DEFAULT_TIER, startTier } from '../shared/start.js';
 import { DIFFICULTIES, NEW_DIFFICULTY, difficultyOf } from '../shared/difficulty.js';
 import { markWorldNew } from './tutor.js';
 import { mix } from './audio/mix.js';
+import { spinForWorker } from './thumb.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
@@ -128,11 +129,54 @@ export class Menu {
     try {
       const { worlds } = await api('GET', '/worlds');
       this.worlds = worlds;
+      // The crew, for the turntable over the title. Off the same content API the
+      // rest of the menu uses rather than the catalog, because there is no
+      // socket yet — this screen runs before there is a shop to be told about
+      // one. Fetched once and kept: `refresh` runs on every delete and every
+      // arm, and a bot that changed identity each time you armed a Delete would
+      // read as the page reloading under you.
+      if (!this.crew) {
+        const got = await api('GET', '/content/worker').catch(() => null);
+        this.crew = got?.rows ?? [];
+      }
       this.error = null;
     } catch (err) {
       this.error = `Can't reach the shop: ${err.message}`;
     }
     this.render();
+  }
+
+  /**
+   * One of your crew, turning, over the title.
+   *
+   * The same filmstrip the worker sheet uses (`spinForWorker` — twenty-four
+   * stills fifteen degrees apart, slid one frame at a time by `steps()`), for
+   * the reason it is a filmstrip there: there is no renderer on this screen and
+   * there is no socket either, so anything that needed either would be a second
+   * way of drawing a robot that has to be kept matching the first.
+   *
+   * **Which** one is `hash01`'s argument said about a day rather than a person:
+   * picked off the date, so the front door has somebody different on it when you
+   * come back tomorrow and the same one all evening. Drawn from `this.crew`
+   * rather than re-picked per render, or arming a Delete would swap the bot.
+   *
+   * A shop with no worker art authored gets nothing at all — no placeholder,
+   * because a grey silhouette over the title is worse than a title.
+   */
+  greeter() {
+    const rows = (this.crew ?? []).filter((w) => w.model);
+    if (!rows.length) return '';
+    this.who ??= rows[Math.floor(Date.now() / 864e5) % rows.length];
+    const frames = spinForWorker(this.who, 1, null);
+    if (!frames?.length) return '';
+    // A negative delay is "start this far in", so the turn survives the
+    // rebuild `render` does on every keystroke that matters — without it the
+    // bot snaps back to facing front each time you type in the name box.
+    const phase = (-(performance.now() / 1000) % 9).toFixed(2);
+    return `<div class="menu-bot" aria-hidden="true">
+      <span class="wk-turn" style="--n:${frames.length};--spin:9s;animation-delay:${phase}s">${
+  frames.map((f) => `<span>${f}</span>`).join('')}</span>
+    </div>`;
   }
 
   get name() {
@@ -339,6 +383,7 @@ export class Menu {
           title="${mix.muted ? 'Sound off' : 'Sound on'}"
           aria-label="${mix.muted ? 'Turn sound on' : 'Turn sound off'}"
         >${mix.muted ? '🔇' : '🔊'}</button>
+        ${this.greeter()}
         <h1>Sprocket <span>&amp;</span> Stock</h1>
         <p class="menu-tag">Run a shop with a crew of robots. You're the only human in it.</p>
 
