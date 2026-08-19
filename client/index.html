@@ -131,8 +131,16 @@
        lattice the whole game is built out of laid faintly over it. All of it is
        gradients on one element — nothing to load, nothing to render, and it
        cannot go stale against art it is not made of. */
+    /* The PAGE does not scroll; the list of shops does. A browser scrollbar
+       down the side of a title screen is the single most web-page thing on it,
+       and the game already answers this everywhere else — `wireScroll`, a drag
+       with a fade at whichever end has more past it. So the box is a column
+       that fits the viewport and `.menu-list` is the one part of it that gives.
+       `min-height: 0` is what makes that work: a grid/flex child will not
+       shrink below its content without it, so the list would grow the box and
+       put the bar back on the body. */
     #menu {
-      position: fixed; inset: 0; z-index: 60; overflow-y: auto;
+      position: fixed; inset: 0; z-index: 60; overflow: hidden;
       display: grid; place-items: center; padding: 24px 16px;
       background:
         /* The lawn, hard-edged at the horizon the way a floor meets a wall. */
@@ -160,7 +168,11 @@
     }
     #menu[hidden] { display: none; }
     /* Over both. The box is the only thing on this screen you interact with. */
-    .menu-box { position: relative; z-index: 1; }
+    .menu-box {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px);
+    }
     .menu-box { width: min(440px, 100%); }
     /* The well the turntable spins in. Fixed height and `overflow: hidden`,
        because `.wk-turn` is a strip `--n` faces wide that slides sideways —
@@ -253,7 +265,29 @@
     }
     .tdetail b { display: block; font-weight: 800; opacity: .85; }
 
-    .menu-list { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 10px; }
+    .menu-list {
+      display: flex; flex-direction: column; gap: 10px; margin: 14px 0 10px;
+      overflow-y: auto; min-height: 0; flex: 1;
+      /* The cards lift and cast, so the box needs room either side or the
+         shadow is clipped into a hard vertical line down both edges. */
+      padding: 4px 4px 8px; margin-left: -4px; margin-right: -4px;
+      scrollbar-width: none;
+    }
+    .menu-list::-webkit-scrollbar { display: none; }
+    /* Same 20px fade the panel uses, and the same class names, because it is
+       the same `wireScroll` putting them on. */
+    .menu-list.more-back {
+      mask-image: linear-gradient(180deg, transparent 0, #000 20px);
+      -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px);
+    }
+    .menu-list.more-on {
+      mask-image: linear-gradient(0deg, transparent 0, #000 20px);
+      -webkit-mask-image: linear-gradient(0deg, transparent 0, #000 20px);
+    }
+    .menu-list.more-back.more-on {
+      mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
+      -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
+    }
     .menu-empty {
       font-size: 12px; opacity: .55; text-align: center; padding: 14px 4px; line-height: 1.45;
     }

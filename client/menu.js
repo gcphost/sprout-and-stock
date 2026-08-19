@@ -18,6 +18,7 @@ import { DIFFICULTIES, NEW_DIFFICULTY, difficultyOf } from '../shared/difficulty
 import { markWorldNew } from './tutor.js';
 import { mix } from './audio/mix.js';
 import { spinForWorker } from './thumb.js';
+import { wireScroll } from './scroll.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
@@ -365,12 +366,14 @@ export class Menu {
 
   render() {
     const name = localStorage.getItem('sns-name') ?? '';
-    // `this.root` is the scroll container as well as the thing being rebuilt,
-    // so emptying it collapses the content and the browser pins scroll to 0.
-    // With eight shops in the list that reads as the menu jumping to the top
-    // every time you arm or delete one — the card you clicked leaves the
-    // screen. Nothing above resizes now, so putting it back always lands.
-    const scroll = this.root.scrollTop;
+    // The LIST is the scroll container now, and it is inside the thing being
+    // rebuilt — so emptying `root` collapses it and the browser pins it to 0.
+    // With eight shops that reads as the menu jumping to the top every time you
+    // arm or delete one, and the card you clicked leaves the screen. Read off
+    // `.menu-list` rather than off `root`: root has not scrolled since the page
+    // stopped scrolling, so the old line restored 0 onto 0 and quietly did
+    // nothing — which is worse than being wrong, because it still looks right.
+    const scroll = this.root.querySelector('.menu-list')?.scrollTop ?? 0;
     this.root.innerHTML = `
       <div class="menu-box">
         <!-- The one control on this screen that is not about choosing a shop.
@@ -474,7 +477,8 @@ export class Menu {
         <p class="menu-foot">${this.busy ? 'Working…' : '&nbsp;'}</p>
       </div>`;
 
-    this.root.scrollTop = scroll;
+    const list = this.root.querySelector('.menu-list');
+    if (list) list.scrollTop = scroll;
     this.wire();
   }
 
@@ -487,6 +491,12 @@ export class Menu {
     // from innerHTML and would throw away the name and cash somebody has typed
     // — the trap `create` documents at length, and a mute button is exactly the
     // sort of press you make while half way through filling the form in.
+    // The saves list is the one thing on this screen that gives, and it gets
+    // the game's scroller rather than the browser's: a drag, no bar, and a fade
+    // at whichever end has more past it. Re-run on every render because `mark`
+    // has to re-measure — the wiring itself only happens once (`data-scrolled`),
+    // which is why re-calling it is cheap.
+    wireScroll(q('.menu-list'), { axis: 'y' });
     q('#menu-mute')?.addEventListener('click', (e) => {
       mix.arm();
       mix.setMuted(!mix.muted);
