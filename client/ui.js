@@ -41,6 +41,39 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
 const SHUTTER_KEY = 'sns.shutterUsed';
 
 /**
+ * A mouse with one of its two buttons pressed. See `updatePrompt`.
+ *
+ * Drawn here rather than taken from `icons.js`, which is generated from two
+ * stock icon sets: a stock mouse is one shape with both buttons the same, and
+ * the entire content of this picture is that ONE of them is filled. An icon
+ * that cannot say which button it means is a picture of the problem.
+ *
+ * The pressed half is its own path with a class on it, so the pulse is a fill
+ * that lights rather than a whole glyph that flashes — a shape blinking on and
+ * off reads as something wrong, and a button going down and coming back up
+ * reads as a click, which is the only thing it is trying to say.
+ *
+ * `currentColor` throughout: the pill inverts itself when it is armed
+ * (`#prompt.going`), and a glyph with a colour of its own would go on being
+ * white on gold.
+ */
+function mouseGlyph(right) {
+  // The pressed cap, drawn as the corner it actually is: down the divider,
+  // along the top under the shoulder, and back. Mirrored about x=7 for the
+  // right one rather than authored twice, because two hand-drawn halves drift
+  // and the divider stops lining up with itself.
+  const cap = right
+    ? 'M7.6 1.3h1.8a3.3 3.3 0 0 1 3.3 3.3v2.1H7.6z'
+    : 'M6.4 1.3H4.6a3.3 3.3 0 0 0-3.3 3.3v2.1h5.1z';
+  return `<svg class="pr-mouse" viewBox="0 0 14 20" aria-hidden="true">`
+    + '<rect x="1.3" y="1.3" width="11.4" height="17.4" rx="5.7"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55"/>'
+    + '<path d="M1.3 7.4h11.4M7 1.3v6.1" stroke="currentColor"'
+    + ' stroke-width="1.1" opacity=".55"/>'
+    + `<path class="pr-press" d="${cap}" fill="currentColor"/></svg>`;
+}
+
+/**
  * How long "tap again to hire" stays armed.
  *
  * The same window `FIRE_ARM_MS` gives Let go in the worker menu, on purpose:
@@ -2267,7 +2300,30 @@ export class UI {
     // Every tab shows the lead rows too, so they are part of every tab's height
     // rather than of the tallest one's.
     const most = Math.max(...groups.map((g) => g.rows.length)) + groups.lead.length;
-    body.style.minHeight = `${Math.round(pitch * most)}px`;
+    /**
+     * ...and never taller than the panel can show, which is the half this was
+     * missing.
+     *
+     * `#panel-body` scrolls because it overflows, and a `min-height` set to the
+     * tallest tab's WHOLE content means it never does: the body simply grows to
+     * that height, the panel clips it, and what you get is a list you can see is
+     * cut off and cannot move. Upgrades is where it bites, because it is the
+     * longest tab in the game.
+     *
+     * It takes the fade down with it, too. The mask is measured on the box it
+     * is applied to, so a body four hundred pixels taller than the panel fades
+     * twenty pixels of a box you can only see half of — which lands on screen as
+     * rows ghosted most of the way down the list rather than a hairline at the
+     * edge.
+     *
+     * The cap comes off the panel's own computed `max-height` rather than off
+     * its current height: cleared, the panel is only as tall as this tab's
+     * content, so measuring it here would cap a short tab at its own size and
+     * this would do nothing at all.
+     */
+    const cap = parseFloat(getComputedStyle(this.el.panel).maxHeight);
+    const room = Number.isFinite(cap) ? Math.max(0, cap - body.offsetTop - 8) : Infinity;
+    body.style.minHeight = `${Math.round(Math.min(pitch * most, room))}px`;
   }
 
   /**
@@ -2747,17 +2803,49 @@ export class UI {
   }
 
   /**
-   * The two live gauges under reputation.
+   * The three live gauges in the corner, and the one rule all of them keep.
    *
-   * Mood's amber step is at 0.5 on purpose: that is the same threshold the sim
-   * uses to decide a shopper looks annoyed, so the bar changes colour on the
-   * tick the first face does. Two readouts of one number that disagreed about
-   * when it went bad would be worse than only having one.
+   * **An amber step is a threshold the sim acts on, never a round number.**
+   * Mood's is at 0.5 because that is where the sim decides a shopper looks
+   * annoyed, so the bar changes colour on the tick the first face does. Room's
+   * are the crush `CROWD_FROM` actually charges for. Two readouts of one number
+   * that disagreed about when it went bad would be worse than having only one,
+   * and a bar that went amber somewhere the shop was still fine is a warning you
+   * learn to ignore.
+   *
+   * Reputation was the exception and was *always green* — the CSS paints
+   * `.repwrap > div` with `--good` and this was the one of the three that never
+   * overrode it. Not an oversight so much as a missing line to point at: `pull`
+   * is reputation, smoothly, so nothing in the sim ever says "this is now bad".
+   * `repSettle` is that line — see the note where it goes on the wire. At or
+   * below it the shop is being held up by the town forgetting rather than by
+   * anything it sold, which is worth a colour.
    *
    * Room counts *down* to the door closing rather than up from empty, so it
    * reads the same way as the two bars above it — long is good.
    */
   setGauges(state) {
+    /**
+     * Red at or under the settle floor, amber under half the town, else green.
+     *
+     * The upper step is the one number reputation can honestly be read as: `pull`
+     * IS reputation, so 50% means half of everybody in range picks this shop.
+     * Under that you are losing more of the town than you are keeping, which is
+     * amber rather than red because it is a shop with a problem rather than a
+     * shop in a hole.
+     *
+     * The floor is the preset's and arrives on the wire, so this bar means the
+     * same thing in a relaxed world and a hard one — 30% is a shop being carried
+     * by the floor in the first and an ordinary bad week in the second. Falls
+     * back to the gentle 0.35 for a server that predates the field, which keeps
+     * a stale tab honest rather than colourless.
+     */
+    const rep = state.reputation ?? 0;
+    const settle = state.repSettle ?? 0.35;
+    this.el.rep.style.width = `${Math.round(rep * 100)}%`;
+    this.el.rep.style.background = rep >= 0.5 ? 'var(--good)'
+      : rep > settle ? 'var(--warn)' : 'var(--accent)';
+
     const mood = state.mood ?? 1;
     this.el.mood.style.width = `${Math.round(mood * 100)}%`;
     this.el.mood.style.background = mood >= 0.5 ? 'var(--good)'
@@ -2790,7 +2878,10 @@ export class UI {
     this.el.cash.textContent = money(state.cash);
     this.el.day.textContent = `Day ${state.day}`;
     this.el.season.textContent = state.season;
-    this.el.rep.style.width = `${Math.round(state.reputation * 100)}%`;
+    // The reputation bar moved into `setGauges` with the other two, because it
+    // grew a colour and the rule about what an amber step may be is stated once
+    // there for all three. Setting the width here as well would be two writers
+    // for one bar, which is how the length and the colour end up a tick apart.
     // The town: how many are in here, out of how many could be.
     //
     // The pair is the point. Catchment on its own is a number nothing in the
@@ -3095,17 +3186,85 @@ export class UI {
    * Standing in range is the whole input, so this is the only warning you get
    * that something is about to happen to the thing you are stood next to. It
    * says what, while the ring says how long you have to walk away.
+   *
+   * ...which was the wrong question, and the pill spent a long time answering
+   * it well. `p.action` is the job the shop has ARMED, and a job is armed only
+   * after you have named a target and walked to it — so this named one thing,
+   * in one direction, at the one moment you had already worked out what to do.
+   * Everything before that said nothing at all: point at a crate and no word
+   * about picking it up, stand with a box on your shoulder looking for
+   * somewhere to set it down and nothing anywhere says which button does it.
+   * And the one gesture in this game nobody could ever guess — **a tap is one
+   * unit, a hold is the lot** — could not be written here at all, because a tap
+   * and a hold are one armed action wearing one name.
+   *
+   * So the pointer speaks first (`setPressHints`), and it speaks in a LIST:
+   * every button, and every length of press, that means something at whatever
+   * you are pointing at. Each one behind a mouse with that button pressed —
+   * left-button jobs on the left of the pill, right on the right, which is the
+   * whole of what the picture says.
+   *
+   * The armed action keeps the pill for exactly the moment it is HAPPENING —
+   * `progress > 0`, a ring actually turning. That is the one time the specific
+   * name is worth more than the list: it says which board is draining while it
+   * drains. Standing armed and not pressing is not that moment, and it is the
+   * state the old pill spent nearly all its time in.
+   *
+   * Same pill, same place, same words. What is new is when it speaks and how
+   * many things it has to say.
    */
+  setPressHints(hints) {
+    this._hints = hints?.length ? hints : null;
+    this.paintPrompt();
+  }
+
   updatePrompt(action) {
-    const key = action ? `${action.kind}:${action.target}` : null;
+    // Only while the ring is turning. `progress` is sent from the tick it arms
+    // at zero, which is the whole armed-but-idle state the hints are better at.
+    this._doing = action && action.progress > 0 ? action : null;
+    this.paintPrompt();
+  }
+
+  paintPrompt() {
+    const doing = this._doing;
+    const hints = doing
+      ? [{ btn: doing.btn === 'right' ? 'r' : 'l', hold: true, say: `${doing.label}…` }]
+      : this._hints;
+    const key = hints
+      ? hints.map((h) => `${h.btn}${h.hold ? 'h' : 't'}:${h.say}`).join('|')
+      : null;
     if (key === this._promptKey) return;
     this._promptKey = key;
 
-    if (!action) {
+    if (!hints) {
       this.el.prompt.className = 'hud';
       return;
     }
-    this.el.prompt.innerHTML = `<b>${action.label}…</b>`;
+
+    this.el.prompt.textContent = '';
+    for (const h of hints) {
+      const right = h.btn === 'r';
+      const row = document.createElement('span');
+      // `pr-r` is a `row-reverse`, so a right-button job puts its mouse on the
+      // right of its own words. The side is doing the talking, and a right
+      // press drawn glyph-first would argue with the only thing this says.
+      row.className = `pr-say${right ? ' pr-r' : ''}`;
+      // A proximity job — a till with somebody at it, the bed under your feet —
+      // belongs to neither button (`p.pressing` is one bit that says a button is
+      // down and nothing about which), so it gets no mouse rather than one with
+      // neither cap lit, which would read as a third state nobody can make.
+      if (!doing || doing.btn) row.innerHTML = mouseGlyph(right);
+      if (h.hold && !doing) {
+        const tag = document.createElement('i');
+        tag.className = 'pr-hold';
+        tag.textContent = 'hold';
+        row.append(tag);
+      }
+      const b = document.createElement('b');
+      b.textContent = h.say;
+      row.append(b);
+      this.el.prompt.append(row);
+    }
     // Keep `hud` — it carries position:fixed, and dropping it drops the
     // element out of the overlay and into the document flow, invisible.
     this.el.prompt.className = 'hud show going';
