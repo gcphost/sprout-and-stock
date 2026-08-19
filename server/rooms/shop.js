@@ -13,9 +13,17 @@
  *
  * The room also registers itself in a module-level registry so the HTTP control
  * API (and therefore MCP) can reach the live game.
+ *
+ * THIS FILE IMPORTS NO TRANSPORT, and that is the point of it rather than a
+ * tidiness. `ShopRoom` is the shop; `MartRoom.js` next door is `ShopRoom`
+ * wearing Colyseus, and `server/rooms/host.js` is the same shop wearing a
+ * channel. A single `import { Room } from 'colyseus'` up here would be enough to
+ * drag a Node websocket server into a browser bundle, which is a build error at
+ * best and three hundred kilobytes of dead matchmaker at worst — so the split is
+ * load-bearing and not cosmetic. See the contract above `ShopRoom`, and
+ * docs/browser.md for why there is a second host at all.
  */
 
-import { Room } from 'colyseus';
 import { Game } from '../sim/index.js';
 import { content, refresh, onContentChange } from '../content.js';
 import { JOBS } from '../../shared/schemas.js';
@@ -66,15 +74,23 @@ const TICK_MS = 50;        // 20Hz simulation
 const BROADCAST_MS = 100;  // 10Hz network
 
 /**
- * How long a room with nobody in it keeps simulating before it saves and goes.
+ * How long a room with nobody in it stays OPEN before it saves and goes.
+ *
+ * It used to be how long one kept *simulating*, and that was the bug — see
+ * `stepIfWatched`. The room is still here for five minutes; the world inside it
+ * is not running for any of them.
  *
  * There is a grace period at all because an agent's room is legitimately empty:
  * `roomForWorld` starts one headless to reset an economy or take a screenshot,
  * and a room that disposed the instant it had no clients would be gone before
  * the next call. Five minutes is long enough for a working session and short
- * enough that ten abandoned worlds aren't ticking overnight.
+ * enough that ten abandoned worlds aren't sitting in memory overnight.
  */
-const IDLE_MS = Number(process.env.SNS_ROOM_IDLE_MS ?? 5 * 60 * 1000);
+// `globalThis.process?.env` for the reason `server/director.js` says at length:
+// a bare `process` at module scope is a ReferenceError while this module is
+// being evaluated, in a build where there is no process — which is not a
+// setting failing to apply, it is the room never existing.
+const IDLE_MS = Number(globalThis.process?.env?.SNS_ROOM_IDLE_MS ?? 5 * 60 * 1000);
 const IDLE_CHECK_MS = 15_000;
 
 /**
@@ -94,7 +110,50 @@ function legacyWorldId() {
   return id;
 }
 
-export class MartRoom extends Room {
+/**
+ * THE SHOP, WRITTEN AGAINST A HOST RATHER THAN AGAINST COLYSEUS.
+ *
+ * Everything below is the game: 50 handlers, the tick, the broadcast, the idle
+ * timer, the catalog. None of it cares what is carrying the bytes. `Base` is
+ * whatever does — Colyseus today, and in a browser build a data channel or
+ * nothing at all (see docs/browser.md).
+ *
+ * A mixin rather than composition, deliberately. The alternative is a `Shop`
+ * object holding a `host` and fifty handlers rewritten as `this.host.onMessage`,
+ * which is a better-looking boundary and a worse *change*: this seam has to be
+ * provably a no-op, and the only diff that proves itself is one where the body
+ * is untouched. Every `this.broadcast` in here resolves exactly where it did.
+ *
+ * THE CONTRACT — what a `Base` has to provide. Ten things, and the browser
+ * implementation is only honest if it has all ten:
+ *
+ *   broadcast(type, payload)         to everybody
+ *   onMessage(type, (client, m))     inbound dispatch
+ *   clients                          array; `.length` and `[0]` are both read
+ *   client.sessionId                 stable for the life of the connection
+ *   client.send(type, payload)       to one
+ *   clock.setInterval(fn, ms)        a clock the host can stop with the room
+ *   setSimulationInterval(fn, ms)    the 20Hz tick
+ *   disconnect()                     shut this room down (the idle timer)
+ *   roomId                           for the log lines
+ *   maxClients / autoDispose / setMetadata()
+ *                                    Colyseus's matchmaking knobs. A host with
+ *                                    no matchmaker takes the writes and ignores
+ *                                    them — they must not throw.
+ *
+ * ...and the Base must CALL `onCreate(options)`, `onJoin(client, options)`,
+ * `onLeave(client)` and `onDispose()`. `onCacheRoom`/`onRestoreRoom` are
+ * Colyseus's devMode alone and a host that has no such thing simply never calls
+ * them; the guard they protect is on the save as well, which is why that is
+ * safe (see `pushState`).
+ *
+ * THE RULE, and it is the whole reason the seam is worth anything: **no
+ * behaviour lives in a Base.** It translates those ten calls and holds no state
+ * of its own. The moment one of them branches on which build it is, the
+ * twenty-one `verify:*` sweeps — every one of which runs against the Colyseus
+ * side — have stopped being evidence about the other one.
+ */
+export const ShopRoom = (Base) => class extends Base {
   onCreate(options) {
     this.maxClients = 8;
     // A named world has to exist. `joinOrCreate` reaches this directly from the
@@ -123,7 +182,7 @@ export class MartRoom extends Room {
       this.broadcast('content-changed', { version: content().version });
     });
 
-    this.setSimulationInterval(() => this.game.step(TICK_MS / 1000), TICK_MS);
+    this.setSimulationInterval(() => this.stepIfWatched(), TICK_MS);
     this.broadcastTimer = this.clock.setInterval(() => this.pushState(), BROADCAST_MS);
 
     // Poll for content written by another process (MCP, the director, a human
@@ -138,13 +197,58 @@ export class MartRoom extends Room {
   }
 
   /**
+   * NOBODY IS HERE, SO NOTHING HAPPENS.
+   *
+   * The world only runs while somebody is in it. Close the last tab and the
+   * clock stops on the tick the socket does; open one and it goes on from
+   * exactly there.
+   *
+   * **Why this had to change.** The room kept stepping for the whole idle grace
+   * — five real minutes, which is most of an in-game trading day, and more when
+   * it crosses the night at `NIGHT_SPEED`. What runs in those minutes is a shop
+   * that is OPEN with nobody behind the till and nobody to work it, so every
+   * shopper who walks in queues, waits, and storms out at −0.03 reputation. It
+   * takes 34 of those to move reputation across its entire range. So closing the
+   * browser for tea and coming back to a shop the town has turned on is not an
+   * edge case, it is the reliable outcome — and it is *invisible*: the ledger
+   * blames "Lost patience", which is exactly what happened and says nothing
+   * about the fact that nobody was playing. The old comment on `checkIdle`
+   * described this precisely and read it as a reason to dispose *sooner*, which
+   * treats the symptom.
+   *
+   * **It is not `Game.paused`.** That is a fact about a person — you pressed P,
+   * it persists as a wall-clock stamp, the HUD strikes the clock through. This
+   * is a fact about a room, it is nobody's decision, and it must leave no trace
+   * on the save: a shop that came back stopped because it once sat empty would
+   * be `pausedAt` firing for a reason the player never chose.
+   *
+   * **It is here rather than in either Base**, which is the whole seam
+   * (`server/rooms/host.js`): `MartRoom` answers the ten calls with Colyseus and
+   * `ChannelHost` answers them with a channel, and both extend this. So the
+   * desktop build and the web build cannot disagree about when the world runs —
+   * which is the one thing they must never disagree about, since it decides what
+   * a save is worth.
+   *
+   * `clients.length` and not a flag: the two Bases maintain that array
+   * themselves, and it is the one thing about a connection both of them already
+   * agree on.
+   */
+  stepIfWatched() {
+    if (!this.clients.length) return;
+    this.game.step(TICK_MS / 1000);
+  }
+
+  /**
    * Save and shut down once nobody has been here for a while.
    *
-   * `disconnect()` rather than letting it run: an empty room is still stepping
-   * the sim 20 times a second, spawning shoppers nobody serves and asking the
-   * director for a world event every in-game day. One of those is a paid API
-   * call, and before save slots existed there was only ever one room, so it
-   * never mattered.
+   * `disconnect()` rather than leaving it open: an empty room still holds a
+   * world in memory, a content poll and a 20Hz timer, and asks the director for
+   * a world event every in-game day — one of which is a paid API call. Before
+   * save slots existed there was only ever one room, so it never mattered.
+   *
+   * It is no longer about the SIM, which is the half `stepIfWatched` took over:
+   * these five minutes are frozen now, so what this reclaims is memory rather
+   * than a shop being quietly ruined in the background.
    */
   checkIdle() {
     if (this.clients.length > 0) { this.emptySince = null; return; }
@@ -612,7 +716,24 @@ export class MartRoom extends Room {
 
   onLeave(client) {
     this.game.removePlayer(client.sessionId);
-    if (this.clients.length <= 1) this.emptySince = Date.now();
+    /**
+     * Start the idle clock if that was the last of them.
+     *
+     * `<= 1` was a divergence between the two Bases, and the only one of its
+     * kind: Colyseus calls `onLeave` with the leaver still in `clients`, while
+     * `ChannelHost.leave` splices first — so the same line meant "nobody left"
+     * on one build and "one person left" on the other, and on the web build two
+     * players became one and started the empty-room timer under somebody who was
+     * still standing there. It self-corrected within 15s (`checkIdle` clears
+     * `emptySince` whenever anyone is in), which is why it could sit here
+     * unnoticed; it is fixed rather than left because a rule that reads
+     * differently on the two Bases is exactly what the seam exists to stop, and
+     * the next one may not have a sweeper behind it.
+     *
+     * Asking the array both Bases have already updated their own way, rather
+     * than counting the leaver, is what makes the answer the same on both.
+     */
+    if (!this.clients.some((c) => c !== client)) this.emptySince = Date.now();
     // Save on the way out rather than only on dispose. Five minutes of idle
     // grace is five minutes in which the process can be killed, and everything
     // since the last upgrade would go with it.
@@ -790,4 +911,4 @@ export class MartRoom extends Room {
     waiter.resolve(dataUrl ?? null);
     return true;
   }
-}
+};

@@ -97,12 +97,26 @@
     #edge {
       position: fixed; inset: 0; pointer-events: none; z-index: 9;
       opacity: 0; transition: opacity .22s;
-      box-shadow: inset 0 0 0 3px var(--edge), inset 0 0 44px var(--edge-glow);
+      box-shadow: inset 0 0 0 3px var(--edge), inset 0 0 var(--edge-spread, 44px) var(--edge-glow);
     }
     /* Shut is the quiet one: it is true every single night, so it says "not
-       trading" at the weight of dusk rather than of an alarm. */
+       trading" at the weight of dusk rather than of an alarm.
+       QUIET IS NOT THE SAME AS FAINT, and DARK is not a colour. It was grey at
+       .5, which is the two mistakes at once: too weak to see, and made of the
+       one ink that reads as a shadow rather than as a state — a dark band round
+       a sunlit canvas is what a vignette looks like, or a window edge, so the
+       eye files it as the screen instead of as the shop. Darkening it further
+       only made it a better vignette.
+       So it is a COLOUR, and the colour is dusk: the other two are the accent
+       and gold, and blue is the one that cannot be mistaken for either while
+       saying the thing this state actually means. It keeps the stillness — the
+       pulse belongs to paused, and two states wearing one animation is what
+       this whole block is ordered against — and it gets reach instead, which is
+       the half that reads as evening closing in rather than as a border.
+       `--edge-spread` is a var so widening it here cannot widen the other two. */
     body.shut #edge {
-      opacity: 1; --edge: rgba(58,49,40,.5); --edge-glow: rgba(58,49,40,.3);
+      opacity: 1; --edge: rgba(72,102,178,.85); --edge-glow: rgba(72,102,178,.5);
+      --edge-spread: 92px;
     }
     /* Held is the loud one, and it breathes on the clock's own 1.6s so the two
        marks for one state cannot fall out of step. */
@@ -392,6 +406,13 @@
     }
     .menu-add:hover { background: var(--panel-solid); }
     .menu-add:active { transform: translateY(3px); box-shadow: none; }
+    /* New shop and Join share a row — two thirds to the thing almost everybody
+       presses, one third to the thing you press when a friend has sent you a
+       code. `flex` rather than a grid so that the row is still one full-width
+       button in the server build, where there is nothing to join. */
+    .menu-adds { display: flex; gap: 8px; }
+    .menu-adds .menu-add { flex: 2; }
+    .menu-adds .menu-add.menu-side { flex: 1; }
     .menu-new { background: var(--panel); border-radius: 15px; padding: 11px 13px;
                 box-shadow: 0 4px 16px rgba(58,49,40,.13); }
     .menu-new .menu-field { background: rgba(58,49,40,.06); box-shadow: none; }
@@ -446,11 +467,67 @@
        A single line, sized to clear the stats panel on the left and the rail on
        the right. A stack cost vertical space in the middle of the screen, which
        is the one place the game is actually happening. */
+    /* IT IS ANCHORED PAST THE READOUTS, NOT CENTRED AND TRIMMED.
+
+       This was `left: 50%` with `max-width: min(860px, calc(100vw - 360px))`,
+       and the 360 was clearance for the stats card — the width #stats HAPPENED
+       to be on the day it was written, halved onto each side. That is precisely
+       the trap the note above #topleft describes, said about the other axis:
+       nothing up here has a fixed size, so nothing up here gets to hardcode
+       where the next thing starts. #stats has grown a sparkline, a town readout
+       and three gauges since, so on a wide screen there is slack and nothing
+       shows, and on a narrower one the chips sit straight on top of the gauges.
+       The bug arrives on somebody else's monitor rather than on yours, which is
+       why it lasted.
+
+       Being a SUBTRACTION made it worse in the other direction, and the 240px
+       floor that used to be in this rule is the scar: `100vw - 360px` goes to
+       nothing on a narrow window and negative on a zoomed one, so the row was
+       capped at a chip squeezed to one letter — a red sliver with no words on
+       it, which reads as a stray button rather than as the shop saying it is
+       shut, and that chip is the first thing a new world ever says. The floor
+       bought a readable chip by accepting the overlap.
+
+       Anchoring removes the trade rather than picking a side of it. There is no
+       subtraction left to go negative: the row starts after the left-hand column
+       and ends at the right edge, so it is always at least the whole of the free
+       space, and it wraps rather than shrinks when three chips will not fit.
+
+       `--hq-left` is the measured right edge of #topleft — see `UI.watchTopLeft`.
+       #topleft and not #stats, because the column also holds the demand meter
+       and the radio, and a wrapped second row of chips reaches down past them.
+
+       IT STAYS ON THE SCREEN'S CENTRE, and gives that up last. Anchoring the
+       box at `--hq-left` and centring inside it was tried first and is wrong for
+       a reason no arithmetic shows: this row reads as the middle of the HUD, so
+       centring it in the free space parks it visibly off-centre on a wide
+       monitor — which is a thing everybody sees, to fix a thing only a narrow
+       one has.
+
+       So the padding is SYMMETRIC. Equal padding on a full-width box leaves the
+       content centred on the viewport exactly as `left: 50%` did, while making
+       it impossible for that content to begin before `--hq-left`. Centring and
+       clearance stop being a choice, because one is now a consequence of the
+       other — which is the whole trick here and the reason nothing has to be
+       measured twice.
+
+       The right-hand side is what gives when there is genuinely not enough
+       room. Symmetric padding spends the clearance TWICE, so on a small window
+       the inner strip closes to nothing — the sliver bug again, wearing the
+       fix's clothes. The `clamp` spends it twice while that is affordable and
+       walks the right-hand side back toward 12px when it is not: full symmetry
+       and true centre wherever it fits, drifting right only as far as it must,
+       and never once starting before the card. 320px is the width it protects,
+       which is about one chip. Under that the chips simply wrap, and a chip
+       wider than the strip overflows to the RIGHT, where there is nothing to
+       overlap — the asymmetry of the two edges is the point: left is the bug,
+       right is only untidy. */
     #hq {
-      top: 12px; left: 50%; transform: translateX(-50%);
+      top: 12px; left: 0; right: 0;
+      padding-left: var(--hq-left, 12px);
+      padding-right: clamp(12px, calc(100vw - var(--hq-left, 12px) - 320px), var(--hq-left, 12px));
       display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
       justify-content: center; pointer-events: none;
-      max-width: min(860px, calc(100vw - 360px));
     }
     /* ---- nothing in this row may move sideways ---------------------------
        Every cell here holds a number that changes while you watch it, and they
@@ -552,15 +629,30 @@
        is equally a shop nobody has walked into yet: three new worlds got played
        for a while with the shutters down. So the door ASKS, once, and stops for
        ever the first time the shutters are worked either way — see `shutterUsed`
-       in ui.js. A prompt that came back would be a prompt you learn to skip. */
-    #sign.nudge { animation: signAsk 1.6s ease-in-out infinite; }
-    #sign.nudge #doorway { color: var(--accent); opacity: 1; }
+       in ui.js. A prompt that came back would be a prompt you learn to skip.
+
+       IT IS `asking` AND NOT `nudge`, AND THAT IS NOT A PREFERENCE. `.nudge` is
+       already the build strip's round scroll arrow (see it below), and that rule
+       is a BARE CLASS on a stylesheet every element in the game shares — so
+       spelling this state `nudge` handed the sign `position: absolute`,
+       `top: 50%`, a z-index and a 22px round chip. `#sign` sets no `position` of
+       its own, so nothing competed: the door stopped being a cell of the card,
+       resolved against the nearest positioned ancestor (`#topleft`, which is
+       `.hud` and fixed), and landed halfway down the column — on top of the
+       demand meter, wearing the arrow's shadow.
+       It is invisible in every shop but a new one: the class is only on while
+       the shutters are down AND nobody has ever worked them, so the one player
+       who sees it is the one who has never seen where the button belongs. The
+       trap is the name rather than the rule — a state class on an id-scoped
+       selector reads as private and is not. */
+    #sign.asking { animation: signAsk 1.6s ease-in-out infinite; }
+    #sign.asking #doorway { color: var(--accent); opacity: 1; }
     @keyframes signAsk {
       0%, 100% { background: rgba(58,49,40,0); }
       50% { background: rgba(168,68,47,.22); }
     }
     @media (prefers-reduced-motion: reduce) {
-      #sign.nudge { animation: none; background: rgba(168,68,47,.16); }
+      #sign.asking { animation: none; background: rgba(168,68,47,.16); }
     }
     #when { display: flex; align-items: baseline; gap: 5px; line-height: 1.2; }
     #cash {
@@ -1223,15 +1315,26 @@
     #prompt.going { background: #ffd66b; color: var(--ink); }
     #prompt b { font-weight: 800; }
 
-    /* ...and which button does it, once per press that means anything here. A
-       row each, because two or three of them side by side is a sentence you
-       have to parse and a stack is a list you scan — and the pill is at the
-       bottom of the screen where a column has nothing to push out of the way.
-       Left-button rows read glyph-first and right-button rows are reversed, so
-       the mice line up down the two edges: the side is the whole message. */
-    #prompt { display: flex; flex-direction: column; gap: 3px; }
+    /* ...and which button does it, once per press that means anything here. One
+       row, divided — the pill stays the one pill it always was and only gets
+       longer. Left-button entries read glyph-first and right-button ones are
+       reversed, so each mouse sits on its own outside edge and the side of the
+       divider a job is written on is which finger presses it. */
+    /* Wraps rather than running off the screen: four entries fit a desktop and
+       do not fit a phone, and a pill whose last entry is past the edge is the
+       one arrangement that loses information without saying so. */
+    #prompt {
+      display: flex; align-items: center; flex-wrap: wrap; justify-content: center;
+      max-width: min(92vw, 760px); white-space: normal;
+    }
     #prompt .pr-say { display: flex; align-items: center; gap: 6px; }
     #prompt .pr-say.pr-r { flex-direction: row-reverse; }
+    /* A hairline rather than a dot or a gap: these are alternatives, and a
+       middle dot reads as "and then", which is the opposite of what it means. */
+    #prompt .pr-say + .pr-say {
+      margin-left: 10px; padding-left: 10px;
+      border-left: 1px solid rgba(58,49,40,.22);
+    }
     /* Tap and hold are the one thing about this shop nobody can guess, so the
        longer press is labelled rather than implied. Small, dim, and in front of
        the words on its own side. */
@@ -3302,7 +3405,16 @@
     <div id="panel-filter" hidden>
       <label id="panel-searchwrap">
         <span class="ico" id="search-icon"></span>
-        <input id="panel-search" type="text" placeholder="search…" autocomplete="off" spellcheck="false" />
+        <!-- The manager opt-outs are the same set `NO_FILL` carries in
+             client/menu.js, and this is the one input in the game that cannot
+             use the constant because it is authored in static HTML rather than
+             rendered. See the note there for why `autocomplete` alone is not
+             enough — it was here on its own and a 1Password icon sat in the
+             search box regardless. `spellcheck` stays: this one is a search
+             box, so a red underline under half an item name is noise. -->
+        <input id="panel-search" type="text" placeholder="search…" spellcheck="false"
+          autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore="true"
+          data-protonpass-ignore="true" data-form-type="other" />
       </label>
     </div>
     <div id="panel-body"></div>

@@ -295,6 +295,13 @@ function urn(g, tier = 1) {
     // test of `REACH` and not of anything this file is about.
     Object.assign(g.players.me, { x: st.useAt.x, z: st.useAt.z });
   }
+  // ...and out of build mode, which is the state a player is in by the time they
+  // ever touch this machine. `fresh()` switches it on because placing needs it
+  // and left it on because nothing cared — and then `notWhileBuilding` gave the
+  // mode a meaning for every goods verb, so a sweep that stayed in it was
+  // tapping an appliance from a state no shopkeeper can be in. The `fresh()`
+  // trap in its usual form: not a field that is new, a field that newly matters.
+  g.players.me.build = { on: false, tool: 'station' };
   return st;
 }
 

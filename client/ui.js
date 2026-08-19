@@ -314,6 +314,8 @@ export class UI {
     try { this.shutterUsed = localStorage.getItem(SHUTTER_KEY) === '1'; } catch { this.shutterUsed = false; }
 
     this.rail = new Rail(this, this.el.rail);
+    // Keep the to-do chips clear of the readouts, whatever width those become.
+    this.watchTopLeft();
     this.el.shutter.onclick = () => this.setOpen(!this.shopOpen);
     this.el.clock.onclick = () => this.setPaused(!this.paused);
     document.getElementById('search-icon').innerHTML = ICONS.search;
@@ -1548,6 +1550,44 @@ export class UI {
   }
 
   /**
+   * How far in the to-do chips have to start, so they clear the readouts.
+   *
+   * The horizontal twin of `measureBar`, and it exists for the same reason that
+   * one does: the left-hand column has no fixed width, so a stylesheet that
+   * names one is naming today's. `#hq` carried `calc(100vw - 360px)` for exactly
+   * as long as nobody played on a narrow screen — see the note on `#hq`.
+   *
+   * A `ResizeObserver` and not a call at the end of `update`, because almost
+   * everything that changes this width is invisible from here: the cash crossing
+   * a digit, a season word of a different length, the demand meter gaining a
+   * row, the radio's track title. Watching the box itself is the only version
+   * that cannot be forgotten by the next thing added to that column.
+   *
+   * `offsetWidth` rather than the observer's own `contentRect`, which excludes
+   * padding and would leave the chips overlapping the card's last few pixels.
+   * The gap is the same 12 the corner uses everywhere, so the chips sit off the
+   * card by as much as the card sits off the screen.
+   *
+   * Guarded on the API existing at all: this is the only layout observer in the
+   * client, and a browser without one should lose the fine-tuning rather than
+   * the HUD. The CSS fallback (`var(--hq-left, 12px)`) is then simply the whole
+   * width, chips centred over everything — which is where they were before any
+   * of this, so the worst case is today's behaviour.
+   */
+  watchTopLeft() {
+    const box = document.getElementById('topleft');
+    if (!box || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      document.documentElement.style.setProperty(
+        '--hq-left', `${12 + box.offsetWidth + 12}px`,
+      );
+    };
+    this._topLeftObs = new ResizeObserver(measure);
+    this._topLeftObs.observe(box);
+    measure();
+  }
+
+  /**
    * How tall the bar is, for the corner HUD to sit above.
    *
    * Measured rather than written into the stylesheet because the bar grows and
@@ -2775,7 +2815,11 @@ export class UI {
     const key = `${!!state.isOpen}|${this.shopOpen}|${this.paused}|${ask}`;
     if (key === this._clockKey) return;
     this._clockKey = key;
-    this.el.shutter.classList.toggle('nudge', ask);
+    // `asking` rather than `nudge`, which is the build strip's scroll arrow and
+    // is a BARE class — see the note beside `#sign.asking` in index.html for
+    // what it did to the door. A state class on an element with an id-scoped
+    // rule still lands in the same global namespace as every other class here.
+    this.el.shutter.classList.toggle('asking', ask);
 
     this.el.clock.classList.toggle('shut', !state.isOpen);
     this.el.clock.classList.toggle('paused', this.paused);
@@ -3228,10 +3272,10 @@ export class UI {
   paintPrompt() {
     const doing = this._doing;
     const hints = doing
-      ? [{ btn: doing.btn === 'right' ? 'r' : 'l', hold: true, say: `${doing.label}…` }]
+      ? [{ btn: doing.btn === 'right' ? 'r' : 'l', tag: null, say: `${doing.label}…` }]
       : this._hints;
     const key = hints
-      ? hints.map((h) => `${h.btn}${h.hold ? 'h' : 't'}:${h.say}`).join('|')
+      ? hints.map((h) => `${h.btn}${h.tag ?? ''}:${h.say}`).join('|')
       : null;
     if (key === this._promptKey) return;
     this._promptKey = key;
@@ -3254,10 +3298,13 @@ export class UI {
       // down and nothing about which), so it gets no mouse rather than one with
       // neither cap lit, which would read as a third state nobody can make.
       if (!doing || doing.btn) row.innerHTML = mouseGlyph(right);
-      if (h.hold && !doing) {
+      // What makes it something other than a click: how long you hold it, or how
+      // many of them. Said in a word rather than drawn, because there is no
+      // picture of "twice" that anybody reads as twice.
+      if (h.tag) {
         const tag = document.createElement('i');
         tag.className = 'pr-hold';
-        tag.textContent = 'hold';
+        tag.textContent = h.tag;
         row.append(tag);
       }
       const b = document.createElement('b');

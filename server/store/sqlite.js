@@ -1,5 +1,19 @@
 /**
- * THE DATABASE — the live content store.
+ * THE SQLITE STORE — the live content store, and the only one that can write.
+ *
+ * This is one implementation of the contract in `server/db.js`, which is what
+ * the rest of the server imports. Nothing outside this file and the handful of
+ * Node-only scripts named below should reach in here directly; if you find
+ * yourself importing `server/store/sqlite.js` from game code, the thing you
+ * wanted probably belongs on the interface instead.
+ *
+ * It exports three things that are NOT on that interface and deliberately never
+ * will be — `db()`, `DATA_DIR` and `SEED_DIR`. They are facts about a file on a
+ * disk: the boot handle, the directory the database lives in, and the directory
+ * `npm run seed` and `npm run export` read and write. A second store has no
+ * answer to any of them, and giving it one would mean inventing a fake path so
+ * that a script which cannot run there would fail slightly later. See
+ * docs/browser.md.
  *
  * Content (items, crops, customers, events, upgrades) lives here rather than
  * in source files. That's the whole trick behind the co-op playground:
@@ -22,8 +36,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { DEFAULT_WORLD_ID, worldStateKey } from './keys.js';
+
+export { DEFAULT_WORLD_ID, worldStateKey };
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const DATA_DIR = path.join(__dirname, '..', 'data');
+// `../..` and not `..`: this file lives in server/store/ now. A wrong number of
+// hops here does not fail — `db()` cheerfully creates a brand new database at
+// the wrong path, so the shop still opens and it is simply empty, which reads as
+// the save having been lost rather than as a path being off by one directory.
+export const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 export const SEED_DIR = path.join(DATA_DIR, 'seed');
 const DB_PATH = process.env.SNS_DB ?? path.join(DATA_DIR, 'game.db');
 
@@ -364,12 +386,6 @@ function addLateColumns(handle) {
     if (!has) handle.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
   }
 }
-
-/** The id every save carried before saves had ids. */
-export const DEFAULT_WORLD_ID = 'default';
-
-/** Where one world's save blob lives in the `world` key/value table. */
-export const worldStateKey = (id) => `state:${id}`;
 
 /**
  * Carry a single-world database over to the multi-world layout.

@@ -22,6 +22,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { START_TIERS, DEFAULT_TIER } from '../shared/start.js';
+import { DIFFICULTIES, NEW_DIFFICULTY } from '../shared/difficulty.js';
 import { JOBS } from '../shared/schemas.js';
 
 /**
@@ -63,6 +64,13 @@ const JOB_LINES = JOBS
 const TIER_HELP = START_TIERS
   .map((t) => `"${t.id}" ${t.name}: $${t.cash}, ${t.fixtures.shelf} shelves, `
     + `${t.fixtures.freezer} freezer, ${t.fixtures.checkout} till, ${t.fixtures.plot} beds`)
+  .join('. ');
+
+/** ...and the same, derived the same way, for how hard the town is. */
+const DIFFICULTY_HELP = DIFFICULTIES
+  .map((d) => `"${d.id}" ${d.name}: a bad week settles at ${Math.round(d.repSettle * 100)}% `
+    + `reputation, ${Math.round(d.pullFloor * 100)}% of the town comes anyway, `
+    + `shoppers walk in at mood ${d.moodBase}`)
   .join('. ');
 
 const API = (process.env.SNS_API ?? 'http://localhost:2567/api').replace(/\/$/, '');
@@ -146,6 +154,13 @@ server.registerTool('create_world', {
       .describe('How much shop it opens with — the money AND the size of the building, because the '
         + 'generator grows the shop until its contents fit, so fewer shelves is a shorter walk. '
         + `Defaults to "${DEFAULT_TIER}". ${TIER_HELP}`),
+    difficulty: z.enum(DIFFICULTIES.map((d) => d.id)).optional()
+      .describe('How hard the town is on the shop — a separate axis from tier, which is only about '
+        + 'how much shop you open with. It decides how far a neglected shop can slide and how much '
+        + 'trade a shop nobody rates still gets. Creation-only: it is a fact about the save, like the '
+        + `seed, and a shop that changed it halfway has a ledger that means nothing. Defaults to "${NEW_DIFFICULTY}". `
+        + `NOTE for balance work: a world made before this existed reads as "relaxed", which carries the game's original `
+        + `constants — so comparing a new world against an old one compares two difficulties. ${DIFFICULTY_HELP}`),
     cash: z.number().optional()
       .describe("Starting money, overriding the tier's. Clamped to 0–1,000,000."),
     shelves: z.number().optional()

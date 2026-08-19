@@ -19,15 +19,18 @@
  * content table.
  */
 
-import { matchMaker } from 'colyseus';
-
 import {
   DEFAULT_WORLD_ID, listWorldRows, worldRow, insertWorldRow, deleteWorldRow,
   touchWorldRow, renameWorldRow, getWorld, setWorld,
 } from './db.js';
 import { world as loadWorld, saveWorld, DEFAULT_WORLD } from './content.js';
-import { rooms, primaryRoom } from './rooms/MartRoom.js';
+// From `shop.js` and not `MartRoom.js`: what this module wants is the live-room
+// registry, and reaching it through the Colyseus binding would pull a websocket
+// server into every build that imports this file — including a browser one,
+// which is where `createWorld` is now also called from. See docs/browser.md.
+import { rooms, primaryRoom } from './rooms/shop.js';
 import { startTier, tierFixtures } from '../shared/start.js';
+import { startDifficulty, difficultyOf } from '../shared/difficulty.js';
 import { PREP_HOUR } from './sim/index.js';
 
 // ---------------------------------------------------------------------------
@@ -83,6 +86,11 @@ export function summarise(row) {
     day: w.day ?? DEFAULT_WORLD.day,
     cash: Math.round((w.cash ?? DEFAULT_WORLD.cash) * 100) / 100,
     season: w.season ?? DEFAULT_WORLD.season,
+    // Resolved rather than raw, so a save that predates the field answers
+    // `relaxed` — the preset it is actually being played on — instead of null.
+    // Nothing in the menu can then draw a shop as having no difficulty, which
+    // is not a state any shop is in.
+    difficulty: difficultyOf(w.difficulty).id,
     reputation: w.reputation ?? DEFAULT_WORLD.reputation,
     upgrades: (w.ownedUpgrades ?? []).length,
     staff: (w.roster ?? []).length,
@@ -162,8 +170,22 @@ function startingNumber(v, { min, max, cents = false }) {
  * buttons described. Writing it at creation is what makes the choice a *fact
  * about that save*.
  */
-function startingState({ cash, tier, shelves, plots }) {
+function startingState({ cash, tier, difficulty, shelves, plots }) {
   const state = { cash: cash ?? startTier(tier).cash };
+
+  /**
+   * ...and how hard the town is, which is written for the same reason the tier
+   * is and defaults the OTHER WAY from how it is read.
+   *
+   * `startDifficulty` falls back to `normal`; `difficultyOf`, which every load
+   * goes through, falls back to `relaxed`. That is not an inconsistency, it is
+   * the whole safety of the feature: `relaxed` carries the constants the game
+   * shipped with, so every save that predates this field and every headless
+   * game — `simulate`, all fifteen `verify:*` sweeps — reads exactly the numbers
+   * it always did, while a shop somebody starts today gets a game with a bottom
+   * to it. See `shared/difficulty.js`.
+   */
+  state.difficulty = startDifficulty(difficulty).id;
 
   // `fixtures` here is the one-shot budget `starterShop` reads to furnish a shop
   // nobody has opened yet, not the stored ledger step 9 retired: it is merged
@@ -191,13 +213,14 @@ function startingState({ cash, tier, shelves, plots }) {
  * the first `Game.create` reads it, because that is the read that stamps them
  * into a building.
  */
-export function createWorld({ name, seed, cash, tier, shelves, plots } = {}) {
+export function createWorld({ name, seed, cash, tier, difficulty, shelves, plots } = {}) {
   const label = String(name ?? '').trim().slice(0, 32) || `Shop ${listWorldRows().length + 1}`;
   const id = mintId(label);
   const useSeed = String(seed ?? '').trim() || randomSeed();
   const start = startingState({
     cash: startingNumber(cash, START_LIMITS.cash),
     tier,
+    difficulty,
     shelves: startingNumber(shelves, START_LIMITS.shelves),
     plots: startingNumber(plots, START_LIMITS.plots),
   });
@@ -236,7 +259,7 @@ export function createWorld({ name, seed, cash, tier, shelves, plots } = {}) {
     ...DEFAULT_WORLD, seed: useSeed, open: false, time: PREP_HOUR / 24, ...start,
   });
   console.log(`[worlds] created "${label}" (${id}, seed ${useSeed}) `
-    + `as a ${startTier(tier).name.toLowerCase()}: ${JSON.stringify(start)}`);
+    + `as a ${startTier(tier).name.toLowerCase()} on ${start.difficulty}: ${JSON.stringify(start)}`);
   return summarise(row);
 }
 
@@ -350,6 +373,20 @@ export async function roomForWorld(worldId) {
   }
   if (!worldRow(worldId)) throw new Error(`no world "${worldId}"`);
 
+  // Loaded here rather than at the top of the file, for the same reason the
+  // import in `server/director.js` moved: this is the ONE line in this module
+  // that needs a matchmaker, and a static import of it would make Colyseus a
+  // hard dependency of listing, creating, renaming and deleting a shop — none
+  // of which have ever needed one. In a build with no matchmaker this function
+  // is simply never called: there is one room and it is already running.
+  // `@vite-ignore` is load-bearing rather than decoration. A dynamic import is
+  // still an edge in the module graph, so without it a browser bundle follows
+  // this line into the whole Colyseus server and dies resolving `@pm2/io` — an
+  // error naming a process-metrics package, from a file about save slots, with
+  // nothing in it to suggest an import that is never executed there. Left
+  // unresolved, it is a line this build never reaches: there is one room and it
+  // is already running.
+  const { matchMaker } = await import(/* @vite-ignore */ 'colyseus');
   await matchMaker.createRoom('mart', { worldId });
   const started = roomsFor(worldId);
   if (!started.length) throw new Error(`could not start world "${worldId}"`);

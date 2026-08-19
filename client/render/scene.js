@@ -491,6 +491,27 @@ const VEHICLE_CHASE = 9;
 const VEHICLE_TURN = 5;
 
 /**
+ * ...and the same, for people — which the note above says nobody had ever
+ * noticed, and which was true right up until the shop stopped being on the same
+ * machine as the renderer.
+ *
+ * A lerp applied where the snapshot lands moves a body ten times a second and
+ * not at all in between. Locally that is metronomic, and the hops are a sixth of
+ * a tile: invisible. Over a data channel to somebody else's browser the frames
+ * arrive at 10Hz *on average* — a few milliseconds early, a few late,
+ * occasionally two together — and every one of those irregularities becomes a
+ * body that stops and lurches, because the drawing is pinned to the arrival
+ * rather than to the clock. What it reads as is a bad connection making the
+ * game run badly, when the simulation on the other end is perfectly smooth.
+ *
+ * 4.3 per second is `1 - e^(-0.1 * 4.3) ≈ 0.35`, which is the constant this
+ * replaces, at the rate it used to run. So a shop nobody is sharing looks
+ * exactly as it did — the change is that the easing now happens on every frame
+ * instead of on every packet.
+ */
+const ACTOR_CHASE = 4.3;
+
+/**
  * Which way to turn a vehicle so its nose points where it is going.
  *
  * Two conventions meet here and neither of them is wrong. A model is authored
@@ -2361,10 +2382,15 @@ export class Scene {
         this.actorRoot.add(obj);
         map.set(a.id, rec);
         obj.position.set(a.x, 0, a.z);
+        rec.tx = a.x;
+        rec.tz = a.z;
       }
-      // Lerp toward the server position so 10Hz network looks smooth at 60fps.
-      rec.obj.position.x += (a.x - rec.obj.position.x) * 0.35;
-      rec.obj.position.z += (a.z - rec.obj.position.z) * 0.35;
+      // Where the shop says they are. The easing toward it happens per FRAME in
+      // `animateActors`, not here — see `ACTOR_CHASE`. Kept as a target rather
+      // than applied, because a snapshot is news about where somebody is and
+      // not an instruction about when to draw them.
+      rec.tx = a.x;
+      rec.tz = a.z;
       // Kept as well as applied, because `animateRest` turns a body on its break
       // and needs to know what it would otherwise be facing — reading the mesh
       // back would have it blending against its own previous answer between
@@ -2756,6 +2782,27 @@ export class Scene {
    * the kind of bug you see once and cannot reproduce because it depends on
    * which way the bay faces.
    */
+  /**
+   * Ease every body toward where the shop last said it was.
+   *
+   * One chase for players and shoppers alike: they are the same kind of thing
+   * to the renderer, and a hire eased differently from a customer standing
+   * beside them would read as one of them being laggy.
+   *
+   * A body with no target yet — added this frame, before any snapshot named it
+   * — is left where it was put, which is already the right place.
+   */
+  animateActors(dt) {
+    const move = 1 - Math.exp(-dt * ACTOR_CHASE);
+    for (const map of [this.players, this.customers]) {
+      for (const rec of map.values()) {
+        if (rec?.tx === undefined) continue;
+        rec.obj.position.x += (rec.tx - rec.obj.position.x) * move;
+        rec.obj.position.z += (rec.tz - rec.obj.position.z) * move;
+      }
+    }
+  }
+
   animateVehicles(dt) {
     if (!this.vehicleProps.size) return;
     const move = 1 - Math.exp(-dt * VEHICLE_CHASE);
@@ -5076,8 +5123,12 @@ export class Scene {
     // Exactly the argument `animateStations` makes about a blade, and here it is
     // about the other kind of blade.
     if (!this.paused) WIND_CLOCK.value += dt * WIND_SPEED;
-    // The van and the parked cars. Per frame rather than per snapshot, unlike
-    // every other body in the game — see `VEHICLE_CHASE`.
+    // Everybody on foot. Per frame for the reason vehicles are — see
+    // `ACTOR_CHASE`, which is that reason arriving for people the day the shop
+    // stopped being on the same machine as the screen.
+    this.animateActors(dt);
+    // The van and the parked cars. Faster, and for the same reason — see
+    // `VEHICLE_CHASE`.
     this.animateVehicles(dt);
     // Appliances. Per-frame like everything else here: a batch is thirty
     // seconds and the flag that says one is running arrives at 10Hz, so a blade

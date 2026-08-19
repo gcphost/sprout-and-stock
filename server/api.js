@@ -116,11 +116,15 @@ export function createApi() {
     res.json({ ok: true, focused: focusedWorldId(), worlds: listWorlds() });
   }));
 
-  // `tier` is how much shop you start with (`shared/start.js`) and is the whole
-  // of what the menu asks. `cash` overrides the tier's money; `shelves`/`plots`
+  // `tier` is how much shop you start with (`shared/start.js`) and `difficulty`
+  // is how hard the town is on you (`shared/difficulty.js`) — two axes, and the
+  // menu asks both. `cash` overrides the tier's money; `shelves`/`plots`
   // override its counts, and are creation-only for the reason `createWorld`
-  // gives. Blank or absent means the tier's own number; out of range is clamped,
-  // not refused, and an unknown tier falls back rather than losing the shop.
+  // gives. Blank or absent means the default; out of range is clamped, not
+  // refused, and an unknown tier or preset falls back rather than losing the
+  // shop. Note the two presets' defaults differ by design — an absent
+  // `difficulty` here means `normal`, while an absent one on a *save* means
+  // `relaxed`. See `startingState`.
   api.post('/worlds', wrap((req, res) => {
     res.json({
       ok: true,
@@ -128,6 +132,7 @@ export function createApi() {
         name: req.body?.name,
         seed: req.body?.seed,
         tier: req.body?.tier,
+        difficulty: req.body?.difficulty,
         cash: req.body?.cash,
         shelves: req.body?.shelves,
         plots: req.body?.plots,

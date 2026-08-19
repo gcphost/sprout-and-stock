@@ -58,6 +58,15 @@ export function simulate({
   // and nothing else in the result would ever tell you which shop you measured.
   const startedWith = {
     world: worldId,
+    // ...and how hard the town is on the shop this run is measuring, which is
+    // the biggest single thing in this list. `relaxed` is the game's original
+    // constants, so every result ever recorded before difficulty existed was a
+    // `relaxed` result — and a run against a world made since is against
+    // `normal` by default. Two seeds compared across that line are not two runs
+    // of one experiment, they are two different games, and the reputation floor
+    // alone is enough to swamp whatever was being tested. See
+    // `shared/difficulty.js`.
+    difficulty: game.town.id,
     staff: (game.roster ?? []).map((e) => e.name),
     ownedUpgrades: game.ownedUpgrades.length,
     // The newest member of this list, and the clearest case for why the list

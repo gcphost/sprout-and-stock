@@ -22,7 +22,10 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 
 import { MartRoom } from './rooms/MartRoom.js';
 import { createApi } from './api.js';
-import { db } from './db.js';
+// The boot handle, straight from the SQLite store rather than through
+// `db.js` — opening a file is not part of the store contract, and a build with
+// no file has no boot step to put this in. See the note in server/db.js.
+import { db } from './store/sqlite.js';
 import { refresh, content } from './content.js';
 import { ensureAWorld, listWorlds } from './worlds.js';
 
@@ -82,11 +85,7 @@ console.log(`  control api  http://localhost:${PORT}/api/health`);
 if (DEV) console.log(`  client       http://localhost:5173  (npm run dev)`);
 console.log(`  content      ${content().items.length} items, ${content().crops.length} crops, ${content().archetypes.length} archetypes`);
 console.log(`  worlds       ${listWorlds().map((w) => `${w.name} (${w.id}, day ${w.day})`).join(', ')}`);
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.log(`  director     using built-in events (set ANTHROPIC_API_KEY for AI events)`);
-} else {
-  console.log(`  director     AI enabled (${process.env.SNS_DIRECTOR_MODEL ?? 'claude-opus-5'})`);
-}
+console.log(`  director     built-in events`);
 console.log('');
 
 /**

@@ -9,13 +9,13 @@ import {
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
 import { Scene } from './render/scene.js';
-import { Net } from './net.js';
+import { Transport } from './transport.js';
 import { UI } from './ui.js';
 import { RAIL_ITEMS } from './sections.js';
 import { showFixture, refreshFixture, ONE_AT_A_TIME } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
 import { showEdgeMenu, hasEdgeMenu, sameFamily, kindAt } from './edge-menu.js';
-import { Menu, preselectedWorld } from './menu.js';
+import { Menu, preselectedWorld, setMenuApi, enableJoin } from './menu.js';
 import { Award } from './award.js';
 import { Tutor } from './tutor.js';
 import { wireDrag, restorePos } from './panel-drag.js';
@@ -27,7 +27,21 @@ import { events } from './audio/events.js';
 
 const canvas = document.getElementById('game');
 const scene = new Scene(canvas);
-const net = new Net();
+const net = new Transport();
+/**
+ * The front door lists and creates shops. In the server build that is HTTP; in
+ * the web build the Worker owns the store and answers the same four calls.
+ *
+ * Asked as a *capability* rather than off a build flag, because `api` is
+ * precisely the capability in question — and because it leaves `main.js` with
+ * no idea which build it is in, which is the thing the transport seam is for.
+ */
+if (net.api) setMenuApi((method, path, body) => net.api(method, path, body));
+// ...and whether the front door offers to join somebody else's shop. Only a
+// transport that can HOST one can be a guest in one — in the server build both
+// people open the same URL and there is nothing to join. `host` is the
+// capability, asked directly rather than off a build flag.
+if (net.host) enableJoin(true);
 const ui = new UI(net);
 // The seed picker pins itself to a plot in world space, so it needs to project.
 ui.scene = scene;
@@ -227,6 +241,17 @@ net.on('action', (res) => {
   ui.abortMove();
 });
 net.on('disconnected', () => ui.toast('Disconnected from the shop', true));
+/**
+ * The shop you were a guest in has gone.
+ *
+ * Not a toast, which is what `disconnected` gets: a toast fades, and this is the
+ * one disconnection with nothing on the other side of it — the world was on
+ * somebody else's machine and this browser has no copy. A message that
+ * disappears in front of a shop that has quietly stopped ticking is precisely
+ * the illegible failure docs/browser.md says must not happen, so it is a veil
+ * with a way out of it instead.
+ */
+net.on('host-gone', () => { import('./coop.js').then((m) => m.showHostGone()); });
 
 // ---------------------------------------------------------------------------
 // Input
@@ -2441,7 +2466,11 @@ function pressHints({ aim, board, onPile, drop }) {
   // pointer belongs to the bar.
   if (ui.paletteArmed || ui.holding || ui.demolishArmed()) return [];
   const out = [];
-  const add = (btn, hold, say) => { if (out.length < 3) out.push({ btn, hold, say }); };
+  // `tag` is what makes the press something other than a click — the length of
+  // it (`hold`) or the number of them (`twice`). It is a word rather than a
+  // boolean because a shelf needed a third: select, open, and a double press
+  // that goes, which is three meanings on one button and no room for a flag.
+  const add = (btn, tag, say) => { if (out.length < 4) out.push({ btn, tag, say }); };
   const carry = myCarry();
   const haul = myHaul();
   const crate = aim?.crate ?? null;
@@ -2452,27 +2481,43 @@ function pressHints({ aim, board, onPile, drop }) {
     // stands on — see `haulSquare`, and the ring round the crate stands down for
     // the same reason. So the only thing on offer is putting yours down there.
     if (onPile) {
-      if (canDropAt(onPile)) add('r', true, 'Set the crate down here');
+      if (canDropAt(onPile)) add('r', 'hold', 'Set the crate down here');
       return out;
     }
-    if (!inReachOf(crate)) { add('l', false, 'Go to it'); return out; }
+    if (!inReachOf(crate)) {
+      add('l', null, 'Go to it');
+      // Both buttons walk. The right one's own jobs all need you standing there
+      // (`armPut` opens with `dropping()` and refuses a box out of reach), so
+      // out here it falls down its ladder to the same tail the left button has
+      // — see the end of the right-button `pointerup`. Said rather than left to
+      // be discovered, because a button that works at four tiles and does
+      // nothing at eight reads as the shop being unreliable.
+      add('r', null, 'Go to it');
+      return out;
+    }
     // A buried box is a box and nothing else: one unit out of a band of a dozen
     // pixels is never the tin anybody meant, so a pile offers the lift only.
-    if (crate.stacked) { add('l', true, 'Pick this box up'); return out; }
+    if (crate.stacked) { add('l', 'hold', 'Pick this box up'); return out; }
     if (haul) return out;
-    add('l', false, 'Take one');
-    add('l', true, carry ? 'Take an armful' : 'Pick the crate up');
-    if (carry) add('r', false, 'Put one back');
+    add('l', null, 'Take one');
+    add('l', 'hold', carry ? 'Take an armful' : 'Pick the crate up');
+    if (carry) add('r', null, 'Put one back');
     return out;
   }
 
   if (f) {
-    // Out of reach every press is a walk, and the direction rides along with it
-    // (`walkToFixture` carries `put`), so what is worth saying is which button
-    // gets you there holding what.
+    // Out of reach the two buttons are not the same press at all, and that is
+    // the half this pill got wrong first time out. The LEFT one is
+    // `openInTwo` wherever the unit is standing — one press picks it out, two
+    // opens it, and only a *double* press walks — so a flat "Go to it" was
+    // naming the one gesture of the three nobody makes by accident. The RIGHT
+    // one really does go on a single press, either down `armPut`'s `walk` (which
+    // carries the direction, so you arrive with the put armed) or, empty-handed,
+    // down its own ladder to the plain walk at the tail of `pointerup`.
     if (!nearFixture(f) && !atWorkSpotOf(f)) {
-      add('l', false, 'Go to it');
-      if (carry || haul) add('r', false, 'Take it there');
+      add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it');
+      add('l', 'twice', 'Go to it');
+      add('r', null, (carry || haul) ? 'Take it there' : 'Go to it');
       return out;
     }
     // `readyToTake` and never a field on `f`: the pointer hands back the LAYOUT
@@ -2480,36 +2525,44 @@ function pressHints({ aim, board, onPile, drop }) {
     // snapshot. Same call the tap makes, so the two cannot disagree.
     if (f.kind === 'station') {
       if (readyToTake(f)) {
-        add('l', false, 'Take one out');
-        add('l', true, 'Empty the tray');
+        add('l', null, 'Take one out');
+        add('l', 'hold', 'Empty the tray');
       }
       if (carry || haul) {
-        add('r', false, 'Put one in');
-        add('r', true, 'Load it up');
+        add('r', null, 'Put one in');
+        add('r', 'hold', 'Load it up');
       }
       return out;
     }
     // The one fixture whose whole meaning is that nothing comes back, so it is
     // the hold and never the tap — `armPut` gives it no tap at all.
     if (f.kind === 'bin') {
-      if (carry || haul) add('r', true, 'Throw it away');
+      if (carry || haul) add('r', 'hold', 'Throw it away');
       return out;
     }
     if (f.kind === 'plot') {
-      if (readyToTake(f)) add('l', false, 'Harvest it');
+      if (readyToTake(f)) add('l', null, 'Harvest it');
       return out;
     }
     // A board the pointer has settled on. `boardTakes` is the same test the
     // press asks, so the cage round the pile, the tap and this line agree.
     if (ripeBoard(f, board) && boardTakes()) {
-      add('l', false, 'Take one');
-      add('l', true, 'Crate the lot');
+      add('l', null, 'Take one');
+      add('l', 'hold', 'Crate the lot');
     } else {
-      add('l', false, 'Open it');
+      // **The left button does not walk you to a unit, and saying it did was
+      // this pill's own version of the green ghost.** `openInTwo` grades one
+      // button three ways by the clock — press one picks it out, press two opens
+      // it, and a DOUBLE press is the walk — so "Go to it" was describing the
+      // gesture nobody makes by accident while the press you were about to make
+      // did something else entirely. Which of the three is offered depends on
+      // what is already selected, read through `ui.isSelected` because that is
+      // the same question `openInTwo` asks a frame later.
+      add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it');
     }
     if (carry || haul) {
-      add('r', false, 'Put one on');
-      add('r', true, 'Stock it');
+      add('r', null, 'Put one on');
+      add('r', 'hold', 'Stock it');
     }
     return out;
   }
@@ -2517,7 +2570,7 @@ function pressHints({ aim, board, onPile, drop }) {
   // Bare ground, which only has anything to say while your hands are full — a
   // hint on every empty square you cross is a pill that never goes away.
   if (drop && canDropAt(drop)) {
-    add('r', true, haul ? 'Set the crate down here' : 'Put it down here');
+    add('r', 'hold', haul ? 'Set the crate down here' : 'Put it down here');
   }
   return out;
 }
@@ -3186,12 +3239,37 @@ async function openWorld(worldId, name) {
   // It asks its own three questions and usually decides not to — see
   // `maybeStart`.
   tutor.maybeStart(worldId);
+  // Only the web build can host a friend — see client/coop.js. Asked as a
+  // capability, like everything else about which transport this is.
+  if (net.host) import('./coop.js').then((m) => m.mountHostButton(net));
   loop();
 }
 
 async function start() {
   const stored = localStorage.getItem('sns-name') ?? '';
   const name = params.get('name') ?? stored;
+
+  /**
+   * Arrived on somebody's invite link.
+   *
+   * Before the menu and before any world is opened, because this browser's own
+   * shops are not what the link is about — and a front door that flashed up a
+   * list of saves on the way to a friend's shop would be asking a question
+   * nobody asked. Falls through to the menu if it does not work out, which is
+   * the honest answer to an expired code.
+   */
+  const invited = params.get('join');
+  if (invited && net.host) {
+    const { showJoin } = await import('./coop.js');
+    const channel = await showJoin({ name, code: invited });
+    // Drop the code out of the address bar either way: it is spent, and a
+    // reload would try to use it again.
+    const clean = new URL(location.href);
+    clean.searchParams.delete('join');
+    history.replaceState(null, '', clean);
+    if (channel) return openAsGuest(channel, name || 'Guest');
+  }
+
   const asked = preselectedWorld();
   let pendingError = null;
 
@@ -3217,7 +3295,29 @@ async function start() {
   boot.textContent = 'Loading…';
   const menu = new Menu(document.getElementById('menu'), pendingError);
   const picked = await menu.choose();
+  // Joining is not picking a shop: `guest` is a live connection to somebody
+  // else's, already open, with no world of ours behind it. Everything after
+  // this point is identical — which is the point.
+  if (picked.guest) return openAsGuest(picked.guest, picked.name || name || 'Guest');
   await openWorld(picked.worldId, picked.name || name);
+}
+
+/**
+ * Somebody else's shop, over a data channel.
+ *
+ * `net` is swapped for the guest's connection and the rest of the client never
+ * finds out: the handlers below were wired to `net` by reference at boot, so
+ * they have to be re-pointed at the new one, which `rewire` does. No world id
+ * goes in the address bar — the shop is not ours and the link would open a
+ * save this browser does not have.
+ */
+async function openAsGuest(channel, name) {
+  boot.textContent = 'Joining the shop…';
+  net.becomeGuest(channel, name);
+  boot.remove();
+  // No `?world=` in the address bar: the shop is not ours, and the link would
+  // open a save this browser does not have. The invite code is the only way in.
+  loop();
 }
 
 start().catch((err) => {

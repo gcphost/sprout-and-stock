@@ -26,3 +26,7 @@ data/game.db-shm
 
 # Benchmark scratch. Throwaway runs, not part of the sweeps.
 scripts/.tmp/
+
+# The web build. Same reason `dist/` is here: it is output, and `npm run
+# deploy` rebuilds it on the way to Cloudflare Pages.
+dist-web/

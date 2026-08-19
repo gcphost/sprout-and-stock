@@ -9,7 +9,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { SEED_DIR, all } from '../server/db.js';
+// `all` is the store contract; `SEED_DIR` is a directory on a disk and belongs
+// to the store that has one. Two imports rather than one on purpose — this
+// script is the bridge between them, which is exactly what it looks like.
+import { all } from '../server/db.js';
+import { SEED_DIR } from '../server/store/sqlite.js';
 
 /** Columns that are bookkeeping, not content — stripped so diffs stay clean. */
 const STRIP = ['created_by', 'created_at'];

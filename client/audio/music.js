@@ -115,12 +115,18 @@ class Music {
     /**
      * Why it is stopped, not just whether.
      *
-     * Two things can stop the music and they must not overwrite each other: the
-     * world being paused, and you pressing pause on the radio. One boolean gets
-     * this wrong in a way you would hit within a minute — pause the game while
-     * the radio is off, unpause it, and the music comes back on by itself.
+     * Three things can stop the music and they must not overwrite each other:
+     * the world being paused, you pressing pause on the radio, and the front
+     * door's own mute. One boolean gets this wrong in a way you would hit within
+     * a minute — pause the game while the radio is off, unpause it, and the
+     * music comes back on by itself.
+     *
+     * `menu` is the newest and the only one that is about a SCREEN rather than
+     * about a decision: it is set while the shop list is up and released when it
+     * goes, so quietening the front door cannot follow you into a shop. See
+     * `Menu.play`.
      */
-    this.held = { game: false, user: false };
+    this.held = { game: false, user: false, menu: false };
     this.paused = false;
     /** What is loaded, so a resume does not have to fetch and decode again. */
     this.buf = null;
@@ -231,9 +237,25 @@ class Music {
    */
   get live() { return !this.held.user; }
 
+  /**
+   * Should the radio be stopped right now — for ANY reason.
+   *
+   * The one derivation, and it is a getter rather than three copies of
+   * `a || b` because there were three copies and each named a different pair.
+   * `hold` asked game-or-user, `start` asked user alone and `go` asked game
+   * alone, all correct while there were exactly two holders and all three
+   * silently wrong the moment there was a third. What that presents as is a
+   * mute button that works until you touch the transport, and then does not —
+   * a state that disagrees with itself with no way to see which half is stale.
+   *
+   * Same rule CLAUDE.md states about kinds: anything that enumerates the cases
+   * is a place the next one dies quietly.
+   */
+  get stopped() { return Object.values(this.held).some(Boolean); }
+
   hold(who, on) {
     this.held[who] = !!on;
-    const want = this.held.game || this.held.user;
+    const want = this.stopped;
     if (!this.on || !mix.armed || want === this.paused) return;
     this.paused = want;
     const on_ = want;
@@ -304,7 +326,7 @@ class Music {
       this.seek = was.pos ?? 0;
       this.resumeLeft = was.left ?? null;
       this.held.user = !!was.off;
-      this.paused = this.held.user;
+      this.paused = this.stopped;
       // So the screen says what is cued up even when the radio came back off.
       // Otherwise reloading with the music paused shows "Shop radio", and the
       // track you had chosen looks lost until you press play.
@@ -365,7 +387,7 @@ class Music {
     // Pressing a transport button is asking for music, so it un-pauses the
     // radio — but never the world.
     this.held.user = false;
-    this.paused = this.held.game;
+    this.paused = this.stopped;
     if (!this.paused) this.next();
   }
 

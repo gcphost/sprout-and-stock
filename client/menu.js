@@ -17,12 +17,50 @@ import { START_TIERS, DEFAULT_TIER, startTier } from '../shared/start.js';
 import { DIFFICULTIES, NEW_DIFFICULTY, difficultyOf } from '../shared/difficulty.js';
 import { markWorldNew } from './tutor.js';
 import { mix } from './audio/mix.js';
+import { music } from './audio/music.js';
 import { spinForWorker } from './thumb.js';
 import { wireScroll } from './scroll.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
+
+/**
+ * KEEP THE PASSWORD MANAGERS OFF THIS SCREEN.
+ *
+ * Nothing in this game is an account. There is no login, no `<form>` element
+ * anywhere in the client, no password field and no submission — `who` is a
+ * string minted into localStorage (see client/net.js) and the name box is
+ * cosmetic. So the browser's own "save password?" prompt cannot fire, and none
+ * of this is about the browser.
+ *
+ * It is about the EXTENSIONS. A lone text input labelled "You are" on a title
+ * screen is, to a password manager's heuristics, a username box on a login page
+ * — so it gets an inline icon, an offer to fill, and on some of them a dropdown
+ * over the button underneath. What that costs is not privacy, it is the first
+ * ten seconds of the game: the front door reads as a sign-up, on a game that has
+ * deliberately never asked anybody for an account.
+ *
+ * `autocomplete="off"` alone does not do it and is documented not to — Chrome
+ * ignores it wherever its own heuristics think they know better, and no
+ * extension has ever read it. Each manager ships its own opt-out attribute
+ * instead, so the list is a list because the vendors made it one. Unknown
+ * attributes are inert everywhere else, which is why carrying five costs
+ * nothing.
+ *
+ * One constant rather than five attributes typed onto each input: the failure
+ * mode of the copy-paste version is the field somebody adds next year, and a
+ * form where two boxes are quiet and the third pops an icon is worse than one
+ * where they all do.
+ *
+ * Deliberately NOT here: `autocapitalize` and `spellcheck`. Both are about the
+ * keyboard rather than about autofill, and both are things a name field wants —
+ * turning them off with the rest would be a tidy-looking way to stop a phone
+ * capitalising somebody's name for them.
+ */
+const NO_FILL = 'autocomplete="off" '
+  + 'data-1p-ignore data-lpignore="true" data-bwignore="true" '
+  + 'data-protonpass-ignore="true" data-form-type="other"';
 
 /** `2 shelves`, `1 freezer` — a count and the word for it, agreeing. */
 const some = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -52,7 +90,13 @@ function ago(ms) {
   return `${Math.round(h / 24)} days ago`;
 }
 
-async function api(method, path, body) {
+/**
+ * The menu over HTTP — the server build, and the default.
+ *
+ * Four calls: list the shops, list the worker kinds a card draws a bot from,
+ * make one, throw one away.
+ */
+async function httpApi(method, path, body) {
   const res = await fetch(`/api${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
@@ -63,7 +107,42 @@ async function api(method, path, body) {
   return json;
 }
 
+let transport = httpApi;
+
+/**
+ * Point the menu at something other than HTTP.
+ *
+ * The web build has no HTTP and no server; its worker owns the store and
+ * answers the same four calls in the same shapes (`LocalNet.api`). A swap here
+ * rather than a branch inside `api` for the reason the whole port is built on:
+ * the thing being replaced is a *transport*, and the moment this file can tell
+ * which one it has, the menu has learned which build it is in.
+ *
+ * Deliberately module-level rather than a constructor argument. `Menu` is
+ * created in more than one place (the front door, and Leave from the Controls
+ * panel), and a parameter is a parameter somebody forgets at one of them — at
+ * which point one route into the menu quietly tries to `fetch` in a build with
+ * nothing to fetch from.
+ */
+export function setMenuApi(fn) {
+  transport = fn ?? httpApi;
+}
+
+const api = (method, path, body) => transport(method, path, body);
+
 const REMEMBERED = 'sns-world';
+
+/**
+ * Whether this build can be a guest in somebody else's shop.
+ *
+ * Only the web build: joining means a data channel to a browser that is running
+ * the shop, and in the server build the shop is on a server both people can
+ * simply open a URL to. Set by `main.js`, which is the one place that knows
+ * which transport it has — and it knows it as a *capability* rather than a flag.
+ */
+let JOIN_ENABLED = false;
+
+export function enableJoin(on = true) { JOIN_ENABLED = on; }
 
 /**
  * How long "click again to delete" stays armed.
@@ -108,6 +187,21 @@ export class Menu {
     // somebody else's shop.
     this.arm = null;
     this.armTimer = null;
+    /**
+     * Whether this screen's radio has been hushed.
+     *
+     * Held here rather than read back off `music.held.menu` for the reason
+     * `tier` is held here: `render` rebuilds the box from `innerHTML`, so the
+     * button is a brand new element on every repaint and needs something to ask.
+     *
+     * In memory and NOT in localStorage, deliberately. Every other audio
+     * preference in the game is remembered because it is a fact about the person
+     * and the room they are sitting in; this one is a fact about a screen you
+     * are looking at for about twenty seconds, and a front door that came back
+     * silent tomorrow would be a fourth place the music can be off with nothing
+     * on screen to say which one is doing it.
+     */
+    this.hushed = false;
   }
 
   /**
@@ -220,6 +314,20 @@ export class Menu {
   play(world) {
     // Or the latch fires four seconds into the game and redraws a hidden menu.
     this.disarm();
+    /**
+     * ...and the front door lets go of the radio on the way out.
+     *
+     * This line is the whole of "the menu's mute does not follow you into the
+     * shop". Without it the hold is simply a differently-spelled global mute:
+     * the screen goes, the holder stays set for the life of the page, and the
+     * game plays with the music off for a reason nothing can be pointed at —
+     * which is the bug this replaced, wearing the fix's clothes.
+     *
+     * Unconditional rather than `if (this.hushed)`, because releasing a hold
+     * nobody set costs nothing and this must not depend on a flag staying in
+     * step with the thing it describes.
+     */
+    music.hold('menu', false);
     const name = this.name;
     if (name) localStorage.setItem('sns-name', name);
     localStorage.setItem(REMEMBERED, world.id);
@@ -381,18 +489,28 @@ export class Menu {
              not exist yet — so the music starts on your first click here and
              there is nothing anywhere to turn it off with. Somebody opening
              this at their desk has no way to shut the game up short of the tab
-             mute, which is the browser doing the game's job. -->
+             mute, which is the browser doing the game's job.
+
+             It quietens THIS SCREEN'S radio and nothing else. It shipped as
+             mix.setMuted, which is the master knob the in-game Sound rows own —
+             persisted to localStorage and shared with the HUD — so hushing the
+             front door followed you into the shop and took the tills, the doors
+             and the crew with it. What that reads as is a game whose sound never
+             came back, hours later, with nothing connecting it to a button on a
+             screen you saw once. A hold on the music is the honest scope: the
+             radio only, and released the moment this screen goes. -->
         <button id="menu-mute" type="button" class="menu-mute"
-          title="${mix.muted ? 'Sound off' : 'Sound on'}"
-          aria-label="${mix.muted ? 'Turn sound on' : 'Turn sound off'}"
-        >${mix.muted ? '🔇' : '🔊'}</button>
+          title="${this.hushed ? 'Menu music off' : 'Menu music on'}"
+          aria-label="${this.hushed ? 'Turn the menu music on' : 'Turn the menu music off'}"
+        >${this.hushed ? '🔇' : '🔊'}</button>
         ${this.greeter()}
         <h1>Sprocket <span>&amp;</span> Stock</h1>
         <p class="menu-tag">Run a shop with a crew of robots. You're the only human in it.</p>
 
         <label class="menu-field">
           <span>You are</span>
-          <input id="menu-name" maxlength="20" placeholder="your name" value="${esc(name)}" />
+          <input id="menu-name" maxlength="20" placeholder="your name"
+            ${NO_FILL} value="${esc(name)}" />
         </label>
 
         ${this.notice ? `<div class="menu-err soft">${esc(this.notice)}</div>` : ''}
@@ -407,7 +525,8 @@ export class Menu {
           ? `<div class="menu-new">
               <label class="menu-field">
                 <span>Called</span>
-                <input id="menu-new-name" maxlength="32" placeholder="Corner Shop" />
+                <input id="menu-new-name" maxlength="32" placeholder="Corner Shop"
+                  ${NO_FILL} />
               </label>
               <!-- No seed box. It was a field whose honest label is "type
                    something and the building will be different", which is a
@@ -453,7 +572,7 @@ export class Menu {
               <label class="menu-field">
                 <span>Cash</span>
                 <input id="menu-new-cash" type="number" min="0" max="1000000"
-                  placeholder="${startTier(this.tier).cash}" />
+                  ${NO_FILL} placeholder="${startTier(this.tier).cash}" />
               </label>
               <!-- ...and no paragraph under it either. Everything it said is
                    said by the thing it was describing: the cash box's
@@ -466,7 +585,8 @@ export class Menu {
                 <button class="wghost" id="menu-cancel">Cancel</button>
               </div>
             </div>`
-          : '<button class="menu-add" id="menu-open-new">+ New shop</button>'}
+          : `<div class="menu-adds"><button class="menu-add" id="menu-open-new">+ New shop</button>${
+            JOIN_ENABLED ? '<button class="menu-add menu-side" id="menu-join">⇄ Join a friend</button>' : ''}</div>`}
 
         <div class="menu-list">
           ${this.worlds.length
@@ -486,6 +606,15 @@ export class Menu {
     const q = (sel) => this.root.querySelector(sel);
 
     q('#menu-open-new')?.addEventListener('click', () => { this.creating = true; this.render(); q('#menu-new-name')?.focus(); });
+    // Joining is not choosing a shop from this list — it is being let into
+    // somebody else's, which this browser has no save for and never will. So it
+    // resolves the menu with a live connection rather than a world id, and
+    // `main.js` takes the two apart. See client/coop.js.
+    q('#menu-join')?.addEventListener('click', async () => {
+      const { showJoin } = await import('./coop.js');
+      const guest = await showJoin({ name: localStorage.getItem('sns-name') ?? '' });
+      if (guest) this.resolve?.({ guest });
+    });
     q('#menu-cancel')?.addEventListener('click', () => { this.creating = false; this.render(); });
     // Repainted in place rather than through `render`, which rebuilds the box
     // from innerHTML and would throw away the name and cash somebody has typed
@@ -498,12 +627,17 @@ export class Menu {
     // which is why re-calling it is cheap.
     wireScroll(q('.menu-list'), { axis: 'y' });
     q('#menu-mute')?.addEventListener('click', (e) => {
+      // Still arms the mixer, because this may well be the first click on the
+      // page and a hold applied to a graph that does not exist yet is a button
+      // that appears to do nothing. Unmuting is then the ordinary case: the
+      // press that armed the audio is usually the press that wanted it quiet.
       mix.arm();
-      mix.setMuted(!mix.muted);
+      this.hushed = !this.hushed;
+      music.hold('menu', this.hushed);
       const b = e.currentTarget;
-      b.textContent = mix.muted ? '🔇' : '🔊';
-      b.title = mix.muted ? 'Sound off' : 'Sound on';
-      b.setAttribute('aria-label', mix.muted ? 'Turn sound on' : 'Turn sound off');
+      b.textContent = this.hushed ? '🔇' : '🔊';
+      b.title = this.hushed ? 'Menu music off' : 'Menu music on';
+      b.setAttribute('aria-label', this.hushed ? 'Turn the menu music on' : 'Turn the menu music off');
     });
     q('#menu-create')?.addEventListener('click', () => this.create());
 

@@ -316,13 +316,19 @@ export function dayShape(hourFraction) {
  * had no ceiling to work towards.
  *
  * A world event still makes the town keener, but only up to the same 1.0.
+ *
+ * `floor` is the difficulty preset's (`shared/difficulty.js`), and it is a
+ * parameter rather than a constant for one reason: it is the number that
+ * decides whether a shop nobody rates still has an income. It defaults to the
+ * gentle preset's 0.08, so every caller that has not been told otherwise — and
+ * every test of this function on its own — behaves exactly as it always did.
  */
-export function pull({ reputation, folded }) {
+export function pull({ reputation, folded, floor = 0.08 }) {
   const mods = Object.values(folded.demand);
   const pressure = mods.length ? mods.reduce((a, b) => a + b, 0) / mods.length : 1;
   // Nobody has heard of a brand new shop, and nobody hates one either — the
   // floor is what walks past and comes in anyway.
-  return clamp(reputation * clamp(pressure, 0.4, 3), 0.08, 1);
+  return clamp(reputation * clamp(pressure, 0.4, 3), floor, 1);
 }
 
 /**
@@ -351,10 +357,10 @@ export function pull({ reputation, folded }) {
  * serving still cannot touch it — they are `pull`, they are bounded by 1.0, and
  * that is still the whole reason the split is here.
  */
-export function footfall({ day, hourFraction, reputation, folded, catchment = 16 }) {
+export function footfall({ day, hourFraction, reputation, folded, catchment = 16, pullFloor }) {
   // Weekends are busier — more of the town is out and about, not a keener town.
   const weekend = day % 7 === 6 || day % 7 === 0 ? 1.5 : 1;
-  return catchment * weekend * dayShape(hourFraction) * pull({ reputation, folded });
+  return catchment * weekend * dayShape(hourFraction) * pull({ reputation, folded, floor: pullFloor });
 }
 
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));

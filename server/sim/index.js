@@ -33,6 +33,7 @@ import { hash01 } from '../../shared/hash.js';
 import { hourLabel } from '../../shared/clock.js';
 import { R, netRep } from '../../shared/reputation.js';
 import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
+import { difficultyOf } from '../../shared/difficulty.js';
 import { makeNamer } from './names.js';
 import { stepStaff, syncStaff, breakProgress, carryOf } from './staff.js';
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
@@ -483,10 +484,15 @@ const REP_MISSED_STAPLE = 0.008;
  * still the consequence of being dismal, and no longer a hole with no bottom.
  * A shop that has merely had a bad week and stopped having one is back to
  * mediocre in three nights and has to earn everything above that the old way.
+ *
+ * **Both numbers are the difficulty preset's now** — `repSettle` and
+ * `repSettleRate` in `shared/difficulty.js`, read off the save as `this.town`.
+ * They are the clearest example of what a difficulty *is* in this game: nothing
+ * above changes, the spring is still one-sided and still gated on having
+ * traded, and all that moves is how far down a bad month is allowed to go. The
+ * gentle preset carries 0.35 / 0.45 — the figures this comment was written
+ * about and the ones every existing save reads.
  */
-const REP_SETTLE = 0.35;
-/** How much of the gap up to `REP_SETTLE` closes per trading day. */
-const REP_SETTLE_RATE = 0.45;
 
 /**
  * How hard the town has to be pulling on a tag before it is a reason somebody
@@ -737,9 +743,14 @@ const MOOD_FUMING = 0.2;
  * being true. `TOWN_TAU` is not reused: the town growing and the town's
  * standards rising are two facts that happen to both be about time, and tying
  * them to one constant would make them one fact.
+ *
+ * **Both ends of the slide are the difficulty preset's now** — `moodBase` and
+ * `moodFloor` in `shared/difficulty.js`, read as `this.town` in `moodBase()`.
+ * The gentle preset is 0.72 / 0.45, which is what this comment describes and
+ * what every existing save reads. `MOOD_TAU` stays a constant on purpose: how
+ * fast a town's standards rise is the same fact about towns everywhere, and a
+ * preset that moved it too would be saying two things with one button.
  */
-const MOOD_BASE = 0.72;
-const MOOD_FLOOR = 0.45;
 const MOOD_TAU = 90;
 
 /**
@@ -1098,6 +1109,29 @@ export class Game {
      */
     this.tradedToday = state.tradedToday ?? true;
     /**
+     * HOW HARD THE TOWN IS ON THIS SHOP — the difficulty preset, resolved once.
+     *
+     * `this.difficulty` is the id and rides in the save (`Object.assign` above
+     * puts it there, `saveState` writes it back); this is the row it names, and
+     * every knob on it is a fact about the *town* rather than about the shop —
+     * how long its memory is, how much of it comes anyway, what mood it walks in
+     * on. Hence the name: `this.town.repSettle` reads as the sentence it is.
+     *
+     * Resolved here rather than looked up per read, because it is asked on the
+     * spawn path — and resolved from the SAVE rather than from a module
+     * constant, which is the co-op case: two worlds open at once under two
+     * presets have to tick differently, and a constant would silently give them
+     * both whichever was compiled in.
+     *
+     * A save with nothing to say reads as `relaxed` — the old constants to the
+     * digit — so no existing shop moves and no headless game does either. A new
+     * shop is written `normal` by `createWorld`, which is a harder game than
+     * anyone has played. See `shared/difficulty.js` for why those are two
+     * different defaults; it is the same asymmetry `open` and `time` use one
+     * screen up.
+     */
+    this.town = difficultyOf(this.difficulty);
+    /**
      * ...and whether the world is moving at all.
      *
      * Not saved, and not the same idea as `open`. Shut is a state of the shop
@@ -1452,6 +1486,20 @@ export class Game {
     const game = new Game({
       worldId,
       seed: String(useSeed),
+      /**
+       * How hard the town is here — see `this.town` in the constructor.
+       *
+       * Named explicitly, like everything else in this payload, and that is the
+       * trap worth knowing about rather than a style note: this function does
+       * NOT spread `w`, so a field added to the save and to `saveState` is
+       * still dropped on the way *in* unless it is also written here. It fails
+       * in the quietest possible way — the world persists a difficulty, reloads
+       * without one, and the constructor's fallback hands back the gentle
+       * preset — so a shop set to hard reads as hard in the menu, plays as
+       * relaxed, and nothing anywhere disagrees. Caught by a balance run in
+       * which all three presets returned byte-identical takings.
+       */
+      difficulty: w.difficulty,
       day: w.day,
       /**
        * 0..1 through the day, and the one clock that is now READ off the save.
@@ -1698,6 +1746,14 @@ export class Game {
   saveState() {
     return {
       seed: this.seed,
+      // What the town is like here, as the preset's id — see `this.town`. In
+      // the save rather than derived from anything, for the reason the seed is:
+      // it is a fact about this shop that was decided once, and a shop that read
+      // its difficulty off whichever build was running would have a ledger that
+      // means nothing. Left `undefined` on a save that never had one, which
+      // `difficultyOf` reads as the gentle preset — so an old world round-trips
+      // through here unchanged rather than being quietly stamped on first save.
+      difficulty: this.difficulty,
       day: this.day,
       // ...and the hour, which was the one thing about the day a save never
       // kept. A shop that came back at 08:00 sharp however late you had been
@@ -2104,7 +2160,30 @@ export class Game {
       // sentences that a single "9 / 51" was quietly inviting you to confuse.
       // A headcount rather than the ratio the sim runs on — see `shopCapacity`.
       room: Number.isFinite(this.capacity) ? Math.round(this.capacity) : null,
-      pull: round2(pull({ reputation: this.reputation, folded: this.folded() })),
+      pull: round2(pull({
+        reputation: this.reputation, folded: this.folded(), floor: this.town.pullFloor,
+      })),
+      /**
+       * ...and where a bad week bottoms out, which is what makes the reputation
+       * bar able to have a colour at all.
+       *
+       * A gauge's amber has to be a threshold the sim actually acts on rather
+       * than a round number — the rule the mood bar states about `MOOD_ANNOYED`
+       * and the room bar about `CROWD_FROM`. Reputation had no such line to
+       * point at, which is why its bar was one colour at every level: `pull` is
+       * reputation, smoothly, so nothing anywhere says "this is now bad".
+       *
+       * `repSettle` is that line, and it says something sharp: at or below it,
+       * the only thing holding the shop up is the town FORGETTING, not anything
+       * being sold. A shop parked here is not having a bad week, it is being
+       * carried by the floor.
+       *
+       * On the wire rather than hardcoded on the client because it is the
+       * difficulty preset's since step 1 of docs/difficulty.md — a bar that drew
+       * red at 30% would be wrong in both directions across two worlds, and the
+       * client has no other way to know which game it is in.
+       */
+      repSettle: this.town.repSettle,
       // The ladder, whole, every tick. It is a few dozen small rows and the panel
       // draws a progress bar off `have`/`need`, so sending the list is what
       // makes progression something you can watch rather than something you are
@@ -2283,10 +2362,19 @@ export class Game {
             kind: p.action.kind,
             target: p.action.target,
             label: p.action.label,
+            // Which button winds this — see `actionButton`. Null is a real
+            // answer rather than a missing one: a proximity job belongs to
+            // neither button, and the pill draws no mouse for it.
+            btn: p.action.btn ?? null,
             at: p.action.at ? { x: r2(p.action.at.x), z: r2(p.action.at.z) } : null,
             progress: r2(Math.min(1, p.action.elapsed / (p.action.time || ACTION_TIME))),
           }
           : null,
+        // ...and the ones that actually FIRED, as a running count. Sent beside
+        // the armed action rather than folded into it, because the whole point
+        // is that it outlives it: an action is null on the very tick the thing
+        // it was going to do has happened.
+        acted: p.acts ? { n: p.acts, kind: p.actKind } : null,
       })),
       // Everybody in the shop — which is not everybody in `this.customers`.
       // Somebody driving in or out is inside the car the line below draws, and
@@ -2873,8 +2961,15 @@ export class Game {
     // And before `persist`, which is the trap: `persist` runs at the rollover
     // and on discrete actions, never on a tick, so a drift applied after it is
     // a night of recovery a restart silently takes back.
-    if (traded && this.reputation < REP_SETTLE) {
-      this.moveRep(REP_SETTLE_RATE * (REP_SETTLE - this.reputation), R.SETTLED);
+    //
+    // Both numbers are the difficulty preset's since step 1 of
+    // docs/difficulty.md — how long the town's memory is, is exactly the sort of
+    // thing a difficulty is. What does NOT vary is the shape: it is one-sided on
+    // every preset, so a shop above the settle level is untouched whichever one
+    // it is playing. A two-sided drift toward a mean is a cap on the best shops
+    // in the game, which would be a balance change wearing a difficulty knob.
+    if (traded && this.reputation < this.town.repSettle) {
+      this.moveRep(this.town.repSettleRate * (this.town.repSettle - this.reputation), R.SETTLED);
     }
     // Before `persist`, and after the last thing that touches the day's money —
     // `payWages` is it. `spoilStock` runs first and deliberately moves no cash:
@@ -3650,6 +3745,12 @@ export class Game {
         p.action = { ...candidate, elapsed: 0 };
       }
 
+      // Which finger, said every tick rather than stamped when the action armed.
+      // `p.action` is spread once and then lives for the whole gesture — a pull
+      // spans ticks on purpose — so a button worked out up there would answer
+      // for the errand that armed it rather than the one standing now.
+      p.action.btn = this.actionButton(p);
+
       // ...and the other half of consent, which standing still was never able
       // to be. `moving` above stops a walk-PAST firing; it cannot stop a walk
       // *to*, and every route this game plans ends stopped at the working spot
@@ -3682,6 +3783,19 @@ export class Game {
       if (p.action.elapsed < (p.action.time || ACTION_TIME)) continue;
 
       const res = candidate.run();
+      // It happened. A counter rather than a flag, because the reader is a
+      // SOUND and a flag cannot say "again" — a pull turning over twice a second
+      // is two units and has to be two noises.
+      //
+      // This exists because the client was inferring it, and the way it inferred
+      // it was a guess with a constant in it: an action that leaves the snapshot
+      // has either completed or been abandoned, those look identical one frame
+      // later, so `DONE_AT` called anything past 60% a completion. Walking away
+      // is how you decline in this game — which means declining LATE played the
+      // sound of having done it, with nothing else on screen to contradict it.
+      // What that reads as is the shop doing something and then not doing it.
+      // Nobody can tell a sound from a bug at that point.
+      if (res?.ok) { p.acts = (p.acts ?? 0) + 1; p.actKind = candidate.kind; }
       // A verb is allowed to take the action out from under us — selling the
       // fixture it was aimed at does, and so does a rummage that spends the
       // errand the press had armed. Nothing to tally and nothing to repeat.
@@ -3787,6 +3901,40 @@ export class Game {
       auto: true,
       run: () => this.serve(p.id, till.id),
     };
+  }
+
+  /**
+   * "Not while you're building" — the refusal every goods verb owes.
+   *
+   * `actionFor` has suspended the ordinary jobs in build mode since the mode
+   * existed, and that is the whole story for anything the RING fires. What it
+   * never covered is the half that arrives as its own message: a tap on a crate,
+   * a tap on one board of a shelf, a tap on an appliance, and naming a square as
+   * somewhere to set an armful down. Those are the gestures the POINTER owns,
+   * and the pointer is exactly what build mode has taken over — so a press aimed
+   * at a wall was quietly lifting a crate off the bay, which reads as the shop
+   * handing you goods you never asked for in the middle of a build.
+   *
+   * It refuses out loud rather than declining silently, and that is the point of
+   * it living here instead of being one more `paletteArmed` test on the client.
+   * The client can only choose not to send; the shop can say *why*, and "exit
+   * build mode" is a thing you do rather than a thing you guess at. Same
+   * argument `actionAt` makes about a named job that cannot be done — you
+   * pointed at that crate, so you are owed an answer about that crate.
+   *
+   * Serving is not in the list and cannot be: see `actionFor` for why one till
+   * with somebody stood at it is the single exception the mode allows. Nor is
+   * money on the counter, which is walked over rather than pressed
+   * (`stepCashPickup`), and which nobody has ever wanted to decline. Those two
+   * are the whole of what a shopkeeper may still do with a wall half up.
+   *
+   * Staff never trip it — a hire has no `build` — so the shared verbs
+   * underneath (`unshelve`, `stockShelf`, `liftCrate`) are deliberately left
+   * alone. Guarding the entry points is what keeps this a rule about the player
+   * and their pointer rather than a rule about goods.
+   */
+  notWhileBuilding(p) {
+    return p?.build?.on ? err('Exit build mode first') : null;
   }
 
   /**
@@ -4216,6 +4364,33 @@ export class Game {
   }
 
   /**
+   * Which button fires the armed action.
+   *
+   * The prompt names one job and says nothing about the direction it is in,
+   * which is the half a mouse cannot show you: a button nobody has pressed yet
+   * gives no feedback at all, so "Load" and "Collect" — the two ends of one
+   * machine, one per button — were the same sentence twice with nothing to say
+   * the difference was which finger you used.
+   *
+   * READ OFF THE ERRAND rather than guessed from the job, and the errand carries
+   * it as its own field rather than reusing `put`. Those look like the same bit
+   * and are not: a tap on the drop-off with an armful is a setdown named by the
+   * LEFT button (`walkTo`), and `placeAt` names the same kind of target with the
+   * right one — so a `put`-shaped test gets the pad exactly backwards, on the one
+   * target in the shop that has no id to point at.
+   *
+   * An errand of *none* is not a missing answer, it is the honest one: a till
+   * with somebody at it and the bed under your feet are proximity jobs, and
+   * `stepActions` winds them on `p.pressing`, which is one bit that says a
+   * button is down and nothing whatever about which. Those get no glyph.
+   */
+  actionButton(p) {
+    const e = p.errand;
+    if (!e) return null;
+    return e.btn === 'right' ? 'right' : 'left';
+  }
+
+  /**
    * Say what you are going to pick up, and set off to get it.
    *
    * One verb for a crate and a shelf board, because they are the same errand
@@ -4239,6 +4414,8 @@ export class Game {
   take(playerId, { palletId = null, shelfId = null, itemId = null } = {}) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
+    const busy = this.notWhileBuilding(p);
+    if (busy) return busy;
 
     const target = palletId
       ? this.deliveries.find((d) => d.id === palletId)
@@ -4264,7 +4441,7 @@ export class Game {
     }
     if (!walk?.ok) return walk ?? err('No way through to there');
 
-    p.errand = { at: palletId ?? shelfId, itemId: palletId ? null : itemId };
+    p.errand = { at: palletId ?? shelfId, itemId: palletId ? null : itemId, btn: 'left' };
     return ok({ walking: walk.steps });
   }
 
@@ -5787,7 +5964,7 @@ export class Game {
     const pad = this.dropPadKind();
     const onPad = !!pad && isPadAt(this.layout, pad, goal.x, goal.z);
     if (p.carry && onPad) {
-      p.errand = { at: 'pad', itemId: null };
+      p.errand = { at: 'pad', itemId: null, btn: 'left' };
     }
     // A crate on the shoulder gets the same tap, said with the other verb: a
     // haul cannot be `stow`ed, because `stow` empties your HANDS, so the pad
@@ -5800,7 +5977,7 @@ export class Game {
     // short, which has to be "you did not get there" rather than a crate landing
     // wherever you gave up.
     else if (p.haul && onPad) {
-      p.errand = { at: 'ground', x: goal.x, z: goal.z, itemId: null };
+      p.errand = { at: 'ground', x: goal.x, z: goal.z, itemId: null, btn: 'left' };
     }
     // ...and a tap on ANY other tile is a walk and nothing else, which it was
     // not for four steps. Holding goods, every tap armed a setdown on the tile
@@ -5850,6 +6027,8 @@ export class Game {
   placeAt(id, x, z) {
     const p = this.players[id];
     if (!p) return err('no such player');
+    const busy = this.notWhileBuilding(p);
+    if (busy) return busy;
     if (!p.haul && !p.carry) return err('nothing in hand');
 
     const goal = { x: Math.round(x), z: Math.round(z) };
@@ -5869,8 +6048,8 @@ export class Game {
     // the pad as a REGION and fills the cells you painted — see `walkTo`.
     const pad = this.dropPadKind();
     p.errand = p.carry && pad && isPadAt(this.layout, pad, goal.x, goal.z)
-      ? { at: 'pad', itemId: null }
-      : { at: 'ground', x: goal.x, z: goal.z, itemId: null };
+      ? { at: 'pad', itemId: null, btn: 'right' }
+      : { at: 'ground', x: goal.x, z: goal.z, itemId: null, btn: 'right' };
     return ok({ at: goal });
   }
 
@@ -5910,7 +6089,9 @@ export class Game {
     const spot = workSpot(f);
     const walk = this.walkTo(id, spot.x, spot.z);
     if (!walk.ok) return walk;
-    this.players[id].errand = { at: fixtureId, itemId: null, put };
+    this.players[id].errand = {
+      at: fixtureId, itemId: null, put, btn: put ? 'right' : 'left',
+    };
     return walk;
   }
 
@@ -6038,7 +6219,7 @@ export class Game {
     // An appliance does not. It has two openings, and `actionAt` read the tray
     // first, so a machine with a batch waiting could not be fed at all: the ring
     // collected instead, on the button whose whole meaning is putting things in.
-    p.errand = { at: fixtureId, itemId: null, put: true };
+    p.errand = { at: fixtureId, itemId: null, put: true, btn: 'right' };
     return ok({ at: fixtureId });
   }
 
@@ -7643,6 +7824,10 @@ export class Game {
   tapBoard(playerId, shelfId, itemId, put = false) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
+    // Ahead of the pull, which cannot be running anyway: a hold that spans ticks
+    // needs an errand, and no errand is armed while the mode is on.
+    const busy = this.notWhileBuilding(p);
+    if (busy) return busy;
     if (this.pulling(p)) return ok({ took: 0, item_id: itemId, pulled: true });
 
     if (put) {
@@ -7720,6 +7905,8 @@ export class Game {
     const p = this.players[playerId];
     const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
     if (!p || !st) return err('no such appliance');
+    const busy = this.notWhileBuilding(p);
+    if (busy) return busy;
     if (!near(p, st.useAt, REACH) && !near(p, st, REACH)) return err('too far from it');
     // Hands, else the crate on your shoulder — the same order `actionFor` puts
     // them in, so a tap and a hold on the same machine draw from the same place.
@@ -7761,6 +7948,8 @@ export class Game {
   tapCrate(playerId, crateId, put = false, itemId = null) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
+    const busy = this.notWhileBuilding(p);
+    if (busy) return busy;
     if (p.haul) return err('put the crate down first');
 
     const crate = crateId
@@ -11320,6 +11509,7 @@ export class Game {
     const rate = footfall({
       day: this.day, hourFraction: this.time,
       reputation: this.reputation, folded, catchment: this.catchment(),
+      pullFloor: this.town.pullFloor,
     });
     this.shutAccumulator = (this.shutAccumulator ?? 0) + (rate * SHUT_FOOTFALL / 60) * dt;
     while (this.shutAccumulator >= 1) {
@@ -11696,6 +11886,7 @@ export class Game {
     const rate = footfall({
       day: this.day, hourFraction: this.time,
       reputation: this.reputation, folded, catchment: this.catchment(),
+      pullFloor: this.town.pullFloor,
     });
     this.spawnAccumulator += (rate / 60) * dt;
     while (this.spawnAccumulator >= 1) {
@@ -13096,7 +13287,13 @@ export class Game {
     // whatever that has become rather than from the day-one figure, or a shop
     // decorated in its first week would keep the walk-in it earned then for
     // ever and the slide would be a number nothing reads.
-    const want = MOOD_FLOOR + (MOOD_BASE - MOOD_FLOOR)
+    //
+    // Both ends of that slide are the difficulty preset's — what the town
+    // expects on day one and what it has come to expect a year in. `MOOD_TAU` is
+    // not: how *fast* standards rise is the same fact for everybody, and a
+    // preset that moved it as well would be saying two things with one button.
+    const { moodBase, moodFloor } = this.town;
+    const want = moodFloor + (moodBase - moodFloor)
       * Math.exp(-Math.max(0, this.day - 1) / MOOD_TAU);
     const c = this.charm();
     const lift = c > 0 ? 1 - Math.exp(-c / CHARM_HALF) : 0;

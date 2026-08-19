@@ -1,126 +1,54 @@
 /**
- * THE AI WORLD DIRECTOR.
+ * THE WORLD DIRECTOR.
  *
  * Once per in-game day, this reads the state of the shop and decides what the
  * world does next: a heat wave, a viral snack, a supply shortage, a new trend.
  * It writes those decisions into the `modifiers` table as tag-based demand and
  * price multipliers, which the economy already knows how to read.
  *
- * THE ONE RULE: the simulation never blocks on this.
+ * THERE IS NO MODEL IN HERE, and the order those words go in matters. For as
+ * long as an API call was called "the director" and this was called "the
+ * fallback", the game read as the degraded version of itself — and it never
+ * was. What is below is a driver tag drawn from the season and filtered to tags
+ * something in the shop actually carries; allies that ride along and a rival
+ * that takes the other side of it; multipliers rolled in bands; a duration; a
+ * headline from a template; and a no-repeat guard over the last three drivers,
+ * because a small pool deals the same story three days running. Beside it,
+ * authored `events` rows drawn a quarter of the time, for a set piece somebody
+ * wrote on purpose. That is a world-event system. What the model bought on top
+ * of it was *phrasing*, at the cost of a network call, a bill, and a dependency
+ * that cannot go in a browser at all.
  *
- *   - It runs async, off the tick loop.
- *   - If the API is slow, erroring, rate-limited, or there's no key at all,
- *     the game keeps running on the last known modifiers and falls back to
- *     picking a hand-written event from the `events` table.
- *   - Its output is schema-constrained and then re-validated locally, so a
- *     weird response can't corrupt the world.
+ * The argument in full is in docs/steam.md §4, which asked for this cut before
+ * there was a web build to force it. Two things fall out beyond the obvious:
+ * nothing a player reads is generated at runtime, so a shipped game answers "no"
+ * to every AI-disclosure question a store asks; and `@anthropic-ai/sdk` leaves
+ * the dependency list.
  *
- * That's what makes "adaptive" safe to ship: the AI is an enhancement layer,
- * never a dependency.
+ * THE ONE RULE that survives unchanged: the simulation never blocks on this. It
+ * is still called without being awaited (`ShopRoom.pushState`) and it still
+ * returns a result rather than throwing, so a bad content row cannot take the
+ * tick down.
+ *
+ * Agents still write events — `add_modifier` and `create_event` over MCP are
+ * untouched, and authoring is where a model belongs in this project: at the
+ * keyboard, not in the build.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { content } from './content.js';
 import { addModifier } from './db.js';
-import { ALL_TAGS } from '../shared/tags.js';
 
 /** Runs once per in-game day. Override for testing. */
 const MIN_DAYS_BETWEEN_RUNS = 1;
 
 /**
- * Model is configurable so you can trade cost for creativity without editing
- * code. Opus is the default; Haiku is dramatically cheaper if you end up
- * running the director very often.
- */
-const MODEL = process.env.SNS_DIRECTOR_MODEL ?? 'claude-opus-5';
-
-let client = null;
-let inFlight = false;
-
-function getClient() {
-  if (client) return client;
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  client = new Anthropic();
-  return client;
-}
-
-/**
- * The schema the model must fill in. Because this is enforced by the API's
- * structured-output mode, we get valid JSON back or nothing — there is no
- * "parse the model's prose and hope" step anywhere in this file.
- */
-/**
- * Which tags the model may name — the ones something in the catalogue carries,
- * not the whole vocabulary.
+ * A readable summary of the shop as it stands.
  *
- * `ALL_TAGS` is what a tag *can* be; this is what a tag currently *means* in
- * this shop. The local director has always filtered its drivers this way and
- * says why: an event about a tag no item has is a headline that changes
- * nothing, which is the same failure as authoring an item with invented tags,
- * seen from the other end. The API path was reading the vocabulary, so it could
- * spend a whole day's event on `generic` or `winter` — both real tags, neither
- * of them on a single item — and produce a toast, a log line and no change to
- * any number in the shop.
- *
- * Built per call rather than once: content is edited live, so the enum has to
- * be the catalogue as it stands this morning.
- */
-function liveTags() {
-  const live = new Set(content().items.flatMap((i) => i.tags ?? []));
-  const usable = ALL_TAGS.filter((t) => live.has(t));
-  // Nothing stocked at all — a brand new world mid-wipe. Hand back the whole
-  // vocabulary rather than an empty enum, which no schema can satisfy.
-  return usable.length ? usable : ALL_TAGS;
-}
-
-const directorSchema = () => ({
-  type: 'object',
-  properties: {
-    headline: {
-      type: 'string',
-      description: 'A short in-world news headline, max 8 words. Shown to players as a toast.',
-    },
-    description: {
-      type: 'string',
-      description: 'One sentence explaining what is happening in the town today.',
-    },
-    modifiers: {
-      type: 'array',
-      description: 'Between 1 and 4 tag-based demand/price effects for this event.',
-      items: {
-        type: 'object',
-        properties: {
-          tag: {
-            type: 'string',
-            enum: liveTags(),
-            description: 'Which tag this affects. Must be one of the known tags.',
-          },
-          demand_mult: {
-            type: 'number',
-            description: 'Multiplier on how much customers want items with this tag. 1 = no change, 0.4 = slump, 3 = frenzy.',
-          },
-          price_mult: {
-            type: 'number',
-            description: 'Multiplier on fair market price for this tag. Raises what suppliers charge AND what customers accept.',
-          },
-          days: {
-            type: 'integer',
-            description: 'How many in-game days this lasts, 1 to 5.',
-          },
-        },
-        required: ['tag', 'demand_mult', 'price_mult', 'days'],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ['headline', 'description', 'modifiers'],
-  additionalProperties: false,
-});
-
-/**
- * Build the context the director reasons about. Kept deliberately small and
- * readable — it's also what `GET /api/director/context` returns, so you can
- * see exactly what the AI is being told.
+ * Nothing in the sim reads it — it is what `GET /api/director/context` (and
+ * therefore `get_director_context` over MCP) returns, which is how an agent
+ * looks at a shop before authoring an event for it by hand. It outlived the
+ * model call it was written for because that is the job it was always doing:
+ * saying what is true of this shop today, in one screen.
  */
 export function describeWorld(game) {
   const c = content();
@@ -144,32 +72,20 @@ export function describeWorld(game) {
   ].join('\n');
 }
 
-const SYSTEM_PROMPT = `You are the world director for a cozy farming and mini-mart game.
-
-Once per in-game day you decide what happens in the town, and express it purely
-as multipliers on ITEM TAGS. You never reference specific item IDs — tags only.
-That way your events keep working when the players invent new items tomorrow.
-
-Guidelines:
-- Be varied and surprising. Weather, trends, local news, rival shops, festivals,
-  supply problems, school holidays, a food influencer visiting.
-- Keep it cozy and family-friendly. This is played by a parent and their kid.
-- React to the state you are given. An empty shop, a bad reputation, or a
-  runaway best-seller are all good things to write an event about.
-- Most days should be mild (multipliers 0.7 to 1.6). Occasionally go big
-  (up to 3.5) for a memorable day.
-- demand_mult changes how much people want something. price_mult changes what
-  it costs to buy AND what customers will tolerate paying. A shortage is high
-  price_mult; a craze is high demand_mult.
-- Do not make every day a boom. Slumps are interesting too.`;
-
 /**
- * Ask the model for today's world event.
+ * Decide today's world event.
+ *
+ * Still `async` and still returning a result rather than throwing, both of which
+ * are contracts with `ShopRoom.pushState` rather than leftovers: it is called
+ * without being awaited, so a rejected promise here would be an unhandled one,
+ * and the tick must never wait on whatever this grows into next.
+ *
  * @returns {Promise<{ok: boolean, source: string, headline?: string, error?: string}>}
  */
 export async function runDirector(game, { force = false } = {}) {
-  // Guard: one at a time, and not more than once per in-game day.
-  if (inFlight) return { ok: false, source: 'skipped', error: 'director already running' };
+  // Not more than once per in-game day. (The one-at-a-time guard went with the
+  // network call: there is no longer an await between claiming the day and
+  // acting on it, so there is no window in which a second run could start.)
   if (!force && game.lastDirectorDay != null
       && game.day - game.lastDirectorDay < MIN_DAYS_BETWEEN_RUNS) {
     return { ok: false, source: 'skipped', error: 'already ran today' };
@@ -185,41 +101,7 @@ export async function runDirector(game, { force = false } = {}) {
   // the same day. Five copies of one heat wave is what that looks like.
   markRan(game);
 
-  const api = getClient();
-  if (!api) return applyFallback(game, 'no ANTHROPIC_API_KEY set');
-
-  inFlight = true;
-
-  try {
-    const response = await api.messages.create({
-      model: MODEL,
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      // The director is a small, frequent, creative call — medium effort is
-      // the right trade here. Raise it if events start feeling repetitive.
-      output_config: {
-        effort: 'medium',
-        format: { type: 'json_schema', schema: directorSchema() },
-      },
-      messages: [{ role: 'user', content: `Here is the shop today:\n\n${describeWorld(game)}\n\nDecide what happens in town today.` }],
-    });
-
-    // Safety classifiers can decline; that is a normal outcome, not a crash.
-    if (response.stop_reason === 'refusal') {
-      return applyFallback(game, 'model declined the request');
-    }
-
-    const text = response.content.find((b) => b.type === 'text')?.text;
-    if (!text) return applyFallback(game, 'empty response');
-
-    const plan = JSON.parse(text);
-    return applyPlan(game, plan, 'director');
-  } catch (err) {
-    console.error('[director] failed, falling back:', err.message);
-    return applyFallback(game, err.message);
-  } finally {
-    inFlight = false;
-  }
+  return stageEvent(game, 'local director');
 }
 
 /**
@@ -233,22 +115,25 @@ function markRan(game) {
 }
 
 /**
- * Write a plan's modifiers into the DB. Every value is clamped locally — the
- * schema constrains shape, this constrains magnitude, so even a valid-looking
- * response can't produce a 500x demand spike.
+ * Write a plan's modifiers into the DB, clamped.
+ *
+ * The clamp stays now that every plan is one this file invented, and that is
+ * deliberate: a plan can also arrive from `add_modifier` by hand over MCP, and
+ * an authored `days: 500` is exactly as capable of wrecking a shop as a
+ * hallucinated one was.
  */
 function applyPlan(game, plan, source) {
-  // The enum the model was handed is already the live catalogue (`liveTags`),
-  // so this is the belt to that pair of braces: a model can ignore an enum, a
-  // plan can arrive from `add_modifier` by hand, and the tags an event names are
-  // the one thing about it that has to be true of THIS shop. A craze for
-  // something nobody sells is a toast, a log line and no number moving —
-  // indistinguishable, from the player's chair, from the director being broken.
+  // The tags an event names are the one thing about it that has to be true of
+  // THIS shop, whoever wrote it: `inventEvent` already draws from the live
+  // catalogue, and a plan from `add_modifier` has had no such filter applied. A
+  // craze for something nobody sells is a toast, a log line and no number
+  // moving — indistinguishable, from the player's chair, from the director
+  // being broken.
   const live = new Set(content().items.flatMap((i) => i.tags ?? []));
   const mods = (plan.modifiers ?? []).filter((m) => live.has(m.tag)).slice(0, 4);
   const dropped = (plan.modifiers ?? []).length - mods.length;
   if (dropped > 0) console.warn(`[director] dropped ${dropped} modifier(s) naming a tag nothing stocks`);
-  if (mods.length === 0) return applyFallback(game, 'plan had no modifiers the shop could feel');
+  if (mods.length === 0) return stageEvent(game, 'plan had no modifiers the shop could feel');
 
   for (const m of mods) {
     addModifier({
@@ -459,7 +344,13 @@ function inventEvent(game) {
  * they're the place to put an event with a story the generator can't tell.
  * They're the garnish now rather than the whole supply.
  */
-function applyFallback(game, reason) {
+/**
+ * Today's event: an authored one a quarter of the time, otherwise an invented
+ * one. This IS the director — it was called `applyFallback` while there was a
+ * model in front of it, and the rename is the point rather than tidying, for
+ * the reason at the top of this file.
+ */
+function stageEvent(game, reason) {
   // Same don't-repeat rule the generator uses, for the same reason: the pool is
   // small, so an unguarded weighted draw dealt Baking Craze three days running.
   const recent = game.recentEvents ?? [];

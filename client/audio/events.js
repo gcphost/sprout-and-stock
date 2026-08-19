@@ -48,14 +48,22 @@ const ON_FINISH = {
 };
 
 /**
- * How far through an action counts as having finished it.
+ * There used to be a `DONE_AT` here, and it is worth knowing why it is gone.
  *
  * An action that vanishes from the snapshot has either completed or been
- * abandoned, and those look identical one frame later. Walking away throws the
- * charge away at whatever progress it had reached, so anything past most of the
- * way is a completion — and the cost of being wrong either way is one sound.
+ * abandoned, and those look identical one frame later — so this file called
+ * anything past 60% of the ring a completion and played the sound. The cost of
+ * being wrong was described as "one sound", and that is true only if a sound is
+ * not evidence. It is: walking away is how you decline in this game, so
+ * declining LATE played the noise of having done it, and what you are left with
+ * is a shop that made the shelving sound and did not shelve anything. There is
+ * nothing else on screen to contradict it.
+ *
+ * `p.acts` on the player record is the shop's own count of jobs that fired, and
+ * the sound reads that. The general shape: a client that INFERS an outcome will
+ * be wrong at exactly the moments the player is unsure, which is when they are
+ * relying on it most.
  */
-const DONE_AT = 0.6;
 
 /**
  * Where a shopper's patience turns into a noise.
@@ -122,7 +130,7 @@ class Events {
     this.drops = new Set();
     this.crates = new Set();
     this.action = null;
-    this.progress = 0;
+    this.acts = 0;
     this.carry = null;
     this.haul = null;
     this.mood = new Map();
@@ -324,10 +332,12 @@ class Events {
     }
     this.vanPhase = phase;
 
-    // What you were doing, the moment you stop doing it.
-    const kind = me?.action?.kind ?? null;
-    if (this.action && kind !== this.action && this.progress >= DONE_AT) {
-      const id = ON_FINISH[this.action];
+    // What you just did — the shop's own count of jobs that fired, rather than
+    // a guess off how far the ring got. See the note where `DONE_AT` used to be
+    // for why that guess was worse than no sound at all.
+    const acted = me?.acted ?? null;
+    if (acted && acted.n > this.acts) {
+      const id = ON_FINISH[acted.kind];
       if (id) sfx.play(id, me);
     }
 
@@ -376,8 +386,11 @@ class Events {
   }
 
   remember(me) {
+    // No `acted` at all is the shop saying zero, which is what a player who has
+    // just joined has done. It is in memory on the player record and never on
+    // the save, so arriving never inherits somebody else's tally.
+    this.acts = me?.acted?.n ?? 0;
     this.action = me?.action?.kind ?? null;
-    this.progress = me?.action?.progress ?? 0;
     this.carry = me?.carry?.item_id ?? null;
     this.haul = me?.haul ? 'y' : null;
   }

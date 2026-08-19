@@ -114,7 +114,7 @@ its canvas and hands you the PNG. Look at it. `stock_shop` first if you want
 the shelves full rather than an empty building.
 
 **After touching `layout.js`, `shared/build.js` or an action — run `npm run verify`.**
-Fifteen sweeps, about twenty seconds:
+Twenty-three sweeps, about half a minute:
 
 - `verify:layout` generates ~100k layouts across seeds × counts and asserts the
   generator placed *exactly* what it was asked for, that every fixture has a
@@ -355,10 +355,69 @@ Fifteen sweeps, about twenty seconds:
   repaint hands back half of what was under it so no amount of redecorating
   prints money. It authors two paint rows and removes them on exit.
 
+- `verify:store` guards the claim that `server/db.js` became a *contract* rather
+  than a file: that a shop kept in SQLite and a shop kept in a browser are the
+  same shop. Every assertion in it is a comparison run against both stores in one
+  breath, because a value would only ever tell you what one of them does — and
+  the failure it exists for is not a crash. The sim reaches the store through
+  nineteen functions and nothing else, so a web store that is subtly wrong hands
+  back a catalogue with a field missing or a modifier list that keeps a row a day
+  longer, and what you get is a shop that plays *slightly differently in a
+  browser* with nothing anywhere to say so. Its centrepiece is the rows
+  themselves, and it earned its place on the first run: `npm run seed` does not
+  copy JSON into a database, it calls `writeContent`, and a zod parse fills in
+  every default the schema declares — so `data/seed/*.json` is a MIXTURE, rows
+  re-saved since a field was added carrying it and rows untouched since not.
+  Read raw, the web store handed out `alpha: undefined` for some items and `1`
+  for others off the same committed file, with the split decided by which rows
+  somebody last edited: ninety rows differing in `model`, `tiers` or `surface`,
+  none of which would have crashed anything and all of which would have drawn
+  slightly wrong. The fix is that the web store parses through the same schemas,
+  so the two agree by construction. Its other claim is **durability**, which is
+  the only one about something that has not happened yet — everything else
+  passes against a store that never writes to its vault at all, so it throws the
+  whole store away and reads it back, including that a *deleted* world stays
+  deleted and that modifier ids keep climbing across a reload. It seeds a
+  throwaway SQLite file under the OS temp dir via `SNS_DB` and removes it on
+  exit; the live database is never opened.
+
+- `verify:host` guards the claim `ShopRoom` was split out of Colyseus on: that
+  the shop rests on ten calls and nothing else. That claim is worth nothing until
+  something other than Colyseus answers those ten, because a seam with one
+  implementation is a seam that *compiles* — every other sweep in here drives
+  `Game` directly, so not one of them has ever touched a room, a client or a
+  frame. So this drives the whole room over `ChannelHost`: a real shop, a real
+  20Hz tick, real clients on real channels, no socket anywhere. Its centrepiece
+  is a claim about something that must STOP — a room that leaked its tick goes on
+  simulating a shop nobody is in, which is the same empty picture either way, and
+  arrives eventually as a world that quietly rolled forward a day while nobody
+  was playing it. Plus the two **swallows**: an unknown message type and a
+  handler that throws are both survivable on the Colyseus side, so if either took
+  the room down here the same bug would be a glitch on the desktop build and a
+  dead tab on the web one — which is the divergence the seam exists to prevent,
+  arriving as "it works on your machine". And one about ordering that reads as
+  pedantry until it isn't: arrival is *addressed* rather than announced, so a
+  second person joining must not re-send the first their `you` or the catalog.
+  Since co-op it also guards the half of a peer connection that is not a
+  network: a channel is `{post, onFrame, onClose, close}` and `linkedChannels`
+  is one, so a second guest arriving, two guests being told apart, one of them
+  dropping **mid-carry**, that same drop by a guest the shop has met before —
+  nothing on the floor, the record under their own `who`, the armful and the
+  spot handed back on rejoin — and a shop closing *under* whoever is left are
+  all ordinary calls on a room. That last pair is the point — for a while nothing
+  detected a wire going away at all, so a guest who closed their tab stayed
+  standing in the aisle holding stock nothing could ever get back, and the host
+  who closed theirs left a guest looking at a photograph of a shop. What it
+  cannot reach is SDP, ICE and the 48KB message cap, which are manual and listed
+  as such in docs/browser.md. It authors one world row and removes it, its save
+  and its modifiers on exit.
+
 Each of the first twelve found real bugs the day it was written, and so did
 `verify:hot` — two, both of them a list of kinds somebody had written out by
 hand — and so did `verify:orphans`, which is the only one so far written to a
-bug reported from a screenshot. `verify:motion`, `verify:hand`, `verify:park`
+bug reported from a screenshot, and so did `verify:store`, which caught ninety
+rows on its first run and is the only one that found its bug *before the feature
+it guards had ever run*. `verify:motion`, `verify:hand`, `verify:park`
 and `verify:doors` are the exceptions and say so: each shipped with its feature,
 because every claim it makes is invisible in a still frame by construction. None of them is visible in a screenshot of one
 seed — which is exactly why they exist.
@@ -372,6 +431,15 @@ result now reports `startedWith` — check it matches before believing a delta.
 only comparable if the world events are the same in both. A stack of duplicate
 modifiers was worth 1.9× profit on one measured seed, which will swamp whatever
 you were actually trying to measure. `clear_modifiers` before a before/after.
+
+⚠️ **…and `simulate` inherits the world's DIFFICULTY, which is the biggest one
+in this list.** A world made before `shared/difficulty.js` existed reads as
+`relaxed` — the constants the game shipped with — and one made since is `normal`
+by default, which is a materially harder game: 25.1k against 16.3k mean profit
+over three seeds of one real save. So every balance figure ever recorded in this
+repo is a `relaxed` figure, and a new throwaway world is not a valid control for
+one of them. `startedWith.difficulty` is in every result — check it, the way you
+check `startedWith` at all.
 
 ---
 
@@ -395,7 +463,7 @@ Keep to your side and you'll almost never touch the same file.
 | Tile vocabulary | `shared/tiles.js` | The one place tile kinds are defined. |
 | Tag vocabulary | `shared/tags.js` | Adding a tag is safe. Changing what one *means* affects everything. |
 | Validation rules | `shared/schemas.js` | Loosen carefully — this is what stops bad content reaching the game. |
-| AI director | `server/director.js` | |
+| World events | `server/director.js` | No model in it. `inventEvent` is the director. |
 | Milestones | `server/sim/goals.js` | The ladder and what each rung pays. A rung is a *measurement* of state the shop already keeps, so adding one is one row and no migration — see docs/progress.md. Six of them add to `catchment` and three pay cash, so re-run `simulate` if you retune them, and call `silenceMilestones` in any sweep that asserts what the money did. |
 | Control API / MCP surface | `server/api.js`, `mcp/server.js` | Change both together. |
 
@@ -405,8 +473,21 @@ Keep to your side and you'll almost never touch the same file.
 
 ```bash
 npm run dev       # game server + client with hot reload (localhost:5173)
+npm run dev:web   # the browser build: no server at all, the shop runs in a Worker
+npm run build:web # a static dist-web/ that needs no server — see docs/browser.md
+npm run preview:web   # build it and serve it on :5175 (tunnel-friendly)
+
+npm run deploy        # build the web game and push it live (Cloudflare Pages)
+npm run deploy:broker # push the co-op signalling Worker
+npm run deploy:all    # both, broker first
 npm run tunnel    # build + serve + public Cloudflare URL, for playing together
 npm run mcp       # the MCP server (usually launched by Claude Code, not by hand)
+
+npm run deploy       # build:web + upload to Cloudflare Pages (sprocket-and-stock)
+npm run deploy:broker# the signalling Worker in broker/ — no game state, ever
+npm run deploy:all   # broker FIRST, then the pages: the client bakes in the
+                     # broker URL, and a page pointed at a broker that isn't
+                     # there falls back to the long-code flow silently
 
 npm run seed      # load data/seed/*.json into the database
 npm run export    # dump the live database back to data/seed/*.json — do this before committing
@@ -436,7 +517,8 @@ server/     db.js         SQLite, content tables, content_version trigger
             layout.js     procedural store + farm, sized to what you own
             sim/          the simulation (economy, pathing, customers, crops)
             sim/simulate  headless balance runner used by the `simulate` tool
-            director.js   AI world events (async, never blocks the sim)
+            director.js   world events (async, never blocks the sim). No model in
+                          it — see its header and docs/steam.md §4
             api.js        HTTP control API — everything MCP can do
             rooms/        Colyseus room; broadcasts plain JSON at 10Hz
 client/     render/       three.js isometric renderer
@@ -464,12 +546,14 @@ what the next step was meant to be.
 | [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | all proposed |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
+| [docs/difficulty.md](docs/difficulty.md) | why a neglected shop finds a level instead of going under — the settle spring, the floor under demand, and a game where standing still is free; difficulty as a second axis beside the starting tier, upkeep as the first fixed cost, and why today's constants are the *easy* preset rather than the default | step 1 built; 2–4 proposed |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/tutorial.md](docs/tutorial.md) | the robot who shows you round a shop you have just made — a veil that blocks rather than only darkens, a step that is a predicate over the snapshot rather than a press it caught, and the third answer to "where is the hole" that stops it ever wedging | step 1 built; 2–4 proposed |
 | [docs/audio.md](docs/audio.md) | a bus per slider, why the sounds cannot come from the log, the four caps that stop a busy shop being a slot machine, sound as a column on a catalog row, the Sound rows and the Credits tab in the Menu — and why the ambient bed was built, played and cut | steps 2, 3, 5 built; 1 cut; 4, 6 proposed |
 | [docs/waste.md](docs/waste.md) | the shop's way out — the skip, why a hire may carry out rot and never your stock, rot becoming a box on the floor only if you own one, and the one spelling that keeps rubbish from reading as supply | step 1 built; 2–3 proposed |
 | [docs/pickups.md](docs/pickups.md) | the customer who never comes in — a collection point as a till whose queue is fed by the road, why picking is `serve` rather than a new job, why a staged tote is not stock, and the share that is a consequence of owning one | all proposed |
 | [docs/seating.md](docs/seating.md) | the customer who stops — the break area pointed at shoppers, why the cell is the seat and the bench is a multiplier on it, the first honest dwell impulse has ever had, and the four readers that must NOT share a predicate | all proposed |
+| [docs/browser.md](docs/browser.md) | the whole game on a URL — the server moving into the tab, the two seams (transport, store) that keep one codebase serving two targets, why the browser build has no SQLite in it, P2P over a data channel and the signalling that is not free, a host tab throttled to 1Hz, and the MCP surface that is the price | steps 1–7 built; 8 open on numbers nobody has yet |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | steps 2–4 built; 1, 5–8 proposed |
 | [docs/steam.md](docs/steam.md) | selling it on Steam for Windows and macOS — the shell that keeps the renderer we have tested on, a server nobody can find, why Steam Cloud and SQLite's WAL disagree, the 43 milestones that are already an achievement list, why the model call leaves the build and `inventEvent` *is* the director, and why Steam's own relay retires the invite code | all proposed |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
@@ -487,9 +571,16 @@ what the next step was meant to be.
 - **The layout must place exactly what it's asked for.** An off-by-one in the
   shelf loop meant buying a shelf upgrade sometimes gave you nothing. If you
   touch `layout.js`, verify requested vs placed counts across a range.
-- **The AI director must never be awaited by the tick loop.** It's
-  fire-and-forget with a hand-written fallback. If the API is down the game
-  keeps running; that's deliberate.
+- **The director must never be awaited by the tick loop.** It's fire-and-forget
+  and still `async`, and both of those are contracts rather than leftovers now
+  that the model call is gone: `pushState` does not await it, so a rejection
+  would be an unhandled one. **There is no model in the game** — `inventEvent`
+  *is* the director, `@anthropic-ai/sdk` is not a dependency, and nothing a
+  player reads is generated at runtime. The argument is docs/steam.md §4, and the
+  trap it names is the naming: call the local one "the fallback" and somebody
+  reads the shipped game as the degraded version of itself. Agents still author
+  events — `create_event` and `add_modifier` over MCP — which is where a model
+  belongs here: at the keyboard, not in the build.
 - **An empty shelf can be relabelled.** `stockShelf` only rejects a mismatched
   item when `qty > 0` — otherwise farm produce has nowhere to go once every
   shelf has been claimed by a delivery.
@@ -1441,6 +1532,18 @@ what the next step was meant to be.
   discounted shelf against an undiscounted literal and call it a pricing bug.
   Ask what a save could now leak into your assertions, not just what fields you
   added.
+- **…and the mirror of it: `Game.create` does not spread the save, it NAMES
+  every field.** So a new save field needs writing in two places — `saveState`
+  on the way out and that payload on the way in — and forgetting the second is
+  the quietest failure in this file. The world persists the value, reloads
+  without it, and the constructor's `??` fallback answers instead: the menu, the
+  API and `list_worlds` all read the save directly and report the value
+  correctly, while the sim has never heard of it. `difficulty` shipped that way
+  for an hour, and what gave it away was three difficulty presets returning
+  **byte-identical** takings over three seeds. Every `verify:*` sweep passed
+  either side of it, because every sweep builds its own world and every one of
+  those genuinely is the default. A round trip that comes back suspiciously
+  equal is the shape this makes.
 - **A decoration weighs nothing, on purpose.** `prop-floor` and `prop-ceiling`
   stamp no tile, take no generator budget and reserve no working spot, so people
   walk past them and no shop that was walkable stops being so. That is why there
@@ -1817,6 +1920,43 @@ what the next step was meant to be.
   clock you put there (`bornAt`, `plantedAt`, `yieldedAt`, `arrivesAt`). The
   general shape: a fallback nobody has watched work is a fallback that isn't
   there, and this one hid behind a save that restored the shop perfectly.
+- **A room being OPEN and a world RUNNING are two different things, and one
+  timer used to answer both.** An empty room kept stepping for the whole idle
+  grace — five real minutes, which is most of an in-game trading day and more
+  across the night at `NIGHT_SPEED`. What runs in those minutes is a shop that
+  is open with nobody on the till, so every shopper queues and storms out at
+  −0.03: **34 of those is the entire range of reputation**, so closing the tab
+  for tea and coming back to a shop the town has turned on was the reliable
+  outcome rather than an edge case. It is invisible in the only place that would
+  say — the ledger blames "Lost patience", which is exactly what happened and
+  says nothing about nobody having been there. `stepIfWatched` splits the two:
+  the room still lives five minutes so an agent's headless call has something to
+  land on, and the world inside it is frozen for all of them. It is deliberately
+  **not `Game.paused`** — that is a fact about a person, it persists as a stamp
+  and strikes the clock through, and a shop coming back stopped because it once
+  sat empty is `pausedAt` firing for a reason nobody chose. And it lives in
+  `ShopRoom` rather than in either Base, which is what makes the desktop and web
+  builds unable to disagree about when the world runs — see the seam in
+  `server/rooms/host.js`. The general shape: **a grace period for one resource
+  is not a grace period for every resource that happens to share its timer.**
+- **A seam with one implementation is a seam that compiles, and the thing it
+  forgets is the case the one implementation cannot have.** A channel is
+  `{post, onFrame, close}` because the first one was a Worker port, and a worker
+  port cannot go away on its own — the thread dies with the page, and the page
+  taking the shop with it is already handled. A peer *can* go away on its own,
+  and nothing in the shape said so, so for the whole of step 6 no code anywhere
+  detected a dropped connection. Three failures, none of which look like a
+  networking bug: a guest who closed their tab was **still standing in the shop**
+  holding stock nothing could get back (`onLeave` is what runs `removePlayer`,
+  and nothing called it), the room went on broadcasting at a dead wire with
+  `emptySince` never starting, and a guest whose host closed *their* tab was
+  looking at a photograph — a shop that stopped, with nothing on screen to say
+  why. `onClose` is the fourth method; `dc.close` and the connection reaching
+  `failed` are two different deaths (a tab, and a laptop lid); `disconnected` is
+  deliberately not one of them, being transient by definition — treating it as
+  death throws somebody out of a shop over a lift. The general shape: **when a
+  second implementation of a seam arrives, the question is not "does it answer
+  the calls" but "what can happen to it that could not happen to the first".**
 - **A `sessionId` is per connection, so leaving used to destroy what you held.**
   `removePlayer` deleted the whole person, `carry` included — a devMode restart,
   a closed tab or four seconds of bad wifi binned an armful of paid-for stock

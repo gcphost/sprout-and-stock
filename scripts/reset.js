@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { DATA_DIR } from '../server/db.js';
+import { DATA_DIR } from '../server/store/sqlite.js';
 
 const targets = ['game.db', 'game.db-wal', 'game.db-shm'];
 let removed = 0;

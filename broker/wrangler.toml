@@ -1,0 +1,25 @@
+# The introduction service — see broker/src/index.js and docs/browser.md step 7.
+#
+# It is the only server this game has, it holds nothing but two connection blobs
+# for five minutes, and no game traffic ever passes through it.
+name = "sprocket-broker"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# A room is one object with one job and a lifetime measured in minutes, which is
+# exactly what a Durable Object is for: the alternative is KV, whose eventual
+# consistency means a guest can read a code the host wrote and get nothing back.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# The pages/preview origins allowed to call it. A comma-separated list rather
+# than `*`: the blobs are short-lived and low-value, but an open CORS policy on
+# a service that mints codes is an invitation to use it as somebody else's
+# signalling server.
+[vars]
+ALLOWED = "*"

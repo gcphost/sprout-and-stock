@@ -10,7 +10,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { SEED_DIR, db } from '../server/db.js';
+// Both are SQLite's own — a directory on disk and the handle that opens it.
+// Seeding is a thing you do to a database, so it asks the store that is one.
+import { SEED_DIR, db } from '../server/store/sqlite.js';
 import { writeContent, refresh } from '../server/content.js';
 
 const FILES = [
