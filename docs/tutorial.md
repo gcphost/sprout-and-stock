@@ -37,28 +37,33 @@ blacked out and unpressable.
 ## Step 1 — the tour *(built)*
 
 `client/tutor.js`, plus a `#tutor` element and its styles, plus two rows in the
-Menu and one attribute in `bar.js`. Eighteen beats, in order:
+Menu and one attribute in `bar.js`. **Ten beats:**
 
-| | | teaches |
-|---|---|---|
-| 1 | Hello | who is talking, and that there is a way out |
-| 2 | Walk | a tap on the floor — and that a tap on a *thing* is a walk plus a job |
-| 3 | Look | the right drag is the camera, and the view stays where you put it |
-| 4–5 | Order stock | the supplier; that goods come on a van rather than out of a menu |
-| 6–7 | Take on a Clerk | the crew are content; the strip; the two-press confirm |
-| 8–9 | Their shift | that a hire's day is a ratio *and* a budget |
-| 10–12 | Build a chiller | the mode, the palette, the tap that spends money |
-| 13 | The van | crates land on the pad, and that is the only "goods on the floor" there is |
-| 14 | Take one | **a tap is one unit** |
-| 15 | Shelve it | the chevrons; stock has a home |
-| 16 | Shoulder the crate | **a hold is the lot**, and a box beats a pair of hands |
-| 17 | Tip it in | the same sentence at the other end |
-| 18 | Open up | the shutters, which is why the shop was quiet the whole time |
+| | teaches |
+|---|---|
+| 1 Hello | who is talking, and that there is a way out |
+| 2 Walk | left-click the floor; and that left-clicking a *thing* is a walk plus a job |
+| 3 Buy stock | the supplier, and that goods arrive on a lorry rather than out of a menu |
+| 4 Take on a Clerk | the crew are leased machines; the strip; the two-click confirm |
+| 5 Their shift | that a hire's day is a ratio **and** a budget |
+| 6 Build a chiller | the palette, the price, the green/amber ghost |
+| 7 Take one out | **left takes one, hold-left takes the lot, right puts one back, hold-right pours** |
+| 8 Shelve it | the chevrons — the shop tells you which unit will have it |
+| 9 Shoulder the crate, tip it in | the same four presses at scale, and why a box beats your arms |
+| 10 Open up | the shutters, which is why the shop was quiet the whole time |
 
-The order is not arbitrary. The van is ordered at beat 5 and collected at 13,
-and the four beats in between are the ones that do not need it — hiring,
-the shift, and the chiller. A tutorial that ordered stock and then stood there
-watching the clock would be teaching you that the game is slow.
+It was eighteen — one card per press — and eighteen cards is a lecture: you stop
+reading around the fifth and start hunting for Skip. The saving is not in
+teaching less. It is that **a step moves its own spotlight**: `at` and `say` are
+asked every frame, so "open the crew strip, then click the Clerk on it" is one
+card whose hole walks from the rail button to the tile the moment the strip is
+up. That is the rule for adding a beat — **a card per decision, never a card per
+press.** Two presses with one outcome between them are one card.
+
+The order is not arbitrary either. Stock is ordered at beat 3 and collected at
+7, and the three beats in between are the ones that do not need it. A tour that
+ordered a delivery and then watched the clock would be teaching you the game is
+slow.
 
 ### What is load-bearing
 
@@ -191,6 +196,38 @@ is a small thing and is worth more than the paragraph under it.
   round it is a hole round a dead button, with the `−` that would make room for
   it out in the blackout. The step lights the whole row and accepts *any* change
   to the shift.
+- **A mark is projected at a HEIGHT, and getting it wrong does not look like a
+  wrong number.** `worldToScreen` takes a `y`, and on a 45° camera a metre of
+  height is most of a tile of *screen*, up and to the right. A crate marked at
+  head height gets a ring hanging in the air off its top corner — which reads as
+  the marker being broken rather than as one argument being wrong. Each target
+  names its own height (`CRATE_Y`, `SHELF_Y`), measured against the art.
+- **A card set beside a ring has to clear the ring's RADIUS.** The world mark is
+  ~46px across and *centred* on the point, so an 18px gap puts the card over the
+  bottom of its own highlight and half of what it is highlighting.
+- **A single expanding ring is nearly invisible over a shop floor.** It is a
+  thin green line among a hundred thin lines and it spends most of its cycle
+  transparent. The mark is three layers: a solid disc that never moves, so
+  something is *always* there to find, and two pulses off it saying which way to
+  look.
+- **"Tap" is the wrong word and it was in eleven places.** This is a mouse game
+  whose whole vocabulary is left, right, and held — the one sentence the tour
+  exists to deliver is *left takes one, hold-left takes the lot, right puts one
+  back, hold-right pours* — and a tutorial that says "tap" has not said any of
+  it. Copy in here names the button, always.
+- **A button in a step can be at its ceiling already.** The shift step used to
+  light Serve's `+` and ask for a press; a fresh clerk arrives with Serve at its
+  cap, so the tour cut a hole round a dead button and put the `−` that would
+  make room for it out in the blackout. The lesson was never "press +", it is
+  "these numbers come out of one another" — so it lights the whole list and
+  accepts *any* change to the shift.
+- **A rail button that does two different things on two presses cannot be asked
+  for once.** Build's first press is the mode and its second is the palette, and
+  the second one's effect is a bar at the bottom of the screen behind the card —
+  so a step that asked for a press got one, changed nothing visible, and sat
+  there asking again. The tour presses it twice itself, through `pressBuild` so
+  the mode is entered exactly as a player enters it, and the two-press rule moves
+  into the hint where a thing you need once belongs.
 - **Two frames before measuring anything.** A menu an `arm` has just opened is
   not laid out yet, so a rect read on the same frame is the rect of where it
   used to be — the same two frames the tooltip and the rail's note both take.

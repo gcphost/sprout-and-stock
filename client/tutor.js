@@ -106,6 +106,18 @@ export const replayTutor = (id) => {
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
+/**
+ * How high up a thing is, for the mark that points at it.
+ *
+ * Measured against the art rather than against the tile, because that is what
+ * you are looking at: a crate is a box a third of a tile tall sitting on the
+ * floor, and a shelf's goods are the thing you are being told to press. Getting
+ * these wrong does not look like a wrong number — it looks like a marker that
+ * does not know where anything is.
+ */
+const CRATE_Y = 0.34;
+const SHELF_Y = 0.85;
+
 /** Somebody's own body out of the snapshot, or null before the first frame. */
 const meOf = (t) => (t.state?.players ?? []).find((p) => p.id === t.net.myId) ?? null;
 
@@ -163,22 +175,59 @@ function cheapestFreezer(t) {
  * the van, mostly — so the card can say so instead of reading as an instruction
  * you are failing to follow.
  */
+/** The Clerk kind, which is the one the tour takes on. */
+const clerkKind = (t) => (t.ui.catalog?.workers ?? []).find((w) => /clerk/i.test(w.id)) ?? null;
+
+/**
+ * The tour, in order. TEN beats, and the count is the design.
+ *
+ * It was eighteen, one card per press, and eighteen cards is a lecture — you
+ * stop reading at about the fifth and start hunting for Skip. The saving is not
+ * in cutting what it teaches: it teaches the same ten things. It is that a step
+ * **moves its own spotlight**. `at` and `say` are asked every frame, so "open the
+ * crew strip, then press the Clerk on it" is one card whose hole walks from the
+ * rail button to the tile the moment the strip is up — which is what the player
+ * was going to do anyway, with one fewer thing to read on the way.
+ *
+ * That is the rule for adding a beat: a card per *decision*, never a card per
+ * press. Two presses that have one outcome between them are one card.
+ *
+ * Each step is `{ id, kicker, say, hint, at, done, arm, nudge, waiting }`:
+ *
+ * - `say`     the instruction, and a function when it changes mid-step.
+ * - `hint`    the small print. It has to name the ACTUAL thing — "and then it
+ *             does the obvious thing" is the sentence this whole file exists
+ *             because nothing in this game is obvious.
+ * - `at`      where the hole goes, asked every frame. `{ el }` names something
+ *             in the HUD, `{ world }` names a thing standing in the shop and
+ *             lights the canvas whole, `null` inside either means "cannot find
+ *             it" and drops the veil entirely (see `holeFor`).
+ * - `done`    the predicate, over the snapshot. Never a press.
+ * - `arm`     once, on open. For putting a menu in front of you.
+ * - `nudge`   every snapshot. For keeping it there, and for the one-way latches
+ *             a two-phase step needs (`crate`, below).
+ * - `waiting` the step cannot be finished yet and that is nobody's fault — the
+ *             van. The card breathes and the stranded-timer is held off, or a
+ *             wait reads as an instruction you are failing to follow.
+ */
 const STEPS = [
   {
     id: 'hello',
     kicker: 'New shop',
-    say: 'Morning. I am the fitter — I get shops open.',
-    hint: 'Six or seven minutes and you will know where everything is. '
-      + 'You can leave at any point; the button is bottom-right of this card.',
+    say: 'Morning. I fit shops out — give me five minutes.',
+    hint: 'Stock on the shelves, somebody behind the till, and the doors open. '
+      + 'Skip is bottom right of this card and it is on every one of them.',
     big: true,
   },
 
   {
     id: 'walk',
     kicker: 'Getting about',
-    say: 'Tap the floor over there. You will walk to it.',
-    hint: 'Tapping a thing walks you to it AND does the obvious thing when you '
-      + 'arrive — that one press is most of the game.',
+    say: 'Left-click a bit of floor. You walk to it.',
+    hint: 'Left-click a THING and that one press does two jobs: you walk over, '
+      + 'and then you work it. Click a crate and you arrive holding what was in '
+      + 'it. Click a shelf with your hands full and it goes on the shelf. WASD '
+      + 'walks you by hand, and the right button drags the camera round.',
     at: () => ({ el: '#game', soft: true }),
     start(t) { this.from = meOf(t) ? { ...meOf(t) } : null; },
     done(t) {
@@ -190,212 +239,213 @@ const STEPS = [
   },
 
   {
-    id: 'look',
-    kicker: 'The camera',
-    say: 'Now swing the view round. Right button, and drag.',
-    hint: 'Scroll zooms. The , and . keys turn a quarter at a time. '
-      + 'The camera stays where you put it until you walk somewhere.',
-    at: () => ({ el: '#game', soft: true }),
-    watch: 'camera',
-    done(t) { return t.camMoved; },
-  },
-
-  {
-    id: 'order',
-    kicker: 'Stock',
-    say: 'Nothing to sell yet. Open the supplier.',
-    hint: 'Everything the shop sells is bought in, grown out the back, or made '
-      + 'on a machine. This is the buying half.',
-    at: () => ({ el: '[data-rail="stock"]' }),
-    done(t) { return t.ui.openPanel === 'stock'; },
-  },
-
-  {
-    id: 'buy',
-    kicker: 'Stock',
-    say: 'Buy a case of something cheap.',
-    hint: 'It goes on a van and turns up at the bay out the back. '
-      + 'Vans run on the hour, so it will not be long.',
-    at: () => ({ el: '#panel' }),
+    id: 'stock',
+    kicker: 'Buying in',
+    say: (t) => (t.ui.openPanel === 'stock'
+      ? 'Buy a case of something cheap.'
+      : 'Nothing to sell yet. Open the supplier.'),
+    hint: (t) => (t.ui.openPanel === 'stock'
+      ? 'It does not appear on a shelf. It goes on a lorry and gets dropped at '
+        + 'the pad behind the shop, and somebody has to carry it in. That '
+        + 'somebody is you, until you hire a stocker.'
+      : 'Everything you sell is bought in here, grown in the beds out the side, '
+        + 'or made on a machine.'),
+    at: (t) => (t.ui.openPanel === 'stock'
+      ? { el: '#panel' }
+      : { el: '[data-rail="stock"]' }),
     done(t) { return (t.state?.orders?.pending ?? []).length > 0 || t.crateSeen; },
   },
 
   {
     id: 'hire',
     kicker: 'The crew',
-    say: 'While that drives over — take somebody on.',
-    hint: 'Everyone who works here is a machine. This is the roster, and the '
-      + 'last tab on it is who you can put on lease.',
-    at: () => ({ el: '[data-rail="staff"]' }),
-    done(t) { return t.ui.bar === 'staff'; },
-  },
-
-  {
-    id: 'clerk',
-    kicker: 'The crew',
-    say: 'Take on a Clerk. Press it twice — the second press confirms.',
+    say: (t) => (t.ui.bar === 'staff'
+      ? 'Click the Clerk twice. The second click is the confirm.'
+      : 'While that drives over — open the crew strip.'),
     hint: (t) => {
-      const row = (t.ui.catalog?.workers ?? []).find((w) => /clerk/i.test(w.id));
-      return row
-        ? `${money(row.cost)} up front and a lease every morning. A clerk works the till, `
-          + 'which is the one job the shop cannot do without.'
-        : 'A clerk works the till, which is the one job the shop cannot do without.';
+      const row = clerkKind(t);
+      return t.ui.bar === 'staff'
+        ? `${row ? `${money(row.cost)} now, ` : ''}and a lease off the till every `
+          + 'morning whether they earn it or not. A clerk stands at the checkout '
+          + 'and serves. Nobody on the till means nobody pays, and shoppers walk '
+          + 'out with a full basket.'
+        : 'Everybody who works here is a machine you lease. There is no one to '
+          + 'hire from — you pick a kind, and it turns up.';
     },
     at: (t) => {
-      const row = (t.ui.catalog?.workers ?? []).find((w) => /clerk/i.test(w.id));
+      if (t.ui.bar !== 'staff') return { el: '[data-rail="staff"]' };
+      const row = clerkKind(t);
       return { el: row ? `[data-entry="kind:${row.id}"]` : null, pad: 6 };
     },
-    // Which TAB, as well as which strip. `staffGroups` files who works here
-    // under one tab per kind and who you could take on under `hire`, so a tile
-    // lit without this is a tile in a tab you are not looking at — which
-    // `holeFor` reads as lost and steps aside for, correctly and uselessly.
-    arm(t) { t.ui.showBar('staff'); t.ui.barTab.staff = 'hire'; t.ui.renderHotbar(); },
+    arm(t) { t.ui.closePanel?.(); },
+    // The strip files who works here under one tab per kind and who you could
+    // take on under `hire`, so the tile is only in the document while that tab
+    // is open. Held rather than set once, because a step whose hole is a tab
+    // away is a step that reads as pointing at nothing.
+    nudge(t) {
+      if (t.ui.bar !== 'staff' || t.ui.barTab.staff === 'hire') return;
+      t.ui.barTab.staff = 'hire';
+      t.ui.renderHotbar();
+    },
     done(t) { return (t.state?.roster ?? []).length > 0; },
   },
 
   {
-    id: 'roster',
+    id: 'shift',
     kicker: 'The crew',
-    say: 'Open them up — press their tile on the strip.',
-    hint: 'A hire has a shift you set: what they spend the day doing, and how '
-      + 'much of it goes on each thing.',
+    say: (t) => (t.ui.openPanel === 'worker'
+      ? 'Move a point around. Take one off a job they will not be doing.'
+      : 'Open them up — click their tile on the strip.'),
+    hint: (t) => (t.ui.openPanel === 'worker'
+      ? 'This is a budget, not a set of dials. The total is capped until you pay '
+        + 'for a rung of firmware, so a point on one job is a point off another '
+        + '— and a job at its ceiling has a dead +, which is the cap telling you '
+        + 'so. A clerk who never touches a bed is points you are not spending.'
+      : 'A hire is not fixed. You set what they spend the day on: the till, '
+        + 'putting stock out, sweeping up, the beds.'),
+    // The whole list, never the Serve `+`. That button goes dead the moment the
+    // shift is full — which on a fresh clerk it usually already is — so a hole
+    // cut round it is a hole round a button that cannot be pressed, with the
+    // `−` that would make room for it out in the blackout. The lesson was never
+    // "press +", it is "these numbers come out of one another".
     at: (t) => {
+      if (t.ui.openPanel === 'worker') return { el: '.wk-jobs', pad: 8 };
       const who = (t.state?.roster ?? [])[0];
       return { el: who ? `[data-entry="hire:${who.id}"]` : null, pad: 6 };
     },
     arm(t) { t.ui.showBar('staff'); t.ui.barTab.staff = 'all'; t.ui.renderHotbar(); },
-    done(t) { return t.ui.openPanel === 'worker'; },
-  },
-
-  {
-    id: 'jobs',
-    kicker: 'The crew',
-    say: 'Put more of their day on the till. Press + on Serve.',
-    hint: 'The numbers are a ratio and a budget at the same time — you cannot '
-      + 'max everything, and a rung of firmware buys more of the day to spend.',
-    // The stepper, not the + on its own. `+` goes `disabled` the moment the
-    // shift is full — so a hole cut round it is a hole round a dead button,
-    // with the − that would make room for it out in the blackout.
-    at: () => ({ el: '[data-job="serve"]', up: '.wk-job', pad: 8 }),
+    // Self-healing rather than armed-once: close the sheet and the hole walks
+    // back to the tile, which only exists while the strip is up.
+    nudge(t) {
+      if (t.ui.openPanel === 'worker' || t.ui.bar === 'staff') return;
+      t.ui.showBar('staff');
+      t.ui.barTab.staff = 'all';
+      t.ui.renderHotbar();
+    },
     start(t) { this.from = t.jobSig(); },
     done(t) { return this.from !== null && t.jobSig() !== this.from; },
   },
 
   {
-    id: 'build',
-    kicker: 'Building',
-    say: 'Now put something up. Open build mode.',
-    hint: 'Press it once for the mode — that is the one you rearrange in — and '
-      + 'again for the catalogue.',
-    at: () => ({ el: '[data-rail="build"]' }),
-    arm(t) { t.ui.closePanel?.(); },
-    done(t) { return t.ui.bar === 'build'; },
-  },
-
-  {
     id: 'freezer',
     kicker: 'Building',
-    say: (t) => `Pick the ${cheapestFreezer(t)?.name ?? 'chiller'} out of the Shop tab.`,
-    hint: 'Frozen goods rot on an ordinary shelf and keep in here. A hot counter '
-      + 'is a third thing again — being in the wrong one is no better than being '
-      + 'in none.',
+    say: (t) => {
+      const p = cheapestFreezer(t);
+      if (t.ui.toolId?.() !== p?.id) return `Pick the ${p?.name ?? 'chiller'} out of the Shop tab.`;
+      return 'Left-click a bit of floor to stand it there.';
+    },
+    hint: (t) => {
+      const p = cheapestFreezer(t);
+      if (t.ui.toolId?.() !== p?.id) {
+        return `${p ? `${money(p.cost)}. ` : ''}Anything tagged frozen goes off on `
+          + 'an ordinary shelf and keeps in here — stock that rots is money you '
+          + 'already spent. (I opened this for you: the Build button is one press '
+          + 'for the mode, two for the catalogue.)';
+      }
+      return 'Green means it fits. Amber means it fits and will cost you '
+        + 'something — a shelf walled in, a queue with nowhere to stand — and the '
+        + 'shop lets you anyway, because blocking your own aisle is a decision.';
+    },
     at: (t) => {
       const p = cheapestFreezer(t);
-      return { el: p ? `[data-entry="${p.id}"]` : null, pad: 6 };
+      if (t.ui.toolId?.() !== p?.id) return { el: p ? `[data-entry="${p.id}"]` : null, pad: 6 };
+      return { el: '#game', soft: true };
     },
+    /**
+     * Both presses, for them.
+     *
+     * Build is the one rail button that does something different the second
+     * time — the first press is the mode, the second brings the catalogue up —
+     * and that is a fact about the BAR, which is at the bottom of the screen
+     * behind the card. So a step that asked for a press got one, changed
+     * nothing anybody could see, and sat there asking again. Pressed twice
+     * here, through `pressBuild` itself rather than by setting the two flags,
+     * so the mode is entered exactly the way a player enters it. The two-press
+     * rule is in the hint, which is where a thing you need once belongs.
+     */
     arm(t) {
-      t.ui.showBar('build');
+      t.ui.closePanel?.();
+      t.ui.pressBuild();
+      if (t.ui.bar !== 'build') t.ui.pressBuild();
+    },
+    nudge(t) {
+      if (t.ui.bar !== 'build') { t.ui.pressBuild(); return; }
+      if (t.ui.barTab.build === 'shop') return;
+      if (t.ui.toolId?.() === cheapestFreezer(t)?.id) return;
       t.ui.selectBuildGroup?.('shop');
     },
-    done(t) { return t.ui.toolId?.() === cheapestFreezer(t)?.id; },
-  },
-
-  {
-    id: 'place',
-    kicker: 'Building',
-    say: 'Tap a bit of floor to stand it there.',
-    hint: 'Green means it fits. Amber means it fits and will cost you something '
-      + '— a walled-in shelf, a queue with nowhere to go — and the shop lets you, '
-      + 'because blocking your own aisle is a move.',
-    at: () => ({ el: '#game', soft: true }),
     start(t) { this.from = shelvesOf(t, 'freezer').length; },
     done(t) { return this.from !== null && shelvesOf(t, 'freezer').length > this.from; },
   },
 
   {
-    id: 'van',
-    kicker: 'Stock',
-    say: 'That is the shop. Now the goods — here comes the van.',
-    hint: 'Crates land on the painted pad out the back. Everything the shop ever '
-      + 'puts on the floor is one of these.',
-    hold: true,
-    arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
-    at: (t) => ({ world: nearestCrate(t) }),
-    done(t) { return !!nearestCrate(t); },
-  },
-
-  {
     id: 'take-one',
     kicker: 'Stock',
-    say: 'Tap the crate. One tap takes one unit.',
-    hint: 'A tap is one, a hold is the lot. That sentence is true of everything '
-      + 'in the shop that holds goods.',
-    at: (t) => ({ world: nearestCrate(t) }),
+    say: (t) => (nearestCrate(t)
+      ? 'Left-click the crate. One click takes one unit out.'
+      : 'Van is on its way. Crates get left on the pad round the back.'),
+    // The four presses, said once, in the one place the player is holding the
+    // mouse over the thing they are about. This is the sentence the whole tour
+    // exists to deliver — everything else is scaffolding round it.
+    hint: 'Four presses, and they are the same four on every crate, shelf and '
+      + 'machine in the shop. LEFT takes one. HOLD LEFT takes the lot. RIGHT '
+      + 'puts one back. HOLD RIGHT pours in everything you are carrying.',
+    arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
+    at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
+    // Nobody's fault and nothing to press. Without this the card reads as an
+    // instruction you are failing, and the stranded-timer offers to skip the
+    // one beat the whole tour is building up to.
+    waiting(t) { return !nearestCrate(t); },
     done(t) { return lotSize(meOf(t)?.carry) > 0; },
   },
 
   {
     id: 'shelve-one',
     kicker: 'Stock',
-    say: 'Put it on a shelf. Tap the shelf with it in your hands.',
-    hint: 'The units that will take what you are holding light up on their own '
-      + 'while your hands are full.',
-    at: (t) => ({ world: anyShelf(t) }),
+    say: 'Now left-click a shelf. It goes on.',
+    hint: 'Chevrons appear over every unit that would take what you are holding, '
+      + 'the moment your hands are full — so you never have to remember which '
+      + 'shelf is for what. A shelf with no chevron will refuse you.',
+    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     done(t) { return lotSize(meOf(t)?.carry) === 0; },
   },
 
   {
-    id: 'haul',
+    id: 'crate',
     kicker: 'Stock',
-    say: 'One at a time is slow. Hold the press on the crate to shoulder it.',
-    hint: 'A box holds more than a pair of hands, so carrying it is the trip '
-      + 'worth making. Hold, and watch the ring go round.',
-    at: (t) => ({ world: nearestCrate(t) }),
-    done(t) { return !!meOf(t)?.haul; },
-    // Nothing left on the floor to lift is not a failure — you may well have
-    // shelved the lot by hand. The tour steps over it rather than standing there
-    // pointing at a bay with nothing on it.
+    say: (t) => (meOf(t)?.haul
+      ? 'Now HOLD the left button on a shelf to tip the box in.'
+      : 'One at a time is a long afternoon. HOLD the left button on the crate.'),
+    hint: (t) => (meOf(t)?.haul
+      ? 'It goes on board by board and stops when the shelf is full — whatever '
+        + 'is left stays in the box on your shoulder. Holding the RIGHT button '
+        + 'over a shelf does the same job from your hands.'
+      : 'Hold it and a ring winds round the crate. Let go early and nothing '
+        + 'happens. Let it finish and the whole box goes up on your shoulder — '
+        + 'which carries far more than your arms do, and is the only reason the '
+        + 'walk across the shop is worth making.'),
+    at: (t) => (meOf(t)?.haul
+      ? { world: anyShelf(t), y: SHELF_Y }
+      : { world: nearestCrate(t), y: CRATE_Y }),
+    // A latch, because the step is two halves and the second half's predicate
+    // (`no box on your shoulder`) is also true of somebody who never lifted one.
+    start() { this.lifted = false; },
+    nudge(t) { if (meOf(t)?.haul) this.lifted = true; },
+    done(t) { return this.lifted && !meOf(t)?.haul; },
+    // No box left to lift is not a failure — you may well have shelved the lot
+    // by hand on the beat before.
     skipWhen(t) { return !nearestCrate(t) && !meOf(t)?.haul; },
-  },
-
-  {
-    id: 'pour',
-    kicker: 'Stock',
-    say: 'Now tip it in. Hold the press on a shelf.',
-    hint: 'It fills board by board and stops at what fits. A right press does '
-      + 'the same thing the other way round — put ONE back.',
-    at: (t) => ({ world: anyShelf(t) }),
-    done(t) { return !meOf(t)?.haul; },
-    skipWhen(t) { return !meOf(t)?.haul; },
   },
 
   {
     id: 'open',
     kicker: 'Opening up',
-    say: 'Last thing. Raise the shutters.',
-    hint: 'The shop starts shut so you can lay it out in peace. This is the '
-      + 'switch that lets the town in.',
+    say: 'Last thing. Click the sign to raise the shutters.',
+    hint: 'The shop starts shut so you can lay it out with nobody in it. Press '
+      + 'this and the town starts arriving — and everything you just did starts '
+      + 'earning or costing. Good luck.',
     at: () => ({ el: '#sign', pad: 8 }),
     done(t) { return t.state?.shutters === true; },
-  },
-
-  {
-    id: 'bye',
-    kicker: 'Open',
-    say: 'That is the shop. The rest is yours.',
-    hint: 'Everything I showed you has a key — press / for the list, and the '
-      + 'Milestones panel is the ladder up. Good luck.',
-    big: true,
   },
 ];
 
@@ -552,6 +602,11 @@ export class Tutor {
     // that already had a crate on the pad — a world restored mid-tour, or a
     // second player unloading the van while you read the card.
     if ((state?.deliveries ?? []).some((d) => !d.rubbish && lotSize(d) > 0)) this.crateSeen = true;
+    // Before the predicate, and every snapshot rather than once on open: a
+    // step that has to keep a strip open or a tab selected is holding the shop
+    // in a shape the player can walk out of at any moment, and it is also where
+    // a two-phase step latches what it has seen (`crate`).
+    this.step.nudge?.(this);
     if (this.step.done?.(this)) { this.next(); return; }
     // The target moves — a crate is carried off, a menu scrolls, the shop
     // re-flows — so the hole is re-measured every frame rather than at open.
@@ -579,7 +634,7 @@ export class Tutor {
       <div class="tt-veil tt-n"></div><div class="tt-veil tt-s"></div>
       <div class="tt-veil tt-w"></div><div class="tt-veil tt-e"></div>
       <div class="tt-ring" hidden></div>
-      <div class="tt-aim" hidden><i></i><i></i></div>
+      <div class="tt-aim" hidden><i></i><i></i><b></b></div>
       <div class="tt-card">
         <div class="tt-bot">${FACE}</div>
         <div class="tt-said">
@@ -600,24 +655,22 @@ export class Tutor {
     this.el.querySelector('.tt-next').onclick = () => this.next();
   }
 
+  /** The shell of a card: run once, when a step opens. */
   paint() {
     const s = this.step;
     if (!s) return;
-    const said = (v) => (typeof v === 'function' ? v(this) : v);
-    this.el.querySelector('.tt-kicker').textContent = said(s.kicker) ?? '';
-    this.el.querySelector('.tt-say').textContent = said(s.say) ?? '';
-    this.el.querySelector('.tt-hint').textContent = said(s.hint) ?? '';
-    // A step with no predicate is a thing to read, so it gets a button. One with
-    // a predicate must not have one — a Next beside "tap the floor" is an offer
-    // to not learn the only thing on the card.
+    // A step with no predicate is a thing to READ, so it gets a button. One
+    // with a predicate must not have one — a Next beside "left-click the floor"
+    // is an offer to not learn the only thing on the card.
     const next = this.el.querySelector('.tt-next');
     delete next.dataset.stranded;
     this.lostAt = 0;
     next.textContent = 'Next';
     next.hidden = !!s.done;
     this.card.classList.toggle('big', !!s.big);
-    this.card.classList.toggle('holding', !!s.hold);
-    // Where you are, as ticks rather than "4 of 18" — a count invites you to
+    this.said = null;
+    this.words();
+    // Where you are, as ticks rather than "4 of 10" — a count invites you to
     // work out how much is left, which is not the question the card wants asked.
     this.el.querySelector('.tt-dots').innerHTML = STEPS
       .map((_, i) => `<i class="${i < this.i ? 'was' : ''}${i === this.i ? ' at' : ''}"></i>`)
@@ -630,6 +683,30 @@ export class Tutor {
   }
 
   /**
+   * What the card says, asked every frame.
+   *
+   * A step moves its own spotlight — the hole walks from the rail button to the
+   * tile on it — so the sentence beside the hole has to walk with it, or the
+   * card is describing the press before last. Written to the DOM only when it
+   * actually changes, which is the same call `rail.update` makes and for the
+   * same reason: this runs at 10Hz over a live canvas, and a step whose text is
+   * a constant must not cost three writes a tick.
+   */
+  words() {
+    const s = this.step;
+    if (!s) return;
+    const said = (v) => (typeof v === 'function' ? v(this) : v) ?? '';
+    const now = [said(s.kicker), said(s.say), said(s.hint)];
+    const key = now.join('\u0000');
+    if (key === this.said) return;
+    this.said = key;
+    const [kicker, say, hint] = now;
+    this.el.querySelector('.tt-kicker').textContent = kicker;
+    this.el.querySelector('.tt-say').textContent = say;
+    this.el.querySelector('.tt-hint').textContent = hint;
+  }
+
+  /**
    * Measure the hole and put the four blockers round it.
    *
    * Everything in here is in CSS pixels off `getBoundingClientRect`, so it
@@ -639,6 +716,14 @@ export class Tutor {
    */
   place() {
     if (!this.on || !this.step) return;
+    this.words();
+    // Waiting on the WORLD rather than on you — the van. The card breathes so a
+    // wait does not read as an instruction you are failing to follow, and
+    // `strand` reads the same flag to hold its clock: a step nobody can finish
+    // yet must not grow a button offering to skip the beat the tour was built
+    // around.
+    this.held = this.step.waiting?.(this) === true;
+    this.card.classList.toggle('holding', this.held);
     const want = this.step.at?.(this) ?? null;
     const box = this.holeFor(want);
 
@@ -714,7 +799,7 @@ export class Tutor {
    */
   strand() {
     const btn = this.el.querySelector('.tt-next');
-    if (!this.lost) {
+    if (!this.lost || this.held) {
       this.lostAt = 0;
       if (btn.dataset.stranded) {
         delete btn.dataset.stranded;
@@ -750,8 +835,15 @@ export class Tutor {
       // A point in the shop. The card is pinned beside where it projects to and
       // the hole is the canvas — see the header for why a rectangle round a
       // fixture is a rectangle in the wrong place.
+      // The height matters more than it looks. `worldToScreen` takes one, and on
+      // a 45° camera a metre of height is most of a tile of SCREEN — up and to
+      // the right. So a crate marked at head height gets a ring hanging in the
+      // air off its top corner, which reads as the mark being broken rather
+      // than as the wrong number: everything about it is correct except which
+      // y it was asked about. Each target says its own — a box on the floor is
+      // low, a shelf is marked at its boards.
       const p = want.world
-        ? this.scene?.worldToScreen?.(want.world.x, want.world.z, 1.1) ?? null
+        ? this.scene?.worldToScreen?.(want.world.x, want.world.z, want.y ?? 0.8) ?? null
         : null;
       this.aim = p && Number.isFinite(p.x) ? { x: p.x, y: p.y } : null;
       this.lost = !want.world;
@@ -791,7 +883,11 @@ export class Tutor {
     const H = window.innerHeight;
     const cw = this.card.offsetWidth || 340;
     const ch = this.card.offsetHeight || 190;
-    const gap = 18;
+    // Clearance, not politeness. A world mark is a ring about 70px across
+    // CENTRED on the point, so a card set 18px off the point lands on top of
+    // the bottom of the ring and half of what it is ringing. The gap has to
+    // clear the mark's own radius before it starts being a gap at all.
+    const gap = this.aim ? 64 : 20;
 
     // A world step aims at the projected point rather than at the hole, which is
     // the whole canvas — pinning to that would put the card in a corner of the
