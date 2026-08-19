@@ -205,6 +205,10 @@ function spotToWalk(t) {
   return best ? { x: best.x, z: best.z } : null;
 }
 
+/** How many boards in the whole shop are kept for something. */
+const keptCount = (t) => shelvesOf(t)
+  .reduce((n, sh) => n + (sh.assigned ?? []).length, 0);
+
 /** The cheapest chiller in the catalogue, so the step lights one you can afford. */
 function cheapestFreezer(t) {
   const rows = (t.ui.catalog?.fixtures ?? []).filter((f) => (f.kind ?? f.id) === 'freezer');
@@ -496,6 +500,43 @@ const STEPS = [
       + 'once. Arrows point at every shelf that will take what you are holding.',
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     done(t) { return lotSize(meOf(t)?.carry) === 0; },
+  },
+
+  {
+    id: 'menu',
+    kicker: 'Shelves',
+    say: 'Press and hold on that shelf to open its menu.',
+    // A hold is the other half of every press in the game and nothing on screen
+    // says so. It is the only way to reach what a thing can DO, and a player
+    // who never finds it never prices anything, never sets a shelf aside and
+    // never sells a fixture back.
+    hint: 'A click uses a thing. Holding the button opens what it can do. That '
+      + 'is true of every shelf, crate, machine and doorway in the shop.',
+    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
+    done(t) { return t.ui.openPanel === 'fixture'; },
+  },
+
+  {
+    id: 'assign',
+    kicker: 'Shelves',
+    say: 'Under "Keep it for", pick something this shelf is for.',
+    hint: 'Now your crew will restock it with that and nothing else, and the '
+      + 'shop will order more when it runs low. The same menu sets the price per '
+      + 'board, hides the shelf out the back, tells the crew to leave it alone, '
+      + 'and upgrades, moves or sells the unit.',
+    at: () => ({ el: '#panel' }),
+    // The panel is a fixture menu opened on the last step, so it is already
+    // there. Re-opened only if it got closed — `arm` runs once and this can be
+    // stood at for a while.
+    // `repaintFixtureMenu` is the UI's own "put it back up" — reaching for
+    // `showFixture` here would be a second opinion about which fixture is
+    // selected, which is exactly how the menu starts following the wrong shelf.
+    nudge(t) {
+      if (t.ui.openPanel === 'fixture' || !t.ui.fixtureRef) return;
+      t.ui.repaintFixtureMenu?.();
+    },
+    start(t) { this.from = keptCount(t); },
+    done(t) { return this.from !== null && keptCount(t) > this.from; },
   },
 
   {
