@@ -696,7 +696,7 @@ export class Tutor {
     document.body.classList.remove('tutoring');
     this.live(null);
     if (this.world) { addTo(DONE_KEY, this.world); dropFrom(NEW_KEY, this.world); }
-    if (why === 'done') this.ui.toast('Tour finished — press / for the key list');
+    if (why === 'done') this.ui.toast('Tutorial finished — press / for the key list');
   }
 
   // -- the script -----------------------------------------------------------
@@ -771,7 +771,7 @@ export class Tutor {
         <div class="tt-feet">
           <div class="tt-dots"></div>
           <button class="tt-next" type="button" hidden>Next</button>
-          <button class="tt-skip" type="button">Skip the tour</button>
+          <button class="tt-skip" type="button">Skip tutorial</button>
         </div>
       </div>`;
     this.card = this.el.querySelector('.tt-card');

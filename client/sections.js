@@ -2283,10 +2283,10 @@ function tutorRows(ui) {
   return [
     {
       icon: ICONS.help,
-      name: 'Show me round',
+      name: 'Tutorial',
       sub: off
-        ? 'Off. New shops open with no tour.'
-        : 'On. A new shop gets shown round once.',
+        ? 'Off. New shops start with no tutorial.'
+        : 'On. A new shop runs the tutorial once.',
       picked: !off,
       tail: off ? 'Off' : 'On',
       // Repainted at once, the same call the Sound switch makes and for the
@@ -2295,7 +2295,7 @@ function tutorRows(ui) {
     },
     {
       icon: ICONS.walk,
-      name: 'Run the tour again',
+      name: 'Replay the tutorial',
       sub: 'here, now, in this shop',
       run: () => {
         // The mark first, then the start. `maybeStart` reads it — so a Replay
