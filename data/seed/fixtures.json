@@ -1185,13 +1185,13 @@
           "color": "#7a8288",
           "pos": [
             0,
-            0.02,
+            0.016,
             0
           ],
           "scale": [
-            0.12,
-            0.04,
-            0.86
+            0.108,
+            0.032,
+            0.774
           ],
           "rot": 0,
           "surface": false,
@@ -1207,13 +1207,13 @@
           "color": "#7a8288",
           "pos": [
             0,
-            0.28,
-            -0.3
+            0.224,
+            -0.27
           ],
           "scale": [
-            0.06,
-            0.52,
-            0.06
+            0.054,
+            0.416,
+            0.054
           ],
           "rot": 0,
           "surface": false,
@@ -1229,13 +1229,13 @@
           "color": "#7a8288",
           "pos": [
             0,
-            0.28,
-            -0.06
+            0.224,
+            -0.054
           ],
           "scale": [
-            0.06,
-            0.52,
-            0.06
+            0.054,
+            0.416,
+            0.054
           ],
           "rot": 0,
           "surface": false,
@@ -1251,13 +1251,13 @@
           "color": "#7a8288",
           "pos": [
             0,
-            0.54,
-            -0.18
+            0.432,
+            -0.162
           ],
           "scale": [
-            0.06,
-            0.06,
-            0.3
+            0.054,
+            0.048,
+            0.27
           ],
           "rot": 0,
           "surface": false,
@@ -1273,13 +1273,13 @@
           "color": "#7a8288",
           "pos": [
             0,
-            0.28,
-            0.06
+            0.224,
+            0.054
           ],
           "scale": [
-            0.06,
-            0.52,
-            0.06
+            0.054,
+            0.416,
+            0.054
           ],
           "rot": 0,
           "surface": false,
@@ -1295,13 +1295,13 @@
           "color": "#7a8288",
           "pos": [
             0,
-            0.28,
-            0.3
+            0.224,
+            0.27
           ],
           "scale": [
-            0.06,
-            0.52,
-            0.06
+            0.054,
+            0.416,
+            0.054
           ],
           "rot": 0,
           "surface": false,
@@ -1317,13 +1317,13 @@
           "color": "#7a8288",
           "pos": [
             0,
-            0.54,
-            0.18
+            0.432,
+            0.162
           ],
           "scale": [
-            0.06,
-            0.06,
-            0.3
+            0.054,
+            0.048,
+            0.27
           ],
           "rot": 0,
           "surface": false,
@@ -1339,7 +1339,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -6955,6 +6960,709 @@
     "open": false
   },
   {
+    "id": "gondola",
+    "name": "Aisle gondola",
+    "model": {
+      "stages": [
+        {
+          "name": "Open gondola",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#6f4a30",
+              "pos": [
+                0,
+                0.51,
+                0
+              ],
+              "scale": [
+                0.1,
+                1.02,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0,
+                0.05,
+                0
+              ],
+              "scale": [
+                0.7,
+                0.1,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.51,
+                -0.5
+              ],
+              "scale": [
+                0.7,
+                1.02,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": true,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.51,
+                0.5
+              ],
+              "scale": [
+                0.7,
+                1.02,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": true,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.2,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.2,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.2,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.2,
+                0.52,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Full gondola",
+          "at": 0.5,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#6f4a30",
+              "pos": [
+                0,
+                0.51,
+                0
+              ],
+              "scale": [
+                0.1,
+                1.02,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0,
+                0.05,
+                0
+              ],
+              "scale": [
+                0.7,
+                0.1,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.51,
+                -0.5
+              ],
+              "scale": [
+                0.7,
+                1.02,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": true,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.51,
+                0.5
+              ],
+              "scale": [
+                0.7,
+                1.02,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": true,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.2,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.2,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.2,
+                0.5,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.2,
+                0.5,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.2,
+                0.84,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.2,
+                0.84,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Signed gondola",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#6f4a30",
+              "pos": [
+                0,
+                0.51,
+                0
+              ],
+              "scale": [
+                0.12,
+                1.02,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7d5236",
+              "pos": [
+                0,
+                0.05,
+                0
+              ],
+              "scale": [
+                0.76,
+                0.1,
+                1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.51,
+                -0.5
+              ],
+              "scale": [
+                0.76,
+                1.02,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": true,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#8a5a3b",
+              "pos": [
+                0,
+                0.51,
+                0.5
+              ],
+              "scale": [
+                0.76,
+                1.02,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": true,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.22,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.22,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.22,
+                0.5,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.22,
+                0.5,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                0.22,
+                0.84,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#a06c48",
+              "pos": [
+                -0.22,
+                0.84,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": true,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#5c7a5e",
+              "pos": [
+                0,
+                1.24,
+                0
+              ],
+              "scale": [
+                0.13999999999999999,
+                0.2,
+                0.5
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Open gondola",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      },
+      {
+        "name": "Full gondola",
+        "cost": 150,
+        "capacity_mult": 1.4,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      },
+      {
+        "name": "Signed gondola",
+        "cost": 340,
+        "capacity_mult": 1.8,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "shelf",
+    "cost": 110,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0.5,
+    "work": null,
+    "open": true
+  },
+  {
     "id": "grass-burnt",
     "name": "Burnt Grass",
     "model": null,
@@ -10094,14 +10802,14 @@
           "shape": "box",
           "color": "#4a443c",
           "pos": [
-            -0.24,
-            0.18,
-            -0.3
+            -0.204,
+            0.126,
+            -0.255
           ],
           "scale": [
-            0.08,
-            0.36,
-            0.08
+            0.068,
+            0.252,
+            0.068
           ],
           "rot": 0,
           "surface": false,
@@ -10116,14 +10824,14 @@
           "shape": "box",
           "color": "#4a443c",
           "pos": [
-            -0.24,
-            0.18,
-            0.3
+            -0.204,
+            0.126,
+            0.255
           ],
           "scale": [
-            0.08,
-            0.36,
-            0.08
+            0.068,
+            0.252,
+            0.068
           ],
           "rot": 0,
           "surface": false,
@@ -10138,14 +10846,14 @@
           "shape": "box",
           "color": "#4a443c",
           "pos": [
-            0.14,
-            0.16,
-            -0.3
+            0.119,
+            0.112,
+            -0.255
           ],
           "scale": [
-            0.06,
-            0.32,
-            0.06
+            0.051,
+            0.224,
+            0.051
           ],
           "rot": 0,
           "surface": false,
@@ -10160,14 +10868,14 @@
           "shape": "box",
           "color": "#4a443c",
           "pos": [
-            0.14,
-            0.16,
-            0.3
+            0.119,
+            0.112,
+            0.255
           ],
           "scale": [
-            0.06,
-            0.32,
-            0.06
+            0.051,
+            0.224,
+            0.051
           ],
           "rot": 0,
           "surface": false,
@@ -10182,14 +10890,14 @@
           "shape": "box",
           "color": "#8a6a4a",
           "pos": [
-            -0.04,
-            0.38,
+            -0.034,
+            0.266,
             0
           ],
           "scale": [
-            0.44,
-            0.06,
-            0.86
+            0.374,
+            0.042,
+            0.731
           ],
           "rot": 0,
           "surface": false,
@@ -10204,14 +10912,14 @@
           "shape": "box",
           "color": "#9c7a56",
           "pos": [
-            -0.04,
-            0.42,
+            -0.034,
+            0.294,
             0
           ],
           "scale": [
-            0.4,
-            0.03,
-            0.82
+            0.34,
+            0.021,
+            0.697
           ],
           "rot": 0,
           "surface": false,
@@ -10226,14 +10934,14 @@
           "shape": "box",
           "color": "#8a6a4a",
           "pos": [
-            -0.24,
-            0.6,
+            -0.204,
+            0.42,
             0
           ],
           "scale": [
-            0.06,
-            0.4,
-            0.86
+            0.051,
+            0.28,
+            0.731
           ],
           "rot": 0,
           "surface": false,
@@ -10249,7 +10957,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
