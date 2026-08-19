@@ -53,6 +53,7 @@
  */
 
 import { money } from './money.js';
+import { REACH } from '../shared/build.js';
 
 /** Off for everybody, everywhere. The Menu's switch. */
 const OFF_KEY = 'sns-tutor-off';
@@ -141,6 +142,20 @@ function nearestCrate(t) {
   if (!me) return crates[0];
   return crates.slice().sort((a, b) => dist(a, me) - dist(b, me))[0];
 }
+
+/**
+ * Are you stood at it?
+ *
+ * The same `REACH` the shop itself uses, imported rather than guessed, because
+ * this decides which SENTENCE you are shown and the shop decides which MESSAGE
+ * your click sends (`inReachOf` in main.js, over the same constant). Two numbers
+ * here would be a card telling you to click for a unit next to a crate the shop
+ * is going to answer by walking you two more steps.
+ */
+const atIt = (t, thing) => {
+  const me = meOf(t);
+  return !!(me && thing && dist(me, thing) <= REACH);
+};
 
 /** A shelf with room on it, preferring one that is already carrying something. */
 function anyShelf(t) {
@@ -391,9 +406,22 @@ const STEPS = [
   {
     id: 'take-one',
     kicker: 'Stock',
-    say: (t) => (nearestCrate(t)
-      ? 'Click the crate to walk over to it. Then click it again to take one unit.'
-      : 'Van is on its way. Crates get left on the pad round the back.'),
+    /**
+     * Three sentences, because there are three situations and only one of them
+     * is an instruction you can act on.
+     *
+     * It used to be one card carrying all of it — walk over, then click, and by
+     * the way here are four presses — read at the moment you are stood across
+     * the shop with nothing to do but walk. Half of it was about a thing you
+     * could not do yet, which is how a card gets skimmed. So the walk is its
+     * own sentence, and the rest arrives when you get there.
+     */
+    say: (t) => {
+      const c = nearestCrate(t);
+      if (!c) return 'Van is on its way. Crates get left on the pad round the back.';
+      if (!atIt(t, c)) return 'Click the crate. You will walk over to it.';
+      return 'Now click it again to take one unit out.';
+    },
     // The four presses, said once, in the one place the player is holding the
     // mouse over the thing they are about. This is the sentence the whole tour
     // exists to deliver — everything else is scaffolding round it.
@@ -401,11 +429,18 @@ const STEPS = [
     // line: one click books the job, and the unit does not move until you are
     // stood at it. Without that, the walk reads as the click having missed —
     // so you click again, which re-books the same job and looks just as dead.
-    hint: 'If you are not next to it, the first click just walks you there. '
-      + 'Once you are standing at it you get four presses, and they are the same '
-      + 'four on every crate, shelf and machine in the shop: LEFT click takes '
-      + 'one. HOLD LEFT takes the whole box. RIGHT click puts one back. HOLD '
-      + 'RIGHT pours in everything you are carrying.',
+    hint: (t) => {
+      const c = nearestCrate(t);
+      if (!c) return 'Somebody has to carry it in off the pad, and today that is you.';
+      if (!atIt(t, c)) {
+        return 'A click on something you are not stood at only ever walks you '
+          + 'there. Nothing is taken, nothing is spent — you just go.';
+      }
+      return 'Standing at it, you get four presses, and they are the same four '
+        + 'on every crate, shelf and machine in the shop. LEFT click takes one. '
+        + 'HOLD LEFT takes the whole box. RIGHT click puts one back. HOLD RIGHT '
+        + 'pours in everything you are carrying.';
+    },
     arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
     at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
     // Nobody's fault and nothing to press. Without this the card reads as an
