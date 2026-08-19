@@ -550,12 +550,16 @@ npm run deploy:all     # the broker first, then the pages
 ```
 
 The order in `deploy:all` is deliberate and is the only thing about deploying
-worth writing down: the client is built with the broker's URL baked in
-(`VITE_SNS_BROKER`), so a page deployed against a broker that is not there yet
-does not fail — it *falls through to the two-paste flow*, which is a feature
-working correctly and looking exactly like the feature being missing. Broker
-first, and the fall-through stays what it is for: somebody else's fork, and a
-build off a USB stick.
+worth writing down: the broker's URL is a **literal with an env override**
+(`DEFAULT_BROKER` in [client/broker.js](../client/broker.js), overridable with
+`VITE_SNS_BROKER`) rather than an env var with no default, because `.env` is
+gitignored — a fresh checkout that had to be told the URL would build a game
+whose co-op silently pasted 2KB codes by hand, with nothing anywhere to say why.
+A URL is not a secret; it holds two connection blobs for five minutes. So a page
+deployed against a broker that is not up yet does not fail either — it *falls
+through to the two-paste flow*, which is a feature working correctly and looking
+exactly like the feature being missing. Broker first, and the fall-through stays
+what it is for: somebody else's fork, and a build off a USB stick.
 
 `wrangler login` once, and both are `npx wrangler` from the repo — there is no
 CI, on purpose. A deploy is a build and an upload of a folder, and the thing that
