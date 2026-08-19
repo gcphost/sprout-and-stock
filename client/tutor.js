@@ -346,9 +346,16 @@ const STEPS = [
           + 'already spent. (I opened this for you: the Build button is one press '
           + 'for the mode, two for the catalogue.)';
       }
-      return 'Green means it fits. Amber means it fits and will cost you '
-        + 'something — a shelf walled in, a queue with nowhere to stand — and the '
-        + 'shop lets you anyway, because blocking your own aisle is a decision.';
+      // Turning it is the half you need BEFORE you put it down, so it goes
+      // first — a facing you fix afterwards is a fixture you have already paid
+      // to stand in the wrong direction. The wheel stops zooming while
+      // something is armed, which is worth saying outright: a control that
+      // quietly changes job is one you find by accident or never.
+      return 'R turns the ghost, and so does the mouse wheel — while something '
+        + 'is armed the wheel turns it instead of zooming. Green means it fits. '
+        + 'Amber means it fits and will cost you something — a shelf walled in, '
+        + 'a queue with nowhere to stand — and the shop lets you anyway, because '
+        + 'blocking your own aisle is a decision.';
     },
     at: (t) => {
       const p = cheapestFreezer(t);
