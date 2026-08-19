@@ -228,10 +228,9 @@ const STEPS = [
     // and the camera is the thing a new player reaches for first and finds by
     // accident. Either button drags the view; which one decides whether it
     // slides or swings.
-    hint: 'Hold down either MOUSE BUTTON — left or right — and drag, and you '
-      + 'move the camera instead. Both buttons do the same job. Let go without '
-      + 'having moved and it counts as a click again. WASD walks you by hand, '
-      + 'the wheel zooms, and the view stays where you left it.',
+    hint: 'To move the camera, hold down a mouse button and drag. Left or '
+      + 'right, both do the same thing. The wheel zooms in and out, and WASD '
+      + 'walks you around without clicking.',
     at: () => ({ el: '#game', soft: true }),
     start(t) { this.from = meOf(t) ? { ...meOf(t) } : null; },
     done(t) {
