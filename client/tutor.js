@@ -393,7 +393,7 @@ const STEPS = [
     id: 'take-one',
     kicker: 'Stock',
     say: (t) => (nearestCrate(t)
-      ? 'Click the crate. You walk over, and a unit comes off when you get there.'
+      ? 'Click the crate to walk over to it. Then click it again to take one unit.'
       : 'Van is on its way. Crates get left on the pad round the back.'),
     // The four presses, said once, in the one place the player is holding the
     // mouse over the thing they are about. This is the sentence the whole tour
@@ -402,12 +402,11 @@ const STEPS = [
     // line: one click books the job, and the unit does not move until you are
     // stood at it. Without that, the walk reads as the click having missed —
     // so you click again, which re-books the same job and looks just as dead.
-    hint: 'One click is the whole thing — do not click again on the way over. A '
-      + 'ring winds when you arrive and the unit comes off at the end of it; '
-      + 'walk away mid-ring and it is cancelled. Then the two buttons mean '
-      + 'opposite things, the same four on every crate, shelf and machine: LEFT '
-      + 'takes one, HOLD LEFT takes the lot, RIGHT puts one back, HOLD RIGHT '
-      + 'pours in what you are carrying.',
+    hint: 'If you are not next to it, the first click just walks you there. '
+      + 'Once you are standing at it you get four presses, and they are the same '
+      + 'four on every crate, shelf and machine in the shop: LEFT click takes '
+      + 'one. HOLD LEFT takes the whole box. RIGHT click puts one back. HOLD '
+      + 'RIGHT pours in everything you are carrying.',
     arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
     at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
     // Nobody's fault and nothing to press. Without this the card reads as an
@@ -420,10 +419,11 @@ const STEPS = [
   {
     id: 'shelve-one',
     kicker: 'Stock',
-    say: 'Now click a shelf. You walk over and it goes on.',
-    hint: 'Chevrons appear over every unit that would take what you are holding, '
-      + 'the moment your hands are full — so you never have to remember which '
-      + 'shelf is for what. A shelf with no chevron will refuse you.',
+    say: 'Click a shelf to walk over. Then click it to put the unit on.',
+    hint: 'Same as the crate: the first click is the walk if you are not there '
+      + 'yet, and the next one does the job. Chevrons appear over every unit '
+      + 'that would take what you are holding, so you never have to remember '
+      + 'which shelf is for what — one with no chevron will refuse you.',
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     done(t) { return lotSize(meOf(t)?.carry) === 0; },
   },
@@ -432,16 +432,15 @@ const STEPS = [
     id: 'crate',
     kicker: 'Stock',
     say: (t) => (meOf(t)?.haul
-      ? 'Now HOLD the left button on a shelf to tip the box in.'
-      : 'One at a time is a long afternoon. HOLD the left button on the crate.'),
+      ? 'Walk to a shelf, then HOLD the left button on it to tip the box in.'
+      : 'One at a time is a long afternoon. Stand at the crate and HOLD the left button.'),
     hint: (t) => (meOf(t)?.haul
-      ? 'It goes on board by board and stops when the shelf is full — whatever '
-        + 'is left stays in the box on your shoulder. Holding the RIGHT button '
-        + 'over a shelf does the same job from your hands.'
-      : 'Hold it and a ring winds round the crate. Let go early and nothing '
-        + 'happens. Let it finish and the whole box goes up on your shoulder — '
-        + 'which carries far more than your arms do, and is the only reason the '
-        + 'walk across the shop is worth making.'),
+      ? 'Hold it down and a ring winds. Let it finish and the box empties onto '
+        + 'the shelf board by board, stopping when the shelf is full — whatever '
+        + 'is left stays on your shoulder.'
+      : 'Standing at it, hold the button down and a ring winds round the crate. '
+        + 'Let go early and nothing happens. Let it finish and the whole box '
+        + 'goes up on your shoulder, which carries far more than your arms do.'),
     at: (t) => (meOf(t)?.haul
       ? { world: anyShelf(t), y: SHELF_Y }
       : { world: nearestCrate(t), y: CRATE_Y }),
