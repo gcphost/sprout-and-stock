@@ -373,9 +373,11 @@ const STEPS = [
   {
     id: 'shift',
     kicker: 'The crew',
-    say: (t) => (t.ui.openPanel === 'worker'
-      ? 'Move a point around. Take one off a job they will not be doing.'
-      : 'Open them up — click their tile on the strip.'),
+    say: (t) => {
+      if (t.ui.openPanel === 'worker') return 'Move a point around. Take one off a job they will not be doing.';
+      if (t.ui.bar !== 'staff') return 'Open the crew strip again — the robot icon.';
+      return 'Open them up — click their tile on the strip.';
+    },
     hint: (t) => (t.ui.openPanel === 'worker'
       ? 'Each number is a share of their day. The total is capped, so adding to '
         + 'one takes from another. A greyed-out + means that job is already full.'
@@ -388,15 +390,17 @@ const STEPS = [
     // "press +", it is "these numbers come out of one another".
     at: (t) => {
       if (t.ui.openPanel === 'worker') return { el: '.wk-jobs', pad: 8 };
+      if (t.ui.bar !== 'staff') return { el: '[data-rail="staff"]' };
       const who = (t.state?.roster ?? [])[0];
       return { el: who ? `[data-entry="hire:${who.id}"]` : null, pad: 6 };
     },
     arm(t) { t.ui.showBar('staff'); t.ui.barTab.staff = 'all'; t.ui.renderHotbar(); },
     // Self-healing rather than armed-once: close the sheet and the hole walks
     // back to the tile, which only exists while the strip is up.
+    // Only the tab, never the bar — see the freezer step's `nudge`. A strip you
+    // closed staying closed is the difference between a tutorial and a fight.
     nudge(t) {
-      if (t.ui.openPanel === 'worker' || t.ui.bar === 'staff') return;
-      t.ui.showBar('staff');
+      if (t.ui.bar !== 'staff' || t.ui.barTab.staff === 'all') return;
       t.ui.barTab.staff = 'all';
       t.ui.renderHotbar();
     },
@@ -408,6 +412,7 @@ const STEPS = [
     id: 'freezer',
     kicker: 'Building',
     say: (t) => {
+      if (t.ui.bar !== 'build') return 'Open build mode again — it is the hammer.';
       const p = cheapestFreezer(t);
       if (t.ui.toolId?.() !== p?.id) return `Pick the ${p?.name ?? 'chiller'} out of the Shop tab.`;
       return 'Click a bit of floor to stand it there.';
@@ -430,6 +435,7 @@ const STEPS = [
         + 'you do it anyway.';
     },
     at: (t) => {
+      if (t.ui.bar !== 'build') return { el: '[data-rail="build"]' };
       const p = cheapestFreezer(t);
       if (t.ui.toolId?.() !== p?.id) return { el: p ? `[data-entry="${p.id}"]` : null, pad: 6 };
       return { el: '#game', soft: true };
@@ -451,8 +457,22 @@ const STEPS = [
       t.ui.pressBuild();
       if (t.ui.bar !== 'build') t.ui.pressBuild();
     },
+    /**
+     * It picks the TAB and never the mode.
+     *
+     * This used to re-press Build whenever the bar was down, every snapshot —
+     * so leaving build mode yourself put you straight back in it, ten times a
+     * second, with nothing having been pressed. And build mode swaps the camera
+     * off your body onto the map (`setFreeRoam`), so what it presented as was
+     * the pan and tilt jamming for no reason: a mode you did not choose holding
+     * a camera you did not move.
+     *
+     * A nudge may keep a menu tidy. It may not re-take a decision the player has
+     * just made — `at` points back at the Build button instead, which is the
+     * same thing said out loud.
+     */
     nudge(t) {
-      if (t.ui.bar !== 'build') { t.ui.pressBuild(); return; }
+      if (t.ui.bar !== 'build') return;
       if (t.ui.barTab.build === 'shop') return;
       if (t.ui.toolId?.() === cheapestFreezer(t)?.id) return;
       t.ui.selectBuildGroup?.('shop');
