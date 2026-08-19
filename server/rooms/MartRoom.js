@@ -221,8 +221,11 @@ export class MartRoom extends Room {
     this.onMessage('walk-to', (client, m) => {
       // A tile or a thing. Naming the thing is not a convenience — it is what
       // gets you to the side of the shelf you can actually work from.
+      // `put` is which button asked, the same field `place` carries. A walk is
+      // how the right button reaches a unit across the shop, and the direction
+      // has to survive the journey — see `Game.walkToFixture`.
       const res = m?.fixture
-        ? this.game.walkToFixture(client.sessionId, String(m.fixture))
+        ? this.game.walkToFixture(client.sessionId, String(m.fixture), !!m?.put)
         : this.game.walkTo(client.sessionId, Number(m?.x), Number(m?.z));
       if (!res.ok) client.send('action-result', res);
     });

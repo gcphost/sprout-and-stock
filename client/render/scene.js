@@ -193,6 +193,41 @@ function plainBlock(look) {
   return group;
 }
 
+/**
+ * How tall and how wide a body is, in model units, for aiming at it.
+ *
+ * The fallbacks are a character's own dimensions and matter more than they
+ * look: a model that welded to nothing, or one still loading, would otherwise
+ * measure zero and hand `pickPerson` a zero-length spine and a zero grab —
+ * somebody standing in plain sight who cannot be pointed at, which is worse
+ * than the fixed circle this replaced.
+ *
+ * The width is the wider of the two ground axes, not the average, because a bot
+ * is turned by `facing` and the pick is a screen-space circle around a line: it
+ * has no idea which way round the body is, so the only safe answer is the one
+ * that covers every angle.
+ */
+function bodyExtent(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  if (box.isEmpty()) return { footY: 0, headY: 1.5, halfW: 0.34 };
+  return {
+    footY: Math.min(box.min.y, 0),
+    headY: Math.max(box.max.y, 0.4),
+    halfW: Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 0.3) / 2,
+  };
+}
+
+/** Pixels from a point to a line segment — the pointer to a projected spine. */
+function distToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = dx * dx + dy * dy;
+  // Both ends projected to the same pixel — a body seen exactly end-on, or a
+  // degenerate model. Fall back to the point, which is the old behaviour.
+  const t = len > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len)) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
 /** Stable small number from an id, so a bed's scatter survives every rebuild. */
 function hashId(id) {
   let h = 0;
@@ -748,6 +783,9 @@ export class Scene {
     // they are live at once and answer different questions.
     this.markSets = new Map();
     this.shelfProps = new Map();
+    // Board shapes by (piece, variant, tier) — see `boardProfile`. Cleared with
+    // the scene it describes, so a piece redrawn live is re-read.
+    this.profiles = new Map();
     this.plotProps = new Map();
     this.cashProps = new Map();
     // One label per TILE of money rather than one per pile — see
@@ -1469,6 +1507,7 @@ export class Scene {
     // `clear()` alone drops the references without freeing the GPU buffers.
     // That barely mattered when the shop only re-flowed on an upgrade; build
     // mode re-flows on every placement.
+    this.profiles.clear();
     disposeGroup(this.staticRoot);
     this.staticRoot.clear();
     // Anything still dropping was a group under that root, and is now a freed
@@ -1895,15 +1934,30 @@ export class Scene {
    * there to close the run, and the run has not ended if what comes next is
    * more of it.
    *
-   * Deliberately not the same *variant* or the same *tier*. A wall run flowing
-   * into a corner unit is still one shelf, and a tier is a number rather than a
-   * shape — gating on either would put a divider back in for a reason nobody
-   * looking at the shop can see.
+   * Deliberately not the same *variant*: a wall run flowing into a corner unit
+   * is still one shelf, and that is what `turnsCorner` is for.
+   *
+   * It said the same about the TIER, on the grounds that a tier is a number
+   * rather than a shape — and that is exactly as true as the model somebody
+   * authored. Every staged piece in the game makes it false: the shipped shelf
+   * goes Plain, Backed, Signed, and the gondola moves its boards and its depth
+   * between rungs, so a run of two at different rungs dropped the panel between
+   * two units whose shelves do not line up. What you get is not a longer aisle,
+   * it is a hole with a board sticking out of it — visible in a screenshot and
+   * in nothing else, since both units are correct on their own.
+   *
+   * So the test is the ART rather than the tier, which is `turnsCorner`'s own
+   * argument said one step along: two units carry on if their boards are at the
+   * same heights and the same depth, whatever rung either is standing on. A
+   * ladder whose rungs only move numbers still flows, a bakery case beside a
+   * shelf does not, and the next piece anybody authors is judged by what they
+   * drew rather than by a field they have to remember to set.
    */
   carriesOn(byTile, f, step) {
     const d = turn(step, f.rot ?? 0);
     const n = byTile.get(`${f.x + d.dx},${f.z + d.dz}`);
     if (!n || n.kind !== f.kind) return false;
+    if (this.boardProfile(n) !== this.boardProfile(f)) return false;
     if (rot4(n.rot ?? 0) === rot4(f.rot ?? 0)) return true;
     // ...or the row TURNS here. A corner unit stands at a different rot to the
     // run butting into it — that is what makes it a corner — so a same-rot test
@@ -1924,6 +1978,31 @@ export class Scene {
   turnsCorner(f) {
     const boards = surfacesAt(this.fixtureModel(f), this.fixtureT(f));
     return boards.some((b) => b.depth >= b.span) && boards.some((b) => b.span > b.depth);
+  }
+
+  /**
+   * The shape of a unit's shelving, as one string two units can be compared by.
+   *
+   * Heights and depth, and neither is arbitrary: those are the two things that
+   * have to agree for a dropped end panel to read as one run. A rung that only
+   * multiplies capacity draws the same boxes and answers the same profile, so
+   * `carriesOn` goes on flowing through it — which is the behaviour the old
+   * "not the tier" rule was protecting and is now a consequence rather than an
+   * assumption.
+   *
+   * Cached on what actually decides the art — the piece, the variant and the
+   * tier — because this is asked per seam part per fixture on every re-flow,
+   * and a shop is a few hundred of them. The cache is cleared with the scene it
+   * describes (`buildWorld`), so a piece edited live is re-read.
+   */
+  boardProfile(f) {
+    const key = `${f.piece ?? f.kind}|${f.variant ?? ''}|${f.tier ?? 1}`;
+    const had = this.profiles.get(key);
+    if (had !== undefined) return had;
+    const out = surfacesAt(this.fixtureModel(f), this.fixtureT(f))
+      .map((b) => `${b.y.toFixed(2)}:${b.depth.toFixed(2)}`).join('|');
+    this.profiles.set(key, out);
+    return out;
   }
 
   /**
@@ -2253,10 +2332,25 @@ export class Scene {
 
       if (!rec) {
         const obj = factory(a);
-        this.actorRoot.add(obj);
         rec = {
           obj, key, bubble: null, bubbleKey: null, carry: null, carryKey: null,
           haul: null, haulKey: null, kit: null, kitKey: null,
+          // How big the body actually is, which is what `pickPerson` aims at.
+          //
+          // Measured ONCE, here, and off the bare body: this is the only moment
+          // it is the body and nothing else. A bubble goes over their head, an
+          // armful goes out in front and a crate sits on a shoulder, and all
+          // three are children of `obj` — so a box measured any later grows
+          // whatever they happen to be holding, and pointing at a thought
+          // bubble would select the person under it.
+          //
+          // It is also the only moment `obj` is at the origin with no parent,
+          // so `setFromObject` reads model space. Re-measuring after it is in
+          // the scene would need the world matrix unpicking for no gain, since
+          // a body's own dimensions never change — a restaged model (a
+          // promotion, a redraw over MCP) rebuilds the record, which comes
+          // straight back through here.
+          ...bodyExtent(obj),
           // The break: the prop, which stage of it is built, whether they are
           // on one, and how far the body has eased into the slump. `phase` is
           // per-person and stable, so two hires sat on the same step don't
@@ -2264,6 +2358,7 @@ export class Scene {
           pastime: null, pastimeKey: null, resting: false, slump: 0,
           phase: (hashId(a.id) % 628) / 100,
         };
+        this.actorRoot.add(obj);
         map.set(a.id, rec);
         obj.position.set(a.x, 0, a.z);
       }
@@ -4250,24 +4345,51 @@ export class Scene {
    * they are drawn answers exactly that — including when two are stood on the
    * same tile, where the nearest to the cursor is the one you meant.
    *
-   * The radius is in screen pixels, so it stays the same size to aim at however
-   * far the camera is zoomed out, which is the way a click target should behave.
+   * What it aims at is the body's own SPINE — the line from their feet to the
+   * top of their head, projected — rather than one point at chest height. A
+   * point plus a fixed radius is a circle, and nothing that walks around is
+   * circular: a bot is roughly three times as tall as it is wide, so a circle
+   * big enough to cover the head misses nothing sideways and a circle tight
+   * enough not to grab the shelf behind them covers about the middle third of
+   * the body. Pointing at somebody's legs, or at their head, was a miss, and
+   * the working spot was a band across their waist that nothing on screen
+   * marked — which reads as the pointer being unreliable rather than as the
+   * target being small.
+   *
+   * `radius` is a FLOOR and no longer the whole answer. In pixels it is right
+   * about a shop zoomed out — a bot four pixels tall still deserves a target
+   * you can hit — and exactly wrong zoomed in, where the person fills a third
+   * of the screen and the hit box stays the size of a thumbnail. So the grab is
+   * the wider of the two: the pixel floor, or the body's own half-width scaled
+   * to how big it is being drawn right now, read off the projected spine rather
+   * than off the camera so it needs no assumption about zoom, pitch or lens.
    */
   pickPerson(clientX, clientY, radius = 26) {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const px = clientX - rect.left;
     const py = clientY - rect.top;
     let best = null;
-    let bestD = radius;
+    let bestD = Infinity;
     for (const p of this.playerState ?? []) {
       const rec = this.players.get(p.id);
       if (!rec) continue;
-      // Chest height rather than the feet: it is the middle of what is drawn,
-      // and aiming at the ground under somebody is how you miss them upwards.
-      const at = this.worldToScreen(rec.obj.position.x, rec.obj.position.z, 0.75);
-      if (!at) continue;
-      const d = Math.hypot(at.x - px, at.y - py);
-      if (d < bestD) { bestD = d; best = p; }
+      const { x, z } = rec.obj.position;
+      const foot = this.worldToScreen(x, z, rec.footY);
+      const head = this.worldToScreen(x, z, rec.headY);
+      if (!foot || !head) continue;
+      // Pixels per world unit, at this body, this frame. The spine is a known
+      // length in the model and a measured length on screen, so dividing one by
+      // the other is the scale — no camera state involved, which is what keeps
+      // this honest through a zoom, a quarter turn and any lens change later.
+      const tall = Math.hypot(head.x - foot.x, head.y - foot.y);
+      const perUnit = tall / Math.max(0.01, rec.headY - rec.footY);
+      const grab = Math.max(radius, rec.halfW * perUnit);
+      const d = distToSegment(px, py, foot.x, foot.y, head.x, head.y);
+      // The cap is per-person now, so it cannot be the running best as well:
+      // a tall hire and a short one have different reaches, and comparing raw
+      // distances across them still answers "who is the pointer nearest to",
+      // which is the tie-break two people on one tile need.
+      if (d < grab && d < bestD) { bestD = d; best = p; }
     }
     return best;
   }

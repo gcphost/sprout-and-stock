@@ -14,6 +14,7 @@ import { all, contentVersion, getWorld, setWorld, worldStateKey } from './db.js'
 import { SCHEMAS, unknownTags } from '../shared/schemas.js';
 import { BUILD_KINDS } from '../shared/build.js';
 import { kindOf } from '../shared/pieces.js';
+import { foldJobs } from '../shared/jobs.js';
 import { upsert } from './db.js';
 
 let cache = null;
@@ -28,7 +29,12 @@ function load() {
   const upgrades = all('upgrades');
   const recipes = all('recipes');
   const fixtures = all('fixtures');
-  const workers = all('workers');
+  // Rows are read raw — nothing revalidates on the way out of the DB — so a
+  // worker authored when `till`, `sow` and `harvest` were three jobs is folded
+  // here, at the one boundary every reader is downstream of. Without it the
+  // names survive into `stepStaff`, which skips a job this build doesn't have,
+  // and a farmhand quietly stops farming. See `foldJobs`.
+  const workers = all('workers').map((w) => ({ ...w, jobs: foldJobs(w.jobs) }));
   const pastimes = all('pastimes');
   const skins = all('skins');
   const vehicles = all('vehicles');

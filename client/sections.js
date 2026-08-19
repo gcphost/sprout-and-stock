@@ -109,6 +109,18 @@ export const DECOR_SUBS = [
     tags: ['sign'],
     blurb: 'Words on the shop floor. Nobody reads them but you.',
   },
+  // Added the day the catch-all hit ten entries, which is the tell the comment
+  // above describes: a bench, a bistro set and a bike rack are not odds and
+  // ends, they are one word the vocabulary was missing. Declaring the tab is
+  // free — it renders only once something is authored for it — so the cost of
+  // this is one word in `TAG_GROUPS.decor` and the seven lines here.
+  {
+    id: 'furniture',
+    name: 'Furniture',
+    icon: ICONS.town,
+    tags: ['furniture'],
+    blurb: 'Somewhere to sit, lean or leave a bike. Indoors or out front — none of it is in anybody’s way.',
+  },
   {
     id: 'bits',
     name: 'Odds and ends',
@@ -119,8 +131,8 @@ export const DECOR_SUBS = [
 
 export const BUILD_GROUPS = [
   { id: 'shop', name: 'Shop', icon: ICONS.shelf, blurb: 'Where goods sit and money changes hands.' },
-  { id: 'farm', name: 'Farm', icon: ICONS.plot, blurb: 'Beds to grow in, and what fences them off.' },
   { id: 'appliance', name: 'Appliances', icon: ICONS.station, blurb: 'Machines that turn stock into something worth more.' },
+  { id: 'farm', name: 'Farm', icon: ICONS.plot, blurb: 'Beds to grow in, and what fences them off.' },
   {
     id: 'shell',
     name: 'Building',
@@ -896,7 +908,17 @@ export function staffGroups(ui) {
     badge: roster.filter((e) => e.kind === w.id).length || null,
     title: `${w.name} — ${kindSummary(w)}${
       w.cost > cash ? ` · ${money(w.cost)} and you have ${money(cash)}` : ''}`,
-  }));
+  })).map((t) => (ui.hireArm === t.kind ? {
+    // Armed: the tile says what the next press does, and says it where the
+    // price was. Same shape the worker menu's Let go uses (`FIRE_ARM_MS`) and
+    // for the same reason said the other way round — a hire refunds nothing, so
+    // the mis-tap that TAKES somebody on costs a day's wage every day until you
+    // notice, and this is the one bar where a press acts with no menu in
+    // between. It has to be the note rather than a chip beside it: the tile is
+    // 76px and the press lands on all of it, so anything that is not the tile
+    // is a target you can miss on the way to confirming.
+    ...t, note: 'Tap to hire', warn: true,
+  } : t));
 
   const seen = [...new Set(roster.map((e) => e.kind))];
 

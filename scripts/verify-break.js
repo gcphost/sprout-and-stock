@@ -611,6 +611,137 @@ const BORED_ENOUGH = 26;
 }
 
 // ---------------------------------------------------------------------------
+// 8. A SHELF with no route is not a shelf, which is section 3 said about the
+//    other thing a hire can walk at and never reach.
+//
+// The pin this whole file exists to catch has a second door into it, and it is
+// wider than the break area's: a seat is one cell in one room, and a shelf is
+// every unit in the building. `shelve` answers true for "on my way" as well as
+// for "doing it", so a home the hire can never arrive at is a job that claims
+// the tick for ever — `idleFrom` cleared every tick, `STUCK_SECONDS` never
+// filling, `putDown` never reached, and the break under it never offered.
+// Energy sits at zero and `tiredness` pins them at `TIRED_PACE` for the rest of
+// the save.
+//
+// Nothing about it can be looked at. A robot walking to a shelf and a robot that
+// can never reach one are the same still frame, and the goods are in its arms in
+// both — found on a live shop as a chef stood outside the east wall holding six
+// toasties, four days after a second hot counter went down on the first one's
+// only working side.
+//
+// So the shop it builds is that shop: two units side by side, the second
+// standing on the tile the first is used from. That is a placement the game
+// WARNS about and allows, which is the point — `canPlace` gives two kinds of no
+// and this is the kind that is a consequence rather than a refusal, so it is a
+// state a player can reach and therefore one the crew has to survive.
+//
+// The control is the half that keeps this from passing for the wrong reason: a
+// sweep that only asserts "the hire stopped shelving" is passed perfectly by a
+// `shelve` that never works at all.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  // Nothing may buy, sell or deliver into the middle of this: every assertion
+  // below is about one armful and where it ends up.
+  g.open = false;
+  g.orders.auto = false;
+  g.orders.assign = false;
+  g.orders.items = {};
+  g.deliveries = [];
+
+  const item = content().items.find((it) => !it.tags.includes('frozen')
+    && !it.tags.includes('needs-freezer') && !it.tags.includes('needs-warmer'));
+  check(!!item, 'the catalog has an ordinary ambient item to strand');
+
+  // The unit whose working side we are about to build on. Its `browseAt` is
+  // read off the placed record rather than re-derived, for `workSpotOf`'s own
+  // reason: a facing the generator refused must not be drawn as though it had
+  // been honoured.
+  const home = g.layout.shelves.find((sh) => sh.browseAt);
+  check(!!home, 'the generated shop has a shelf with a working side');
+
+  // THREE units rather than the one the live shop had, and the difference is
+  // the whole reason this sweep is deterministic where the bug was not.
+  //
+  // `findPath` retargets a blocked goal to the FIRST walkable neighbour in
+  // `NEIGHBOURS` order, and whether that lands inside `REACH` of the anchor is
+  // an accident of which way round that table happens to be: the two tiles
+  // beside the working spot are 1.41 from the unit and inside it, the one
+  // beyond is 2 and outside. A sweep that blocked only the working spot would
+  // therefore pass or fail on the ordering of a constant in another file — and
+  // would have passed, on this seed, against the unfixed code.
+  //
+  // So both of the near ways in are taken as well, which is a row of shelving
+  // built along a wall and nothing more exotic. What is left is one approach,
+  // out of reach, exactly as the shop that found this had.
+  const at = home.browseAt;
+  const walls = [at, { x: at.x, z: at.z - 1 }, { x: at.x, z: at.z + 1 }];
+  for (const w of walls) {
+    const put = g.placeFixture('me', { kind: 'shelf', x: w.x, z: w.z, rot: 0 });
+    check(put.ok, `a unit goes down at ${w.x},${w.z}, boxing the first one in`, put.error ?? '');
+  }
+
+  // Ticked, so this is the item's ONE home — `homeShelves` filters every other
+  // unit out, which is exactly what routed six toasties at a counter nobody
+  // could stand at. Re-read after the re-flow a purchase causes, because
+  // `styleFixture` and friends re-mint what they touch.
+  const homeId = home.id;
+  const tick = g.assignShelf('me', homeId, item.id, true);
+  check(tick.ok, 'and the stranded unit is the item\'s only home', tick.error ?? '');
+
+  const [hand] = hire(g);
+  g.roster[0].jobs = [{ job: 'shelve', weight: 1 }];
+  hand.carry = { stacks: [{ item_id: item.id, qty: 3 }] };
+  drain(hand);
+
+  // Long enough to walk the shop, wait out `STUCK_SECONDS` and take a break —
+  // and it is a limit rather than a deadline: what is asserted below is the end
+  // state, never how many ticks it took to get there.
+  until(g, () => !hand.carry && (hand.energy ?? 0) > DRAINED, 900);
+
+  // THE SETUP ITSELF, asserted. Everything below is vacuously true of a hire who
+  // simply walked up and shelved it, and whether they could is a question about
+  // one constant in `pathing.js` and one in `build.js` — so the state the whole
+  // section is about has to be checked rather than assumed.
+  check(Math.hypot(hand.x - home.x, hand.z - home.z) > 1.6,
+    'the hire really is stranded out of reach of the only home there is',
+    `${Math.hypot(hand.x - home.x, hand.z - home.z).toFixed(2)} tiles away`);
+
+  check(!hand.carry, 'an armful whose only home cannot be reached is put down',
+    hand.carry ? JSON.stringify(hand.carry) : '');
+  // The goods themselves, which is the claim `putDown` exists to make: three
+  // units are three units, on the pad rather than deleted out of a pair of hands.
+  const onFloor = g.deliveries.reduce((n, d) => n
+    + (d.stacks ?? []).reduce((m, k) => m + (k.item_id === item.id ? k.qty : 0), 0), 0);
+  eq(onFloor, 3, 'and all three of them are on the floor where somebody can see them');
+  check((hand.energy ?? 0) > DRAINED, 'and the hire is no longer pinned at empty',
+    `${(hand.energy ?? 0).toFixed(3)}`);
+
+  // THE CONTROL. Everything above is passed by a `shelve` that has stopped
+  // working, so the same shop with the same hire and a home it can actually walk
+  // to has to still fill the board.
+  {
+    const g2 = fresh();
+    g2.open = false;
+    g2.orders.auto = false;
+    g2.orders.assign = false;
+    g2.orders.items = {};
+    g2.deliveries = [];
+    const reachable = g2.layout.shelves.find((sh) => sh.browseAt);
+    const ok = g2.assignShelf('me', reachable.id, item.id, true);
+    check(ok.ok, 'the control shop ticks a reachable board for it', ok.error ?? '');
+    const [worker] = hire(g2);
+    g2.roster[0].jobs = [{ job: 'shelve', weight: 1 }];
+    worker.carry = { stacks: [{ item_id: item.id, qty: 3 }] };
+    until(g2, () => !worker.carry, 900);
+    const board = g2.layout.shelves.find((sh) => sh.id === reachable.id);
+    const shelved = (board?.stacks ?? []).reduce((n, k) => n + (k.item_id === item.id ? k.qty : 0), 0);
+    eq(shelved, 3, 'and a reachable home is still stocked, by the same hire with the same job');
+    eq(g2.deliveries.length, 0, 'with nothing put down on the way');
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 console.log(`\nverify:break — ${checks} assertions`);
 if (failures.length) {

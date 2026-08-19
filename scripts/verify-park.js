@@ -284,6 +284,8 @@ const freeAt = (g, c) => {
   const res = g.spawnCustomer(null, space);
   eq(res.drove, true, 'a shopper drives in');
   const cu = g.customers[res.id];
+  // What they arrived in the world with, for the claim at the end of this case.
+  const setOff = cu.mood;
   eq(cu.state, 'DRIVE', 'and starts at the wheel');
   eq(cu.drive.phase, 'in', 'on the way in');
   check(offMap(g.layout, cu.drive), 'from off the edge of the map');
@@ -309,7 +311,13 @@ const freeAt = (g, c) => {
   // THE claim. `patience` is a budget the shop draws on; the road is not the
   // shop. A driver who arrives already annoyed is a shop punished for being
   // reachable.
-  eq(cu.mood, 1, 'and their patience is untouched by the journey');
+  //
+  // Against what they set off with rather than against 1: since `MOOD_BASE` the
+  // walk-in mood is a fact about how nice the shop is to stand in, and this
+  // claim was never about the value — it is that the DRIVE changed nothing.
+  // Asserting the literal made it two claims, and the one it was not about is
+  // the one that broke.
+  eq(cu.mood, setOff, 'and their patience is untouched by the journey');
 
   // ...and the control, or the assertion above passes on a mood nothing drains.
   const g2 = fresh();
@@ -397,6 +405,7 @@ const freeAt = (g, c) => {
   paintPark(g, 2);
   const space = { ...g.freeSpace() };
   const cu = g.customers[g.spawnCustomer(null, g.freeSpace()).id];
+  const setOff = cu.mood;
 
   // On the map but not yet arrived — the state a re-flow has to have an answer
   // for. Off the map it is a walker on the approach, and those are dropped.
@@ -410,7 +419,9 @@ const freeAt = (g, c) => {
   eq(cu.drive.phase, 'parked', 'the car is standing');
   eq(cu.drive.x, space.mid.x, 'in the bay it claimed (x)');
   eq(cu.drive.z, space.mid.z, 'in the bay it claimed (z)');
-  eq(cu.mood, 1, 'and being rebuilt around cost them no patience either');
+  // Against what they set off with, for the reason case 4 is — the claim is
+  // that the re-flow cost them nothing, not what the number happens to be.
+  eq(cu.mood, setOff, 'and being rebuilt around cost them no patience either');
 
   const shopped = until(g, () => cu.state === 'BROWSE', 900);
   check(shopped != null, 'and they go on to shop', `stuck in ${cu.state}`);

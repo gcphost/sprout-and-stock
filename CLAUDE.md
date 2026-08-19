@@ -258,10 +258,11 @@ Fifteen sweeps, about twenty seconds:
   chicken in a freezer used to come back as "where it wants to be"; that the
   nine-way matrix is walked over `STOCK_KINDS` rather than written out, or a
   fourth kind arrives with two of its rules; that the shop's rule and your
-  hands' rule differ *on purpose* (a reservation must be one somebody will
-  carry out, your own hands may stand a loaf under a heat lamp); and that a
-  re-flow drops misplaced stock without destroying it. Its centrepiece is that a
-  warmer you built is still a warmer afterwards. It authors one piece and
+  hands' rule are now the SAME rule, in all three places that ask it (the
+  chevrons, the press, the staff), which they were not for two steps — see the
+  pour below; and that a re-flow drops misplaced stock without destroying it,
+  which is what makes a rule change safe to make at all. Its centrepiece is that
+  a warmer you built is still a warmer afterwards. It authors one piece and
   removes it on exit, and tags nothing — the items it needs are inputs to pure
   functions, so it builds them in memory rather than changing what the shop next
   door sells.
@@ -455,16 +456,18 @@ what the next step was meant to be.
 | Doc | Covers | Status |
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — and the ground pattern that has height | steps 1–9, 11, 13–18 built; 10 cancelled; 12 next |
-| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, and the shop hand who takes goods back *off* a shelf | steps 1–6 and 8–10 built; 7 proposed |
+| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, and the three farm directives that became one | steps 1–6 and 8–11 built; 7 proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, and the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for | steps 1–5 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
+| [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | all proposed |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/audio.md](docs/audio.md) | a bus per slider, why the sounds cannot come from the log, the four caps that stop a busy shop being a slot machine, sound as a column on a catalog row, the Sound rows and the Credits tab in the Menu — and why the ambient bed was built, played and cut | steps 2, 3, 5 built; 1 cut; 4, 6 proposed |
 | [docs/waste.md](docs/waste.md) | the shop's way out — the skip, why a hire may carry out rot and never your stock, rot becoming a box on the floor only if you own one, and the one spelling that keeps rubbish from reading as supply | step 1 built; 2–3 proposed |
 | [docs/pickups.md](docs/pickups.md) | the customer who never comes in — a collection point as a till whose queue is fed by the road, why picking is `serve` rather than a new job, why a staged tote is not stock, and the share that is a consequence of owning one | all proposed |
+| [docs/seating.md](docs/seating.md) | the customer who stops — the break area pointed at shoppers, why the cell is the seat and the bench is a multiplier on it, the first honest dwell impulse has ever had, and the four readers that must NOT share a predicate | all proposed |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | steps 2–4 built; 1, 5–8 proposed |
 | [docs/steam.md](docs/steam.md) | selling it on Steam for Windows and macOS — the shell that keeps the renderer we have tested on, a server nobody can find, why Steam Cloud and SQLite's WAL disagree, the 43 milestones that are already an achievement list, why the model call leaves the build and `inventEvent` *is* the director, and why Steam's own relay retires the invite code | all proposed |
 | [docs/fixtures.md](docs/fixtures.md) | every piece in the build catalog — kind rules, price, tier ladder, how many boards of goods it really draws, and any tier that takes money and moves no number | **generated**, `npm run docs:fixtures` |
@@ -504,6 +507,26 @@ what the next step was meant to be.
   The pile menu that used to name them for you is deleted; a list was answering
   the question the pointer had already answered. Staff still take the top one
   only, and that is the one place `crateOnTop` survives: a job loop has no aim.
+- **…and a box on the floor is a SQUARE once there is one on your shoulder.**
+  Everything a crate offers the pointer is about single units — a tap takes one
+  out, a right-tap puts one in — and with a box already up there none of them can
+  happen: `tapCrate` opens with "put the crate down first" and the hold arms
+  nothing (`ring: false`). So the cell a box most wanted to go on was the one
+  cell in reach you could not name, and putting two boxes together meant finding
+  bare ground and carrying the other one over. The *shop* was willing the whole
+  time — `dropGoods` tops up a crate of the same thing on the named cell, spends
+  a free board in it, and stacks a new box on that cell when it cannot — so this
+  was only ever the aim. `haulSquare` (client/main.js) is it, and three things
+  fall out. A **pile is fine here**, unlike everywhere else a crate is pointed
+  at: `stacked` exists to stop "which of these did you mean", and setting a box
+  down is not a question about any of the ones already there. It has to be the
+  crate's **own cell** and never `pickTile`'s, because a box is drawn most of a
+  tile up-screen of the ground it stands on — the same reason `pickFixture`
+  exists — so the tile under the pointer is the one behind it. And the **ring
+  round the crate stands down** while the green square is lit, or the highlight
+  is advertising a press that names a cell. Hands are deliberately untouched: an
+  armful pointed at a lone crate still puts one unit in, which is a gesture that
+  works and one a shoulder has no version of.
 - **…which is why the drop-off stopped being the only place hands could be
   emptied.** `stow` was the whole way to let go of an armful and it insisted on
   the pad, so picking anything up was a commitment: your hands stayed full until
@@ -589,6 +612,29 @@ what the next step was meant to be.
   release that lasted past `LONG_PRESS_MS` is not also a tap, or pouring an
   armful ends by putting one more unit down. `syncStockAim` is gone with it: the
   pointer owned the put-aim only because the hold had to mean either direction.
+- **…and out of reach, the hold buys the WALK.** The third of those three is
+  what hid this: a unit across the shop has nothing to wind a ring on, so
+  `armPut` answered `walk` with `ring: false` and left the journey to the tap —
+  and a hold's release is not a tap, so holding the button at a far shelf was
+  swallowed and did nothing at all. Same button, same box, same shelf, and the
+  only difference is that you were four tiles further away, which reads as the
+  shop refusing you. `spin.trek` is the walk, and three things decide its shape.
+  It fires on a **timer** at `LONG_PRESS_MS` rather than on the way down like
+  every other arming in there, because the right button is also the camera — a
+  walk sent on `pointerdown` sends you across the shop every time you grab the
+  view, so `cancelTrek` is on the turn as well as on the release, beside the
+  `release()` that is there for the same reason. It names the **fixture** and not
+  a tile, so the route ends at a side you can work it from. And **the button
+  stays down for the whole journey**, which is the entire trick: `stepActions`
+  winds a ring only while something is pressed, so arriving with your finger
+  still on it is arriving armed. Let go on the way and you have simply walked
+  over, with the put still armed — which is the tap's outcome exactly. The other
+  half is that `walkToFixture` now **carries `put`**: a walk is one sentence with
+  a walk in the middle of it, and a direction dropped at the kerb means the
+  errand that fires on arrival is a *left* button's errand. A shelf never
+  noticed, because it offers the same job either way round; an appliance has two
+  openings, so what you got was a machine you walked a crate to and then
+  collected the tray from.
 - **You name it, and the ring fires it.** Anything that moves goods into or out
   of your hands is pointed at first: a tap on a fixture is a *walk plus a name*
   (`walkToFixture` sets `p.errand`), a tap on the drop-off is the same thing on
@@ -1112,6 +1158,26 @@ what the next step was meant to be.
   renderer has to be *told* (`scene.paused`), because `animateStations` is the
   one loop driven by the page's clock rather than the shop's — a blade still
   turning in stopped time reads as the pause not working.
+- **…and a new shop now opens the clock at 06:00, which is a frame rather than a
+  prep window.** Shut at 08:00 with the town already out is a shop that is
+  *late*; shut at 06:00 is one that has not opened yet, and they are the same
+  empty floor with a different meaning on the clock — three new worlds got played
+  for a while with the shutters down. Be honest about what it buys: `daylight()`
+  is 08:00–20:00 and everything outside it runs at `NIGHT_SPEED`, so those two
+  hours are about **five real seconds**. The two things that actually say it are
+  a log line on the tick `trading()` turns true with `open` false (a
+  *transition*, or it is a line every tick of every morning — and `wasTrading`
+  starts `undefined` so a save opened at teatime never speaks), and the sign
+  pulsing until somebody has worked the shutters once, ever (`sns.shutterUsed`
+  in localStorage — it is about the person, not the shop, so a second world does
+  not ask again). Two traps came out of it. `time` had to start being
+  **persisted**: it never was, so every load began at 08:00 sharp, and
+  `createWorld`'s 06:00 would otherwise be re-handed to that world on every
+  restart for ever. And the default matters more than the value — `w.time ??
+  OPEN_HOUR / 24`, because an ephemeral game has no save, and defaulting a
+  headless game into the dark puts every sweep on the 6× clock: `verify:break`
+  caught it as a hire who got bored in 4.1 seconds instead of 15, which is the
+  `fresh()` trap in its second form again.
 - **…and `paused` is saved as a STAMP, because "not saved" quietly meant "until
   the next restart".** It was in memory on the argument that a pause is a fact
   about the person rather than about the shop — like where the camera is
@@ -1308,6 +1374,24 @@ what the next step was meant to be.
   tell was a milestone asking for ten charm that no amount of building could
   reach. Worth checking, whenever a mechanic reads a content column: how many
   rows have ever set it?
+- **…and charm buys the MOOD people walk in on as well, which is the half that
+  is about the room rather than the map.** Reach is a bet on how many people
+  come; it says nothing about what the inside of the shop is like once they are
+  through the door, so a bare concrete box and a shop with fourteen awnings up
+  played identically from the threshold onwards. `MOOD_BASE` (0.72) is the
+  walk-in now and `moodBase()` closes the gap to 1 on the *same* saturating
+  fraction `charmReach` scales — deliberately the same curve, because one lot of
+  charm is one fact about the shop and two curves would mean a room lovely enough
+  to widen the town but not to cheer anybody up. Two knock-ons are the point
+  rather than side effects: `stepMood` drains a budget that now starts lower, so
+  an ugly shop has less slack for a queue, and a sale is worth
+  `0.008 * (mood - MOOD_ANNOYED)`, so an ugly shop earns its name more slowly off
+  the same trade. It is read at the door (`spawnCustomer`) and never stored, so a
+  planter helps the next person in rather than the queue already inside. The trap
+  it sprang is the `fresh()` one in its second form: `verify:park` asserted a
+  driver arrives at `mood === 1`, which was two claims wearing one literal — the
+  one it is actually about is that the DRIVE changed nothing, so it compares
+  against what they set off with now.
 - **…and reputation moves through ONE function, so that it can leave a
   receipt.** Six places wrote `this.reputation = clamp(this.reputation ± x)`
   directly, which is correct and tells nobody anything: it is the slowest number
@@ -1406,6 +1490,32 @@ what the next step was meant to be.
   now, along with `budgetOf`. **Anything that enumerates kinds and has a
   fallback is a place a new kind dies quietly**, because the fallback is always
   the sensible-looking one.
+- **…and the rule went two-way in the end, because a MIXED container makes the
+  choice for you.** For two steps `holds` was the shop's rule alone — the staff,
+  reservations, the re-flow and the balance bot refused both ways, and your own
+  hands refused only goods that had NAMED a fixture. Standing a loaf in a
+  freezer was your business, `spoilRate` had an opinion about all six
+  combinations, and the asymmetry was argued for as a freedom. What retired it
+  is that a crate holds several things and `pourInto` empties it pile by pile:
+  a box of carrots and eggs tipped into a freezer spent a cold board on the
+  carrots and left the eggs in the box, with nowhere else in the shop to be.
+  One press, no refusal, and it reads as the shop choosing wrong — which it is,
+  because you asked it to fill a freezer. **The fix that does not work is the
+  interesting half.** Ordering the piles so the ones that can only live here go
+  first was tried and shipped, and it decides which pile goes on FIRST while
+  saying nothing about the second: the freezer still filled its spare boards
+  with produce, one board later. There is no ranking that expresses "and then
+  stop", because the thing being asked for is a *refusal*. So `boardFor` asks
+  `homeKind === shelfKind` now and `shelfAccepts` moved with it — the chevrons,
+  the press and the staff are one rule, or the highlight promises a unit the
+  press turns down. Two consequences worth knowing. The refusal has to be
+  `assignShelf`'s **pair** rather than one message: "needs a freezer" tells you
+  what to buy, and the new direction has to say "doesn't need freezing" instead,
+  because naming the fixture the goods want says "needs a shelf" at somebody
+  holding bread. And `spoilRate`'s six combinations are **not** dead — content
+  is edited live, so an item can be tagged `needs-freezer` while cases of it
+  stand on ordinary shelving, which is what the re-flow's shed is for and why
+  that shed had to conserve before this could be changed at all.
 - **A break outranks the job list; a CHARGE does not, and that inversion is the
   whole feature.** Anything above the bottom rung takes itself off to the break
   area after 15s with nothing to do (`tryCharge`, `server/sim/staff.js`). If it
@@ -1422,6 +1532,26 @@ what the next step was meant to be.
   had to learn not to walk a charging clerk back to their till. `simulate` is
   blind to all of it — the balance bot never promotes, so every hire in a run is
   on rung 1 and the rng stream is untouched.
+- **`till`, `sow` and `harvest` were never three decisions, and the fold is a
+  MAX rather than a sum.** They are three steps of one loop over the same beds
+  — nobody has ever wanted the middle one on its own — so they cost three lines
+  of a twenty-point budget for a decision with one sane setting. `farm` is that
+  setting, and the order inside it is not tunable: picking frees a bed and puts
+  goods where they sell, sowing is one action from producing, and breaking new
+  ground produces nothing, which is the rule `till` has enforced about itself
+  since step 2 said about all three. `foldJobs` (`shared/jobs.js`) reads a list
+  written when it was three, at three boundaries that are three different kinds
+  of thing — `content()`'s `load()` (DB rows never revalidate on read),
+  `Game.create`'s roster (a hire's list is *theirs*, so the catalog fold never
+  reaches it), and `WorkerSchema` as a `z.preprocess` (so `npm run seed`
+  migrates the data rather than being refused by the enum). The max is the trap:
+  `drawOrder` pulls a hire whose drawn job has nothing to do no further than
+  *half* that job's weight, so summing the farmhand's authored 10/8/6 into 24
+  puts their `shelve` 8 out of reach — and every draw that found the beds empty,
+  which is most of them, would leave them standing still. That is the "four idle
+  specialists" failure `FALLTHROUGH` exists to prevent, arriving as a farmhand
+  who stopped working. **Whenever two directives merge, ask what the combined
+  weight does to the rule that reads weights as a ratio**, not just to the total.
 - **A hire's weights were RELATIVE, and are now also a budget.** `stepStaff`
   draws from the list in proportion, so `serve 10, tidy 1` and `serve 100,
   tidy 10` are the same worker — which is why the absolute size of the numbers
@@ -1832,6 +1962,52 @@ what the next step was meant to be.
   general shape is the one above wearing the other pair of hands: **a loop closed
   for the job that spawned it is still open for every other caller of the same
   verbs.**
+- **…and a spill TOPS UP a board, it never opens one.** `homeFull` waives the
+  one-home rule when the home has no room left, so goods already paid for are
+  not stranded behind a full unit — and "any other legal unit" is the spread bug
+  wearing the waiver's clothes the moment anything PRODUCES. A farm is exactly
+  that: four beds of carrots fill the home, overflow onto a bare board, and each
+  board it claims is one the range never gets, so the shop quietly becomes three
+  shelves of carrots and stops widening. Every step is a worker correctly
+  shelving goods, which is why it reads as the crew being stupid. So the waiver
+  needs `shelfStack(sh, itemId)` as well: stock may go where that stock already
+  lives (which still settles, since `homeShelves` keeps the fullest unit the
+  home and `releaseBoards` takes the drained one back), and surplus with a full
+  home and nowhere it has ever been waits in its crate — the honest signal that
+  the shop wants another unit. `verify:hand` pins both halves, because "nothing
+  stranded in the yard" and "no board opened" are each other's failure mode.
+- **…and the chevrons answer for EVERY pile in your hands, not the biggest.**
+  `takers` took `lotMain`, on the argument that lighting every unit that would
+  take any of three kinds is a shop with a light on every fixture — which is a
+  claim about a shop, where the marker is a promise about a PRESS, and one press
+  pours every pile that fits (`pourInto`). Hands holding bread and ice cream are
+  two answers and the freezers are half of them: the shelves lit for the bread,
+  no freezer lit at all, and the ice cream went into one perfectly well when you
+  tried it. That is the green-ghost rule inverted — a unit that takes a press it
+  never advertised — and it is the same disagreement `shelfAccepts` exists to
+  close. The dilution is bounded by `LOT_KINDS` and by the rule itself: a unit
+  still has to be the right kind, unreserved, and have a board with room.
+- **…and a reservation decides which boards may be OPENED, not what may be put
+  on one that is already standing.** `assignShelf` deliberately leaves stock
+  alone when you tick a unit for something else — "the goods stay and sell down"
+  — so one press puts a unit into a state where a board carries an item's name,
+  its price and its capacity while `boardFor` refuses that item and names a
+  different one in the refusal. A live freezer showed `Frozen Pizza 0/8` above
+  `Fizzy Soda 0/24`, said *2 of 2 in use*, and turned away an armful of frozen
+  pizza. There is no way to read that except as the shop being wrong about its
+  own shelf, and the empty case is the sharp one: nothing left to sell down, a
+  board spent on a label, and `releaseBoards` two quiet days away from noticing.
+  So the reservation is asked with `byHand` and a board that already stands is
+  exempt. **The split is the point** — the shop's own choosing (`shelvesFor`, and
+  `restockQueue` behind it) stays strict, or a leftover board becomes a home
+  again the moment the ordering sees it: `releaseBoards` holds any board whose
+  supply is on the way, so the shop would buy for it, which is exactly the
+  freezer the reservation was meant to take back. It is the line `giveUpBoard`
+  and `orders.assign` already draw, said about the third of the shop's
+  judgements. The trap it leaves: `shelfAccepts` is the **hand's** copy of this
+  rule and not the shop's — `takers` is `!p.staff` — so it has to carry the
+  exemption too, or the chevron is the tighter half of a disagreement and a unit
+  takes a press it never lit up for.
 - **…and an existing control that already vetoes the new thing is not the same
   as a switch for it.** The shop hand shipped with a reservation as its only
   veto, which is true and was not the control: a reservation says what a board

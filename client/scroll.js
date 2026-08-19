@@ -30,6 +30,19 @@
  * re-read every call, because every caller here rewrites its contents wholesale
  * and often: the box survives, its listeners survive with it, and what changes
  * is how far it can go.
+ *
+ * The wheel is a SIDEWAYS box's problem only. A vertical list is an ordinary
+ * scroll container and the browser already spins it — handling it here would
+ * move it twice per notch — but a mouse reports a notch as `deltaY` whatever the
+ * box under it does, so a horizontal strip is the one shape where turning the
+ * wheel over a scroller does nothing at all, and reads as the row being stuck.
+ * Three things about that. The delta is normalised by `deltaMode` first, because
+ * Firefox reports a notch as 3 *lines* and scrolling three pixels is
+ * indistinguishable from the bug; the dominant axis wins, so a trackpad's own
+ * sideways swipe drives it rather than fighting the `deltaY` branch; and a wheel
+ * at either END is left alone — no `preventDefault`, so the notch goes on to
+ * whatever is behind the strip instead of being swallowed by a row that had
+ * nowhere left to go.
  */
 export function wireScroll(box, { axis = 'x', ends } = {}) {
   if (!box) return;
@@ -76,6 +89,18 @@ export function wireScroll(box, { axis = 'x', ends } = {}) {
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
     });
+    if (horiz) box.addEventListener('wheel', (e) => {
+      // Pixels, lines, pages — the same three modes `main.js` normalises for the
+      // zoom, in the unit this box measures itself in.
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? box.clientWidth : 1;
+      const d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * unit;
+      if (!d) return;
+      const max = box.scrollWidth - box.clientWidth;
+      const to = Math.max(0, Math.min(max, box.scrollLeft + d));
+      if (to === box.scrollLeft) return;
+      e.preventDefault();
+      box.scrollLeft = to;
+    }, { passive: false });
     box.addEventListener('click', (e) => {
       if (!dragged) return;
       e.stopPropagation();

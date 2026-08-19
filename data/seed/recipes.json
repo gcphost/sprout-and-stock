@@ -18,6 +18,24 @@
     "minutes": 9
   },
   {
+    "id": "cup-of-soup-recipe",
+    "name": "Cup of Soup",
+    "station": "stock-pot",
+    "inputs": [
+      {
+        "item_id": "tinned-soup",
+        "qty": 2
+      },
+      {
+        "item_id": "kale",
+        "qty": 1
+      }
+    ],
+    "output_id": "soup-cup",
+    "output_qty": 3,
+    "minutes": 12
+  },
+  {
     "id": "doughnuts-recipe",
     "name": "Iced Doughnut",
     "station": "deep-fryer",
@@ -118,6 +136,50 @@
     "minutes": 6
   },
   {
+    "id": "mince-pies-recipe",
+    "name": "Mince Pies",
+    "station": "oven",
+    "inputs": [
+      {
+        "item_id": "wheat",
+        "qty": 2
+      },
+      {
+        "item_id": "jam",
+        "qty": 1
+      },
+      {
+        "item_id": "frozen-berries",
+        "qty": 1
+      }
+    ],
+    "output_id": "mince-pies",
+    "output_qty": 3,
+    "minutes": 14
+  },
+  {
+    "id": "pasta-bake-recipe",
+    "name": "Pasta Bake",
+    "station": "stock-pot",
+    "inputs": [
+      {
+        "item_id": "dried-pasta",
+        "qty": 2
+      },
+      {
+        "item_id": "mince",
+        "qty": 1
+      },
+      {
+        "item_id": "tomato",
+        "qty": 1
+      }
+    ],
+    "output_id": "pasta-bake",
+    "output_qty": 3,
+    "minutes": 18
+  },
+  {
     "id": "pickles-recipe",
     "name": "Pickled Veg",
     "station": "preserving-pot",
@@ -168,6 +230,50 @@
     "minutes": 20
   },
   {
+    "id": "sausage-hot-dog-recipe",
+    "name": "Hot Dog",
+    "station": "grill",
+    "inputs": [
+      {
+        "item_id": "sausages",
+        "qty": 2
+      },
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "mustard",
+        "qty": 1
+      }
+    ],
+    "output_id": "hot-dog",
+    "output_qty": 3,
+    "minutes": 8
+  },
+  {
+    "id": "smoked-bacon-roll-recipe",
+    "name": "Bacon Roll",
+    "station": "grill",
+    "inputs": [
+      {
+        "item_id": "bacon",
+        "qty": 2
+      },
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "mayo",
+        "qty": 1
+      }
+    ],
+    "output_id": "bacon-roll",
+    "output_qty": 3,
+    "minutes": 8
+  },
+  {
     "id": "smoothie-recipe",
     "name": "Berry Smoothie",
     "station": "blender",
@@ -198,6 +304,46 @@
     "output_id": "sourdough",
     "output_qty": 2,
     "minutes": 14
+  },
+  {
+    "id": "spiced-chutney-recipe",
+    "name": "Spiced Chutney",
+    "station": "preserving-pot",
+    "inputs": [
+      {
+        "item_id": "tomato",
+        "qty": 2
+      },
+      {
+        "item_id": "kale",
+        "qty": 1
+      },
+      {
+        "item_id": "hot-sauce",
+        "qty": 1
+      }
+    ],
+    "output_id": "chutney",
+    "output_qty": 3,
+    "minutes": 20
+  },
+  {
+    "id": "steamed-hot-chocolate-recipe",
+    "name": "Hot Chocolate",
+    "station": "coffee-machine",
+    "inputs": [
+      {
+        "item_id": "cocoa-powder",
+        "qty": 1
+      },
+      {
+        "item_id": "milk",
+        "qty": 1
+      }
+    ],
+    "output_id": "hot-chocolate",
+    "output_qty": 2,
+    "minutes": 6
   },
   {
     "id": "toast-recipe",
@@ -234,6 +380,24 @@
     "output_id": "toastie",
     "output_qty": 2,
     "minutes": 7
+  },
+  {
+    "id": "turkey-carvery-recipe",
+    "name": "Turkey Carvery",
+    "station": "grill",
+    "inputs": [
+      {
+        "item_id": "turkey-crown",
+        "qty": 1
+      },
+      {
+        "item_id": "carrot",
+        "qty": 1
+      }
+    ],
+    "output_id": "carved-turkey",
+    "output_qty": 3,
+    "minutes": 22
   },
   {
     "id": "veg-juice-recipe",

@@ -812,28 +812,55 @@ const onAShelf = (g, itemId) => g.layout.shelves.some((sh) => (g.shelfStack(sh, 
       'a home with room for all of it takes all of it, and nothing else starts a board');
     eq(g.shelfStack(s0, ITEM_A.id)?.qty, held + waiting, 'every unit of it onto the home');
   }
+  // A full home spills onto a board that is ALREADY holding this, and never
+  // onto a bare one. Both halves are the rule: the waiver exists so goods you
+  // paid for are not stranded behind a full unit, and opening boards with it is
+  // the spread bug back in other clothes — with a farm behind it, "any other
+  // legal unit" is every bare board in the shop, so a shop with four beds of
+  // carrots turns into three shelves of carrots and stops widening its range.
   {
     const g = fresh({ jobs });
-    const [s0] = g.layout.shelves;
+    const [s0, s1] = g.layout.shelves;
     board(g, s0, ITEM_A, cap(g, s0), { soldAgo: 0 });
+    board(g, s1, ITEM_A, 1, { soldAgo: 0 });
     g.dropGoods(ITEM_A.id, 6, g.layout.bay.cells[0]);
     const before = everywhere(g, ITEM_A.id);
 
     run(g, 1200);                              // two in-game minutes of trying
-    const units = g.layout.shelves.filter((sh) => g.shelfStack(sh, ITEM_A.id)).length;
-    eq(units, 2, 'a home that is FULL lets the rest onto the unit next door');
     eq(everywhere(g, ITEM_A.id), before, 'with every unit of it accounted for');
     eq(g.deliveries.reduce((n, d) => n + lotQty(d, ITEM_A.id), 0), 0,
-      'and nothing left stranded in the yard — the whole point');
-    eq(g.shelfStack(s0, ITEM_A.id)?.qty, cap(g, s0), 'the home is untouched');
+      'a full home lets the rest onto a board that already holds it');
+    eq(g.shelfStack(s1, ITEM_A.id)?.qty, 7, 'which is the second board topped up');
+    eq(g.shelfStack(s0, ITEM_A.id)?.qty, cap(g, s0), 'and the home is untouched');
+    eq(g.layout.shelves.filter((sh) => g.shelfStack(sh, ITEM_A.id)).length, 2,
+      'and no THIRD board was opened on the way');
 
     // ...and the home is STILL the home, which is what makes the spill settle
     // rather than spread. `homeShelves` picks the unit holding the most, so the
     // spare is the one that drains — and (e) hands it back the moment it does.
     const homes = g.homeShelves(ITEM_A.id);
     check(g.homedAt(s0, ITEM_A.id, homes), 'the fuller board is still the home');
-    const spare = g.layout.shelves.find((sh) => sh.id !== s0.id && g.shelfStack(sh, ITEM_A.id));
-    check(!g.homedAt(spare, ITEM_A.id, homes), 'and the spare is not — so (f) still refuses it a van');
+    check(!g.homedAt(s1, ITEM_A.id, homes), 'and the spare is not — so (f) still refuses it a van');
+  }
+  // ...and with nowhere it already lives, the surplus WAITS. This is the claim
+  // that costs something, and it is the one that was asked for: a crate on the
+  // pad is the honest signal that the shop needs another unit, where a bare
+  // board silently spent on a second home is a range that never grows.
+  {
+    const g = fresh({ jobs });
+    const [s0] = g.layout.shelves;
+    board(g, s0, ITEM_A, cap(g, s0), { soldAgo: 0 });
+    const bare = g.layout.shelves.filter((sh) => !g.shelfStacks(sh).length).length;
+    check(bare > 0, 'there is a bare unit standing there to be claimed');
+    g.dropGoods(ITEM_A.id, 6, g.layout.bay.cells[0]);
+    const before = everywhere(g, ITEM_A.id);
+
+    run(g, 1200);
+    eq(g.layout.shelves.filter((sh) => g.shelfStack(sh, ITEM_A.id)).length, 1,
+      'a full home with no second board opens none');
+    eq(everywhere(g, ITEM_A.id), before, 'and nothing is created or destroyed by the refusal');
+    eq(g.deliveries.reduce((n, d) => n + lotQty(d, ITEM_A.id), 0), 6,
+      'the surplus stays in the crate it came in');
   }
 
   // (b) …and the FIRST board is still freely claimed. `homeShelves` answers null

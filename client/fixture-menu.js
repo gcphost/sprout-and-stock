@@ -345,11 +345,14 @@ export function showFixture(ui, f) {
   const at = Math.min(ui._fxTab ?? 0, Math.max(0, groups.length - 1));
   // Tabs sit OUTSIDE the scroller — they choose what it holds, so scrolling
   // them away leaves you in a list with no way back to the one you wanted.
-  if (groups.length > 1) {
-    parts.push(`<div class="tabs">${groups.map((g, n) => `
-      <button class="tab${n === at ? ' on' : ''}" data-fxtab="${n}" title="${esc(g.label)}"
-        aria-label="${esc(g.label)}">${g.icon}</button>`).join('')}</div>`);
-  }
+  //
+  // The slot is RESERVED here and filled at the end, because what a tab has to
+  // say depends on something settled below it: whether a search is running at
+  // all is not known until the open tab has been measured (`filterable`, and
+  // the `clearFilter` under it), and a badge drawn off a query that is about to
+  // be cleared is a number on screen for a box that is not.
+  const tabSlot = parts.length;
+  if (groups.length > 1) parts.push('');
   // The one pane that scrolls, and it has to be a real element rather than
   // whatever is left over between two sticky ones — see `#panel-body.paned`.
   // Emitted even when empty so the layout does not change shape on a fixture
@@ -399,6 +402,36 @@ export function showFixture(ui, f) {
     mid.push(shown.length ? shown.map((r, i) => ui.rowHtml(r, i)).join('')
       : '<div class="foot">Nothing matches that.</div>');
     rows.push(...shown);
+  }
+  // ...and now the tabs can say where the answer is.
+  //
+  // The search box sits ABOVE the tabs, which reads as a question about the
+  // menu, and it only ever filtered the open one — so typing "milk" at a
+  // freezer's settings answered "Nothing matches that", which was a lie: milk
+  // was one tab over, and nothing on screen said so. An empty pane had two
+  // explanations (the menu hasn't got it / you are stood in the wrong pane) and
+  // gave you neither.
+  //
+  // A COUNT rather than a merged result list, and that is the whole design
+  // decision. `wireRows` binds by index into one array — the comment under
+  // `mid` says why the filtered list is the one numbered — so searching across
+  // every tab is a re-numbering of the pane, and the way that fails is a click
+  // firing the wrong row rather than a list that looks odd. A badge changes
+  // nothing about what the list IS; it just stops the empty pane being the only
+  // thing you are told.
+  //
+  // Counted on the group's own rows and deliberately NOT through `inDept`: the
+  // department strip narrows the pane in front of you, and the badge is about
+  // the panes that are not. Same `tcount` the sections already draw, so a tab
+  // wearing a number means one thing everywhere in the game.
+  if (groups.length > 1) {
+    parts[tabSlot] = `<div class="tabs">${groups.map((g, n) => {
+      const hits = ui.query ? ui.applyFilter(g.rows ?? []).length : null;
+      return `<button class="tab${n === at ? ' on' : ''}${hits === 0 ? ' none' : ''}"
+        data-fxtab="${n}" title="${esc(g.label)}${hits != null ? ` — ${hits}` : ''}"
+        aria-label="${esc(g.label)}">${g.icon}${
+  hits != null ? `<i class="tcount">${hits}</i>` : ''}</button>`;
+    }).join('')}</div>`;
   }
   parts.push(`<div class="pnl-mid">${mid.join('')}</div>`);
 
@@ -533,11 +566,18 @@ export function showFixture(ui, f) {
   ui.el.panelBody.querySelectorAll('[data-fxtab]').forEach((el) => {
     // Redrawn rather than shown/hidden, because the rows are live: a tab built
     // once would still be offering to sow a bed that has since been harvested.
-    // The query goes with the tab: each list is searched on its own terms, and
-    // carrying "carrot" onto Shape would leave you looking at an empty pane.
+    //
+    // The query goes with the tab, EXCEPT onto a tab wearing a count. Clearing
+    // it is right for the reason it always was — carrying "carrot" onto Shape
+    // leaves you looking at an empty pane wondering which of the two narrowings
+    // did it — and a badge is precisely the thing that answers that in advance:
+    // a tab that says 1 cannot be the empty pane. Dropping the query there
+    // would make the badge half a feature, since the press that acts on it
+    // would land you in the full list with the word to type again.
     el.onclick = () => {
-      ui._fxTab = Number(el.dataset.fxtab);
-      ui.clearFilter();
+      const n = Number(el.dataset.fxtab);
+      ui._fxTab = n;
+      if (!(ui.query && ui.applyFilter(groups[n]?.rows ?? []).length)) ui.clearFilter();
       showFixture(ui, f);
     };
   });

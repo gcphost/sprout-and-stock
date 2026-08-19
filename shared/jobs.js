@@ -24,6 +24,57 @@
 /** What a hire on the bottom rung has to spend across their directives. */
 export const JOB_POINTS = 20;
 
+/**
+ * The three directives that became one, and how a list written before that is
+ * read now.
+ *
+ * `till`, `sow` and `harvest` were never three decisions. They are three steps
+ * of one loop over the same beds — you cannot want the middle one without the
+ * other two, and a farmhand told to sow and not to till is a hire waiting on a
+ * field nobody is turning over. So they cost three lines of a budget that has
+ * twenty points in it, and the only sane setting was all three at once. `farm`
+ * is that setting, said once.
+ *
+ * The fold is a **max and never a sum**, which is the one non-obvious thing
+ * here and it is not about the budget. `drawOrder`'s `FALLTHROUGH` lets a hire
+ * whose drawn job has nothing to do be pulled down as far as *half* that job's
+ * weight — so a farmhand's authored 10/8/6 summed to 24 would sit at twice the
+ * weight of their `shelve` 8, and every draw that found the beds empty (which
+ * is most of them, since crops grow slowly) would leave them standing still
+ * rather than filling a shelf. That is precisely the "four idle specialists"
+ * case the floor exists to prevent, and it would arrive as a farmhand who
+ * stopped working the day this shipped. A max keeps the list the shape it had:
+ * 10/8/6 + shelve 8 folds to farm 10, shelve 8, and the fallthrough still
+ * reaches.
+ *
+ * Read-time rather than a migration, the way `kindOf` reads a piece with no
+ * kind — an old save, an old export and a fresh seed all agree with no
+ * ceremony. `WorkerSchema` runs it on the way IN as well, so a row rewritten
+ * through the sanctioned path is stored folded and the shim is only ever
+ * reading history.
+ */
+export const FOLDED_JOBS = { till: 'farm', sow: 'farm', harvest: 'farm' };
+
+/** A `{ job, weight }` list in today's vocabulary, whenever it was written. */
+export function foldJobs(jobs) {
+  if (!Array.isArray(jobs)) return jobs;
+  const out = [];
+  const seen = new Map();
+  for (const j of jobs) {
+    const job = FOLDED_JOBS[j?.job] ?? j?.job;
+    const weight = Number(j?.weight);
+    const at = seen.get(job);
+    if (at === undefined) {
+      seen.set(job, out.length);
+      out.push({ ...j, job, weight });
+    } else if (Number.isFinite(weight)) {
+      // The heaviest of the three the player set, not their total — see above.
+      out[at].weight = Math.max(Number(out[at].weight) || 0, weight);
+    }
+  }
+  return out;
+}
+
 /** ...and what every rung above it adds. */
 export const JOB_POINTS_PER_RUNG = 8;
 

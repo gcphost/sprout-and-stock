@@ -145,6 +145,13 @@ const warm = c.items.filter((i) => requiredFixture(i) !== 'freezer');
 const plainItem = warm[0];
 const otherItem = warm[1] ?? warm[0];
 /**
+ * ...and a third, which is the control for "nothing NEW may move onto a
+ * reserved unit". Section 14 needs one thing that has a board on the unit and
+ * one that has never had one, or "your hands may top up what is standing there"
+ * cannot be told from "a reservation stopped binding your hands".
+ */
+const spareItem = warm[2] ?? warm[1] ?? warm[0];
+/**
  * A pair of hands filled to the KINDS cap with things that are not `plainItem`.
  *
  * The sweep needs it because "hands full" stopped being one sentence. Hands
@@ -565,6 +572,12 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   for (const u of c.upgrades.filter((x) => x.kind === 'station')) {
     if (!u.payload?.station) continue;
     const at = findFreeFloor(g2);
+    // How many machines the catalog sells is content, and the test shop is a
+    // fixed size — so this loop is one authored appliance away from filling the
+    // building at any time, and it did the day the stock pot was added. A full
+    // shop is a fact about the shop rather than a failure: what is under test
+    // below is `dumpStation`, which needs *an* appliance and not all of them.
+    if (!at) break;
     g2.placeFixture('me', { kind: 'station', station: u.payload.station, x: at.x, z: at.z, rot: at.rot });
   }
   const st = g2.layout.stations[0];
@@ -1932,6 +1945,30 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   // label always meant, said about a board.
   check(!g.shelfAccepts(shelf, plainItem.id),
     'while the board nobody ticked is left to sell down rather than topped up');
+  stand(g, shelf);
+  g.players.me.carry = { item_id: plainItem.id, qty: 2 };
+  check(!g.stockShelf('me', shelf.id).ok, 'and your own hands are refused it too');
+  eq(qtyOn(shelf, plainItem.id), 4, 'so the board it is selling down is left alone');
+
+  // ...but a board with nothing left ON it is not "selling down", it is a name,
+  // a price and a capacity for something the unit has just been told it is not
+  // for — and the menu prints it as a board. A live freezer read
+  // `Frozen Pizza 0/8` over `Fizzy Soda 0/24`, said 2 of 2 in use, and refused
+  // frozen pizza while naming soda, which cannot be read as anything but the
+  // shop being wrong about its own shelf. So the press that makes it a lie is
+  // the press that takes it back. Both halves, or "empty only" could be the
+  // rule quietly eating stock instead.
+  const g4 = fresh();
+  const kept4 = g4.layout.shelves.find((s) => s.kind !== 'freezer');
+  put(kept4, plainItem, 3);
+  put(kept4, otherItem, 0);
+  eq(g4.shelfStacks(kept4).length, 2, 'a unit with one board selling and one bare');
+  check(g4.assignShelf('me', kept4.id, spareItem.id).ok, 'setting it aside for a third thing');
+  eq(qtyOn(kept4, plainItem.id), 3, 'leaves goods that are still selling exactly alone');
+  eq(qtyOn(kept4, otherItem.id), 0, 'and hands the bare board back');
+  check(!g4.shelfStack(kept4, otherItem.id),
+    'so the menu stops printing a board the unit will not honour');
+  check(g4.shelfHasRoomFor(kept4, anyItem.id), 'and the board it freed is a board again');
 
   // Capacity is a SHARE, so committing a unit to a second thing halves what
   // each gets rather than doubling what the unit carries. This is the balance

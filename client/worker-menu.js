@@ -47,23 +47,74 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
  * catalog rather than being copied here — so a tenth job added there still
  * lists, under its own name, with no blurb. A menu that silently omitted a job
  * would be a job you had no way to give anybody.
+ *
+ * TWO descriptions per job, and the split is about the shape of the list rather
+ * than about taste. The grid is two columns of a 430px panel, so a row has
+ * roughly twenty characters beside its stepper: every sentence long enough to
+ * be *useful* wrapped to two or three lines, and a list whose rows are three
+ * lines tall is a list you scroll to reach the buttons under it — which is the
+ * thing the three-region layout above exists to prevent. So `blurb` is what
+ * fits on the line, and `detail` is the sentence, on the hover. The row is a
+ * label you scan down; the tooltip is the one you stopped on.
+ *
+ * Which makes the constraint on `blurb` real rather than stylistic: it has to
+ * stay short enough not to wrap at this width. It says what the job IS in as
+ * few words as will carry it, and everything conditional, every caveat and
+ * every "and also" belongs in `detail`.
  */
 const JOB_INFO = {
-  serve: { name: 'Serve', doing: 'on the till', blurb: 'Take money at a till.' },
-  restock: { name: 'Restock', doing: 'ordering stock', blurb: 'Order in for a bare shelf.' },
-  unload: { name: 'Unload', doing: 'unloading a pallet', blurb: 'Bring pallets in off the bay.' },
-  shelve: { name: 'Shelve', doing: 'filling a shelf', blurb: 'Put what they hold on a shelf.' },
-  till: { name: 'Till', doing: 'turning the soil', blurb: 'Turn rough ground over.' },
-  sow: { name: 'Sow', doing: 'sowing', blurb: 'Plant a turned bed.' },
-  harvest: { name: 'Harvest', doing: 'harvesting', blurb: 'Pick whatever is ripe.' },
-  craft: { name: 'Craft', doing: 'working the appliances', blurb: 'Work the appliances.' },
-  tidy: { name: 'Tidy', doing: 'tidying up', blurb: 'Crate what has nowhere to go.' },
+  serve: {
+    name: 'Serve',
+    doing: 'on the till',
+    blurb: 'Take money.',
+    detail: 'Stand at a till and ring up whoever is waiting.',
+  },
+  restock: {
+    name: 'Restock',
+    doing: 'ordering stock',
+    blurb: 'Order stock in.',
+    detail: 'Buy wholesale to refill a shelf that has run bare.',
+  },
+  unload: {
+    name: 'Unload',
+    doing: 'unloading a pallet',
+    blurb: 'Clear the bay.',
+    detail: 'Carry pallets in off the delivery bay and put them away.',
+  },
+  shelve: {
+    name: 'Shelve',
+    doing: 'filling a shelf',
+    blurb: 'Fill shelves.',
+    detail: 'Put whatever is in their hands onto a shelf that will take it.',
+  },
+  // One row, not three. Tilling, sowing and picking are three steps of one loop
+  // over the same beds — nobody ever wanted the middle one on its own — so three
+  // lines of a twenty-point budget bought a decision that had one setting.
+  farm: {
+    name: 'Farm',
+    doing: 'working the beds',
+    blurb: 'Work the beds.',
+    detail: 'Pick what is ripe, sow what is turned, and turn what is rough.',
+  },
+  craft: {
+    name: 'Craft',
+    doing: 'working the appliances',
+    blurb: 'Run appliances.',
+    detail: 'Fetch ingredients, load an appliance, and collect what it made.',
+  },
+  tidy: {
+    name: 'Tidy',
+    doing: 'tidying up',
+    blurb: 'Crate strays.',
+    detail: 'Crate up anything with nowhere to go, and carry rubbish out to the skip.',
+  },
   // NOT "Shop hand" — that is the name of a worker *kind* (`shop-hand`), and a
   // job sharing it would read as the one job that worker does.
   merchandise: {
     name: 'Merchandise',
     doing: 'working the shelves',
-    blurb: 'Clear boards nothing sells off, and merge split ones.',
+    blurb: 'Fix boards.',
+    detail: 'Clear boards nothing sells off, and merge two half-empty ones.',
   },
 };
 
@@ -90,7 +141,8 @@ const FIRE_ARM_MS = 4000;
 const SPIN_SECONDS = 4;
 
 const titleCase = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
-const infoFor = (job) => JOB_INFO[job] ?? { name: titleCase(job), doing: String(job), blurb: '' };
+const infoFor = (job) => JOB_INFO[job]
+  ?? { name: titleCase(job), doing: String(job), blurb: '', detail: '' };
 const mult = (n) => `${Number(n) % 1 === 0 ? n : Number(n).toFixed(1)}×`;
 
 /** The roster row for one hire — the record, not the body walking about. */
@@ -185,7 +237,7 @@ export function showWorker(ui, workerId) {
   // one screen; what they cost was the paint being three presses from a picture
   // of the thing being painted, which is the whole argument for `thumb.js`.
   //
-  // TWO COLUMNS, because the list is a fixed vocabulary of nine short rows and
+  // TWO COLUMNS, because the list is a fixed vocabulary of eight short rows and
   // one column of them is a scroll for no reason. `auto-fit` rather than a flat
   // `1fr 1fr`: the panel is `min(430px, 100vw - 24px)`, so on a phone the same
   // grid is one column and the rows do not squeeze to a stepper and an ellipsis.
@@ -508,7 +560,10 @@ function energyLine(body) {
 function jobRow(job, weight, room) {
   const info = infoFor(job);
   const off = weight <= 0;
-  return `<div class="row wk-job${off ? ' owned' : ''}" title="${esc(info.blurb)}">
+  // The short one on the line, the long one on the hover — see `JOB_INFO`. The
+  // title carries the NAME too, because a tooltip that only restates the row it
+  // is over reads as a bug, and this one is a different sentence.
+  return `<div class="row wk-job${off ? ' owned' : ''}" title="${esc(`${info.name} — ${info.detail || info.blurb}`)}">
     <div class="name">${esc(info.name)}<span class="tags">${esc(info.blurb)}</span></div>
     <div class="fx-price wk-w">
       <button data-job="${esc(job)}" data-step="-1" aria-label="less"${off ? ' disabled' : ''}>−</button>

@@ -297,7 +297,7 @@
   {
     "id": "station-coffee",
     "name": "Coffee Machine",
-    "description": "Beans and milk in, a proper flat white out.",
+    "description": "Beans and milk in, a proper flat white out — and cocoa and milk in, hot chocolate out, which wants a hot counter rather than a shelf.",
     "cost": 240,
     "kind": "station",
     "payload": {
@@ -319,7 +319,7 @@
   {
     "id": "station-grill",
     "name": "Grill",
-    "description": "A flat-top grill. Raw meat and vegetables go on, dinner comes off.",
+    "description": "A flat-top grill. Raw meat and vegetables go on, dinner comes off: skewers for the shelf, and roast chicken, a turkey carvery, hot dogs and bacon rolls for a hot counter.",
     "cost": 230,
     "kind": "station",
     "payload": {
@@ -341,7 +341,7 @@
   {
     "id": "station-oven",
     "name": "Oven",
-    "description": "A proper deck oven. Wheat off your own fields goes in, bread worth four times the sheaf comes out.",
+    "description": "A proper deck oven. Wheat off your own fields goes in, bread worth four times the sheaf comes out — plus tarts, and mince pies for the three months of the year the town asks for them.",
     "cost": 220,
     "kind": "station",
     "payload": {
@@ -352,7 +352,7 @@
   {
     "id": "station-preserving-pot",
     "name": "Preserving Pot",
-    "description": "A copper pot and a rack of jars. Turns a glut off the fields into something that keeps for a year.",
+    "description": "A copper pot and a rack of jars. Turns a glut off the fields into something that keeps for a year — pickles, or a chutney worth rather more if you have a bottle of hot sauce to go in it.",
     "cost": 200,
     "kind": "station",
     "payload": {
@@ -379,6 +379,17 @@
     "kind": "station",
     "payload": {
       "station": "soft-serve"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-stock-pot",
+    "name": "Stock Pot",
+    "description": "A deep pot over a burner. Tins, dried pasta and a bit of mince go in; soup and ready meals come out. The soup wants a hot counter and the pasta bake wants a chiller — neither will run without one.",
+    "cost": 200,
+    "kind": "station",
+    "payload": {
+      "station": "stock-pot"
     },
     "requires": []
   },

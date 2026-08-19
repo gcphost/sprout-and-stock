@@ -33,6 +33,7 @@
 /** The cause ids, so nothing has to spell one by hand. */
 export const R = {
   SERVED: 'served',
+  SETTLED: 'settled',
   GRUMPY: 'grumpy',
   STORMED: 'stormed',
   EMPTY: 'empty',
@@ -59,6 +60,13 @@ export const REP_CAUSES = [
     name: 'Served happily',
     sub: 'left the till in a good mood',
     why: 'happy customers',
+  },
+  {
+    id: R.SETTLED,
+    up: true,
+    name: 'Old news',
+    sub: 'a bad week the town has stopped talking about',
+    why: 'the town forgetting a bad week',
   },
   {
     id: R.GRUMPY,

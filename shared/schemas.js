@@ -15,6 +15,10 @@ import { ALL_TAGS } from './tags.js';
 // One spelling of the kind that is ground. `shared/build.js` reaches only
 // tiles.js and edges.js, so there is no cycle to pay for taking it from source.
 import { isSurface } from './build.js';
+// A worker list written before three farm directives became one. Run on the way
+// in so a row rewritten through this gate is stored in today's vocabulary — the
+// seed loader, the MCP tools and the director all come through here.
+import { foldJobs } from './jobs.js';
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lowercase kebab/snake case');
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb hex colour');
@@ -704,9 +708,11 @@ export const JOBS = [
   'restock',  // order wholesale to refill an empty shelf
   'unload',   // carry a pallet at the bay onto shelves
   'shelve',   // put what's in hand onto a legal shelf
-  'till',     // turn rough soil over
-  'sow',      // plant the chosen crop in a bare bed
-  'harvest',  // pick a ripe plot
+  // Turn a rough bed over, sow the turned one, pick the ripe one. ONE
+  // directive, because it was never three decisions — see `FOLDED_JOBS` in
+  // shared/jobs.js for why, and for how a list written when it was three is
+  // read now.
+  'farm',
   'craft',    // load a station, collect what it made
   'tidy',     // crate what can't be put away
   'merchandise', // take goods back OFF a shelf: clear a dead board, merge a split one
@@ -731,10 +737,10 @@ export const WorkerSchema = z.object({
    * reads as priority when only one job has work, and as a share of the day
    * when several do.
    */
-  jobs: z.array(z.object({
+  jobs: z.preprocess(foldJobs, z.array(z.object({
     job: z.enum(JOBS),
     weight: z.number().min(0.1).max(100).default(1),
-  })).min(1).max(JOBS.length),
+  })).min(1).max(JOBS.length)),
   /** Tier 1 is what you hire, so it costs nothing and is listed first. */
   tiers: z.array(z.object({
     name: z.string().min(1).max(32),

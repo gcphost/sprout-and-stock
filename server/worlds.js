@@ -28,6 +28,7 @@ import {
 import { world as loadWorld, saveWorld, DEFAULT_WORLD } from './content.js';
 import { rooms, primaryRoom } from './rooms/MartRoom.js';
 import { startTier, tierFixtures } from '../shared/start.js';
+import { PREP_HOUR } from './sim/index.js';
 
 // ---------------------------------------------------------------------------
 // Naming
@@ -217,7 +218,23 @@ export function createWorld({ name, seed, cash, tier, shelves, plots } = {}) {
    * the default the other way round and a balance run measures a shop that never
    * opens, which reports as zero revenue with nothing in the output to say why.
    */
-  saveWorld(id, { ...DEFAULT_WORLD, seed: useSeed, open: false, ...start });
+  /**
+   * ...and it starts two hours BEFORE trading, which is the other half of the
+   * same sentence.
+   *
+   * Shut at 08:00 with the town already out is a shop that is late; shut at
+   * 06:00 is a shop that has not opened yet, and the two are the same pixels
+   * with a different meaning on the clock. Written here for exactly the reason
+   * `open: false` is — a save with nothing to say still reads as mid-morning,
+   * so no headless game and no existing shop moves.
+   *
+   * It buys about five real seconds (`PREP_HOUR` says why), so it is the frame
+   * and not the fix. The line in `step` at 08:00 and the pulse on the sign are
+   * the fix.
+   */
+  saveWorld(id, {
+    ...DEFAULT_WORLD, seed: useSeed, open: false, time: PREP_HOUR / 24, ...start,
+  });
   console.log(`[worlds] created "${label}" (${id}, seed ${useSeed}) `
     + `as a ${startTier(tier).name.toLowerCase()}: ${JSON.stringify(start)}`);
   return summarise(row);

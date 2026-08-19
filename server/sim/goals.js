@@ -4,7 +4,7 @@
  *
  * A shop that is going well and a shop that is going nowhere look identical for
  * the first twenty minutes: the numbers in the corner move, and nothing ever
- * *says* anything. This is the half that says it — forty-three rows, each one a
+ * *says* anything. This is the half that says it — forty-five rows, each one a
  * number the shop already keeps, with a reward on the far side of it.
  *
  * Three rules hold the whole thing together, and each of them is why this is a
@@ -118,11 +118,12 @@ export const MILESTONES = [
      * over at creation, where it would just be a bigger starting number nobody
      * earned.
      *
-     * The ladder climbs from here — 250, 100, 50, then up to 1500 — so the two
-     * rungs that matter most are the two you meet in the first ten minutes and
-     * the one you meet after a fortnight. The middle of it is deliberately flat:
-     * a shop taking $2,000 does not need $400, and the reason that rung still
-     * pays is that a ladder with a gap in it reads as a rung that is broken.
+     * The opening is deliberately the steep part — 250, then 500 for the first
+     * hundred taken, then 500 for the first seed in the ground — because that
+     * is the stretch where the float is the reason nothing is happening. The
+     * middle is just as deliberately flat: a shop taking $2,000 does not need
+     * $400, and the reason that rung still pays is that a ladder with a gap in
+     * it reads as a rung that is broken.
      */
     measure: (g) => lifetime(g, 'sold'),
     reward: { cash: 250, supplies: 12 },
@@ -134,10 +135,12 @@ export const MILESTONES = [
     unit: 'money',
     need: 100,
     measure: (g) => lifetime(g, 'revenue'),
-    // Matched to what it asks for, the way the rung below it doubles the float:
-    // the first two rungs are the opening, and the opening is where money is
-    // the difference between a decision and a wait.
-    reward: { cash: 100, town: 1, supplies: 12 },
+    // Five times what it asks for, which is the only rung on the ladder that
+    // pays a multiple of its own bar. The opening is where money is the
+    // difference between a decision and a wait, and $100 of takings is a shop
+    // that has proved it works and still cannot afford to change anything
+    // about itself.
+    reward: { cash: 500, town: 1, supplies: 12 },
   },
   {
     id: 'first-plant',
@@ -150,7 +153,19 @@ export const MILESTONES = [
     // you own on day one and can go a week without pressing a button on: four
     // beds of bare soil look exactly like four beds you are resting.
     measure: (g) => yes((g.layout?.plots ?? []).some((p) => p.crop_id)),
-    reward: { cash: 40, supplies: 6 },
+    /**
+     * Enough to start up the ladder rather than enough to finish it.
+     *
+     * Taking all four starting beds to Greenhouse is 4 × ($90 + $260) = $1,400,
+     * and tier costs take no discount — `plot-2` and `plot-3` cut what a NEW
+     * bed costs to build, never what an existing one costs to improve. Paying
+     * the whole $1,400 here was tried and is not what this rung is for: it
+     * lands in the first two minutes, so it would have been bigger than every
+     * rung below `take-10000` and would have handed over the finished farm in
+     * exchange for one seed. $500 is five raised beds' worth of the first step,
+     * which is the decision — the second step is one the farm can pay for.
+     */
+    reward: { cash: 500, supplies: 6 },
   },
   {
     id: 'first-harvest',
@@ -168,7 +183,11 @@ export const MILESTONES = [
     unit: 'money',
     need: 500,
     measure: (g) => lifetime(g, 'revenue'),
-    reward: { cash: 150, supplies: 18 },
+    // Double what it asks for, and the last rung that pays a multiple of its own
+    // bar — the opening is `first-sale` 250, `take-100` 500, `first-plant` 500
+    // and this, and after it the ladder goes back to being sized against the
+    // shop rather than against the float.
+    reward: { cash: 1000, supplies: 18 },
   },
   {
     id: 'first-hire',
@@ -206,6 +225,32 @@ export const MILESTONES = [
     measure: (g) => lifetime(g, 'sold'),
     reward: { cash: 200, supplies: 24 },
   },
+  /*
+   * ---------------------------------------------------------------------------
+   * THE SURVIVAL RUNGS, which are the one sub-ladder you cannot fail and the
+   * only reason they pay what they pay.
+   *
+   * Every other rung on the ladder is a thing the shop DID — takings, sales,
+   * a wall you drew, a crop you picked — and each of them is therefore a
+   * measurement of how well it is going. `g.day` is not: it is a measurement of
+   * having turned up, which is worth nothing on day ninety and is worth the
+   * whole opening on day seven. A shop starts on $250 — two crates and a seed
+   * tray — and until the first shelf sells through there is nothing to decide
+   * with, so the early game reads as a wait rather than a shop.
+   *
+   * So the survival ladder is front-loaded and tapers: $500 at a week, $350 at
+   * two, $250 at three, and then a month is its own step up at $600. That is
+   * backwards from every other run of rungs in here, and deliberately: what it
+   * is paying for is the float being thin, and the float stops being thin.
+   * By `hundred-days` it is back to being a nod.
+   *
+   * None of the three new ones pays `town`, and that is not an oversight — the
+   * sixteen rungs that do are sized so that finishing the ladder exactly doubles
+   * the catchment you started with (see `milestoneReach`). A rung added to fix
+   * an opening should not quietly move the number the whole endgame is built on.
+   * ---------------------------------------------------------------------------
+   */
+
   {
     id: 'week-one',
     name: 'A week in',
@@ -213,7 +258,11 @@ export const MILESTONES = [
     unit: 'day',
     need: 7,
     measure: (g) => g.day,
-    reward: { cash: 200, town: 1, supplies: 18 },
+    // The biggest single payment on the ladder until `take-2000`, and it lands
+    // about forty minutes in. A week of trading on the starting float leaves a
+    // shop with a range it chose one crate at a time; this is the first moment
+    // it can buy a decision rather than a restock.
+    reward: { cash: 500, town: 1, supplies: 24 },
   },
   {
     id: 'range-6',
@@ -247,6 +296,29 @@ export const MILESTONES = [
     // the pair is the point: `take-2000` above is a shop that kept going, this
     // is a shop that had a Saturday.
     measure: (g) => today(g, 'revenue'),
+    // Matched to the day it asks for — a shop that can take $500 between
+    // opening and closing can spend $500 on being able to do it again.
+    reward: { cash: 500, supplies: 24 },
+  },
+  {
+    id: 'week-two',
+    name: 'A fortnight',
+    blurb: 'Still open on day fourteen.',
+    unit: 'day',
+    need: 14,
+    measure: (g) => g.day,
+    reward: { cash: 350, supplies: 24 },
+  },
+  {
+    id: 'week-three',
+    name: 'Three weeks',
+    blurb: 'Still open on day twenty-one.',
+    unit: 'day',
+    need: 21,
+    // The last of the weeklies. Day 28 would be a fourth and it is not here:
+    // `month-one` is eight in-game hours later, and two rungs that close
+    // together read as one rung that fired twice.
+    measure: (g) => g.day,
     reward: { cash: 250, supplies: 24 },
   },
   {
@@ -256,7 +328,9 @@ export const MILESTONES = [
     unit: 'day',
     need: 30,
     measure: (g) => g.day,
-    reward: { cash: 400, town: 1, supplies: 24 },
+    // Up from the weeklies rather than down from them: the tapering run is
+    // weeks, and a month is the next unit up rather than the fourth week.
+    reward: { cash: 600, town: 1, supplies: 36 },
   },
   {
     id: 'harvest-100',

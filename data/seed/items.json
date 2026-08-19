@@ -86,6 +86,114 @@
     }
   },
   {
+    "id": "bacon-roll",
+    "name": "Bacon Roll",
+    "tags": [
+      "prepared",
+      "needs-warmer",
+      "breakfast",
+      "classic",
+      "junk",
+      "cheap"
+    ],
+    "base_cost": 2.1,
+    "base_price": 5.2,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#dfae6d",
+          "pos": [
+            0,
+            0.06,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.12,
+            0.22
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#b34a3a",
+          "pos": [
+            0,
+            0.128,
+            0
+          ],
+          "scale": [
+            0.27,
+            0.03,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8c9a0",
+          "pos": [
+            0.02,
+            0.138,
+            0.05
+          ],
+          "scale": [
+            0.24,
+            0.02,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e8bd7c",
+          "pos": [
+            0,
+            0.185,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.09,
+            0.22
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "batteries",
     "name": "Batteries",
     "tags": [
@@ -432,6 +540,137 @@
             0.12
           ],
           "rot": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "carved-turkey",
+    "name": "Carved Turkey",
+    "tags": [
+      "meat",
+      "needs-warmer",
+      "winter",
+      "holiday",
+      "dinner",
+      "premium",
+      "perishable"
+    ],
+    "base_cost": 2.4,
+    "base_price": 8.9,
+    "shelf_life_days": 2,
+    "stack": 6,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#f2f2f2",
+          "pos": [
+            0,
+            0.03,
+            0
+          ],
+          "scale": [
+            0.4,
+            0.04,
+            0.32
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#d8a05a",
+          "pos": [
+            -0.06,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.22,
+            0.26
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8c79a",
+          "pos": [
+            0.12,
+            0.08,
+            0.02
+          ],
+          "scale": [
+            0.13,
+            0.025,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8c79a",
+          "pos": [
+            0.15,
+            0.115,
+            -0.03
+          ],
+          "scale": [
+            0.13,
+            0.025,
+            0.2
+          ],
+          "rot": 14,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cone",
+          "color": "#b5793c",
+          "pos": [
+            -0.04,
+            0.26,
+            -0.05
+          ],
+          "scale": [
+            0.08,
+            0.08,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -844,6 +1083,178 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "chutney",
+    "name": "Chutney",
+    "tags": [
+      "condiment",
+      "shelf-stable",
+      "artisanal",
+      "gift",
+      "autumn",
+      "vegan"
+    ],
+    "base_cost": 1.3,
+    "base_price": 4.6,
+    "shelf_life_days": 240,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e4dcc8",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.3,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.55,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8a4a26",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.17,
+            0.24,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#b6474a",
+          "pos": [
+            0,
+            0.326,
+            0
+          ],
+          "scale": [
+            0.21,
+            0.04,
+            0.21
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "cocoa-powder",
+    "name": "Cocoa Powder",
+    "tags": [
+      "pantry",
+      "shelf-stable",
+      "winter",
+      "kids",
+      "classic",
+      "cheap"
+    ],
+    "base_cost": 1.2,
+    "base_price": 3.4,
+    "shelf_life_days": 240,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#7a4a2c",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.17,
+            0.22,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e8dcc4",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.176,
+            0.09,
+            0.176
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c8a24a",
+          "pos": [
+            0,
+            0.226,
+            0
+          ],
+          "scale": [
+            0.17,
+            0.02,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
           "drift": false,
           "motion": null,
           "tint": null
@@ -2160,6 +2571,93 @@
             0.07,
             0.05,
             0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "hot-dog",
+    "name": "Hot Dog",
+    "tags": [
+      "prepared",
+      "needs-warmer",
+      "lunch",
+      "kids",
+      "party",
+      "junk",
+      "cheap"
+    ],
+    "base_cost": 1.8,
+    "base_price": 4.4,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e0b070",
+          "pos": [
+            0,
+            0.06,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.1,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#b3512f",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.075,
+            0.075
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8c93a",
+          "pos": [
+            0,
+            0.158,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.02,
+            0.03
           ],
           "rot": 0,
           "surface": false,
@@ -3669,6 +4167,114 @@
     }
   },
   {
+    "id": "pasta-bake",
+    "name": "Pasta Bake",
+    "tags": [
+      "prepared",
+      "needs-freezer",
+      "dinner",
+      "lunch",
+      "classic",
+      "heavy"
+    ],
+    "base_cost": 1.7,
+    "base_price": 6.4,
+    "shelf_life_days": 6,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#b9bec4",
+          "pos": [
+            0,
+            0.05,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.09,
+            0.26
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#c9762f",
+          "pos": [
+            0,
+            0.096,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.02,
+            0.22
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f0e2c0",
+          "pos": [
+            0.05,
+            0.108,
+            0.03
+          ],
+          "scale": [
+            0.11,
+            0.02,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#dfe6ea",
+          "pos": [
+            0,
+            0.118,
+            0
+          ],
+          "scale": [
+            0.35,
+            0.012,
+            0.27
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 0.5,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    }
+  },
+  {
     "id": "peanuts",
     "name": "Salted Peanuts",
     "tags": [
@@ -4725,6 +5331,92 @@
           "seam": false,
           "alpha": 1,
           "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "soup-cup",
+    "name": "Cup of Soup",
+    "tags": [
+      "prepared",
+      "needs-warmer",
+      "winter",
+      "lunch",
+      "healthy",
+      "classic"
+    ],
+    "base_cost": 0.9,
+    "base_price": 3.4,
+    "shelf_life_days": 2,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e6e2d8",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.15,
+            0.2,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c8622f",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.156,
+            0.09,
+            0.156
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8a8f96",
+          "pos": [
+            0,
+            0.206,
+            0
+          ],
+          "scale": [
+            0.156,
+            0.02,
+            0.156
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }

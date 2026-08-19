@@ -88,6 +88,7 @@ do, named:
 | `till` | turn rough soil over | `stepFarmhand` |
 | `sow` | plant the chosen crop in a bare bed | `stepFarmhand` |
 | `harvest` | pick a ripe plot | `stepFarmhand` |
+| — | *the three above are one `farm` directive since step 11* | |
 | `craft` | load a station, collect what it made | `stepChef` |
 | `tidy` | crate what can't be put away, at the bay | `putDown` |
 
@@ -1509,6 +1510,98 @@ of the profit line.
 Thirteen sweeps green. Nothing was written to the content database: no worker
 kind is authored with the job, so the shipped shop plays exactly as it did.
 
+## Step 11 — one farm directive ✅
+
+`till`, `sow` and `harvest` were never three decisions. They are three steps of
+one loop over the same beds, and the loop only turns if you have all three: a
+hire told to sow and not to till waits on a field nobody is turning over, and
+one told to till and not to sow breaks ground for a crop that never goes in.
+Nobody has ever wanted the middle one on its own.
+
+Step 2 gave that away for free, because a weight was purely relative and the
+absolute numbers meant nothing — three lines was three lines. `shared/jobs.js`
+turned the total into a **budget**, and at that moment the triplication started
+charging: three of the twenty points a new hire has, spent on a decision with
+exactly one sane setting, before they can be told anything else. The menu said
+it too — the farm was three of the ten rows on the one pane that scrolls.
+
+So there is one `farm` job. The order inside it is not a preference and is not
+tunable:
+
+```js
+function farm(game, s) {
+  return harvest(game, s) || sow(game, s) || till(game, s);
+}
+```
+
+Picking frees a bed to grow the next lot and puts goods where they can be sold;
+sowing is one action from producing; breaking new ground is the only one of the
+three that produces nothing at all. That is the same rule `till` has enforced
+about itself since step 2 ("refuses while a turned bed is still waiting for
+seed"), said about all three instead of two. Each step still guards itself and
+each returns false **before** it claims anything, so falling from one to the
+next costs nothing and cannot strand a hire holding a target they are not
+walking to.
+
+### The fold is a max, and that is the whole of what was hard
+
+A list written before this exists in three places that never revalidate: the
+`workers` rows in the live content database, the `roster` on every save, and
+`data/seed/workers.json`. `stepStaff` *skips* a job this build does not have —
+correctly, so a kind authored against a newer build does not kill the tick — so
+doing nothing would present as a farmhand who quietly stopped farming, with
+nothing logged and their menu still showing three directives nobody implements.
+
+`foldJobs` is therefore read-time, the way `kindOf` reads a piece with no kind:
+an old save, an old export and a fresh seed all agree with no migration and no
+ceremony. It runs at three boundaries, and each is a different kind of thing:
+
+| Where | Why that one |
+|---|---|
+| `content()`'s `load()` | rows come out of the DB raw — nothing validates on read — and every reader of an authored kind is downstream of it |
+| `Game.create`'s roster | a hire's list is *theirs*, copied off the kind the day they were taken on and edited since, so the catalog fold never reaches it. Once, here, rather than in `jobsOf` at 20Hz |
+| `WorkerSchema`'s `jobs` | a `z.preprocess`, so a row rewritten through the sanctioned path is **stored** folded — `npm run seed` migrates the data it loads rather than being refused by the enum |
+
+And `assignJobs` folds what arrives on the wire, so a client still holding the
+old vocabulary is answered rather than refused.
+
+**The merge takes the highest of the three weights and never their sum**, which
+is the one non-obvious decision here and it is not about the budget. `drawOrder`
+lets a hire whose drawn job has nothing to do fall no further than *half* that
+job's weight (`FALLTHROUGH`, and the paragraph above explaining why it exists).
+The seeded farmhand is `harvest 10, sow 8, till 6, shelve 8, tidy 1`: summed,
+`farm` becomes 24, its floor becomes 12, and `shelve 8` is out of reach — so
+every draw that found the beds empty, which is most of them because crops grow
+slowly, would leave them standing still. That is exactly the "four idle
+specialists" failure the floor was added to prevent, arriving as a farmhand who
+stopped working the day this shipped. A max keeps the list the shape it had:
+`farm 10, shelve 8, tidy 1`.
+
+One thing falls out of that worth knowing. `jobBudget`'s floor — *what the KIND
+was authored with, or `JOB_POINTS`, whichever is larger* — exists because
+authored lists ran from 11 to 33 and a flat 20 would have handed you a farmhand
+over budget on the day you hired them. The farmhand was the 33. Folded, their
+list totals 19, so the floor stops applying to them and they land on the
+ordinary allowance like everybody else, one point spare. The floor is now doing
+nothing for any shipped kind, and it should stay anyway: it is a rule about
+authored content, and the next heavy kind somebody writes is what it is for.
+
+### What 11 touched
+
+| File | Why |
+|---|---|
+| `shared/jobs.js` | `FOLDED_JOBS`, `foldJobs` — the vocabulary shim, and why it is a max |
+| `shared/schemas.js` | `farm` in `JOBS`; `z.preprocess(foldJobs, …)` on `WorkerSchema.jobs` |
+| `server/sim/staff.js` | `farm`; `till`/`sow`/`harvest` demoted to its steps and out of the `JOBS` map |
+| `server/content.js` | the fold in `load()` |
+| `server/sim/index.js` | the fold on the saved roster and in `assignJobs` |
+| `client/worker-menu.js` | three `JOB_INFO` rows become one — and every row splits into `blurb` (short enough not to wrap in a 184px column) and `detail` (the sentence, on the hover), because a useful line wrapped to three and a list of three-line rows is a list you scroll to reach the buttons under it |
+| `mcp/server.js` | the `JOB_HELP` gloss |
+| `scripts/verify-yard.js` | its test hand's list |
+
+No content row was rewritten: the seeded farmhand and shop-hand still say
+`harvest`, and read as `farm`. Nothing in `docs/fixtures.md` moves.
+
 ## Once a worker is data-driven
 
 These are cheap *because* of the split above, and expensive without it.
@@ -1554,6 +1647,8 @@ Each step leaves the game playable.
 10. ✅ **The shop hand** — `merchandise`: clear a dead board, merge a split one.
     The first job that takes goods *off* a shelf, and the reason every other one
     could get away with pointing one way.
+11. ✅ **One farm directive** — `till`, `sow` and `harvest` fold into `farm`, and
+    an old list is read rather than migrated.
 
 Steps 1 and 2 are the ones that matter; everything after is only worth doing
 once a worker is genuinely data-driven. `guard` is deliberately not on this

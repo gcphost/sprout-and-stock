@@ -39,7 +39,7 @@ export const TAG_GROUPS = {
   // client/sections.js), so tagging one is how it lands under Greenery rather
   // than in the everything-else drawer — the same move the shop makes with
   // items, said about the palette instead of about demand.
-  decor: ['plant', 'lamp', 'sign'],
+  decor: ['plant', 'lamp', 'sign', 'furniture'],
 };
 
 /** Flat list of every known tag. */
@@ -67,8 +67,8 @@ export const DEPARTMENTS = TAG_GROUPS.category;
  *
  * Only the ones that misread on their own, and the fallback is the tag itself —
  * so this never has to be kept complete, and a tag invented next week reads as
- * itself rather than as a gap. "A Snack Kid came in for kids and you had none"
- * was the one that forced it: `kids` is exactly the right tag on the item and
+ * itself rather than as a gap. "A Snack Kid: no kids." was the one that forced
+ * it: `kids` is exactly the right tag on the item and
  * exactly the wrong word in the log line, which is a presentation problem and
  * must not become a content one. Nobody should ever be tempted to retag a
  * shelf to make a message read better.
@@ -278,12 +278,30 @@ export function homeKind(item) {
 /**
  * May a unit of this kind carry this item?
  *
- * Note this is the rule the SHOP works to — the staff, reservations, the
- * re-flow, the balance bot. Your own hands are looser and always have been:
- * `boardFor` refuses only goods that named a fixture and are being put
- * somewhere else, so you may stand a loaf in a freezer if you like and watch
- * what that does to it. See `spoilRate` — it has an opinion about every one of
- * these six combinations, which is what makes the loose rule survivable.
+ * Everybody's rule: the staff, reservations, the re-flow, the balance bot, and
+ * your own hands. It was the shop's alone for two steps — `boardFor` refused
+ * only goods that had NAMED a fixture, so you could stand a loaf in a freezer
+ * and watch what that did to it, and `spoilRate`'s opinion about all six
+ * combinations was what made that survivable.
+ *
+ * What killed it is that the loose rule is not a freedom you take, it is one
+ * that gets taken on your behalf. A crate is mixed and `pourInto` empties it
+ * pile by pile, so a crate of carrots and eggs poured into a freezer put the
+ * carrots on a cold board — one press, no refusal, and the eggs, which have
+ * nowhere else in the shop to be, left in the box. The bug reads as the shop
+ * choosing wrong, and it is: you asked it to fill a freezer and it did the one
+ * thing you could not have meant.
+ *
+ * That could be fixed by ordering the piles, and was, and the fix was the tell.
+ * Ordering decides which pile goes on FIRST and cannot stop the second one
+ * going on at all — so the freezer still filled its spare boards with carrots,
+ * one board later. There is no ranking that expresses "and then stop", because
+ * the thing being asked for is a refusal.
+ *
+ * `spoilRate` keeps its six combinations and they are not dead. Content is
+ * edited live, so an item can be tagged `needs-freezer` while cases of it are
+ * standing on ordinary shelving, and a save predates any rule made today —
+ * which is what the re-flow's shed is for.
  */
 export function holds(kind, item) {
   return homeKind(item) === kind;

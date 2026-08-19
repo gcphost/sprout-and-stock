@@ -409,6 +409,24 @@
     }
     #doorway svg { display: block; }
     #sign.shut #doorway { color: var(--ink); opacity: .38; }
+    /* ...and once, for the shop that has never been opened.
+       Being shut is said three ways already — this door dims, the clock is
+       struck through, #hq puts up a hot chip — and every one of them is a mark
+       you have to have seen the other state to read. That is fine for a shop you
+       just closed and not fine on a world's first morning, where an empty floor
+       is equally a shop nobody has walked into yet: three new worlds got played
+       for a while with the shutters down. So the door ASKS, once, and stops for
+       ever the first time the shutters are worked either way — see `shutterUsed`
+       in ui.js. A prompt that came back would be a prompt you learn to skip. */
+    #sign.nudge { animation: signAsk 1.6s ease-in-out infinite; }
+    #sign.nudge #doorway { color: var(--accent); opacity: 1; }
+    @keyframes signAsk {
+      0%, 100% { background: rgba(58,49,40,0); }
+      50% { background: rgba(168,68,47,.22); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #sign.nudge { animation: none; background: rgba(168,68,47,.16); }
+    }
     #when { display: flex; align-items: baseline; gap: 5px; line-height: 1.2; }
     #cash {
       font-size: 14px; font-weight: 800; letter-spacing: -.02em;
@@ -963,17 +981,27 @@
 
     /* The drag joystick draws nothing — see client/main.js. */
 
-    /* bottom-left: event log.
-       `align-items: start` so a short line is a short pill — the column is a
-       width bound, not a shape every line has to fill. */
+    /* bottom-right: event log.
+       `align-items: end` so a short line is a short pill — the column is a
+       width bound, not a shape every line has to fill — and the pills line up
+       on the edge they are anchored to rather than ragging away from it.
+
+       It is the one thing in the bottom stack that does NOT clear the nav, and
+       that is the point rather than an oversight. Everything else down there is
+       something you press, so it is worth the arithmetic in `--nav-top` /
+       `--build-h` to keep it above whatever the bar is doing. A feed is the
+       opposite: you never touch it, and a column of lines that jumped every
+       time the build bar opened or closed was six things moving in answer to a
+       press that had nothing to do with them. So it takes the corner and stays
+       there. */
     #log {
-      left: 12px; max-width: min(520px, 46vw);
-      display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-      /* The feed sits over the bottom-left corner of the FLOOR, so every pill
-         was a patch of shop you could not tap to walk to — quietly, because a
-         press that lands on nothing looks like a press you got wrong. It has
-         never needed the pointer, and now that hovering means something it
-         still doesn't: `hoverLog` hit-tests rectangles instead. */
+      right: 12px; bottom: 12px; max-width: min(520px, 46vw);
+      display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+      /* The feed sits over a corner of the FLOOR, so every pill was a patch of
+         shop you could not tap to walk to — quietly, because a press that lands
+         on nothing looks like a press you got wrong. It has never needed the
+         pointer, and now that hovering means something it still doesn't:
+         `hoverLog` hit-tests rectangles instead. */
       pointer-events: none;
     }
     /* Quieter at rest than anything you are meant to be reading — this is a feed
@@ -988,8 +1016,9 @@
     }
     #log div.held { opacity: 1; }
     /* Last, so it beats both of the above — a line on its way out fades from
-       wherever it happened to be. */
-    #log div.out { opacity: 0; transform: translateX(-8px); }
+       wherever it happened to be. Off the edge it is anchored to, so it reads
+       as leaving the screen rather than sliding under the shop. */
+    #log div.out { opacity: 0; transform: translateX(8px); }
     /* Who did it, in front of the sentence that names them. Round, because the
        plate under an item is a shelf and the plate under a person is not — the
        two want telling apart at a glance down a column of lines. A flex child
@@ -2174,7 +2203,7 @@
     .wk-skins .shape { padding: 3px 8px 3px 3px; }
     .wk-skins .shape .ico.art { width: 30px; height: 36px; }
 
-    /* The directives, in TWO COLUMNS. It is a fixed vocabulary of nine short
+    /* The directives, in TWO COLUMNS. It is a fixed vocabulary of eight short
        rows and one column of them was a scroll for no reason — with the tabs
        gone and the head shorter, the whole list now sits on screen at once,
        which is the difference between reading a hire's shift and hunting
@@ -2684,8 +2713,12 @@
     /* The corner HUD clears the same stack, by the same arithmetic. `--build-h`
        is 0 when no bar is up, so there is one rule rather than one per mode —
        `body.building #log` and friends were three literals that had to be kept
-       in step with a bar whose height nobody could predict. */
-    #log, #carry, #prompt { bottom: calc(var(--nav-top) + var(--build-h) + 8px); }
+       in step with a bar whose height nobody could predict.
+
+       `#log` is deliberately not in here any more — see its own rule. These two
+       are things you read *while pressing something*, so they have to move with
+       the bar; the feed is not. */
+    #carry, #prompt { bottom: calc(var(--nav-top) + var(--build-h) + 8px); }
 
     /* ---- the award card ---------------------------------------------------
        The one thing on screen that is allowed to look like a game rather than

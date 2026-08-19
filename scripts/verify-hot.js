@@ -31,13 +31,25 @@
  * - **The matrix is a recount, not a pair.** Nine combinations of three kinds
  *   and three items, asserted by walking `STOCK_KINDS` rather than by naming
  *   freezer and warmer — or a fourth kind lands with two of its rules written.
- * - **The asymmetry between the shop and your own hands is deliberate.** The
- *   staff, reservations and the re-flow work to "this kind and no other"; your
- *   hands only refuse goods that NAMED a fixture. You may stand a loaf in a
- *   freezer and watch what happens. Both halves are load-bearing and they look
- *   like an inconsistency, which is exactly why they are pinned here.
- * - **A re-flow drops misplaced stock rather than carrying it.** A chicken must
- *   not ride a carry-over onto ordinary shelving, and the goods must survive.
+ * - **One rule, and the POUR is why.** The staff, reservations, the re-flow and
+ *   your own hands all work to "this kind and no other". They did not for two
+ *   steps: your hands refused only goods that had NAMED a fixture, which is a
+ *   freedom right up until a mixed crate makes the choice for you. `pourInto`
+ *   empties pile by pile, so a box of carrots and eggs tipped into a freezer
+ *   spent a cold board on the carrots and left the eggs — one press, no
+ *   refusal, and the eggs have nowhere else in the shop to be. No ordering of
+ *   the piles fixes that, because a sort says which goes on first and cannot
+ *   say "and then stop". `shelfAccepts` moved with it, or the highlight
+ *   promises a shelf the press refuses.
+ * - **A re-flow drops misplaced stock rather than carrying it, and DROPS is the
+ *   word.** A chicken must not ride a carry-over onto ordinary shelving — and
+ *   the goods have to end up on the floor, not nowhere. Both sides of the
+ *   asymmetry above reach this loop and only one of them has a tag on it: the
+ *   coffee somebody stood in a freezer is ordinary in every way an item can be,
+ *   so the only thing that says it may not stay there is the shop's own rule.
+ *   For four steps that rule was a bare `filter` and the stock ceased to exist
+ *   on the next wall segment anybody drew, which is invisible twice over — a
+ *   shop a few cases poorer looks exactly like a shop that sold them.
  *
  * It authors one piece and tags nothing: the items it needs it builds in
  * memory, because tagging a live item would change what the shop next door is
@@ -100,6 +112,28 @@ function freeFloor(g, taken = new Set()) {
   }
   return null;
 }
+
+/**
+ * Every case of one item the shop can account for, wherever it is standing.
+ *
+ * The conservation claims here are all about a re-flow SHEDDING a board, and
+ * the failure they exist to catch is the stock simply not being anywhere
+ * afterwards — so counting the shelves alone would pass the bug. Boards and
+ * crates, which between them is everywhere a re-flow can put goods.
+ */
+const census = (g, itemId) => onBoards(g, itemId) + onFloor(g, itemId);
+/** How much of one item is standing on one unit. */
+const qtyOf = (g, shelf, itemId) => (g.layout.shelves.find((s) => s.id === shelf.id)?.stacks ?? [])
+  .reduce((n, k) => n + (k.item_id === itemId ? (k.qty ?? 0) : 0), 0);
+/** ...and how much of it is in a lot — a crate, a shoulder, a pair of hands. */
+const lotOf = (lot, itemId) => (lot?.stacks ?? [])
+  .reduce((n, k) => n + (k.item_id === itemId ? (k.qty ?? 0) : 0), 0);
+const onBoards = (g, itemId) => (g.layout.shelves ?? [])
+  .flatMap((s) => s.stacks ?? [])
+  .reduce((n, k) => n + (k.item_id === itemId ? (k.qty ?? 0) : 0), 0);
+const onFloor = (g, itemId) => (g.deliveries ?? [])
+  .flatMap((d) => d.stacks ?? [])
+  .reduce((n, k) => n + (k.item_id === itemId ? (k.qty ?? 0) : 0), 0);
 
 // ---------------------------------------------------------------------------
 // Test items, in memory only.
@@ -289,8 +323,19 @@ process.on('exit', () => {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Who may put what where. The shop's rule and your hands' rule differ, and
-//    both halves are deliberate.
+// 6. Who may put what where — ONE rule, and the pour is why.
+//
+//    This section used to pin an asymmetry: the shop refused both ways and your
+//    own hands refused only goods that had NAMED a fixture, so you could stand
+//    a loaf in a freezer and `spoilRate` would charge you for it. It read as an
+//    inconsistency and was argued for as a freedom.
+//
+//    A crate is what took the freedom back. `pourInto` empties a mixed lot pile
+//    by pile, so under the loose rule a crate of carrots and eggs poured into a
+//    freezer put carrots on a cold board — one press, no refusal, and the eggs,
+//    which have nowhere else in the shop to be, left in the box. There is no
+//    ordering of the piles that fixes it, which is the tell: a sort says which
+//    pile goes on first and cannot say "and then stop".
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -313,14 +358,35 @@ process.on('exit', () => {
     check(!g.assignShelf('me', freezer.id, real.id).ok, 'nor in a freezer, for the same reason');
   }
 
-  // YOUR HANDS' rule — one-way. This looks like an inconsistency and is not:
-  // you may stand a loaf in a freezer if you like, and `spoilRate` has an
-  // opinion about what that costs you. What is refused is goods that NAMED a
-  // fixture being put somewhere else.
+  // YOUR HANDS' rule — the same one, which is the claim this section exists to
+  // make now. Both directions, because only one of them is a fixture you would
+  // think to check: "a chicken may not go on a shelf" was always true, and "a
+  // loaf may not go in a freezer" is the half that is new.
   if (real) {
-    check(g.boardFor(warmer, real).ok !== false || true, 'by hand, ordinary goods are not refused a hot counter');
-    const byHand = g.boardFor(warmer, real);
-    check(byHand.ok !== false, 'by hand you may stand a loaf under a heat lamp', byHand.error ?? '');
+    const inWarmer = g.boardFor(warmer, real);
+    check(!inWarmer.ok, 'by hand, ordinary goods are refused a hot counter', inWarmer.error ?? '');
+    check(!g.boardFor(freezer, real).ok, 'and refused a freezer');
+    check(g.boardFor(shelf, real).ok, 'and taken by the shelving they belong on');
+    // The refusal is the other one of `assignShelf`'s pair, and it has to be:
+    // "needs a hot counter" tells you what to buy, and this direction has to
+    // tell you the unit you are standing at is the wrong one. Naming the
+    // fixture the goods want would say "needs a shelf" at somebody holding
+    // bread, which is a sentence with no instruction in it.
+    check(/doesn't need/i.test(inWarmer.error ?? ''),
+      'and it says the unit is wrong rather than naming a fixture', inWarmer.error ?? '');
+  }
+
+  // ...and the highlight agrees with the press, in both directions. This is the
+  // green-ghost rule said about stocking: `shelfAccepts` lights up where an
+  // armful could go, so looser than the server is a promise it breaks and
+  // tighter is a shelf that refuses a press it would have taken. They were
+  // deliberately different functions with deliberately different answers until
+  // the rule went two-way, so this is the assertion that keeps them one.
+  if (real) {
+    for (const [unit, name] of [[shelf, 'shelf'], [freezer, 'freezer'], [warmer, 'hot counter']]) {
+      eq(g.shelfAccepts(unit, real.id), g.boardFor(unit, real).ok,
+        `the ${name} highlights for ordinary goods exactly when it takes them`);
+    }
   }
 
   // And the half that is not loose either way: something that named a fixture.
@@ -356,7 +422,7 @@ process.on('exit', () => {
     // a label nothing can honour is a board that sits empty for ever.
     before.assigned = [frozen.id];
 
-    const held = g.countGoods ? g.countGoods(frozen.id) : null;
+    const held = census(g, frozen.id);
     g.regenerateLayout();
 
     const after = g.layout.shelves.find((s) => s.id === id);
@@ -367,8 +433,100 @@ process.on('exit', () => {
       'and the reservation nothing could honour is cleared rather than kept');
     // Cleared, not destroyed. `verify-build` makes this claim about every other
     // way goods move; it has to hold here too or a re-flow is a way to lose
-    // stock by having built the wrong unit.
-    if (held != null) eq(g.countGoods(frozen.id), held, 'and the goods themselves survive it');
+    // stock by having built the wrong unit — silently, since a shop that is a
+    // few cases poorer looks exactly like a shop that sold them.
+    eq(census(g, frozen.id), held, 'and the goods themselves survive it');
+    eq(onFloor(g, frozen.id), 6, 'as a crate on the floor, the way a stripped shelf leaves them');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 7b. The same claim about goods that named NOTHING, which nobody can put there
+//     any more — and that is the reason it is still here.
+// ---------------------------------------------------------------------------
+//
+// Case 7 is about goods that named a fixture. This is ordinary shelf goods in a
+// freezer, and since the rule went two-way (case 6) there is no press in the
+// game that produces it. It is arranged directly, because the state still
+// happens and the two ways in are both invisible: content is edited live, so an
+// item can be tagged `needs-freezer` while cases of it stand on ordinary
+// shelving, and every save in existence predates any rule made today.
+//
+// It went four steps as a bare `filter` — put a case of coffee in a freezer,
+// draw one wall segment, and it was gone. That is a claim about a NUMBER rather
+// than about a picture, which is what keeps it worth asserting after the press
+// that used to reach it went away: a shop a few cases poorer looks exactly like
+// a shop that sold them.
+{
+  const g = fresh();
+  const fz = g.layout.shelves.find((s) => shelfKind(s.kind) === 'freezer');
+  // Something that asks for nothing at all — not merely "not frozen", or the
+  // item might be one a hot counter wants and this would be case 7 again.
+  const plain = content().items.find((it) => requiredFixture(it) == null);
+
+  if (fz && plain) {
+    const before = g.layout.shelves.find((s) => s.id === fz.id);
+    check(!g.boardFor(before, plain).ok,
+      'nothing puts ordinary goods in a freezer by hand any more');
+    before.stacks = [{ item_id: plain.id, qty: 4, price: 3, stockedDay: g.day }];
+
+    const held = census(g, plain.id);
+    g.regenerateLayout();
+
+    const after = g.layout.shelves.find((s) => s.id === fz.id);
+    const still = (after?.stacks ?? []).some((k) => k.item_id === plain.id && k.qty > 0);
+    check(!still, 'and the re-flow takes them back off it');
+    eq(census(g, plain.id), held, 'without destroying them');
+    eq(onFloor(g, plain.id), 4, 'they land on the floor as a crate');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 7c. THE POUR. One press, a mixed box, and a unit that wants half of it.
+// ---------------------------------------------------------------------------
+//
+// The bug the two-way rule was made for, and the only one in this file you can
+// reach with a single ordinary input. A crate of carrots and eggs, emptied into
+// a freezer: eggs are `needs-freezer` and carrots are not, so the freezer has to
+// take the eggs, refuse the carrots, and hand the carrots back on the shoulder
+// — rather than filling a cold board with produce and leaving the eggs in the
+// box with nowhere in the shop to be.
+//
+// Asserted through `stockFromCrate` rather than `boardFor`, because it is the
+// LOOP that was wrong and not the judgement: `pourInto` asks each pile on its
+// own, so a rule that refuses correctly one pile at a time still fills the unit
+// wrongly if the refusals do not happen. And the shoulder is asserted too — a
+// pour that quietly ate the carrots would pass every board assertion here.
+{
+  const g = fresh();
+  const fz = g.layout.shelves.find((s) => shelfKind(s.kind) === 'freezer');
+  const sh = g.layout.shelves.find((s) => shelfKind(s.kind) === 'shelf');
+  const frozen = content().items.find((it) => requiredFixture(it) === 'freezer');
+  const plain = content().items.find((it) => requiredFixture(it) == null);
+
+  if (fz && sh && frozen && plain) {
+    const p = g.players.me;
+    // Deliberately with the ordinary goods FIRST in the box. Under the loose
+    // rule this is the order that lost, and the sort that used to paper over it
+    // is gone — so a regression here reads as "the carrots went in", which is
+    // exactly the report this case came from.
+    p.haul = { stacks: [{ item_id: plain.id, qty: 8 }, { item_id: frozen.id, qty: 8 }] };
+    Object.assign(p, { x: fz.browseAt.x, z: fz.browseAt.z });
+
+    const poured = g.stockFromCrate('me', fz.id);
+    check(poured.ok, 'the freezer takes the pour', poured.error ?? '');
+    eq(poured.item_id, frozen.id, 'and what went in is the frozen goods');
+    eq(qtyOf(g, fz, frozen.id), 8, 'all of them');
+    eq(qtyOf(g, fz, plain.id), 0, 'and none of the ordinary goods');
+    eq(lotOf(p.haul, plain.id), 8, 'which are still on your shoulder, not eaten');
+
+    // ...and they go somewhere. A refusal that left you carrying goods no unit
+    // in the shop would take is a tighter rule that has broken the game rather
+    // than fixed it.
+    Object.assign(p, { x: sh.browseAt.x, z: sh.browseAt.z });
+    const rest = g.stockFromCrate('me', sh.id);
+    check(rest.ok, 'and the shelving next door takes them', rest.error ?? '');
+    eq(qtyOf(g, sh, plain.id), 8, 'all of them');
   }
 }
 

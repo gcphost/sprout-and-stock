@@ -297,13 +297,13 @@ export function stepStaff(game, dt) {
       // on the shoulder is not a job you may be drawn off, so the one job that
       // knows how to put THIS box down is the one that has to be offered.
       if (s.haul.waste) {
-        if (tidy(game, s)) { s.job = 'tidy'; spend(s); s.idleFrom = null; continue; }
+        if (worked(game, s, tidy)) { s.job = 'tidy'; spend(s); s.idleFrom = null; continue; }
         s.job = null;
         if (tryBreak(game, s, true)) continue;
         idle(game, s);
         continue;
       }
-      if (unload(game, s)) { s.job = 'unload'; spend(s); s.idleFrom = null; continue; }
+      if (worked(game, s, unload)) { s.job = 'unload'; spend(s); s.idleFrom = null; continue; }
       // Could not even set it down. Stand still rather than fall through to a
       // job that would ignore the box — but take the break first, which is the
       // half this branch was missing.
@@ -337,7 +337,7 @@ export function stepStaff(game, dt) {
       const run = JOBS[job];
       if (!run) continue;         // authored a job this build doesn't have
       try {
-        if (run(game, s)) { s.job = job; took = true; spend(s); break; }
+        if (worked(game, s, run)) { s.job = job; took = true; spend(s); break; }
       } catch {
         // A broken job is not worth killing the tick loop over, and not worth
         // killing the *worker* over either — try the next one.
@@ -413,6 +413,34 @@ export function stepStaff(game, dt) {
     if (tryChore(game, s)) continue;
     idle(game, s);
   }
+}
+
+/**
+ * Run one job, and answer whether it actually took the tick.
+ *
+ * The two are the same question for every job that can reach its target, which
+ * is why this was `run(game, s)` for as long as everything in a shop could be
+ * walked to. A job answers true for "doing it" AND for "on my way", and a walk
+ * that cannot happen goes out under the second of those — so the draw is spent,
+ * `idleFrom` is cleared, and the hire is busy for ever with a walk that will
+ * never take a step. See `stall`, which is the other half.
+ *
+ * Declining lets the draw carry on to the next job, and past the bottom of it to
+ * the three things that exist for precisely this state: `putDown` after
+ * `STUCK_SECONDS`, then the break, then a chore. Which is the point — the hire
+ * gets rid of what they are holding, rests, and the goods end up on the pad
+ * where somebody can see them, instead of in the arms of a robot that has
+ * stopped moving.
+ *
+ * The flag is cleared before the call rather than after it, so a stall left by
+ * an earlier job this tick can never be read as this one's.
+ */
+function worked(game, s, run) {
+  s.stalled = false;
+  const did = run(game, s);
+  const stalled = s.stalled;
+  s.stalled = false;
+  return did && !stalled;
 }
 
 /**
@@ -613,9 +641,40 @@ const FALLTHROUGH = 0.5;
  *
  * Uses the game's seeded rng, never Math.random — two `simulate` runs of one
  * seed have to match, or every balance comparison in the project becomes noise.
+ *
+ * ...except that `serve` stops being a share of the day while the shutters are
+ * down, and that is the one exception in here. A weight says two things at once
+ * (see `FALLTHROUGH`) and only one of them survives a shut shop: it is still a
+ * priority, and there is no longer a day to take a share of. So the heavier you
+ * made somebody's clerking — which is the honest way to author a clerk — the
+ * more of the night they spent frozen. `serve` guards itself and declines with
+ * no queue, but a declining HEAD sets a floor of half its own weight, and a
+ * clerk's other jobs are light by construction: `serve 10, shelve 3, tidy 2` is
+ * two thirds of every quiet tick spent drawing the one job that cannot run and
+ * refusing to try the two that can. What that reads as is a bot standing at a
+ * dark till while there is stock on the floor, and it is worst overnight, which
+ * is precisely when the shop had the time.
+ *
+ * It moves to the END of the list rather than off it, which is the whole care
+ * needed here. A shopper who was already inside when you shut still finishes
+ * their trip and still queues, and cash left on a counter is still worth
+ * collecting — a clerk who could not do either would be a shop that cannot
+ * close. Last means "after everything that can actually be done", not "never".
+ *
+ * And a hire whose ONLY job is serving is untouched: there is nothing to demote
+ * them to, so they post up at their till exactly as they always did.
  */
 function drawOrder(game, jobs) {
   if (jobs.length <= 1) return jobs;
+  if (!game.isOpen()) {
+    const rest = jobs.filter((j) => j.job !== 'serve');
+    // `rest.length < jobs.length` is "they actually have a serve weight" — the
+    // whole branch is a no-op otherwise, and skipping it keeps a shut shop
+    // drawing exactly the numbers an open one does for everybody else.
+    if (rest.length && rest.length < jobs.length) {
+      return [...drawOrder(game, rest), ...jobs.filter((j) => j.job === 'serve')];
+    }
+  }
   const rest = [...jobs].sort((a, b) => b.weight - a.weight);
   const total = rest.reduce((n, j) => n + j.weight, 0);
   let r = game.rng.next() * total;
@@ -1238,13 +1297,55 @@ function topJob(game, s) {
   return [...jobsOf(game, s)].sort((a, b) => b.weight - a.weight)[0]?.job ?? null;
 }
 
+/**
+ * COULD NOT GET THERE, which is not the same answer as "on my way".
+ *
+ * Both walks below return false twice over — once for a route in progress, once
+ * for no route at all — and every caller in the file spells the second one
+ * `return true`, meaning "I have this tick". That reading is right for the walk
+ * and wrong for the stall, and the difference is invisible for exactly as long
+ * as every target is reachable: a hire walking is a hire working, and a hire who
+ * can never arrive is a hire holding the tick for the rest of the save.
+ *
+ * **`pathTo` refusing is the RARE way in, and it was the only one guarded.**
+ * `findPath` does not fail on a goal it cannot stand on — a goal is usually a
+ * fixture tile, so it retargets to the first walkable NEIGHBOUR of it and
+ * happily returns a route. That is what makes a walk to a `browseAt` somebody
+ * has built on succeed and land you two tiles from the anchor, outside `REACH`:
+ * a real path, honestly reported, ending somewhere the shop verbs refuse. Ask
+ * again from there and the search starts on its own target, hands back an empty
+ * route, and answers true — so the hire has *arrived* at somewhere that is not
+ * near enough, for ever, and nothing anywhere says no.
+ *
+ * So a route with no steps left in it that has not arrived is the second stall,
+ * and it is the one that actually bites.
+ *
+ * What it costs is not a slower worker. `stepStaff` clears `idleFrom` on every
+ * tick a job is taken, so a job that claims the tick forever means `stuckFor`
+ * never fills, `putDown` is never reached, and neither is the break under it —
+ * energy sits at zero and `tiredness` pins them at `TIRED_PACE` permanently.
+ * That is `s.haul`'s bug two hundred lines up, said about an ARMFUL: found on a
+ * live shop with a chef stood outside the east wall holding six toasties for a
+ * hot counter whose only working side another hot counter had been built on.
+ *
+ * A flag rather than a third return value, because the claim has to be
+ * *unwound* by the caller that offered the draw and there are five walks and
+ * nine jobs between here and there — a tri-state would be nine call sites that
+ * each have to spell the distinction again, and the one that forgot would look
+ * exactly like this bug does. Set here, read once, in `stepStaff`.
+ */
+function stall(s) {
+  s.stalled = true;
+  s.cooldown = 1;   // unreachable — try something else shortly
+  return false;
+}
+
 /** Walk to `goal`; returns true once standing there. */
 function goTo(game, s, goal, reach = 1.2) {
   if (Math.hypot(s.x - goal.x, s.z - goal.z) <= reach) return true;
-  if (!game.pathTo(s, goal)) {
-    s.cooldown = 1;   // unreachable — try something else shortly
-    return false;
-  }
+  if (!game.pathTo(s, goal)) return stall(s);
+  // Not there, and no step left to take. See `stall`.
+  if (!s.path?.length) return stall(s);
   return false;
 }
 
@@ -1278,10 +1379,12 @@ function goTo(game, s, goal, reach = 1.2) {
  */
 function goToShelf(game, s, shelf) {
   if (Math.hypot(s.x - shelf.x, s.z - shelf.z) <= REACH) return true;
-  if (!game.pathTo(s, shelf.browseAt ?? shelf)) {
-    s.cooldown = 1;
-    return false;
-  }
+  if (!game.pathTo(s, shelf.browseAt ?? shelf)) return stall(s);
+  // Standing on the far side of a working spot somebody has built on, with the
+  // route already spent and the anchor still out of `REACH`. See `stall` — this
+  // is the shape the live shop actually hit, and the walk above reports it as a
+  // perfectly good path.
+  if (!s.path?.length) return stall(s);
   return false;
 }
 
@@ -1444,6 +1547,21 @@ function restock(game, s) {
     game.orderBudgetLeft(),
   );
   if (budget <= 0) return false;
+
+  // ...and a machine that cannot run at all, before any of the shelves.
+  //
+  // Nothing in the game has ever ordered an INGREDIENT. `restockQueue` is built
+  // out of boards, so an item nobody sells is invisible to the supplier however
+  // badly the kitchen wants it — set an appliance to a recipe whose input is not
+  // also a product you shelve, and it silently never runs. There is no refusal
+  // and nothing in the log: a press with no bread and a press nobody set are the
+  // same still frame, and what it reads as is the chef having no job.
+  //
+  // It goes FIRST, and it is allowed to because it can only fire on a machine
+  // that is genuinely stopped — see `larderOrder`. A pass gated on "the kitchen
+  // is short" behind the shelf loop would never run in a shop with twenty boards
+  // on it, which is exactly the shop that owns an appliance.
+  if (larderOrder(game, s, c, budget)) return true;
 
   // The order the shop asks for. `restockQueue` is the sim's rule, not this
   // job's: it is what the player set in the shelf menu, and a second copy of it
@@ -2208,6 +2326,26 @@ function deliver(game, s) {
 }
 
 /**
+ * Work the beds: pick what is ripe, sow what is turned, turn what is rough.
+ *
+ * The one farm directive, and the order in it is the whole of what used to be
+ * expressed by giving three jobs three weights. It is not a preference: picking
+ * frees a bed to grow the next lot and puts goods on a shelf, sowing is one
+ * action away from producing, and breaking new ground is the only one of the
+ * three that produces nothing at all — which is why `till` already refused to
+ * run while a turned bed sat waiting for seed, three steps before this existed.
+ * That guard is the same rule said about two of the three; this says it about
+ * all three.
+ *
+ * Each step still guards itself and each returns false *before* claiming
+ * anything, so falling from one to the next costs nothing and cannot leave a
+ * hire holding a target they are not walking to.
+ */
+function farm(game, s) {
+  return harvest(game, s) || sow(game, s) || till(game, s);
+}
+
+/**
  * Break new ground.
  *
  * Refuses while a turned bed is still waiting for seed: finishing one is a
@@ -2445,7 +2583,7 @@ function craft(game, s) {
 
 /** The vocabulary, and the only thing an authored job name is checked against. */
 const JOBS = {
-  serve, restock, unload, shelve, tidy, merchandise, till, sow, harvest, craft,
+  serve, restock, unload, shelve, tidy, merchandise, farm, craft,
 };
 
 const total = (contents) => Object.values(contents ?? {}).reduce((a, b) => a + b, 0);
@@ -2500,6 +2638,67 @@ export function shelfFor(game, itemId, c, spoken = null) {
  * to send a van and exactly wrong here: the farm counting its own beds against
  * itself is a field that refuses to be picked because it is planted.
  */
+/**
+ * Buy what a stopped appliance is short of, through the ordinary supplier.
+ *
+ * The whole design is in the trigger rather than in the buying: this may only
+ * fire for an input the shop has **none of anywhere** — not on a board, not in
+ * a crate, not in the hopper, not in somebody's hands and not on the van. That
+ * is what makes it safe to ask before the shelves, and it is self-silencing:
+ * `homeSupply` counts a pending order from the tick it is placed, so the first
+ * van settles it and this goes quiet until the machine runs dry again. A rule
+ * of "top the larder up" instead would compete with every board in the shop for
+ * the same budget, on the shop that has the most boards.
+ *
+ * Three things it deliberately does not do:
+ *
+ * - **It does not choose a recipe**, so `orders.assign` does not gate it. That
+ *   switch is the shop choosing your *range*, and the range here is a thing you
+ *   set on the machine yourself — buying flour for an oven you pointed at bread
+ *   is topping up a board you filled, not picking your stock for you.
+ * - **It does not order for a machine with nowhere to send the result.**
+ *   `hasHome` is the same gate `craft` uses to decide whether to feed one at
+ *   all, and without it a kitchen whose output has no board buys ingredients
+ *   for ever — the endless-goods bug with a receipt attached.
+ * - **It buys one batch, not a hopper full.** `stationHopperRoom` is the cap,
+ *   but a run of them is what `homeSupply` cannot see coming: the point is to
+ *   unstick the machine, and the second batch is an ordinary restock decision
+ *   made once there is a board of the stuff.
+ */
+function larderOrder(game, s, c, budget) {
+  const spoken = inbound(game, s);
+  for (const st of game.layout.stations ?? []) {
+    const r = game.stationRecipe(st);
+    if (!r) continue;
+    if (!hasHome(game, r.output_id, c, spoken)) continue;
+    for (const input of r.inputs) {
+      const id = input.item_id;
+      const item = c.byId.items[id];
+      if (!item) continue;
+      const rule = game.itemRule(id);
+      if (rule.auto === false) continue;
+      // Everywhere the goods could already be. `itemHeld` is the boards,
+      // `homeSupply` is the crates, the hands, the beds and the van, and the
+      // hopper is the one place neither of them looks — a machine part-loaded
+      // with bread is not a machine short of bread.
+      // `contents` is a plain {itemId: qty} hopper rather than a lot — read it
+      // as one, or a part-loaded machine reads as empty and orders again.
+      const have = game.itemHeld(id) + game.homeSupply(id) + (st.contents?.[id] ?? 0);
+      if (have >= input.qty) continue;
+      const room = game.stationHopperRoom(st, id);
+      let qty = Math.min(Math.max(input.qty, 0) * 2, room);
+      if (rule.max > 0) qty = Math.min(qty, rule.max - game.itemHeld(id) - game.homeSupply(id));
+      const unit = wholesalePrice(item, game.folded(), game.season);
+      qty = Math.min(qty, Math.floor(budget / Math.max(unit, 0.01)));
+      if (qty <= 0) continue;
+      if (!game.buyStock(s.id, id, qty).ok) continue;
+      s.cooldown = paceOf(s);
+      return true;
+    }
+  }
+  return false;
+}
+
 function hasHome(game, itemId, c, spoken = null) {
   if (!itemId) return false;
   if (game.stockCrates().some((d) => lotQty(d, itemId) > 0)) return false;
@@ -2630,7 +2829,21 @@ function shelvesFor(game, itemId, c, spoken = null) {
     // one a home too, which is the whole override. Waived once the home is out
     // of room, which is the only state in which this rule was refusing goods
     // rather than gathering them.
-    if (!game.homedAt(sh, itemId, homes) && !spill[sh.boh === true ? 'back' : 'floor']) return false;
+    // A spill TOPS UP, it never opens a board. That is the difference between
+    // the waiver doing its job and the spread bug wearing its clothes: with a
+    // farm behind it, "any other legal unit" is every bare board in the shop,
+    // and each one it claims is a board the range never gets — so a shop with
+    // four beds of carrots quietly becomes three shelves of carrots and stops
+    // widening, which reads as the crew being stupid rather than as an overflow
+    // rule. Topping up a board that already holds this is the half that empties
+    // the yard without costing anything: it is stock going where that stock
+    // already lives, and `homeShelves` keeps the fullest unit the home, so it
+    // still settles rather than spreading. What waits instead is surplus with a
+    // full home and nowhere it has ever been — which is a crate on the pad, and
+    // the honest signal that you need another unit.
+    const side = sh.boh === true ? 'back' : 'floor';
+    if (!game.homedAt(sh, itemId, homes)
+        && !(spill[side] && game.shelfStack(sh, itemId))) return false;
     // Set aside for something else is a no even when it's bare — otherwise a
     // stocker with an armful fills the shelf you reserved and the reservation
     // only means anything until the next delivery lands. A LIST of reservations

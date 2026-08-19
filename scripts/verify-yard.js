@@ -117,7 +117,7 @@ const TEST_CROP = {
  */
 const TEST_HAND = {
   id: 'zz-yard-hand', name: 'Test Hand', color: '#8bd94a',
-  jobs: [{ job: 'harvest', weight: 1 }, { job: 'shelve', weight: 1 }, { job: 'tidy', weight: 1 }],
+  jobs: [{ job: 'farm', weight: 1 }, { job: 'shelve', weight: 1 }, { job: 'tidy', weight: 1 }],
   cost: 0, wage: 0, speed: 20, pace: 0.05,
   tiers: [{ name: 'Standard', cost: 0 }],
 };

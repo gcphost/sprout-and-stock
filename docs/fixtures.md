@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-71 pieces across 18 kinds.
+86 pieces across 18 kinds.
 
 ## Fixtures
 
@@ -165,8 +165,9 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 - ⚙️ **Oven** while running — 3 stages across a batch · 1 moving part
 - ⚙️ **Grill** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
 - ⚙️ **Preserving Pot** while running — 3 stages across a batch · steams · the machine itself shakes
+- ⚙️ **Stock Pot** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
 
-Shapes: Standard, Espresso Machine, Blender, Toaster, Sandwich Press, Juicer, Soft-Serve Machine, Deep Fryer, Oven, Grill, Preserving Pot — looks only, same price and same ladder.
+Shapes: Standard, Espresso Machine, Blender, Toaster, Sandwich Press, Juicer, Soft-Serve Machine, Deep Fryer, Oven, Grill, Preserving Pot, Stock Pot — looks only, same price and same ladder.
 
 1. **Domestic** — free, as built
 2. **Commercial** — $340, speed ×2
@@ -277,6 +278,96 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
+#### Potted Fern
+
+`potted-fern` · kind `prop-floor` · $22 to build
+
+6 parts
+
+✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Bay Tree
+
+`bay-tree` · kind `prop-floor` · $70 to build
+
+5 parts
+
+✨ Charm **2.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Window Box
+
+`window-box` · kind `prop-floor` · $30 to build
+
+8 parts
+
+✨ Charm **1.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Christmas Tree
+
+`christmas-tree` · kind `prop-floor` · $80 to build
+
+8 parts
+
+✨ Charm **2.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+💡 Emits `#ffd08a`, intensity 0.6, range 3.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Park Bench
+
+`park-bench` · kind `prop-floor` · $75 to build
+
+7 parts
+
+✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Bistro Set
+
+`bistro-set` · kind `prop-floor` · $95 to build
+
+9 parts
+
+✨ Charm **2** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Parasol
+
+`parasol` · kind `prop-floor` · $60 to build
+
+4 parts
+
+✨ Charm **1.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Bike Rack
+
+`bike-rack` · kind `prop-floor` · $45 to build
+
+7 parts
+
+✨ Charm **0.75** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Oak Barrel
+
+`barrel` · kind `prop-floor` · $26 to build
+
+4 parts
+
+✨ Charm **0.75** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Entrance Mat
+
+`entrance-mat` · kind `prop-floor` · $12 to build
+
+2 parts
+
+✨ Charm **0.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Rug Runner
+
+`rug-runner` · kind `prop-floor` · $28 to build
+
+3 parts
+
+✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 ### `prop-ceiling`
 
 Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a room to hang in.
@@ -358,6 +449,40 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 ✨ Charm **3.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 💡 Emits `#ffd08a`, intensity 1.8, range 6.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Hanging Basket
+
+`hanging-basket` · kind `prop-ceiling` · $50 to build
+
+7 parts
+
+✨ Charm **1.75** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Station Clock
+
+`hanging-clock` · kind `prop-ceiling` · $55 to build
+
+8 parts
+
+✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Open Sign
+
+`open-sign` · kind `prop-ceiling` · $35 to build
+
+4 parts
+
+✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+💡 Emits `#ff8b6b`, intensity 0.5, range 2.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+
+#### Bunting
+
+`bunting` · kind `prop-ceiling` · $30 to build
+
+5 parts · 4 parts move always
+
+✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 ## Paint
 

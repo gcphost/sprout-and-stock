@@ -37,6 +37,18 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
 
+/** Has this person ever worked a set of shutters? See `setOpen`. */
+const SHUTTER_KEY = 'sns.shutterUsed';
+
+/**
+ * How long "tap again to hire" stays armed.
+ *
+ * The same window `FIRE_ARM_MS` gives Let go in the worker menu, on purpose:
+ * they are the two ends of one irreversible decision, and two different waits
+ * for the same kind of confirm is a UI you have to learn twice. See `armHire`.
+ */
+const HIRE_ARM_MS = 4000;
+
 /**
  * Split a section's rows into tabbed groups, or null if it isn't tabbed.
  *
@@ -208,6 +220,9 @@ export class UI {
     // start of the list. Only the build bar has any.
     this.barSub = {};
     this.bar = null;
+    // The kind whose tile is asking a second time, and its timer — see `armHire`.
+    this.hireArm = null;
+    this.hireArmAt = null;
     this.el = {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
@@ -259,6 +274,11 @@ export class UI {
     // `title` it is pointed at, so it belongs to the shell rather than to any
     // one panel — the rail was only the first thing to want it.
     tip.install();
+
+    // Read once. A browser that refuses the store (private mode) reads as
+    // somebody who has never opened a shop, which is the safe way round: the
+    // worst case is being asked again on a shop you know how to open.
+    try { this.shutterUsed = localStorage.getItem(SHUTTER_KEY) === '1'; } catch { this.shutterUsed = false; }
 
     this.rail = new Rail(this, this.el.rail);
     this.el.shutter.onclick = () => this.setOpen(!this.shopOpen);
@@ -1088,9 +1108,52 @@ export class UI {
    * question anybody has about an upgrade — so the roster is what is left.
    */
   openBarEntry(it) {
-    if (it.hire) return showWorker(this, it.hire);
-    if (it.kind) return this.net.send('hire', { kind: it.kind });
+    if (it.hire) { this.disarmHire(); return showWorker(this, it.hire); }
+    if (it.kind) return this.armHire(it.kind);
+    this.disarmHire();
     return undefined;
+  }
+
+  /**
+   * Taking somebody on asks twice.
+   *
+   * Every other tile in this game either opens something or places something you
+   * can sell back. A hire does neither: it is the one press in the UI that spends
+   * money with no menu in between and nothing to undo it — letting them go
+   * refunds nothing — so the cost of a mis-tap is a wage charged again every
+   * morning until you notice. It is also the easiest mis-tap there is, because
+   * the tiles sit where the roster's tiles sit and one of those opens a card.
+   *
+   * The same shape `FIRE_ARM_MS` uses in the worker menu, said about the other
+   * end of the same decision, and it borrows its window so the two halves of
+   * "this is the irreversible one" behave alike.
+   *
+   * Armed on the TILE rather than through a dialog: the tile is the target your
+   * finger is already on, and a confirm box somewhere else is a second thing to
+   * hit. It disarms on a timer, on pressing anything else in the bar, and on the
+   * bar going away — an arm that outlived the strip it was drawn on would fire
+   * on whatever tile came back in that slot.
+   */
+  armHire(kind) {
+    if (this.hireArm === kind) {
+      this.disarmHire();
+      return this.net.send('hire', { kind });
+    }
+    // Cleared without a redraw, because the line under it draws anyway: two
+    // renders of one strip is the tile you are pressing rebuilt under your
+    // finger, which on touch is a press that can land on the second copy.
+    if (this.hireArmAt) clearTimeout(this.hireArmAt);
+    this.hireArm = kind;
+    this.hireArmAt = setTimeout(() => { this.disarmHire(); }, HIRE_ARM_MS);
+    return this.renderHotbar();
+  }
+
+  /** Forget an armed hire, and redraw only if there was one. */
+  disarmHire() {
+    if (this.hireArmAt) { clearTimeout(this.hireArmAt); this.hireArmAt = null; }
+    if (!this.hireArm) return undefined;
+    this.hireArm = null;
+    return this.renderHotbar();
   }
 
   /**
@@ -1245,6 +1308,10 @@ export class UI {
     // A fixture menu is the exception. It is about something standing in the
     // world and outlives every bar on purpose: opening the palette to move the
     // shelf you were just reading about must not close what you were reading.
+    // ...and an armed hire goes with it, for the reason `disarmTool` above does:
+    // an arm that outlived the strip it was drawn on would fire on whatever tile
+    // came back in that slot.
+    if (this.hireArm) { clearTimeout(this.hireArmAt); this.hireArmAt = null; this.hireArm = null; }
     if (this.openPanel === 'worker') this.closePanel();
     this.bar = which;
     this.rail.setBar(which);
@@ -2600,8 +2667,23 @@ export class UI {
     this.net.send('select-crop', { cropId: id });
   }
 
-  /** Raise or drop the shutters. The server decides; this only asks. */
-  setOpen(open) { this.net.send('shop-open', { open: !!open }); }
+  /**
+   * Raise or drop the shutters. The server decides; this only asks.
+   *
+   * Working them ONCE, either way, retires the nudge on the sign for good. It
+   * is in `localStorage` rather than on the save because what it remembers is
+   * about the person and not about the shop — somebody who has opened one shop
+   * knows where the button is, and being handed a second world does not unlearn
+   * it. Same argument and same store as `whoAmI` in net.js.
+   */
+  setOpen(open) {
+    this.net.send('shop-open', { open: !!open });
+    if (!this.shutterUsed) {
+      this.shutterUsed = true;
+      try { localStorage.setItem(SHUTTER_KEY, '1'); } catch { /* private mode */ }
+      this._clockKey = null;   // so the next `setClock` actually redraws it
+    }
+  }
 
   /** Stop or start the world. Same shape, same reason — see `shopOpen`. */
   setPaused(paused) { this.net.send('pause', { paused: !!paused }); }
@@ -2629,9 +2711,15 @@ export class UI {
     this.shopOpen = state.shutters ?? state.isOpen ?? true;
     this.paused = !!state.paused;
 
-    const key = `${!!state.isOpen}|${this.shopOpen}|${this.paused}`;
+    // Ask for the shutters only while they are down AND nobody has ever worked
+    // them. It is in the key rather than written every frame for the reason the
+    // doorway's `innerHTML` is: this whole block is a couple of writes a day.
+    const ask = !this.shopOpen && !this.shutterUsed;
+
+    const key = `${!!state.isOpen}|${this.shopOpen}|${this.paused}|${ask}`;
     if (key === this._clockKey) return;
     this._clockKey = key;
+    this.el.shutter.classList.toggle('nudge', ask);
 
     this.el.clock.classList.toggle('shut', !state.isOpen);
     this.el.clock.classList.toggle('paused', this.paused);
