@@ -271,7 +271,24 @@ export function stapleChance(browse) {
  * Score every stocked shelf for a customer and return the ones worth walking to,
  * best first. Used by the customer FSM to pick a destination.
  */
-export function rankShelves({ shelves, items, archetype, folded, season, reputation }) {
+/**
+ * How close to a till a board has to be to be an endcap, in tiles.
+ *
+ * There is no endcap fixture and there should not be one — `BUILD_KINDS` is
+ * closed because where a thing may go is behaviour, and an endcap is neither a
+ * new behaviour nor a new piece. It is a shelf you chose to put next to a
+ * checkout, so it is a distance, and that makes *placement* worth money.
+ *
+ * Here rather than beside `impulseBuy`, which is where it started, because two
+ * things read it now: the sim, to decide whether somebody in the queue is
+ * looking at it, and `pickItem`, to decide what the shop stocks there. Those
+ * two disagreeing is the shop auto-filling a spot it then prices as ordinary.
+ * `staff.js` cannot import `sim/index.js` — that file imports it — so a shared
+ * constant had to live somewhere neither owns.
+ */
+export const IMPULSE_RADIUS = 2.6;
+
+export function rankShelves({ shelves, items, archetype, folded, season, reputation, boardPull }) {
   const scored = [];
   for (const shelf of shelves) {
     // One entry per BOARD, not per unit. A shelf holding milk and cheese is two
@@ -284,9 +301,19 @@ export function rankShelves({ shelves, items, archetype, folded, season, reputat
       if (!stack.item_id || stack.qty <= 0) continue;
       const item = items[stack.item_id];
       if (!item) continue;
+      // …times how good a spot the board is in. A multiplier applied here
+      // rather than a term inside `purchaseChance`, because that function is
+      // about the ITEM and the PERSON — what it costs, who wants it, what the
+      // season is doing to it — and where a shop chose to stand it is a fact
+      // about neither. Same shape `LIST_BONUS`, `stapleChance` and the impulse
+      // pull all take: one clean chance, weighted by its caller's own question.
+      //
+      // Applied BEFORE the 0.05 cut, or a board can be ranked in on a height it
+      // is then not judged by, which is a shopper walking to the bottom shelf
+      // for something they were never going to buy.
       const chance = purchaseChance({
         item, archetype, price: stack.price, folded, season, reputation,
-      });
+      }) * (boardPull ? boardPull(shelf, stack.item_id) : 1);
       if (chance > 0.05) scored.push({ shelf, stack, item, chance });
     }
   }

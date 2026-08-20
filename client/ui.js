@@ -10,7 +10,7 @@ import { variantsOf } from '../shared/model.js';
 import { fixtureLabel, pieceFor, kindOf } from '../shared/pieces.js';
 import { spotsOf } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
-import { clockLabel } from '../shared/clock.js';
+import { clockLabel, weekdayLabel } from '../shared/clock.js';
 import { pillDrives } from './input.js';
 import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups,
@@ -28,6 +28,7 @@ import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
 import { artForVariant, artForModel, artForWorker } from './thumb.js';
 import { rciHtml, cashflowHtml } from './hud-meters.js';
+import { footfallShown, setFootfallShown } from './footfall.js';
 import { money } from './money.js';
 
 /**
@@ -149,8 +150,17 @@ function tabGroups(all) {
       // here, because a heading may be emitted for a bucket that ended up empty
       // — that is the whole point of drawing every tab — and the two only agree
       // while nothing filters the rows on the way in.
+      // `quiet` — a bucket that is counted but does not want a badge on its
+      // tab. See `grouped`: a badge reads as a count of work everywhere else in
+      // the game, and the supplier's browse tabs are counting how much of the
+      // catalogue exists.
       groups.push({
-        label: r.sep, icon: r.icon, passive: !!r.passive, count: r.count ?? null, rows: [],
+        label: r.sep,
+        icon: r.icon,
+        passive: !!r.passive,
+        quiet: !!r.quiet,
+        count: r.count ?? null,
+        rows: [],
       });
       continue;
     }
@@ -240,6 +250,8 @@ export class UI {
     this.picked = [];
     /** Is Shift down over a selection? Then the shop shows what else is like it. */
     this.kinOn = false;
+    /** ...and with the bar up, what Shift is about to demolish — see `setRazeAim`. */
+    this.razeAim = null;
     this.buildOn = false;
     this.buildTool = 'shelf';
     /**
@@ -305,6 +317,7 @@ export class UI {
     this.el = {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
+      dow: document.getElementById('dow'),
       clock: document.getElementById('clock'),
       // The hour and the play/pause glyph are two children now rather than the
       // button's own text — `setClock` writes the time ten times a second, and
@@ -407,7 +420,7 @@ export class UI {
     close.onclick = () => this.closePanel();
     // Grab it by its header. Filed under whichever menu is open when you let
     // go, so each one remembers its own spot — see client/panel-drag.js.
-    wireDrag(this.el.panel, this.el.panel.querySelector('header'), () => this.openPanel ?? null);
+    wireDrag(this.el.panel, this.el.panel.querySelector('header'), () => this.panelPosKey());
     // The demand meter moves too, by the same machinery and into the same store.
     //
     // Two differences from the panel, both falling out of what it is. It is its
@@ -579,7 +592,13 @@ export class UI {
     // goes over the button (`Rail.note`). The palette used to come up with the
     // mode, so a mode that appears to have opened onto nothing has to say where
     // the shelves went — and it has to say it where they would have been.
-    if (on) this.rail.note('Drag things about — click again for the menu');
+    // ...and it names the TAP as well as the drag, because a drag on its own
+    // stopped being the whole gesture: a fixture is moved by pulling the one you
+    // have selected, and a press on anything else turns the view. "Drag things
+    // about" was the instruction for the version where any press moved anything,
+    // and left on it, it is a note over a button promising a press the shop
+    // answers by panning — which reads as the mode not having come on.
+    if (on) this.rail.note('Tap a thing, then drag it — click again for the menu');
     else this.rail.clearNote();
   }
 
@@ -708,8 +727,22 @@ export class UI {
     }
     // By tile, not by id — being set down re-mints it as a fresh placement, for
     // the same reason `refreshFixture` looks things up this way.
-    const f = move.reopen && move.to ? this.scene?.fixtureAt(move.to.x, move.to.z) : null;
-    if (f) showFixture(this, f);
+    const f = move.to ? this.scene?.fixtureAt(move.to.x, move.to.z) : null;
+    if (!f) return;
+    // Put it back down and it is still the thing you are working on. The lift
+    // re-mints the placement, so the selection cannot simply survive — the id it
+    // was holding stops existing the moment the fixture does — and what that
+    // reads as is the shop letting go of the thing the instant you finish
+    // moving it: R turns nothing, the pill goes back to "Select it", and lining
+    // a lamp up is a re-select between every nudge.
+    //
+    // SEPARATE FROM `reopen`, which is about the menu and stays a fact about
+    // where you came from: pulling something out by pointing must not leave a
+    // panel open on every lamp in a row, and that argument says nothing about
+    // which thing is selected. Selecting is what pointing at it did in the first
+    // place.
+    this.selectFixture(f);
+    if (move.reopen) showFixture(this, f);
   }
 
   selectBuildTool(id) {
@@ -1656,6 +1689,13 @@ export class UI {
       const turn = pillDrives() ? 'the turn button' : 'R or the wheel';
       return { text: `Carrying a ${this.holding.label.toLowerCase()} — tap a tile to set it down · ${turn} turns it · Esc puts it back` };
     }
+    // ...and the same claim about the modifier that does the same job. Above the
+    // bulldozer and above everything else in here for the reason `refreshGhost`
+    // reads Shift first: it outranks whatever is armed, so a line describing the
+    // armed tool over a red frame would be the copy disagreeing with the world.
+    // The words are `razeSay`'s, because the sentence has to name the target and
+    // this side does not know which of the four kinds it is.
+    if (this.razeAim) return { text: this.razeAim, warn: true };
     // Aiming a bulldozer at something is not looking at it, and the line that
     // says "tap to open it" over a thing a tap would delete is the one piece of
     // copy here that could actually cost somebody a shop.
@@ -1698,7 +1738,14 @@ export class UI {
     // `linger`, because this one is an introduction rather than an answer: it is
     // true for as long as you have not picked anything.
     if (this.paletteArmed && !this.toolArmed) {
-      return { text: 'Nothing armed — pick something below to build it', linger: true };
+      // ...and the one gesture in the mode that nothing else on screen mentions.
+      // Shift is invisible until something reacts to it, and what reacts to it is
+      // the red frame you only see once you are already holding the key — so the
+      // only place it can be learned is a line you read before pressing anything.
+      return {
+        text: 'Nothing armed — pick something below to build it · hold Shift to demolish',
+        linger: true,
+      };
     }
     const v = this.buildVerdict;
     // A red ghost is a refusal, and the reason is the only thing that turns it
@@ -2021,6 +2068,27 @@ export class UI {
   }
 
   /**
+   * ...and the other thing Shift does — what a click would get rid of, in words.
+   *
+   * A string rather than a target, because the four things Shift can be aimed at
+   * are a fixture, a finish, a wall and a cell of ground, and only one of them is
+   * a record this side has ever heard of. `razeAim` in main.js owns the aim and
+   * `razeSay` owns the sentence; this holds the answer for the one line that
+   * prints it.
+   *
+   * A setter rather than an assignment for `renderBuildHint`'s sake: the hint is
+   * drawn on state changes, and the pointer moving over a wall is not one of
+   * them — so a line written straight onto the field would appear a frame late
+   * and, worse, stay up after the key came back off.
+   */
+  setRazeAim(text) {
+    const want = text ?? null;
+    if ((this.razeAim ?? null) === want) return;
+    this.razeAim = want;
+    this.renderBuildHint();
+  }
+
+  /**
    * Put both sets of rings where they belong.
    *
    * Called from every place either answer can change — a pick, the ref moving,
@@ -2234,14 +2302,25 @@ export class UI {
     else this.showSection(id);
   }
 
-  showSection(id) {
+  /**
+   * @param {string} id which section
+   * @param {{keep?: boolean}} [opts] `keep` comes BACK to a list rather than
+   *   opening one — the item menu's Back press, which is one press deeper into
+   *   the supplier rather than somewhere else. Without it the clean slate below
+   *   fires and the return trip costs you the tab you were on, the aisle you had
+   *   narrowed to, what you had typed, and — worst of the four — the frozen
+   *   order, so the row you pressed has moved by the time you are looking at the
+   *   list again. That is exactly the "list you work down" this panel's freeze
+   *   exists to protect, and a drill-down is the middle of working down one.
+   */
+  showSection(id, { keep = false } = {}) {
     const sec = sectionById(id);
     if (!sec) return;
     // Coming from a different menu means a clean slate. Coming back to the same
     // one — a live content update, a price change — keeps what you typed.
     // Arriving from somewhere else is a clean slate, and a clean slate is what
     // earns the caret — see `showFilter`.
-    if (this.openPanel !== id) {
+    if (this.openPanel !== id && !keep) {
       this.releaseMenuMode(); this.clearFilter(); this.resetTab();
       // The aisle goes with the query, and for its reason: it is a narrowing,
       // and a list showing four of forty rows because of something you chose in
@@ -2424,15 +2503,28 @@ export class UI {
     if (groups) {
       at = this.tabIndex(groups);
       // How many are in each, on the tab. It answers the question the tab is
-      // for without costing a press — "is anything short" is the supplier's
+      // for without costing a press — "is anything to do" is the supplier's
       // whole first tab — and it is what makes an always-drawn empty tab
       // readable as empty rather than as broken. Only where a section counted
       // (`grouped`); a menu whose headings are just headings gets no badges.
+      //
+      // A `quiet` bucket keeps its count off the tab entirely: a badge is a
+      // count of work, and a browse tab counting the catalogue would be claiming
+      // to be the biggest job on the strip. Still dimmed when empty, which is a
+      // fact about the tab rather than a number on it.
+      //
+      // The label is WRITTEN rather than hovered. A section's tabs are short
+      // nouns — To do, Buy, Made here — and a strip of four glyphs is a strip
+      // you have to point at one at a time to read, on a menu whose whole job is
+      // to be scanned. That also retires the `title`: a tooltip repeating text
+      // that is already on the button is a second copy of the answer that only
+      // one kind of pointer can ask for, and no touchscreen has it. Fixture
+      // menus keep their icon-only strip on purpose — those headings are
+      // sentences ("Keep it for"), which is a caption rather than a tab.
       tabs = `<div class="tabs">${groups.map((g, n) => `
-        <button class="tab${n === at ? ' on' : ''}${g.count === 0 ? ' none' : ''}" data-tab="${n}"
-          title="${esc(g.label)}${g.count != null ? ` — ${g.count}` : ''}"
-          aria-label="${esc(g.label)}">${g.icon}${
-  g.count != null ? `<i class="tcount">${g.count}</i>` : ''}</button>`).join('')}</div>`;
+        <button class="tab named${n === at ? ' on' : ''}${g.count === 0 ? ' none' : ''}" data-tab="${n}">${
+  g.icon}<span class="tlabel">${esc(g.label)}</span>${
+  g.count != null && !g.quiet ? `<i class="tcount">${g.count}</i>` : ''}</button>`).join('')}</div>`;
       rows = [...groups.lead, ...groups[at].rows];
     } else {
       rows = filterable ? this.applyFilter(all) : all;
@@ -2502,10 +2594,10 @@ export class UI {
     this.el.panelBody.querySelectorAll('[data-tab]').forEach((el) => {
       el.onclick = () => { this.tab = Number(el.dataset.tab); this.paintSection(); };
     });
-    // The aisle is kept ACROSS tabs on purpose — Short and On the way are the
-    // same catalogue asked two ways, and hunting produce through both is one
-    // errand. A tab that has no rows in it falls back to All on its own, since
-    // `deptsIn` is asked of what is actually in front of you.
+    // The aisle is kept ACROSS tabs on purpose — the supplier's To do and Buy
+    // are the same catalogue asked two ways, and hunting produce through both is
+    // one errand. A tab that has no rows in it falls back to All on its own,
+    // since `deptsIn` is asked of what is actually in front of you.
     this.el.panelBody.querySelectorAll('[data-dept]').forEach((el) => {
       el.onclick = () => { this.dept = el.dataset.dept || null; this.paintSection(); };
     });
@@ -2521,7 +2613,9 @@ export class UI {
     // the tab strip's height is padding, a glyph and a border, three numbers
     // that are the stylesheet's business and not this file's.
     const tabBar = this.el.panelBody.querySelector('.tabs');
-    const aisleBar = this.el.panelBody.querySelector('.dtabs');
+    // `.dwrap` and not `.dtabs` — the bar is the wrapper, and the strip inside
+    // it is the part that scrolls and fades. See `deptStrip`.
+    const aisleBar = this.el.panelBody.querySelector('.dwrap');
     if (tabBar && aisleBar) aisleBar.style.top = `${aisleBar.offsetTop - tabBar.offsetTop}px`;
     // The heads are the third sticky bar in the stack and stick the same way,
     // off whichever of the three is first — a head strip that scrolled away
@@ -2740,7 +2834,13 @@ export class UI {
     // in `.row` would give it a hover, a click target and a lead column it has
     // no use for. It carries no `name`, so `applyFilter` drops it the way it
     // drops a heading, and no `run`, so `wireRows` never looks at it.
-    if (r.html != null) return r.html;
+    // A raw block, wrapped only if it has presses in it. `acts` is per ROW and
+    // the wiring below finds them by `data-acts`, so an html row without this
+    // could author a `data-act` button that silently never fires — which is the
+    // dead-press shape, and the panel would look perfectly correct doing it.
+    // Wrapping unconditionally would put a div round fourteen menus that do not
+    // need one, so it is asked the same way the ordinary row asks it.
+    if (r.html != null) return r.acts ? `<div data-acts="${i}">${r.html}</div>` : r.html;
     /**
      * SEVERAL SWITCHES AS ONE BLOCK.
      *
@@ -3293,14 +3393,64 @@ export class UI {
     this.el.full.classList.toggle('shut', shut);
   }
 
+  /**
+   * The footfall overlay, hung off the one thing that knows both halves.
+   *
+   * The map lives on the scene (`scene.heat`) because it is drawn there and
+   * sized by the layout; which world it belongs to and whether it is up live
+   * out here, because neither is a rendering question. `syncFootfall` is the
+   * join, and it runs off the snapshot for a reason worth keeping: the map
+   * cannot be loaded until the layout has told the scene how big the world is,
+   * and that is a message rather than a moment.
+   */
+  syncFootfall() {
+    const heat = this.scene?.heat;
+    if (!heat || !(heat.w > 0)) return;
+    // Whether the overlay is UP is all this side still owns. The map itself
+    // comes off the wire and is saved with the shop — see `heat.adopt` — so
+    // there is nothing here to load, nothing to write and nothing that can
+    // disagree with what the crew are reading.
+    //
+    // Marked by the WORLD rather than by a boolean, or joining a second shop in
+    // one session inherits the first one's switch state without asking.
+    //
+    // `footfallFor` and NOT `heatFor`, which is already a method on this class —
+    // the demand multiplier behind an item's heat pill. Assigning a field over
+    // it turned every row in the supplier into `ui.heatFor is not a function`,
+    // from a feature in a different menu that had never been opened.
+    if (this.footfallFor !== this.worldId) {
+      this.footfallFor = this.worldId;
+      heat.setVisible(footfallShown());
+    }
+  }
+
+  /** The switch. Repaints the panel itself — see `switchGrid` on why. */
+  toggleFootfall() {
+    const heat = this.scene?.heat;
+    if (!heat) return;
+    const on = !heat.on;
+    heat.setVisible(on);
+    setFootfallShown(on);
+    this.paintSection();
+  }
+
   update(state) {
     // The fixture menu reads stock, queues and hoppers straight out of here.
     this.state = state;
+    this.syncFootfall();
     // Somebody the other player let go while you were watching them. The scene
     // falls back to you on its own, but the flag has to go too or the menu of
     // the next hire you open says Unfollow.
     if (this.follow && !(state.roster ?? []).some((e) => e.id === this.follow)) this.setFollow(null);
     this.el.cash.textContent = money(state.cash);
+    // The weekday, then the count. A shop that only ever said "Day 62" could
+    // tell you how long you had been at it and never where you were in the
+    // week, which is the question the report's own week and the reputation it
+    // draws are both asked in — and the answer was already in the day number,
+    // because a season IS a week (`shared/clock.js`). Derived rather than sent:
+    // the snapshot carries `day` and always has, so this costs no field on the
+    // wire and no field on the save.
+    this.el.dow.textContent = weekdayLabel(state.day);
     this.el.day.textContent = `Day ${state.day}`;
     this.el.season.textContent = state.season;
     // The reputation bar moved into `setGauges` with the other two, because it
@@ -4349,6 +4499,28 @@ export class UI {
    * the same. So callers with either say so, and everyone else gets the title,
    * which is exactly right for a menu whose content only ever redraws in place.
    */
+  /**
+   * WHICH MENU A REMEMBERED POSITION BELONGS TO.
+   *
+   * Not the same question as "which menu is open", and the difference is a
+   * drill-down. `panel-drag.js` files a position per menu so the supplier opens
+   * where you left the supplier — right, and it made the item menu a *second*
+   * menu with a position of its own: press a row and the window you were
+   * reading jumps across the screen to wherever nothing had put it yet, which
+   * reads as a new window rather than as the same one going one level in.
+   *
+   * An item IS the supplier one press deep, so it shares its key: the panel
+   * stays exactly where it is, its contents change, and Back changes them back.
+   * That is also the answer to "why not two panels" — there is one `#panel` and
+   * everything renders into it (see docs/ui-shell.md), a second one would need
+   * its own drag, its own z-order and its own answer for a phone, and on a phone
+   * the second panel is the whole screen.
+   */
+  panelPosKey() {
+    if (this.openPanel === 'item') return 'stock';
+    return this.openPanel ?? null;
+  }
+
   showPanel(title, html, scrollKey = title) {
     // Measured BEFORE the swap, off the old content, and only kept when the key
     // says it is the same list. `scrollerOf` because a paned menu scrolls its
@@ -4403,7 +4575,7 @@ export class UI {
     this.el.panelBody.classList.toggle('cols', !!this.el.panelBody.querySelector('.heads'));
     this.el.panel.classList.add('show');
     // After `show`, or the element has no size to clamp a position against.
-    restorePos(this.el.panel, this.openPanel);
+    restorePos(this.el.panel, this.panelPosKey());
     // ...and after that too, for the same reason: a hidden panel has no
     // scrollable height, so an offset set against it is silently clamped to 0.
     // Over-scrolling clamps itself, so a list that got shorter lands at its new

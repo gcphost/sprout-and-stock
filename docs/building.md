@@ -1,6 +1,6 @@
 # Building — design
 
-Status: **steps 1–9, 11, 13–17 built. 10 is cancelled. 12 is what step 9
+Status: **steps 1–9, 11, 13–19 built. 10 is cancelled. 12 is what step 9
 left.**
 There is also a working interactive mockup —
 [turn the shop around here](https://claude.ai/code/artifact/1aac9d71-46fc-4e78-9f93-d54a6e6d2467).
@@ -934,6 +934,10 @@ tap. The first pick is still an ordinary one (`fixtureRef`), and the extras are
 `ui.picked`; picking something new without shift clears them, which is the rule
 that keeps an ordinary tap safe.
 
+Since step 19 this is the press **with the palette down**. With the bar up the
+same key is the bulldozer — see "Shift is the bulldozer" below for why the two
+were not worth splitting onto different modifiers, and for what it costs.
+
 **The menu narrows to what they share.** Not a second menu: a second list of rows
 about the same fixtures is two pictures of one thing, and this file's own gotcha
 about `thumb.js` says what happens to those. The same `showFixture` runs, and each
@@ -1176,6 +1180,11 @@ naming it something nobody would look under.
 
 #### And the right button scrapes
 
+> **This is history — see "Shift is the bulldozer" below.** Both presses moved
+> onto Shift + left click, and the right button went back to meaning one thing.
+> Kept because it is the argument for the gesture existing at all, which the
+> move did not change.
+
 `armEdgeRaze` gave the right button a meaning with a wall tool up: knock *this*
 segment through, because you lay a run in one gesture and regret it a segment at
 a time. Ground has the same shape of regret and had none of the answer — undoing
@@ -1191,6 +1200,86 @@ way to turn the view while a brush owns the left one, so anything it does has to
 survive being abandoned mid-press. And it is **exempt on Bare Ground itself**,
 where the left button already scrapes over an area — one act with two gestures
 is exactly what that entry's own comment argues against.
+
+### Shift is the bulldozer
+
+*Built (step 19).* Getting rid of something was four gestures wearing one idea.
+The Demolish tool took fixtures out and knocked walls through, but only while it
+was the armed tool — so removing a shelf in the middle of laying a floor was a
+trip to the far end of the bar and back. Shift + right-click took a wall down,
+but only with a wall tool up. The same press took a cell of ground up, but only
+with a ground brush up. And paint had no eraser at all beyond finding Bare Wall
+on the bar. Four rules, each true of one tool, none of them true of the pointer.
+
+**Hold Shift and the pointer stops asking what you would build.** It asks what
+is already there instead: whatever is under it goes red, and a left click gets
+rid of it. The armed tool is not consulted at any rung — that is the whole of
+what makes it learnable, because "hold Shift and click to get rid of that" is one
+sentence where the four rules above are four.
+
+`razeAim` is the aim and it answers in one of four kinds, most-specific-first:
+
+| It finds | It means | The message |
+|---|---|---|
+| a fixture | tear it out | `build-remove` |
+| a painted face | strip the finish off that side | `paint-face`, empty piece |
+| a wall, fence, doorway or window | knock it through | `build-edge`, `E.NONE` |
+| a painted cell of ground | take it back up | `build-ground`, empty piece |
+
+The order is `pickWay`'s "things beat gaps" with two more rungs on it. A fixture
+covers the line behind it on screen and is never *not* what you meant. Paint
+comes before the wall it is on because it is the smaller of the two answers and
+the bigger one is still one press away — strip the finish, and the same click on
+the now-bare wall knocks it through. Ground is last because every cell in the
+world is one, so any earlier and it swallows the other three.
+
+Both refusals are asked in the *aim* rather than at the press, so nothing ever
+lights up red that a click would not actually remove: an edge has to have
+something on it, and a cell has to be painted — which is `canPaintGround`'s
+`unchanged`, since the lawn is a ground row like any other and "is anything here"
+can only be answered by asking what taking it up would change.
+
+**And the pointer needed a band round the wall, which no tool had ever needed.**
+`pickEdge` snaps to the *nearest* lattice line and always has — every point in
+the shop has one — which is exactly right while a wall tool is armed, because
+then the pointer means "a line" and snapping is what lets you draw along a wall
+without tracing it. It is useless to an aim that has to tell a line apart from
+the square beside it: most cells in a shop have a wall on one side, so with no
+band, floor you had painted next to a wall could never be the thing you were
+pointing at, and hovering the middle of an aisle offers to knock the shop open.
+`RAZE_GRIP` (0.24 tiles, under half a cell) is the band, and it rides through
+`pickFace` to the **fallback only** — the branch above it raycasts the edge
+meshes, so a pointer that hit a wall is provably on one and only the guess needs
+a threshold. Both wall rungs go through that one call rather than asking
+separately, or the finish and the wall under it could answer about two different
+walls.
+
+Three things fell out of it.
+
+**Shift now means two things, and the bar says which.** With the palette up it is
+this; with the palette down it is the multi-select of step 16, untouched.
+`paletteArmed` and not `buildOn`, the same test every other "what does pointing at
+the world do" question asks — a mode a fixture menu borrowed for one press must
+not turn Shift into a bulldozer, because there is nothing on screen to say the
+mode is on. The cost is real and was chosen: you cannot shift-pick a row of
+shelves while the bar is up.
+
+**The key is held as a flag** (`shiftDown`), because the *hover* needs it — the
+red frame has to appear when the key goes down under a pointer that is not
+moving. Every way the key can change writes it, including `pointermove`, which
+is the repair for a Shift pressed or released while another window had the
+keyboard. The press reads `e.shiftKey` and pushes it in rather than trusting the
+flag: a press that demolished something the hover had not gone red on is the
+green-ghost bug with a bill attached.
+
+**A Shift press that finds nothing is consumed.** Falling through would make it
+the one Shift-click in the mode that *builds* something, which is the outcome a
+near miss must never have.
+
+And what is left on the right button is one meaning: back out. It was five —
+turn the view, back out of a tool, put a thing down, walk, and the two razes —
+one of which was the only destructive press in the mode, so the same reflex that
+closes a picker took a wall down.
 
 ### Appliances are the one thing left, and that is step 12
 
@@ -1350,9 +1439,17 @@ the number.
     never drawn — `buildWorld` skipped tile kind 0, so the lawn had none of the
     jitter or baked light every other cell has. Carries the palette regroup
     (`outdoors`, because eight sub-tabs is a list rather than a choice) and the
-    right-button scrape, which is `armEdgeRaze` said about an area. See above
-    for the unit rule a blade is measured in, which is the part that cost a
-    round of play-testing.
+    right-button scrape, which is `armEdgeRaze` said about an area — retired by
+    step 19. See above for the unit rule a blade is measured in, which is the
+    part that cost a round of play-testing.
+19. **Shift is the bulldozer.** *Built.* One modifier that means "get rid of
+    what is under the pointer" whatever tool is armed — a fixture, a finish, a
+    wall or a cell of ground — replacing the Demolish tool's monopoly on the
+    first two and the two right-button razes on the last two. The right button
+    goes back to meaning one thing in build mode: back out. Client-only: no new
+    message, no server change, four existing ones sent from one aim
+    (`razeAim`). It takes Shift off the multi-select while the bar is up, which
+    is the one thing it costs. See above.
 
 ---
 

@@ -3,7 +3,7 @@
  */
 
 import {
-  canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun,
+  canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun, faceKey,
   groundStroke, strokeThick, GROUND_STROKE_MAX,
   faceAlong, isProp, isWalkableTile, workSpotOf, REACH,
 } from '../shared/build.js';
@@ -416,14 +416,11 @@ addEventListener('keydown', (e) => {
 
   keys.add(k);
 
-  // Shift lights up everything that is the same design as the thing you have
-  // picked — see `setKinPreview`. It selects nothing on its own: the key is what
-  // makes shift-click discoverable, because until something on screen answers
-  // the key there is no way to find out the click exists. Not `preventDefault`ed
-  // and not returned on: Shift is a modifier, and every other binding in here
-  // reads it (Tab cycles the palette backwards with it) rather than being
-  // replaced by it.
-  if (k === 'shift') ui.setKinPreview(true);
+  // Shift is the demolish modifier with the bar up, and the multi-select
+  // modifier without it — see `setShift`. Not `preventDefault`ed and not
+  // returned on: Shift is a modifier, and every other binding in here reads it
+  // (Tab cycles the palette backwards with it) rather than being replaced by it.
+  if (k === 'shift') setShift(true);
 
   // Every menu key is read off the same array the rail draws itself from, so a
   // new section is bound and labelled the moment it exists. Pressing the key of
@@ -513,14 +510,44 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => {
   keys.delete(e.key.toLowerCase());
-  if (e.key.toLowerCase() === 'shift') ui.setKinPreview(false);
+  if (e.key.toLowerCase() === 'shift') setShift(false);
 });
 
 // ...and a key held while the window loses focus never comes up. `keys` has
 // always had this hazard and lives with it — a stuck direction is fixed by
 // tapping the key — but a stuck *preview* is a shop wearing seventeen frames
 // with no key down to explain them, which reads as the marker being broken.
-addEventListener('blur', () => ui.setKinPreview(false));
+// A stuck demolish aim is the same picture with a red frame on it, which is
+// worse: it says the next click tears something out.
+addEventListener('blur', () => setShift(false));
+
+/**
+ * SHIFT MEANS TWO THINGS, AND THE BAR SAYS WHICH.
+ *
+ * With the palette up it is the bulldozer, whatever tool is armed — hold it and
+ * the thing under the pointer goes red, click and it is gone (`razeAim`). With
+ * the palette down it is the multi-select, exactly as it was: hold it and
+ * everything of the same design lights up, shift-click adds to the selection.
+ *
+ * `paletteArmed` and not `buildOn`, the same test every other "what does
+ * pointing at the world do" question in here asks — a mode a fixture menu
+ * borrowed for one press must not turn Shift into a bulldozer, because there is
+ * nothing on screen to say the mode is on.
+ *
+ * Held as a flag rather than read off each event because the *hover* needs it:
+ * the red frame has to appear when the key goes down under a pointer that is
+ * not moving, and go away when it comes up. Every way the key can change is a
+ * caller — the two key handlers, the blur that catches a key held through a
+ * tab switch, and `pointermove`, which is the one that repairs a Shift pressed
+ * or released while this window was not the one listening.
+ */
+let shiftDown = false;
+function setShift(on) {
+  if (shiftDown === !!on) return;
+  shiftDown = !!on;
+  ui.setKinPreview(shiftDown && !ui.paletteArmed);
+  refreshGhost(true);
+}
 
 // Where the pointer is, so the build ghost knows what it is being aimed at.
 // `onCanvas` matters as much as the coordinates: the HUD floats over the world
@@ -535,6 +562,11 @@ addEventListener('pointermove', (e) => {
   // window), and the ghost would flicker between two tiles as you slid.
   pointer.y = e.clientY - (drag.aiming ? TOUCH_AIM_LIFT : 0);
   pointer.onCanvas = e.target === canvas;
+  // The key handlers own this, and this is the repair: a Shift pressed or let
+  // go while another window had the keyboard never reaches them, so the first
+  // move of the mouse is where the flag catches up. `setShift` no-ops when it
+  // already agrees, so the ordinary move costs a compare.
+  setShift(e.shiftKey);
   refreshGhost();
 });
 
@@ -546,6 +578,25 @@ addEventListener('pointermove', (e) => {
 // ---------------------------------------------------------------------------
 
 let ghostKey = null;
+
+/** Was the last frame a Shift aim? See `refreshGhost` for what it tidies up. */
+let razeShown = false;
+
+/**
+ * What Shift is about to get rid of, in words.
+ *
+ * One sentence per kind, and every one of them names the press as well as the
+ * target — the modifier is already down by the time this is on screen, so the
+ * thing left to say is that a click finishes it. The bulldozer's own line
+ * (`buildHintText`) is the same sentence about the same act, which is
+ * deliberate: they are one gesture reached two ways.
+ */
+function razeSay(aim) {
+  if (aim.kind === 'fixture') return `Tear out the ${ui.fixtureName(aim.f).toLowerCase()} — click it`;
+  if (aim.kind === 'face') return 'Strip the paint off this wall — click it';
+  if (aim.kind === 'edge') return 'Knock this wall through — click it';
+  return 'Take this ground up — click it';
+}
 
 /**
  * Is a press driving the CAMERA rather than aiming at anything?
@@ -562,13 +613,15 @@ let ghostKey = null;
  * - `drag.aiming`, the touch hold that lifts the ghost off your thumb. Freezing
  *   it would stop the thing following the finger placing it, which is the whole
  *   gesture.
- * - `drag.moving`, a fixture dragged out of the shop by its own press. The
- *   camera never gets that drag at all (see the `pointermove` handler), so there
- *   is nothing sliding and the preview has to track.
+ * - `drag.moving`, a fixture dragged out of the shop by its own press, and
+ *   `drag.carried`, one lifted by a hold with the button still down. The camera
+ *   never gets either drag (see the `pointermove` handler), so there is nothing
+ *   sliding and the preview has to track.
  */
 const camBusy = () => !!pinch
   || !!spin?.turned
-  || (drag.id !== null && drag.travel >= TAP_SLOP && !drag.aiming && !drag.moving);
+  || (drag.id !== null && drag.travel >= TAP_SLOP
+    && !drag.aiming && !drag.moving && !drag.carried);
 
 function refreshGhost(force = false) {
   // A wall tool previews the line under the pointer, not a tile. While a drag
@@ -610,6 +663,49 @@ function refreshGhost(force = false) {
   // off your thumb), so freezing during a drag would stop the thing you are
   // placing from following the hand placing it.
   const aiming = pointer.onCanvas && (!pillDrives() || drag.id !== null);
+
+  // SHIFT OUTRANKS THE TOOL, because it is about what is already there.
+  //
+  // The whole promise of the modifier is that it means one thing whatever is
+  // armed, so it has to be read before every branch below rather than inside
+  // any of them — a wall tool's own preview drawn over a Shift the player is
+  // holding would be the green-ghost bug pointed at a demolition.
+  //
+  // `razeShown` is the tidy-up half: each branch below clears the ghosts of the
+  // ones ABOVE it and returns, so a face ghost this branch left behind would
+  // outlive it under a wall tool, which clears only the edge. Letting go of
+  // Shift puts all three away in one place instead.
+
+  // Which of Shift's two meanings is live can change with the key already down —
+  // press G with it held and the bar comes up underneath it — so the other one
+  // is re-answered here rather than only at the keypress. `setKinPreview` no-ops
+  // when it already agrees.
+  ui.setKinPreview(shiftDown && !ui.paletteArmed);
+  const raze = aiming ? razeAim(pointer.x, pointer.y) : null;
+  ui.setRazeAim(raze ? razeSay(raze) : null);
+  if (raze) {
+    razeShown = true;
+    if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
+    scene.setEdgeGhost(raze.kind === 'edge' ? [raze.seg] : null, 'no');
+    scene.setFaceGhost(raze.kind === 'face' ? [raze.face] : null, 'no');
+    scene.setFloorGhost(raze.kind === 'ground' ? [raze.cell] : null, 'no');
+    scene.setAimTarget(raze.kind === 'fixture' ? raze.f : null, 'raze');
+    scene.setPersonAim(null);
+    canvas.style.cursor = '';
+    ui.setAim(raze.kind === 'fixture' ? raze.f : null);
+    ui.setBoardTip(null, null);
+    ui.setPressHints([]);
+    ui.setBuildVerdict(null);
+    return;
+  }
+  if (razeShown) {
+    razeShown = false;
+    scene.setEdgeGhost(null, null);
+    scene.setFaceGhost(null, null);
+    scene.setFloorGhost(null, null);
+    scene.setAimTarget(null);
+    ui.setAim(null);
+  }
 
   // The bulldozer aims at a thing first and a line second. A shelf standing
   // against a wall covers the line behind it on screen, and "the wall" is never
@@ -1162,6 +1258,25 @@ const TAP_SLOP = 7;
 const LONG_PRESS_MS = 420;
 
 /**
+ * ...and after this long, a drag off a fixture in build mode MOVES it rather
+ * than turning the view.
+ *
+ * The one thing that tells the two apart is where the pause is: a drag that
+ * means "look round the shop" starts moving straight away, and one that means
+ * "take this" starts with you stopping on the thing. Everything else about them
+ * is identical, which is why a mode wall to wall with things you own kept
+ * handing you a shelf when you reached for the camera.
+ *
+ * Half the hold, and it has to stay well under it: a fixture lifted by a HOLD
+ * stays in your hands, and if the two figures met there would be one gesture
+ * wearing two outcomes decided by a millisecond. It is also why this needs no
+ * marker of its own — the press is already drawing a ring (`setHoldProgress`,
+ * against `LONG_PRESS_MS`), so the dwell is the first half of a thing you can
+ * watch fill.
+ */
+const MOVE_DWELL_MS = 210;
+
+/**
  * How far above a finger the build ghost sits once you are aiming it.
  *
  * A hover is what makes building on a mouse honest: the ghost is green or red
@@ -1214,6 +1329,7 @@ const drag = {
   done: false,      // a long press already fired; the release means nothing
   lift: null,       // the fixture this press would pull, once it moves
   moving: false,    // ...and it did: this drag is carrying something
+  carried: false,   // ...or a HOLD lifted it, and the button is still down
   took: false,      // this press armed goods — so its hold is a pull, not a look
   touch: false,     // a finger or a pen, which has no hover to build with
   aiming: false,    // ...so this held press owns the ghost. See `TOUCH_AIM_LIFT`
@@ -1448,7 +1564,37 @@ function armPut(cx, cy) {
     // Lone crates only, the same line the left button draws: one unit INTO the
     // box under two others is the same unanswerable "which one" as one out.
     if (crate.stacked || !inReachOf(crate)) return null;
-    return { kind: 'crate', crate, ring: false };
+    // A TAP IS ONE UNIT AND A HOLD IS THE LOT, and a crate was the one target
+    // left in the shop where the second half of that was missing.
+    //
+    // The left button has both here — a tap rummages, a hold takes an armful or
+    // shoulders the box — and the right had only the tap, so an armful went into
+    // a box one unit at a time however long you held the button. Nothing said
+    // so, because a hold that arms nothing is indistinguishable from a hold you
+    // did not do properly: you press, wait, let go, and one carrot moves.
+    //
+    // `haulSquare` argued the other way and its reasoning was about the SHOULDER
+    // — a box up there had no gesture at all, where "an armful puts one in is a
+    // gesture that works". True, and it is the tap; what it left out is that the
+    // grade is the rule rather than the fallback.
+    //
+    // It is `place` at the crate's own CELL rather than a new verb, which is
+    // CLAUDE.md's standing instruction about goods on the floor: `dropGoods`
+    // tops a box up with more of what it holds, spends a free board in it if it
+    // has one, and stacks a second box on the cell when it can do neither. All
+    // three are the right answer here and none of them is a second container.
+    //
+    // Sent on the way DOWN, exactly as the shelf's is, because that is what arms
+    // the ring — and `tapCrate` clears the errand on its way through, so the tap
+    // that beats the ring cancels the pour rather than doing both. That line is
+    // already there, and already says it: "a tap has to spend it".
+    const cell = { x: Math.round(crate.x), z: Math.round(crate.z) };
+    // A refusal leaves the tap alone rather than the whole press: somewhere a
+    // crate may not be set down is still somewhere a crate is standing, and one
+    // unit into it was never in question.
+    if (!canDropAt(cell)) return { kind: 'crate', crate, ring: false };
+    net.send('place', { x: cell.x, z: cell.z });
+    return { kind: 'crate', crate, ring: true };
   }
 
   const hit = pickAimed(cx, cy);
@@ -1572,6 +1718,7 @@ function endDrag() {
   drag.id = null;
   drag.lift = null;
   drag.moving = false;
+  drag.carried = false;
   drag.aiming = false;
   release();
 }
@@ -1941,73 +2088,99 @@ function showEdgeDrag(cx, cy) {
 }
 
 /**
- * What the RIGHT button means with a wall tool up: knock THIS one through.
+ * How near a line the pointer has to be for Shift to read it as a wall.
  *
- * Taking a wall out was the bulldozer's job and nothing else's, so changing
- * your mind about one segment is a trip to the far end of the bar and back —
- * arm Demolish, drag the one line, arm Wall again — three inputs around a
- * decision you made while looking at the wall. Drawing walls is exactly where
- * that happens most, because a run is laid in one gesture and regretted a
- * segment at a time.
- *
- * Armed on the way DOWN like every other press, and it is a *tap*: a wall tool
- * takes the left drag (see `edgeDrag`), so the right one is the only way left to
- * turn the view while you are building, and a press that turned is a turn and
- * nothing else — `endSpin` drops this the same way it drops a put.
- *
- * Null hands the press back to the button's ladder — a turn if you drag, then
- * `ui.escape()`, then a walk. It stays null unless something really is on that
- * line, or backing out would quietly stop working wherever you happened to
- * point — which is worse than not having the gesture at all. Being in build mode
- * is itself a rung, so the walk is never what a razing press falls through to.
+ * A wall tool needs no such band — with one armed the pointer means "a line" and
+ * every point in the shop has a nearest one, which is what lets you draw along a
+ * wall without tracing it. Shift has to tell a line apart from the square beside
+ * it, and most cells in a shop have a wall on one side: with no band, painted
+ * floor next to a wall could never be what you were pointing at, and hovering
+ * the middle of an aisle would offer to knock the shop open. Under half a cell,
+ * so the middle of a tile is unambiguously the tile.
  */
-function armEdgeRaze(cx, cy) {
-  if (ui.edgeKindForTool() === null) return null;
-  // Things beat gaps, which is `pickWay`'s own precedence and is here for the
-  // same reason: a shelf standing against a wall covers that line on screen, and
-  // the wall behind it is never what you were pointing at.
-  if (scene.pickFixture(cx, cy)) return null;
-  const seg = scene.pickEdge(cx, cy);
-  if (!seg || kindAt(scene.storeLayout, seg) === E.NONE) return null;
-  return seg;
-}
+const RAZE_GRIP = 0.24;
 
 /**
- * ...and the same press with a BRUSH up: take this cell back to bare ground.
+ * WHAT SHIFT IS POINTING AT — the one aim behind the whole demolish gesture.
  *
- * `armEdgeRaze` said about an area instead of a line, and it is the same
- * complaint — you lay ground in one gesture and regret it a cell at a time, and
- * undoing one square meant finding Bare Ground on another tab, painting it, and
- * arming the brush you were using again. Three inputs around a decision you made
- * while looking at the tile.
+ * Hold Shift with the bar up and the pointer stops asking what the armed tool
+ * would build and starts asking what is already there: a fixture, a finish, a
+ * wall, a cell of ground. The tool is not consulted at ANY rung of it, and that
+ * is the whole of what makes the gesture learnable — "hold Shift and click to
+ * get rid of that" is one sentence, where the two presses this replaces were a
+ * different modifier on a different button for each of two tools, each doing
+ * nothing at all under the other one.
  *
- * Two things it deliberately does NOT do. It aims with `pickTile` and never
- * `pickFixture`, which is the left drag's own rule (`pickFixture` here would
- * scrape the roof of a shelf), and it is a single CELL rather than a drag, which
- * is what makes it the wall gesture rather than a second brush: the right button
- * is also the only way to turn the view while a brush has the left one, so
- * anything it does has to survive being abandoned mid-press.
+ * The order is most-specific-first, which is `pickWay`'s "things beat gaps" with
+ * two more rungs on it. A fixture covers the line behind it on screen and is
+ * never not what you meant. Paint comes before the wall it is on because it is
+ * the smaller of the two answers, and because the bigger one is still one press
+ * away: strip the finish, and the same Shift-click on the now-bare wall knocks
+ * it through. Ground is last because every cell in the world is one, so it is
+ * the rung that would otherwise swallow the other three — and it is also why
+ * the two wall rungs need `RAZE_GRIP`, since without it every cell in the shop
+ * is half a wall too.
  *
- * Null hands the press back to the button's ladder — turn, then `ui.escape()`,
- * then a walk — so pointing at grass that is already bare backs out the way it
- * always did rather than doing nothing at all.
+ * Both refusals are asked HERE rather than at the press, so nothing ever lights
+ * up red that a click would not actually remove: an edge has to have something
+ * on it, and a cell has to be painted (`unchanged` is how a lawn — which is a
+ * ground row like any other — says nobody has laid anything here).
+ *
+ * Null is the ordinary build press, untouched. A Shift press that finds nothing
+ * is consumed rather than passed on, which is decided at the press: see
+ * `pointerdown`.
  */
-function armGroundScrape(cx, cy) {
-  const brush = ui.groundForTool();
-  if (brush === undefined) return null;
-  // Bare Ground itself is exempt. With the null entry armed the LEFT button
-  // already scrapes, over an area, so a right press on it would be one act with
-  // two gestures — which is the thing the eraser's own comment argues against.
-  if (!brush.piece) return null;
+function razeAim(cx, cy) {
+  // The palette is the consent, the same way it is for every other verb that
+  // names a target by pointing. Not while you are carrying a fixture: then the
+  // pointer is looking for somewhere to put that down, and Shift has no second
+  // meaning to offer.
+  if (!shiftDown || !ui.paletteArmed || ui.holding) return null;
+  const f = scene.pickFixture(cx, cy);
+  if (f) return { kind: 'fixture', f };
+  // ONE question about the line, answered twice — which is what keeps the two
+  // wall rungs from disagreeing about which wall they are on. `pickFace` hits
+  // the edge meshes first, so pointing at a wall is exact and picks its side;
+  // the guess it falls back to is what `RAZE_GRIP` is for.
+  const face = scene.pickFace(cx, cy, RAZE_GRIP);
+  if (face) {
+    if ((scene.storeLayout?.paint ?? {})[faceKey(face)]) return { kind: 'face', face };
+    const seg = { o: face.o, x: face.x, z: face.z };
+    if (kindAt(scene.storeLayout, seg) !== E.NONE) return { kind: 'edge', seg };
+  }
+  // `pickTile` and never `pickFixture`, which is the ground brush's own rule:
+  // the second would scrape the roof of a shelf. Nothing above this line can be
+  // a fixture anyway — the first rung took those — so this is belt and braces
+  // for the day something else grows a top face.
   const cell = scene.pickTile(cx, cy);
   if (!cell) return null;
-  // `canPaintGround` is the authority, exactly as `canPlaceEdges` is for a wall,
-  // and `unchanged` is the half a wall does not have: every cell in the world is
-  // a ground kind now that the lawn has a row, so "is there anything here" can
-  // only be answered by asking what taking it up would change.
+  // `canPaintGround` is the authority, exactly as `canPlaceEdges` is for a wall.
   const verdict = canPaintGround(scene.storeLayout, [cell], null, null);
   if (!verdict.ok || verdict.unchanged) return null;
-  return cell;
+  return { kind: 'ground', cell };
+}
+
+/** Get rid of whatever `razeAim` named. One press, four kinds of target. */
+function doRaze(aim) {
+  if (aim.kind === 'fixture') {
+    scene.ripple(aim.f.x, aim.f.z, 'no');
+    ui.razeFixture(aim.f);
+    return;
+  }
+  if (aim.kind === 'face') { stripFace(aim.face); return; }
+  if (aim.kind === 'edge') { razeEdge(aim.seg); return; }
+  scrapeGround(aim.cell);
+}
+
+/** Take the finish off one side of one wall — the paint brush's null entry. */
+function stripFace(at) {
+  scene.ripple(at.x, at.z, 'no');
+  // Empty piece and no `to`, which is Bare Wall over a run of one — the same
+  // two things the brush itself sends, so the server runs the same `faceRun`
+  // and refunds the same half.
+  net.send('paint-face', {
+    o: at.o, x: at.x, z: at.z, s: at.s, piece: '', to: null,
+  });
 }
 
 /** Take one cell back to bare ground, judged and reported the way a run is. */
@@ -2100,14 +2273,7 @@ canvas.addEventListener('pointerdown', (e) => {
       turned: false,
       at: performance.now(),
       put: null,
-      raze: null,
-      scrape: null,
       trek: null,
-      // Held at the PRESS, not read at the release. The key can come up while
-      // the button is still down — and a modifier that decides whether a wall
-      // survives has to be the one you were holding when you aimed at it, the
-      // same way `armPut` names its target on the way down.
-      shift: e.shiftKey,
     };
     // The put half of the press, armed on the way DOWN for the same reason the
     // take is: the ring winds off an errand, so naming it on release means a
@@ -2115,17 +2281,14 @@ canvas.addEventListener('pointerdown', (e) => {
     // out to be a camera turn — an errand is a target, not an action, and
     // `pointermove` lets go of the button the moment the view moves.
     spin.put = armPut(e.clientX, e.clientY);
-    // ...and the same press with a wall tool up. The two can never both answer:
-    // a put needs full hands and no palette, a raze needs an armed edge tool,
-    // which is the palette. Named here rather than on release for the ordinary
-    // reason — the pointer is on the wall now, and by the time the button comes
-    // up the view may have turned under it.
-    spin.raze = armEdgeRaze(e.clientX, e.clientY);
-    // ...and the brush's version of the same press. None of the three can ever
-    // both answer: a put needs full hands and no palette, a raze needs an armed
-    // EDGE tool and this needs an armed GROUND one, and `edgeKindForTool` and
-    // `groundForTool` are two different flags on one entry.
-    spin.scrape = armGroundScrape(e.clientX, e.clientY);
+    // Nothing else is armed here any more. The right button used to carry two
+    // demolitions of its own — Shift + right knocked a wall through with a wall
+    // tool up, and took a cell of ground back up with a brush up — and both have
+    // moved onto Shift + LEFT, where they are the same press as tearing out a
+    // shelf (`razeAim`). What that leaves is a button that means one thing in
+    // build mode: back out. It was five things, one of them the only destructive
+    // press in the mode, and the tell was that the same reflex which closes a
+    // picker also took a wall down.
     if (spin.put) hold();
     // A unit across the shop: hold, and you WALK there and do it.
     //
@@ -2173,21 +2336,35 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   // Shift takes the press before ANY of the four drags below, and hands it to
-  // the selection.
+  // one of its two meanings — demolish with the bar up, the selection without
+  // it. See `setShift`.
   //
-  // First, because every one of them is a verb and shift-click is not: a wall
-  // tool would have laid a segment, the brush a cell, the palette a fixture, and
-  // the bare press turned the camera. Picking six shelves means holding a key
-  // and clicking six times, and each of those clicks has to be *only* a pick —
-  // one that also built something would make the gesture unusable in exactly
-  // the mode you use it in.
+  // First, because every one of them is a verb and neither of these is that
+  // verb: a wall tool would have laid a segment, the brush a cell, the palette a
+  // fixture, and the bare press turned the camera. Both gestures are made by
+  // holding a key and clicking several times, and each of those clicks has to be
+  // *only* the gesture — one that also built something would make it unusable in
+  // exactly the mode you use it in.
   //
   // Consumed whole (no capture, no `drag`, no hold timer) so the release is not
   // also a tap: `tapAtPointer` would walk you to the last shelf you picked.
-  // Missing the fixtures entirely is a shift-click on the floor, which does
-  // nothing at all — it is not "deselect", because the ordinary press already
-  // means that and this one is meant to be safe to repeat.
+  //
+  // The key is read off the EVENT and pushed into the flag, not the other way
+  // round: a Shift pressed while another window had the keyboard never reached
+  // the key handler, and a press that demolished something the hover had not
+  // gone red on is the green-ghost bug with a bill attached.
   if (e.shiftKey && !ui.holding) {
+    setShift(true);
+    const aim = razeAim(e.clientX, e.clientY);
+    if (aim) { doRaze(aim); return; }
+    // Nothing to get rid of, and the bar is up: the press is spent. Falling
+    // through would be the one Shift-click in the mode that BUILDS something,
+    // which is the outcome a near miss must never have.
+    if (ui.paletteArmed) return;
+    // ...and with the bar down it is the selection, exactly as it was. Missing
+    // the fixtures entirely does nothing at all — it is not "deselect", because
+    // the ordinary press already means that and this one is meant to be safe to
+    // repeat.
     const pick = pickTarget(e.clientX, e.clientY);
     if (pick) {
       ui.togglePicked(pick);
@@ -2254,7 +2431,11 @@ canvas.addEventListener('pointerdown', (e) => {
   //
   // Only *armed*, not lifted. The press has not chosen yet: release without
   // moving and it is still a tap, which opens the menu the way it always did.
-  // The lift happens at the slop line, where a pan would have committed.
+  // The lift happens at the slop line, where a pan would have committed — and
+  // the slop line asks one more thing the arming deliberately does not: whether
+  // this is the unit you already SELECTED. Armed either way because the hold
+  // does not care (it cannot fire mid-turn, so it never needed a subject naming
+  // first).
   drag.lift = ui.paletteArmed && !ui.holding && !ui.demolishArmed()
     ? pickTarget(e.clientX, e.clientY)
     : null;
@@ -2268,11 +2449,22 @@ canvas.addEventListener('pointerdown', (e) => {
   // cannot stand) and which a phone has no keys for.
   // A stylus counts as a finger here, not as a mouse: it is held over a screen
   // that has the twist, and it has no second button to back out with either.
-  drag.turns = e.pointerType !== 'touch' && e.pointerType !== 'pen';
+  //
+  // ...EXCEPT while building, where a left drag SLIDES whatever the device is.
+  // The keys already made that argument and only ever made it to a keyboard:
+  // building is reaching for somewhere you cannot stand, so getting there is the
+  // camera's whole job in the mode, and turning is the rarer errand of the two.
+  // What it costs is nothing — the right drag and `,`/`.` still turn, which is
+  // the same escape hatch the move-drag leans on — and what it buys is that the
+  // one gesture a mouse and a finger share does the same thing in the mode where
+  // the pointer is doing the building. A view that spun a quarter when you
+  // reached for the far corner is the reason WASD had to exist here at all.
+  drag.turns = e.pointerType !== 'touch' && e.pointerType !== 'pen' && !building();
   // The same two pointer kinds, kept as their own field because the other half
   // of this asks a different question about them: `turns` is what the drag does
-  // to the camera, and this is whether the press has a hover behind it.
-  drag.touch = !drag.turns;
+  // to the camera, and this is whether the press has a hover behind it — a
+  // question about the DEVICE, so it cannot be `!drag.turns` any more.
+  drag.touch = e.pointerType === 'touch' || e.pointerType === 'pen';
   drag.aiming = false;
   drag.spun = false;
   drag.travel = 0;
@@ -2383,6 +2575,17 @@ canvas.addEventListener('pointerdown', (e) => {
     if (drag.lift) {
       const f = drag.lift;
       drag.lift = null;
+      // The press now OWNS the pointer, and saying so is the difference between
+      // carrying a lamp and spinning the shop while holding one. The button is
+      // still down and the thing is in your hands, so every move from here is
+      // aiming it — without this the drag falls through to `stepTurn` below and
+      // the view tilts under a ghost that has also stopped tracking (`camBusy`),
+      // which reads as the move having grabbed the camera as well.
+      //
+      // Deliberately NOT `drag.moving`: that one means "pulled out by a drag,
+      // so let go and it lands", and this gesture's whole contract is that it
+      // leaves the thing in your hands for a separate tap.
+      drag.carried = true;
       liftAimed(f, { reopen: false });
       return;
     }
@@ -2489,18 +2692,51 @@ canvas.addEventListener('pointermove', (e) => {
     release();
     // Past the slop with a fixture under where you started: this is a move, and
     // the camera never gets this drag at all.
+    //
+    // ...and only if the press DWELT first. A drag is also the gesture you make
+    // to look round the shop, and in build mode the shop is wall to wall with
+    // things you own — so a press that started anywhere near a shelf pulled the
+    // shelf out instead of turning the view, which reads as the camera being
+    // broken rather than as a move you never asked for.
+    //
+    // The dwell is what separates the two, and it separates them by the thing
+    // that is actually different about them: a drag that means "look round"
+    // starts moving straight away, and one that means "take this" starts with
+    // you stopping on the thing first. So the gate is a clock rather than a
+    // selection. It was the selection for a while — tap it, then drag it — and
+    // that is a *second press* charged on every deliberate move to prevent an
+    // accidental one, which is the wrong end of the trade: the accident is a
+    // sweep, and a sweep has no pause in it.
+    //
+    // `MOVE_DWELL_MS` is well under the hold, so this stays a distinct gesture
+    // from the one that lifts a fixture into your hands and leaves it there —
+    // and the ring the press is already drawing (`setHoldProgress`) is the
+    // dwell made visible, since it starts filling on the way down.
+    //
+    // The HOLD is untouched either way (see the `drag.lift` branch in the long
+    // press): it cannot fire mid-turn, so it never needed a gate at all.
+    // Cleared whatever happens — the press is a pan now, and a lift left armed
+    // would fire on the release of a drag that has already spun the shop.
     if (drag.lift) {
       const f = drag.lift;
       drag.lift = null;
-      drag.moving = true;
-      liftAimed(f, { reopen: false });
-      return;
+      if (performance.now() - drag.pressedAt >= MOVE_DWELL_MS) {
+        drag.moving = true;
+        liftAimed(f, { reopen: false });
+        return;
+      }
     }
     // ...and it does not get any of the rest of it either. `lift` is spent the
     // instant it fires, so without this the first move pulls the lamp out and
     // every move after it spins the shop underneath — which is the bug this
     // whole branch exists to fix, arriving one event later.
-    if (drag.moving) return;
+    //
+    // `carried` is the same claim about the press that lifted by HOLDING rather
+    // than by pulling. It is the one that actually bit: a hold fires at 420ms
+    // and the thing is then in your hands with the button still down, so the
+    // rest of that drag went straight to the camera and you tilted the shop
+    // while carrying a lamp.
+    if (drag.moving || drag.carried) return;
     if (drag.turns) {
       const t = stepTurn(drag.ax, e.clientX, e.clientY, drag.spun);
       drag.ax = t.anchor;
@@ -2517,9 +2753,10 @@ canvas.addEventListener('pointermove', (e) => {
       // Building is the opposite errand — you are reaching for somewhere you
       // cannot stand, so the drag is "go there", and a finger that swept toward
       // the top right to put something in the top right corner got the bottom
-      // left, which reads as the scroll being backwards. Only ever reached by a
-      // finger, since a mouse drag in this game turns the view (`drag.turns`),
-      // so no desktop gesture changes.
+      // left, which reads as the scroll being backwards. A mouse reaches this
+      // too now (`drag.turns` is false while building), which is the point: in
+      // the mode where the pointer is doing the building, the one gesture both
+      // devices share should do the one thing the camera is there for.
       // `building()` and not `flying()`: a pause flies the KEYS and leaves the
       // drag alone, or pressing pause quietly reverses which way the shop slides
       // under your finger. See `flying`.
@@ -2686,13 +2923,13 @@ function cancelTrek(s) {
 
 function endSpin(e) {
   if (!spin || (e && e.pointerId !== spin.id)) return null;
-  const { turned, put, raze, scrape, shift, at } = spin;
+  const { turned, put, at } = spin;
   cancelTrek(spin);
   spin = null;
   // Always, whether or not this press armed anything: the button is up, and a
   // `pressing` bit left set is a ring that goes on winding with nothing down.
   release();
-  return { turned, put, raze, scrape, shift, held: performance.now() - at >= LONG_PRESS_MS };
+  return { turned, put, held: performance.now() - at >= LONG_PRESS_MS };
 }
 canvas.addEventListener('pointerup', (e) => {
   const wasPinching = !!pinch;
@@ -2755,36 +2992,6 @@ canvas.addEventListener('pointerup', (e) => {
     if (put?.kind === 'walk') {
       scene.ripple(put.f.x, put.f.z);
       walkTo({ fixture: put.f.id, put: true });
-      return;
-    }
-    // ...and the same precedence for a wall: pointing at one is a positive act,
-    // and backing out is what the button falls back to. `armEdgeRaze` decided
-    // this on the way down, when the pointer was still on the line — with the
-    // palette up there is nothing in your hands for it to compete with.
-    //
-    // SHIFT is what makes it a demolition, and the plain press is what tells you
-    // so. A bare right-click already means four things in this mode (turn the
-    // view, back out of a tool, put a thing down, walk) and the two razes were a
-    // fifth that happens to be the only destructive one — so the same reflex
-    // that closes a picker took a wall out, and the tell was that neither of us
-    // could say which of the five a given press had been until after it landed.
-    // The modifier is free here: shift-LEFT is the fixture pick, and shift-right
-    // has never meant anything. Consumed rather than fallen through on purpose —
-    // a press that quietly backed out of a tool instead is the same ambiguity
-    // wearing the other outcome, where the toast is a press that taught you the
-    // gesture. `esc` is the same key `verify` never sees; this is the one thing
-    // in the mode that cannot be undone by pressing again.
-    if (spun.raze) {
-      if (!spun.shift) { ui.toast('Shift + right-click to take a wall down'); return; }
-      razeEdge(spun.raze);
-      return;
-    }
-    // ...and a cell of ground, on the same precedence and for the same reason:
-    // pointing at something you laid is a positive act, and backing out is what
-    // the button falls back to when you were not.
-    if (spun.scrape) {
-      if (!spun.shift) { ui.toast('Shift + right-click to take the ground up'); return; }
-      scrapeGround(spun.scrape);
       return;
     }
     // Backing out still comes first, and it is still every rung of the ladder —
@@ -3715,7 +3922,14 @@ function pressHints({ aim, board, onPile, drop }) {
     // the row RUNS it (the same `liftAimed` M does) and the tag says how to make
     // it without one. `reopen: false`, because a row on the pill came from
     // pointing, not from a menu — see `liftAimed`.
-    add('l', 'drag', 'Move it', () => liftAimed(f, { reopen: false }));
+    //
+    // The tag names the gesture that actually works, which is the half that has
+    // to be true — a pill saying "drag" over a unit that turns the shop instead
+    // is the green-ghost bug wearing words. It says HOLD-DRAG rather than drag,
+    // because a bare drag is still the camera: the press has to settle first
+    // (`MOVE_DWELL_MS`), and naming only the second half of the gesture is how
+    // you end up sweeping at a shelf and blaming the feature.
+    add('l', 'hold-drag', 'Move it', () => liftAimed(f, { reopen: false }));
     // ...and the one press here that is not a press at all. Only on the unit
     // that is actually selected, because that is what R acts on — offering it
     // over a fixture you are merely hovering would turn the one behind you.
@@ -3763,6 +3977,17 @@ function pressHints({ aim, board, onPile, drop }) {
     if (carry) {
       add('r', null, 'Put one back',
         () => net.send('crate-one', { palletId: crate.id, put: true }));
+      // ...and the lot, which is the same grade the board below offers and the
+      // one a crate did not have — see `armPut`. `place` at the box's own cell,
+      // because `dropGoods` is what tops a crate up; a row that sent `crate-one`
+      // in a loop would be the second opinion this whole function is written not
+      // to be. Only where the shop would take it, or the row is advertising a
+      // press that comes back red.
+      if (canDropAt({ x: Math.round(crate.x), z: Math.round(crate.z) })) {
+        add('r', 'hold', 'Put them all in', () => pillPress(
+          () => net.send('place', { x: Math.round(crate.x), z: Math.round(crate.z) }), true,
+        ));
+      }
     }
     return out;
   }
@@ -4412,7 +4637,24 @@ function tapAtPointer(cx, cy) {
       // a board you wanted one loaf off was unreachable with anything in your
       // hands, because the unit won the whole tap. Right-tap walks you to a unit
       // to PUT, this one is takes and questions, and neither reads your hands.
-      if (readyToTake(over)) {
+      //
+      // ...and `boardTakes` is the fourth thing it does read, which it had to
+      // learn the moment the mode's own tap became load-bearing. A machine with
+      // a full tray took the tap **in build mode**, so pointing at an appliance
+      // sent `station-one` — and `notWhileBuilding` answers that with "Exit
+      // build mode first", out loud, on the one press you make to select the
+      // thing you are trying to move. There is no way to read that except as the
+      // shop refusing to let you build with your own machine, and the only way
+      // out was to leave the mode, which is what you had just turned on.
+      //
+      // The same predicate the board branch below makes, and it is the same
+      // sentence: a tap that MOVES GOODS is not a thing this mode has, while
+      // selecting a unit and opening its menu are most of what the mode is. It
+      // carries the stopped clock with it for the reason its own docblock gives
+      // — a walk in a paused shop is a press with no second half — and the two
+      // clauses about your hands are already spent upstream, where an armed tool
+      // and a carried fixture skip this whole ladder.
+      if (readyToTake(over) && boardTakes()) {
         // Amber, not pale: this one really is "you are on your way".
         scene.ripple(over.x, over.z);
         // ...except standing at it, where there is nowhere to go and the walk is
@@ -4583,8 +4825,9 @@ function tapAtPointer(cx, cy) {
 
   if (ui.holding) {
     // Setting down what you picked up *finishes* something rather than starting
-    // one: note where it lands, and `endMove` reopens its menu there and hands
-    // back a build mode the fixture menu only lent you.
+    // one: note where it lands, and `endMove` puts the selection back on it
+    // there — reopening its menu too if that is where the errand began — and
+    // hands back a build mode the fixture menu only lent you.
     ui.markMoveTarget(tile);
   } else {
     // Buying one and placing it is committing to the mode, so shutting the menu

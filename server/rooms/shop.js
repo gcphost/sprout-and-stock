@@ -489,6 +489,16 @@ export const ShopRoom = (Base) => class extends Base {
     // `itemId` is WHICH board. A unit holds one price per board, so a price
     // change that did not name one would have to guess, and any rule for
     // guessing reprices something the player was not looking at.
+    // Which board a thing sits on, top to bottom. One message carrying the WHOLE
+    // order rather than a nudge per row: two people can be looking at one shelf,
+    // and "move cheese up one" applied to a list that has changed underneath is
+    // a swap with whatever happens to be there now. A full list is idempotent
+    // and says what the person who sent it was looking at.
+    this.onMessage('board-order', (client, m) => {
+      client.send('action-result',
+        this.game.orderBoards(m?.shelfId, Array.isArray(m?.order) ? m.order : null));
+    });
+
     this.onMessage('set-price', (client, m) => {
       client.send('action-result',
         this.game.setPrice(m?.shelfId, Number(m?.price), m?.itemId ?? null));

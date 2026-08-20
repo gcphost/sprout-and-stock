@@ -17,7 +17,7 @@ import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
 import { money, signed } from './money.js';
-import { artForVariant } from './thumb.js';
+import { artForModel, artForVariant } from './thumb.js';
 // What is on a van, shared with the supplier so the two cannot disagree about
 // how many eggs are coming — see client/orders.js.
 import { comingByItem, comingWhy } from './orders.js';
@@ -1126,6 +1126,13 @@ function settingRows(ui, f, live, sel = {}) {
  */
 function tickFixture(ui) {
   if (ui.openPanel !== 'fixture' || !ui.fixtureRef) return;
+  // A live drag outranks a repaint, which the panel's own position drag already
+  // says about `restorePos` — this is the same claim about the panel's
+  // CONTENTS. A rebuild while a board is being dragged replaces the element
+  // under the finger with a fresh one, so the drag ends holding a node that is
+  // no longer in the document and the list snaps back to the snapshot's order.
+  // One sale on the shelf you are tidying would do it.
+  if (ui.boardDragging) return;
   const f = ui.scene?.fixtureAt(ui.fixtureRef.x, ui.fixtureRef.z) ?? null;
   if (!f) { ui.closePanel(); return; }
   if (fixtureSignature(ui, f, liveFixture(ui, f)) !== ui._fxMenuKey) showFixture(ui, f);
@@ -1404,8 +1411,22 @@ function fixtureDetail(ui, f, live) {
             : 'This board is full.')
             : `Order ${want}× ${name} — it lands at the bay on the next van.`;
 
-      return `<div class="fx-board${pending ? ' pending' : ''}">
-        <span class="nm" title="${esc(name)}">${esc(name)}</span>
+      // The goods themselves, at the head of their own row. A unit holding three
+      // things is three rows of words, and what is standing on the shelf you are
+      // looking at is drawn — so the name was the only way to tell which board
+      // was which, in a menu opened by pointing at the very thing it lists. Same
+      // art the supplier's rows and the item menu wear (`artForModel`), off the
+      // same catalog row the shelf builds its stock from, so all three agree by
+      // construction. A `pending` board — kept for something that has not landed
+      // — still draws it: what it is FOR is the whole content of that row.
+      const art = item?.model ? artForModel(item.model) : null;
+      // `data-board` is what makes the row draggable — see `wireBoardOrder`. It
+      // names the ITEM rather than an index, because an index is a fact about
+      // the list as it was drawn and the list is redrawn from the snapshot ten
+      // times a second.
+      return `<div class="fx-board${pending ? ' pending' : ''}" data-board="${esc(k.item_id)}">
+        ${art ? `<span class="fx-bart">${art}</span>` : ''}
+        <span class="nm">${esc(name)}</span>
         <b class="qty"${due ? ` title="${esc(comingWhy(due))}"` : ''}>${k.qty}${cap ? `<i>/${cap}</i>` : ''}${inbound ? `<i class="coming">+${inbound}</i>` : ''}</b>
         <span class="fx-price">
           <button ${pending ? 'disabled' : `data-price="-1" data-item="${esc(k.item_id)}"`}
@@ -1447,9 +1468,32 @@ function fixtureDetail(ui, f, live) {
     // the line was for was telling "kept for juice, nothing ordered" apart from
     // "kept for juice, a van is due", and a board reading `0/12 +6` says that in
     // the column the question was asked in.
+    /**
+     * WHAT THE FOUR BUTTONS ARE, ONCE, ACROSS THE TOP.
+     *
+     * Every control on a board row is a glyph with its sentence in a `title`,
+     * which is a label on a desktop and four unlabelled squares on a phone —
+     * the same trap `actIcon` names and pays off with a word under the icon. A
+     * row cannot afford that word four times over, so the words go where the
+     * supplier already puts them: a head strip naming the columns, said once
+     * for a list rather than once per line.
+     *
+     * Only with something under it. A head over an empty board list is four
+     * labels naming nothing, and the row under it would be "Holding nothing".
+     */
+    const heads = boardRows ? `<div class="fx-heads">
+      <span class="h-nm">Item</span>
+      <span class="h-qty">Have</span>
+      <span class="h-price">Price</span>
+      <span class="h-btn">Order</span>
+      <span class="h-btn">Take</span>
+      <span class="h-btn">Clear</span>
+    </div>` : '';
+
     return `<div class="fx-detail">
       ${line('Boards', `${stacks.length} of ${boards} in use`)}
-      ${boardRows || line('Holding', '<i>nothing</i>')}
+      ${heads}
+      ${boardRows ? `<div class="fx-boards">${boardRows}</div>` : line('Holding', '<i>nothing</i>')}
       ${live?.priority ? line('Refilled', live.priority > 0 ? 'first' : 'last') : ''}
     </div>`;
   }
@@ -1637,8 +1681,114 @@ function wireFixtureMenu(ui, f, live) {
     };
   });
 
+  wireBoardOrder(ui, f, send);
+
   // `[data-up]` retired with the hand-rolled deals table: a deal is a row now,
   // and a row carries its own `run`.
+}
+
+/** How long a press has to settle on a board before it picks it up, in ms. */
+const BOARD_DWELL_MS = 200;
+/** ...and how far it may wander in that time and still count as settled. */
+const BOARD_SLOP = 6;
+
+/**
+ * Drag a board up or down the unit.
+ *
+ * Where goods sit on a shelf used to be a fact about delivery order — the list
+ * is what arrived when — and this is the one arrangement in the shop you can
+ * see from across it, so "put the cereal at eye level" was a sentence with
+ * nowhere to be said. See `Game.orderBoards`.
+ *
+ * A HOLD, then a drag, for the reason the world's move-drag is one: this list
+ * lives inside a panel you scroll by dragging it, so a bare drag is already
+ * spoken for and a row that moved on the first pixel would make the menu
+ * un-scrollable on a phone. Under `BOARD_DWELL_MS` the press is left alone
+ * entirely — no capture, no preventDefault — so the scroll gets it untouched;
+ * past it the pointer is captured and the scroll never sees another event.
+ *
+ * The DOM is reordered as you go rather than a gap being drawn: the answer to
+ * "where would it land" is the list itself, so there is nothing to keep in step
+ * with anything. What that costs is the repaint guard below — the menu rebuilds
+ * from the snapshot ten times a second, and a rebuild mid-drag would throw away
+ * the element under your finger.
+ *
+ * A press that never settles is still a press: nothing here calls
+ * `preventDefault` or `stopPropagation` before the dwell, so every button on the
+ * row goes on working exactly as it did — and a press that STARTED on one of
+ * them is never a drag at all, or the four squares on the right of each row
+ * would each be a handle for the row they sit on.
+ */
+function wireBoardOrder(ui, f, send) {
+  const list = ui.el.panelBody.querySelector('.fx-boards');
+  if (!list) return;
+  const rows = [...list.querySelectorAll('[data-board]')];
+  if (rows.length < 2) return;          // nothing to reorder
+
+  for (const row of rows) {
+    row.addEventListener('pointerdown', (e) => {
+      // Left button or a finger only, and never a press that landed on a
+      // control: `closest` rather than a tag test, because the buttons contain
+      // an SVG and the target is usually a path inside it.
+      if (e.button !== 0 || e.target.closest('button')) return;
+      const startY = e.clientY;
+      let live = false;
+      const at = () => [...list.querySelectorAll('[data-board]')];
+
+      const timer = setTimeout(() => {
+        live = true;
+        ui.boardDragging = true;       // hold the repaint off — see `tickFixture`
+        row.classList.add('moving');
+        row.setPointerCapture(e.pointerId);
+      }, BOARD_DWELL_MS);
+
+      const move = (ev) => {
+        if (!live) {
+          // Moved before it settled: this is the panel's scroll, and it is
+          // already happening — all this has to do is stop taking it over.
+          if (Math.abs(ev.clientY - startY) > BOARD_SLOP) { clearTimeout(timer); done(false); }
+          return;
+        }
+        // Which side of a neighbour's middle the pointer is on. Only the two
+        // it could swap with are considered, so one move is one place — a
+        // sweep down the list steps through it rather than jumping to the end
+        // and leaving the rows it passed unmoved.
+        const els = at();
+        const i = els.indexOf(row);
+        const up = els[i - 1];
+        const down = els[i + 1];
+        if (up && ev.clientY < up.getBoundingClientRect().bottom - up.offsetHeight / 2) {
+          list.insertBefore(row, up);
+        } else if (down && ev.clientY > down.getBoundingClientRect().top + down.offsetHeight / 2) {
+          list.insertBefore(row, down.nextSibling);
+        }
+      };
+
+      const done = (drop) => {
+        clearTimeout(timer);
+        row.removeEventListener('pointermove', move);
+        row.removeEventListener('pointerup', up);
+        row.removeEventListener('pointercancel', cancel);
+        if (!live) return;
+        live = false;
+        row.classList.remove('moving');
+        ui.boardDragging = false;
+        // Sent only where it landed somewhere else. A hold that put the row
+        // back where it started is a message that changes nothing, and every
+        // one of those is a `persist()` and a snapshot in a co-op shop.
+        const order = at().map((el) => el.dataset.board);
+        if (drop && order.join() !== rows.map((el) => el.dataset.board).join()) {
+          send('board-order', { shelfId: f.id, order });
+        }
+      };
+      const up = () => done(true);
+      const cancel = () => done(false);
+
+      row.addEventListener('pointermove', move);
+      row.addEventListener('pointerup', up);
+      row.addEventListener('pointercancel', cancel);
+    });
+  }
 }
 
 /**

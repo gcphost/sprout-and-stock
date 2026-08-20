@@ -25,14 +25,14 @@ import {
 import { findPath, followPath } from './pathing.js';
 import {
   foldModifiers, modifierMeter, departmentMeter, rankShelves, purchaseChance,
-  stapleChance, suggestedPrice, wholesalePrice, footfall, pull, clamp, round2,
+  stapleChance, suggestedPrice, wholesalePrice, footfall, pull, clamp, round2, IMPULSE_RADIUS,
 } from './economy.js';
 import {
   spoilRate, homeKind, desireFor, impulsePull, tagLabel, DEPARTMENTS,
 } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { hash01 } from '../../shared/hash.js';
-import { hourLabel } from '../../shared/clock.js';
+import { hourLabel, seasonFor } from '../../shared/clock.js';
 import { R, netRep } from '../../shared/reputation.js';
 import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { difficultyOf } from '../../shared/difficulty.js';
@@ -54,7 +54,9 @@ import {
   LOT_KINDS, lotStacks, lotTotal, lotQty, lotHas, lotMain, lotRoom,
   lotAdd, lotTake, lotSweep, lotLabel, lotOf,
 } from '../../shared/lot.js';
-import { modelExtent } from '../../shared/model.js';
+import {
+  modelExtent, modelHeight, partsAt, surfacesAt, drawableBoards, boardsForShare, tierProgress,
+} from '../../shared/model.js';
 
 /** Real seconds in one in-game day. */
 export const DAY_SECONDS = 360;
@@ -82,7 +84,6 @@ export const PREP_HOUR = 6;
  * put a delivery away and short enough that nobody waits out the sunrise.
  */
 const NIGHT_SPEED = 6;
-const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
 
 /**
  * When the van comes. Hours of the day, ascending.
@@ -598,11 +599,22 @@ const REP_FOUND_SHUT = 0.012;
  * time (`Not stocking`, in the supplier), so the state it lapses out of is one
  * you have been able to see and cancel all along.
  *
- * Longer than `HAND_DROP_DAYS` because the shop has more evidence than a
- * tidy-up does: four days of nothing selling is a real signal, and it should
- * outlast the week rather than the afternoon.
+ * It was 12, on the argument that the shop has more evidence than a tidy-up
+ * does — four days of nothing selling is a real signal, so it should outlast
+ * the week. That reasoning is fine and the number was wrong for a different
+ * reason: a fortnight is longer than most people play a shop in one sitting,
+ * so "the shop won't restock this" read as "the shop will never restock this".
+ * A lapse you never see happen is indistinguishable from a permanent ban, and
+ * the whole design of this — visible in the supplier, cancellable, self-
+ * correcting — rests on you being around to watch it come back.
+ *
+ * At 4 it is now SHORTER than `HAND_DROP_DAYS`, which inverts the old
+ * ordering. That is deliberate rather than an oversight: the two are not the
+ * same claim. Yours is a decision you made and the shop should hold it for as
+ * long as you meant it; the shop's own is a guess off four days of data, and a
+ * guess should be the one that expires first.
  */
-const SHOP_DROP_DAYS = 12;
+const SHOP_DROP_DAYS = 4;
 
 /** How many distinct tags one shopping trip is spread across. */
 const MAX_LIST_LINES = 3;
@@ -632,7 +644,83 @@ const LIST_BONUS = 1.6;
  * 1.5s, so a wait-scaled impulse would be invisible to every balance run and
  * land unmeasured. See docs/customers.md.
  */
-const IMPULSE_RADIUS = 2.6;    // tiles from the till, so roughly "the end of the aisle"
+/**
+ * EYE LEVEL IS BUY LEVEL.
+ *
+ * How high off the floor a board has to be, in tiles, to be the best spot in
+ * the shop. A shopper is about a tile tall and the camera looks down at 45°, so
+ * 0.8 is roughly where a face is and roughly where a tall shelf's upper boards
+ * sit — which is the point: the ladder's top rungs buy a good board rather than
+ * only more boards.
+ *
+ * `BOARD_SPREAD` is how far either side of it a board can be before it has lost
+ * all of its advantage, and `BOARD_PULL` is how much that advantage is worth.
+ * Deliberately small. What this is for is making a choice exist, not making the
+ * bottom shelf unsellable — a ±12% swing is enough to be worth arranging a shop
+ * around and not enough to strand goods a player deliberately put low down.
+ */
+/**
+ * How much of yesterday's footfall map survives the night. ~14-day half-life,
+ * which is the horizon the rest of the game already thinks in.
+ */
+const TRAFFIC_KEEP = 0.93;
+
+/** How often the footfall map goes on the wire, in real seconds. */
+const TRAFFIC_WIRE = 2;
+
+/**
+ * How far from a unit a walking shopper still counts as passing it, in tiles.
+ *
+ * 1.4, which is a tile and a bit, and the number is set by the SHELF PITCH
+ * rather than by what "passing" feels like. A generated shop stands its units
+ * one and two tiles apart — 11,7 beside 11,8, the next aisle at 13 — so a reach
+ * of 2.2, which is what this was first written as on the reasoning that a
+ * shopper crossing the end of an aisle passes everything in it, credits every
+ * unit in a small shop for every step anybody takes in it. The map is then
+ * perfectly correct and says the same thing about all six shelves, which reads
+ * as the feature not working rather than as a radius being too big.
+ *
+ * At 1.4 the aisle tile between two facing units credits both — they are one
+ * apart, and somebody walking down there really is passing both — while the
+ * next aisle over is two away and gets nothing. That is the distinction the
+ * whole measurement exists to make.
+ */
+const TRAFFIC_REACH = 1.4;
+
+/**
+ * How much a spot's footfall may swing what the shop does about it.
+ *
+ * A busy unit scores up to `1 + SPOT_PULL` and a dead one down to
+ * `1 - SPOT_PULL`, against the shop's own average rather than against a
+ * constant — a quiet shop is not a shop with no good spots in it.
+ *
+ * Same size as `BOARD_PULL` and for the same reason: this exists to make
+ * placement a decision, not to make the far corner unusable. A player who
+ * deliberately puts something out of the way should find the shop goes along
+ * with it rather than fighting them every delivery.
+ */
+const SPOT_PULL = 0.35;
+
+const EYE_LEVEL = 0.8;
+const BOARD_SPREAD = 0.75;
+const BOARD_PULL = 0.12;
+
+/**
+ * A board's height as a multiplier, peaking at `EYE_LEVEL` and falling away
+ * both ways. Cosine rather than a triangle so there is no crease at the top —
+ * a kink means two boards a hair apart can differ more than two boards a foot
+ * apart, which is a cliff nobody can see and everybody can feel.
+ */
+function atEye(y) {
+  const off = Math.min(1, Math.abs((Number(y) || 0) - EYE_LEVEL) / BOARD_SPREAD);
+  return 1 + BOARD_PULL * Math.cos(off * Math.PI / 2) * 2 - BOARD_PULL;
+}
+
+// `IMPULSE_RADIUS` moved to `economy.js`. It is a rule about what a shop's
+// takings do, and it is now read by `staff.js` as well — which cannot import
+// this file, since this file imports that one. A constant reached across a
+// cycle works right up until module order changes and then reads `undefined`,
+// which here would silently turn every shelf into an endcap.
 const IMPULSE_BASE = 0.35;     // scales purchaseChance — an impulse is a weaker pull than an errand
 const IMPULSE_PER_AHEAD = 0.2; // ...and a longer line gives you longer to look at it
 const IMPULSE_MAX_AHEAD = 3;
@@ -1336,6 +1424,40 @@ export class Game {
      */
     this.yardStamped = state.yardStamped ?? false;
     /**
+     * The footfall map, restored.
+     *
+     * NAMED here and not spread, which is the trap CLAUDE.md records against
+     * `difficulty` and `paint`: `Game.create` builds its payload field by field,
+     * so a save field written on the way out and forgotten on the way in reads
+     * back as the constructor's default — and the next `persist()` writes that
+     * default over what was stored. It does not fail to restore the map, it
+     * DELETES it, while the save looks correct in between.
+     *
+     * Sized at zero until the layout says how big the world is (`sizeTraffic`,
+     * from `regenerateLayout`), which is why the rows are held rather than laid
+     * out: a grid cut before the world is known is a grid of the wrong shape.
+     */
+    this.traffic = null;
+    this.trafficW = 0;
+    this.trafficH = 0;
+    this.trafficSaved = Array.isArray(state.traffic?.cells) ? state.traffic : null;
+    /**
+     * …and cut to the world right here, which is later in this constructor than
+     * it looks like it should be and has to be.
+     *
+     * Two things about the placement. It is needed AT ALL because `Game.create`
+     * generates its layout inline and hands it over — a shop that is simply
+     * LOADED never re-flows, and `noteTraffic` opens by returning if there is no
+     * grid, so a shop nobody happens to build in would record no footfall ever
+     * and every spot in it would score 1 for the rest of the save. And it must
+     * come AFTER the three fields above rather than beside `buildWalkGrid`,
+     * because `sizeTraffic` is what pours `trafficSaved` in: run earlier in the
+     * constructor it reads a field JavaScript has not assigned yet, so the grid
+     * is cut correctly and comes back empty — a reload that silently forgets a
+     * fortnight, which is the `paint` trap wearing an ordering.
+     */
+    this.sizeTraffic(this.layout.w, this.layout.h);
+    /**
      * Whether the shop front has ever been stamped — see `freezeAwning`.
      *
      * Its own mark for `yardStamped`'s reason, said about decorations: "does
@@ -1598,6 +1720,11 @@ export class Game {
       paint: w.paint ?? {},
       yardStamped,
       awningStamped,
+      // …and the same for the footfall map, which is the field this note is
+      // about wearing its third hat. `saveState` writes it; without this line
+      // the constructor's `null` answers instead and the next `persist()`
+      // writes that back over a fortnight of watching.
+      traffic: w.traffic ?? null,
       shell,
       layout,
       layoutVersion: 1,
@@ -1680,6 +1807,9 @@ export class Game {
       paint: this.paint,
       yardStamped: this.yardStamped,
       awningStamped: this.awningStamped,
+      // The footfall map. Out here AND named in `Game.create`'s payload — see
+      // the note there on why one without the other deletes it.
+      traffic: this.trafficOut(),
       shell: this.shell,
       layout: this.layout,
       layoutVersion: this.layoutVersion,
@@ -1815,6 +1945,9 @@ export class Game {
       paint: this.paint,
       yardStamped: this.yardStamped,
       awningStamped: this.awningStamped,
+      // The footfall map. Out here AND named in `Game.create`'s payload — see
+      // the note there on why one without the other deletes it.
+      traffic: this.trafficOut(),
       shell: this.shell,
       // Settings, the day's running total and whatever is on the van, because
       // the total is only meaningful beside the day it belongs to — see
@@ -2138,10 +2271,36 @@ export class Game {
   // The layout is big and changes rarely, so it's sent separately.
   // -------------------------------------------------------------------------
 
+  /**
+   * The footfall map, for the overlay — and NOT every tick.
+   *
+   * The client used to keep its own count off the snapshot, which worked and
+   * was a second map: the sim decides where stock goes using one measure of
+   * "where people walk", and the picture you make that decision by was drawn
+   * from another. They would agree in shape and differ in detail for ever, and
+   * the difference is invisible by construction — two heatmaps of the same shop
+   * both look like heatmaps of that shop. So there is one, it is the one the
+   * crew reads, and the picture comes from the thing.
+   *
+   * Rounded ints and every `TRAFFIC_WIRE` seconds. A grown world is a couple of
+   * thousand cells, which at 10Hz would be more bandwidth than the entire rest
+   * of the snapshot for a readout that measures a fortnight — nothing on it can
+   * visibly change inside two seconds.
+   */
+  trafficWire() {
+    if (!this.traffic) return undefined;
+    if (this.trafficSentAt != null && this.elapsed - this.trafficSentAt < TRAFFIC_WIRE) return undefined;
+    this.trafficSentAt = this.elapsed;
+    return { w: this.trafficW, h: this.trafficH, cells: Array.from(this.traffic, (n) => Math.round(n)) };
+  }
+
   snapshot() {
     return {
       day: this.day,
       time: this.time,
+      // Only on the ticks it is due — `undefined` is dropped by `JSON.stringify`,
+      // so the client simply keeps the map it has.
+      traffic: this.trafficWire(),
       season: this.season,
       cash: round2(this.cash),
       reputation: round2(this.reputation),
@@ -2927,6 +3086,9 @@ export class Game {
   }
 
   onNewDay() {
+    // The footfall map fades a night's worth, so it stays a rolling picture of
+    // the shop you have rather than a record of the one you started with.
+    this.fadeTraffic();
     // Cash left on the counter overnight gets banked rather than vanishing —
     // an unattended till should look untidy, not quietly delete your takings.
     if (this.cashDrops.length) {
@@ -2936,7 +3098,11 @@ export class Game {
       this.cashDrops = [];
       this.pushLog(`Cashed up $${swept.toFixed(2)} left on the counter.`);
     }
-    this.season = SEASONS[Math.floor((this.day - 1) / 7) % SEASONS.length];
+    // `shared/clock.js`, and not the expression it used to be, because the HUD
+    // prints a weekday off this same day number now: the length of a season and
+    // the length of a week are one fact, and two copies of it would be a
+    // calendar whose Monday quietly stopped being the first day of spring.
+    this.season = seasonFor(this.day);
     // Housekeeping, and only a real game's to do. An ephemeral run shares the
     // live world's id, so this line is `simulate` deleting the world events of
     // the shop it was only supposed to be measuring — sixty simulated days
@@ -3291,14 +3457,27 @@ export class Game {
      * crew standing about doing nothing while it happens.
      *
      * So rot becomes a thing on the floor: a crate marked `waste`, standing
-     * where the shelf is, for somebody to carry out. Two rules keep it from
-     * being a new mechanic nobody asked for. It only happens **if you own a
-     * bin** — a shop without one is the old game to the unit, which is what
-     * makes the whole feature opt-in and what stops a shop that has never
-     * thought about rubbish filling up with it. And the money is unchanged
-     * either way: `spoiledValue` is counted here, at the moment it rots, not
-     * when somebody gets round to carrying it out. What is in that crate is
-     * worth nothing and is already in the P&L.
+     * where the shelf is, for somebody to carry out.
+     *
+     * **It happens whether or not you own a bin, and that is a reversal.** It
+     * was gated on owning a skip, so the whole thing was opt-in and a shop
+     * without one was the old game to the unit. What that actually meant in
+     * play is that a shop with no skip goes on making rot VANISH at midnight —
+     * and the log said it had been "binned", into a bin that does not exist.
+     * Which is the worst of both: the money is gone, the shop is fine, and the
+     * only trace is a line describing a thing that never happened.
+     *
+     * Rot is now always a box. Owning a skip is what lets your crew carry it
+     * OUT (`tidy`), not what decides whether rubbish exists — so a shop with no
+     * skip fills up with crates that are ugly, take floor, cost patience
+     * through `mess`, and cannot be shifted until you buy one. That pressure is
+     * the point: it is the difference between a mechanic you can ignore for
+     * ever and one the shop asks you about.
+     *
+     * The money is unchanged either way, which is what keeps this a change to
+     * the PICTURE rather than to the balance: `spoiledValue` is counted here,
+     * at the moment it rots, not when somebody gets round to carrying it out.
+     * What is in that crate is worth nothing and is already in the P&L.
      *
      * `waste` rides on the CRATE rather than on the stack, which is the
      * narrower of the two and the one every existing reader can ignore with a
@@ -3312,8 +3491,18 @@ export class Game {
       this.stats.spoiledValue = round2(
         this.stats.spoiledValue + wholesalePrice(item, folded, this.season) * qty,
       );
-      if (skip && at) this.dropWaste(item.id, qty, at);
+      if (at) this.dropWaste(item.id, qty, at);
     };
+    /**
+     * …and what the log is allowed to CLAIM happened.
+     *
+     * "was binned" is a sentence about a skip, and a shop with no skip reading
+     * it is being told about a thing it does not own. The nudge only appears
+     * when there is nothing to carry the rubbish to, so a shop that has sorted
+     * this out is never told about it again — the same rule the shutter pulse
+     * follows.
+     */
+    const said = skip ? '' : ' Nothing here can shift it — a skip would.';
 
     for (const shelf of this.layout.shelves) {
       // Board by board, and each against its OWN clock. One clock per fixture
@@ -3346,7 +3535,7 @@ export class Game {
           this.clearStack(shelf, stack.item_id);
           bin(item, lost, shelf.browseAt ?? shelf);
           this.logGoods('spoil:shelf', {
-            post: ' spoiled on the shelf and was binned.',
+            post: ` spoiled on the shelf — it's in a rubbish crate beside it.${said}`,
             goods: [{ item_id: stack.item_id, qty: lost }],
           });
         }
@@ -3390,7 +3579,7 @@ export class Game {
         crate.stacks = lotTake(crate, pile.item_id, lost).lot?.stacks ?? [];
         bin(item, lost, crate);
         this.logGoods('spoil:yard', {
-          post: ' spoiled in the yard and was binned.',
+          post: ` spoiled in the yard — it's in a rubbish crate.${said}`,
           goods: [{ item_id: pile.item_id, qty: lost }],
         });
       }
@@ -4748,9 +4937,54 @@ export class Game {
    * `min` outranks the 25% board line rather than replacing it: a board is thin
    * when EITHER says so, because a rule is a floor you asked for and the line is
    * the default for everything you have not.
+   *
+   * `price` is the fourth field and it is the same sentence about the other
+   * half of the trade: what this shop charges for eggs. It belongs here for the
+   * reason the two numbers do — a price set on a board is a fact about that
+   * board, so a shop with three egg shelves had to say it three times and any
+   * board opened after that said the suggested price back at you. See
+   * `itemPrice`.
    */
   itemRule(itemId) {
     return this.orders.items?.[itemId] ?? {};
+  }
+
+  /**
+   * What a board of this opens at: your standing price, else the suggestion.
+   *
+   * The one place either answer is decided, because there are two callers that
+   * open a board (`openStack`, and `pourInto` refilling one that had emptied)
+   * and a standing price honoured by one of them is a price that holds until
+   * the shelf sells out — which reads as the number resetting itself.
+   *
+   * The suggestion moves with the season and the world events; a price you set
+   * does not, which is the whole of what setting one buys and also its cost.
+   */
+  itemPrice(item) {
+    const set = this.itemRule(item.id).price;
+    return set != null ? set : suggestedPrice(item, this.folded(), this.season);
+  }
+
+  /**
+   * Put every board holding this item onto one price.
+   *
+   * Setting a standing price has to land on the shop you are looking at, or the
+   * control is a promise about deliveries that have not happened — you press
+   * `+` in a shop with eggs on three shelves and not one number on the floor
+   * moves. Clearing it is the same act pointed back at the suggestion, which is
+   * what makes the dash mean "whatever the shop thinks" rather than "the last
+   * number I typed, for ever".
+   *
+   * It walks boards rather than calling `setPrice`: that one is the shelf
+   * menu's verb and takes a shelf id, and what this is about is an item.
+   */
+  repriceItem(item) {
+    const price = round2(this.itemPrice(item));
+    for (const shelf of this.layout.shelves) {
+      const stack = this.shelfStack(shelf, item.id);
+      if (stack) stack.price = price;
+    }
+    return price;
   }
 
   /** How many of an item are standing on the shop's shelves right now. */
@@ -4784,6 +5018,13 @@ export class Game {
       if (patch[key] === null || !Number.isFinite(n) || n <= 0) delete rule[key];
       else rule[key] = Math.min(Math.round(n), 999);
     }
+    // Zero is a price — it is how you give something away — so this one cannot
+    // share the loop above, where `n <= 0` is the spelling of "no minimum".
+    if (patch.price !== undefined) {
+      const n = Number(patch.price);
+      if (patch.price === null || !Number.isFinite(n) || n < 0) delete rule.price;
+      else rule.price = round2(n);
+    }
     // A max under a min is a rule that can never be satisfied, and the shop
     // would sit forever below a floor it is not allowed to reach. Whichever
     // one you just moved is the one you meant, so the other gives way.
@@ -4794,8 +5035,14 @@ export class Game {
     const items = { ...this.orders.items };
     if (Object.keys(rule).length) items[itemId] = rule; else delete items[itemId];
     this.orders.items = items;
+    // The shop in front of you, and only when the price was the field that
+    // moved: nudging a minimum must not walk every shelf in the building, and a
+    // reprice on a patch that never mentioned a price would quietly wipe the
+    // per-board prices the shelf menu exists to set.
+    const priced = patch.price !== undefined
+      ? this.repriceItem(content().byId.items[itemId]) : null;
     this.persist();
-    return ok({ itemId, rule });
+    return ok({ itemId, rule, ...(priced != null ? { price: priced } : {}) });
   }
 
   /** What is left of the cap, or Infinity where the player has not set one. */
@@ -4860,6 +5107,155 @@ export class Game {
   /** How many different things it may hold — its boards, read off its art. */
   shelfBoards(shelf) {
     return boardsOf(content().fixtures ?? [], shelf);
+  }
+
+  /**
+   * How much better or worse this board is than an average one, purely for
+   * being where it is on the unit. Eye level is buy level.
+   *
+   * The first thing in the game that makes WHICH BOARD a decision. A tier that
+   * adds a board used to be pure capacity — three shelves' worth of stock in
+   * one tile, all of it selling identically — so a unit's ladder had one axis
+   * and stocking it had none. Now the top of a tall unit is the best spot on
+   * the shop floor and the bottom of it is the worst, which is what makes
+   * "what do I put at eye level" a question with an answer.
+   *
+   * **Absolute height, not position within the unit.** A chest freezer's roof
+   * is waist high whether or not it is the only surface that freezer has, and
+   * scoring it as "the top board" would say a chest freezer's one board is as
+   * good as a tall shelf's best — which is the opposite of what anyone who has
+   * stood in a shop believes. It also gives the fixture ladder its second axis:
+   * a taller unit is worth more than the stock it holds.
+   *
+   * **A peak rather than a slope**, and that is the half that keeps it a
+   * decision. Higher-is-better makes the top board of the tallest unit the only
+   * answer and every rung below it a consolation, so a shop optimises to one
+   * shape. Real shelving is worse above the eyeline than at it — you cannot
+   * reach the thing — so it rises to `EYE_LEVEL` and falls away past it, and
+   * the best board on a unit is not always its highest.
+   *
+   * The height comes off the ART, through the same `boardsForShare` the
+   * renderer draws with, so this can never disagree with the picture: the pile
+   * you can see on the top board is the pile being priced as the top board.
+   * A unit with no boards at all — a counter, a chest freezer — heaps its goods
+   * on its roof, so that is the height it is asked about.
+   */
+  boardPull(shelf, itemId) {
+    if (!shelf || !itemId) return 1;
+    const piece = pieceFor(content().fixtures ?? [], { ...shelf, kind: shelfKind(shelf.kind) });
+    const model = piece?.model;
+    if (!model) return 1;
+    const ladder = piece.tiers?.length ?? 1;
+    const t = tierProgress(Math.min(Math.max(1, Math.trunc(shelf.tier ?? 1)), ladder), ladder);
+    const rows = drawableBoards(partsAt(model, t), surfacesAt(model, t));
+
+    // No boards you can see into: everything is piled on the roof, and the roof
+    // is the one height there is. `modelHeight` rather than a surface, because
+    // there is no surface to read.
+    if (!rows.length) return atEye(modelHeight(model, t));
+
+    // Which share of the boards this pile has. The same list the renderer
+    // builds — reservations first, then whatever is standing on it — because a
+    // board held open by a tick nobody has filled still takes up a share.
+    const kinds = [...new Set([
+      ...toList(shelf.assigned), ...this.shelfStacks(shelf).map((k) => k.item_id),
+    ])].filter(Boolean);
+    const gi = Math.max(0, kinds.indexOf(itemId));
+    const boards = boardsForShare(rows, Math.max(1, kinds.length), gi);
+    if (!boards.length) return 1;
+
+    // The BEST board of its share, not the average of them. A pile spread over
+    // three boards is a pile with a facing at eye level, and a shopper is
+    // looking at the facing rather than at the stock behind it.
+    return Math.max(...boards.map((b) => atEye(b.y)));
+  }
+
+  /**
+   * How good a PLACE this unit is standing in, as a multiplier around 1.
+   *
+   * The unit's half of the question `boardPull` answers about a board: that one
+   * is how high off the floor a pile is, this one is whether anybody walks past
+   * it. Kept apart because they are measured differently and can be argued with
+   * separately — height comes off the art and is fixed the moment the thing is
+   * built, footfall is watched and changes as the shop does.
+   *
+   * Two terms, and both are things the game already believed:
+   *
+   * - **Passing trade**, out of `this.traffic`, against the shop's own average.
+   *   Relative and not absolute, because the number of seconds-of-footfall a
+   *   busy tile collects depends on how many customers the shop gets — which is
+   *   catchment, reputation and the time of day, none of which is a fact about
+   *   this unit. A quiet shop still has a busy end.
+   * - **The endcap**, which has been worth money since `impulseBuy` existed and
+   *   was never visible to anything that decides where stock goes.
+   *
+   * Memoised for a tick because the callers are loops over every shelf in the
+   * shop, and the answer cannot change inside one.
+   */
+  spotScore(shelf) {
+    if (!shelf || !this.traffic) return 1;
+    if (this._spotTick !== this.elapsed) {
+      this._spotTick = this.elapsed;
+      this._spots = new Map();
+      this._spotMean = null;
+    }
+    const had = this._spots.get(shelf.id);
+    if (had !== undefined) return had;
+
+    // Footfall within reach of it, and the shop's average unit for comparison.
+    // The average is over the UNITS rather than over the whole grid: most of a
+    // world is grass nobody has ever walked on, so a grid mean would call every
+    // shelf in the building a hot spot.
+    const near = (s) => {
+      let n = 0;
+      const x0 = Math.max(0, Math.floor(s.x - TRAFFIC_REACH));
+      const x1 = Math.min(this.trafficW - 1, Math.ceil(s.x + TRAFFIC_REACH));
+      const z0 = Math.max(0, Math.floor(s.z - TRAFFIC_REACH));
+      const z1 = Math.min(this.trafficH - 1, Math.ceil(s.z + TRAFFIC_REACH));
+      for (let z = z0; z <= z1; z++) {
+        for (let x = x0; x <= x1; x++) {
+          if (Math.hypot(x - s.x, z - s.z) > TRAFFIC_REACH) continue;
+          n += this.traffic[z * this.trafficW + x];
+        }
+      }
+      return n;
+    };
+
+    // Per TICK, in the same memo the scores use, and deliberately not per day.
+    // Keyed on the day it is stale for as long as a day lasts, and footfall
+    // accumulates the whole time — so a shop that got busy this morning is
+    // measured against the average it had at midnight. That is invisible in
+    // play (the numbers are simply a bit behind) and lethal in a sweep, where a
+    // map painted after the first tick reads as a shop nobody has walked in.
+    // The walk of the shop is the expensive part and one tick cannot change it.
+    let mean = this._spotMean;
+    if (mean == null) {
+      const units = this.layout.shelves ?? [];
+      const all = units.map(near);
+      mean = all.length ? all.reduce((a, b) => a + b, 0) / all.length : 0;
+      this._spotMean = mean;
+    }
+
+    // Nothing watched yet — a new shop, a fresh save, a sweep. Every spot is
+    // the same spot, which is the old game exactly and is what makes all of
+    // this opt-in to having been played.
+    let score = 1;
+    if (mean > 0) {
+      const rel = near(shelf) / mean;
+      // Square-rooted and clamped: footfall is long-tailed, so the doorway is
+      // many times any aisle and a linear ratio would make one unit the only
+      // good spot in the building.
+      score = 1 + Math.max(-1, Math.min(1, Math.sqrt(rel) - 1)) * SPOT_PULL;
+    }
+    // The endcap. `Math.max` over the tills rather than a count, for the reason
+    // `pickItem`'s own endcap test is not a count: two checkouts either side of
+    // one unit is one queue's worth of eyes on it.
+    const till = (this.layout.checkouts ?? [])
+      .some((t) => Math.hypot(shelf.x - t.x, shelf.z - t.z) <= IMPULSE_RADIUS);
+    if (till) score *= 1 + SPOT_PULL;
+
+    this._spots.set(shelf.id, score);
+    return score;
   }
 
   /** Is there a free board, or is this kind already on one? */
@@ -5552,7 +5948,7 @@ export class Game {
     const stack = {
       item_id: item.id,
       qty: 0,
-      price: suggestedPrice(item, this.folded(), this.season),
+      price: this.itemPrice(item),
       stockedDay: this.dayNow(),
     };
     shelf.stacks = [...this.shelfStacks(shelf), stack];
@@ -8738,6 +9134,116 @@ export class Game {
   }
 
   /**
+   * Tip one pallet into the crate on your shoulder.
+   *
+   * The other place goods can go, said about the other pair of containers, and
+   * a verb of its own rather than an option on `unload` for the reason `haul`
+   * is a field of its own: a shared function is one caller reading the wrong
+   * one of two hands, and that is a conservation hole rather than a visible
+   * bug. `unload` fills `p.carry` bounded by `carryLot`; this fills `p.haul`
+   * bounded by `crateLot`, and the two never meet.
+   *
+   * What it is FOR is a bay of part-crates. Four lettuce, four eggs and four
+   * bread in three boxes is three separate trips today: none of them is worth
+   * shouldering on its own and `fillHands` only ever tops up a kind already in
+   * your arms. One reach with this makes it one full box. Which hires do that
+   * is `packs` on their rung — see `fillCrate` in `staff.js`.
+   *
+   * Rubbish is refused in both directions, which is the same claim
+   * `stockCrates` and `dropGoods` already make and `verify:bin` sweeps for: rot
+   * that could be poured into a box of bread is rot back in the supply.
+   */
+  packCrate(playerId, deliveryId, cap = Infinity, itemId = null) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if (!p.haul) return err('no crate on your shoulder');
+    if (p.haul.waste) return err('that is rubbish — take it to the skip');
+
+    const del = deliveryId
+      ? this.deliveries.find((d) => d.id === deliveryId)
+      : this.nearest(this.stockCrates(), p, UNLOAD_REACH);
+    if (!del) return err('no crate here');
+    if (del.waste) return err('that is rubbish, not stock');
+    if (!near(p, del, UNLOAD_REACH)) return err('too far from the pallet');
+    // Only ever OUT OF THE YARD, which is `wholeCrate`'s termination argument
+    // said about the second box. A crate in an aisle is one somebody already
+    // carried out of the bay, so packing from it is goods travelling backwards
+    // — and with two hires it is one pile passed between two boxes for the rest
+    // of the save, every step of which looks like a worker working.
+    //
+    // Here as well as in `fillCrate`'s own skip, and that is the same pairing
+    // `fit` has with `Game.unload`'s cap rather than a rule written twice: the
+    // job loop must not COUNT what the verb would refuse, or a hire walks to a
+    // box for units it is never handed. This is the half that is load-bearing,
+    // because a guard that lives only in the caller is the one a later refactor
+    // moves.
+    if (!this.onAPad(del)) return err('that crate is not in the yard');
+
+    const opts = this.crateLot();
+    const want = Math.min(opts.cap - lotTotal(p.haul), Math.max(0, cap));
+    if (want <= 0) return err('that crate is full');
+
+    /**
+     * The pile's own clock rides across with it, and the OLDER stamp wins.
+     *
+     * `lotAdd` merges by item id and pushes a bare `{item_id, qty}` for a kind
+     * the box has not got — so without this, packing is two dodges at once:
+     * a fortnight-old pallet of flour tipped into this morning's box comes out
+     * with this morning's date, and a kind arriving fresh comes out with no
+     * stamp at all, which `spoilYard` reads as fresh for ever. Either one makes
+     * "pack a crate" the way to beat spoilage, which is exactly what
+     * `stampPile` exists to stop being possible.
+     *
+     * Written through `p.haul.stacks` and never through `lotStacks`, which is
+     * the trap this file's own `splitOverfull` already sidesteps and is worth
+     * saying out loud: `lotStacks` hands back `{...s}` COPIES on purpose — a
+     * caller that sorted the result must not be reordering somebody's hands —
+     * so a stamp written onto what it returns is written onto a value nobody
+     * keeps. It reads as the clock silently not carrying, which is the bug
+     * being fixed, wearing the fix.
+     */
+    const carry = (id, from) => {
+      if (from == null) return;
+      const pile = (p.haul?.stacks ?? []).find((s) => s.item_id === id);
+      if (pile) pile.day = Math.min(pile.day ?? from, from);
+    };
+
+    const before = lotTotal(p.haul);
+    if (itemId) {
+      if (!lotHas(del, itemId)) {
+        const name = content().byId.items[itemId]?.name ?? itemId;
+        return err(`no ${name} in that crate`);
+      }
+      const room = lotRoom(p.haul, itemId, opts);
+      if (room <= 0) return err('no room in that crate for that');
+      const was = lotStacks(del).find((s) => s.item_id === itemId)?.day ?? del.day ?? null;
+      const out = lotTake(del, itemId, Math.min(want, room));
+      del.stacks = out.lot?.stacks ?? [];
+      p.haul = lotAdd(p.haul, itemId, out.took, opts).lot;
+      carry(itemId, was);
+    } else {
+      // The stamps have to be read BEFORE the sweep, because `lotTake` is what
+      // empties the source and a stack drained to nothing is a stack that is
+      // gone by the time there is anything to stamp.
+      const was = new Map(lotStacks(del).map((s) => [s.item_id, s.day ?? del.day ?? null]));
+      const swept = lotSweep(del, p.haul, want, opts);
+      del.stacks = swept.from?.stacks ?? [];
+      p.haul = swept.into;
+      for (const [id, day] of was) carry(id, day);
+    }
+    const took = lotTotal(p.haul) - before;
+    if (took <= 0) return err('that crate is full');
+
+    if (lotTotal(del) <= 0) this.deliveries = this.deliveries.filter((d) => d.id !== del.id);
+    return ok({
+      packed: took,
+      item_id: itemId ?? lotMain(p.haul)?.item_id ?? null,
+      items: lotStacks(p.haul),
+      left: lotTotal(del),
+    });
+  }
+
+  /**
    * Take an armful off one of a shelf's boards.
    *
    * `unshelve` because `takeFromShelf` is already taken — by a *shopper*
@@ -9016,7 +9522,7 @@ export class Game {
       // cheese's.
       if (wasEmpty) {
         board.stack.stockedDay = this.day;
-        board.stack.price = suggestedPrice(item, this.folded(), this.season);
+        board.stack.price = this.itemPrice(item);
       }
       left = lotTake(left, pile.item_id, take).lot;
       moved += take;
@@ -9066,6 +9572,57 @@ export class Game {
     if (!stack) return err('say which of those to reprice');
     stack.price = Math.max(0, round2(price));
     return ok({ price: stack.price, item_id: stack.item_id });
+  }
+
+  /**
+   * Which board a thing is on — the order of them, top to bottom.
+   *
+   * Where goods sit on a unit was never anybody's decision: `openStack` pushes a
+   * new kind onto the end of the list, so a board's place is a record of the
+   * order things happened to arrive in, and the renderer draws them in that
+   * order (`syncShelves` reads `kinds.indexOf`). Which means the shelf you look
+   * at across the shop is filed by delivery date, and the one arrangement a
+   * shopkeeper actually wants — the thing that sells at eye level, the boxes of
+   * cereal together — could not be asked for at all.
+   *
+   * BOTH lists move, and that is the whole of what makes it stick. `stacks` is
+   * what is standing on it and `assigned` is what it is kept for, and the
+   * picture is built from the union with the reservations FIRST — so reordering
+   * the goods alone would come back looking exactly as it did, because the
+   * assignment list still names them in the old order. A board reserved for
+   * something that has not landed is in that picture too, which is why the
+   * order the client sends is the list the MENU shows rather than the stacks.
+   *
+   * Anything it does not name keeps its place at the end rather than being
+   * dropped: two people can be looking at one shelf, and a list built a tick
+   * before a delivery landed must not un-shelve what arrived in between.
+   *
+   * Not gated on build mode, for `assignShelf`'s reason: this is a choice about
+   * stock, like sowing a bed. It moves nothing, costs nothing and destroys
+   * nothing — it is a permutation, and `verify:boards`' conservation
+   * check is the assertion that it stays one.
+   */
+  orderBoards(shelfId, order) {
+    const shelf = this.layout.shelves.find((s) => s.id === shelfId);
+    if (!shelf) return err('no such shelf');
+    const want = Array.isArray(order) ? order.map((id) => String(id)) : null;
+    if (!want?.length) return err('say what order');
+    const rank = new Map();
+    for (const id of want) if (!rank.has(id)) rank.set(id, rank.size);
+    // Unnamed sorts last and keeps its own order, which is what makes this
+    // stable against a stale list. `Array.prototype.sort` is stable per spec, so
+    // ties do not shuffle.
+    const at = (id) => (rank.has(id) ? rank.get(id) : rank.size + 1);
+    shelf.stacks = [...this.shelfStacks(shelf)]
+      .sort((a, b) => at(a.item_id) - at(b.item_id));
+    // `assigned` is written as an array everywhere but read defensively in the
+    // sim (`pickItem` wraps a bare value), so this does the same rather than
+    // trusting the shape a save happens to carry.
+    const kept = Array.isArray(shelf.assigned) ? shelf.assigned
+      : (shelf.assigned ? [shelf.assigned] : []);
+    if (kept.length) shelf.assigned = [...kept].sort((a, b) => at(a) - at(b));
+    this.persist();
+    return ok({ shelfId, order: this.shelfStacks(shelf).map((k) => k.item_id) });
   }
 
   /**
@@ -9952,6 +10509,28 @@ export class Game {
       });
     } else this.pushLog(`Took ${name} off the ${this.fixtureSaid(shelf)}.${note}`);
     return ok({ emptied: qty, shelf: shelf.id, item: itemId, dropped: gaveUp });
+  }
+
+  /**
+   * Is this crate standing in the yard, rather than somewhere somebody put it?
+   *
+   * Both pads, because both are places crates legitimately live and neither is
+   * somewhere a worker would have carried one *to*. It is the termination
+   * argument for moving goods around in boxes: they come out of the yard and
+   * into the shop, so a crate that has left the pad is never lifted again, is
+   * never packed out of, and no pair of shelves can pass one back and forth.
+   *
+   * On the Game rather than in `staff.js`, where it started, because
+   * `packCrate` has to refuse on it and a second copy of the arithmetic is how
+   * the job loop and the verb end up disagreeing about which boxes are in the
+   * yard — which presents as a hire walking to a crate and being told no, for
+   * ever, on a bay that looks perfectly ordinary.
+   */
+  onAPad(d) {
+    if (!d) return false;
+    const x = Math.round(d.x);
+    const z = Math.round(d.z);
+    return isPadAt(this.layout, 'bay', x, z) || isPadAt(this.layout, 'drop', x, z);
   }
 
   /**
@@ -11442,6 +12021,16 @@ export class Game {
     if (newSeed) this.seed = String(newSeed);
     this.layout = layout;
     this.layoutVersion++;
+    // The footfall map is the size of the world, so it is re-cut here — and it
+    // KEEPS what still lines up, which is the whole reason it is a resize
+    // rather than a rebuild. Buying land is the only thing that changes the
+    // grid, and every other re-flow (a wall, a shelf, a floor tile) must leave
+    // a fortnight of watching exactly where it was.
+    this.sizeTraffic(layout.w, layout.h);
+    // A re-flow can move every unit in the shop, so no cached spot score
+    // survives it.
+    this._spotTick = null;
+    this._spotMean = null;
     this.walk = buildWalkGrid(layout);
     this.layQueueLanes();
 
@@ -12647,6 +13236,116 @@ export class Game {
     cust.drive.path = out.slice(1).map((p) => ({ ...p }));
   }
 
+  /**
+   * WHERE THE SHOPPERS ACTUALLY GO.
+   *
+   * One number per tile, and the first thing in the game that knows the shop
+   * has a busy end and a dead corner. Everything about placement was blind
+   * before it: `pickItem` scored a shelf by the catalogue and never by where it
+   * was standing, `shelvesFor` ranked by what the player had ticked, and the one
+   * rule that made a spot worth money — the endcap — was a distance to a till
+   * and nothing else. A shop with half its floor unvisited played exactly like
+   * a shop that was working.
+   *
+   * **Only people who are WALKING**, which is the whole of what makes it a
+   * measurement of the PLACE rather than of the stock on it. A shopper standing
+   * at a board is there because of what is on that board, so counting them
+   * would score a shelf highly for holding good stock and then be used to
+   * decide it deserves good stock — a loop that freezes the layout on day one
+   * and calls it evidence. What is left is passing trade, which is exactly the
+   * customer an endcap sells to.
+   *
+   * **Not staff**, for the reason the client overlay leaves them out too: a
+   * worker's route is a fact about where the shop told them to go, so a map
+   * with them in it is brightest along the path from the bay to the shelves —
+   * the shop's own plumbing showing through the thing being read.
+   *
+   * Scaled by `dt` so it is in seconds-of-footfall rather than in ticks, which
+   * keeps it comparable across the day/night speed-up. A tile the night shift
+   * hurries over six times faster must not read as six times busier.
+   */
+  noteTraffic(cust, dt) {
+    if (!this.traffic || !cust.path?.length) return;
+    const x = Math.round(cust.x);
+    const z = Math.round(cust.z);
+    if (x < 0 || z < 0 || x >= this.trafficW || z >= this.trafficH) return;
+    this.traffic[z * this.trafficW + x] += dt;
+  }
+
+  /**
+   * Cut the traffic grid to the world, keeping what still lines up.
+   *
+   * A shop grows east and south, so a bigger world has the same tiles at the
+   * same coordinates and what was watched of them is still true. Re-cutting
+   * from scratch on every re-flow would wipe the map each time a wall went up,
+   * which — since build mode re-flows on every segment of a drag — is a
+   * measurement that can never survive being used.
+   */
+  sizeTraffic(w, h) {
+    if (!(w > 0 && h > 0)) return;
+    if (this.traffic && this.trafficW === w && this.trafficH === h) return;
+    const old = this.traffic;
+    const ow = this.trafficW;
+    const oh = this.trafficH;
+    this.traffic = new Float64Array(w * h);
+    if (old) {
+      for (let z = 0; z < Math.min(oh, h); z++) {
+        for (let x = 0; x < Math.min(ow, w); x++) this.traffic[z * w + x] = old[z * ow + x];
+      }
+    }
+    this.trafficW = w;
+    this.trafficH = h;
+    // The saved map, poured in the first time the world's size is known — and
+    // only then, because a grid restored before the layout exists would be cut
+    // to the wrong shape and thrown away by the next resize. Cleared once used,
+    // so a later re-cut (buying land) keeps what the resize carried rather than
+    // pouring the old save back over it.
+    const saved = this.trafficSaved;
+    if (!saved) return;
+    this.trafficSaved = null;
+    // The world it was recorded in, so a save from before a purchase lands on
+    // the right tiles rather than being smeared by a changed row length.
+    const sw = saved.w ?? w;
+    for (let i = 0; i < saved.cells.length; i++) {
+      const x = i % sw;
+      const z = Math.floor(i / sw);
+      if (x >= w || z >= h) continue;
+      this.traffic[z * w + x] = Number(saved.cells[i]) || 0;
+    }
+  }
+
+  /**
+   * The map, for the save. Rounded, because a tenth of a second of footfall is
+   * noise, and dropped entirely when nothing has been watched — a new shop
+   * should not carry a grid of zeros around in its save for ever.
+   */
+  trafficOut() {
+    if (!this.traffic) return this.trafficSaved ?? null;
+    let any = false;
+    const cells = new Array(this.traffic.length);
+    for (let i = 0; i < this.traffic.length; i++) {
+      const n = Math.round(this.traffic[i]);
+      cells[i] = n;
+      if (n > 0) any = true;
+    }
+    return any ? { w: this.trafficW, h: this.trafficH, cells } : null;
+  }
+
+  /**
+   * A night's fade, so the map is a rolling fortnight rather than a monument.
+   *
+   * A shop is rebuilt as it grows, and a hot spot recorded round a till you
+   * have since moved is a lie the map has no way to notice. It has to fade for
+   * the same reason `staleBoards` counts days: what the shop is like NOW is the
+   * only useful answer, and an all-time total is mostly a record of the shop
+   * you had when you were learning to play.
+   */
+  fadeTraffic(days = 1) {
+    if (!this.traffic) return;
+    const k = TRAFFIC_KEEP ** Math.min(Math.max(1, days), 60);
+    for (let i = 0; i < this.traffic.length; i++) this.traffic[i] *= k;
+  }
+
   stepCustomers(dt, c, folded) {
     const open = this.isOpen();
     for (const cust of Object.values(this.customers)) {
@@ -12654,6 +13353,7 @@ export class Game {
       if (!arch) { this.despawn(cust); continue; }
       if (!open && this.lastOrders(cust)) continue;
       if (this.stepMood(cust, dt)) continue;   // walked out; already heading for the door
+      this.noteTraffic(cust, dt);
 
       switch (cust.state) {
         // Still in the car, coming in or going out. `dt` and not the world
@@ -12827,6 +13527,10 @@ export class Game {
     }
 
     const ranked = rankShelves({
+      // How good a spot each board is standing in. Passed in rather than read
+      // inside `rankShelves`, which is a pure function over content and has no
+      // Game to ask — the same reason `folded` and `season` are arguments.
+      boardPull: (shelf, itemId) => this.boardPull(shelf, itemId),
       // Back-of-house units are invisible to a shopper. One condition, here,
       // because `chooseShelf` is the single gate every shopping decision passes
       // through — filtering anywhere else would leave a customer able to *want*
@@ -12961,10 +13665,15 @@ export class Game {
     // the LINE that decides, not the item: something bought as a substitute for
     // a staple is being taken instead of the thing they came for, so it is
     // browsed for exactly as hard as anything else on the shelf.
+    // The same board weighting `rankShelves` chose them with. Both, or the two
+    // disagree — a shopper aimed at the top board by one rule and rolled
+    // against the bottom board's odds by another. That split is invisible: the
+    // shop still works, the numbers simply never reconcile with where anybody
+    // put anything, which is the `shelfAccepts` lesson said about a price.
     const browse = purchaseChance({
       item, archetype: arch, price: stack.price, folded,
       season: this.season, reputation: this.reputation,
-    });
+    }) * this.boardPull(shelf, stack.item_id);
     const chance = line?.must && item.tags.includes(line.tag)
       ? stapleChance(browse) : browse;
 
@@ -13101,7 +13810,7 @@ export class Game {
         const chance = purchaseChance({
           item, archetype: arch, price: stack.price, folded,
           season: this.season, reputation: this.reputation,
-        }) * IMPULSE_BASE * impulsePull(item) * dwell;
+        }) * IMPULSE_BASE * impulsePull(item) * dwell * this.boardPull(shelf, stack.item_id);
         if (chance > 0 && (!best || chance > best.chance)) best = { stack, item, chance };
       }
     }

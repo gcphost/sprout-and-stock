@@ -272,6 +272,42 @@ export function drawableBoards(parts, surfaces) {
 }
 
 /**
+ * Which boards a unit's Nth kind gets, top-first.
+ *
+ * A kind gets its SHARE of the boards rather than one board — a shelf spoken
+ * for by one thing uses all of them, two things halve it — and the shares run
+ * from the top down, because the top board is the one a 45° camera actually
+ * shows and therefore the one the goods are drawn on first.
+ *
+ * It lives here rather than in the renderer that invented it because two things
+ * now ask the question and they must not answer it differently: `scene.js`
+ * asks in order to DRAW a pile, and the sim asks in order to price the board it
+ * is standing on (`boardPull`). Two spellings of "which board is the bread on"
+ * would be a shop where the sweets sell like an endcap and are drawn on the
+ * bottom shelf — a disagreement with no error in it, visible only as a number
+ * that will not reconcile with the picture.
+ *
+ * `rows` is bottom-first, the order `surfacesAt` returns and `drawableBoards`
+ * preserves. `gi` is the kind's index among everything the unit is spoken for
+ * by — reservations included, which is why a board held open by a tick nobody
+ * has filled yet still counts against the share.
+ */
+export function boardsForShare(rows, shares, gi) {
+  const n = rows?.length ?? 0;
+  if (!n) return [];
+  const ways = Math.max(1, shares);
+  const topFirst = [...rows].reverse();
+  const each = Math.floor(n / ways);
+  // More kinds than boards. The sim will not open a stack past `shelfBoards`,
+  // but a reservation can outnumber them, so this wraps rather than handing
+  // back nothing — a kind with no board at all would be goods drawn nowhere.
+  if (each === 0) return [topFirst[Math.max(0, gi) % n]];
+  const spare = n % ways;
+  const start = gi * each + Math.min(gi, spare);
+  return topFirst.slice(start, start + each + (gi < spare ? 1 : 0));
+}
+
+/**
  * Which side of its own tile a `seam` part closes, as a step in model space —
  * or null if it isn't a seam, or doesn't sit against a side.
  *

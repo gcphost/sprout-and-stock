@@ -1700,6 +1700,8 @@
         "speed_mult": 1,
         "pace_mult": 1,
         "carry_mult": 1,
+        "packs": 0,
+        "arranges": 0,
         "wage_mult": 1
       },
       {
@@ -1708,6 +1710,8 @@
         "speed_mult": 1.2,
         "pace_mult": 1.3,
         "carry_mult": 1,
+        "packs": 0,
+        "arranges": 1,
         "wage_mult": 1.5
       }
     ],
@@ -1725,7 +1729,7 @@
         "weight": 4
       },
       {
-        "job": "harvest",
+        "job": "farm",
         "weight": 2
       },
       {
@@ -2038,6 +2042,7 @@
         "speed_mult": 1,
         "pace_mult": 1,
         "carry_mult": 1,
+        "packs": 0,
         "wage_mult": 1
       },
       {
@@ -2046,6 +2051,7 @@
         "speed_mult": 1.2,
         "pace_mult": 1,
         "carry_mult": 2,
+        "packs": 3,
         "wage_mult": 1.5
       }
     ],
@@ -2073,51 +2079,5 @@
     "pace": 0.8,
     "carry": 6,
     "color": "#b07cc6"
-  },
-  {
-    "id": "verify-hand-worker",
-    "name": "Test Hand",
-    "tags": [],
-    "model": {
-      "parts": [
-        {
-          "shape": "box",
-          "color": "#cccccc",
-          "pos": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.3,
-            0.3,
-            0.3
-          ],
-          "rot": 0
-        }
-      ]
-    },
-    "tiers": [
-      {
-        "name": "Standard",
-        "cost": 0,
-        "speed_mult": 1,
-        "pace_mult": 1,
-        "carry_mult": 1,
-        "wage_mult": 1
-      }
-    ],
-    "jobs": [
-      {
-        "job": "merchandise",
-        "weight": 1
-      }
-    ],
-    "cost": 0,
-    "wage": 0,
-    "speed": 20,
-    "pace": 0.05,
-    "carry": 60,
-    "color": "#7a9e4b"
   }
 ]

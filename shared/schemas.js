@@ -23,6 +23,10 @@ import { foldJobs } from './jobs.js';
 // that does not exist is refused at the gate rather than resolving to nothing in
 // the renderer, which would draw as a clock with no hands.
 import { SIGNAL_NAMES } from './signals.js';
+// How many kinds one box holds, so a rung that packs one can never be authored
+// to pack more than a crate can carry — the cap has to come from the container
+// rather than from a literal beside it.
+import { LOT_KINDS } from './lot.js';
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lowercase kebab/snake case');
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb hex colour');
@@ -871,6 +875,45 @@ export const WorkerSchema = z.object({
     pace_mult: z.number().min(0.1).max(10).default(1),
     /** How much they carry in one trip, x this. */
     carry_mult: z.number().min(0.1).max(10).default(1),
+    /**
+     * How many kinds this rung will PACK into one box before setting off.
+     *
+     * A number rather than a flag, and it is a count of KINDS rather than of
+     * units because the units cap belongs to the crate. 0 is what every hire
+     * has always done — shoulder the box as they found it — so a save, an
+     * export and a fresh seed all agree with no migration and no shop gets
+     * faster by accident.
+     *
+     * What it buys is the trip a bay of part-crates could never be: four
+     * lettuce, four eggs and four bread standing in three boxes is three
+     * armfuls today, because no one of them is worth shouldering and
+     * `fillHands` only ever tops up a kind you are already holding. A packer
+     * lifts one, fills it from the others with whatever the shelves are short
+     * of, and walks one full crate.
+     *
+     * Capped at `LOT_KINDS` because that is what a crate holds — a bigger
+     * number here would be a rung that takes money and moves nothing, which is
+     * the trap `unattended` and `speed_mult` are both listed under.
+     */
+    packs: z.number().int().min(0).max(LOT_KINDS).default(0),
+    /**
+     * How keen this rung is to re-merchandise the shop — move what sells to
+     * where people walk. 0 is off, and is every rung ever authored.
+     *
+     * A number rather than a flag because there is a real dial behind it: it
+     * sets how much better a spot has to be before a hire will carry stock
+     * over (`ARRANGE_GAIN_MIN`..`MAX` in `server/sim/staff.js`), so a lukewarm
+     * rung only acts on an obvious improvement and a keen one tidies the tail
+     * of the range as well. It is the hysteresis that stops the job
+     * oscillating, so it can never be turned all the way off by authoring.
+     *
+     * It has no weight of its own on purpose. Rearranging is the LAST thing
+     * `merchandise` tries, after clearing a dead board and merging a split one,
+     * so a hire only ever reaches it when the shop has nothing that actually
+     * needs doing — which is what makes it occasional without a directive to
+     * tune.
+     */
+    arranges: z.number().min(0).max(1).default(0),
     /**
      * What keeping them costs, x this. A promotion that raised what they were
      * worth but not what they cost would be the same free lunch a wage-less

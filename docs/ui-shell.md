@@ -496,6 +496,7 @@ moment it exists — including the ones that are a bar rather than a panel.
 | `P` | stop or start the clock — the same press as the clock itself |
 | hold `E` / `Space` | use what you're stood by |
 | hold `Q` | seed wheel |
+| hold `Shift` | with the build bar up, the bulldozer: whatever is under the pointer goes red and a click gets rid of it, whatever tool is armed. With it down, the multi-select |
 | `Esc` | clear the search box → close the menu → close the roster bar → put down what you're carrying → leave build mode |
 | right-click | the same ladder, on the world — but cancels a half-drawn wall run first |
 | `,` `.` | turn the view a quarter each way |
@@ -571,7 +572,7 @@ second input. That only works because the anchor is right.
 
 | the press | on the floor | on a thing | on a thing, building |
 |---|---|---|---|
-| moved | pan the camera | pan the camera | **move it** |
+| moved | pan the camera | pan the camera | **move it, if it is selected** — else pan |
 | still, released | go there | open it | open it, or close its menu |
 | still, held | — | — | **pick it up** |
 
@@ -583,22 +584,59 @@ now changed three times, and the server still resolves a fixture's working spot
 (`walkToFixture`, covered by `verify:walk`) even though nothing currently asks
 it to.
 
-**With the palette up, a press on a thing you own is a move** — `drag.lift`,
-armed on the way down and spent at the slop line, where a pan would otherwise
-have committed. Press the lamp, pull it over, let go, and it lands where you let
-go of it. It is the same errand the fixture menu's Move button starts —
-`startMove`, then `build-lift`, so build mode is held open across the carry —
-reached by aiming instead of by reading. Moving something used to cost three
-presses, two of them ceremony around a decision you had already made by pointing
-at it.
+**With the palette up, a press that SETTLES on a thing and then pulls is a
+move** — `drag.lift`, armed on the way down and spent at the slop line, where a
+pan would otherwise have committed. Press the lamp, let the press settle, pull it
+over, let go, and it lands where you let go of it. It is the same errand the
+fixture menu's Move button starts — `startMove`, then `build-lift`, so build mode
+is held open across the carry — reached by aiming instead of by reading. Moving
+something used to cost three presses, two of them ceremony around a decision you
+had already made by pointing at it.
 
-The camera never sees that drag, and `drag.moving` has to hold the verdict for
-the *rest* of it: `lift` is spent as it fires, so without the second guard the
-first move pulls the lamp out and every move after it turns the shop underneath —
-which is the bug the branch exists to fix, arriving one event later. **A left
-drag in build mode therefore moves things and does not turn the view**; the right
-drag and `,`/`.` still do, which is the escape hatch and the reason this is a
-trade rather than a loss.
+**The dwell is what makes that a trade rather than a tax.** It shipped with no
+gate at all, and a drag is also the gesture you make to look round the shop:
+build mode is wall to wall with things you own, so a press that started anywhere
+near a shelf pulled the shelf out instead of turning the view — which reads as
+the camera being broken rather than as a move nobody asked for. The gate was the
+*selection* for a while — tap it to name it, then drag it — and that is a second
+press charged on every deliberate move to prevent an accidental one, which is the
+wrong end of the trade. `MOVE_DWELL_MS` (210, half the hold) is the same
+distinction drawn where it actually lies: a drag that means "look round" starts
+moving immediately, and one that means "take this" starts with you stopping on
+the thing. The accident is a sweep, and a sweep has no pause in it.
+
+Two things fall out of that figure. It has to stay well under `LONG_PRESS_MS`,
+or the dwell and the **hold** — which lifts the unit into your hands and leaves
+it there — become one gesture with two outcomes a millisecond apart. And it needs
+no marker of its own: the press is already drawing a ring (`setHoldProgress`,
+against the hold), so the dwell is the first half of something you can watch
+fill. The arming still does *not* ask — `drag.lift` is set on any fixture and the
+slop line is where the question is put — and the hold is left alone there too,
+since it cannot fire mid-turn. The pill names the whole gesture (`hold-drag`)
+rather than its second half, or a row promising a drag over a unit that turns the
+shop is the green-ghost bug wearing words.
+
+The camera never sees a drag that *did* lift, and `drag.moving` has to hold the
+verdict for the *rest* of it: `lift` is spent as it fires, so without the second
+guard the first move pulls the lamp out and every move after it turns the shop
+underneath — which is the bug the branch exists to fix, arriving one event later.
+
+`drag.carried` is that same claim about the press that lifted by **holding**, and
+it is the one that actually bit: the hold fires at 420ms with the button still
+down and the fixture now in your hands, so the rest of that gesture went straight
+to the camera — you tilted the shop while carrying a lamp, under a ghost that had
+also stopped tracking (`camBusy` reads the same pair). It is deliberately not
+`moving`, which means "pulled out by a drag, so letting go lands it": a held lift
+leaves the thing in your hands for a separate tap, and that contract is the whole
+difference between the two ways in.
+**A left drag in build mode SLIDES the view rather than turning it**, whatever
+the device — the keys already made that argument (`flying`) and only ever made it
+to a keyboard. Building is reaching for somewhere you cannot stand, so getting
+there is what the camera is for in the mode, and turning is the rarer of the two;
+the right drag and `,`/`.` still turn, which is the escape hatch. **A left drag
+that dwelt first therefore moves the thing and does not slide the
+view**; the right drag and `,`/`.` still do, which is the escape hatch and the
+reason this is a trade rather than a loss.
 
 The hold does the same lift for a press that never moved (the gesture a finger
 makes), and leaves the thing carried for a tap instead of dropping it: you have
@@ -609,6 +647,13 @@ order, so the server has processed the lift by the time the drop is read, and
 carrying. `dropCarried` sends **no `rot`** on that path: `buildRot` is still the
 palette's angle until the snapshot replaces it with the fixture's own, so sending
 it on a fast flick is "moving it reset its rotation" as a race condition.
+
+**Whatever it lands on stays SELECTED** (`endMove`), and that is a different
+claim from the menu: the lift re-mints the placement, so a selection cannot
+simply survive — the id it held stops existing the moment the fixture does — and
+what that reads as is the shop letting go of the thing the instant you finish
+moving it. R turns nothing, the pill drops back to "Select it", and lining a lamp
+up costs a re-select between every nudge.
 
 A pointed move does **not** reopen the menu afterwards (`startMove`'s `reopen`).
 An errand returns you where you started, and here you started by pointing —
@@ -704,6 +749,22 @@ gesture that does nothing. The rule does cost a ripe bed its menu for as long as
 there is no second gesture to move it to: build mode is the way back in, and
 `sow` refuses a ripe bed regardless, so what ends up behind the mode is move,
 sell and restyle — the three things you do to a bed you are not farming.
+
+**…and "build mode is the way back in" was a promise the branch did not keep**,
+which only became visible once the mode's own tap started carrying the move. The
+test read the snapshot and nothing else, so a machine with a full tray took the
+tap *while you were building*: pointing at an appliance sent `station-one`, and
+`notWhileBuilding` answers that **out loud** — "Exit build mode first", on the one
+press you make to select the thing you were trying to move. There is no reading of
+that except the shop refusing to let you build with your own machine, and the way
+out was to leave the mode you had just turned on. `readyToTake` is asked with
+`boardTakes()` now, which is the predicate the pile branch below it already makes
+and the same sentence said one fixture up: **a tap that moves goods is not a
+thing this mode has, and selecting a unit is most of what it is.** The stopped
+clock rides along for the reason that predicate's own note gives — a walk in a
+paused shop is a press with no second half — and its two clauses about your hands
+are spent upstream, where an armed tool and a carried fixture skip the ladder
+entirely.
 
 Steering always outranks a route: `stepPlayers` drops `p.path` on the first
 frame of key input rather than blending the two, because a key that only slowed
@@ -1226,6 +1287,36 @@ margin stops 3px short of the card, or the stripe pokes out through the 11px
 corner radius. An open sign belongs on the door rather than in a toolbar, which
 is the whole of why it reads.
 
+**…and then the stripe became a plaque, and the plaque became the edge itself.**
+The intermediate step is the instructive one: a 15px coloured card with OPEN
+painted up it, sitting in a 34px column, inset from the panel by the panel's own
+padding. That is a box inside a box with 5px of cream between them, which reads
+as a badge dropped onto the readout rather than as part of it — and the strip of
+card either side of it belonged to nothing, so the button looked small *and* the
+gap looked like a mistake. The sign is now the card's left edge: full bleed
+through the padding on three sides, `overflow: hidden` on `#stats` clipping it to
+the panel's own 11px radius, and the word painted straight onto it.
+
+Three things it rests on. **The clip is the only honest way to round a child
+against a parent's corner** — a matching radius on the child is the same number
+written twice, and the day one moves the other is a sliver of panel showing
+through. **The colour is the strip**, so the state (`--good` / `#a8442f`), the
+hover and the ask all had to move off the word and onto the button: a
+translucent wash over a coloured edge is a second colour mixed into the one thing
+on the card whose colour *is* the state, which is why the press and the pulse are
+`brightness()` rather than a tint. And **the card had to be given its height
+back**. `#doorway` was a fixed 48px, so for years the tallest thing in the row
+was a piece of lettering and the panel was 58px because of it; a strip sized *by*
+the card sets nothing, so without a `min-height` on `#stats` the whole HUD would
+have quietly shrunk by 16px as a side effect of restyling a button. The 640px bar
+drops that floor, because a bar across the top of a phone genuinely should be as
+tall as its readouts — which is the same argument that branch has always made,
+finally said in the place that decides it.
+
+The one thing the clip costs is the focus ring: an outline is drawn *outside* the
+border box, so on a child meeting three clipped edges it loses three of its
+sides. `outline-offset: -4px` draws it inside the strip instead.
+
 **The date is a caption over the balance, not a column beside it.** Day and
 season were their own two-line cell, wedged between the balance and the rate —
 a stack of small type holding apart the two numbers you actually watch, for
@@ -1236,6 +1327,33 @@ with the money rather than with the clock because a balance is a thing measured
 over days and seasons — the date is its unit, where the clock is the hour, the
 one readout up here that is not about the ledger. Splitting the pair (season by
 the time, day by the cash) would break one date across two cells.
+
+**…and the date says which day of the week it is, because a season is one.**
+`Day 62` is a stopwatch: it tells you how long you have been at it and nothing
+about where you are in the week — which is the unit everything else in the shop
+is measured in, since the Shop report's week and the reputation drawn across it
+both run seven days. The answer was already in the day number and nothing could
+read it: `onNewDay` rolled the season on `floor((day - 1) / 7)` as an expression
+of its own, so the fact that **a season IS a week** was asserted in one line and
+knowable nowhere. `SEASON_DAYS`, `seasonFor` and `weekdayLabel` in
+`shared/clock.js` are that expression given a name and one home, and the sim now
+rolls its season through the same function the HUD prints its weekday from. Two
+copies of the 7 would be a calendar whose Monday quietly stopped being the first
+day of spring, with nothing anywhere to say so.
+
+The weekday is **derived, never stored** — no field on the wire, none on the
+save — which is what keeps day 1 a Monday and every season starting on one, so
+the weekday and the day-of-season are the same number by construction rather
+than by agreement. A year is four seasons, 28 days. The count stays beside it
+(`Sat · Day 62`), because the ledger, the milestones and every line in the feed
+speak in day numbers, and a HUD that stopped printing one would leave them
+naming something no longer on screen.
+
+**The play/pause glyph goes after the hour**, which is about the row rather than
+the button: the hour is a figure in a column of figures, and a glyph in front of
+it indents the time by its own width, so the number stops lining up with the
+date above it and the takings below. Reading order agrees — the time, then what
+is being done to it.
 
 **`#flow`'s width floor and `SPARK_W` have to be the same number.** A floor of
 70 over a 38px sparkline is 32px of empty, left-aligned column, so all of it
@@ -1525,6 +1643,15 @@ Two things it has to get right, both invisible until they are wrong:
   while a drag is in flight.
 - **A press that never moved is not a reposition.** Filing one would pin the
   panel at wherever it happened to be the first time you touched the header.
+- **A drill-down shares its list's position** (`UI.panelPosKey`). The item menu
+  is the supplier one press deep, not a second menu, so it files under `stock`:
+  press a row and the window stays exactly where it is while its contents
+  change. Filed under its own id it opened wherever nothing had put it yet —
+  the window you were reading jumping across the screen, which reads as a new
+  window rather than as the same one going in a level. It is also why the answer
+  to "why not two panels" is that there is one: a second would need its own
+  drag, its own z-order and its own answer for a phone, where the second panel
+  is the whole screen.
 
 ## One panel system
 

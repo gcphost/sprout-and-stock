@@ -164,27 +164,34 @@ function withBin(g) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. A shop with no skip is the old game, to the unit.
+// 1. A shop with no skip still MAKES rubbish — it just cannot shift it.
 //
-// First, because it is what makes the whole feature opt-in, and because every
-// shop that exists today is this shop. If spoilage started leaving boxes on the
-// floor of a shop nobody has bought a skip for, the feature would be a change
-// to everyone's game that nobody asked for — and the crates would pile up in
-// exactly the shops least equipped to shift them.
+// This was the reverse claim, and it is worth recording why it flipped. Rot
+// becoming a box was gated on owning a skip, so the whole feature was opt-in
+// and a shop without one was the old game to the unit. What that meant in play
+// is that most shops went on making rot VANISH at midnight while the log said
+// it had been "binned" — into a bin that does not exist. The money gone, the
+// floor clean, and the only trace a sentence describing something that never
+// happened.
+//
+// So rubbish is not the thing you opt into; SHIFTING it is. A shop with no skip
+// fills up, which is ugly and costs patience through `mess` and is exactly the
+// pressure that makes a skip worth buying. What must still hold either way is
+// the money — see section 2.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
   check(!g.anyBin(), 'a shop opens without one');
   const shelf = g.layout.shelves[0];
   board(g, shelf, ROTS, 9, 99);
-  const crates = g.deliveries.length;
 
   g.spoilStock();
   eq(g.shelfStack(shelf, ROTS.id), null, 'it still rots');
   eq(g.stats.spoiled, 9, 'and is still counted as spoiled');
   check(g.stats.spoiledValue > 0, 'and still priced into the P&L');
-  eq(g.deliveries.length, crates, 'and leaves nothing whatever on the floor');
-  eq(wasteCrates(g).length, 0, 'no rubbish anywhere');
+  const rubbish = wasteCrates(g);
+  eq(rubbish.length, 1, '…and it is standing there as a box, skip or no skip');
+  eq(lotTotal(rubbish[0]), 9, 'holding every unit of it');
 }
 
 // ---------------------------------------------------------------------------

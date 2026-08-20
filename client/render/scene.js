@@ -19,8 +19,10 @@ import {
   buildGrowthBar, setGrowthBar,
   buildRipple,
   buildStamp,
+  buildFootMark,
   weld, paintLit,
 } from './props.js';
+import { Heat } from './heat.js';
 import { T } from '../../shared/tiles.js';
 import {
   FIXTURES, workSpots, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind,
@@ -35,6 +37,7 @@ import { E } from '../../shared/edges.js';
 import { Lights, emittersIn, BAKED_LAYER } from './lights.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
+  boardsForShare,
   variantModel, variantWork, skinKey,
 } from '../../shared/model.js';
 import { SIGNAL_NAMES, signalValue } from '../../shared/signals.js';
@@ -51,6 +54,24 @@ const FRUSTUM = 17;
  * pickTile and pickFixture keep working at any zoom without knowing it exists.
  */
 const RING_Y = 1.2;           // charge ring height — just clear of a head at 0.96
+
+/**
+ * How high up whoever the camera is riding on it actually AIMS.
+ *
+ * The follow point used to be their feet — `y: 0`, the tile they are standing
+ * on — which is the honest answer to "where are they" and the wrong one to
+ * frame a picture on. Zoom is a scale about the look point, so at the far end
+ * of the wheel the thing held perfectly still in the middle of the screen was
+ * the floor, and the person grew up and off the top of it: the closer you went,
+ * the less of them you could see, which reads as the zoom being aimed at the
+ * wrong place because it is.
+ *
+ * Chest height rather than the crown (a head is about 0.96): the camera looks
+ * down a fixed offset, so aiming at the very top of somebody puts their feet
+ * out of frame the moment you zoom, and what you want centred is the body — the
+ * thing you are driving — not the point it ends at.
+ */
+const EYE_Y = 0.8;
 /**
  * How thick a coat of paint is drawn, in tiles.
  *
@@ -685,6 +706,44 @@ function turnTo(from, to) {
 }
 
 /**
+ * Is every board in `mine` matched by one of `theirs` — see `boardProfile`.
+ *
+ * A multiset rather than a subset, which costs one splice and buys the case an
+ * `every(includes)` gets wrong: a unit with two boards at one height and one
+ * beside it with a single board at that height are not the same shelving, and
+ * a plain `includes` says they are.
+ */
+function contains(theirs, mine) {
+  const left = [...theirs];
+  for (const b of mine) {
+    const at = left.indexOf(b);
+    if (at < 0) return false;
+    left.splice(at, 1);
+  }
+  return true;
+}
+
+/**
+ * Does `theirs` carry shelving that `mine` does not — is it a corner?
+ *
+ * Asked only once `contains` has said the run is all there, so this is the
+ * "…and something else besides" half, which is exactly what an L is: the run
+ * carries straight on through it and a second wing comes off it.
+ *
+ * It used to be asked of the AXES the boards run along — an L is a unit with
+ * boards running one way and boards running the other — which is true of a
+ * freestanding corner and false of every wall-mounted one, because a wall
+ * corner's return is a shallow ledge along the shared boundary drawn in the
+ * same direction as the wing it returns from. Both wings therefore measured as
+ * running the same way and the test answered no for every corner anybody has
+ * actually built, while passing for the one variant it was written against.
+ * Board for board there is nothing to read wrong.
+ */
+function carriesMore(theirs, mine) {
+  return theirs.length > mine.length;
+}
+
+/**
  * One tuft: three blades in a fan, each a narrow strip that tapers and curves
  * over, standing in a unit cube.
  *
@@ -871,7 +930,7 @@ export class Scene {
     // Pitch has no target/drawn pair, because nothing eases it: only a drag
     // moves it, and a drag is already the hand's own easing.
     this.camPitch = PITCH_HOME;
-    this.camTarget = new THREE.Vector3(22, 0, 17);
+    this.camTarget = new THREE.Vector3(22, EYE_Y, 17);
     this.camLook = this.camTarget.clone();
     // Whether anybody has claimed the view yet. The camera follows you, and
     // until the first snapshot says where you are it has to look at *something*
@@ -931,6 +990,14 @@ export class Scene {
     this.staticRoot = new THREE.Group();
     this.actorRoot = new THREE.Group();
     this.scene.add(this.staticRoot, this.actorRoot);
+
+    // Where the shoppers have been. Its own root beside those two, and never
+    // under `staticRoot`, which `buildWorld` disposes wholesale: a fortnight of
+    // watching must not be thrown away because somebody laid a wall — and
+    // build mode re-flows on every segment of a drag, so it would be thrown
+    // away constantly and read as the overlay flickering off.
+    this.heat = new Heat();
+    this.scene.add(this.heat.group);
 
     this.players = new Map();
     this.customers = new Map();
@@ -1782,6 +1849,12 @@ export class Scene {
     this.aimLights(L);
     this.bakedGround = [];
 
+    // The footfall sheet is the size of the world, so it is re-cut here — the
+    // one thing outside `staticRoot` that a re-flow legitimately touches, since
+    // buying land is the only way the grid ever changes. `resize` keeps the
+    // overlap, so growing the shop does not lose what has been watched.
+    this.heat.resize(L.w, L.h);
+
     // Ground: one big plane rather than 1500 grass tiles. It runs well past the
     // last tile — see GROUND_MARGIN — so the world never visibly ends, and so
     // shoppers walking on from off the map have land to walk in over.
@@ -1933,7 +2006,10 @@ export class Scene {
     // Only before there is anybody to follow — see `camFollowing`. A shop that
     // re-flows is still the shop you are standing in, and where you are looking
     // is not something a re-flow gets an opinion about.
-    if (!this.camFollowing) this.camTarget.set(L.door.x, 0, L.door.z + 2);
+    // The same height the follow uses, or the shot of the door you get before
+    // anybody has spawned sits a body's height lower than every frame after it
+    // — which is a lurch at exactly the moment the shop appears.
+    if (!this.camFollowing) this.camTarget.set(L.door.x, EYE_Y, L.door.z + 2);
     this.storeLayout = L;
     // The fixture the pointer was over belongs to the old layout — a re-flow can
     // renumber it or move it out from under the marker. Whoever is aiming will
@@ -2296,7 +2372,7 @@ export class Scene {
    * more of it.
    *
    * Deliberately not the same *variant*: a wall run flowing into a corner unit
-   * is still one shelf, and that is what `turnsCorner` is for.
+   * is still one shelf, and that is what `carriesMore` is for.
    *
    * It said the same about the TIER, on the grounds that a tier is a number
    * rather than a shape — and that is exactly as true as the model somebody
@@ -2307,49 +2383,55 @@ export class Scene {
    * it is a hole with a board sticking out of it — visible in a screenshot and
    * in nothing else, since both units are correct on their own.
    *
-   * So the test is the ART rather than the tier, which is `turnsCorner`'s own
+   * So the test is the ART rather than the tier, which is `carriesMore`'s own
    * argument said one step along: two units carry on if their boards are at the
    * same heights and the same depth, whatever rung either is standing on. A
    * ladder whose rungs only move numbers still flows, a bakery case beside a
    * shelf does not, and the next piece anybody authors is judged by what they
    * drew rather than by a field they have to remember to set.
+   *
+   * The comparison is CONTAINMENT rather than equality, and the corner is the
+   * whole reason: a corner unit IS the run plus a second wing, so it carries
+   * boards the run does not and always will. Asked as an equality it can never
+   * match the thing it is a corner of, which put a panel back on every row in
+   * the shop where it met one — and it is invisible in the file, because both
+   * pieces are drawn perfectly correctly on their own.
    */
   carriesOn(byTile, f, step) {
     const d = turn(step, f.rot ?? 0);
     const n = byTile.get(`${f.x + d.dx},${f.z + d.dz}`);
     if (!n || n.kind !== f.kind) return false;
-    if (this.boardProfile(n) !== this.boardProfile(f)) return false;
+    const mine = this.boardProfile(f);
+    const theirs = this.boardProfile(n);
+    if (!contains(theirs, mine)) return false;
     if (rot4(n.rot ?? 0) === rot4(f.rot ?? 0)) return true;
     // ...or the row TURNS here. A corner unit stands at a different rot to the
     // run butting into it — that is what makes it a corner — so a same-rot test
     // called every run beside one an end, and every row in the shop grew a panel
     // where it met the corner it was supposed to flow into.
-    return this.turnsCorner(n);
+    return carriesMore(theirs, mine);
   }
 
   /**
-   * Does this unit carry shelving on BOTH axes — is it a corner?
-   *
-   * Read off the art rather than off the variant's name, the same argument
-   * `seamStep` and `drawableBoards` make: an L is a unit with boards running
-   * one way and boards running the other, and that is visible in the boxes
-   * somebody drew. A name test would answer "no" for the next corner design
-   * anybody authors under a different id.
-   */
-  turnsCorner(f) {
-    const boards = surfacesAt(this.fixtureModel(f), this.fixtureT(f));
-    return boards.some((b) => b.depth >= b.span) && boards.some((b) => b.span > b.depth);
-  }
-
-  /**
-   * The shape of a unit's shelving, as one string two units can be compared by.
+   * The shape of a unit's shelving, as a list two units can be compared by.
    *
    * Heights and depth, and neither is arbitrary: those are the two things that
    * have to agree for a dropped end panel to read as one run. A rung that only
-   * multiplies capacity draws the same boxes and answers the same profile, so
+   * multiplies capacity draws the same boxes and answers the same boards, so
    * `carriesOn` goes on flowing through it — which is the behaviour the old
    * "not the tier" rule was protecting and is now a consequence rather than an
    * assumption.
+   *
+   * The depth is the SHORTER horizontal axis rather than z, which is the one
+   * number in here that looks like a detail and is the whole corner bug.
+   * `surfacesAt` calls `scale[0]` the span and `scale[2]` the depth, which is
+   * only true of a board running along x — and every wall-mounted piece in the
+   * game runs along z, so for those `scale[2]` is the LENGTH OF THE RUN and not
+   * a depth at all. A corner's wing is shortened to make room for its return
+   * (0.82 of a tile against a full one), so read that way a corner is never the
+   * same shelving as the run it continues, however carefully either was drawn.
+   * The shorter axis is the depth on either orientation, which is the same
+   * reading `buildShelfGoods` takes when it decides which way to file goods.
    *
    * Cached on what actually decides the art — the piece, the variant and the
    * tier — because this is asked per seam part per fixture on every re-flow,
@@ -2361,7 +2443,7 @@ export class Scene {
     const had = this.profiles.get(key);
     if (had !== undefined) return had;
     const out = surfacesAt(this.fixtureModel(f), this.fixtureT(f))
-      .map((b) => `${b.y.toFixed(2)}:${b.depth.toFixed(2)}`).join('|');
+      .map((b) => `${b.y.toFixed(2)}:${Math.min(b.span, b.depth).toFixed(2)}`);
     this.profiles.set(key, out);
     return out;
   }
@@ -2645,8 +2727,17 @@ export class Scene {
     // because this is what a re-flow later in the same frame builds a sign
     // against.
     this.syncSignals(state);
-    this.syncActors(state.players, this.players, (p) => this.buildActor(p), (p) => actorKey(p));
+    this.syncActors(state.players, this.players, (p) => this.buildActor(p), (p) => actorKey(p),
+      // Only the people, and only once the body has been measured — see
+      // `syncActors`' `onBuild` and `markUnder`.
+      (rec, p) => this.markUnder(rec, p));
     this.syncActors(state.customers, this.customers, (c) => buildCharacter(c.color));
+    // The shop's own footfall map, when it is due — `trafficWire` sends it
+    // every couple of seconds and leaves the field off in between, so this is
+    // usually a compare against `undefined`. Adopted whether or not the overlay
+    // is up, which is what makes turning it on show the fortnight already
+    // played rather than an empty floor.
+    this.heat.adopt(state.traffic);
     this.syncShelves(state.shelves);
     this.syncPlots(state.plots);
     this.syncCashDrops(state.cashDrops ?? []);
@@ -2667,7 +2758,7 @@ export class Scene {
     const me = state.players.find((p) => p.id === myId);
     const eye = (this.watching && state.players.find((p) => p.hire === this.watching)) || me;
     if (eye) {
-      this.camTarget.set(eye.x, 0, eye.z);
+      this.camTarget.set(eye.x, EYE_Y, eye.z);
       this.camFollowing = true;
     }
 
@@ -2709,7 +2800,7 @@ export class Scene {
     this.scene.background.copy(SKY_DUSK).lerp(SKY_HIGH, daylight);
   }
 
-  syncActors(list, map, factory, keyOf = null) {
+  syncActors(list, map, factory, keyOf = null, onBuild = null) {
     const seen = new Set();
     for (const a of list) {
       seen.add(a.id);
@@ -2723,6 +2814,11 @@ export class Scene {
       if (rec && rec.key !== key) {
         this.actorRoot.remove(rec.obj);
         disposeGroup(rec.obj);
+        // The mark is not a child of the body (see `markUnder`), so nothing
+        // above frees it — and a restage is a promotion or an MCP redraw, both
+        // of which happen while somebody is stood in the shop. Left behind it
+        // is a ring on the floor with nobody in it, and another one every time.
+        this.dropFoot(rec);
         map.delete(a.id);
         rec = null;
       }
@@ -2760,6 +2856,12 @@ export class Scene {
         obj.position.set(a.x, 0, a.z);
         rec.tx = a.x;
         rec.tz = a.z;
+        // Anything hung on a body that is NOT part of the body goes here rather
+        // than in the factory, and the line is `bodyExtent` above: that box is
+        // measured off the bare model in the one moment it is bare, so a foot
+        // mark added a line earlier would hand `pickPerson` a grab radius the
+        // width of the ring — somebody you could point at from a tile away.
+        onBuild?.(rec, a);
       }
       // Where the shop says they are. The easing toward it happens per FRAME in
       // `animateActors`, not here — see `ACTOR_CHASE`. Kept as a target rather
@@ -2825,6 +2927,7 @@ export class Scene {
     for (const [id, rec] of map) {
       if (!seen.has(id)) {
         this.actorRoot.remove(rec.obj);
+        this.dropFoot(rec);
         // The one sweep in this file that used to drop an actor without freeing
         // it. Mostly cheap — a body is shared `GEO` shapes — but not always:
         // whatever `syncHaul` hung on them is a `buildPallet`, and a pallet
@@ -2873,6 +2976,49 @@ export class Scene {
     return buildModel(kind.model, {
       t: tierProgress(p.tier ?? 1, kind.tiers?.length ?? 1), skin: worn,
     });
+  }
+
+  /**
+   * Take the floor mark away with whoever was standing on it.
+   *
+   * The materials are freed by hand, which `disposeGroup` deliberately does not
+   * do — it frees geometry and leaves materials alone because nearly every prop
+   * in the game shares one out of the `material()` cache. A foot mark cannot use
+   * that cache (it is transparent, double-sided and does not write depth, and
+   * setting any of that on a cached material would set it on every prop wearing
+   * the same colour), so it owns three of its own and nothing else is holding
+   * them.
+   */
+  dropFoot(rec) {
+    if (!rec?.foot) return;
+    this.actorRoot.remove(rec.foot);
+    rec.foot.traverse((o) => { if (o.isMesh) o.material?.dispose(); });
+    disposeGroup(rec.foot);
+    rec.foot = null;
+  }
+
+  /**
+   * The ring on the floor under a person you are driving.
+   *
+   * People only, and that is the whole rule: `state.players` is you, anybody
+   * you are sharing the shop with, and every hire — and a shop with a ring
+   * under all fourteen of them is a shop with no rings in it. What this answers
+   * is "which of these is me", which a bot is never the answer to.
+   *
+   * Its own object in `actorRoot` rather than a child of the body, which is the
+   * one non-obvious bit. A body is turned by `facing`, bobbed as it walks and
+   * TILTED as it slumps onto a break (`animateRest`) — so a ring parented to it
+   * would lean off the floor and hang in the air beside somebody sitting down.
+   * It is under their feet, which is a fact about the tile rather than about
+   * the body, so it is carried at the eased position in `animateActors` and
+   * never inherits anything else.
+   */
+  markUnder(rec, p) {
+    if (p.staff) return;
+    const g = buildFootMark(p.color);
+    g.position.set(rec.obj.position.x, g.position.y, rec.obj.position.z);
+    this.actorRoot.add(g);
+    rec.foot = g;
   }
 
   /** Money sitting on a counter waiting to be picked up. */
@@ -3178,6 +3324,13 @@ export class Scene {
         const dz = (rec.tz - rec.obj.position.z) * move;
         rec.obj.position.x += dx;
         rec.obj.position.z += dz;
+        // ...and whatever is standing on the floor under them comes along. Set
+        // rather than eased again: it is already following an eased position,
+        // and a second chase on top of it is a ring that lags its own feet.
+        if (rec.foot) {
+          rec.foot.position.x = rec.obj.position.x;
+          rec.foot.position.z = rec.obj.position.z;
+        }
         // The furthest anybody went, not the sum: a shadow map is one map, and
         // it is redrawn for the one body that outran it. Adding them up would
         // put a busy shop over the line with nobody having moved a pixel.
@@ -3506,8 +3659,17 @@ export class Scene {
    * Aimed at half a tile up rather than at the floor, because you point at the
    * middle of a wall you can see, not at the ground it stands on — picking at
    * y=0 makes every wall feel like it is one cell further away than it looks.
+   *
+   * `grip` is how near that line the pointer has to be, in tiles, and 0 is the
+   * old behaviour: no limit, every point in the world is nearest to SOME line.
+   * That is right for a wall tool — the pointer means "a line" for as long as
+   * one is armed, and snapping is what lets you draw along a wall without
+   * tracing it — and wrong for anything that has to tell a line apart from the
+   * square it borders. Shift is the case that needs it (`razeAim`): most cells
+   * in a shop have a wall on one side, so with no band a floor you had painted
+   * beside one could never be the thing you were pointing at.
    */
-  pickEdge(clientX, clientY) {
+  pickEdge(clientX, clientY, grip = 0) {
     if (!this.storeLayout) return null;
     const hit = this.pickTile(clientX, clientY, 0.55);
     if (!hit) return null;
@@ -3521,6 +3683,10 @@ export class Scene {
     const cz = Math.round(fz);
     const dx = fx - cx;
     const dz = fz - cz;
+
+    // How far the pointer is from the line it is about to be snapped to: the
+    // nearer axis reaches 0.5 at the boundary, so the gap is what is left of it.
+    if (grip > 0 && 0.5 - Math.max(Math.abs(dx), Math.abs(dz)) > grip) return null;
 
     let o;
     let x;
@@ -3556,7 +3722,7 @@ export class Scene {
    * plane it read is at wall height rather than on the floor, so pointing at the
    * top of a wall answers about that wall rather than about the ground behind it.
    */
-  pickFace(clientX, clientY) {
+  pickFace(clientX, clientY, grip = 0) {
     // The wall itself first, because a face is a thing you can SEE, and this is
     // the lesson `pickFixture` already learned about shelves: derive the answer
     // from a plane and you are answering about the ground somewhere behind what
@@ -3599,7 +3765,11 @@ export class Scene {
     // still somewhere you can aim — the stroke drops the faces with no wall on
     // them (`faceRun`) — so a drag along a frontage with a doorway in it must
     // not stop dead at the doorway.
-    const seg = this.pickEdge(clientX, clientY);
+    //
+    // `grip` rides through to the fallback and nowhere else, which is where the
+    // whole of it belongs: the branch above hit an actual wall, so the pointer
+    // is provably on one, and only the guess needs a band round it.
+    const seg = this.pickEdge(clientX, clientY, grip);
     if (!seg) return null;
     const along = seg.o === 'v' ? this._hit.x : this._hit.z;
     const line = (seg.o === 'v' ? seg.x : seg.z) - 0.5;
@@ -5286,18 +5456,9 @@ export class Scene {
       ])];
       const shares = Math.max(1, kinds.length);
       // Top down: `rows` runs bottom-first, and the top board is the one a 45°
-      // camera actually shows.
-      const topFirst = [...rows].reverse();
-      const each = Math.floor(rows.length / shares);
-      const spare = rows.length % shares;
-      const boardsFor = (gi) => {
-        if (!rows.length) return [];
-        // More kinds than boards — the server won't open a stack past
-        // `shelfBoards`, but a reservation can outnumber them. One each, wrapped.
-        if (each === 0) return [topFirst[gi % rows.length]];
-        const start = gi * each + Math.min(gi, spare);
-        return topFirst.slice(start, start + each + (gi < spare ? 1 : 0));
-      };
+      // camera actually shows. In `shared/model.js` since the sim started
+      // asking the same question to price a board — see `boardsForShare`.
+      const boardsFor = (gi) => boardsForShare(rows, shares, gi);
 
       // What will actually be DRAWN, which is what the redraw has to follow.
       // Keying on qty alone rebuilt geometry on every sale of a forty-unit
@@ -5583,6 +5744,9 @@ export class Scene {
     // Everybody on foot. Per frame for the reason vehicles are — see
     // `ACTOR_CHASE`, which is that reason arriving for people the day the shop
     // stopped being on the same machine as the screen.
+    // Repaint the footfall sheet if it moved. It early-outs on both a clean map
+    // and a hidden one, so a shop with the overlay off pays a compare a frame.
+    this.heat.refresh();
     this.animateActors(dt);
     // The van and the parked cars. Faster, and for the same reason — see
     // `VEHICLE_CHASE`.

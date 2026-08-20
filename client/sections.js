@@ -10,11 +10,15 @@ import {
 import { homeKind } from '../shared/tags.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { variantsOf } from '../shared/model.js';
-import { artForTool, artForWorker } from './thumb.js';
+import { artForModel, artForTool, artForWorker } from './thumb.js';
 import { doingNow, bodyOf, kindSummary } from './worker-menu.js';
 // What is on a van. Shared with the shelf menu, which asks the same two
 // questions of it — see client/orders.js.
 import { comingByItem, comingWhy, nextVan } from './orders.js';
+// One press in from a supplier row: the price, the standing order and whether
+// the crew may buy it, at the width of the panel rather than in the gap between
+// a name and a button. See the `run` on the item rows below.
+import { showItem } from './item-menu.js';
 import { mix } from './audio/mix.js';
 import { music } from './audio/music.js';
 import { SOUNDS, TRACKS } from './audio/manifest.js';
@@ -1356,6 +1360,29 @@ function itemRows(ui) {
       sub: why || it.tags.slice(0, 3).join(' · '),
       subWarn: homeless,
       mark,
+      /**
+       * A PICTURE OF THE THING, over the price.
+       *
+       * The list was forty names in one column and the only thing telling a
+       * Flat White from a Mulled Cider was reading the words — in a game whose
+       * whole catalogue is drawn, standing on shelves you are looking at while
+       * the panel is open. Every other list in the game had already made this
+       * argument (the palette, the shape card, the roster); the supplier is the
+       * one that names things you can see from where you are standing, so it
+       * had the most to gain and was the last to get it.
+       *
+       * Drawn from the item's own `model` — `artForModel`, the same row the
+       * shelf builds its stock from — rather than a glyph per department, which
+       * is the five-floors-one-grey-glyph trap said about groceries. An item
+       * nobody has modelled falls back to no art at all and keeps the price
+       * cell, so the column never goes ragged.
+       *
+       * It shares the lead column with the cost rather than taking one of its
+       * own: `.lead` is the icon-over-price stack every section row uses, the
+       * head strip already names it COST, and a second 26px column is 26px off
+       * the only elastic thing in the row — the name you came to read.
+       */
+      art: artForModel(it.model),
       right: money(it.base_cost),
       // Search still reaches the tags even though the row has stopped printing
       // them — "organic" was always a search, never a heading.
@@ -1378,16 +1405,42 @@ function itemRows(ui) {
       homeless,
       crafted,
       dropped: !!dropped,
+      // Which job this row is, and how urgent — the first tab is four old tabs
+      // in one list, so what used to be their positions has to ride on the row.
+      // See `TODO`.
+      todo: dropped ? TODO.DROPPED
+        : crafted ? TODO.NONE
+          : short ? TODO.SHORT
+            : (hot && held <= 0) ? TODO.WANTED : TODO.NONE,
       // Soonest back first inside the tab, so the list is a queue that empties
       // rather than an alphabet. Everything else in the panel gets the same
       // finite stand-in `dueIn` uses and falls straight through to the keys it
       // always sorted on.
       backIn: dropped ? dropped.left : 1e9,
       dim: homeless || (!crafted && cash < it.base_cost * 6),
-      // No rule and no buy button on something you make. A stepper that sets a
-      // minimum nothing will ever act on is worse than an absent one — it reads
-      // as a shop ignoring an instruction you gave it.
-      ...(crafted ? {} : ruleFor(ui, it)),
+      /**
+       * THE ROW OPENS THE ITEM.
+       *
+       * The standing order used to be drawn *on* the row — a toggle and two
+       * steppers, three controls in the width left over between a name and a
+       * buy button, at fifteen pixels a side. That is a mouse's control, and
+       * half of this game is played with a finger; it also spent the second
+       * line of every row in the panel on two numbers that are unset on
+       * thirty-nine items out of forty.
+       *
+       * So it is a drill-down, the way a hire is (`worker-menu.js`) and the way
+       * a shelf is: the row goes back to being a sentence you scan — what it
+       * is, how many you hold, one press to buy some — and everything you might
+       * DECIDE lives one press in, at the width of the panel. Which is also
+       * what made a price control possible at all: there was no room for a
+       * fourth stepper here, and a price is the number this panel was most
+       * obviously missing.
+       *
+       * A made-here item opens it too. It has no standing order and no buy
+       * button — nothing orders a toastie — but it is sold like anything else,
+       * so what it charges is as much a decision as bread's.
+       */
+      run: () => showItem(ui, it.id),
       /**
        * The one button slot.
        *
@@ -1425,8 +1478,14 @@ function itemRows(ui) {
             }
             : { label: '×6', run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }) },
     };
-  }).sort((a, b) => a.backIn - b.backIn || a.dueIn - b.dueIn || b.hot - a.hot
-    || a.held - b.held || a.name.localeCompare(b.name));
+  // `todo` leads, because the first tab is a queue of four kinds of job and the
+  // kinds used to be tabs — every key after it is what orders one rank within
+  // itself, and everything that is not a job shares `TODO.NONE` and falls
+  // straight through to the keys the list always sorted on. Which is also what
+  // floats the van up the Buy tab: nothing there is a job, so `dueIn` is the
+  // first key that separates anything.
+  }).sort((a, b) => a.todo - b.todo || a.backIn - b.backIn || a.dueIn - b.dueIn
+    || b.hot - a.hot || a.held - b.held || a.name.localeCompare(b.name));
 
   // ...and then held still. Every key in that sort is a live number — what is
   // due, what is hot, what you hold — so the list re-sorted itself under the
@@ -1438,54 +1497,6 @@ function itemRows(ui) {
   // the `+6` and which tab a row belongs to all stay live — what is pinned is
   // where a row sits, so the numbers can move without the list moving.
   return ui.freezeOrder('stock', rows, (r) => r.id);
-}
-
-/**
- * One item's standing order, drawn on the item's own row.
- *
- * The same three decisions the strip makes for the whole shop, made for one
- * thing — and the two numbers are about **the shop**, not about a board, which
- * is what makes them worth having: "keep 5 eggs, never more than 20" is a
- * sentence no shelf can say, because a shop with three egg shelves would mean
- * it three times over. The shelf still decides where a case goes and how much
- * of that unit it may take; this decides how many you want to own.
- *
- * Unset is a dash rather than a zero, and pressing `+` on an unset number jumps
- * to a useful one rather than to 1 — a quarter of a stack for a minimum, which
- * is the line the shop already uses for everything nobody has said anything
- * about, and a full stack for a maximum. Twenty presses to reach a sensible
- * number is a control nobody uses twice.
- */
-function ruleFor(ui, it) {
-  const rule = ui.state?.orders?.items?.[it.id] ?? {};
-  const auto = rule.auto !== false;
-  const stack = it.stack ?? 12;
-  const less = (now) => (now > 1 ? now - 1 : null);   // down off 1 clears it
-  const more = (now, first) => (now ? now + 1 : first);
-  const num = (key, now) => `<span class="stp"><i>${key}</i>
-    <button class="rbtn" data-act="${key}-" aria-label="less ${key}">−</button>
-    <b class="${now ? '' : 'none'}">${now ?? '–'}</b>
-    <button class="rbtn" data-act="${key}+" aria-label="more ${key}">+</button></span>`;
-
-  const send = (patch) => () => ui.net.send('item-rule', { itemId: it.id, ...patch });
-  // Stacked, because the row is two lines tall whatever this does — side by side
-  // the pair ran the full width of the panel and squeezed the name into an
-  // ellipsis, to buy back height that was never going to be spent.
-  return {
-    rule: `<span class="rule">
-      <button class="rbtn tog ${auto ? 'on' : 'off'}" data-act="auto"
-        title="${auto ? `Your crew may order ${it.name}.` : `Your crew never order ${it.name}.`}"
-        aria-label="auto-order ${it.name}">${auto ? ICONS.supplier : ICONS.close}</button>
-      <span class="stack">${num('min', rule.min ?? null)}${num('max', rule.max ?? null)}</span>
-    </span>`,
-    acts: {
-      auto: send({ auto: auto ? false : null }),
-      'min-': send({ min: less(rule.min ?? null) }),
-      'min+': send({ min: more(rule.min ?? null, Math.max(1, Math.ceil(stack * 0.25))) }),
-      'max-': send({ max: less(rule.max ?? null) }),
-      'max+': send({ max: more(rule.max ?? null, stack) }),
-    },
-  };
 }
 
 /**
@@ -1550,9 +1561,6 @@ function orderRows(ui) {
   ];
 }
 
-/** The van tab's label, named once because two things have to agree on it. */
-const VAN_TAB = 'On the way';
-
 /**
  * The supplier's tabs: what you should DO about a thing, not where it has to
  * live.
@@ -1566,75 +1574,83 @@ const VAN_TAB = 'On the way';
  *
  * These are a queue of work instead. `grouped` puts a row in the FIRST bucket
  * that takes it, so an item appears exactly once, in the most urgent thing that
- * is true of it — deal with Short, see what is coming, then Wanted, then glance
- * at what you hold, and Rest is the catalogue you were browsing before. Where it
- * lives has not gone away; it moved onto the row, where it can be a warning
- * about THIS item rather than a heading over forty.
+ * is true of it. Where it lives has not gone away; it moved onto the row, where
+ * it can be a warning about THIS item rather than a heading over forty.
+ *
+ * **There were seven of them, and seven was two questions in one strip.** Not
+ * stocking, Short, On the way and Wanted are *work* — ten rows between them on a
+ * bad morning, and every one of them something to press. Stocked, Rest and Made
+ * here are the *catalogue*: sixty-odd rows split by a fact already printed on
+ * every one of them, since `held` is a column and made-here is a glyph. So four
+ * of the seven were the queue this comment describes and three were an index of
+ * the same list, drawn identically, in a strip that is icons only — and the two
+ * biggest badges in it (25 and 24) counted things nobody is being asked to do.
+ *
+ * Three now, and each is a different verb:
+ *
+ * - **To do** — the four job buckets, in their old priority order, which is what
+ *   `row.todo` is for. Nothing is lost by merging them, because the ONLY thing
+ *   the old headings said that the row does not is which pile it was in, and the
+ *   row says why it is here: a ✕ mark, "below your minimum of 6", "in demand
+ *   right now". A heading over one row is a heading that fits on the row.
+ * - **Buy** — everything you can order, which is where the browsing happens, and
+ *   the department strip under the tabs is the axis that browsing actually wants.
+ *   What is on a van sorts to the top of it for free (`dueIn` leads the fallback
+ *   keys), so the list opens on what is already coming — which is the one thing
+ *   the retired On-the-way tab was for, minus a tab that reads 0 most days and
+ *   can never be acted on. The header says how many are out; the row says when.
+ * - **Made here** — unchanged, and still a tab rather than a slice of Buy,
+ *   because you cannot order it. That is a different verb, not a filter.
+ *
+ * `quiet` is the other half: a badge is a count of work, so only the first tab
+ * wears one. See `grouped`.
  */
 const STOCK_TABS = [
-  // First, and it earns the place the same way Short does: it is the most
-  // urgent true thing about a row, and it is the only one nothing else in the
-  // game will ever tell you. The shop hand writes a line off after four days of
-  // nothing selling, shop-wide, and for as long as the feature existed the only
-  // trace was a log entry that scrolls. What that reads as, days later, is a
-  // shop that has quietly stopped restocking half its range and a crew standing
-  // still beside crates nothing will lift — with no screen that can say why.
-  //
-  // An empty bucket is dropped (see `grouped`), so on a shop where this has
-  // never happened the panel is exactly what it was and opens on Short.
-  //
-  // `crafted` is deliberately NOT excluded, unlike every buying tab below. You
-  // cannot order a toastie and the row says so, but the shop can absolutely
-  // stop putting one out — and a made-here line that has quietly gone off the
-  // shelves with the appliance still running is the least visible version of
-  // this there is.
   {
-    label: 'Not stocking',
-    icon: ICONS.close,
-    test: (r) => r.dropped,
-  },
-  // Every buying tab has to say `!crafted`, rather than the made-here bucket
-  // simply sitting first and swallowing them. `grouped` takes the first
-  // bucket that fits, so first place is also the tab the panel OPENS on —
-  // and the first thing the supplier shows you should be something you can
-  // do something about, not the appliance list.
-  {
-    label: 'Short',
+    label: 'To do',
     icon: ICONS.trouble,
-    test: (r) => !r.crafted && r.short,
+    test: (r) => r.todo < TODO.NONE,
   },
-  // The whole inbound list, and the reason it is a tab here rather than a menu
-  // on the bay: you ordered it in this panel, so this is where you come back to
-  // ask what happened to it. Ground has never been tappable either, which makes
-  // a pad with a menu a genuinely new kind of object bought for one list.
-  //
-  // It sits above Wanted because what is already coming answers "what should I
-  // buy" before demand does — and it is `passive`, which is the half that
-  // position could never say. An empty bucket is dropped, so "second" is only
-  // second on a morning something is already short: on a quiet one this bucket
-  // IS the first, and the panel opened onto a list of things there is nothing
-  // to do about — one press of ×6 and the catalogue you were reading was
-  // replaced by the single loaf you had just bought, which reads as the
-  // supplier having broken rather than as a tab you did not choose.
+  // `!crafted` rather than letting the made-here bucket sit first and swallow
+  // them: `grouped` takes the first bucket that fits, so first place is also the
+  // tab the panel opens onto when there is no work, and that should be the
+  // catalogue rather than the appliance list.
   {
-    label: VAN_TAB,
-    icon: ICONS.supplier,
-    passive: true,
-    test: (r) => !r.crafted && r.inbound > 0,
+    label: 'Buy',
+    icon: ICONS.crate,
+    quiet: true,
+    test: (r) => !r.crafted,
   },
-  {
-    label: 'Wanted',
-    icon: ICONS.report,
-    // Hot and you have none of it. Hot and well stocked is not a job.
-    test: (r) => !r.crafted && r.hot && r.held <= 0,
-  },
-  { label: 'Stocked', icon: ICONS.crate, test: (r) => !r.crafted && r.held > 0 },
-  { label: 'Rest', icon: ICONS.shop, test: (r) => !r.crafted },
   // What is left is exactly the crafted goods, and they are here to be
   // counted rather than bought — how many smoothies you have is worth
   // knowing, which is why they are not simply dropped from the list.
-  { label: 'Made here', icon: ICONS.station },
+  { label: 'Made here', icon: ICONS.station, quiet: true },
 ];
+
+/**
+ * ...and the order of the queue inside the first of them.
+ *
+ * These were four tabs and the ranking was their positions, which is a thing a
+ * strip of icons can say and a merged list cannot — so it is a number on the row
+ * now, sorted on ahead of every other key in `itemRows`.
+ *
+ * The order is the old one and the argument for it has not changed. **Dropped
+ * first**: the shop hand writes an item off after four days of nothing selling,
+ * shop-wide, and for as long as that feature existed the only trace was a log
+ * line that scrolls — days later it reads as a shop that has quietly stopped
+ * restocking half its range, with no screen that can say why. It is also the one
+ * rank that does NOT exclude made-here goods: you cannot order a toastie, but the
+ * shop can absolutely stop putting one out, and an appliance still running behind
+ * a line nobody is shelving is the least visible version of this there is.
+ * **Short** next, because it is money not being made right now, and **Wanted**
+ * last — hot and you have none of it, which is an opportunity rather than a
+ * wound. Hot and well stocked is not a job at all.
+ *
+ * `NONE` is a finite stand-in rather than `Infinity`, for the reason `dueIn` is:
+ * `Infinity - Infinity` is `NaN`, and one `NaN` in a comparator silently stops
+ * sorting the whole list.
+ */
+const TODO = { DROPPED: 0, SHORT: 1, WANTED: 2, NONE: 9 };
 
 /**
  * One line saying a van is out, above the tabs on every one of them.
@@ -1760,8 +1776,26 @@ function grouped(rows, buckets, pin) {
   // same row every time — so what an empty bucket costs you now is a zero rather
   // than a tab, which is also the answer to "is anything short" without having
   // to press anything. `tabIndex` is what stops a menu OPENING on an empty one.
+  //
+  // ...and `quiet` is a bucket saying it does not want one. A badge is read as a
+  // count of WORK — that is what it means everywhere else in this game, on the
+  // rail and on the shelf menu — so a tab wearing `25` beside a tab wearing `2`
+  // is claiming to be ten times the job, when what it is counting is how much of
+  // the catalogue exists. The supplier's own two browse tabs are the case, and
+  // they were the two biggest numbers on the strip.
+  //
+  // It is a flag beside the count rather than a missing count, because two other
+  // things read that number and both still want it: `tabIndex` will not open a
+  // menu onto an empty tab, and an empty tab draws itself dimmed. A quiet bucket
+  // is counted exactly as any other and simply does not print it.
   return buckets.flatMap((b, i) => [
-    { sep: b.label, icon: b.icon, passive: b.passive, count: bins[i].length },
+    {
+      sep: b.label,
+      icon: b.icon,
+      passive: b.passive,
+      quiet: b.quiet,
+      count: bins[i].length,
+    },
     ...bins[i],
   ]);
 }
@@ -1920,10 +1954,10 @@ export const SECTIONS = [
       { sel: '.lead', label: 'Cost', at: 'mid' },
       { label: 'Item' },
       { sel: '.held', label: 'Have', at: 'end' },
-      // One head over the toggle and both steppers, because they are one
-      // sentence — may the crew order this, and between what and what. `min`
-      // and `max` name themselves under it and are not repeated here.
-      { sel: '.rule', label: 'Auto-order', at: 'end' },
+      // There was an Auto-order head here, over a toggle and two steppers. Both
+      // it and the column under it are gone: the standing order is a press in
+      // now (see the row's `run`), and a head naming a column no row draws is a
+      // word with a gap under it.
       // `Buy` names what the slot does on nearly every row and not on the two
       // it doesn't — a row already on a van offers Cancel, one the crew gave up
       // on offers Stock — so the head is the slot's job rather than its label.
@@ -2025,7 +2059,14 @@ export const SECTIONS = [
       (ui.state?.shelves ?? []).filter((s) => !(s.stacks ?? []).some((k) => k.qty > 0)).length,
       (ui.state?.plots ?? []).filter((p) => p.crop_id).length,
       (ui.state?.plots ?? []).filter((p) => p.ready).length,
-      (ui.state?.queues ?? []).reduce((a, q) => a + q.queue, 0)]),
+      (ui.state?.queues ?? []).reduce((a, q) => a + q.queue, 0),
+      // ...and the footfall switch, for the reason every other switch is in a
+      // signature: `run` repaints, but without it in here the next snapshot's
+      // diff decides nothing has changed and throws that repaint away — so the
+      // button would go on saying Show while the floor was already tinted.
+      // It is client state rather than a field on the wire, which is exactly
+      // why it has to be named: nothing else in this list would ever move.
+      ui.scene?.heat?.on === true]),
     /**
      * ONE drawn block instead of fourteen rows across three tabs.
      *
@@ -2034,7 +2075,14 @@ export const SECTIONS = [
      * everything the panel machinery needs and the picture does not care about:
      * the key, the title, the badge and the signature above.
      */
-    rows: (ui) => [{ html: reportHtml(ui) }],
+    rows: (ui) => [{
+      html: reportHtml(ui),
+      // The picture's one pair of presses. `acts` on the row rather than
+      // handlers inside `report.js`, so that file stays what its header says it
+      // is — a pure snapshot-to-HTML function — and the panel machinery wires
+      // these the same way it wires a stepper or a switch tile.
+      acts: { footfall: (u) => u.toggleFootfall() },
+    }],
   },
 
   {
@@ -2115,11 +2163,26 @@ export const SECTIONS = [
       const done = all.filter((m) => m.done);
       return [
         ...(todo.length ? [{ sep: 'To go', icon: ICONS.milestone }] : []),
+        /**
+         * The count goes at the END of the row, not in the lead.
+         *
+         * `right` is the lead column — a 26px stack under the glyph, sized for
+         * a price — and what a milestone puts there is two of `amount`'s
+         * answers with a slash between them. `day 86 / day 100` in 26px is four
+         * lines of stacked fragments beside a two-line row, which drags the
+         * whole list out of alignment and reads as the panel being broken
+         * rather than as a number being long.
+         *
+         * `tail` is the same fact in the one column with room for it, and it is
+         * where a progress row wants it anyway: name, how far along, the count
+         * — the bar and the figure it belongs to end up on the same side of the
+         * row instead of at opposite ends of it.
+         */
         ...todo.map((m) => ({
           icon: ICONS.milestone,
           name: m.name,
           sub: `${m.blurb} ${rewardWords(m.reward)}`,
-          right: `${amount(m.have, m.unit)} / ${amount(m.need, m.unit)}`,
+          tail: `${amount(m.have, m.unit)} / ${amount(m.need, m.unit)}`,
           bar: m.need > 0 ? m.have / m.need : 0,
           plain: false,
         })),
@@ -2128,7 +2191,10 @@ export const SECTIONS = [
           icon: ICONS.medal,
           name: m.name,
           sub: rewardWords(m.reward),
-          right: '✓',
+          // The same column the fractions above are in, or the one row in the
+          // list that is finished puts its mark somewhere none of the others
+          // look.
+          tail: '✓',
           // Dimmed the way an owned upgrade is: still listed, because the
           // ladder is the point and a list that deleted its top half would get
           // shorter the better you did.

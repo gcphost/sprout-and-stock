@@ -1,12 +1,14 @@
 # Ordering — what the shop buys, and who decided
 
-Status: **steps 1–7 built.** The restocker counts what the shop can already
+Status: **steps 1–9 built.** The restocker counts what the shop can already
 supply itself before it spends money, the three decisions it used to make
 silently are switches in the supplier, every item can carry a standing order,
 a shelf's own menu will now tell you what is on the van and order more,
 deciding what a board is *for* has a shortlist and a stock count of its own,
-the shop keeps a thing in one place, and a unit marked for the back is stocked
-for the appliances beside it rather than for the shop front.
+the shop keeps a thing in one place, a unit marked for the back is stocked
+for the appliances beside it rather than for the shop front, seven tabs became
+three verbs, and an item has a menu of its own — where what you charge for it is
+a fact about the shop rather than about each board it stands on.
 
 ⚠️ Both built steps measure as **balance-neutral at their defaults**, and that
 is deliberate rather than lucky. Step 1 came out at +2.7% mean profit over ten
@@ -485,6 +487,133 @@ What it does not do is *clear out* what a stockroom already holds. Those boards
 stop being topped up immediately, and `staleBoards` hands them back four quiet
 days later if anybody has the `merchandise` job — otherwise they are yours to
 empty, which is one press of Empty on the unit.
+
+---
+
+## Step 8 — seven tabs were two questions ✅
+
+### What was wrong
+
+The strip had grown to seven: Not stocking, Short, On the way, Wanted, Stocked,
+Rest, Made here. Every one of them arrived for a reason and each is argued for
+above — and read together they are two different questions drawn identically.
+
+The first four are **work**: ten rows between them on a bad morning, each one
+something to press. The last three are **the catalogue**: sixty-odd rows split by
+a fact already printed on every one of them, since `held` is a column and
+made-here is a glyph. So four of the seven were the queue [step 6](#step-6--one-place-per-thing-)
+describes and three were an index of the same list, in a strip that is icons only
+— and the two biggest badges on it counted things nobody is being asked to do. A
+badge means *work* everywhere else in this game, so `25` beside `2` was claiming
+to be ten times the job.
+
+### What it does now
+
+Three, and each is a different verb.
+
+| | |
+|---|---|
+| **To do** | The four job buckets in one list, in their old priority order. |
+| **Buy** | Everything you can order. The department strip is the browse axis. |
+| **Made here** | Unchanged, and still its own tab: you cannot order it. |
+
+Four notes.
+
+**Nothing is lost by merging the job tabs, because the row already says why it is
+there.** A ✕ mark for a line the crew gave up on, "below your minimum of 6",
+"in demand right now" — the only thing the old headings added was which pile a
+row was in, and a heading over one row is a heading that fits on the row. What
+the positions *did* say is the ranking, and that could not survive a merge as a
+position, so it is `row.todo` and it leads the sort.
+
+**The On-the-way tab is gone rather than folded.** It read 0 most days, it is the
+one bucket you cannot act on, and what is coming sorts to the top of Buy for free
+— `dueIn` leads the fallback sort keys and nothing in that tab is a job, so it is
+the first key that separates anything. The header still says how many are out and
+when the next one lands; the row still says `+6` and the hour.
+
+**Only the first tab wears a badge** (`quiet`, in `grouped`). It is a flag beside
+the count rather than a missing count, because two other things read that number
+and both still want it: `tabIndex` will not open a menu onto an empty tab, and an
+empty tab draws itself dimmed.
+
+**A panel with no work opens on Buy**, which falls out of the two rules already
+there — `grouped` files a row in the first bucket that takes it, and `tabIndex`
+skips an empty tab when nothing is remembered.
+
+---
+
+## Step 9 — the row was carrying a form ✅
+
+### What was wrong
+
+Step 3 put the standing order on the item's own row: a toggle and two steppers,
+in the width left over between a name and a buy button, at fifteen pixels a side.
+That is a mouse's control, and half of this game is played with a finger. It also
+spent the second line of every row in the panel on two numbers that are unset on
+thirty-nine items out of forty, and it had no room for a fourth control — which
+mattered, because the one the supplier was most obviously missing is **what you
+charge**.
+
+A price has been a fact about a BOARD since there were shelves: `stack.price`,
+set once from `suggestedPrice` at the moment the board opens. That is right about
+a shop with one shelf and quietly wrong about every shop bigger than that. Eggs
+on three units is three prices to set, in three menus, and the fourth board to
+open says the suggestion back at you however carefully you set the other three —
+including a board that merely *sold out* and got refilled, which reads as the
+number resetting itself days after you last touched it.
+
+### What it does now
+
+The row goes back to being a row — what it is, how many you hold, one button —
+and pressing it opens the item, the way pressing a hire opens the hire
+(`client/item-menu.js`, the third menu built on the head/scroller/foot shape).
+Everything you might decide lives there at the width of the panel, with 32px
+targets:
+
+| | |
+|---|---|
+| **Price** | What you charge. `–` means the shop is deciding; `Auto` hands it back. |
+| **Keep at least** / **Never more than** | Step 3's two numbers, unchanged. |
+| **Crew may order it** | Step 3's `auto`, as a switch you can hit with a thumb. |
+
+`price` is the fourth field on `Game.orders.items[itemId]`, and it is there for
+the reason `min` and `max` are: **a rule is about the shop.** "I charge $3.20 for
+these" is a sentence no board can say. Four things worth keeping:
+
+**One function answers what a board opens at.** `Game.itemPrice` — your price
+else the suggestion — and both callers that open a board ask it: `openStack` for
+a new one, and `pourInto` refilling one that had emptied. Honoured by the first
+alone, a standing price holds only until the shop runs out of eggs.
+
+**Setting one lands on the shop in front of you.** `repriceItem` walks every
+board holding that item. A standing price that only touched future boards is a
+control you press in a shop with three shelves of eggs where not one number on
+the floor moves — and clearing it hands those boards back to the suggestion,
+which is what makes the dash mean "whatever the shop thinks" rather than "the
+last number I typed, for ever".
+
+**…and only when the price is the field that moved.** A reprice on a patch that
+never mentioned one would quietly wipe the per-board prices the shelf menu exists
+to set. The shelf still overrides its own board; the rule decides what a board
+*opens* at.
+
+**Zero is a price.** `min` and `max` spell "unset" as `<= 0`, so the price cannot
+share their loop: giving something away and never having said are different
+sentences.
+
+Made-here goods open the menu too, and get the price row alone — nothing orders a
+toastie and `pickItem` never chooses one for a bare board, so a minimum, a maximum
+and a may-they-order would be three controls that take a press and move no number.
+It is the first price control they have ever had that was not per board.
+
+### On measuring it
+
+Balance-neutral by construction rather than by measurement: with no price set,
+`itemPrice` **is** `suggestedPrice`, and `verify:price`'s first section asserts
+exactly that — the item's value, the board that opens at it, and an empty rule
+map. A price somebody actually sets should be expected to move every number in
+the game, which is the point of it.
 
 ---
 

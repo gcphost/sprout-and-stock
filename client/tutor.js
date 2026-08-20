@@ -152,6 +152,16 @@ export const replayTutor = (id) => {
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
 /**
+ * Looking at the supplier — including one press INTO it.
+ *
+ * An item has its own menu now (`client/item-menu.js`), and while it is up the
+ * open panel is `item` rather than `stock`. Every step that asks "are they in
+ * the supplier" means the list *and* the drill-down: both are that menu, and the
+ * one press that finishes this step — ordering six — is on both.
+ */
+const inSupplier = (t) => t.ui.openPanel === 'stock' || t.ui.openPanel === 'item';
+
+/**
  * How high up a thing is, for the mark that points at it.
  *
  * Measured against the art rather than against the tile, because that is what
@@ -190,11 +200,20 @@ function nearestCrate(t) {
 /**
  * Are you stood at it?
  *
- * The same `REACH` the shop itself uses, imported rather than guessed, because
- * this decides which SENTENCE you are shown and the shop decides which MESSAGE
- * your click sends (`inReachOf` in main.js, over the same constant). Two numbers
- * here would be a card telling you to click for a unit next to a crate the shop
- * is going to answer by walking you two more steps.
+ * `REACH`, imported rather than guessed, because this decides which SENTENCE
+ * you are shown and the shop decides which MESSAGE your click sends — two
+ * numbers would be a card telling you to click for a unit next to a crate the
+ * shop is going to answer by walking you two more steps.
+ *
+ * It used to say "the same constant `inReachOf` uses", and that was never true:
+ * main.js keeps THREE distances and says so at length — `inReachOf` is
+ * `UNLOAD_REACH` (1.8) for a crate or a square, `nearFixture` is `REACH` (1.6)
+ * for a unit, and `atWorkSpotOf` measures to the side you work it from. This is
+ * the middle one, so it is exactly right about a shelf and two tenths of a tile
+ * tight about a crate. Left tight on purpose: a walk to a crate stops beside it
+ * (`beside`), well inside either number, so the band is unreachable in play —
+ * and being early with "you are not there yet" is the harmless direction, where
+ * being late offers a press the shop refuses.
  */
 const atIt = (t, thing) => {
   const me = meOf(t);
@@ -370,15 +389,20 @@ const STEPS = [
   {
     id: 'stock',
     kicker: 'Buying in',
-    say: (t) => (t.ui.openPanel === 'stock'
+    // `inSupplier` rather than the id, because one press into an item is still
+    // being in the supplier — see `client/item-menu.js`. Asked of the id alone,
+    // opening a row to look at what it costs swaps the copy back to "open the
+    // supplier" and points the veil at a rail button, over a panel that IS the
+    // supplier. You can order from in there too, which is the same `done`.
+    say: (t) => (inSupplier(t)
       ? 'Buy a case of something cheap.'
       : 'Nothing to sell yet. Open the supplier.'),
-    hint: (t) => (t.ui.openPanel === 'stock'
+    hint: (t) => (inSupplier(t)
       ? 'It comes on the van to the pad behind the shop. You carry it in from '
         + 'there, until you hire a stocker to do it.'
       : 'Stock comes from three places: bought in here, grown in the beds out '
         + 'the side, or made on a machine.'),
-    at: (t) => (t.ui.openPanel === 'stock'
+    at: (t) => (inSupplier(t)
       ? { el: '#panel' }
       : { el: '[data-rail="stock"]' }),
     done(t) { return (t.state?.orders?.pending ?? []).length > 0 || t.crateSeen; },
@@ -556,12 +580,37 @@ const STEPS = [
      * could not do yet, which is how a card gets skimmed. So the walk is its
      * own sentence, and the rest arrives when you get there.
      */
+    /**
+     * ...and what a walk to a crate ENDS IN is the lift, which this card spent
+     * its life not saying.
+     *
+     * `errandAction` is explicit about it — "empty-handed at a crate is a LIFT,
+     * and full hands is the armful it always was" — so tapping a box you are not
+     * stood at walks you over and shoulders the whole thing about half a second
+     * after you arrive, before there is anything to press. The card's second
+     * sentence ("now take one unit out") describes a state you can only reach by
+     * NOT doing what its first sentence told you to.
+     *
+     * What that reads as is the tour not noticing you moved: the box goes on
+     * your shoulder, it leaves `deliveries`, `nearestCrate` re-points at the
+     * next one on the pad, and the same "tap the crate, you will walk over to
+     * it" comes back — over a shop where you are visibly carrying a crate.
+     *
+     * So the walk is told what it ends in, the arrival is a separate sentence
+     * again for somebody who was already standing there, and `done` accepts
+     * either way of getting goods off the pad. The step is "you got the stock
+     * out of the yard", and the shop has two ways to do that.
+     *
+     * Nothing in here says anything ABOUT holding the box, deliberately: `done`
+     * takes the same frame, so a card for it would be a sentence nobody can
+     * read. What it is for is said one beat later, on the shelf it goes on.
+     */
     say: (t) => {
       const c = nearestCrate(t);
       if (!c) return 'Van is on its way. Crates get left on the pad round the back.';
       if (!atIt(t, c)) {
-        return perInput('Click the crate. You will walk over to it.',
-          'Tap the crate. You will walk over to it.');
+        return perInput('Click the crate. You walk over and pick the whole box up.',
+          'Tap the crate. You walk over and pick the whole box up.');
       }
       // The second half is where the two grammars stop being the same sentence
       // with a different verb in it. A press names a thing on a phone and never
@@ -581,8 +630,12 @@ const STEPS = [
       const c = nearestCrate(t);
       if (!c) return 'Somebody has to carry it in off the pad. Today that is you.';
       if (!atIt(t, c)) {
-        return perInput('Clicking something you are not stood at just walks you there.',
-          'Tapping something you are not stood at just walks you there.');
+        return perInput(
+          'Clicking something you are not stood at walks you there and then does '
+            + 'the job. Standing at it already, a click takes one unit instead.',
+          'Tapping something you are not stood at walks you there and then does '
+            + 'the job. Standing at it already, the bar offers one unit instead.',
+        );
       }
       return perInput(
         'Left click picks up one. Press and hold to pick up the whole box. '
@@ -598,15 +651,31 @@ const STEPS = [
     // Nobody's fault and nothing to press. Without this the card reads as an
     // instruction you are failing, and the stranded-timer offers to skip the
     // one beat the whole tour is building up to.
-    waiting(t) { return !nearestCrate(t); },
-    done(t) { return lotSize(meOf(t)?.carry) > 0; },
+    // ...and a box on your shoulder is not waiting for a van, however empty the
+    // pad is: the step is finished either way and the next frame says so.
+    waiting(t) { return !nearestCrate(t) && !meOf(t)?.haul; },
+    done(t) { const m = meOf(t); return lotSize(m?.carry) > 0 || !!m?.haul; },
   },
 
   {
     id: 'shelve-one',
     kicker: 'Stock',
-    say: () => perInput('RIGHT-click a shelf to put the unit on it.',
-      'Tap a shelf, then press Put one on.'),
+    /**
+     * ...and which of the two you are holding, because the beat before this one
+     * can hand you either.
+     *
+     * Written for an armful alone, a box broke this twice over: the words named
+     * a row a shoulder is never offered (`Put one on`), and `done` was "your
+     * hands are empty" — which is true of somebody carrying a crate on the frame
+     * they arrive, so the step completed the instant it opened and the tour
+     * skipped the one lesson it exists to teach. Both halves ask the shop's own
+     * question, which is `p.haul`.
+     */
+    say: (t) => (meOf(t)?.haul
+      ? perInput('HOLD the RIGHT button on a shelf to tip the box in.',
+        'Tap a shelf, then HOLD Stock it to tip the box in.')
+      : perInput('RIGHT-click a shelf to put the unit on it.',
+        'Tap a shelf, then press Put one on.')),
     // The direction is the lesson on a mouse and there is no direction on a
     // phone: one button, and which way the goods go is whichever row you press.
     // So the finger's version teaches the row instead — same fact, and the
@@ -619,7 +688,11 @@ const STEPS = [
         + 'Arrows point at every shelf that will take what you are holding.',
     ),
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
-    done(t) { return lotSize(meOf(t)?.carry) === 0; },
+    // Both stores, because the goods can be in either and the step is "you put
+    // them somewhere". A pour that does not empty the box leaves the rest on
+    // your shoulder — which is the honest answer to a shelf that filled up, and
+    // the next shelf is the next tap.
+    done(t) { const m = meOf(t); return !m?.haul && lotSize(m?.carry) === 0; },
   },
 
   {
@@ -788,13 +861,22 @@ const GUEST_STEPS = [
      * afternoon. The host's tour can rely on a van having been sent, since it
      * sent it a beat ago; this one relies on nothing.
      */
+    // ...and a walk to a CRATE ends in the lift, which is the same thing the
+    // host's `take-one` says at length: `errandAction` shoulders a box for
+    // somebody who arrives empty-handed, so promising one unit is promising the
+    // one outcome that press cannot have. A shelf is untouched — arriving at one
+    // arms nothing until you press, so there the old sentence is exactly true.
     say: (t) => {
       const c = nearestCrate(t);
       const target = c ?? anyShelf(t);
       if (!target) return 'Nothing to hand just now. Skip on, or wait for the van.';
       if (!atIt(t, target)) {
-        return perInput(`${c ? 'Click the crate' : 'Click the shelf'}. You will walk over to it.`,
-          `${c ? 'Tap the crate' : 'Tap the shelf'}. You will walk over to it.`);
+        return perInput(
+          c ? 'Click the crate. You walk over and pick the whole box up.'
+            : 'Click the shelf. You will walk over to it.',
+          c ? 'Tap the crate. You walk over and pick the whole box up.'
+            : 'Tap the shelf. You will walk over to it.',
+        );
       }
       return perInput('Now click it again to take one unit out.',
         'Now press Take one, on the bar along the bottom.');
@@ -816,15 +898,22 @@ const GUEST_STEPS = [
     // what is true. Without it, rejoining mid-armful skips the beat that the
     // next one is written to follow.
     start(t) { this.had = lotSize(meOf(t)?.carry); },
-    done(t) { return lotSize(meOf(t)?.carry) > (this.had ?? 0); },
-    waiting(t) { return !nearestCrate(t) && !anyShelf(t); },
+    // ...or the box, which is what a walk to a crate actually leaves you with.
+    done(t) { const m = meOf(t); return lotSize(m?.carry) > (this.had ?? 0) || !!m?.haul; },
+    waiting(t) { return !nearestCrate(t) && !anyShelf(t) && !meOf(t)?.haul; },
   },
 
   {
     id: 'g-shelve',
     kicker: 'Stock',
-    say: () => perInput('RIGHT-click a shelf to put the unit on it.',
-      'Tap a shelf, then press Put one on.'),
+    // The same pair of sentences the host's `shelve-one` carries, and for the
+    // same reason: `g-take` can now leave you with a box, and a shoulder is
+    // never offered `Put one on`.
+    say: (t) => (meOf(t)?.haul
+      ? perInput('HOLD the RIGHT button on a shelf to tip the box in.',
+        'Tap a shelf, then HOLD Stock it to tip the box in.')
+      : perInput('RIGHT-click a shelf to put the unit on it.',
+        'Tap a shelf, then press Put one on.')),
     hint: () => perInput(
       'Left picks up, right drops off. Hold right to drop off everything at '
         + 'once. Arrows point at every shelf that will take what you are holding.',
@@ -836,9 +925,11 @@ const GUEST_STEPS = [
     // where this started as well as where it ends, so the beat has to have SEEN
     // them full. `g-take` leaves them that way, and a guest who put the lot down
     // some other way has still done the thing.
+    // ...and the latch watches both stores now, or a guest who walked over and
+    // shouldered the box never sets it and the beat never ends.
     start() { this.held = false; },
-    nudge(t) { if (lotSize(meOf(t)?.carry) > 0) this.held = true; },
-    done(t) { return this.held && lotSize(meOf(t)?.carry) === 0; },
+    nudge(t) { const m = meOf(t); if (lotSize(m?.carry) > 0 || m?.haul) this.held = true; },
+    done(t) { const m = meOf(t); return this.held && !m?.haul && lotSize(m?.carry) === 0; },
   },
 
   {
@@ -1300,6 +1391,11 @@ export class Tutor {
    * and `place` reads it as "get out of the way".
    */
   holeFor(want) {
+    // Anything that is not an element target forgets which one was last brought
+    // into view, so coming back to the same control scrolls to it again — a step
+    // that points into the shop and then back at the bar is two arrivals, and
+    // the strip may well have been dragged in between.
+    if (!want || 'world' in want || !want.el) this.shown = null;
     if (!want) { this.aim = null; this.lost = false; this.soft = false; this.live(null); return null; }
     const pad = want.pad ?? 4;
 
@@ -1337,6 +1433,26 @@ export class Tutor {
     // half the control — see the jobs step.
     let t = want.el ? document.querySelector(want.el) : null;
     if (t && want.up) t = t.closest(want.up) ?? t;
+    // A LIT CONTROL THAT IS SCROLLED OFF ITS OWN STRIP IS NOT LIT.
+    //
+    // The bar scrolls sideways and holds more entries than fit, so the hole for
+    // "pick the Cooler" was cut over whatever happened to be at those
+    // coordinates — on a narrow screen, off the end of the strip entirely, which
+    // draws as a card pointing at the edge of the shop. `renderHotbar` already
+    // makes this call for `.tool.on` and it cannot help here: the whole point of
+    // the step is that the thing is NOT the one selected yet.
+    //
+    // Keyed on the NODE rather than on the selector, which is the half that
+    // keeps it from being a fight. `block/inline: 'nearest'` is a no-op on
+    // something already in view, but running it every frame would still snap the
+    // strip back the instant you dragged it — and the bar rebuilds from
+    // `innerHTML`, so a selector that resolved once would never scroll again
+    // after a repaint reset the strip. A new node is a new bar; the same node is
+    // a player scrolling, and that is theirs.
+    if (t && t !== this.shown) {
+      this.shown = t;
+      t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
     const r = t?.getBoundingClientRect();
     if (!r?.width || !r?.height) { this.lost = true; return null; }
     this.lost = false;

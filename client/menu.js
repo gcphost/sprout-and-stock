@@ -17,6 +17,9 @@ import { START_TIERS, DEFAULT_TIER, startTier } from '../shared/start.js';
 import { DIFFICULTIES, NEW_DIFFICULTY } from '../shared/difficulty.js';
 import { defaultPiece } from '../shared/pieces.js';
 import { NAME_MAX, SHOP_NAME_MAX } from '../shared/names.js';
+// Which grammar this is being played with — here, whether focusing a field
+// summons a keyboard over half the screen. See `caret`.
+import { pillDrives } from './input.js';
 import { artForPiece } from './thumb.js';
 import { markWorldNew } from './tutor.js';
 import { mix } from './audio/mix.js';
@@ -70,6 +73,27 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
 const NO_FILL = 'autocomplete="off" '
   + 'data-1p-ignore data-lpignore="true" data-bwignore="true" '
   + 'data-protonpass-ignore="true" data-form-type="other"';
+
+/**
+ * Put the caret in a field — on a device where that is all it does.
+ *
+ * Focusing the shop name is right on a keyboard: the form has four fields, three
+ * of which you were always going to skip, and landing in the one you might type
+ * in saves a click on the thing everybody does first.
+ *
+ * On a phone it is the opposite, because focus there does not put a caret in a
+ * box — it raises the system keyboard, which is half the screen. The form is
+ * shorter than that half, so opening the new-shop panel covers the tier prices,
+ * the starting kit, the difficulty and the Start button with a keyboard, for a
+ * field with a perfectly good default already in it. What you actually have to
+ * do first is dismiss it.
+ *
+ * The fields are untouched — every one of them still takes a tap and a type, and
+ * the placeholder is the default either way. What goes is the *assumption* that
+ * you came here to type, which is only a safe assumption where being wrong about
+ * it costs a click rather than the screen.
+ */
+const caret = (el) => { if (el && !pillDrives()) el.focus(); };
 
 /**
  * The build catalog, for the pictures in the new-shop form.
@@ -668,7 +692,7 @@ export class Menu {
   wire() {
     const q = (sel) => this.root.querySelector(sel);
 
-    q('#menu-open-new')?.addEventListener('click', () => { this.creating = true; this.render(); q('#menu-new-name')?.focus(); });
+    q('#menu-open-new')?.addEventListener('click', () => { this.creating = true; this.render(); caret(q('#menu-new-name')); });
     // Joining is not choosing a shop from this list — it is being let into
     // somebody else's, which this browser has no save for and never will. So it
     // resolves the menu with a live connection rather than a world id, and
@@ -726,7 +750,7 @@ export class Menu {
       el.addEventListener('click', () => this.remove(this.worlds[Number(el.dataset.del)]));
     });
 
-    if (this.creating) q('#menu-new-name')?.focus();
+    if (this.creating) caret(q('#menu-new-name'));
   }
 }
 

@@ -31,7 +31,8 @@
 
 import { money, signed } from './money.js';
 import { zeroScale } from './hud-meters.js';
-import { REP_CAUSES, netRep } from '../shared/reputation.js';
+import { R, REP_CAUSES, netRep } from '../shared/reputation.js';
+import { tagLabel } from '../shared/tags.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -128,7 +129,7 @@ export function reportHtml(ui) {
     ${todayBlock(ui, st, days)}
     ${repBlock(s, st)}
     ${weekBlock(days)}
-    ${floorBlock(s, st)}
+    ${floorBlock(ui, s, st)}
     ${wrongBlock(st)}
   </div>`;
 }
@@ -479,7 +480,103 @@ function repBlock(s, st) {
         <em>${dir === 'flat' ? 'today' : 'points today'}</em></span>
     </div>
     ${body}
+    ${fixLine(rows, level, s, st)}
   </section>`;
+}
+
+/**
+ * WHAT WOULD HELP — the step the breakdown stopped one short of.
+ *
+ * The causes above answer *what is costing me*, which is the question the HUD
+ * bar never could, and it is still a diagnosis rather than a treatment: "You had
+ * none −0.8" names a mechanic, and what a player holds is "so what do I press".
+ * A shop on 11% reading a list of seven things it is losing to is exactly as
+ * stuck as a shop reading a bar sliding left — it just knows the name of the
+ * thing it cannot act on.
+ *
+ * ONE line, about the BIGGEST loss, and never a ranked list. Advice per row
+ * would be a second copy of the breakdown drawn directly beneath the breakdown:
+ * the bars already say which is biggest, and a shop that fixes its worst problem
+ * is what makes the second-worst worth reading tomorrow. It is also the reason
+ * this is not a tooltip — the whole point is that it is on screen next to the
+ * number it is about, without a hover a touchscreen does not have.
+ *
+ * The words are `shared/reputation.js`'s, beside the cause's own two spellings,
+ * because a way of losing the town's regard that cannot say what to do about
+ * itself is the thing this table exists to stop.
+ *
+ * It says nothing about a day with no losses in it — except the one case where
+ * *nothing going wrong* is itself the reading. See below.
+ */
+function fixLine(rows, level, s, st) {
+  // Most negative first. `rows` is in cause order, which is the reading order
+  // and deliberately not sorted by size (see `shared/reputation.js`), so the
+  // worst has to be found rather than taken off the top.
+  const worst = rows.filter((r) => r.v < 0).sort((a, b) => a.v - b.v)[0];
+  const said = worst ? advice(worst, st) : floorNote(level, s);
+  if (!said) return '';
+  return `<p class="rp-fix"><b>What would help</b><span>${esc(said)}</span></p>`;
+}
+
+/**
+ * ...and where the shop knows WHICH, it says which.
+ *
+ * `stats.unmet` and `stats.passed` are the two halves of a shopping line that
+ * failed, and `failLine` splits them for exactly this reason: they prescribe
+ * opposite things. A tag nothing on your shelves answers is a shopping list, and
+ * a tag you stock and they walked past is a price — or an aisle they could not
+ * get down. Reputation does not care which (both land on `MISSED`), so the
+ * cause's own name cannot tell them apart and this is the only place the
+ * distinction ever reaches the player outside the log feed.
+ *
+ * Only the two causes that come from a failed line get it. Everything else says
+ * the same thing every day, because everything else has one answer.
+ *
+ * Both sentences say "came in for <tag>", which is the grammar the miss lines in
+ * the feed already trust: `tagLabel` exists because half these tags misread on
+ * their own, and "a bargain" or "kids' stuff" only reads in a sentence built to
+ * take either.
+ */
+function advice(cause, st) {
+  if (cause.id !== R.MISSED && cause.id !== R.EMPTY) return cause.fix;
+  const none = worstTag(st.unmet);
+  const had = worstTag(st.passed);
+  if (none && sum(st.unmet) >= sum(st.passed)) {
+    return `They came in for ${tagLabel(none)} and you had none — get some on a `
+      + 'shelf, and set a standing order so it stays there.';
+  }
+  if (had) {
+    return `They came in for ${tagLabel(had)}, saw what you had and left it — `
+      + 'try a lower price, and check they can actually reach the shelf.';
+  }
+  return cause.fix;
+}
+
+const sum = (map) => Object.values(map ?? {}).reduce((a, b) => a + b, 0);
+const worstTag = (map) => Object.entries(map ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+/**
+ * The one thing worth saying on a day nothing went wrong: where the floor is.
+ *
+ * `repSettle` is the level a bad week decays back UP to, and the drift is
+ * one-sided — so a shop under it is not recovering because of anything it did
+ * today, it is being carried, and the moment it stops being carried is the
+ * moment it passes that line. A player who has just tanked and then has a quiet
+ * morning sees a clean breakdown and a terrible number, which reads as the two
+ * disagreeing; this is what closes that.
+ *
+ * Nothing at all above the line — a shop having a good day does not need a
+ * panel telling it so twice.
+ */
+function floorNote(level, s) {
+  const settle = s.repSettle;
+  if (typeof settle !== 'number' || level >= settle) return '';
+  // Deliberately not opening on "nothing" — the body directly above it is the
+  // `Nothing has moved your reputation today` line whenever this is the only
+  // thing drawn, and two sentences starting the same way read as one stutter.
+  return `Under ${Math.round(settle * 100)}%, the only thing lifting you is the `
+    + 'town forgetting last week. Every point above that has to be served for — '
+    + 'full shelves, a short queue, and room to move.';
 }
 
 /**
@@ -490,7 +587,7 @@ function repBlock(s, st) {
  * counts with no ceiling to be a share of — so they are a sentence, which is
  * what the form heuristic says to do with a number that is not a shape.
  */
-function floorBlock(s, st) {
+function floorBlock(ui, s, st) {
   const shelves = s.shelves ?? [];
   const plots = s.plots ?? [];
   const queues = s.queues ?? [];
@@ -506,7 +603,43 @@ function floorBlock(s, st) {
     `${planted} of ${plots.length}${ready ? ` · ${ready} ready` : ''}`)}
     <p class="rp-note">${waiting} queueing across ${queues.length} till${
   queues.length === 1 ? '' : 's'} · ${st.harvested ?? 0} picked today</p>
+    ${footfallRow(ui)}
   </section>`;
+}
+
+/**
+ * The one control in a panel that is otherwise a picture.
+ *
+ * It lives HERE rather than in the settings switch grid, and that placement is
+ * the argument. This block is the state of the floor — how many units hold
+ * anything, how many beds are in, how long the line is — and where people
+ * actually walk is the same question asked about the same floor. Filed under
+ * settings it would be a preference about the client; filed here it is a
+ * reading, next to the other readings, in the menu you already opened to ask
+ * how the shop is doing.
+ *
+ * The overlay is drawn on the world rather than in the panel, so the press is
+ * one you make on the way OUT — which is why the caption says what will happen
+ * on the floor rather than describing a switch.
+ *
+ * One press and no Reset beside it. There was one, back when the map was the
+ * browser's: it cleared a localStorage key, and a button that only clears a
+ * cache is a button that answers a question nobody asked. The map is the shop's
+ * now, it fades a night's worth at every roll (`fadeTraffic`), and a shop you
+ * rearrange forgets its old shape by itself within a fortnight.
+ */
+function footfallRow(ui) {
+  // Read off the scene, which is the only thing that knows — the switch is a
+  // fact about the client, so it is deliberately not on the wire. A field in
+  // the snapshot would be the server answering a question about your screen.
+  const on = !!ui.scene?.heat?.on;
+  return `<div class="rp-foot">
+    <button class="rp-fbtn${on ? ' on' : ''}" data-act="footfall"
+      aria-pressed="${on ? 'true' : 'false'}"
+      title="${on ? 'Hide the footfall overlay.' : 'Tint the floor by where shoppers actually walk.'}">
+      ${on ? 'Hide footfall' : 'Show footfall'}
+    </button>
+  </div>`;
 }
 
 /**

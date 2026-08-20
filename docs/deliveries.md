@@ -124,7 +124,9 @@ the bottom for why there is no menu on the bay:
 - an item with an order out carries a green `+6` off its held count and a
   sub-line saying when it lands ("10 arriving — 4 on the van, 6 at 14:00")
 - it drops **out of `Short`** while something is on its way, and into a new
-  "On the way" tab which is the whole inbound list, soonest first
+  "On the way" tab which is the whole inbound list, soonest first — retired in
+  [step 8 of ordering.md](ordering.md#step-8--seven-tabs-were-two-questions-),
+  where the inbound rows sort to the top of `Buy` instead
 - one pinned line above every tab says "22 on the way / 14:00" and presses
   through to that list; the foot says when the vans run and how much room the
   yard has left

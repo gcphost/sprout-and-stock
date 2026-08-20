@@ -647,6 +647,21 @@ function tierBlurb(tier, points = 0) {
   if ((tier.speed_mult ?? 1) !== 1) gains.push(`walks ${mult(tier.speed_mult)} as fast`);
   if ((tier.pace_mult ?? 1) !== 1) gains.push(`starts the next job ${mult(tier.pace_mult)} as quick`);
   if ((tier.carry_mult ?? 1) !== 1) gains.push(`carries ${mult(tier.carry_mult)} as much`);
+  // Said as the trip it buys rather than as the number it is. "Packs 3" is a
+  // stat; "packs a crate of up to 3 kinds at the bay" is the thing you would
+  // watch them do, and it is the only line here that describes a behaviour
+  // rather than scaling one.
+  if ((tier.packs ?? 0) > 0) {
+    gains.push(`packs one crate of up to ${tier.packs} kind${tier.packs === 1 ? '' : 's'} at the bay`);
+  }
+  // Said as the shift you would watch, like `packs`. The number behind it is
+  // how keen they are rather than how often, so printing it would be a figure
+  // with nothing on screen to compare it against.
+  if ((tier.arranges ?? 0) > 0) {
+    gains.push(tier.arranges >= 0.66
+      ? 'rearranges the shop — moves what sells to where people walk'
+      : 'moves what sells to a better spot when one is obvious');
+  }
   if (points > 0) gains.push(`${points} more directive points`);
   if (points < 0) gains.push(`${-points} fewer directive points`);
   return gains.length ? `${gains.join(', ')}.` : 'No change to any number — just a better badge.';

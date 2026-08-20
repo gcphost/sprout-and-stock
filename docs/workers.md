@@ -1,10 +1,12 @@
 # Workers — design
 
-Status: **steps 1–6, 8 and 9 built.** A worker is authored content, hiring is a
+Status: **steps 1–6 and 8–13 built.** A worker is authored content, hiring is a
 roster, every hire has its own menu, tiers restage the model, everybody gets
 paid, a worn-out hire downs tools and does something authored about it —
-visibly — and there is a room you paint for them to do it in. Step 7 (tags,
-zones, experience) is proposed; step 10 (the shop hand) is built and opt-in.
+visibly — there is a room you paint for them to do it in, and a rung can be
+authored to pack one full crate out of a bay of part ones, and another to
+rearrange the shop around where customers actually walk. Step 7 (tags, zones,
+experience) is proposed; step 10 (the shop hand) is built and opt-in.
 
 The goal: a worker is authored the same way a fixture is. Its look, its stats,
 its upgrade ladder and what it is willing to do all come out of the database, so
@@ -1602,6 +1604,225 @@ authored content, and the next heavy kind somebody writes is what it is for.
 No content row was rewritten: the seeded farmhand and shop-hand still say
 `harvest`, and read as `farm`. Nothing in `docs/fixtures.md` moves.
 
+## Step 12 — a rung that packs a crate ✅
+
+A hire has shouldered whole crates since mixing landed: `unload`'s `wholeCrate`
+branch lifts the box rather than an armful out of it, `stockFromCrate` pours
+every pile a unit has a board for, and whatever will not fit rides on to the
+next board and then home. What it could never do is make a box that was not
+already made.
+
+That is the bay this step is about, and it is the ordinary one. A van drops
+part-crates — four lettuce, four eggs, four bread, three boxes — and each is
+judged on its own contents:
+
+- `fit` scores each at four against a six-unit armful, so `MIN_TRIP` lets it
+  through but `wholeCrate` refuses: four is not more than six, so the box is
+  never lifted.
+- The hire takes an armful of four, and `fillHands` — deliberately, so it can
+  never spend a kind slot the walk was counting on — tops up **only the kind
+  already in their arms**. There is no more lettuce, so they leave with four.
+- Three walks of the shop for twelve units, and every one of them looks like a
+  worker working.
+
+`packs` on a tier is the way out: **how many kinds this rung will assemble into
+one box before setting off.** Lift one, fill it from the boxes standing beside
+it with whatever the shelves are short of, walk one full crate.
+
+| | |
+|---|---|
+| Authored | `packs` on a worker tier — an integer, 0..`LOT_KINDS`, default **0** |
+| Reads it | `packsOf` in `server/sim/staff.js` |
+| Does it | `fillCrate` (staff.js) over `Game.packCrate` (sim/index.js) |
+| Priced | Nothing new. It is a rung, and a rung already costs what it costs |
+
+### Why it is a number and not a flag
+
+A count of KINDS, because the units cap belongs to the crate — `Game.crateLot`
+still bounds what actually goes in, so a rung cannot author its way past what a
+box holds. It also gives the ladder something to climb: `packs: 2` leaves the
+third kind standing on the pad, which is a visibly different shift from
+`packs: 3`, off one integer.
+
+The default is what makes it opt-in. `packs` reads 0 for every rung ever
+authored, `packFill` returns 0, and both size tests in `wholeCrate` are the
+arithmetic they already were — so a save, an export and a fresh seed all agree
+with no migration, and no shop gets faster because somebody deployed.
+
+### The bar is not the size of their hands
+
+The one non-obvious line, and it was a live bug the moment this shipped rather
+than a hypothetical. `wholeCrate` asked `lotTotal(pallet) > hands` — *at or
+under an armful the trip is identical and the box is pure ceremony* — which is
+right while an armful and a crate are the same journey made two ways.
+
+It stops being right the moment `carry_mult` can take hands up to a whole crate,
+and the shipped stocker's second rung already does: `carry_mult: 2` is twelve
+units against a twelve-unit crate, so `12 > 12` is false, for ever. The one hire
+in the game you would promote *to* pack crates was the one hire who could never
+shoulder one — a rung that takes money and moves no number.
+
+And it is worse than neutral. Big hands do not help with a bay of part-crates at
+all, because `Game.unload` sweeps **one box** and `fillHands` is same-kind-only:
+a twelve-unit stocker facing three boxes of four leaves with four, exactly as a
+six-unit one does. So for a packer the bar is `best` — what the armful trip
+would actually move off this pallet, which `fit` has already computed two lines
+up — and the question becomes the honest one: *is the packed box worth more than
+the armful this bay can assemble?* For everybody else the two numbers are equal
+and it is the test that was always there.
+
+### Three rules the new verb carries
+
+`Game.packCrate` is its own verb rather than an option on `unload`, for the
+reason `haul` is its own field: a shared function is one caller reading the
+wrong one of two hands, and that is a conservation hole rather than a visible
+bug. `unload` fills `p.carry` bounded by `carryLot`; this fills `p.haul` bounded
+by `crateLot`, and the two never meet.
+
+- **Out of the yard only.** `wholeCrate`'s termination argument said about the
+  *second* box. A packer drawing from a stray in an aisle takes goods somebody
+  already carried out there and carries them back, and two hires would pass one
+  pile between two boxes for the rest of the save. Enforced in the verb *and*
+  skipped in `fillCrate`, which is the pairing `fit` has with `Game.unload`'s
+  cap: the job loop must not count what the verb would refuse.
+- **Rubbish never packs, either direction.** `verify:bin`'s claim pointed at the
+  new verb — rot poured into a box of bread is rot back in the supply.
+- **The older stamp wins the merge.** Two dodges live in one line of `lotAdd`:
+  it merges by item id keeping the *destination's* stamp, and pushes a bare
+  `{item_id, qty}` for a kind the box has not got, which `spoilYard` reads as
+  fresh for ever. Either one makes packing the way to beat spoilage — which is
+  precisely what `stampPile` exists to stop — and neither is visible, because a
+  crate of laundered flour looks like a crate of flour. The stamp is written
+  through `p.haul.stacks` and never through `lotStacks`, which hands back
+  copies: a stamp written onto what *that* returns is written onto a value
+  nobody keeps, and reads as the clock silently not carrying.
+
+### What 12 touched
+
+| File | Why |
+|---|---|
+| `shared/schemas.js` | `packs` on a worker tier, capped by `LOT_KINDS` from `shared/lot.js` |
+| `server/sim/index.js` | `Game.packCrate`; `Game.onAPad` (moved off `staff.js`, because the verb has to refuse on it) |
+| `server/sim/staff.js` | `packsOf`, `packFill`, `fillCrate`, and `bar` in `wholeCrate` |
+| `client/worker-menu.js` | the rung's blurb — said as the trip it buys, not the number it is |
+| `scripts/verify-pack.js` | new — 76 assertions, none of them visible in a still frame |
+| the database | `packs: 3` on the stocker's *Runs the back*, which is the rung whose name already said it |
+
+`verify:pack` found four things on its first run: the stamp written onto a copy,
+the seed's own stamps written the same way, a "stray" cell that was still the
+bay, and the big-hands bar above. The last is the only one that was in shipped
+code rather than in the sweep.
+
+## Step 13 — a rung that rearranges the shop ✅
+
+Placement was the one thing you spent money on that said nothing back. A shelf
+by the door and a shelf in the dead corner sold identically; the top board and
+the bottom board sold identically; and the one rule that made a spot worth money
+— the endcap — was invisible to everything that decides where stock goes, so the
+shop cheerfully auto-filled the best unit in the building with dried pasta.
+
+Three pieces, and the order matters because each needs the one before it.
+
+### The sim learns where people walk
+
+`Game.traffic` — one number per tile, in **seconds of footfall**, faded 7% a
+night so it is a rolling fortnight rather than a monument to the shop you had
+while you were learning. Two rules make it a measurement of the PLACE:
+
+- **Only walking shoppers.** Somebody standing at a board is standing there
+  because of what is on it. Count them and a shelf scores well for holding good
+  stock and is then given good stock on that evidence — a loop that freezes the
+  layout on day one and calls it evidence.
+- **Never staff.** A worker's route is a fact about where the shop told them to
+  go, so a map with them in it is brightest along the path from the bay to the
+  shelves: the shop's own plumbing showing through the thing you are reading.
+
+`TRAFFIC_REACH` is **1.4** and the number is set by the shelf pitch, not by
+feel. It was 2.2 first, on the reasoning that somebody crossing the end of an
+aisle passes everything in it — and a generated shop stands its units one and
+two tiles apart, so at 2.2 every unit is credited for every step anybody takes.
+The map is then perfectly correct and says the same thing about all six shelves,
+which reads as the feature not working. `verify:spots` could not tell two
+shelves apart until this came down.
+
+### `spotScore` — is this a good place?
+
+Passing trade against the shop's own average (relative, because how many
+seconds a busy tile collects is catchment and reputation, not a fact about this
+unit), times the endcap. A shop nobody has walked in scores 1 everywhere, which
+is the old game exactly.
+
+Its sibling is `boardPull` — **eye level is buy level**, a peak at 0.8 tiles
+falling away both ways, read off the art through the same `boardsForShare` the
+renderer draws with. Kept apart from `spotScore` because they are measured
+differently: height is fixed when the thing is built, footfall changes as the
+shop does.
+
+### `arranges` — the rung
+
+`merchandise`'s third verb, after Clear and Merge and reached only when neither
+has anything to do, which is what makes it occasional without a directive to
+tune. It moves a whole board of something valuable to a better spot. Four
+guards, each load-bearing: the rung (0 on every tier ever authored), hands-off
+at BOTH ends, a reservation at either end, and a real gain.
+
+**The gain is the termination argument, not a taste knob.** A move that need
+only be *better* can be undone by one that is better again, and two shelves a
+hair apart will pass a box between them for the rest of the save — a hire
+visibly working, all day, changing nothing. Requiring a ratio means each move
+increases a bounded quantity by a fixed factor, so there is a last move.
+
+### Three things this cost, and one it did not
+
+**`shelvesFor` may not read a spot.** Ranking the day-to-day stocking order by
+`spotScore` is the obvious place to put it and cost **−72% mean profit over
+three seeds** against one frozen world; one seed lost a quarter of its units
+sold. That sort decides where an item's stock lands every delivery for ever;
+footfall drifts, so the order drifts, and an item whose best-ranked unit changed
+on Tuesday starts a second home — the "one item, two homes" spiral
+`Game.homeShelves` exists to close, arriving by a new route. A spot may only be
+read where the answer cannot churn.
+
+**…and `rearrange` may not USE `shelvesFor`.** Same rule, opposite end: that
+function answers with the item's one home, so the only unit it ever offers is
+the one the stock is already on, and the verb read as doing nothing. It asks
+`boardFor` directly. Bypassing the home rule is safe *here and nowhere else*
+because this moves the whole board and clears the old one — the item has one
+home before and one after. Anything that could move PART of a board would open
+the spiral by the back door.
+
+**The constructor's ordering.** `sizeTraffic` is what pours the saved map in, so
+it has to run after the fields it reads — placed with `buildWalkGrid`, where it
+looked like it belonged, it cut the grid correctly and came back empty. And it
+has to be in the constructor at all, because `Game.create` generates its layout
+inline: a shop that is merely *loaded* never re-flows, so a shop nobody happens
+to build in would record no footfall ever.
+
+**What it did not cost is balance.** `simulate` is byte-identical over three
+seeds, because the balance bot never promotes — so `arranges` is 0 in every run
+and nothing else reads a spot in a way that moves the sim. That is the
+instrument being blind rather than the change being free: the eye-level and
+endcap terms *do* move the sim and have no control, because getting one means
+running the old code.
+
+### What 13 touched
+
+| File | Why |
+|---|---|
+| `server/sim/index.js` | `noteTraffic`, `sizeTraffic`, `fadeTraffic`, `trafficOut`, `trafficWire`, `spotScore`, `boardPull`, `atEye`; `traffic` on the save, out AND back |
+| `server/sim/economy.js` | `IMPULSE_RADIUS` moved here (two readers, and `staff.js` cannot import `sim/index.js`); `boardPull` on `rankShelves` |
+| `server/sim/staff.js` | `rearrange`, `arrangesOf`; the endcap term in `pickItem`; the note on why this sort has no spot term |
+| `shared/model.js` | `boardsForShare` — lifted out of the renderer, because the sim now asks the same question |
+| `shared/schemas.js` | `arranges` on a worker tier |
+| `client/render/heat.js` | the overlay, and `adopt` — it draws the sim's map and keeps none of its own |
+| `client/report.js`, `client/sections.js`, `client/footfall.js` | the switch, in the Shop panel |
+| `scripts/verify-spots.js` | new — 75 assertions |
+| the database | `arranges: 1` on the shop-hand's *Trusted* |
+
+`verify:spots` found four things on its first runs, three of them in shipped
+code: the stale mean, the constructor ordering, `shelvesFor` blocking the verb
+entirely, and `TRAFFIC_REACH` being too coarse to tell two shelves apart.
+
 ## Once a worker is data-driven
 
 These are cheap *because* of the split above, and expensive without it.
@@ -1649,6 +1870,11 @@ Each step leaves the game playable.
     could get away with pointing one way.
 11. ✅ **One farm directive** — `till`, `sow` and `harvest` fold into `farm`, and
     an old list is read rather than migrated.
+13. ✅ **A rung that rearranges the shop** — the sim learns where people walk,
+    a spot is worth something, and a rung will move what sells to where they do.
+12. ✅ **A rung that packs a crate** — `packs` on a tier, so a bay of
+    part-crates is one trip instead of three. Opt-in by default, and the step
+    that found `carry_mult` quietly switching hauling off.
 
 Steps 1 and 2 are the ones that matter; everything after is only worth doing
 once a worker is genuinely data-driven. `guard` is deliberately not on this

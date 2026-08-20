@@ -61,11 +61,26 @@ export const deptsIn = (rows) => DEPARTMENTS.filter((d) => rows.some((r) => r.de
  * everything" are the same list and only one of them is a thing you can press
  * your way back to.
  */
-export const deptStrip = (depts, at) => `<div class="dtabs">
+/**
+ * ...in a wrapper, because the fade at each end is a MASK.
+ *
+ * A mask applies to everything the element paints, its own background included —
+ * so a strip that was both the scroller and the bar painted 20px of *itself*
+ * transparent at whichever end had more, and what showed through that window was
+ * the list scrolling underneath it. On screen it is a green Buy button sliding
+ * across the aisle chips, which reads as the panel having come apart rather than
+ * as a fade doing exactly what it was told.
+ *
+ * So the two jobs are two elements: `.dwrap` is the bar — sticky, opaque, its
+ * hairline — and `.dtabs` inside it is the scroller that fades. Nothing else
+ * moves: `wireDepts` still wires `.dtabs`, because what scrolls is still what
+ * scrolls.
+ */
+export const deptStrip = (depts, at) => `<div class="dwrap"><div class="dtabs">
   <button class="dtab${at ? '' : ' on'}" data-dept="">All</button>
   ${depts.map((d) => `<button class="dtab${d === at ? ' on' : ''}"
     data-dept="${esc(d)}">${esc(d)}</button>`).join('')}
-</div>`;
+</div></div>`;
 
 /**
  * ...and it is ONE ROW that scrolls, which is a thing to wire rather than only

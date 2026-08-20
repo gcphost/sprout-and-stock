@@ -34,9 +34,9 @@
 
 import { content } from '../content.js';
 import { findPath, followPath } from './pathing.js';
-import { suggestedPrice, wholesalePrice } from './economy.js';
-import { isPadAt, shelfKind, isWalkableTile, REACH } from '../../shared/build.js';
-import { homeKind } from '../../shared/tags.js';
+import { suggestedPrice, wholesalePrice, IMPULSE_RADIUS } from './economy.js';
+import { shelfKind, isWalkableTile, REACH } from '../../shared/build.js';
+import { homeKind, impulsePull } from '../../shared/tags.js';
 import { hash01 } from '../../shared/hash.js';
 import { lotStacks, lotTotal, lotQty, lotHas, lotMain } from '../../shared/lot.js';
 
@@ -146,6 +146,17 @@ const paceOf = (s) => ((kindOf(s)?.pace ?? 0.7) / tierOf(s).pace_mult) * tiredne
  * ends up meaning one thing to the pickup code and another to the hire panel.
  */
 export const carryOf = (s) => Math.max(1, Math.round((kindOf(s)?.carry ?? 6) * tierOf(s).carry_mult));
+
+/**
+ * How many kinds this hire will assemble into one box before setting off.
+ *
+ * Zero is every rung that has not been authored to do it, which is every rung
+ * that exists today — so this reads as "no" for a save, an export and a fresh
+ * seed alike, and the packing branches below all collapse to the code that was
+ * there. The number is a count of KINDS because the units cap belongs to the
+ * crate; `Game.crateLot` still bounds what actually goes in.
+ */
+const packsOf = (s) => Math.max(0, Math.trunc(tierOf(s).packs ?? 0));
 
 /**
  * Add or remove staff entities so they match the roster. Cheap enough to call
@@ -1832,6 +1843,54 @@ function unload(game, s) {
   };
 
   const busy = claimed(game, s);
+
+  /**
+   * How much MORE this box would hold once they had packed it from the ones
+   * standing beside it — and 0 for every hire whose rung does not pack, which
+   * is what keeps this branch invisible until somebody authors one.
+   *
+   * It has to be asked here, at the decision, rather than only when the packing
+   * happens. `wholeCrate` refuses a box that is not worth more than one armful,
+   * and the bay this feature is for is exactly the bay where no single box ever
+   * is: three part-crates of four are three armfuls, for ever, because each one
+   * is judged on its own contents. Judged on what it could BECOME, one of them
+   * is a full crate and the other two are its contents.
+   *
+   * Bounded the same three ways `fit` is bounded and one more: the crate's
+   * units, the shelves' room less what is already in this box heading there,
+   * and `packTo` kinds — the rung's number, counted over the whole box, so a
+   * lifted crate that already holds three kinds packs top-ups only.
+   */
+  const packTo = packsOf(s);
+  const packFill = (d) => {
+    const crate = game.crateLot();
+    const room = crate.cap - lotTotal(d);
+    if (room <= 0) return 0;
+    let slots = packTo - lotStacks(d).length;
+    let added = 0;
+    const mine = new Map(lotStacks(d).map((k) => [k.item_id, k.qty]));
+    for (const other of game.stockCrates()) {
+      if (other.id === d.id) continue;
+      if (busy.has(key('crate', other.id))) continue;
+      // Only out of the yard, which is `wholeCrate`'s own termination argument
+      // said about the second box: a packer drawing from a stray in the aisle
+      // would take goods somebody already carried out there and carry them
+      // back, and two hires could pass one pile between two boxes for ever.
+      if (!onAPad(game, other)) continue;
+      for (const pile of lotStacks(other).sort((a, b) => b.qty - a.qty)) {
+        if (added >= room) break;
+        const have = mine.get(pile.item_id) ?? 0;
+        if (!have && slots <= 0) continue;
+        const take = Math.min(pile.qty, roomFor(pile.item_id).room - have, room - added);
+        if (take <= 0) continue;
+        if (!have) slots -= 1;
+        mine.set(pile.item_id, have + take);
+        added += take;
+      }
+    }
+    return added;
+  };
+
   // The BIGGEST trip, not the first one that qualifies. `find` took whichever
   // crate was oldest on the pad, and a bay is stacked in the order things
   // arrived — so a shop with eggs at the bottom of the pile serviced eggs, over
@@ -1938,8 +1997,39 @@ function unload(game, s) {
   //
   // `pallet.qty > hands` is the whole point: at or under an armful the trip is
   // identical and the box is pure ceremony.
+  //
+  // Both of the size tests below count what a packer would ADD to the box, and
+  // `fill` is 0 for everybody else — so a shop with no packing rung authored
+  // takes exactly the branch it took before, arithmetic included.
+  const fill = packTo > 0 ? packFill(pallet) : 0;
+
+  /**
+   * What the box has to beat, and for a packer it is not the size of their
+   * hands.
+   *
+   * `hands` is the right bar while an armful and a crate are the same trip made
+   * two ways — that is what "at or under an armful the box is pure ceremony"
+   * means. It stops being the right bar the moment a rung's `carry_mult` can
+   * take hands up to a whole crate, which the shipped stocker's second rung
+   * already does: twelve-unit hands against a twelve-unit crate is `12 > 12`,
+   * false, for ever. So the one hire in the game you would promote *to* pack
+   * crates is the one hire who can never shoulder one — a rung that takes money
+   * and moves no number, which is the trap this repo has a name for.
+   *
+   * And it is not merely neutral. Big hands do not help with a bay of
+   * part-crates at all: `Game.unload` sweeps ONE box, and `fillHands` tops up
+   * only kinds already held — so a twelve-unit stocker facing three boxes of
+   * four leaves with four, exactly as a six-unit one does.
+   *
+   * `best` is what the armful trip would actually move off this pallet
+   * (`fit`, assigned two lines up), so comparing against it asks the honest
+   * question: is the packed box worth more than the armful this bay can
+   * assemble? For everybody else the two are the same number and this is the
+   * test that was already here.
+   */
+  const bar = packTo > 0 ? best : hands;
   const wholeCrate = !s.carry
-    && lotTotal(pallet) > hands
+    && lotTotal(pallet) + fill > bar
     // The shop must want MORE than one armful of it. Under that, carrying the
     // box is strictly worse than carrying the goods: same journey, and you
     // arrive with your hands full of crate and a remainder to walk home. The
@@ -1957,7 +2047,7 @@ function unload(game, s) {
     // box of four things the shop wants three of each of would never be lifted
     // — twelve units of wanted stock making twelve one-armful trips, which is
     // the shape mixing was meant to end.
-    && lotStacks(pallet).reduce((n, k) => n + Math.min(k.qty, roomFor(k.item_id).room), 0) > hands
+    && lotStacks(pallet).reduce((n, k) => n + Math.min(k.qty, roomFor(k.item_id).room), 0) + fill > bar
     && onAPad(game, pallet)
     // ...and it has to be the one on TOP. `liftCrate` refuses a buried crate,
     // and a refusal here is not a no-op: the hire keeps choosing the same crate
@@ -1969,6 +2059,11 @@ function unload(game, s) {
   if (wholeCrate) {
     if (!goTo(game, s, pallet, 1.4)) return true;
     const res = game.liftCrate(s.id, pallet.id);
+    // Pack it where they stand, in the same action, for `fillHands`' reason
+    // exactly: coming round again is another weighted draw, and a hire who
+    // wandered off to serve a customer between lifting the box and filling it
+    // is a box that never gets filled. One action, no ordering relied on.
+    if (res.ok && packTo > 0) fillCrate(game, s, pallet, packTo);
     s.cooldown = res.ok ? paceOf(s) : 1;
     return true;
   }
@@ -1990,9 +2085,11 @@ function unload(game, s) {
  * pass one back and forth.
  */
 function onAPad(game, d) {
-  const L = game.layout;
-  return isPadAt(L, 'bay', Math.round(d.x), Math.round(d.z))
-    || isPadAt(L, 'drop', Math.round(d.x), Math.round(d.z));
+  // The arithmetic moved onto the Game the day `packCrate` had to refuse on it.
+  // Kept as a local name because a dozen call sites in this file read `onAPad(game, d)`,
+  // and a wrapper is cheaper than a rename that touches every one of them —
+  // what matters is that there is one answer rather than two.
+  return game.onAPad(d);
 }
 
 /**
@@ -2041,6 +2138,63 @@ function fillHands(game, s, from) {
       const want = Math.min(hands, roomFor(pile.item_id)) - lotQty(s.carry, pile.item_id);
       if (want <= 0) continue;
       game.unload(s.id, d.id, want, pile.item_id);
+    }
+  }
+}
+
+/**
+ * Having shouldered one crate, make it a FULL one out of the boxes beside it.
+ *
+ * `fillHands` said about the other container, and the difference between them
+ * is the whole feature. That one only ever tops up a kind already in the arms,
+ * deliberately, so it can never take a kind slot the walk was counting on. This
+ * one is allowed to add kinds — that is what "make a full crate" means — and
+ * what bounds it instead is the rung: `packTo` kinds in the box, counted over
+ * the box rather than over what was added, so a crate lifted with three kinds
+ * already in it packs top-ups only however high the number goes.
+ *
+ * The trip it exists for is the one a bay of part-crates could never make. Four
+ * lettuce, four eggs and four bread in three boxes is three walks of the shop:
+ * no single box is worth shouldering, `fit` scores each at four, and the hire
+ * takes an armful and comes back twice. One box packed from the other two is
+ * one walk, and the two empties are gone off the pad with it.
+ *
+ * Reach is not re-tested here, for `fillHands`' reason: `Game.packCrate`
+ * refuses a pallet you are not stood next to, and a second copy of that
+ * distance in this file is the one that would quietly drift from the one the
+ * game enforces.
+ */
+function fillCrate(game, s, from, packTo) {
+  const c = content();
+  const spoken = inbound(game, s);
+  const { cap } = game.crateLot();
+  const busy = claimed(game, s);
+  const room = new Map();
+  const roomFor = (id) => {
+    if (!room.has(id)) room.set(id, roomAcross(game, id, c, spoken).room);
+    return room.get(id);
+  };
+  for (const d of game.stockCrates()) {
+    if (d.id === from.id) continue;
+    if (busy.has(key('crate', d.id))) continue;
+    // Out of the yard only — see `packFill`. Without it, packing is a way for
+    // goods to travel back to the bay they already left.
+    if (!onAPad(game, d)) continue;
+    if (lotTotal(s.haul) >= cap) return;
+    // Biggest pile first, which is `lotSweep`'s ordering and matters here for a
+    // reason of its own: the kind slots are the scarce thing, so spending one
+    // on the four eggs before the one lettuce is the box a glance would have
+    // packed.
+    for (const pile of lotStacks(d).sort((a, b) => b.qty - a.qty)) {
+      const have = lotQty(s.haul, pile.item_id);
+      if (!have && lotStacks(s.haul).length >= packTo) continue;
+      // The shelves' room for this kind, less what is already in this box
+      // heading there — the same subtraction `fit` and `fillHands` both make.
+      // A packer who filled the box with what the shop has no room for would
+      // walk a full crate to one board and the rest of it home again.
+      const want = Math.min(roomFor(pile.item_id) - have, cap - lotTotal(s.haul));
+      if (want <= 0) continue;
+      game.packCrate(s.id, d.id, want, pile.item_id);
     }
   }
 }
@@ -2293,7 +2447,163 @@ function merchandise(game, s) {
       return true;
     }
   }
-  return false;
+
+  // Rearrange — the good stuff to the good spots. Last of the three, which is
+  // the whole of what makes it occasional: a hire drawn to `merchandise` clears
+  // a dead board if there is one and merges a split one if there is one, and
+  // only reaches this when the shop has nothing that actually needs doing.
+  // There is no separate weight to tune because there is no separate directive
+  // — it is the same job, at the bottom of its own list.
+  return rearrange(game, s, c, busy, hands);
+}
+
+/**
+ * How much better a spot has to be before it is worth carrying stock over.
+ *
+ * The hysteresis, and it is the termination argument rather than a taste knob.
+ * A move that needs only to be *better* can be undone by a move that is better
+ * again, and two shelves a hair apart will pass a box between them for the rest
+ * of the save — a hire visibly working, all day, changing nothing. Requiring a
+ * strict ratio means each move increases a bounded quantity (value × spot,
+ * summed over the shop) by a fixed factor, so there is a last move.
+ *
+ * The range is what the rung buys: a keen rung acts on a modest improvement, a
+ * lukewarm one only on an obvious one.
+ */
+const ARRANGE_GAIN_MIN = 0.15;
+const ARRANGE_GAIN_MAX = 0.45;
+
+/** How keen this hire is to re-merchandise, 0..1. Zero is every rung today. */
+const arrangesOf = (s) => Math.min(1, Math.max(0, Number(tierOf(s).arranges ?? 0)));
+
+/**
+ * MOVE WHAT SELLS TO WHERE PEOPLE WALK.
+ *
+ * The third `merchandise` verb, and the first thing a worker has ever done that
+ * is a judgement about the SHOP rather than about a board. docs/workers.md's
+ * line — *what something is worth is the player's question, and a worker
+ * answering it is a worker spending your money* — is why the other two verbs are
+ * shaped the way they are, and this one is deliberately on the other side of it:
+ * it moves stock between shelves and never decides what stock is worth keeping,
+ * so nothing here can cost you anything. The most it can do is put the wrong
+ * thing at eye level, which the next pass undoes.
+ *
+ * Four guards, and each one is load-bearing:
+ *
+ *   the rung        — `arranges` is 0 on every tier ever authored, so a shop
+ *                     that has not paid for this is the old game exactly.
+ *   `handMayTouch`  — BOTH ends. The unit switch is how you keep a display you
+ *                     arranged yourself, and a locked shelf that still had
+ *                     stock walked onto it is a locked shelf being rearranged.
+ *   a reservation   — either end. A ticked board is an instruction, and a hire
+ *                     quietly moving stock off one is the shop overruling you.
+ *   a real gain     — see the note above. Without it this oscillates.
+ *
+ * What it does NOT do is displace. The target needs a board free (or to already
+ * hold this), so a shop whose good spots are full stays as it is until
+ * something sells down — at which point `shelvesFor` prefers the good spot
+ * anyway and the refill lands there on its own. A swap is the obvious next
+ * step and is a genuinely harder job: three legs, two pairs of hands' worth of
+ * stock in flight, and a half-done swap has goods in limbo.
+ */
+function rearrange(game, s, c, busy, hands) {
+  const keen = arrangesOf(s);
+  if (!(keen > 0)) return false;
+  const need = 1 + ARRANGE_GAIN_MAX - (ARRANGE_GAIN_MAX - ARRANGE_GAIN_MIN) * keen;
+
+  const folded = game.folded();
+  const kept = (sh) => (Array.isArray(sh.assigned) ? sh.assigned : (sh.assigned ? [sh.assigned] : []));
+  /**
+   * What this item is worth having in a good spot — the same margin × who-wants-it
+   * `pickItem` chooses the range with, deliberately, so the shop cannot rank
+   * items one way when it is filling a bare shelf and another way when it is
+   * tidying. Two spellings of "the good stuff" is a crew that undoes the
+   * ordering every few days for reasons nothing anywhere records.
+   */
+  const worth = (item) => {
+    const margin = suggestedPrice(item, folded, game.season) - wholesalePrice(item, folded, game.season);
+    const pull = c.archetypes.reduce((sum, a) => {
+      let d = 0;
+      for (const t of item.tags) d += a.affinities[t] ?? 0;
+      return sum + Math.max(0, d) * a.spawn_weight;
+    }, 0);
+    return Math.max(0, margin) * (0.5 + pull);
+  };
+
+  // The single best move in the shop, not the first one that qualifies. A
+  // `find` would walk the shelves in layout order and spend the trip on
+  // whichever poor spot happened to be listed first, which over a day is a
+  // crew shuffling the tail of the range around while the best seller sits in
+  // the corner. One pass, one decision.
+  let best = null;
+  for (const shelf of game.layout.shelves) {
+    if (busy.has(key('shelf', shelf.id))) continue;
+    if (!game.handMayTouch(shelf)) continue;
+    const from = game.spotScore(shelf);
+    for (const stack of game.shelfStacks(shelf)) {
+      if (kept(shelf).includes(stack.item_id)) continue;
+      if (!(stack.qty > 0) || stack.qty > hands) continue;   // one trip, as Merge insists
+      const item = c.byId.items[stack.item_id];
+      if (!item) continue;
+      const value = worth(item);
+      if (!(value > 0)) continue;
+      /**
+       * Every unit that would legally take it — and NOT `shelvesFor`, which is
+       * the one non-obvious line in this function.
+       *
+       * `shelvesFor` answers "where does the shop keep this", and since
+       * `Game.homeShelves` it answers with the item's ONE home. That is right
+       * for every other caller — it is what stopped an item quietly acquiring a
+       * second board and the shop buying for both — and it makes a rearrange
+       * impossible by construction: the only unit it ever offers is the one the
+       * stock is already on. The whole verb read as doing nothing.
+       *
+       * So the legality question is asked directly. `boardFor` is the same test
+       * `stockShelf` and `stockFromCrate` use, which is what keeps the walk
+       * honest: a hire never sets off for a unit the press would refuse.
+       *
+       * Bypassing the home rule is safe HERE and nowhere else, and the reason
+       * is the `stack.qty > hands` guard above: this moves the WHOLE board and
+       * `clearStack` takes the old one away, so the item has exactly one home
+       * before and exactly one after. It moved. Anything that could move PART
+       * of a board would be opening the second-home spiral by the back door.
+       */
+      const sorted = game.layout.shelves
+        .filter((sh) => sh.id !== shelf.id && !busy.has(key('shelf', sh.id)))
+        // Front stays front. A shopper cannot see a back-of-house unit, so
+        // "move it somewhere better" across that line is moving it out of the
+        // shop — and `spotScore` would happily rate a quiet stockroom against
+        // the floor, because nobody walks in there either.
+        .filter((sh) => (sh.boh === true) === (shelf.boh === true))
+        .filter((sh) => game.handMayTouch(sh) && !kept(sh).length)
+        .filter((sh) => game.boardFor(sh, item).ok && game.shelfCapacity(sh, item) >= stack.qty)
+        .sort((a, b) => game.spotScore(b) - game.spotScore(a));
+      for (const sh of sorted) {
+        const to = game.spotScore(sh);
+        if (to < from * need) break;              // sorted, so the rest are worse
+        // Ranked on what the move is WORTH, which is the gain in spot times how
+        // much the shop cares about the item. A tin of beans moving from a dead
+        // corner to a good one and the best seller in the shop doing the same
+        // are not the same trip, and a crew with one pair of hands has to pick.
+        const gain = value * (to - from);
+        if (!best || gain > best.gain) best = { shelf, stack, to: sh, gain };
+        break;                                   // sorted by spot; the head is the best this pile can do
+      }
+    }
+  }
+  if (!best) return false;
+
+  claim(s, 'shelf', best.shelf.id);
+  if (!goToShelf(game, s, best.shelf)) return true;
+  const res = game.unshelve(s.id, best.shelf.id, best.stack.item_id);
+  if (!res.ok) { s.cooldown = 1; return true; }
+  if (res.left <= 0) game.clearStack(best.shelf, best.stack.item_id);
+  // The same second leg Clear and Merge use. `deliver` re-tests the target on
+  // arrival, which matters more here than anywhere: this is the one verb whose
+  // target was chosen for a reason that can change while you walk.
+  s.shifting = { to: best.to.id };
+  s.cooldown = paceOf(s);
+  return true;
 }
 
 /**
@@ -2873,6 +3183,24 @@ function shelvesFor(game, itemId, c, spoken = null) {
   return usable.sort((a, b) => (kept(b).includes(itemId) - kept(a).includes(itemId))
     || (!!game.shelfStack(b, itemId) - !!game.shelfStack(a, itemId))
     || (b.priority ?? 0) - (a.priority ?? 0));
+  // NO SPOT TERM IN THIS SORT, and that is a measurement rather than an
+  // oversight. Ranking the day-to-day stocking order by `spotScore` reads as
+  // the obvious place to put it and cost **-72% mean profit over three seeds**
+  // against one frozen world — one seed lost a quarter of its units sold.
+  //
+  // The reason is that this sort decides where an item's stock LANDS, every
+  // delivery, for ever. Footfall drifts, so the order drifts with it, and an
+  // item whose best-ranked unit changed on Tuesday starts a second home on a
+  // shelf it has never been on — which is the "one item, two homes" spiral
+  // `Game.homeShelves` exists to close, arriving by a new route. Every step is
+  // a worker correctly shelving goods on a unit with room.
+  //
+  // Where a spot may be read is anywhere the answer cannot churn: at the point
+  // of SALE (`boardPull`, `spotScore` — the shelf is already stocked, so the
+  // reading changes nothing about where goods go), when choosing what to put
+  // on a BARE board (`pickItem`'s endcap term — it fires once and the board is
+  // then stocked), and in `rearrange`, which has hysteresis precisely so it
+  // cannot chase a drifting number.
 }
 
 /**
@@ -2922,6 +3250,43 @@ function pickItem(game, shelf, c) {
       ...(Array.isArray(sh.assigned) ? sh.assigned : [sh.assigned]),
     ]).filter(Boolean));
 
+  /**
+   * A unit by the till gets stocked with what a unit by the till is FOR.
+   *
+   * `impulseBuy` has made a board within `IMPULSE_RADIUS` of a checkout worth
+   * more than an ordinary one since endcaps existed — a shopper in the queue
+   * takes one off-list look at whatever is stacked beside them, weighted by
+   * `impulsePull`. Nothing told the shop, so the one function whose job is
+   * choosing the range scored every shelf identically and cheerfully filled the
+   * best spot in the building with dried pasta.
+   *
+   * That is not a bug anything reports. The shelf fills, the goods sell at
+   * their ordinary rate, and the endcap simply never pays — so the mechanic
+   * that exists to make *placement* worth money only ever worked for a player
+   * who had found it by hand and ticked the sweets on themselves.
+   *
+   * It is the SAME `impulsePull` the sale reads, so the shop cannot stock a
+   * board on one opinion and then price it on another. Away from a till the
+   * multiplier is 1 and this function is exactly what it was — which is most
+   * shelves in most shops, and is what keeps the endcap a *spot* rather than a
+   * new rule about the range.
+   *
+   * **It can only ever promote**, which is why the clamp is there and not a
+   * tidy-up to remove later. `impulsePull` runs below 1 for the things nobody
+   * grabs on the way past — a sack, a truffle — and multiplying by 0.3 would
+   * push those off the endcap. But an impulse is a sale ON TOP of the ordinary
+   * one: a sack of flour by the till still sells exactly as well as a sack of
+   * flour anywhere else, it simply gains nothing extra. Demoting it would be
+   * the shop refusing a spot for a cost that does not exist.
+   *
+   * Deliberately not scaled by how many tills are nearby: two checkouts either
+   * side of one unit is one queue's worth of eyes on it, near enough, and
+   * counting them would make a bank of six self-checkouts the only place the
+   * shop would ever stock anything.
+   */
+  const nearTill = (game.layout.checkouts ?? []).some((t) => Math.hypot(shelf.x - t.x, shelf.z - t.z) <= IMPULSE_RADIUS);
+  const endcap = (it) => (nearTill ? Math.max(1, impulsePull(it)) : 1);
+
   const crafted = new Set(c.recipes.map((r) => r.output_id));
   // What a stockroom is FOR, and the reason this function needed telling at all.
   // It scores by margin × who wants it, which is the shop floor's question — so
@@ -2953,7 +3318,7 @@ function pickItem(game, shelf, c) {
         for (const t of it.tags) d += a.affinities[t] ?? 0;
         return sum + Math.max(0, d) * a.spawn_weight;
       }, 0);
-      return { it, score: margin * (0.5 + pull) };
+      return { it, score: margin * (0.5 + pull) * endcap(it) };
     })
     .sort((a, b) => b.score - a.score);
 

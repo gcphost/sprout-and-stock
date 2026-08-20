@@ -1365,6 +1365,67 @@ export function buildStamp(color = '#7cc46a') {
 }
 
 /**
+ * The mark on the floor that says which of these is a person you are driving.
+ *
+ * A body at this camera pitch is about forty pixels of colour standing on a
+ * floor that is also colour, in a shop full of other bodies the same size — so
+ * "where am I" is a question you answer by moving and watching what moves. The
+ * ring answers it standing still, and in a co-op shop it answers "which one is
+ * mine" as well, which is why it takes the player's own colour rather than one
+ * highlight colour for everybody.
+ *
+ * Two rings rather than one, and the pale outer one is the half that does the
+ * work: the shop floor is cream and every player colour is a mid tone, so a
+ * single ring vanishes against pale ground exactly where a shop is brightest.
+ * The white sits under the colour like a sticker's border, so there is always
+ * an edge whatever it is standing on.
+ *
+ * `depthTest` stays ON, unlike the ripple's — this one is permanent, and a
+ * permanent mark that ignores depth is a ring drawn on top of every shelf you
+ * walk behind. `depthWrite` is off so the two rings do not z-fight each other.
+ *
+ * ...and THAT is what decides the height, which is the whole of why the first
+ * version of this was invisible. Ground is not a plane: every tile kind is a
+ * slab of its own depth (`TILE_STYLE`), drawn from 0 up — shop floor 0.06, the
+ * pads 0.07, a bed 0.08 — so a mark laid at 0.035 is not lying on the floor, it
+ * is INSIDE it, and a depth test does exactly what it is meant to. The ripple
+ * gets away with 0.07 because it ignores depth entirely. This has to clear the
+ * tallest ground anybody can stand on and nothing more: high enough to be on
+ * top of a bed, low enough to still read as under the feet of the person
+ * standing on it.
+ */
+export function buildFootMark(color = '#5b8ff9') {
+  const g = new THREE.Group();
+  const ring = (geo, c, opacity, order) => {
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color: new THREE.Color(c),
+      transparent: true,
+      opacity,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }));
+    m.rotation.x = -Math.PI / 2;
+    m.renderOrder = order;
+    g.add(m);
+    return m;
+  };
+  // The outer edge is the body's own footprint plus a little — big enough to
+  // read as a ring around them rather than as a hoop they are wearing, small
+  // enough that two people stood at one counter do not overlap. Thin, because
+  // this is a thing you notice rather than a thing you look at: it is answering
+  // "which of these is me" for somebody who is reading the SHOP, so a heavy
+  // ring wins that question by becoming the loudest object on the floor.
+  ring(new THREE.RingGeometry(0.35, 0.44, 40), '#ffffff', 0.22, 3);
+  ring(new THREE.RingGeometry(0.37, 0.42, 40), color, 0.5, 4);
+  // ...and a wash inside it, which is what makes the person read as lit from
+  // below rather than as standing in a drawn circle. Very faint on purpose: any
+  // stronger and it fights the shadow that is also under them.
+  ring(new THREE.CircleGeometry(0.37, 32), color, 0.07, 2);
+  g.position.y = 0.095;
+  return g;
+}
+
+/**
  * A flat unlit outline on the ground, scaled and faded by whoever owns it.
  *
  * Both ground marks are the same object with a different outline and a
