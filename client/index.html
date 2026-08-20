@@ -342,7 +342,7 @@
       background: var(--panel-solid); opacity: .85; z-index: 1;
       box-shadow: 0 3px 0 rgba(58,49,40,.14);
     }
-    .menu-mute:hover { opacity: 1; }
+    html.can-hover .menu-mute:hover { opacity: 1; }
     .menu-mute:active { transform: translateY(3px); box-shadow: none; }
     /* A LOGO rather than a heading. Bigger, tighter, and cut out of the sky
        with a cream keyline and a shadow under it — which is the one thing that
@@ -404,7 +404,7 @@
     }
     .tier b { font-size: 12px; font-weight: 800; line-height: 1.2; }
     .tier span { font-size: 11.5px; font-weight: 700; opacity: .55; }
-    .tier:hover { background: rgba(58,49,40,.12); }
+    html.can-hover .tier:hover { background: rgba(58,49,40,.12); }
     .tier.on { background: var(--panel); box-shadow: inset 0 0 0 2px var(--good); }
     .tier.on span { opacity: .8; }
     /* A difficulty is one word with nothing under it, so it is centred — a lone
@@ -503,7 +503,7 @@
       box-shadow: 0 4px 0 rgba(58,49,40,.11), 0 8px 20px rgba(58,49,40,.16);
       transition: transform .12s ease, box-shadow .12s ease;
     }
-    .wcard:hover {
+    html.can-hover .wcard:hover {
       transform: translateY(-2px);
       box-shadow: 0 6px 0 rgba(58,49,40,.11), 0 12px 26px rgba(58,49,40,.2);
     }
@@ -569,14 +569,14 @@
     .wacts button:active {
       transform: translateY(3px); box-shadow: none;
     }
-    .wacts button:hover { filter: brightness(1.06); }
+    html.can-hover .wacts button:hover { filter: brightness(1.06); }
     .wplay {
       background: var(--good); color: #fff; flex: 1;
       box-shadow: 0 3px 0 #43793f;
     }
     .wghost { background: rgba(58,49,40,.08); color: var(--ink); }
-    .wghost:hover { background: rgba(58,49,40,.16); }
-    .wdel:hover { background: var(--accent); color: #fff; }
+    html.can-hover .wghost:hover { background: rgba(58,49,40,.16); }
+    html.can-hover .wdel:hover { background: var(--accent); color: #fff; }
     .wdel.on { background: var(--accent); color: #fff; }
 
     .menu-add {
@@ -585,7 +585,7 @@
       box-shadow: 0 3px 0 rgba(58,49,40,.14);
       background: rgba(255,252,245,.6); box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
     }
-    .menu-add:hover { background: var(--panel-solid); }
+    html.can-hover .menu-add:hover { background: var(--panel-solid); }
     .menu-add:active { transform: translateY(3px); box-shadow: none; }
     /* New shop and Join share a row — two thirds to the thing almost everybody
        presses, one third to the thing you press when a friend has sent you a
@@ -598,7 +598,7 @@
        above it is what you are being asked, and this is the other door. */
     .menu-adds.menu-alt { margin-top: 8px; }
     .menu-adds.menu-alt .menu-add { font-size: 12.5px; padding: 9px; opacity: .8; }
-    .menu-adds.menu-alt .menu-add:hover { opacity: 1; }
+    html.can-hover .menu-adds.menu-alt .menu-add:hover { opacity: 1; }
     .menu-new { background: var(--panel); border-radius: 15px; padding: 11px 13px;
                 box-shadow: 0 4px 16px rgba(58,49,40,.13); }
     .menu-new .menu-field { background: rgba(58,49,40,.06); box-shadow: none; }
@@ -632,8 +632,8 @@
       box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
     }
     .menu-support svg { opacity: .7; }
-    .menu-support:hover { background: var(--panel-solid); }
-    .menu-support:hover svg { opacity: 1; }
+    html.can-hover .menu-support:hover { background: var(--panel-solid); }
+    html.can-hover .menu-support:hover svg { opacity: 1; }
     .menu-support:active { transform: translateY(3px); }
     .menu-support:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -831,7 +831,7 @@
     }
     /* Presses in rather than down, the same as the clock beside it: these are
        pieces of text, and text that jumps a pixel reads as the HUD twitching. */
-    #sign:hover { background: rgba(58,49,40,.11); }
+    html.can-hover #sign:hover { background: rgba(58,49,40,.11); }
     #sign:active { background: rgba(58,49,40,.2); }
     /* The floors stay where the jitter is — the date (which grows a digit at Day
        100) and the balance — and they are per GROUP now, since a group is the
@@ -1019,7 +1019,7 @@
     }
     #clock-pp svg { width: 100%; height: 100%; display: block; }
     #clock.paused #clock-pp { opacity: 1; }
-    #clock:hover { background: rgba(58,49,40,.11); }
+    html.can-hover #clock:hover { background: rgba(58,49,40,.11); }
     /* Presses in rather than down: this one is a piece of text, and a piece of
        text that jumps a pixel reads as the HUD twitching. */
     #clock:active { background: rgba(58,49,40,.2); }
@@ -1219,7 +1219,7 @@
     /* `:active` as well as `:hover`, because a drag captures the pointer and can
        take it outside the element — without it the meter fades out from under
        you halfway through moving it, which reads as having dropped it. */
-    #rci:hover, #rci:active { opacity: 1; }
+    html.can-hover #rci:hover, html.can-hover #rci:active { opacity: 1; }
 
     /* ---- putting a corner readout away ------------------------------------
        Both of these are always on screen and neither is urgent, so both can be
@@ -1247,10 +1247,10 @@
     }
     /* Focus as well, or the button is unreachable by keyboard — it is invisible
        until a pointer is over it, and a pointer is not the only way in. */
-    #rci:hover .corner-x, #rci:active .corner-x,
-    #radio:hover .corner-x, #radio:active .corner-x,
+    html.can-hover #rci:hover .corner-x, #rci:active .corner-x,
+    html.can-hover #radio:hover .corner-x, #radio:active .corner-x,
     .corner-x:focus-visible { opacity: .75; }
-    .corner-x:hover { opacity: 1; background: var(--accent, #7a9a5b); color: #fff; }
+    html.can-hover .corner-x:hover { opacity: 1; background: var(--accent, #7a9a5b); color: #fff; }
 
     /* ---- the shop radio ---------------------------------------------------
        A player rather than a row in a menu, because the thing it is for is
@@ -1269,7 +1269,7 @@
       opacity: .45; transition: opacity .12s ease;
       cursor: grab; touch-action: none;
     }
-    #radio:hover, #radio:active { opacity: 1; }
+    html.can-hover #radio:hover, html.can-hover #radio:active { opacity: 1; }
     #radio:active { cursor: grabbing; }
     /* The screen. Dark, inset and slightly green — a little LCD, which is the
        one place in this HUD allowed to look like hardware rather than paper. */
@@ -1306,7 +1306,7 @@
       font-size: 8.5px; letter-spacing: .04em; cursor: pointer;
       transition: background .1s ease;
     }
-    #lcdbtns button:hover { background: rgba(58,49,40,.19); }
+    html.can-hover #lcdbtns button:hover { background: rgba(58,49,40,.19); }
     #lcdbtns button:active { background: rgba(58,49,40,.29); }
     /* Repeat is a state, not an action, so it stays lit while it is on — the
        same call `.picked` makes on a palette button. Without it the only way to
@@ -1393,7 +1393,7 @@
       box-shadow: 0 4px 14px rgba(58,49,40,.15); display: grid; place-items: center;
       font: inherit; transition: background .12s, transform .12s;
     }
-    .rail-btn:hover { transform: translateY(-2px); }
+    html.can-hover .rail-btn:hover { transform: translateY(-2px); }
     /* A click focuses the button, and the browser's own focus ring is a heavy
        blue box in somebody else's colours — on a row of buttons whose whole job
        is to show you which one is lit, a second, louder "this one" that follows
@@ -1811,8 +1811,19 @@
 
        z-index over the bar and the panel (both 10), or a note about the button
        under it would open beneath whatever the press just put up. */
+    /* `width: max-content` IS THE CENTRING, not a nicety — see the same three
+       lines on #toast in the narrow query below, which is the same bug found
+       first. This is fixed with `left: 50%` and no width, so the space a
+       shrink-to-fit box is offered runs from the MIDDLE of the screen to its
+       right-hand edge: half the width, on an element that is then translated
+       back to the centre. So the note wrapped at about 190px of a 390px phone —
+       "Drag things about — click again for" over "the menu" — and read as a
+       padding problem in a pill that has no padding wrong with it. The
+       `max-width` only bounds what max-content asks for; a note longer than the
+       screen still wraps, which is what it should do. */
     #rail-note {
       position: fixed; z-index: 12; left: 50%; pointer-events: none;
+      width: max-content; max-width: calc(100vw - 24px);
       background: rgba(58,49,40,.82); color: #fff; border-radius: 99px;
       padding: 4px 12px; font-size: 12px; font-weight: 600;
       opacity: 0; transform: translate(-50%, 7px);
@@ -1883,12 +1894,12 @@
       color: var(--ink); opacity: .45; cursor: pointer; font-size: 12px; line-height: 0;
       border-radius: 6px;
     }
-    .pnl-note .pnl-btn:hover { opacity: 1; background: rgba(58,49,40,.08); }
+    html.can-hover .pnl-note .pnl-btn:hover { opacity: 1; background: rgba(58,49,40,.08); }
     #panel-close {
       border: 0; background: none; font: inherit; cursor: pointer; font-size: 15px;
       color: var(--ink); opacity: .5; padding: 0;
     }
-    #panel-close:hover { opacity: 1; }
+    html.can-hover #panel-close:hover { opacity: 1; }
     /* The scroller. Its padding is named because the sticky head and foot below
        have to cancel it exactly — a sticky `top: 0` pins to the padding edge, so
        without that the rows scroll through a sliver of gap above the pinned
@@ -1998,7 +2009,7 @@
       color: var(--ink); opacity: .4; font-size: 13px; cursor: pointer;
       transition: opacity .1s, background .1s;
     }
-    .tab:hover { opacity: .8; background: rgba(58,49,40,.06); }
+    html.can-hover .tab:hover { opacity: .8; background: rgba(58,49,40,.06); }
     .tab.on { opacity: 1; background: #ffd66b; }
     .tab svg { display: block; }
     /* How many are behind the tab. `position: relative` on the button and the
@@ -2010,12 +2021,27 @@
        than icons because there is no picture of "condiment" and these are read
        rather than aimed at — see `deptStrip` in client/fixture-menu.js.
 
-       It WRAPS instead of scrolling sideways, which is the opposite call the
-       build bar makes about its tools, and the reason is that this set is
-       twelve short words with no order you can predict a position from: a strip
-       you have to scroll hides the very aisle you came for, and there is no
-       "further right" to learn when the words are produce, dairy, bakery. Two
-       lines of chips is the whole set at a glance. */
+       IT SCROLLS SIDEWAYS, and it wrapped for four steps on an argument that
+       reads well and is about the wrong thing: twelve short words have no order
+       you can predict a position from, so a strip you have to scroll hides the
+       very aisle you came for. True — and what it was buying that with is
+       VERTICAL space in a popover whose entire job is the list underneath.
+       Eight chips is two lines and nine is three, so authoring one condiment
+       pushes every item you were reading down a row, and the strip that is
+       supposed to be a rule under the tabs becomes a paragraph of words. One
+       row that scrolls is a fixed cost forever, which is the same call
+       `#build-strip` makes about tools, for the same reason.
+       What makes the old objection survivable is that nothing about this is a
+       row you HUNT along: the aisle you chose is scrolled back into view every
+       repaint (`wireDepts`), and the fades below say which end has more — so
+       the two things it could hide, where you are and that there is more, are
+       both answered without moving.
+
+       Dragged rather than scrollbarred, and the fade is a MASK: see the note on
+       `#panel-body` above for both halves of why — a scroll container's own
+       `::before` is part of its content and scrolls away from the end it was
+       marking, and the panel behind this is glass. `client/scroll.js` puts the
+       classes on. */
     /* Sticky under the sticky tab strip. `top` is set in JS off where the tabs
        end (`paintSection`) — a written-down offset would be a copy of this
        file's own padding, and it would be wrong the day a tab gets taller. In
@@ -2023,11 +2049,75 @@
        scrolls and this is pinned outside it. */
     .dtabs {
       position: sticky; top: 0; z-index: 1;
-      display: flex; flex-wrap: wrap; gap: 3px;
+      display: flex; flex-wrap: nowrap; gap: 3px;
+      overflow-x: auto; overflow-y: hidden;
+      /* A touch flicks it natively; the mouse drag is `wireScroll`'s. */
+      touch-action: pan-x;
+      /* `scrollIntoView` aligns to the scrollport, so without this the chip it
+         brings back sits flush against the edge with none of the gap the rest
+         of the row has — and a chip against the wall reads as a chip that is
+         cut off rather than as the first one. */
+      scroll-padding-inline: 12px;
+      scrollbar-width: none;
       padding: 1px 0 5px; margin-bottom: 4px;
       background: var(--panel-solid);
       border-bottom: 1px solid var(--line);
     }
+    .dtabs::-webkit-scrollbar { display: none; }
+    /* 20px at each end, the same figure and the same reasoning as the panel's
+       own fades — any more eats the chip it is fading, any less reads as a
+       rendering seam rather than as "there is more". */
+    .dtabs.more-back {
+      mask-image: linear-gradient(90deg, transparent 0, #000 20px);
+      -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 20px);
+    }
+    .dtabs.more-on {
+      mask-image: linear-gradient(270deg, transparent 0, #000 20px);
+      -webkit-mask-image: linear-gradient(270deg, transparent 0, #000 20px);
+    }
+    .dtabs.more-back.more-on {
+      mask-image: linear-gradient(90deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
+      -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
+    }
+
+    /* WHAT THE COLUMNS ARE — the third sticky bar, over a list that has become
+       a table. Same `gap` and same side padding as `.row`, because the cells
+       under it are a row's cells and the widths come from measuring them
+       (`paintSection`); anything else here would be a second opinion about a
+       row's geometry. `top` is set in JS for the reason `.dtabs`' is.
+
+       Stepper type rather than row type: this is the same 8px uppercase the
+       `min`/`max` tags inside the steppers already wear, which is what makes
+       the strip read as labelling the numbers rather than as a row of them. */
+    .heads {
+      position: sticky; top: 0; z-index: 1;
+      display: flex; align-items: flex-end; gap: 7px;
+      padding: 2px 7px 4px; margin-bottom: 3px;
+      background: var(--panel-solid);
+      border-bottom: 1px solid var(--line);
+    }
+    .heads .hcell {
+      flex: none; font-size: 8px; font-weight: 800; letter-spacing: .04em;
+      text-transform: uppercase; opacity: .42; white-space: nowrap; overflow: hidden;
+    }
+    .heads .grow { flex: 1; min-width: 0; }
+    .heads .mid { text-align: center; }
+    .heads .end { text-align: right; }
+
+    /* ...and a head is only true of a column every row agrees on, which two of
+       these were not: what is on a van hangs off the count (`4` against `4+6`),
+       and the one button slot holds `×6`, `Cancel` or `Stock`. Widened to the
+       longest of each, so the numbers line up down the list as well as under
+       the word naming them — the row is the only elastic column and pays for
+       it, which is the trade `.name` is there to make. `min-width`, so a
+       three-figure count grows rather than spilling. */
+    .cols .row .held { min-width: 36px; }
+    .cols .row .rule { min-width: 96px; justify-content: flex-end; }
+    .cols .row > button[data-btn], .cols .row .bpad { min-width: 58px; flex: none; }
+    /* The cells a row has nothing to put in. A made-here item is not ordered
+       and has no standing order, and an absent cell would slide its name and
+       its count out from under the heads naming them. */
+    .cols .row .bpad { display: block; }
     /* Caption type, not row type. These name the list rather than being IN it,
        so they sit at the weight of `.sep` above the rows — anything bigger
        competes with the item names, which are the thing you came to read.
@@ -2054,7 +2144,7 @@
       text-transform: uppercase; line-height: 1.5;
       opacity: .5; cursor: pointer; transition: opacity .1s, background .1s;
     }
-    .dtab:hover { opacity: .9; background: rgba(58,49,40,.14); }
+    html.can-hover .dtab:hover { opacity: .9; background: rgba(58,49,40,.14); }
     /* The same yellow the icon tab uses for "you are here", because it is the
        same fact one row down — two colours for one state would read as two
        different kinds of selection. */
@@ -2076,7 +2166,7 @@
     .tab.none.on { opacity: 1; }
 
     .row { display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 9px; }
-    .row:hover { background: rgba(58,49,40,.05); }
+    html.can-hover .row:hover { background: rgba(58,49,40,.05); }
     .row.owned { opacity: .5; }
     /* "There is already one of these somewhere" — a nudge, not a refusal, so it
        has to stay clearly darker than `.owned`. At the same .5 a row you can
@@ -2198,7 +2288,7 @@
       font: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
       display: grid; place-items: center; flex: none; opacity: .5;
     }
-    .row .rbtn:hover { background: rgba(58,49,40,.14); opacity: 1; }
+    html.can-hover .row .rbtn:hover { background: rgba(58,49,40,.14); opacity: 1; }
     /* A WORD rather than a nudge. The steppers are 15px squares because they
        sit either side of a number; this one is the whole control, so it has to
        be wide enough to read and sit up like something you press. */
@@ -2288,7 +2378,7 @@
       border-radius: 9px; padding: 6px 8px 7px; margin-top: 3px; text-align: center;
       transition: background .1s;
     }
-    .midrow:hover { background: rgba(58,49,40,.13); }
+    html.can-hover .midrow:hover { background: rgba(58,49,40,.13); }
     .midtop {
       display: flex; align-items: center; justify-content: center; gap: 6px;
       font-size: 12px; font-weight: 700; line-height: 1.25;
@@ -2318,7 +2408,7 @@
       display: grid; justify-items: center; gap: 2px; text-align: center;
       opacity: .5; transition: opacity .1s, background .1s;
     }
-    .gtile:hover { opacity: .9; background: rgba(58,49,40,.12); }
+    html.can-hover .gtile:hover { opacity: .9; background: rgba(58,49,40,.12); }
     .gtile.on { opacity: 1; background: #fff3d0; box-shadow: inset 0 0 0 2px #ffd66b; }
     .gtile .gico { font-size: 15px; line-height: 1; }
     .gtile .gico svg { display: block; width: 1em; height: 1em; }
@@ -2339,7 +2429,7 @@
       background: rgba(58,49,40,.10); color: var(--ink);
       display: grid; place-items: center; font-size: 9px; opacity: .45;
     }
-    .gsub:hover { opacity: 1; background: rgba(58,49,40,.22); }
+    html.can-hover .gsub:hover { opacity: 1; background: rgba(58,49,40,.22); }
     .gsub svg { display: block; width: 1em; height: 1em; }
 
     /* Icon over price, one narrow column. */
@@ -2674,13 +2764,13 @@
       max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       font-size: 9.5px; font-weight: 700; letter-spacing: -.01em;
     }
-    .fx-verb:hover { opacity: 1; background: rgba(58,49,40,.07); }
-    .fx-verb.danger:hover { background: rgba(190,60,45,.12); color: var(--accent); }
+    html.can-hover .fx-verb:hover { opacity: 1; background: rgba(58,49,40,.07); }
+    html.can-hover .fx-verb.danger:hover { background: rgba(190,60,45,.12); color: var(--accent); }
     /* Refused, not missing. It keeps its place in the row so the four you can
        press never shuffle sideways under your thumb, and `disabled` is what
        stops the press — greying without it is a button that lies. */
     .fx-verb.off { opacity: .25; cursor: default; }
-    .fx-verb.off:hover { background: transparent; }
+    html.can-hover .fx-verb.off:hover { background: transparent; }
     /* A verb that is a TOGGLE, and currently on. Amber rather than the accent
        `armed` uses: red is "one press from something you cannot undo", and a
        camera that is following somebody is neither a warning nor a decision —
@@ -2690,14 +2780,14 @@
       opacity: 1; background: rgba(217,155,31,.18);
       box-shadow: inset 0 0 0 1px rgba(217,155,31,.5);
     }
-    .fx-verb.on:hover { background: rgba(217,155,31,.28); }
+    html.can-hover .fx-verb.on:hover { background: rgba(217,155,31,.28); }
     /* One press from something that cannot be taken back. It has to be loud
        here in a way it did not have to be as a row: a row said "Tap again to
        let them go" in words, and a caption has no room for a sentence. */
     .fx-verb.armed {
       opacity: 1; background: var(--accent); color: #fff;
     }
-    .fx-verb.armed:hover { background: var(--accent); color: #fff; }
+    html.can-hover .fx-verb.armed:hover { background: var(--accent); color: #fff; }
     .fx-verb svg { display: block; }
     /* The price or the count — the two things an icon cannot say. Same corner
        and same treatment the build bar's `.have` badge uses. */
@@ -2782,18 +2872,18 @@
       border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 7px;
       width: 22px; height: 22px; font: inherit; font-weight: 800; line-height: 1; cursor: pointer;
     }
-    .fx-price button:hover { background: rgba(58,49,40,.18); }
+    html.can-hover .fx-price button:hover { background: rgba(58,49,40,.18); }
     /* Same as `.fx-take:disabled` below and for the same reason — a stepper on a
        board with nothing to price is drawn so the row keeps its grid, and one
        drawn identically to a live one is a button that looks like it works. */
     .fx-price button:disabled { opacity: .25; cursor: default; background: transparent; }
-    .fx-price button:disabled:hover { background: transparent; }
+    html.can-hover .fx-price button:disabled:hover { background: transparent; }
     .fx-take {
       border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 7px;
       width: 24px; height: 22px; font-size: 12px; cursor: pointer; flex: none;
       display: flex; align-items: center; justify-content: center;
     }
-    .fx-take:hover { background: rgba(58,49,40,.18); }
+    html.can-hover .fx-take:hover { background: rgba(58,49,40,.18); }
     .fx-take:disabled { opacity: .25; cursor: default; background: transparent; }
     .fx-take svg { display: block; }
     /* Delete this board. Quiet until you are over it — it sits next to a button
@@ -2801,15 +2891,15 @@
        full of warnings. Never disabled: an empty board is exactly the one you
        most want gone, and the goods land in a crate rather than nowhere. */
     .fx-clear { opacity: .45; }
-    .fx-clear:hover { opacity: 1; background: rgba(200,85,61,.16); color: var(--accent); }
+    html.can-hover .fx-clear:hover { opacity: 1; background: rgba(200,85,61,.16); color: var(--accent); }
     /* Order more of this board. Disabled is the interesting state and it is a
        sentence rather than a shrug — "6 already on the way" and "the bay is
        full" are both in the title, because a greyed-out button that never says
        why is the thing that reads as broken. */
     .fx-order:not(:disabled) { color: var(--good); }
-    .fx-order:not(:disabled):hover { background: rgba(90,163,86,.18); }
+    html.can-hover .fx-order:not(:disabled):hover { background: rgba(90,163,86,.18); }
     .fx-act { cursor: pointer; align-items: flex-start; }
-    .fx-act:hover { background: rgba(58,49,40,.07); }
+    html.can-hover .fx-act:hover { background: rgba(58,49,40,.07); }
     .fx-act .bico { font-size: 14px; line-height: 1.2; width: 18px; text-align: center; }
     .fx-act .name { gap: 2px; }
     .fx-act .tags { line-height: 1.35; }
@@ -2818,7 +2908,7 @@
     /* Greyed out rather than hidden: "you need at least one till" is the whole
        answer to why the button isn't there, and hiding it never says so. */
     .fx-act.off { cursor: default; opacity: .42; }
-    .fx-act.off:hover { background: none; }
+    html.can-hover .fx-act.off:hover { background: none; }
 
     /* ---- one hire's own menu ---------------------------------------------
        A PROFILE: the machine on the left, everything read off it on the right.
@@ -2840,11 +2930,11 @@
     }
     /* Only a shop with more than one look gets a button here — see `avatar`. */
     button.wk-face { cursor: pointer; }
-    button.wk-face:hover { box-shadow: inset 0 0 0 1.5px rgba(58,49,40,.2); }
+    html.can-hover button.wk-face:hover { box-shadow: inset 0 0 0 1.5px rgba(58,49,40,.2); }
     /* The same handle the palette tile wears on the same gesture, so a hold is
        a thing you can see is on offer rather than one you have to be told. */
     .wk-face .more { position: absolute; right: 4px; bottom: 2px; font-size: 10px; opacity: .35; }
-    button.wk-face:hover .more { opacity: .9; }
+    html.can-hover button.wk-face:hover .more { opacity: .9; }
 
     /* THE TURNTABLE, and it is a filmstrip rather than a renderer: `thumb.js`
        hands over twenty-four stills of the same bot at fifteen degrees apart,
@@ -3024,7 +3114,7 @@
       opacity: .5; padding: 5px 7px; border-radius: 7px;
       transition: background .12s, opacity .12s;
     }
-    #build-close:hover { opacity: 1; background: rgba(58,49,40,.11); }
+    html.can-hover #build-close:hover { opacity: 1; background: rgba(58,49,40,.11); }
     #build-close:active { background: rgba(58,49,40,.2); }
     #build-close:focus { outline: none; }
     #build-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -3038,7 +3128,7 @@
       font: inherit; color: var(--ink); opacity: .5; padding: 5px 8px;
       white-space: nowrap; transition: opacity .1s, background .1s, box-shadow .1s;
     }
-    .cat:hover { opacity: .85; background: rgba(58,49,40,.06); }
+    html.can-hover .cat:hover { opacity: .85; background: rgba(58,49,40,.06); }
     /* The open tab is a raised card, not a grey wash. It is the one thing on the
        bar that says where you are, and at .5-versus-1 opacity it was saying it
        about as loudly as the four that aren't. */
@@ -3070,7 +3160,7 @@
       font: inherit; font-size: 10.5px; font-weight: 700; color: var(--ink);
       opacity: .45; padding: 3px 10px; white-space: nowrap; transition: opacity .1s, background .1s;
     }
-    .subcat:hover { opacity: .8; background: rgba(58,49,40,.06); }
+    html.can-hover .subcat:hover { opacity: .8; background: rgba(58,49,40,.06); }
     .subcat.on { opacity: 1; background: rgba(58,49,40,.09); }
     .subcat .ico { font-size: 12px; line-height: 1; }
 
@@ -3143,7 +3233,7 @@
       box-shadow: 0 2px 6px rgba(58,49,40,.24), inset 0 0 0 1px rgba(58,49,40,.11);
       opacity: .92; transition: opacity .1s, transform .1s;
     }
-    .nudge:hover { opacity: 1; transform: translateY(calc(-50% - 3px)) scale(1.08); }
+    html.can-hover .nudge:hover { opacity: 1; transform: translateY(calc(-50% - 3px)) scale(1.08); }
     .nudge[hidden] { display: none; }
     .nudge svg { display: block; }
     #build-back { left: 2px; }
@@ -3166,7 +3256,7 @@
       box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07);
       transition: transform .09s, box-shadow .09s, background .09s;
     }
-    .tool:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1px rgba(58,49,40,.14), 0 4px 10px rgba(58,49,40,.16); }
+    html.can-hover .tool:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1px rgba(58,49,40,.14), 0 4px 10px rgba(58,49,40,.16); }
     .tool:active { transform: translateY(0); }
     /* Armed. A ring rather than a fill under the art, so the thing you are about
        to build stays the brightest object in its own button — a solid amber
@@ -3225,13 +3315,13 @@
        spent after you armed something — and then the amber ring stays, because
        the tool genuinely is still in your hand. */
     .tool.poor { cursor: not-allowed; }
-    .tool.poor:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07); }
+    html.can-hover .tool.poor:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07); }
     .tool.poor .ico { opacity: .34; filter: grayscale(1); }
     .tool.poor .nm { opacity: .45; }
     .tool.poor .cost { color: var(--accent); opacity: .95; }
     /* Armed and unaffordable keeps its ring — see above — so the well under the
        art must not be greyed back to nothing against it. */
-    .tool.on.poor:hover, .tool.on.poor {
+    html.can-hover .tool.on.poor:hover, html.can-hover .tool.on.poor {
       box-shadow: inset 0 0 0 1.5px #d99b1f, 0 4px 12px rgba(217,155,31,.34);
       transform: translateY(-2px);
     }
@@ -3280,7 +3370,7 @@
       color: rgba(58,49,40,.62); background: rgba(255,253,248,.8);
       box-shadow: inset 0 0 0 1px rgba(58,49,40,.11);
     }
-    #build:not(.browse) .tool:hover .more, #build:not(.browse) .tool.on .more {
+    html.can-hover #build:not(.browse) .tool:hover .more, html.can-hover #build:not(.browse) .tool.on .more {
       color: rgba(58,49,40,.85); background: rgba(255,255,255,.95);
     }
     #build:not(.browse) .tool .ico { height: 38px; border-radius: 8px; }
@@ -3382,7 +3472,7 @@
       font: inherit; font-size: 11.5px; font-weight: 700; color: var(--ink);
       padding: 2px 8px 2px 3px; opacity: .8;
     }
-    .shape:hover { opacity: 1; background: rgba(58,49,40,.06); }
+    html.can-hover .shape:hover { opacity: 1; background: rgba(58,49,40,.06); }
     .shape.on { background: #ffd66b; opacity: 1; box-shadow: inset 0 0 0 1.5px #d99b1f; }
     /* The same well the tiles in the strip stand their art in, at list size —
        this is that button stood up, not a chip with a picture on it, and a
@@ -3450,6 +3540,21 @@
        are things you read *while pressing something*, so they have to move with
        the bar; the feed is not. */
     #carry, #prompt { bottom: calc(var(--nav-top) + var(--build-h) + 8px); }
+    /* ...and on a phone the two of them STACK, because there the pill is not a
+       caption in the middle of the screen — its rows are buttons, so it is a
+       full-width block at exactly the height the carry card sits at, and it drew
+       straight over it. The thing you lose is the one you most need while the
+       pill is offering to put something down: what you are holding.
+       `--pill-h` is measured (`measurePill`), the way `--build-h` is and for the
+       same reason — a pill is one row or four depending on what you tapped. It
+       is 0 while the pill is down, so nothing moves when there is nothing to
+       clear. */
+    @media (max-width: 640px) {
+      #carry {
+        bottom: calc(var(--nav-top) + var(--build-h) + var(--pill-h, 0px) + 14px);
+        transition: bottom .14s;
+      }
+    }
 
     /* ---- turning the thing you are about to place -------------------------
        R turns the ghost, and so does the wheel. A phone has neither, and two
@@ -3469,9 +3574,18 @@
 
        Hidden by default and shown by `syncRotate`, which is also what keeps it
        off a desktop: a button standing in for two controls you already have is
-       clutter over the shop. */
-    #rotbtn {
-      right: 12px; top: 50%; transform: translateY(-50%);
+       clutter over the shop.
+
+       The way OUT is the same argument said about the other thumb. Escape ends
+       build mode and so does the rail's lit hammer, and a phone has neither the
+       key nor — with the palette up over the bottom of the screen and a ghost
+       following your finger — a comfortable reach to the rail. So `#closebtn`
+       is `#rotbtn` mirrored: same size, same height, the left edge, pinned to
+       nothing that can change size. One shared rule and two `left`/`right`
+       lines, because two round buttons at the same height that did not match
+       would read as two different kinds of thing. */
+    #rotbtn, #closebtn {
+      top: 50%; transform: translateY(-50%);
       width: 46px; height: 46px; border-radius: 50%; border: 0;
       background: var(--panel-solid); color: var(--ink);
       box-shadow: 0 4px 14px rgba(58,49,40,.3);
@@ -3479,15 +3593,17 @@
       pointer-events: auto; cursor: pointer; padding: 0;
       -webkit-tap-highlight-color: transparent;
     }
-    #rotbtn.show { display: flex; }
-    #rotbtn svg { width: 22px; height: 22px; }
+    #rotbtn { right: 12px; }
+    #closebtn { left: 12px; }
+    #rotbtn.show, #closebtn.show { display: flex; }
+    #rotbtn svg, #closebtn svg { width: 22px; height: 22px; }
     /* It is pressed repeatedly — four taps is all the way round — so the press
        has to read on the button itself. A toast or a hint would be four lines of
        news about a quarter turn you can see. */
     /* The press has to keep the centring transform in it, or pressing the button
        drops it half its own height down the screen — a transform is one
        property, and the second declaration is not an addition to the first. */
-    #rotbtn:active { transform: translateY(-50%) scale(.94); background: #ffd66b; }
+    #rotbtn:active, #closebtn:active { transform: translateY(-50%) scale(.94); background: #ffd66b; }
 
     /* ---- the award card ---------------------------------------------------
        The one thing on screen that is allowed to look like a game rather than
@@ -3676,7 +3792,7 @@
       font-weight: 650; font-size: 12px; padding: 6px 16px;
     }
     .tt-next[hidden] { display: none; }
-    .tt-skip:hover { color: var(--ink); border-color: rgba(58, 49, 40, .3); }
+    html.can-hover .tt-skip:hover { color: var(--ink); border-color: rgba(58, 49, 40, .3); }
 
     /* The drawn tooltip is a shorter, worse version of the sentence already on
        the card, and it lands on top of it — the card is pinned beside the lit
@@ -3816,8 +3932,8 @@
       box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
     }
     .award-tip a svg { opacity: .7; }
-    .award-tip a:hover { background: rgba(58,49,40,.1); }
-    .award-tip a:hover svg { opacity: 1; }
+    html.can-hover .award-tip a:hover { background: rgba(58,49,40,.1); }
+    html.can-hover .award-tip a:hover svg { opacity: 1; }
     .award-tip a:active { transform: translateY(2px); }
 
     /* In with an overshoot, the same curve the tooltip springs on — it is the
@@ -3885,7 +4001,39 @@
         width: 100%; border-radius: 0 0 13px 13px;
         padding: 5px 8px; gap: 8px;
       }
-      .rows { column-gap: 10px; }
+      /* THE SIGN WAS DECIDING HOW TALL THE BAR IS, and that is the whole of
+         "it looks shrunk". `#doorway` is a fixed 48px, which is a number chosen
+         for a card in a corner: the plaque hangs down the side of both rows,
+         the height there is free, and nothing else is competing for it. The
+         readouts beside it come to about 32. In a corner nobody can see the
+         difference — as a full-width bar across the top of a phone it is
+         sixteen pixels of empty cream above and below every figure in the HUD,
+         which does not read as a bar that is too tall, it reads as small
+         writing in a big bar.
+         So the plaque stops SETTING the height and starts taking it: `auto`
+         plus a stretch, and it is exactly as tall as the tallest readout
+         beside it. The word cannot be clipped by this — four upright letters
+         run about 34px (measured, see #doorway) and the readouts below are
+         taller than that — but that is the thing to check if the type in here
+         ever comes back down. */
+      #sign { align-items: stretch; }
+      #doorway { height: auto; }
+      /* ...and the other half of filling it: the figures grow into the room
+         that was there all along. Every size in this card was set against a
+         readout you glance at in the corner of a big screen, and this is the
+         top of a phone held at arm's length. About a tenth on each, and on ALL
+         of them rather than on the money alone — a panel where only some of it
+         scaled reads as a panel with a mistake in it, which is the card's own
+         rule said the other way up. The width it costs is real, and `#town`'s
+         ellipsis above is what it is spent against. */
+      #cash { font-size: 15.5px; }
+      #clock { font-size: 12px; }
+      #day { font-size: 10.5px; }
+      #season { font-size: 9px; }
+      .flow { font-size: 11.5px; }
+      #town { font-size: 12px; }
+      #town .tw { font-size: 8.5px; }
+      .rows { column-gap: 10px; row-gap: 2px; }
       /* The one cell allowed to give, and the reason there has to be one: the
          card's rule is that nothing in it shrinks, which on a bar that must be a
          single row would mean the last group simply hangs off the end. The town
@@ -3904,8 +4052,13 @@
          instead — 34px still reads as a fraction, and the label is the half that
          cannot be inferred. */
       .gauges { padding-left: 10px; }
-      .gg { grid-template-columns: 20px 34px; gap: 4px; }
-      .repwrap { width: 34px; }
+      .gg { grid-template-columns: 22px 34px; gap: 4px; }
+      /* The bars scale with the type for the reason above: three 4px bars beside
+         a 15.5px balance is the same "only some of it grew" the figures were
+         just fixed for. Wider is what they cannot have here — 34px is the whole
+         of what the row can spare — so what they get is taller. */
+      .gg-tag { font-size: 7px; }
+      .repwrap { width: 34px; height: 5px; }
 
       /* The chips clear the bar's HEIGHT, because there is no width left to
          clear: `--hq-left` is the card's width and the card is the screen. Same
@@ -4315,6 +4468,7 @@
   <div id="log" class="hud"></div>
   <div id="carry" class="hud"></div>
   <button id="rotbtn" class="hud" type="button" aria-label="Turn it"></button>
+  <button id="closebtn" class="hud" type="button" aria-label="Done building"></button>
   <div id="prompt" class="hud"></div>
   <div id="boardtip" class="hud"></div>
   <div id="toast" class="hud"></div>

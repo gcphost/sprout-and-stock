@@ -2370,6 +2370,11 @@ export class Game {
         // is that it outlives it: an action is null on the very tick the thing
         // it was going to do has happened.
         acted: p.acts ? { n: p.acts, kind: p.actKind } : null,
+        // ...and why the last one did NOT happen. Beside `acted` because it is
+        // the same fact with the other answer, and on the player rather than in
+        // the feed because the feed is not on screen on a phone — see
+        // `stepActions`, which is the one place this is written.
+        refused: p.refused ?? null,
       })),
       // Everybody in the shop — which is not everybody in `this.customers`.
       // Somebody driving in or out is inside the car the line below draws, and
@@ -3816,6 +3821,21 @@ export class Game {
         // button that looks broken whether or not you pressed it. Once is what
         // the latch above buys: this used to be a line a second.
         if (res?.error) this.pushLog(res.error);
+        // ...AND SAID TO THE PERSON IT HAPPENED TO, which the feed cannot do.
+        //
+        // `pushLog` writes to the shop's event feed, and the feed is
+        // `display: none` under 720px (see index.html). So on a phone every
+        // refusal in this game was silent: the ring wound, the action fired, the
+        // shop said no, and the only place it said so was an element that is not
+        // on screen. What that reads as is a button that does nothing — for ever,
+        // however many times you press it — which is precisely the shape of it
+        // being unfixable by trying again.
+        //
+        // A counter rather than a flag, for the reason `acts` is one: the same
+        // refusal twice is two events, and a client watching a string would see
+        // no change on the second press and stay quiet exactly when somebody is
+        // pressing again to find out what is wrong.
+        if (res?.error) p.refused = { n: (p.refused?.n ?? 0) + 1, why: res.error };
       } else {
         p.actionBlocked = null;
       }
@@ -5077,12 +5097,44 @@ export class Game {
    * Defaults to true, so the sweeps and anything calling this by hand get the
    * behaviour they were written against.
    */
+  /**
+   * A BOARD ON A UNIT KEPT FOR SOMETHING ELSE IS DEAD THE MOMENT IT EMPTIES.
+   *
+   * Split out of `releaseBoards` and called the instant a board drains, because
+   * once a day is a day too slow for the one board in the shop that is a lie
+   * while it lasts. Nothing will ever walk to it again — `shelvesFor` and
+   * `boardFor` both refuse this unit for this item — so what the menu prints
+   * until midnight is a row with the item's name, its price, a live stepper and
+   * an order button, on a board the unit will not honour and your own hands
+   * cannot pour into. There is no way to read that except as the shop being
+   * wrong about its own shelf, which is the same complaint `assignShelf`'s
+   * cleanup answers for the boards that are already empty when you tick.
+   *
+   * That cleanup is the other half of this and only ever covered the boards
+   * empty AT the press. A board with stock on it correctly survives the tick and
+   * sells down — which is the promise that goods are never binned by a decision
+   * about the future — and this is what happens at the end of that sentence.
+   *
+   * Answers whether it took the board, so the day roll's own sweep can skip a
+   * stack this has already dealt with.
+   */
+  dropDeadBoard(shelf, itemId, kept = toList(shelf.assigned)) {
+    if (!kept.length || kept.includes(itemId)) return false;
+    const stack = this.shelfStack(shelf, itemId);
+    if (!stack || stack.qty > 0) return false;
+    const name = content().byId.items[itemId]?.name ?? itemId;
+    this.clearStack(shelf, itemId);
+    this.pushLog(`Gave the ${name} board back — that ${this.fixtureSaid(shelf)} is kept for something else.`);
+    return true;
+  }
+
   releaseBoards(ageing = true) {
     for (const shelf of this.layout.shelves) {
       const kept = toList(shelf.assigned);
       for (const stack of [...this.shelfStacks(shelf)]) {
         if (stack.qty > 0) { stack.emptyDays = 0; continue; }
         if (kept.includes(stack.item_id)) continue;
+        if (this.dropDeadBoard(shelf, stack.item_id, kept)) continue;
         // A bare board on a unit that is kept for OTHER things, which is the
         // same argument as the spare-home case below and reaches it a step
         // earlier: nothing in the shop will ever walk here again, because
@@ -5090,12 +5142,6 @@ export class Game {
         // `assignShelf`'s cleanup said about the boards that predate it, so a
         // save carrying one heals itself at the next roll rather than printing a
         // board the unit will not honour until the days run out.
-        if (kept.length) {
-          const name = content().byId.items[stack.item_id]?.name ?? stack.item_id;
-          this.clearStack(shelf, stack.item_id);
-          this.pushLog(`Gave the ${name} board back — that ${this.fixtureSaid(shelf)} is kept for something else.`);
-          continue;
-        }
         // A second home, given back the moment it empties rather than after the
         // days — because the days are there for a board that might refill, and
         // this one never will: `shelvesFor` sends the item to its home now, so
@@ -6107,6 +6153,29 @@ export class Game {
    * and wrong for the question "can I reach this from here" — you can put a loaf
    * on the end of a display table, and a shop that says otherwise is wrong about
    * its own furniture.
+   *
+   * **It is deliberately NOT what the shelf verbs measure, and that gap is a
+   * band of floor you can stand in.** `errandAction` arms on this while
+   * `unshelve`, `stockShelf`, `stockFromCrate` and `crateBoard` each gate on
+   * `near(p, shelf)` — the same radius from a different centre, since a working
+   * spot is a tile off the anchor. Stand out there and the shop arms the action,
+   * winds the whole `ACTION_TIME` in front of you, fires, and answers "too far
+   * from that shelf".
+   *
+   * Widening the verbs to this closes the band and was tried, and it is the
+   * wrong way to close it: what it buys is stocking a shelf from two and a half
+   * tiles away, reaching across a gap you can see in the picture, which reads as
+   * the shop having no idea where anybody is standing. The verbs are right about
+   * the distance and this is right about the SIDES, so what closes it is on the
+   * client: `armPut` asks `nearFixture` — the verb's own circle — and everything
+   * outside it is a walk (`spin.trek`) rather than a ring. The walk parks you on
+   * a working spot, a tile from the anchor, where both tests agree.
+   *
+   * `goToShelf` (server/sim/staff.js) is the same band found from the other end
+   * and its comment is worth reading: a hire parked in it with a crate is pinned
+   * there for the rest of the save. It resolves the same way round — approach
+   * the anchor at the radius the shop will use — because a job loop, like a
+   * press, is better off arriving than being refused.
    */
   atFixture(p, f, radius = REACH) {
     return this.reachSpots(f).some((s) => near(p, s, radius));
@@ -6188,12 +6257,23 @@ export class Game {
     if (!p) return err('no such player');
     const f = this.findFixture(fixtureId);
     if (!f) return err('no such fixture');
-    // Out of reach arms nothing and says nothing. This is driven by the POINTER
-    // (`syncStockAim`), not by a press, so a refusal here would be a red toast
-    // for moving the mouse — and the two ends measure the same distance against
-    // a position that is a snapshot old, so they will disagree at the edge of it
-    // every time somebody stocks a shelf on the move.
-    if (!this.atFixture(p, f)) return ok({ at: null });
+    // Out of reach SAYS SO, and it used to say nothing.
+    //
+    // The silence was right once: this was driven by the POINTER
+    // (`syncStockAim`), so a refusal was a red toast for moving the mouse. That
+    // caller is gone — every route in here is a press now, `armPut` on the right
+    // button and the pill's own "Stock it" row — and a press that is refused
+    // without a word is indistinguishable from a button that is broken. Which is
+    // exactly how it read: stood a little off the side of a shelf with a crate on
+    // your shoulder, the hold armed nothing, the ring wound on the ground under
+    // your feet, and the shop said nothing at all.
+    //
+    // The disagreement the old note worried about is still real — the two ends
+    // measure against a position a snapshot old — but the client now asks the
+    // same question before it offers the row (`atWorkSpotOf` in `pressHints`),
+    // so what is left here is the edge of a tile rather than the whole gap
+    // between "near it" and "at it".
+    if (!this.atFixture(p, f)) return err('Stand at the side you work it from.');
     // Turn to it, the way `placeAt` does: the goods leave your hands towards the
     // thing you named, and standing square to the shop while they do reads as the
     // aim having been ignored.
@@ -8693,6 +8773,9 @@ export class Game {
     }
 
     stack.qty -= take;
+    // ...and a board the unit is no longer kept for is gone the moment you
+    // empty it, rather than at the next roll. See `dropDeadBoard`.
+    this.dropDeadBoard(shelf, itemId);
     p.carry = lotAdd(p.carry, itemId, take, this.carryLot(p)).lot;
     // Keyed by the unit, so plucking one loaf four times off the same shelf is
     // one line that counts up rather than four lines saying the same thing —
@@ -8753,6 +8836,9 @@ export class Game {
     // board bigger than a box leaves the rest standing rather than vanishing.
     const take = Math.min(stack.qty, room);
     stack.qty -= take;
+    // ...and a board the unit is no longer kept for is gone the moment you
+    // empty it, rather than at the next roll. See `dropDeadBoard`.
+    this.dropDeadBoard(shelf, itemId);
     p.haul = lotAdd(p.haul ?? null, itemId, take, this.crateLot()).lot;
     return ok({ took: take, item_id: itemId, left: stack.qty });
   }

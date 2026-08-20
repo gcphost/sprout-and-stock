@@ -1,9 +1,10 @@
 # Sound
 
-Status: **steps 2, 3 and 5 built. 1 tried and cut; 4 and 6 proposed.** A lofi
-playlist on its own bus, thirteen one-shots wired to a snapshot diff, and a Sound
-tab with a mute and three volumes beside a Credits tab generated from the
-manifest. Eighteen files, all CC0, ~7.5MB. No dependency.
+Status: **steps 2, 3, 4 and 5 built. 1 tried and cut; 6 proposed.** A lofi
+playlist on its own bus, eighteen one-shots wired to a snapshot diff, one loop a
+fixture names off its own catalog row, and a Sound tab with a mute and three
+volumes beside a Credits tab generated from the manifest. Nineteen files, all
+CC0, ~7.6MB. No dependency.
 
 The one-shots that matter most are the two that report a shopper losing
 patience — an `anger` crossing you can still act on, and a walkout you cannot.
@@ -402,11 +403,49 @@ cannot carry. No content column yet: getting the caps right matters more than
 getting them authorable, and a dozen hardcoded sounds is the cheapest way to
 find out whether six voices is the right number.
 
-**4. The `sfx` column.** `sfxShape` in `shared/schemas.js`, the column in
+**4. The `sfx` column. Built.** `sfxShape` in `shared/schemas.js`, the column in
 `ADDED_COLUMNS`, the JSON list beside `emits`, and the loop rule (works-while-
 working, or always for a thing with no idea what working means). Now a new
-appliance authored over MCP makes a noise. The fixed table from step 3 becomes
-the fallback for a piece that names nothing.
+appliance authored over MCP makes a noise. The fixed table from step 3 stands
+where it was, as the sound for things that are not fixtures at all — a sale, a
+crate, a shopper — and a piece that names nothing is simply quiet.
+
+Three things it turned out to rest on, none of them in the plan above.
+
+**The loops are a LIST, not starts and stops.** The truth about which machines
+are running arrives as a snapshot, so the client can always say what should be
+sounding and can never reliably say what just changed — which means a
+`startLoop`/`stopLoop` pair leaks a hum into an empty shop the first time a
+frame is dropped, a fixture is sold from under one, or a tab is left. `setLoops`
+reconciles a whole list, so anything not in it is not playing by construction.
+
+**Keyed by tile, for the reason the tier diff is.** A rung or a turn re-mints a
+fixture's id on the same square, and building re-flows on every wall segment of
+a drag — so a loop keyed by id would stop and restart continuously while you
+extend the shop, which is this file's own "a re-flow must not restart the
+ambience" arriving as a stuttering fridge.
+
+**Out of earshot is stopped, not turned down**, which is the gotcha below about
+a gain of zero, said about the fourth freezer rather than about the crowd bed.
+Four loops, nearest wins — the same call `lights.js` makes about the ninth lamp,
+made before there was a catalogue of humming fixtures to trip over it.
+
+And one number that is not a preference: **the loop is mixed far below every
+one-shot** (0.16 against 0.5–0.95). A one-shot is a report you hear once at a
+moment you were waiting for it; a loop is on for as long as you stand there, and
+a background you *notice* is a background you mute the game to be rid of.
+
+**A fridge hum shipped beside it and was cut the same day**, which is the useful
+half. It was the textbook case for the second clause of the loop rule — a thing
+with no idea what working means, humming always — and the rule is still right;
+the sound was not. An appliance running is a thing that *started*, so the noise
+is news. A freezer is on from the day you buy it until the day you sell it, so
+the noise is never not true, and a report that is always true reports nothing
+and can only sit under every other sound in the game. That is the ambient bed's
+verdict arriving from the other direction, and the two together are worth
+stating as one rule: **a loop has to be able to be false.** The file went with
+it, per step 6's third claim — an asset nothing names is a download every player
+pays for and nobody hears.
 
 **5. The Sound tab and the Credits tab.** Both were built during step 1 and went
 out with it, and both were fine. The Sound tab belongs *with* whichever step

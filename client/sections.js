@@ -1897,6 +1897,39 @@ export const SECTIONS = [
     /** Drawn on the right of the panel's own title — see `vanNote`. */
     note: vanNote,
     /**
+     * WHAT THE COLUMNS ARE.
+     *
+     * Four numbers across a row — a price, what is on the shelves, a minimum
+     * and a maximum — and until now the only two that said what they were said
+     * it inside their own steppers. The other two are bare figures either side
+     * of the name, and "$1.80 … 6" is unreadable as a sentence: which of them
+     * is money is a thing you work out from the dollar sign, and what the 6 is
+     * a count *of* was never said anywhere on the panel.
+     *
+     * Asked of the rows about to be drawn rather than declared flat, because
+     * the Automatic tab is three switches about the whole shop — no price, no
+     * count, no rule — and a head strip over those names nothing under it. The
+     * test is the count column, which is the one thing every item row has and
+     * no settings row does.
+     *
+     * `sel` is how a head finds its column on a real row, because the widths
+     * are measured off one rather than written down twice; the head with none
+     * is the elastic column. See `UI.paintSection`.
+     */
+    heads: (rows) => (rows.some((r) => r.count != null) ? [
+      { sel: '.lead', label: 'Cost', at: 'mid' },
+      { label: 'Item' },
+      { sel: '.held', label: 'Have', at: 'end' },
+      // One head over the toggle and both steppers, because they are one
+      // sentence — may the crew order this, and between what and what. `min`
+      // and `max` name themselves under it and are not repeated here.
+      { sel: '.rule', label: 'Auto-order', at: 'end' },
+      // `Buy` names what the slot does on nearly every row and not on the two
+      // it doesn't — a row already on a van offers Cancel, one the crew gave up
+      // on offers Stock — so the head is the slot's job rather than its label.
+      { sel: '[data-btn], .bpad', label: 'Order', at: 'mid' },
+    ] : null),
+    /**
      * Everything the rows read, and nothing that merely ticks.
      *
      * The settings rows read the snapshot, so they belong here — a toggle that

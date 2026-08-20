@@ -239,6 +239,41 @@ export const ShopRoom = (Base) => class extends Base {
   }
 
   /**
+   * A STOPPED CLOCK REFUSES OUT LOUD, because it used to refuse in silence.
+   *
+   * Everything your body does is spread across ticks — a walk has legs, and
+   * every held action is a ring wound by `stepActions`. None of that runs while
+   * the clock is held, so a tap to walk, a hold to set a crate down and a press
+   * to pick one up all *landed*, were accepted, and then sat there for ever. The
+   * shop said nothing, because nothing had gone wrong: the message was fine and
+   * the world simply never got to it.
+   *
+   * What that reads as is the game having frozen — which it has, and which is
+   * the one thing the player already knows and has forgotten. A refusal names
+   * it, and it costs nothing to build: `action-result` is already a toast and
+   * the refusal sound on the client, on every verb in here.
+   *
+   * It guards the verbs that need the world to RUN and deliberately no others.
+   * A tap that takes one unit off a board, a build, an order, opening a menu —
+   * all of those are one immediate mutation and all of them still work stopped,
+   * which is most of what looking round a paused shop is for. Refusing them
+   * would be inventing a rule the sim does not have.
+   *
+   * It lives here beside `stepIfWatched` rather than in `Game`, because these
+   * two are the same fact asked from either end: that one is the world not
+   * running, and this is what to say to somebody who asked it to do something
+   * while it wasn't.
+   */
+  frozen(client) {
+    if (!this.game.paused) return false;
+    client.send('action-result', {
+      ok: false,
+      error: 'The clock is stopped — start it and try again',
+    });
+    return true;
+  }
+
+  /**
    * Save and shut down once nobody has been here for a while.
    *
    * `disconnect()` rather than leaving it open: an empty room still holds a
@@ -316,6 +351,19 @@ export const ShopRoom = (Base) => class extends Base {
     });
 
     this.onMessage('press', (client, m) => {
+      // NOT guarded by `frozen`, and it is the one in here that looks like it
+      // should be. A ring cannot wind while the clock is held, so a hold is the
+      // gesture that most looks like the game having broken — but this bit is
+      // set by EVERY press on the canvas, including the ones that are perfectly
+      // legal stopped: selecting a shelf, opening a menu, pointing at a hire. So
+      // refusing it is a refusal on every tap of a paused shop, at the moments
+      // the shop is in fact doing exactly what was asked.
+      //
+      // The refusals belong on the verbs that are the *ask* — `walk-to`,
+      // `place`, `take`, `interact` — because those are the messages a player
+      // sends when they want the world to do something, and a press is not one
+      // of them. The press bit stays a bit: it goes down, nothing winds, and if
+      // the hold went on to ask for anything the ask is what says no.
       this.game.setPressing(client.sessionId, !!m?.down);
     });
 
@@ -323,6 +371,8 @@ export const ShopRoom = (Base) => class extends Base {
     // has no walk grid and no business having one, and a route is also the one
     // thing here that could outgrow the 4KB inbound cap.
     this.onMessage('walk-to', (client, m) => {
+      // A walk is legs across ticks, so a stopped clock has nowhere to put it.
+      if (this.frozen(client)) return;
       // A tile or a thing. Naming the thing is not a convenience — it is what
       // gets you to the side of the shelf you can actually work from.
       // `put` is which button asked, the same field `place` carries. A walk is
@@ -346,6 +396,8 @@ export const ShopRoom = (Base) => class extends Base {
     // the press aim at one and not the other — which is exactly the state this
     // fixed. See `Game.aimAt`.
     this.onMessage('place', (client, m) => {
+      // Naming a square arms a ring, and a ring is `stepActions`.
+      if (this.frozen(client)) return;
       const res = m?.clear
         ? this.game.clearAim(client.sessionId)
         : m?.fixture
@@ -355,6 +407,7 @@ export const ShopRoom = (Base) => class extends Base {
     });
 
     this.onMessage('interact', (client, m) => {
+      if (this.frozen(client)) return;
       const res = this.game.interact(client.sessionId, m ?? {});
       client.send('action-result', res);
     });
@@ -362,6 +415,9 @@ export const ShopRoom = (Base) => class extends Base {
     // Name what you are picking up — a crate, or one board of a shelf — and
     // walk there to do it. Nothing is ever picked up unasked. See `Game.take`.
     this.onMessage('take', (client, m) => {
+      // Nothing is ever picked up without walking to it first, which is the half
+      // that needs a running world.
+      if (this.frozen(client)) return;
       const res = this.game.take(client.sessionId, {
         palletId: m?.palletId ? String(m.palletId) : null,
         shelfId: m?.shelfId ? String(m.shelfId) : null,

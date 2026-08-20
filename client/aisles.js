@@ -18,6 +18,7 @@
  */
 
 import { DEPARTMENTS } from '../shared/tags.js';
+import { wireScroll } from './scroll.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
@@ -65,6 +66,36 @@ export const deptStrip = (depts, at) => `<div class="dtabs">
   ${depts.map((d) => `<button class="dtab${d === at ? ' on' : ''}"
     data-dept="${esc(d)}">${esc(d)}</button>`).join('')}
 </div>`;
+
+/**
+ * ...and it is ONE ROW that scrolls, which is a thing to wire rather than only
+ * to style.
+ *
+ * The strip is the same sideways scroller the bottom bar's tools are
+ * (`client/scroll.js`): a drag, a wheel, a flick, and a class at whichever end
+ * has more past it, which the stylesheet turns into a fade. Here rather than in
+ * either menu because both of them draw this strip and neither may own it — the
+ * one thing worse than a strip that hides the aisle you came for is a strip that
+ * hides it in the supplier and not in a shelf.
+ *
+ * The scroll-into-view is not a nicety, it is the whole of what makes a row you
+ * cannot see all of acceptable. Every press in here repaints the menu whole, so
+ * without it choosing CONDIMENT scrolls the strip back to All under you and the
+ * chip you just pressed — the one thing on screen saying what you are looking at
+ * — is off the end of it. `block: 'nearest'` because this is a sticky bar inside
+ * a list that scrolls the other way, and a vertical nudge here would jump the
+ * rows.
+ *
+ * Wired AFTER that scroll, the way the bar does it: both of `wireScroll`'s marks
+ * are questions about the strip as drawn, and where it is scrolled to is one of
+ * them.
+ */
+export function wireDepts(root) {
+  const box = root?.querySelector?.('.dtabs');
+  if (!box) return;
+  box.querySelector('.dtab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  wireScroll(box, { axis: 'x' });
+}
 
 /**
  * The list, narrowed to one aisle.

@@ -21,7 +21,7 @@ import { artForVariant } from './thumb.js';
 // What is on a van, shared with the supplier so the two cannot disagree about
 // how many eggs are coming — see client/orders.js.
 import { comingByItem, comingWhy } from './orders.js';
-import { deptOf, deptsIn, deptStrip, inDept } from './aisles.js';
+import { deptOf, deptsIn, deptStrip, inDept, wireDepts } from './aisles.js';
 
 /**
  * Group labels are ours, not the database's — but they are about to be printed
@@ -563,6 +563,10 @@ export function showFixture(ui, f) {
       showFixture(ui, f);
     };
   });
+  // The same one row that scrolls the supplier's is — see `wireDepts`. Every
+  // press above redraws this menu whole, so the strip that comes back is a new
+  // element and knows nothing about where the old one was scrolled to.
+  wireDepts(ui.el.panelBody);
   ui.el.panelBody.querySelectorAll('[data-fxtab]').forEach((el) => {
     // Redrawn rather than shown/hidden, because the rows are live: a tab built
     // once would still be offering to sow a bed that has since been harvested.

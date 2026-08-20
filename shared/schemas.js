@@ -384,6 +384,35 @@ const emitsShape = z.object({
 });
 
 /**
+ * What a thing SOUNDS like — `emits` for the other sense, and deliberately the
+ * same shape of idea: content says what noise a piece makes, and how many may
+ * play at once, how far away is too far and what steals what stay in code
+ * (`client/audio/sfx.js`). The same line `BUILD_KINDS` draws.
+ *
+ * Every field is the id of a row in `client/audio/manifest.js` — which is code,
+ * because it is a file that has to be in the bundle, and that asymmetry is the
+ * point: authoring picks from the sounds the game ships, exactly as `model`
+ * picks from the shapes the renderer knows how to draw. An id that names
+ * nothing is silence, and silence is indistinguishable from a piece meant to be
+ * quiet, which is why docs/audio.md step 6 wants a sweep over precisely this.
+ *
+ * `loop` is the one that needs care, and it takes its cue from `work`: **a
+ * thing that knows what working means loops WHILE it works, and a thing that
+ * does not loops always.** A fridge hums for as long as it exists; a blender
+ * only while there is a batch in it. Without that second clause the field would
+ * silently do nothing on every kind except `station`, which is the "tier that
+ * changes no number" trap wearing headphones.
+ */
+const sfxShape = z.object({
+  /** While it runs, or forever for a thing with no idea what running is. */
+  loop: slug.nullable().default(null),
+  /** When somebody works it. */
+  use: slug.nullable().default(null),
+  /** When a batch finishes. */
+  done: slug.nullable().default(null),
+});
+
+/**
  * A piece: one thing you can put down, and how far you can upgrade one.
  *
  * The *rules* stay in code — where it may go, whether it blocks, which side you
@@ -545,6 +574,16 @@ export const FixtureSchema = z.object({
    * archetype that avoids it — not a check against a piece id.
    */
   emits: emitsShape.nullable().default(null),
+  /**
+   * A noise. Content says what it sounds like; playing it is the client's job,
+   * and nothing in the sim reads it — the same split `emits` makes, and it has
+   * to be that way round for the same reason: a sound is a report about the
+   * shop, so nothing about the shop may depend on having heard one.
+   *
+   * Null is "this one is quiet", which is every row written before sound
+   * existed and is why nothing in a live shop changed on the day this landed.
+   */
+  sfx: sfxShape.nullable().default(null),
   /**
    * A thing that produces money on its own — the first thing a piece can do
    * that is neither a look nor a place to put stock.

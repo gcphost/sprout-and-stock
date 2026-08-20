@@ -32,6 +32,7 @@ import downgrade from './sfx/downgrade.ogg';
 import place from './sfx/place.ogg';
 import remove from './sfx/remove.ogg';
 import robot from './sfx/robot.ogg';
+import machine from './sfx/machine.ogg';
 
 import mall from './music/mall.ogg';
 import chillin from './music/chillin.ogg';
@@ -50,6 +51,8 @@ import care from './music/care.ogg';
 import hop from './music/hop.ogg';
 
 const KENNEY = { by: 'Kenney', from: 'kenney.nl', licence: 'CC0' };
+const MDKIERAN = { by: 'mdkieran', from: 'OpenGameArt', licence: 'CC0' };
+const RUBBERDUCK = { by: 'rubberduck', from: 'OpenGameArt', licence: 'CC0' };
 const MONPLAISIR = { by: 'Monplaisir', from: 'Wikimedia Commons / Free Music Archive', licence: 'CC0' };
 const KOMIKU = { by: 'Komiku', from: 'Wikimedia Commons / Free Music Archive', licence: 'CC0' };
 
@@ -66,7 +69,19 @@ export const SOUNDS = [
   { id: 'click', url: click, gain: 0.5, name: 'Interface clicks', ...KENNEY },
   { id: 'confirm', url: confirm, gain: 0.6, name: 'Confirmation', ...KENNEY },
   { id: 'error', url: error, gain: 0.5, name: 'Refusal', ...KENNEY },
-  { id: 'milestone', url: milestone, gain: 0.7, name: 'Milestone chime', ...KENNEY },
+  // The one sound in here that is allowed to be a flourish rather than a blip,
+  // and the award card is why: it stops the world (see client/award.js), so
+  // this is the only moment in the game where nothing else is competing for
+  // your ear and there is no next event to be late for. The blip that was here
+  // was 0.12s — the same length as a button click, for the rarest thing that
+  // happens all game.
+  //
+  // 0.85 rather than the 0.7 it replaces, and that is not "make it louder": the
+  // file is authored at a peak of about −5.7dBFS where the Kenney pack is
+  // normalised near full scale, so most of the difference is buying back the
+  // headroom the author left. The Menu's Sound rows play each of these on
+  // press, which is where to check it by ear.
+  { id: 'milestone', url: milestone, gain: 0.85, name: 'Milestone fanfare', ...MDKIERAN },
   { id: 'pickup', url: pickup, gain: 0.8, name: 'Goods picked up', ...KENNEY },
   { id: 'putdown', url: putdown, gain: 0.7, name: 'Goods set down', ...KENNEY },
   { id: 'crate', url: crate, gain: 0.8, name: 'Crate landing', ...KENNEY },
@@ -102,6 +117,30 @@ export const SOUNDS = [
   // register of chassis and trim for exactly that reason — so they chirp rather
   // than grunt. Quiet, because there can be five of them.
   { id: 'robot', url: robot, gain: 0.2, name: 'Hire, picking up a job', ...KENNEY },
+  // ---- the loop ----------------------------------------------------------
+  // Nothing about this row is special-cased: it is an ordinary sound a piece
+  // names off its catalog row, and `loops` is only what tells `sfx.setLoops` it
+  // may hold one open rather than firing it once.
+  //
+  // IT IS MUCH QUIETER THAN ANYTHING ABOVE, and that is the difference between a
+  // one-shot and a loop rather than taste. Every sound above is a report you
+  // hear once, at a moment you were waiting for it; this one is on for as long
+  // as you stand there, and a background you *notice* is a background you end
+  // up muting the game to be rid of. The file is authored near full scale (peak
+  // ~0.85), so most of this number is bringing it back down to where a room
+  // tone belongs — start here and go DOWN.
+  //
+  // A FRIDGE HUM WAS THE OTHER HALF OF THIS AND IS GONE, which is worth knowing
+  // before authoring the next always-on loop. It was the textbook case for the
+  // "a thing that does not know what working means loops always" rule, it
+  // worked, and it was still wrong: an appliance running is a thing that
+  // STARTED, so the noise is news, where a freezer is on from the day you buy
+  // it to the day you sell it — a sound that is never not true reports nothing,
+  // and all it can do is sit under every other sound in the game. Which is the
+  // ambient bed's verdict (see docs/audio.md) arriving from a completely
+  // different direction. The file went with it: an asset nothing names is a
+  // download every player pays for and nobody hears.
+  { id: 'machine', url: machine, gain: 0.16, loops: true, name: 'Appliance running', ...RUBBERDUCK },
 ];
 
 /**

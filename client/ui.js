@@ -16,7 +16,7 @@ import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups,
 } from './sections.js';
 import { renderBar, groupAt, nextGroup, KEYED } from './bar.js';
-import { deptsIn, deptStrip, inDept } from './aisles.js';
+import { deptsIn, deptStrip, inDept, wireDepts } from './aisles.js';
 import { setHtml } from './paint.js';
 import { wireScroll } from './scroll.js';
 import { showWorker } from './worker-menu.js';
@@ -319,6 +319,7 @@ export class UI {
       buildHint: document.getElementById('build-hint'),
       buildClose: document.getElementById('build-close'),
       rotate: document.getElementById('rotbtn'),
+      leave: document.getElementById('closebtn'),
       prompt: document.getElementById('prompt'),
       rail: document.getElementById('rail'),
       search: document.getElementById('panel-search'),
@@ -357,6 +358,13 @@ export class UI {
     // auto-facing arguing with you comes along with it — see `rotateBuild`.
     this.el.rotate.innerHTML = ICONS.rotate;
     this.el.rotate.onclick = () => this.rotateBuild();
+    // ...and the way back out, on the other thumb. `toggleBuild(false)` and not
+    // `showBar(null)`, which is the same distinction the bar's own close button
+    // makes in the other direction: putting the strip away leaves you building
+    // (see `showBar`), and this button is the one that says you have finished.
+    // The rail's hammer is the desktop spelling of it.
+    this.el.leave.innerHTML = ICONS.close;
+    this.el.leave.onclick = () => this.toggleBuild(false);
     // One listener on the strip rather than one per chip: the list is rewritten
     // whenever it reads differently, so a handler bound to a chip would be
     // thrown away with it. The index is read back out of `_todoRuns` at press
@@ -1179,8 +1187,35 @@ export class UI {
     if (!el) return;
     const on = pillDrives()
       && (!!this.holding || (this.paletteArmed && !this.armedEdgeTool() && !this.demolishArmed()));
-    if (on === this._rotOn) return;
-    this._rotOn = on;
+    if (on !== this._rotOn) {
+      this._rotOn = on;
+      el.classList.toggle('show', on);
+    }
+    this.syncLeave();
+  }
+
+  /**
+   * The way out, on the thumb opposite the quarter turn.
+   *
+   * Same argument as `syncRotate` and a wider test, because leaving is the one
+   * thing you want out of *every* build tool rather than out of a fixture ghost:
+   * a wall, a floor and a paint brush have no facing to turn and every one of
+   * them has a way out. So the tool tests are gone and what is left is "is this
+   * mode mine" — `paletteArmed`, plus a lift, since a fixture menu's Move
+   * borrows the mode and a shelf in your hands with no visible way to put the
+   * mode down is the same complaint one press further in.
+   *
+   * A borrowed mode nobody was told about shows nothing, which is the point of
+   * asking `paletteArmed` rather than `buildOn`: an X floating over a shelf's
+   * menu is a button offering to close a mode the player does not know they are
+   * in — `releaseMenuMode` is what ends that one, and it ends it by itself.
+   */
+  syncLeave() {
+    const el = this.el.leave;
+    if (!el) return;
+    const on = pillDrives() && (this.paletteArmed || !!this.holding);
+    if (on === this._leaveOn) return;
+    this._leaveOn = on;
     el.classList.toggle('show', on);
   }
 
@@ -1710,6 +1745,28 @@ export class UI {
   measureBar(empty = false) {
     const h = empty ? 0 : (this.el.build?.offsetHeight ?? 0);
     document.documentElement.style.setProperty('--build-h', `${h}px`);
+  }
+
+  /**
+   * ...and how tall the PILL is, for the same reason and only on a phone.
+   *
+   * On a desktop these two never meet: the pill is a narrow caption in the middle
+   * and your hands are a card in the right-hand corner, so they share a `bottom`
+   * and nothing collides. On a touchscreen the pill's rows are buttons, which
+   * makes it a full-width stack — and a full-width stack at the same `bottom` as
+   * the carry card draws straight over it. What you lose is exactly the half you
+   * need while the pill is offering to put something down: what you are holding.
+   *
+   * Measured, like the bar, because a pill is one row or four depending on what
+   * you tapped — a literal here would be right for one of those and wrong for the
+   * rest, which is the trap `measureBar`'s own note describes.
+   */
+  measurePill() {
+    // Only while it is up: `#prompt` keeps its box when hidden, and reserving
+    // room for a pill nobody can see would float the carry card in mid-air.
+    const up = this.el.prompt?.classList.contains('show');
+    const h = up ? (this.el.prompt?.offsetHeight ?? 0) : 0;
+    document.documentElement.style.setProperty('--pill-h', `${h}px`);
   }
 
   /**
@@ -2364,12 +2421,34 @@ export class UI {
       rows = inDept(rows, dept);
     }
 
+    // ...and under those, the column heads, for the one list in the game that
+    // stopped being a list of sentences and became a table. Four numbers across
+    // a supplier row — what it costs, how many you hold, a minimum, a maximum —
+    // and nothing anywhere saying which was which: `MIN` and `MAX` label
+    // themselves inside their own steppers, and the other three are bare
+    // figures you have to already know the shape of.
+    //
+    // Declared per SECTION and asked of the rows about to be drawn, because a
+    // head over rows that have no such columns is a caption that lies: the
+    // supplier's Automatic tab is three switches, and "Cost · Have · Order"
+    // over them names nothing on screen. A section that says nothing gets what
+    // it always got.
+    const heads = sec.heads?.(rows) ?? null;
+    // A head names its column by the SELECTOR that finds it on a row, so the
+    // widths can be measured rather than restated (below). The one head with no
+    // selector is the elastic column — the name — which takes what is left the
+    // way `.row .name` does, and must not be measured or it would be pinned to
+    // whatever the first row happened to need.
+    const headBar = heads ? `<div class="heads">${heads.map((h) => `
+      <span class="hcell${h.sel ? '' : ' grow'}${h.at ? ` ${h.at}` : ''}"${
+  h.sel ? ` data-head="${esc(h.sel)}"` : ''}>${esc(h.label)}</span>`).join('')}</div>` : '';
+
     // "Nothing matches that" is the answer to a SEARCH, and an empty tab is now
     // something you can press your way onto with no search running at all —
     // where it reads as the filter having eaten the list. An empty bucket is
     // good news in most of them (nothing is short), so it says which.
     const body = rows.length
-      ? rows.map((r, i) => this.rowHtml(r, i)).join('')
+      ? rows.map((r, i) => this.rowHtml(r, i, !!heads)).join('')
       : `<div class="foot">${this.query ? 'Nothing matches that.'
         : `Nothing ${esc((groups?.[at]?.label ?? '').toLowerCase()) || 'here'} right now.`}</div>`;
 
@@ -2380,7 +2459,7 @@ export class UI {
     // `vanNote`. Part of the title rather than a third argument, because
     // `showPanel` already takes the title as HTML for the fixture menu's icon.
     this.showPanel(sec.title + (sec.note?.(this) ?? ''),
-      tabs + aisles + body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''),
+      tabs + aisles + headBar + body + (sec.foot ? `<div class="foot">${sec.foot(this)}</div>` : ''),
       `section:${this.openPanel}:${tabs ? at : ''}:${this.query}:${this.dept ?? ''}`);
     this.showFilter(filterable);
     this.steadyHeight(sec, groups);
@@ -2395,6 +2474,10 @@ export class UI {
     this.el.panelBody.querySelectorAll('[data-dept]').forEach((el) => {
       el.onclick = () => { this.dept = el.dataset.dept || null; this.paintSection(); };
     });
+    // One row, and it scrolls — see `wireDepts`. Every press above repaints this
+    // whole menu, so the strip is a new element each time and has to be told
+    // again where it is scrolled to.
+    wireDepts(this.el.panelBody);
     // ...and it stays put while the list scrolls, like the tabs above it: both
     // are choosers, and one that scrolled away would leave you in a narrowed
     // list with no way back to the whole one. A section scrolls the body, so
@@ -2405,6 +2488,34 @@ export class UI {
     const tabBar = this.el.panelBody.querySelector('.tabs');
     const aisleBar = this.el.panelBody.querySelector('.dtabs');
     if (tabBar && aisleBar) aisleBar.style.top = `${aisleBar.offsetTop - tabBar.offsetTop}px`;
+    // The heads are the third sticky bar in the stack and stick the same way,
+    // off whichever of the three is first — a head strip that scrolled away
+    // would leave you looking at four columns of numbers with nothing naming
+    // them, which is the state this exists to end.
+    const headEl = this.el.panelBody.querySelector('.heads');
+    if (headEl) {
+      const first = tabBar ?? aisleBar ?? headEl;
+      headEl.style.top = `${headEl.offsetTop - first.offsetTop}px`;
+      // ...and each head is as wide as the column it names, MEASURED off a cell
+      // that is on screen rather than written down here — the same call the
+      // aisle strip's `top` makes above. Every one of those widths is a padding,
+      // a glyph and a font in the stylesheet, and a copy of the arithmetic in
+      // this file would be a head that is right until somebody restyles a
+      // stepper. The name column is the elastic one and takes what is left,
+      // exactly as the rows do.
+      //
+      // The first cell of that column ANYWHERE in the list rather than the
+      // first row's, because a filtered list can open with a row that has no
+      // such column — the supplier's three settings rows match a search like
+      // anything else — and a head measured off one would be a head measured
+      // off nothing. The columns agree with each other because `.cols` holds
+      // them open to a width every row meets.
+      headEl.querySelectorAll('[data-head]').forEach((el) => {
+        const cell = this.el.panelBody.querySelector(el.dataset.head.split(',')
+          .map((s) => `.sec-row ${s.trim()}`).join(','));
+        if (cell) el.style.width = `${cell.offsetWidth}px`;
+      });
+    }
     // The one control that lives in the title bar. Wired here rather than in
     // `showPanel` because the note is a section's own HTML — and `stopPropagation`
     // because that strip is the drag handle, so a press on it would otherwise
@@ -2586,7 +2697,7 @@ export class UI {
    * glyph for its kind, which is the same call the palette makes, and `icon`
    * stays as the fallback for anything nobody has drawn.
    */
-  rowHtml(r, i) {
+  rowHtml(r, i, cols) {
     if (r.sep) return `<div class="sep">${r.sep}</div>`;
     // A menu that draws itself. `sep` was already the precedent — a thing in the
     // rows array that is not a row — and this is the same escape hatch one step
@@ -2683,8 +2794,14 @@ export class UI {
   r.bar != null ? `<span class="rbar"><i style="width:${Math.round(Math.max(0, Math.min(1, r.bar)) * 100)}%"></i></span>` : ''}</div>
       ${!stacked && r.right ? `<div class="price">${r.right}</div>` : ''}
       ${r.count ? `<span class="held ${r.countClass ?? ''}">${r.count}</span>` : ''}
-      ${r.rule ?? ''}
-      ${r.button ? `<button data-btn="${i}"${r.button.danger ? ' class="danger"' : ''}>${r.button.label}</button>` : ''}
+      ${r.rule ?? (cols ? '<span class="rule"></span>' : '')}
+      ${r.button ? `<button data-btn="${i}"${r.button.danger ? ' class="danger"' : ''}>${r.button.label}</button>`
+    // An empty cell under a head, for the rows that have nothing in that
+    // column — a made-here item has no standing order and no buy button, and
+    // dropping the cells rather than emptying them slides its count and its
+    // name out from under the words naming them. A column is only a column if
+    // every row has one.
+    : cols ? '<span class="bpad"></span>' : ''}
       ${r.tail ? `<span class="have">${r.tail}</span>` : ''}
     </div>`;
   }
@@ -3003,26 +3120,43 @@ export class UI {
     // doorway's `innerHTML` is: this whole block is a couple of writes a day.
     const ask = !this.shopOpen && !this.shutterUsed;
 
-    const key = `${!!state.isOpen}|${this.shopOpen}|${this.paused}|${ask}`;
-    if (key === this._clockKey) return;
-    this._clockKey = key;
+    // THE STATE CLASSES ARE WRITTEN EVERY SNAPSHOT, ABOVE THE KEY.
+    //
+    // Everything below the guard is a string: an `innerHTML`, a `title`, an
+    // `aria-label`, the words painted on the sign. Those are worth a key — they
+    // are a couple of writes a day and they churn the DOM. These four are
+    // `classList.toggle(name, boolean)`, which is idempotent, costs nothing when
+    // the answer has not moved, and is the entire state of the window's own
+    // frame (`#edge`) and the clock.
+    //
+    // Behind the key they were a latch with no way out. `_clockKey` says "the
+    // DOM has already been told this", and any single tick where that is untrue
+    // — a throw between the stamp and these lines, a class removed by something
+    // else, a repaint that never ran — is not a flicker: it is permanent, for
+    // exactly as long as the shop stays in the same state. What that looks like
+    // is a blue band round a shop that is open, with open, close, start and stop
+    // all doing nothing about it, because none of those is a way of asking the
+    // question again — they are the question, and the answer was cached.
+    //
+    // A live shop had it: `isOpen: true` on the wire, `body.shut` on the page.
+    // Written every tick it cannot outlive one snapshot.
+    //
+    // `isOpen` and not `shutters`, exactly as the strike-through does: what it
+    // marks is "nobody can be served right now", which is true at 22:00 with the
+    // shutters wide open. Two marks for one state have to be read off one field.
     // `asking` rather than `nudge`, which is the build strip's scroll arrow and
     // is a BARE class — see the note beside `#sign.asking` in index.html for
     // what it did to the door. A state class on an element with an id-scoped
     // rule still lands in the same global namespace as every other class here.
     this.el.shutter.classList.toggle('asking', ask);
-
     this.el.clock.classList.toggle('shut', !state.isOpen);
     this.el.clock.classList.toggle('paused', this.paused);
-    // ...and the same two states on the window's own frame (`#edge`), which is
-    // the half of this that is visible while you are looking at a shelf in the
-    // middle of the screen rather than at the clock in the corner of it.
-    //
-    // `isOpen` and not `shutters`, exactly as the strike-through above: what it
-    // marks is "nobody can be served right now", which is true at 22:00 with the
-    // shutters wide open. Two marks for one state have to be read off one field.
     document.body.classList.toggle('shut', !state.isOpen);
     document.body.classList.toggle('held', this.paused);
+
+    const key = `${!!state.isOpen}|${this.shopOpen}|${this.paused}|${ask}`;
+    if (key === this._clockKey) return;
+    this._clockKey = key;
     const spc = pillDrives() ? '' : ' (Space)';
     this.el.clock.title = this.paused ? `Start the clock${spc}` : `Stop the clock${spc}`;
     // Named as well as drawn: the button's words are an hour, which says nothing
@@ -3602,6 +3736,7 @@ export class UI {
       // Short enough that it can never be the reason a deliberate press did
       // nothing: it is about the tap that was already on its way.
       this.el.prompt.className = 'hud guard';
+      this.measurePill();
       clearTimeout(this._promptGuard);
       this._promptGuard = setTimeout(() => {
         this.el.prompt.className = 'hud';
@@ -3737,6 +3872,9 @@ export class UI {
     // Keep `hud` — it carries position:fixed, and dropping it drops the
     // element out of the overlay and into the document flow, invisible.
     this.el.prompt.className = 'hud show going';
+    // ...and tell the carry card how much room this just took. After the class,
+    // because the height is only real once it is displayed.
+    this.measurePill();
   }
 
   /**
@@ -4213,6 +4351,14 @@ export class UI {
     // forgets to set back — and the class comes off on the next redraw of any
     // other menu without anybody remembering to take it off.
     this.el.panel.classList.toggle('wide', !!this.el.panelBody.querySelector('.pnl-wide'));
+    // ...and whether its rows are columns, by the same rule and for the same
+    // reason. A head strip is only true of columns that line up between rows,
+    // and two of the supplier's did not — what is on a van hangs off the count,
+    // and the one button slot holds `×6`, `Cancel` or `Stock` — so a headed
+    // list holds those two open at a width every row agrees on. Read off the
+    // strip being there rather than set by whoever drew it, so it comes off on
+    // the next menu without anybody remembering to take it off.
+    this.el.panelBody.classList.toggle('cols', !!this.el.panelBody.querySelector('.heads'));
     this.el.panel.classList.add('show');
     // After `show`, or the element has no size to clamp a position against.
     restorePos(this.el.panel, this.openPanel);

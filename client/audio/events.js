@@ -25,6 +25,7 @@
  */
 
 import { sfx } from './sfx.js';
+import { pieceFor } from '../../shared/pieces.js';
 
 /**
  * What finishing each kind of action sounds like.
@@ -140,6 +141,26 @@ class Events {
     this.tiers = null;
     this.owned = null;
     this.seeded = false;
+    /** The catalog, for the `sfx` block on a piece. Set by `setCatalog`. */
+    this.pieces = [];
+    /**
+     * Everything standing in the shop that has a `loop` authored, worked out
+     * once per re-flow rather than ten times a second — see `hummers`.
+     */
+    this.hummers = [];
+  }
+
+  /**
+   * The catalog, which is where the noise a fixture makes now comes from.
+   *
+   * Handed in rather than imported, because the catalog is a live thing that
+   * arrives on the wire and can be re-sent: somebody authoring an appliance in
+   * the other window should be able to give it a hum without either of you
+   * reloading. `layout` is re-derived when it lands for exactly that reason.
+   */
+  setCatalog(catalog) {
+    this.pieces = catalog?.fixtures ?? [];
+    if (this.layoutSeen) this.findHummers(this.layoutSeen);
   }
 
   /**
@@ -215,6 +236,75 @@ class Events {
       }
     }
     this.tiers = tiers;
+    this.findHummers(L);
+  }
+
+  /**
+   * Which fixtures in the shop have a noise authored, and which of them have to
+   * be WORKING to make it.
+   *
+   * Done here rather than in `update` because it is a question about the
+   * building, and the building changes on a re-flow — where the snapshot
+   * arrives ten times a second and would re-walk every fixture in the shop
+   * against every catalog row to learn nothing. What `update` is left with is
+   * the one question that genuinely moves: is this machine running.
+   *
+   * **The list is keyed by tile**, for the reason the tiers above are: a rung
+   * or a turn re-mints the fixture's id on the same square, and a loop keyed by
+   * id would stop and restart on every one — which, since building re-flows on
+   * every wall segment of a drag, is a fridge that stutters continuously while
+   * you extend the shop. See `sfx.setLoops`.
+   *
+   * The `work` test is the rule `sfxShape` states: a thing that knows what
+   * working means hums while it works, and a thing that does not hums always.
+   * It asks the piece for a `work` model rather than asking whether the kind is
+   * `station`, because that is the same question content already answers — and
+   * a kind list written out here is one more place a new kind dies quietly.
+   */
+  findHummers(L) {
+    this.layoutSeen = L;
+    const out = [];
+    for (const [kind, arr] of Object.entries(L ?? {})) {
+      if (!Array.isArray(arr)) continue;
+      for (const f of arr) {
+        if (!f || f.x == null) continue;
+        const piece = pieceFor(this.pieces, { ...f, kind: f.kind ?? kind });
+        const id = piece?.sfx?.loop;
+        if (!id) continue;
+        out.push({
+          key: `${f.x},${f.z}`,
+          id,
+          at: { x: f.x, z: f.z },
+          // A machine with a working look is a machine with a working sound.
+          working: !!piece.work,
+        });
+      }
+    }
+    this.hummers = out;
+  }
+
+  /**
+   * The loops that should be sounding right now.
+   *
+   * A list rather than starts and stops, because that is the only shape a
+   * snapshot can honestly produce — see `sfx.setLoops` for why a hook per
+   * machine leaks a hum into an empty shop the first time a frame goes missing.
+   *
+   * A paused world is silent. The renderer already has to be told the same
+   * thing (`scene.paused`), and for the same reason: both of these run on the
+   * page's clock rather than the shop's, so a fridge humming under a stopped
+   * game reads exactly as the pause not working — which is what a blade still
+   * turning read as.
+   */
+  loops(state) {
+    if (state.paused) return sfx.setLoops([]);
+    // Only a machine that is mid-batch, and `making` is the shop's own answer
+    // rather than one inferred from progress: a batch that has just finished
+    // and one that never started both read as progress 0.
+    const busy = new Set((state.stations ?? [])
+      .filter((s) => s.making)
+      .map((s) => `${s.x},${s.z}`));
+    return sfx.setLoops(this.hummers.filter((h) => !h.working || busy.has(h.key)));
   }
 
   /**
@@ -230,6 +320,13 @@ class Events {
 
     const me = state.players?.find((p) => p.id === myId) ?? null;
     if (me) sfx.listenAt(me.x, me.z);
+
+    // Before the seeding return below, and deliberately: a loop is not an event
+    // and has nothing to diff. Joining a shop with three fridges in it should
+    // sound like a shop with three fridges in it from the first frame, where a
+    // seeded diff exists so that joining does not sound like everything in the
+    // shop happening at once.
+    this.loops(state);
 
     const drops = new Set((state.cashDrops ?? []).map((d) => d.id));
     const crates = new Set((state.deliveries ?? []).map((d) => d.id));

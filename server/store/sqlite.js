@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   variants   TEXT NOT NULL DEFAULT '[]',  -- JSON [{id, name, model, work}] — looks only
   cost       REAL NOT NULL DEFAULT 0,     -- 0 = priced by the upgrade that sells it
   emits      TEXT NOT NULL DEFAULT 'null',-- JSON {color, intensity, range} or null
+  sfx        TEXT NOT NULL DEFAULT 'null',-- JSON {loop, use, done} or null
   surface    TEXT NOT NULL DEFAULT 'null',-- JSON {color, accent, pattern}: floors only
   yields     TEXT NOT NULL DEFAULT 'null',-- JSON {cash, every} or null: it earns
   charm      REAL NOT NULL DEFAULT 0,     -- how far word of the shop travels
@@ -347,6 +348,10 @@ const ADDED_COLUMNS = [
   ['fixtures', 'kind', "TEXT NOT NULL DEFAULT ''"],
   ['fixtures', 'cost', 'REAL NOT NULL DEFAULT 0'],
   ['fixtures', 'emits', "TEXT NOT NULL DEFAULT 'null'"],
+  // What it sounds like. 'null' is "this one is quiet", which is every piece
+  // authored before a fixture could make a noise — so no live shop got louder
+  // on the day this landed.
+  ['fixtures', 'sfx', "TEXT NOT NULL DEFAULT 'null'"],
   ['fixtures', 'tags', "TEXT NOT NULL DEFAULT '[]'"],
   // What a floor is made of. Every row that predates floors has none, and
   // 'null' is exactly right for them: nothing but a `floor` piece ever reads it.
@@ -441,7 +446,7 @@ const JSON_FIELDS = {
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
-  fixtures: ['model', 'work', 'tiers', 'variants', 'emits', 'surface', 'yields', 'tags'],
+  fixtures: ['model', 'work', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'tags'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
   skins: ['slots', 'extras', 'tags'],

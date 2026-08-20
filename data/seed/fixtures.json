@@ -160,7 +160,8 @@
     "yields": null,
     "charm": 0.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "aisle-sign",
@@ -301,7 +302,8 @@
     "yields": null,
     "charm": 0.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "asphalt",
@@ -330,7 +332,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "awning",
@@ -535,7 +538,8 @@
     "yields": null,
     "charm": 0.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "bakery-case",
@@ -762,7 +766,8 @@
     "yields": null,
     "charm": 1,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "barrel",
@@ -876,7 +881,8 @@
     "yields": null,
     "charm": 0.75,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "basket-stack",
@@ -1037,7 +1043,8 @@
     "yields": null,
     "charm": 0.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "bay-tree",
@@ -1173,7 +1180,8 @@
     "yields": null,
     "charm": 2.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "bike-rack",
@@ -1358,7 +1366,8 @@
     "yields": null,
     "charm": 0.75,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "bin",
@@ -1519,7 +1528,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "bistro-set",
@@ -1743,7 +1753,8 @@
     "yields": null,
     "charm": 2,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "bollard-light",
@@ -1866,7 +1877,8 @@
     "yields": null,
     "charm": 1,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "break-room",
@@ -1894,7 +1906,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "brick-paving",
@@ -1923,7 +1936,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "bunting",
@@ -2073,7 +2087,8 @@
     "yields": null,
     "charm": 1.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "car-park",
@@ -2102,7 +2117,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "ceiling-fan",
@@ -2277,7 +2293,8 @@
     "yields": null,
     "charm": 2,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "chandelier",
@@ -2554,7 +2571,8 @@
     "yields": null,
     "charm": 3.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "checkout",
@@ -3468,7 +3486,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "chequer-tile",
@@ -3496,7 +3515,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "christmas-tree",
@@ -3703,7 +3723,8 @@
     "yields": null,
     "charm": 2.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "cobblestone",
@@ -3732,7 +3753,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "cooler",
@@ -4854,7 +4876,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "deli-counter",
@@ -5037,7 +5060,8 @@
     "yields": null,
     "charm": 1,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "dirt-bare",
@@ -5065,7 +5089,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "dirt-dust",
@@ -5093,7 +5118,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "dirt-mud",
@@ -5121,7 +5147,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "dirt-packed",
@@ -5149,7 +5176,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "dirt-rut",
@@ -5177,7 +5205,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "entrance-mat",
@@ -5245,7 +5274,8 @@
     "yields": null,
     "charm": 0.25,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "floor-lamp",
@@ -5368,7 +5398,8 @@
     "yields": null,
     "charm": 1.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "freezer",
@@ -6957,7 +6988,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "gondola",
@@ -7660,7 +7692,8 @@
     "yields": null,
     "charm": 0.5,
     "work": null,
-    "open": true
+    "open": true,
+    "sfx": null
   },
   {
     "id": "grass-burnt",
@@ -7688,7 +7721,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "grass-clover",
@@ -7716,7 +7750,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "grass-dead",
@@ -7744,7 +7779,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "grass-long",
@@ -7772,7 +7808,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "grass-moss",
@@ -7800,7 +7837,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "grass-patchy",
@@ -7828,7 +7866,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "grass-wildflower",
@@ -7856,7 +7895,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "gravel-track",
@@ -7885,7 +7925,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "hanging-basket",
@@ -8065,7 +8106,8 @@
     "yields": null,
     "charm": 1.75,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "hanging-clock",
@@ -8267,7 +8309,8 @@
     "yields": null,
     "charm": 1,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "hot-counter",
@@ -8472,7 +8515,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "lamp-post",
@@ -8617,7 +8661,8 @@
     "yields": null,
     "charm": 2,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "land-bark",
@@ -8645,7 +8690,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "land-gravel",
@@ -8673,7 +8719,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "land-sand",
@@ -8701,7 +8748,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "land-weeds",
@@ -8729,7 +8777,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "lawn-meadow",
@@ -8757,7 +8806,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "lawn-mown",
@@ -8785,7 +8835,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "lawn-scrub",
@@ -8813,7 +8864,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "lawn-turf",
@@ -8841,7 +8893,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "loading-bay",
@@ -8869,7 +8922,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "money-tree",
@@ -9070,7 +9124,8 @@
     },
     "charm": 4,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "open-chiller",
@@ -10214,7 +10269,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "open-sign",
@@ -10332,7 +10388,8 @@
     "yields": null,
     "charm": 1,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "paint-brick",
@@ -10365,7 +10422,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "paint-cream",
@@ -10398,7 +10456,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "paint-sage",
@@ -10431,7 +10490,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "paint-teal",
@@ -10464,7 +10524,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "paint-tile",
@@ -10497,7 +10558,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "panel-light",
@@ -10576,7 +10638,8 @@
     "yields": null,
     "charm": 0.25,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "paper-lantern",
@@ -10677,7 +10740,8 @@
     "yields": null,
     "charm": 1.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "parasol",
@@ -10791,7 +10855,8 @@
     "yields": null,
     "charm": 1.25,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "park-bench",
@@ -10976,7 +11041,8 @@
     "yields": null,
     "charm": 1.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "paving-path",
@@ -11005,7 +11071,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "paving-slabs",
@@ -11034,7 +11101,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "pendant-lamp",
@@ -11135,7 +11203,8 @@
     "yields": null,
     "charm": 1.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "pine-boards",
@@ -11163,7 +11232,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "plot",
@@ -11553,7 +11623,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "potted-fern",
@@ -11711,7 +11782,8 @@
     "yields": null,
     "charm": 1,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "poured-concrete",
@@ -11739,7 +11811,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "produce-table",
@@ -12222,7 +12295,8 @@
     "yields": null,
     "charm": 0.5,
     "work": null,
-    "open": true
+    "open": true,
+    "sfx": null
   },
   {
     "id": "rug-runner",
@@ -12312,7 +12386,8 @@
     "yields": null,
     "charm": 1,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "shelf",
@@ -13774,7 +13849,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "shop-floor",
@@ -13799,7 +13875,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "slate-flags",
@@ -13827,7 +13904,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "station",
@@ -19073,7 +19151,12 @@
         }
       ]
     },
-    "open": false
+    "open": false,
+    "sfx": {
+      "loop": "machine",
+      "use": null,
+      "done": null
+    }
   },
   {
     "id": "stockroom-floor",
@@ -19101,7 +19184,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "string-lights",
@@ -19246,7 +19330,8 @@
     "yields": null,
     "charm": 2,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "tarmac-road",
@@ -19275,7 +19360,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "terracotta-planter",
@@ -19416,7 +19502,8 @@
     "yields": null,
     "charm": 1.5,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "terracotta-tile",
@@ -19444,7 +19531,8 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "tube-light",
@@ -19567,7 +19655,8 @@
     "yields": null,
     "charm": 0.25,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "window-box",
@@ -19769,7 +19858,8 @@
     "yields": null,
     "charm": 1.25,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
   },
   {
     "id": "zebra-crossing",
@@ -19798,6 +19888,138 @@
     "yields": null,
     "charm": 0,
     "work": null,
-    "open": false
+    "open": false,
+    "sfx": null
+  },
+  {
+    "id": "zz-till-bed",
+    "name": "Test Bed",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#6b4b32",
+          "pos": [
+            0,
+            0.05,
+            0
+          ],
+          "scale": [
+            0.9,
+            0.1,
+            0.9
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Bare",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      },
+      {
+        "name": "Raised",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 3,
+        "unattended": 0,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "plot",
+    "cost": 0,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false,
+    "sfx": null
+  },
+  {
+    "id": "zz-till-piece",
+    "name": "Test Till",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#8a8a92",
+          "pos": [
+            0,
+            0.3,
+            0
+          ],
+          "scale": [
+            0.7,
+            0.6,
+            0.7
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Slow",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
+      },
+      {
+        "name": "Quick",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 4,
+        "unattended": 0,
+        "emits": null
+      },
+      {
+        "name": "Self",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0.5,
+        "emits": null
+      }
+    ],
+    "variants": [],
+    "kind": "checkout",
+    "cost": 0,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false,
+    "sfx": null
   }
 ]

@@ -371,6 +371,11 @@ server.registerTool('create_fixture', {
       intensity: z.number().min(0).max(4).default(1).describe('Brightness. 1 is a room fitting; above 2 washes an aisle out.'),
       range: z.number().min(0.5).max(12).default(4).describe('How far the glow carries, in tiles.'),
     }).optional().describe('Makes this piece a lamp. Renderer-only — no shopper behaves differently under it yet.'),
+    sfx: z.object({
+      loop: z.string().optional().describe('A noise it holds open. On something that can be BUSY (an appliance) it runs only while it is working; on anything else it runs always, which is what a fridge does.'),
+      use: z.string().optional().describe('When somebody works it.'),
+      done: z.string().optional().describe('When a batch finishes.'),
+    }).optional().describe('What it SOUNDS like — `emits` for the other sense. Each field names a sound the game ships, exactly as `model` names shapes the renderer knows: today "machine" (an appliance running) and "hum" (a fridge), beside the one-shots — click, confirm, error, milestone, pickup, putdown, crate, coins, harvest, sale, annoyed, angry, beep, upgrade, downgrade, place, remove, robot. An id that names nothing is SILENCE, and silence is indistinguishable from a piece meant to be quiet, so check the spelling — nothing renders it and nothing logs it. Four loops play at once, nearest you first, and each is mixed far below the one-shots on purpose: a sound you hear once and a sound that is on while you stand there are not the same kind of loud.'),
     tags: z.array(z.string()).optional()
       .describe('Call list_tags first. On a DECORATION these file it on the Decoration tab of the build bar, which is the one thing its kind cannot say — `prop-floor` and `prop-ceiling` describe how a thing attaches, and a planter and a barrel attach identically. `plant` puts it under Greenery, `lamp` under Lighting, `sign` under Signs, and anything else (or nothing) lands in Odds and ends. Those tabs only appear once there are more decorations than fit the number keys, so tag every one you author and the palette sorts itself out the day it needs to. On everything else nothing reads them yet.'),
   },

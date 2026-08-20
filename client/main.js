@@ -15,7 +15,7 @@ import { pillDrives } from './input.js';
 import { RAIL_ITEMS } from './sections.js';
 import { showFixture, refreshFixture, ONE_AT_A_TIME } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
-import { showEdgeMenu, hasEdgeMenu, sameFamily, kindAt } from './edge-menu.js';
+import { showEdgeMenu, hasEdgeMenu, kindAt } from './edge-menu.js';
 import { Menu, preselectedWorld, setMenuApi, enableJoin } from './menu.js';
 import { bootSay, bootDone, bootFail } from './boot.js';
 import { Award } from './award.js';
@@ -66,6 +66,27 @@ ui.tutor = tutor;
 // be a second opinion about whether the button is down. See `errandHold`.
 ui.errandHold = (fire) => errandHold(fire);
 
+/**
+ * Does this device have a pointer that can rest on things?
+ *
+ * `:hover` is not a question a touchscreen can answer, and browsers answer it
+ * anyway: a tap leaves the element hovered until you tap something else. So
+ * every hover style in the game — a tab, a build tile, a menu row, the clock —
+ * stays lit on the last thing you pressed, which reads as a button stuck in some
+ * state you did not put it in.
+ *
+ * Every `:hover` rule in the stylesheet is written `html.can-hover X:hover`, and
+ * this is the one line that turns them all on. A class rather than wrapping
+ * fifty rules in `@media (hover: hover)`, because it is one place to look and one
+ * place to change, and because `matchMedia` is live: a laptop with a
+ * touchscreen, or a tablet with a keyboard attached, answers differently at
+ * different moments and this follows it.
+ */
+const hoverQ = matchMedia('(hover: hover) and (pointer: fine)');
+const markHover = () => document.documentElement.classList.toggle('can-hover', hoverQ.matches);
+markHover();
+hoverQ.addEventListener('change', markHover);
+
 let latestState = null;
 
 /**
@@ -78,6 +99,16 @@ let latestState = null;
  * walking for ever.
  */
 let wasAt = null;
+
+/**
+ * How many refusals the shop had told us about when we last looked.
+ *
+ * `null` until the first snapshot, and that is deliberate: a save reloaded with
+ * a refusal already on it would otherwise toast a complaint about something you
+ * did before lunch, on the first frame, with nothing on screen to explain it.
+ * The first reading only establishes where the count is.
+ */
+let lastRefused = null;
 
 /**
  * Wake the audio up on the first real input, whatever it was.
@@ -233,7 +264,9 @@ net.on('layout', (m) => {
 // A wall was painted — by you, or by whoever else is in the shop. Only the
 // walls are rebuilt; nothing else in the building has moved.
 net.on('paint', (m) => scene.setPaint(m));
-net.on('catalog', (m) => { scene.setCatalog(m); ui.setCatalog(m); });
+// ...and the audio, because what a fixture sounds like is a column on the same
+// catalog row its model is on (`sfx` — see shared/schemas.js).
+net.on('catalog', (m) => { scene.setCatalog(m); ui.setCatalog(m); events.setCatalog(m); });
 net.on('state', (m) => {
   latestState = m;
   scene.syncState(m, net.myId);
@@ -272,6 +305,35 @@ net.on('state', (m) => {
   // Before `refreshGhost`, because letting go is a fact about what you can do
   // next and the hints are drawn from it.
   stepErrandHold(m);
+  // ...and why the last thing you held a button for did not happen.
+  //
+  // `stepActions` has always said this, into the event feed — which is
+  // `display: none` under 720px. So on a phone a refused action was completely
+  // silent, and a shelf that will not take what you are holding is exactly the
+  // case where trying again cannot possibly help. A toast is the channel every
+  // other refusal in the game already uses (`action-result`), and it is the one
+  // that is visible wherever you are playing.
+  //
+  // Watched as a COUNT, so pressing a second time says it a second time: the
+  // words are the same and the event is not, and going quiet on the retry is
+  // going quiet at the exact moment somebody is asking again.
+  const mine = ui.me();
+  if (mine?.refused && mine.refused.n !== lastRefused) {
+    if (lastRefused !== null && mine.refused.why) {
+      ui.toast(mine.refused.why, true);
+      // ...and the sound, which this half of the pair never had. A refusal
+      // reaches you two ways — `action-result` for a message the shop turned
+      // down, and this for an armed action that fired and failed — and only the
+      // first one made a noise. That is the wrong way round: a rejected message
+      // is instant, so you are still looking at what you pressed, while this one
+      // arrives a full ring later, by which time you are watching the animation
+      // finish rather than the top of the screen. So the louder failure was the
+      // quiet one, and what it read as was the toast not being about the thing
+      // you had just done. Same sound, same reason as `net.on('action')`.
+      sfx.play('error');
+    }
+    lastRefused = mine.refused.n;
+  }
   const at = ui.me();
   const stirring = at && wasAt && (Math.abs(at.x - wasAt.x) > 0.001 || Math.abs(at.z - wasAt.z) > 0.001);
   wasAt = at ? { x: at.x, z: at.z } : null;
@@ -279,21 +341,6 @@ net.on('state', (m) => {
   // and stopped somewhere else. See `dropOnLeaving`. Before the hints, so the
   // pill is not still offering rows about a unit that has just been dropped.
   if (pillDrives() && !stirring) dropOnLeaving();
-  // A HOVER IS A THING A TOUCHSCREEN DOES NOT HAVE, and this pass is where it
-  // was being invented. `pointer` is the last place a finger touched, which is a
-  // fact about a tap several seconds ago — and re-raycasting it ten times a
-  // second turns the world moving underneath into aim: a hire wanders across the
-  // spot you last tapped and lights up, a crate is set down there and rings, a
-  // board cage opens on a shelf nobody is pointing at. It reads as the shop
-  // highlighting things at random, because from the player's side that is
-  // exactly what it is doing.
-  //
-  // So the pointer's claim on the canvas is spent by the tap that made it. The
-  // rows still re-answer every snapshot — that is what this call is for — but
-  // they answer about what the tap NAMED (`ui.fixtureRef`, see `pressHints`),
-  // which is the one target the player chose and can see ringed. Every real
-  // pointer event sets the flag again, so a tap works exactly as it did.
-  if (pillDrives()) pointer.onCanvas = false;
   if (!ui.buildOn && !stirring) refreshGhost(true);
   // ...and the tour, which is nothing but a predicate over this snapshot. After
   // `ui.update` on purpose: every step asks a question about the UI as well as
@@ -548,10 +595,26 @@ function refreshGhost(force = false) {
   // drags that are deliberately NOT in it.
   if (spin?.trekking || camBusy()) return;
 
+  // IS THE POINTER AN AIM, OR A FACT ABOUT A PRESS THAT IS OVER?
+  //
+  // Every preview below raycasts `pointer` and is re-run on every snapshot, which
+  // is right for a mouse: the coordinate means "where I am looking", it is live,
+  // and re-answering it as the shop changes is the whole point. On a phone the
+  // same coordinate is where a finger last LANDED, so between presses these are
+  // ten guesses a second about a question nobody is asking — a bulldozer ring
+  // lit on whatever has since walked under an old tap, a wall preview parked in
+  // the middle of the shop, a floor brush glowing on a cell you left.
+  //
+  // A finger IS a live aim while it is DOWN, and that is the one case that has to
+  // keep working: the build ghost follows a held press (`drag.aiming` lifts it
+  // off your thumb), so freezing during a drag would stop the thing you are
+  // placing from following the hand placing it.
+  const aiming = pointer.onCanvas && (!pillDrives() || drag.id !== null);
+
   // The bulldozer aims at a thing first and a line second. A shelf standing
   // against a wall covers the line behind it on screen, and "the wall" is never
   // what you meant while a whole fixture is under the pointer.
-  const razing = pointer.onCanvas && ui.demolishArmed()
+  const razing = aiming && ui.demolishArmed()
     ? scene.pickFixture(pointer.x, pointer.y) : null;
   if (razing) {
     scene.setEdgeGhost(null, null);
@@ -565,25 +628,29 @@ function refreshGhost(force = false) {
     return;
   }
 
-  const edgeKind = pointer.onCanvas ? ui.edgeKindForTool() : null;
+  const edgeKind = aiming ? ui.edgeKindForTool() : null;
   if (edgeKind !== null) {
     const seg = scene.pickEdge(pointer.x, pointer.y);
     if (!seg) { scene.setEdgeGhost(null, null); ui.setBuildVerdict(null); return; }
-    // The Doorway tool over a doorway that is already there does not build one —
-    // it opens it (see `endPress`). So the bar goes amber, which is the colour
-    // everything openable wears under the pointer, and no verdict is printed:
-    // green would be promising a purchase that is not going to happen.
-    if (sameFamily(scene.storeLayout, seg, edgeKind)) {
-      scene.setEdgeGhost([seg], 'aim');
-      ui.setBuildVerdict(null);
-      scene.setAimTarget(null);
-      ui.setBoardTip(null, null);
-      scene.setPersonAim(null);
-      canvas.style.cursor = 'pointer';
-      ui.setAim(null);
-      ui.setPressHints([]);
-      return;
-    }
+    // A TOOL IN YOUR HAND BUILDS, WHATEVER IS ALREADY THERE.
+    //
+    // The Doorway tool over a doorway used to go amber and open that door's menu
+    // instead of building, which is right about one press and wrong about the
+    // gesture. What it could not see is the second design: a family is the set
+    // of things that swap for a refit, so the moment there were four glazings
+    // the rule read "you are holding a window and pointing at a window,
+    // therefore you want to talk about the one that is there" — and a bay window
+    // aimed at a plain one is the clearest possible statement that you do not.
+    // There was no way whatever to change one window for another, because the
+    // tool that does it was exactly what disqualified the press.
+    //
+    // So an edge with a tool up is an ordinary build target and gets the
+    // ordinary verdict. Pointing at what is already there is the same no-op the
+    // Wall tool over a wall has always been — plain wall is in no family, so
+    // that press has never done anything either and nobody has ever wanted it
+    // to. Editing what stands there is the press with NO tool up: `pickWay` in
+    // `openAtPointer`, one tap, the menu — which is where "and who is it for"
+    // and "and where is the glass" have always lived.
     const verdict = canPlaceEdges(scene.storeLayout, [seg], edgeKind);
     scene.setEdgeGhost([seg], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
     ui.setBuildVerdict(verdict);
@@ -603,7 +670,7 @@ function refreshGhost(force = false) {
   // the ground brush and after the wall tools, which is where it sits in the
   // pointer's own order of questions: a line first, then which side of it, then
   // the square.
-  const finish = pointer.onCanvas ? ui.faceForTool() : undefined;
+  const finish = aiming ? ui.faceForTool() : undefined;
   if (finish !== undefined) {
     const face = scene.pickFace(pointer.x, pointer.y);
     const faces = face ? [face] : [];
@@ -628,7 +695,7 @@ function refreshGhost(force = false) {
   // you whether the ground will take it — the drag then previews the rectangle.
   // `undefined` is "this tool is not a brush"; the empty string is Bare Ground,
   // which is very much a tool.
-  const brush = pointer.onCanvas ? ui.groundForTool() : undefined;
+  const brush = aiming ? ui.groundForTool() : undefined;
   if (brush !== undefined) {
     const cell = scene.pickTile(pointer.x, pointer.y);
     if (!cell) { scene.setFloorGhost(null, null); ui.setBuildVerdict(null); return; }
@@ -654,7 +721,7 @@ function refreshGhost(force = false) {
   // the guard cannot strand a ghost in a build tool's hands.
   if (!dropping()) scene.setFloorGhost(null, null);
 
-  const kind = pointer.onCanvas ? ui.ghostKindForTool() : null;
+  const kind = aiming ? ui.ghostKindForTool() : null;
   if (!kind) {
     if (ghostKey !== null || force) { ghostKey = null; scene.setBuildGhost(null); }
     ui.setBuildVerdict(null);
@@ -726,8 +793,24 @@ function refreshGhost(force = false) {
       if (dropping()) scene.setFloorGhost(null, null);
       return;
     }
-    const aim = pointer.onCanvas && !ui.holding
-      ? scene.pickAim(pointer.x, pointer.y, aimable) : null;
+    // WHAT THE PILL IS ABOUT IS WHAT YOU LAST TAPPED, and on a phone that is the
+    // only thing it is ever about.
+    //
+    // Everything below this line was written for a pointer: a live coordinate
+    // that means "the thing I am looking at right now", re-answered as the hand
+    // moves. A touchscreen has no such coordinate. `pointer` there is the last
+    // place a finger LANDED — a fact about a press that is already over — and
+    // re-raycasting it ten times a second is the shop guessing, every tick,
+    // about a question nobody is asking. Everything that has looked broken here
+    // is that guess arriving at a different answer than the tap did: rows
+    // flickering, buttons swapping, a black chip turning yellow, a marker
+    // appearing on whatever has since walked under the spot.
+    //
+    // So on a phone the tap NAMES a thing (`noteTap`) and the pill is about that
+    // thing until you tap another one. No clocks, no dwell, no second opinion.
+    const aim = pillDrives()
+      ? tappedAim()
+      : (pointer.onCanvas && !ui.holding ? scene.pickAim(pointer.x, pointer.y, aimable) : null);
     // One pile of goods, when that is what is under the pointer — a cage round
     // the bread rather than a frame under the shelf. It is the promise half of
     // board aiming: the tap on it takes THAT board, so it has to be visible
@@ -736,8 +819,13 @@ function refreshGhost(force = false) {
     // own frame, which is still the whole unit and still opens its menu.
     // ...and it stays named for a moment after the pointer leaves it, which is
     // what makes the dwell worth paying for — see `heldBoard`.
-    const held = boardTakes() ? heldBoard(aim) : null;
-    const board = held?.board ?? null;
+    // ...and which PILE, which on a phone is simply the one the tap landed on.
+    // `heldBoard` grades three sources by how recently the pointer was on them,
+    // which is two clocks measuring a hand that is not there.
+    const held = boardTakes() && !pillDrives() ? heldBoard(aim) : null;
+    const board = pillDrives()
+      ? (boardTakes() ? aim?.board ?? null : null)
+      : (held?.board ?? null);
     // The box under the pointer, when a full shoulder has turned it into the
     // square it stands on — see `haulSquare`. Worked out up here because two
     // markers read it: the ring round the crate has to stand down (it would be
@@ -762,6 +850,16 @@ function refreshGhost(force = false) {
     // what the tap actually did, it survives the walk, and it is the thing the
     // pill's rows are about. Same call `setBoardTip` makes just below, for the
     // same reason — see `tipOn`.
+    //
+    // ...and it is the MARKER that is suppressed, never `board` itself, which is
+    // the distinction that made this worth saying twice. The cage is a hover and
+    // the row under the pill is what the tap named, so they are two different
+    // questions about one variable: `pressHints` still gets the board, and only
+    // the thing drawn in the shop is dropped. Turning the marker back on here
+    // reads on a phone as a shelf lighting up on its own — nothing takes it
+    // down, because the only thing that ever took it down was a pointer moving
+    // off, so the last board you tapped keeps its cage through the walk away,
+    // the crate you picked up and everything you did afterwards.
     scene.setAimTarget(
       pillDrives() ? null : ((onPile ? null : aim?.crate) ?? aim?.fixture ?? held?.f ?? null),
       'aim',
@@ -788,7 +886,14 @@ function refreshGhost(force = false) {
     // where it stopped being needed: the same tap puts that pile's verbs on
     // screen, and what it is and what it costs are one press further in, in the
     // unit's own menu.
-    const tipOn = pillDrives() ? null : (aim?.fixture ?? held?.f ?? null);
+    // ...and suppressed while the clock is stopped, which is the one exception to
+    // the paragraph above. The argument for showing it with your hands full is
+    // that you are about to do something with what it names; with the world held
+    // there is nothing to be about to do, and the card is the louder half of the
+    // pair — the cage is a thin box round the bread and this is a panel with the
+    // item, the count and the capacity in it, sitting over a shop that cannot
+    // move. `boardTakes` carries the same clause for the cage.
+    const tipOn = pillDrives() || ui.paused ? null : (aim?.fixture ?? held?.f ?? null);
     ui.setBoardTip(
       shelfById(tipOn?.id),
       (tipOn === held?.f ? held.board : aim?.board) ?? null,
@@ -849,7 +954,12 @@ function refreshGhost(force = false) {
     // every setdown on a phone.
     const aimed = pointer.onCanvas ? scene.pickTile(pointer.x, pointer.y) : null;
     const drop = dropping() && !aim?.fixture && (!aim?.crate || onPile)
-      ? (onPile ?? (pillDrives() ? myTile() : aimed)) : null;
+      // ...and where the pill drives it needs a tap that MEANT the floor.
+      // `myTile` is the answer to "which square", not to "is a square what you
+      // are asking about" — hung on the absence of an aim it lit up whenever
+      // nothing happened to be named, which includes the frame before a tap on a
+      // shelf is recorded and the whole of the time before your first tap.
+      ? (onPile ?? (pillDrives() ? (tapped.ground ? myTile() : null) : aimed)) : null;
     const show = drop && inReachOf(drop);
     if (dropping()) {
       scene.setFloorGhost(show ? [drop] : null, show ? (canDropAt(drop) ? 'ok' : 'no') : null);
@@ -1299,7 +1409,25 @@ function armPut(cx, cy) {
     // the put armed. `ring: false` because there is nothing to wind here yet;
     // what the hold buys is the JOURNEY (see `spin.trek`), and the ring winds on
     // arrival off the errand the walk set, under the button you never let go of.
-    if (!atWorkSpotOf(hit.f)) return { kind: 'walk', f: hit.f, ring: false };
+    //
+    // `nearFixture` and NOT `atWorkSpotOf`, which is what it asked for four
+    // steps and is the looser of the two: a working spot is a tile off the
+    // anchor, so "within REACH of a spot" is up to two and a half tiles from the
+    // unit — while every verb this press ends in measures `REACH` to the unit
+    // itself. Both halves of that are wrong in the hand. Out at the far end of
+    // it the ring wound a full second and the shop then said "too far from that
+    // shelf", which reads as intermittent because the only thing that changed
+    // was where your feet were; and a tile in, it *worked*, which reads as the
+    // shop letting you stock a shelf across a gap you can see.
+    //
+    // So the tighter circle decides, and everything outside it is the walk this
+    // branch already had. That is strictly the better answer to both complaints:
+    // the press that used to be refused a second later now takes you there and
+    // does it, and the press that used to reach across the gap now takes the one
+    // step first. `nearFixture`'s own note says why it is the one to ask — it is
+    // the distance `unshelve` measures, and a press has to ask the question the
+    // verb will.
+    if (!nearFixture(hit.f)) return { kind: 'walk', f: hit.f, ring: false };
     net.send('place', { fixture: hit.f.id });
     // A skip has no boards, so there is no "this pile" to name and no one-unit
     // meaning for a tap: you are either getting rid of what you are carrying or
@@ -2364,18 +2492,11 @@ function endPress(e) {
     scene.setEdgeGhost(null, null);
     ui.setBuildVerdict(null);
     if (drawn) {
-      // A tap with a Doorway tool on a doorway that is already there used to be
-      // a message the server answered `unchanged` — the one press in build mode
-      // that did nothing at all. It opens that door's menu instead, which is
-      // where "and who is it for" lives, and it is the precise way in: this line
-      // was named by `pickEdge` when the press went down, so there is no aiming
-      // left to get wrong. A single segment only — a drag along a wall is a run,
-      // not a question about one door — and only within a family, so the Wall
-      // tool still bricks a doorway up and the bulldozer still knocks it through.
-      if (drawn.segs.length === 1 && sameFamily(scene.storeLayout, start, kind)) {
-        showEdgeMenu(ui, start);
-        return;
-      }
+      // ...and the press keeps what the ghost promised: a tool up builds, and
+      // opening what is already there is the tap with no tool up. See the
+      // paragraph on the ghost in `refreshGhost` for why the two moved together
+      // — an amber bar that opened a menu was the honest half of a rule that
+      // could not tell "the same window" from "a different window".
       if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
       if (drawn.verdict.warn) ui.toast(drawn.verdict.warn);
       // Two ends and a kind, never the list — a long wall would blow past the
@@ -2712,6 +2833,9 @@ function walkTo(spec) {
  * bread", and a second copy kept on this side is one that goes stale the tick
  * somebody takes it off you.
  */
+/** Your own record out of the latest snapshot. One spelling, several readers. */
+const myState = () => latestState?.players?.find((p) => p.id === net.myId) ?? null;
+
 const myCarry = () => latestState?.players
   ?.find((p) => p.id === net.myId)?.carry ?? null;
 
@@ -2764,6 +2888,11 @@ const charging = () => ((latestState?.players
 const shelfById = (id) => (id
   ? latestState?.shelves?.find((s) => s.id === id) ?? null
   : null);
+
+/** How many of that item are actually standing on that unit, right now. */
+const boardQty = (f, board) => (f && board
+  ? shelfById(f.id)?.stacks?.find((k) => k.item_id === board)?.qty ?? 0
+  : 0);
 
 /**
  * Is this thing holding something that standing at it would hand you?
@@ -2826,6 +2955,64 @@ const aimable = (f) => ui.paletteArmed || !isProp(f.kind);
 
 function pickAimed(cx, cy) {
   return scene.pickFixtureHit(cx, cy, aimable);
+}
+
+/**
+ * The thing the last tap named, which is the pill's whole subject on a phone.
+ *
+ * Ids and not records, because a re-flow re-mints every fixture and a crate can
+ * be lifted out from under you — so this is re-resolved every time it is read
+ * (`tappedAim`) and answers null the moment what it names stops existing. Same
+ * rule `setFixtureRef` and `liveBoard` already keep.
+ *
+ * Set in ONE place, by the same two picks the tap itself uses, so the pill can
+ * never be about something other than what the press landed on. That was the
+ * whole bug: the pill was derived from the pointer on every snapshot, so a tap
+ * and the tick after it were two different opinions about one press.
+ */
+let tapped = {
+  crate: null, fixture: null, board: null,
+  // ...and `ground` starts FALSE, which is not the same as "named nothing".
+  // Before the first tap of a session nobody has pointed at anything, and a
+  // green square lit on the floor under you then is the shop offering to put
+  // your crate down because you have not yet said otherwise. It is also what
+  // flashed on the first press at a shelf: the tap had not been recorded yet, so
+  // for one frame the answer was "no fixture", which read as "the floor".
+  ground: false,
+};
+
+function noteTap(cx, cy) {
+  const crate = ui.demolishArmed() ? null : aimCrate(cx, cy);
+  const hit = pickAimed(cx, cy);
+  // Same precedence the tap itself reads them in — a crate at the bay can sit on
+  // the same screen space as the shelving behind it, and the crate is in front.
+  if (crate && (!hit || crate.dist <= hit.dist)) tapped = { crate: crate.id, fixture: null, board: null, ground: false };
+  else if (hit?.f) tapped = { crate: null, fixture: hit.f.id, board: hit.board ?? null, ground: false };
+  // Nothing there: the tap named the FLOOR, which is its own answer rather than
+  // the absence of one. It is what arms the green square — see `drop`.
+  else tapped = { crate: null, fixture: null, board: null, ground: true };
+}
+
+/** ...resolved against the shop as it is now, in `pickAim`'s own shape. */
+function tappedAim() {
+  if (tapped.crate) {
+    const c = (ui.state?.deliveries ?? []).find((d) => d.id === tapped.crate);
+    if (c) {
+      const x = Math.round(c.x);
+      const z = Math.round(c.z);
+      const pile = (ui.state?.deliveries ?? []).filter((d) => Math.round(d.x) === x && Math.round(d.z) === z);
+      return { crate: { ...c, stacked: pile.length > 1 }, fixture: null, board: null };
+    }
+    tapped = { crate: null, fixture: null, board: null, ground: false };
+    return null;
+  }
+  const f = tapped.fixture ? scene.fixtureById(tapped.fixture) : null;
+  if (!f) return null;
+  // The pile only survives while it is still on that unit — a board that sells
+  // out takes its own rows with it rather than offering a press that would miss.
+  const board = tapped.board
+    && shelfById(f.id)?.stacks?.some((k) => k.item_id === tapped.board) ? tapped.board : null;
+  return { crate: null, fixture: f, board };
 }
 
 function pickTarget(cx, cy) {
@@ -2904,7 +3091,25 @@ function pickWay(cx, cy, blocked = false) {
  * Written once and asked by all three of hover, press and tap, or the highlight
  * would offer something the press then did differently.
  */
-const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed();
+/**
+ * ...and **a stopped clock is the fourth**, which is the only one of the four
+ * that is not about what you are holding.
+ *
+ * A pile is a target because a press on it takes stock off it, and while the
+ * world is held there is no such press: the pill has no rows (`pressHints`) and
+ * the ring cannot wind. So what was left of board aiming in a paused shop was
+ * the *pointing* — a cage round the bread and a card naming it, a highlight
+ * whose whole meaning is "press here", over a shop that will not answer. That is
+ * the green-ghost bug with the world stopped: the shop advertising a press it
+ * has no way to make good on.
+ *
+ * The unit is untouched and that is the line: selecting a shelf, opening its
+ * menu, reading what is on it and what it costs are all things a paused shop
+ * does perfectly well, and they are most of what stopping the clock is for. What
+ * goes is naming one pile *on* it, because naming a pile is the first half of
+ * taking from it and there is no second half.
+ */
+const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed() && !ui.paused;
 
 /**
  * A TAP IS A QUESTION HERE, NOT A VERB.
@@ -2958,6 +3163,33 @@ const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed();
  * board it is aimed at had ripened, and the pull would take from nothing.
  */
 const BOARD_DWELL_MS = 240;
+
+/**
+ * ...and it is ZERO where the pill drives, which is the whole of the touch fix.
+ *
+ * A dwell is a hover with a clock on it, and a touchscreen has neither half. The
+ * pointer is the last place a finger LANDED, so the clock starts on a tap that
+ * is already over: the board ripens a quarter of a second afterwards, with the
+ * hand long gone, and the stick underneath it lapses `BOARD_STICK_MS` later. So
+ * a stocked unit's rows go "Open it", then "Take one / Crate the lot / Open it",
+ * then back, about once a second, for as long as you look at it — buttons
+ * appearing and disappearing under a thumb that has not moved. That is the
+ * cycling, and it is one number.
+ *
+ * Zero rather than switched off, and the difference is the bug I put in trying
+ * the other way. `ripeBoard` is what a press asks, and it answers "picked
+ * already, or ripe" — so a dwell that can never ripen means a tap can never pick,
+ * and a tap that can never pick means nothing is ever picked. First tap named
+ * nothing, and so did every tap after it: a stocked shelf with no way to take
+ * anything off it. Ripening instantly closes that loop rather than cutting it —
+ * the tap names the board, `pickBoard` writes it to `pick`, and `pick` has no
+ * deadline, so nothing has a clock on it from that moment on.
+ *
+ * What the delay is FOR is a pointer sweeping across an aisle on its way
+ * somewhere else, which is a thing that only happens when there is a pointer
+ * between presses. There isn't one here.
+ */
+const dwellFor = () => (pillDrives() ? 0 : BOARD_DWELL_MS);
 
 /**
  * The board the pointer has settled on, or null while it is still moving.
@@ -3094,7 +3326,12 @@ function dropOnLeaving() {
     drop();
     return null;
   };
-  been.fixture = step(ui.fixtureRef?.id ?? null, been.fixture, () => ui.setFixtureRef(null));
+  been.fixture = step(ui.fixtureRef?.id ?? null, been.fixture, () => {
+    ui.setFixtureRef(null);
+    // ...and what the pill is about goes with it, or you walk away from a unit
+    // and its rows follow you across the shop. One subject, dropped once.
+    if (tapped.fixture) tapped = { crate: null, fixture: null, board: null, ground: false };
+  });
   been.pick = step(pick.id, been.pick, () => ui.dropBoardPick());
 }
 
@@ -3124,20 +3361,6 @@ ui.dropBoardPick = (dry = false) => {
  * at the mark, so the cage appears under a hand that has not moved.
  */
 function settledBoard(f, board) {
-  // A DWELL IS A HOVER WITH A CLOCK ON IT, and both halves are missing here.
-  //
-  // Everything below measures how long the pointer has rested on one pile, and
-  // where the pill drives there is no resting: the pointer is the last place a
-  // finger touched, so the clock starts on the tap, ripens 240ms later with the
-  // hand long gone, and then never expires because nothing ever moves off. What
-  // it draws is a cage that appears by itself a moment after an unrelated press,
-  // on whichever pile happened to be under that spot.
-  //
-  // Nothing is lost by refusing: what a dwell buys is naming a board WITHOUT
-  // pressing it, and a tap already names one outright (`pickBoard`, off
-  // `pickAim`). The pointer was always the better instrument than the menu here
-  // — see `tapAtPointer` — and on a phone the tap is the whole of it.
-  if (pillDrives()) return null;
   const key = f && board ? `${f.id}:${board}` : null;
   // A null aim does NOT restart the clock, and that is the whole of what keeps
   // this usable after you have actually taken something.
@@ -3160,7 +3383,7 @@ function settledBoard(f, board) {
     dwell = {
       key,
       at: performance.now(),
-      timer: key ? setTimeout(() => { dwell.timer = null; refreshGhost(true); }, BOARD_DWELL_MS) : null,
+      timer: key ? setTimeout(() => { dwell.timer = null; refreshGhost(true); }, dwellFor()) : null,
     };
   }
   const ripe = ripeBoard(f, board);
@@ -3261,8 +3484,22 @@ function ripeBoard(f, board) {
   // ripening the ordinary way and a PRESS is what moves the selection. The pick
   // is where the marker rests, not a lock on the pointer.
   if (pick.id === f.id && pick.board === board) return board;
+  // Where the pill drives, a named board is already a deliberate one.
+  //
+  // The dwell below is a filter on a POINTER: it exists so that sweeping across
+  // an aisle does not name every pile on the way, and its whole premise is that
+  // the aim moves without anybody deciding anything. On a phone the aim only
+  // ever comes from `noteTap` — a press that landed on that pile — so there is
+  // nothing to filter, and asking for a dwell on top means asking a finger to
+  // hold still on a target it has already left.
+  //
+  // This is also the gate the board ROWS are behind, which is why leaving it out
+  // read as "I can't pick individual items off a shelf any more": the tap named
+  // the bread perfectly well and every reader after it refused to believe the
+  // name, because no clock had ticked.
+  if (pillDrives()) return board;
   if (dwell.key !== `${f.id}:${board}`) return null;
-  return performance.now() - dwell.at >= BOARD_DWELL_MS ? board : null;
+  return performance.now() - dwell.at >= dwellFor() ? board : null;
 }
 
 /**
@@ -3302,6 +3539,21 @@ function pressHints({ aim, board, onPile, drop }) {
   // and `boardTakes` already make, and for the same reason: with a bar up, the
   // pointer belongs to the bar.
   if (ui.paletteArmed || ui.holding || ui.demolishArmed()) return [];
+  // ...and a stopped clock is the fourth, for the reason the other three are:
+  // every sentence in here is a press this pill promises will do something, and
+  // while the world is held not one of them can. A walk has legs and a hold is a
+  // ring, and both are spent in `stepActions` — so "Set the crate down here" over
+  // a paused shop is a button that takes the press, lights up, fills nothing and
+  // hands back a shop that has not moved, which is exactly what a game that has
+  // crashed looks like.
+  //
+  // Gone rather than greyed, which is the call the three above already make: a
+  // disabled row is still a row you read, and there is nothing to decide between
+  // while the answer to all of them is the same. The reason is not dropped, it
+  // moves to where it is asked for — press anything anyway and the shop says so
+  // (`ShopRoom.frozen`), which is a sentence at the moment you wanted one rather
+  // than a caption you have been scrolling past all along.
+  if (ui.paused) return [];
   const out = [];
   // `tag` is what makes the press something other than a click — the length of
   // it (`hold`) or the number of them (`twice`). It is a word rather than a
@@ -3398,7 +3650,13 @@ function pressHints({ aim, board, onPile, drop }) {
     // one really does go on a single press, either down `armPut`'s `walk` (which
     // carries the direction, so you arrive with the put armed) or, empty-handed,
     // down its own ladder to the plain walk at the tail of `pointerup`.
-    if (!nearFixture(f) && !atWorkSpotOf(f)) {
+    // `nearFixture` alone, which is the circle every verb behind these rows
+    // measures and the one `armPut` decides on. It used to also allow the
+    // working-spot circle, which is a tile wider — so out in the band between
+    // them the pill printed "Put one on" over a press that is a walk, and over a
+    // `shelf-one` the shop refuses by half a tile. A hint that offers a press
+    // the shop then turns down is the green-ghost bug with words on it.
+    if (!nearFixture(f)) {
       // ONE ROW WHERE THERE IS ONE BUTTON. The three below are three different
       // presses on two mouse buttons — select, double-press to walk, right-press
       // to walk carrying — and with a single pointer they collapse into the only
@@ -3529,7 +3787,15 @@ function pressHints({ aim, board, onPile, drop }) {
     }
     // A board the pointer has settled on. `boardTakes` is the same test the
     // press asks, so the cage round the pile, the tap and this line agree.
-    if (ripeBoard(f, board) && boardTakes()) {
+    // ...and there has to be something ON it. A board keeps its row at zero —
+    // that is what a unit ticked for an item IS, an empty board with a name and a
+    // price on it — so "is this pile named" and "is there anything in it" are two
+    // questions, and only the first was being asked. Crate the lot, and the board
+    // it emptied went on offering to be crated: the rows do not move, because the
+    // stack is still there, holding nothing. On a desktop the pointer re-derives
+    // and it self-corrects; where the tap is the aim it just sits there being
+    // wrong.
+    if (ripeBoard(f, board) && boardTakes() && boardQty(f, board) > 0) {
       add('l', null, 'Take one', () => {
         pickBoard(f, board);
         net.send('shelf-one', { shelfId: f.id, itemId: board });
@@ -3552,7 +3818,47 @@ function pressHints({ aim, board, onPile, drop }) {
       if (pillDrives()) add('l', null, 'Open it', () => openInTwo(f, { open: true }));
       else add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it', () => openInTwo(f));
     }
-    if (carry || haul) {
+    // ...FROM THE WORKING SPOT, which is a different distance to the one that got
+    // us into this branch.
+    //
+    // `Game.aimAt` measures `atFixture` — the side you work the unit from — and
+    // it refuses out of reach **silently** (`ok({ at: null })`), on the reasoning
+    // that it used to be driven by a hovering pointer and a red toast for moving
+    // the mouse is worse than nothing. That reasoning is dead now: the row is a
+    // BUTTON, and a button whose whole answer is nothing at all is a button that
+    // reads as broken. Near the unit but off its side, "Stock it" armed no
+    // errand, the ring wound on the ground under your feet instead, and the crate
+    // stayed on your shoulder.
+    //
+    // So the rows ask the same question the verb does. `atWorkSpotOf` is the
+    // client's copy of `atFixture`, which is what makes this a promise the shop
+    // can keep — the rule CLAUDE.md states about `nearFixture` versus
+    // `inReachOf` versus `atWorkSpotOf` being three different questions.
+    // ...AND ONLY WHERE THE GOODS WOULD ACTUALLY GO, which the chevrons have
+    // known all along and this list did not ask.
+    //
+    // `takers` is the shop's own answer to "which units would have what you are
+    // holding" — the same list `syncTakers` lights the green arrows from. A unit
+    // with no arrow on it is a unit that will refuse you, and the pill was
+    // offering "Put one on" and "Stock it" on it anyway: the marker and the
+    // button, drawn from the same frame, disagreeing about the same press. That
+    // is the green-ghost rule exactly, with the ghost being the absence of one.
+    //
+    // Read off the player rather than re-derived, or this becomes the second
+    // opinion the whole of `pressHints` is written not to be — the arrows would
+    // say one thing and the rows another, and which was right would depend on
+    // which copy of the rule somebody last edited.
+    const wanted = (myState()?.takers ?? []).includes(f.id);
+    if ((carry || haul) && !wanted) {
+      // No rows at all rather than a refusal: a unit that cannot take these
+      // goods is not a thing you got wrong, it is a thing the shop is telling you
+      // about by not lighting it. The menu is still one press away.
+    } else if ((carry || haul) && !nearFixture(f)) {
+      // Not a dead end: the walk carries the direction with it, so one press
+      // still ends with the goods going on. Same row the out-of-reach branch
+      // above offers, said one tile closer.
+      add('r', null, 'Take it there', () => walkTo({ fixture: f.id, put: true }));
+    } else if (carry || haul) {
       add('r', null, 'Put one on', () => {
         const itemId = ripeBoard(f, board);
         pickBoard(f, itemId);
@@ -3638,6 +3944,25 @@ function openInTwo(f, { walk = false, open = false } = {}) {
     if (!ui.isSelected(f)) ui.selectFixture(f);
     scene.ripple(f.x, f.z, 'miss');
     showFixture(ui, f);
+    return;
+  }
+  // ...and where the pill drives, a tap on the world ONLY EVER PICKS.
+  //
+  // The ladder exists because a mouse has one button and three things to say
+  // with it: which unit, open it, go to it. The pill answers two of those with
+  // chips of their own — "Open it" and "Go there" — so the second press is a
+  // meaning nobody needs and nobody can see: tapping the same shelf twice threw
+  // a panel over the shop, and tapping it a third time took it away again, which
+  // from a finger is one gesture that does three different things depending on
+  // history you cannot read off the screen.
+  //
+  // Selecting stays, because it is what the pill is ABOUT. This is the same
+  // trade the out-of-reach branch of `pressHints` already made when it dropped
+  // its "Select it" row: on a phone the tap is the selection, and every verb is
+  // a button.
+  if (pillDrives()) {
+    if (!ui.isSelected(f)) ui.selectFixture(f);
+    scene.ripple(f.x, f.z, 'miss');
     return;
   }
   const now = performance.now();
@@ -3790,6 +4115,9 @@ function openAtPointer(cx, cy) {
  * turned the mode on to do.
  */
 function tapAtPointer(cx, cy) {
+  // First, and unconditionally: a press names a thing, and everything the pill
+  // says from here until the next press is about that thing. See `noteTap`.
+  if (pillDrives()) noteTap(cx, cy);
   const kind = ui.ghostKindForTool();
 
   if (!kind && !ui.holding) {
@@ -3992,6 +4320,18 @@ function tapAtPointer(cx, cy) {
       // different things depending on where you were standing.
       if (ripeBoard(hit?.f, hit?.board) && boardTakes()) {
         pickBoard(over, hit.board);
+        // ...and the UNIT it stands on, where the pill drives. A pile is not a
+        // target the pill can be about on its own: `pressHints` asks the aim for
+        // a fixture and falls back to the selection, and a board tap used to set
+        // neither — it named the pile and nothing else, which was invisible while
+        // a stale pointer kept the aim alive on a device that has no hover to
+        // stale. With that gone the rows appeared on the tap and emptied on the
+        // very next snapshot, because there was nothing left to be about.
+        //
+        // `selectFixture` and not `openInTwo`: this press has already said what
+        // it meant by landing on the bread, so it must not also climb the
+        // select-then-open ladder and put a panel over the shop.
+        if (pillDrives() && !ui.isSelected(over)) ui.selectFixture(over);
         scene.ripple(over.x, over.z);
         // Standing at it, the tap NAMES the pile and stops — `pickBoard` above
         // is the whole of what it does, and that selection is what keeps the

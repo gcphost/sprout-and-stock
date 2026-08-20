@@ -157,17 +157,15 @@ const kindFor = (family, choice) => (family === 'window'
 /** Is there anything to open here at all? Asked by the hover and by the press. */
 export const hasEdgeMenu = (L, at) => !!(L && at && edgeFamily(kindAt(L, at)));
 
-/**
- * Is the tool you are holding the same FAMILY as what is already on this line?
- *
- * The test behind "tapping a doorway with the Doorway tool opens it rather than
- * rebuilding it", and it works for a window and the Shopfront tool too. By family
- * rather than by kind, or the tool would only open the plain one and bounce off
- * anything you had already changed — and deliberately not by "is it an edge at
- * all", or the Wall tool would open windows instead of bricking them up.
+/*
+ * `sameFamily` lived here and is gone: it answered "is the tool you are holding
+ * the same family as what is on this line", which was the test behind a tap with
+ * the Doorway tool opening a doorway rather than rebuilding it. A family is the
+ * set of things that swap for a refit, so with four glazings in the bar it read
+ * a bay window aimed at a plain one as a question about the plain one — and a
+ * tool aimed at a piece is the one moment you are certainly not asking. A tool
+ * up builds now, and the menu is the press with no tool up.
  */
-export const sameFamily = (L, at, kind) => hasEdgeMenu(L, at)
-  && !!edgeFamily(kind) && edgeFamily(kind) === edgeFamily(kindAt(L, at));
 
 /**
  * Open the menu for one edge.
