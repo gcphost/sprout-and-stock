@@ -3014,6 +3014,20 @@
       padding-bottom: 5px; border-bottom: 1px solid var(--line);
     }
     #build-groups { display: flex; gap: 3px; }
+    /* `margin-left: auto` and not `flex: 1` on anything else: the tabs above are
+       deliberately content-width, so the free space in this row is space — and an
+       auto margin claims it without any other cell having to know this button
+       exists. Sized like a tab so the row keeps one height. */
+    #build-close {
+      margin-left: auto; border: 0; background: none; color: inherit;
+      font: inherit; font-size: 14px; line-height: 1; cursor: pointer;
+      opacity: .5; padding: 5px 7px; border-radius: 7px;
+      transition: background .12s, opacity .12s;
+    }
+    #build-close:hover { opacity: 1; background: rgba(58,49,40,.11); }
+    #build-close:active { background: rgba(58,49,40,.2); }
+    #build-close:focus { outline: none; }
+    #build-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     /* NOT `flex: 1`. Five tabs stretched across `#build-bar`'s full width is most
        of why this bar read as enormous: the row was a wall of empty gradient, and
        each tab was a 190px target for a 15px glyph. Content width — the row is as
@@ -4189,6 +4203,12 @@
       }
       .rail-btn .ico { font-size: 22px; }
       .rail-btn .kb { display: none; }
+      /* ...and every other key cap with it. The rail hid its own the day the nav
+         became a phone toolbar; the fixture menu's verbs (M, R) and the tip's
+         cap were written later and inherited nothing, so they went on printing a
+         key at a hand that has none. One rule for all of them, under the width
+         that decides the whole grammar (`pillDrives`). */
+      .fx-verb .kb, #tip .key { display: none; }
 
       /* The front door has always been `min(440px, 100%)`, so the only things
          between it and the edges are the screen's own padding and a title sized
@@ -4305,6 +4325,15 @@
       <div id="build-nav">
         <div id="build-groups"></div>
         <div id="build-subs" hidden></div>
+        <!-- The way out. B and Escape are the way out on a desktop and neither
+             is a key a phone has, which left the rail's own Build button as the
+             only exit — a control on the far side of the screen from the bar you
+             are trying to close, that you have to know toggles rather than
+             opens. Same glyph and the same corner as `#panel-close`, because it
+             is the same sentence: this thing is up, and this is how it stops
+             being up. -->
+        <button id="build-close" type="button" title="Done building (B)"
+          aria-label="Done building">✕</button>
       </div>
       <div id="build-strip">
         <div id="build-tools"></div>

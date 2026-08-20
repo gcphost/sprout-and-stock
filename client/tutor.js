@@ -1021,7 +1021,14 @@ export class Tutor {
     this.live(null);
     if (this.guest) write(GUEST_KEY, '1');
     else if (this.world) { addTo(DONE_KEY, this.world); dropFrom(NEW_KEY, this.world); }
-    if (why === 'done') this.ui.toast('Tutorial finished — press / for the key list');
+    // The key list is a keyboard thing, so it is not offered to a hand that has
+    // no keyboard — the same rule the rail's key caps and the shut-shop chip
+    // keep. What is left is the half that is true either way.
+    if (why === 'done') {
+      this.ui.toast(pillDrives()
+        ? 'Tutorial finished — have at it'
+        : 'Tutorial finished — press / for the key list');
+    }
   }
 
   // -- the script -----------------------------------------------------------

@@ -317,6 +317,7 @@ export class UI {
       buildOn: document.getElementById('build-on'),
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
+      buildClose: document.getElementById('build-close'),
       rotate: document.getElementById('rotbtn'),
       prompt: document.getElementById('prompt'),
       rail: document.getElementById('rail'),
@@ -346,6 +347,12 @@ export class UI {
     this.watchTopLeft();
     this.el.shutter.onclick = () => this.setOpen(!this.shopOpen);
     this.el.clock.onclick = () => this.setPaused(!this.paused);
+    // Out of build mode, from the bar itself. `showBar(null)` and not
+    // `toggleBuild(false)`, because those are two different exits and this one is
+    // the bar's: putting the strip away disarms the tool and leaves the mode with
+    // it (see `showBar`), which is exactly what the rail's own Build button does
+    // — so the two ways out cannot end up meaning different things.
+    this.el.buildClose.onclick = () => this.showBar(null);
     // The touch quarter-turn. Same call R makes, so the pin that stops the
     // auto-facing arguing with you comes along with it — see `rotateBuild`.
     this.el.rotate.innerHTML = ICONS.rotate;
@@ -2861,7 +2868,12 @@ export class UI {
       // from the sign and from a key that a phone does not have. A chip that
       // names the key and cannot be pressed is a to-do you can only read.
       out.push({
-        icon: 'shop', hot: true, text: 'The shop is <b>shut</b> — open up (O)',
+        // The key is dropped where there is no keyboard to press it on. It is
+        // the same call the rail makes about its own key caps (`.kb`, hidden
+        // under the same width) — a shortcut printed at somebody holding a phone
+        // is a line of the sentence that cannot be acted on, and this chip is
+        // the one that is up at the moment somebody has least idea what to do.
+        icon: 'shop', hot: true, text: `The shop is <b>shut</b> — open up${pillDrives() ? '' : ' (O)'}`,
         run: () => this.setOpen(true),
       });
     }
@@ -3011,7 +3023,8 @@ export class UI {
     // shutters wide open. Two marks for one state have to be read off one field.
     document.body.classList.toggle('shut', !state.isOpen);
     document.body.classList.toggle('held', this.paused);
-    this.el.clock.title = this.paused ? 'Start the clock (Space)' : 'Stop the clock (Space)';
+    const spc = pillDrives() ? '' : ' (Space)';
+    this.el.clock.title = this.paused ? `Start the clock${spc}` : `Stop the clock${spc}`;
     // Named as well as drawn: the button's words are an hour, which says nothing
     // about what pressing it does — the same reason `#sign` beside it carries an
     // explicit label rather than leaning on `tip.harvest`.
@@ -3022,7 +3035,8 @@ export class UI {
     this.el.clockPP.innerHTML = this.paused ? ICONS.play : ICONS.pause;
 
     this.el.shutter.classList.toggle('shut', !this.shopOpen);
-    this.el.shutter.title = this.shopOpen ? 'Close the shop (O)' : 'Open the shop (O)';
+    const oKey = pillDrives() ? '' : ' (O)';
+    this.el.shutter.title = this.shopOpen ? `Close the shop${oKey}` : `Open the shop${oKey}`;
     // The button's own words are the day and the balance, which say nothing
     // about what pressing it does — so unlike every icon-only control in here,
     // this one has to be labelled explicitly rather than by `tip.harvest`.
