@@ -275,6 +275,10 @@ net.on('state', (m) => {
   const at = ui.me();
   const stirring = at && wasAt && (Math.abs(at.x - wasAt.x) > 0.001 || Math.abs(at.z - wasAt.z) > 0.001);
   wasAt = at ? { x: at.x, z: at.z } : null;
+  // ...and the things a finger has no way to let go of, once you have walked off
+  // and stopped somewhere else. See `dropOnLeaving`. Before the hints, so the
+  // pill is not still offering rows about a unit that has just been dropped.
+  if (pillDrives() && !stirring) dropOnLeaving();
   if (!ui.buildOn && !stirring) refreshGhost(true);
   // ...and the tour, which is nothing but a predicate over this snapshot. After
   // `ui.update` on purpose: every step asks a question about the UI as well as
@@ -2965,6 +2969,39 @@ let pick = { id: null, board: null };
 /** A press landed on a pile: that is the one, until something says otherwise. */
 function pickBoard(f, board) {
   if (f && board) pick = { id: f.id, board };
+}
+
+/**
+ * Walking away is how you let go of things, where nothing else can be.
+ *
+ * A selection and a picked pile are both deliberately *sticky* — pointing
+ * somewhere else does not drop them, because they are a decision rather than an
+ * aim, and re-making that decision every time your hand wanders is the thing
+ * they exist to stop. What lets go of them on a desktop is Escape, a click on
+ * bare floor, or a press on something else, and the first two are the ones that
+ * do it without naming a replacement.
+ *
+ * A phone has neither. There is no Escape key, the floor under the pill is where
+ * the verbs are rather than somewhere to tap, and `pick` is documented as being
+ * released by "Escape, a different pile, or the pile ceasing to exist" — a list
+ * with nothing on it a finger can do. So a shelf you stocked stays ringed and
+ * the pill goes on being about it while you stand at the other end of the shop,
+ * which reads as the shop having got stuck on a thing you finished with.
+ *
+ * Distance is the one thing left that says "done with that" without needing a
+ * gesture, and it is what the player already means: you selected a unit, worked
+ * it, and left. **Only once you have STOPPED**, or a walk that passes out of
+ * reach on the way to the far side of the same unit would drop the very thing it
+ * is walking to — and only where the pill drives, because a desktop has three
+ * ways to say this already and none of them is "stand somewhere else".
+ */
+function dropOnLeaving() {
+  const done = (id) => {
+    const f = id ? scene.fixtureById(id) : null;
+    return !f || (!nearFixture(f) && !atWorkSpotOf(f));
+  };
+  if (ui.fixtureRef && done(ui.fixtureRef.id)) ui.setFixtureRef(null);
+  if (pick.id && done(pick.id)) ui.dropBoardPick();
 }
 
 /**
