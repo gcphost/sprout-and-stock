@@ -1217,15 +1217,25 @@ function makeStation(id, station, x, z, rot) {
     rot,
     // Where a worker stands to load and empty it.
     useAt: anchorTile(x, z, rot),
+    // One bin, shared by every head — see `Game.stationHopperCap` for why a
+    // hopper per head is the wrong answer.
     contents: {},
-    busyUntil: 0,
-    making: null,
-    output: null,
-    // Which of its recipes this machine is set to. Null means nobody has said,
-    // which reads as the first one it knows — see `Game.stationRecipe`. A
-    // decision, the way a shelf's `assigned` is, and it survives the same two
-    // things: a re-flow (`carryOver`) and a restart (`persist`).
-    recipe: null,
+    /**
+     * The heads. One per recipe this machine may be set to at once, which is
+     * `lines` on its tier and is 1 on every rung ever authored.
+     *
+     * `recipe` null means nobody has said, which on the first head reads as the
+     * first recipe it knows — see `Game.stationRecipes`. A decision, the way a
+     * shelf's `assigned` is, and it survives the same two things: a re-flow
+     * (`carryOver`) and a restart (`persist`).
+     *
+     * A record from before there were heads carries `recipe`, `making`,
+     * `startedAt`, `busyUntil` and `output` loose on itself, and `stationSlots`
+     * reads those as one head rather than migrating them.
+     */
+    lines: [{
+      recipe: null, making: null, startedAt: 0, busyUntil: 0, output: null,
+    }],
   };
 }
 

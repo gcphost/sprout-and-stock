@@ -7,7 +7,7 @@
  */
 
 import { variantsOf } from '../shared/model.js';
-import { fixtureLabel, pieceFor, kindOf } from '../shared/pieces.js';
+import { fixtureLabel, pieceFor, kindOf, openOf } from '../shared/pieces.js';
 import { spotsOf } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel, weekdayLabel } from '../shared/clock.js';
@@ -117,15 +117,6 @@ function keyCap(key) {
   el.textContent = key;
   return el;
 }
-
-/**
- * How long "tap again to hire" stays armed.
- *
- * The same window `FIRE_ARM_MS` gives Let go in the worker menu, on purpose:
- * they are the two ends of one irreversible decision, and two different waits
- * for the same kind of confirm is a UI you have to learn twice. See `armHire`.
- */
-const HIRE_ARM_MS = 4000;
 
 /**
  * Split a section's rows into tabbed groups, or null if it isn't tabbed.
@@ -311,9 +302,6 @@ export class UI {
     // start of the list. Only the build bar has any.
     this.barSub = {};
     this.bar = null;
-    // The kind whose tile is asking a second time, and its timer — see `armHire`.
-    this.hireArm = null;
-    this.hireArmAt = null;
     this.el = {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
@@ -1322,52 +1310,46 @@ export class UI {
    * question anybody has about an upgrade — so the roster is what is left.
    */
   openBarEntry(it) {
-    if (it.hire) { this.disarmHire(); return showWorker(this, it.hire); }
-    if (it.kind) return this.armHire(it.kind);
-    this.disarmHire();
+    if (it.hire) return showWorker(this, it.hire);
+    // A kind of person is the one tile in the game whose press spends money with
+    // nothing in between, so a tap does not do it — see `holdBarEntry`. Saying
+    // so is the whole of what the tap is for now: silence would read as a dead
+    // button, which is the state this is meant to prevent, not create.
+    if (it.kind) {
+      this.toast(`Hold to take on ${it.name}.`);
+      return undefined;
+    }
     return undefined;
   }
 
   /**
-   * Taking somebody on asks twice.
+   * TAKING SOMEBODY ON IS A HOLD.
    *
    * Every other tile in this game either opens something or places something you
    * can sell back. A hire does neither: it is the one press in the UI that spends
    * money with no menu in between and nothing to undo it — letting them go
    * refunds nothing — so the cost of a mis-tap is a wage charged again every
    * morning until you notice. It is also the easiest mis-tap there is, because
-   * the tiles sit where the roster's tiles sit and one of those opens a card.
+   * these tiles sit exactly where the roster's tiles sit, and one of those opens
+   * a card.
    *
-   * The same shape `FIRE_ARM_MS` uses in the worker menu, said about the other
-   * end of the same decision, and it borrows its window so the two halves of
-   * "this is the irreversible one" behave alike.
+   * It asked TWICE for four steps — tap to arm, tap again inside four seconds —
+   * and a hold is the same protection with none of the state. What two taps cost
+   * is a mode: the strip had to redraw to say it was armed, the arm had to
+   * expire on a timer, it had to be cleared by pressing anything else and by the
+   * bar going away (an arm outliving the strip it was drawn on fires on whatever
+   * tile comes back in that slot), and a rebuild under your finger on a
+   * touchscreen could land the second tap on a fresh copy of the first tile. A
+   * hold is one press that cannot be made by accident, it says so while you make
+   * it (`.tool.holding` fills), and there is nothing left armed afterwards.
    *
-   * Armed on the TILE rather than through a dialog: the tile is the target your
-   * finger is already on, and a confirm box somewhere else is a second thing to
-   * hit. It disarms on a timer, on pressing anything else in the bar, and on the
-   * bar going away — an arm that outlived the strip it was drawn on would fire
-   * on whatever tile came back in that slot.
+   * The same gesture the palette already uses for a shape card, which is why it
+   * costs `bar.js` one callback rather than a mechanism: a hold is what a tile
+   * does when a tap is not enough of a question.
    */
-  armHire(kind) {
-    if (this.hireArm === kind) {
-      this.disarmHire();
-      return this.net.send('hire', { kind });
-    }
-    // Cleared without a redraw, because the line under it draws anyway: two
-    // renders of one strip is the tile you are pressing rebuilt under your
-    // finger, which on touch is a press that can land on the second copy.
-    if (this.hireArmAt) clearTimeout(this.hireArmAt);
-    this.hireArm = kind;
-    this.hireArmAt = setTimeout(() => { this.disarmHire(); }, HIRE_ARM_MS);
-    return this.renderHotbar();
-  }
-
-  /** Forget an armed hire, and redraw only if there was one. */
-  disarmHire() {
-    if (this.hireArmAt) { clearTimeout(this.hireArmAt); this.hireArmAt = null; }
-    if (!this.hireArm) return undefined;
-    this.hireArm = null;
-    return this.renderHotbar();
+  holdBarEntry(it) {
+    if (!it?.kind) return undefined;
+    return this.net.send('hire', { kind: it.kind });
   }
 
   /**
@@ -1463,6 +1445,7 @@ export class UI {
       choice: null,
       onTab: (id) => { this.barTab[this.bar] = id; this.renderHotbar(); },
       onPick,
+      onHold: (it) => this.holdBarEntry(it),
     });
     this.barTab[this.bar] = group?.id ?? null;
     this.renderBuildHint();
@@ -1524,10 +1507,11 @@ export class UI {
     // A fixture menu is the exception. It is about something standing in the
     // world and outlives every bar on purpose: opening the palette to move the
     // shelf you were just reading about must not close what you were reading.
-    // ...and an armed hire goes with it, for the reason `disarmTool` above does:
-    // an arm that outlived the strip it was drawn on would fire on whatever tile
-    // came back in that slot.
-    if (this.hireArm) { clearTimeout(this.hireArmAt); this.hireArmAt = null; this.hireArm = null; }
+    // There is no armed hire to clear here any more: taking somebody on is a
+    // hold (`holdBarEntry`), which begins and ends inside one press, so nothing
+    // survives the strip it was drawn on. That was the whole cost of asking
+    // twice — an arm is a mode, and every mode needs a list of places to clear
+    // it, of which this was one.
     if (this.openPanel === 'worker') this.closePanel();
     this.bar = which;
     this.rail.setBar(which);
@@ -3024,7 +3008,7 @@ export class UI {
     if (!f) return [];
     return spotsOf(f, {
       layout: this.scene?.storeLayout ?? null,
-      open: pieceFor(this.catalog?.fixtures ?? [], f)?.open === true,
+      open: openOf(this.catalog?.fixtures ?? [], f),
     });
   }
 

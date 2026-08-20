@@ -48,7 +48,7 @@ import {
   shelfKind, holdsGoods, isPaint, faceKey, faceRun, canPaintFaces,
 } from '../../shared/build.js';
 import {
-  pieceFor, kindOf, defaultPiece, countKey, boardsOf, fixtureLabel,
+  pieceFor, kindOf, defaultPiece, countKey, boardsOf, openOf, fixtureLabel,
 } from '../../shared/pieces.js';
 import {
   LOT_KINDS, lotStacks, lotTotal, lotQty, lotHas, lotMain, lotRoom,
@@ -73,17 +73,33 @@ export const CLOSE_HOUR = 20;
  *
  * Beginning before opening is the ritual instead: you turn up, and the day
  * starts when you raise them. Be honest about what it buys, though — the night
- * runs at `NIGHT_SPEED`, so those two hours are about **five real seconds**.
+ * runs at `NIGHT_SPEED`, so those two hours are about **ten real seconds**.
  * It is a frame, not a prep window. The 08:00 line in `step` and the shutter
  * pulse in the HUD are what actually say the shop is shut.
  */
 export const PREP_HOUR = 6;
 /**
- * How much faster the world turns once the shop is shut. The twelve closed
- * hours are 180 real seconds at 1×; at 6× they are 30, which is long enough to
- * put a delivery away and short enough that nobody waits out the sunrise.
+ * How much faster the world turns once the shop is shut.
+ *
+ * The twelve closed hours are 180 real seconds at 1×. At 6× they were 30, and
+ * what 30 seconds of dark actually reads as is a cut rather than a night: the
+ * clock spins, the light swings round, and a shop you are standing in the
+ * middle of restocking hurries you out of it. The hours the shutters are down
+ * are the ones you rearrange the place in — every build verb, the whole
+ * palette, the yard — and none of that is quicker for the sun coming up faster.
+ *
+ * At 3× they are 60, which keeps the half this constant exists for (nobody
+ * waits out a sunrise, and a delivery put away at closing is still put away
+ * before opening) and stops the night being the part of the day you cannot
+ * work in.
+ *
+ * It is worth being clear about what this does NOT change: everything in the
+ * sim is stepped by the scaled `world` dt, so a night is twelve in-game hours
+ * either way — the same spoilage, the same wages, the same vans. What changes
+ * is how long the person at the keyboard spends in it, which is why no balance
+ * figure in this repo moves and `simulate` cannot see this at all.
  */
-const NIGHT_SPEED = 6;
+const NIGHT_SPEED = 3;
 
 /**
  * When the van comes. Hours of the day, ascending.
@@ -1633,9 +1649,9 @@ export class Game {
        * save, so every `simulate` run and every `verify:*` sweep still starts
        * mid-morning. Defaulting these to the small hours would put every
        * headless game into the compressed night, where `step` scales world time
-       * by `NIGHT_SPEED` and twelve seconds of stepping is seventy-two seconds
+       * by `NIGHT_SPEED` and twelve seconds of stepping is thirty-six seconds
        * of shop — `verify:break` caught exactly that, as a hire who got bored
-       * in four seconds flat.
+       * well before the fifteen seconds the rung says.
        */
       time: w.time ?? OPEN_HOUR / 24,
       season: w.season,
@@ -2085,9 +2101,14 @@ export class Game {
       // `dev:server` runs under `node --watch` — every edit to `server/` is a
       // restart. Only the choice: what is IN a hopper is not saved, and a batch
       // in flight is not either.
+      //
+      // A LIST, one entry per head, in head order — which is what makes the
+      // order the picker shows and the order batches start in survive a restart
+      // together. A save written before a machine could have two heads carries
+      // the single `recipe` field, and `restoreContents` still reads it.
       hoppers: (this.layout.stations ?? [])
-        .filter((s) => s.recipe)
-        .map((s) => ({ id: s.id, recipe: s.recipe })),
+        .map((s) => ({ id: s.id, recipes: this.stationSlots(s).map((k) => k.recipe ?? null) }))
+        .filter((row) => row.recipes.some(Boolean)),
       crops: this.layout.plots
         .filter((p) => p.crop_id || p.soil !== 'untilled')
         .map((p) => ({
@@ -2146,11 +2167,21 @@ export class Game {
     }
     for (const row of hoppers ?? []) {
       const st = (this.layout.stations ?? []).find((s) => s.id === row.id);
-      // Written back raw, not validated: the recipe may have been edited or
-      // deleted while the shop was shut, and `stationRecipe` already falls back
+      if (!st) continue;
+      // Written back raw, not validated: a recipe may have been edited or
+      // deleted while the shop was shut, and `stationRecipes` already falls back
       // for exactly that. Refusing it here would silently forget a choice that
       // becomes valid again the moment somebody restores the row.
-      if (st) st.recipe = row.recipe ?? null;
+      //
+      // A row written before a machine could have two heads carries one
+      // `recipe`, and it folds into head 0 — the same read-time bargain
+      // `stationSlots` strikes with the record, and somebody is mid-game in one
+      // of these. A saved head beyond what the machine's tier now allows is
+      // simply not there to write to, which is a rung sold back rather than a
+      // choice lost.
+      const saved = Array.isArray(row.recipes) ? row.recipes : [row.recipe ?? null];
+      const slots = this.stationSlots(st);
+      slots.forEach((slot, i) => { slot.recipe = saved[i] ?? null; });
     }
   }
 
@@ -2709,23 +2740,48 @@ export class Game {
        * shopping goes home in their arms, the way it already does.
        */
       cars: this.parkedCars(),
-      stations: (this.layout.stations ?? []).map((s) => ({
-        id: s.id, x: s.x, z: s.z, station: s.station,
-        contents: s.contents, making: s.making, output: s.output,
-        // What it is set to make, RESOLVED rather than raw: a machine nobody
-        // has chosen for is running its first recipe, and a client sent null
-        // would draw an appliance that wants nothing while it works away.
-        recipe: this.stationRecipe(s)?.id ?? null,
-        // How many batches it holds, so the menu can draw "2 / 8" against a
-        // hopper rather than "2". A number, not the caps themselves: the client
-        // already has every recipe, so it can do the same multiplication the
-        // server does, and it is one field instead of one per ingredient. Only
-        // the tier's `capacity_mult` was ever missing over there.
-        batches: this.stationBatches(s),
-        progress: s.making
-          ? r2(Math.min(1, 1 - (s.busyUntil - this.elapsed) / Math.max(0.001, s.busyUntil - (s.startedAt ?? s.busyUntil - 1))))
-          : 0,
-      })),
+      stations: (this.layout.stations ?? []).map((s) => {
+        const heads = this.stationHeads(s);
+        return {
+          id: s.id, x: s.x, z: s.z, station: s.station,
+          // One bin, so one field. What each head is doing is the list below.
+          contents: s.contents,
+          // How many batches it holds, so the menu can draw "2 / 8" against a
+          // hopper rather than "2". A number, not the caps themselves: the client
+          // already has every recipe, so it can do the same multiplication the
+          // server does, and it is one field instead of one per ingredient. Only
+          // the tier's `capacity_mult` was ever missing over there.
+          batches: this.stationBatches(s),
+          /**
+           * A head each: what it is set to, what it is cooking, what is waiting
+           * on its tray and how far through it is.
+           *
+           * `recipe` is RESOLVED rather than raw — a machine nobody has chosen
+           * for is running its first recipe, and a client sent null would draw
+           * an appliance that wants nothing while it works away. Null on a later
+           * head is a head nobody has pointed anywhere, which is idle.
+           */
+          lines: heads.map(({ slot, recipe }) => ({
+            recipe: recipe?.id ?? null,
+            making: slot.making,
+            output: slot.output,
+            progress: slot.making
+              ? r2(Math.min(1, 1 - (slot.busyUntil - this.elapsed) / Math.max(0.001, slot.busyUntil - (slot.startedAt ?? slot.busyUntil - 1))))
+              : 0,
+          })),
+          /**
+           * Is this machine RUNNING — any head at all.
+           *
+           * Kept beside the list because three loops read it as one bit and none
+           * of them is about a head: `animateStations` drives the machine's own
+           * moving parts off it, the audio bed decides which hums are open, and
+           * the bays come down while it works. The recipe id rather than a
+           * boolean because that is what it has always carried and both readers
+           * only ever test it for truth.
+           */
+          making: heads.find((h) => h.slot.making)?.slot.making ?? null,
+        };
+      }),
       // Folded to one net number per tag. Not the HUD meter any more — that is
       // `departments` below — but still what the supplier's heat pills and the
       // to-do chips read, and it should stay the same numbers the economy
@@ -3762,18 +3818,19 @@ export class Game {
       }
     }
 
-    // A hopper and a finished tray. A batch already underway is left alone —
-    // its ingredients are spent, and whatever it produces lands in `output`
-    // for tomorrow's sweep to take if that has gone too.
+    // A hopper and every finished tray. A batch already underway is left alone
+    // — its ingredients are spent, and whatever it produces lands on a tray for
+    // tomorrow's sweep to take if that has gone too.
     for (const st of this.layout.stations ?? []) {
       for (const [itemId, n] of Object.entries(st.contents ?? {})) {
         if (!gone(itemId)) continue;
         bin(itemId, n);
         delete st.contents[itemId];
       }
-      if (st.output && gone(st.output.item_id)) {
-        bin(st.output.item_id, st.output.qty);
-        st.output = null;
+      for (const slot of this.stationSlots(st)) {
+        if (!slot.output || !gone(slot.output.item_id)) continue;
+        bin(slot.output.item_id, slot.output.qty);
+        slot.output = null;
       }
     }
 
@@ -4326,7 +4383,11 @@ export class Game {
       // tray. `lotRoom` rather than "am I holding this already", because with
       // three kinds those stopped being the same question: hands holding
       // tomatoes have room for a loaf, and the old test armed nothing.
-      if (f.output && lotRoom(p.carry, f.output.item_id, this.carryLot(p)) > 0) {
+      // Any tray, not the first — a twin machine whose second head is the one
+      // with something on it would arm nothing and read as a machine refusing
+      // to hand over what is visibly standing on it.
+      if (this.stationSlots(f).some((slot) => slot.output
+        && lotRoom(p.carry, slot.output.item_id, this.carryLot(p)) > 0)) {
         return { kind: 'collect', target: f.id, label: 'Collect', at, run: () => this.collectStation(p.id, f.id) };
       }
       // Hands before the shoulder, the way a shelf orders them: an armful is the
@@ -5436,6 +5497,82 @@ export class Game {
   }
 
   /**
+   * …and the OTHER thing a back room is for: a reserve for the shelves near it.
+   *
+   * A `boh` unit was the kitchen's larder and nothing else, which is fine in a
+   * small shop and is exactly wrong in a big one. Every case of everything comes
+   * off one dock, so the walk from the bay to the far corner is paid once per
+   * ARMFUL — and in a shop three aisles deep that walk is most of what the crew
+   * does. What you watch is eight hires strung out across the floor in single
+   * file, which reads as bad pathing and is bad *logistics*.
+   *
+   * So a room takes what the shelves it SERVES are stocked for, and which
+   * shelves those are is decided the way `larderRanges` decides a larder's:
+   * nearest wins. That is deliberately the same trick rather than a better one —
+   * a rule you can see from across the shop ("stock ends up in the room next to
+   * where it sells") is worth more than an optimal assignment nobody can
+   * predict, and the player moves the room if they disagree.
+   *
+   * Its range is what those shelves are RESERVED for as well as what they
+   * currently hold, or a room can only ever back up a line that is already
+   * selling — which is the wrong way round, since the board you want a reserve
+   * for is the one that keeps running dry.
+   *
+   * Null when the shop has no back room, which is most shops and the cheap path.
+   * Ticking items onto the room itself overrules all of it, and that override is
+   * not here: it lives at the two call sites that already spell it
+   * (`shelvesFor`, `restock`'s `buy`), because it is the same "a reservation
+   * beats the shop's own judgement" rule they apply to everything else.
+   */
+  stockroomRanges() {
+    const backs = this.layout.shelves.filter((s) => s.boh === true);
+    if (!backs.length) return null;
+    const floors = this.layout.shelves.filter((s) => s.boh !== true);
+    if (!floors.length) return null;
+
+    const gap = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+    const out = new Map(backs.map((s) => [s.id, new Set()]));
+    for (const sh of floors) {
+      const room = backs.reduce(
+        (best, c) => (!best || gap(sh, c) < gap(sh, best) ? c : best), null,
+      );
+      const set = out.get(room.id);
+      for (const id of toList(sh.assigned)) set.add(id);
+      for (const k of this.shelfStacks(sh)) set.add(k.item_id);
+    }
+    return out;
+  }
+
+  /**
+   * Everything a back room will take: the kitchen's list and the floor's, as one.
+   *
+   * Both, and never one or the other, because a shop can have a stockroom that
+   * is a larder for the fryer next to it AND the reserve for the aisle in front
+   * of it — that is one room doing its job twice, not a room that has to choose.
+   * The union is built once per tick's worth of callers for the reason
+   * `larderRanges` says: this walks the shop, and the callers ask it per pile
+   * per worker per tick.
+   *
+   * A shop with no back room answers null, and `backRoomTakes` reads null as
+   * "no opinion" — which is what keeps every shop that has never marked one
+   * playing exactly as it did.
+   */
+  backRanges() {
+    const larder = this.larderRanges();
+    const reserve = this.stockroomRanges();
+    if (!larder) return reserve;
+    if (!reserve) return larder;
+    const out = new Map();
+    for (const [id, set] of reserve) out.set(id, new Set(set));
+    for (const [id, set] of larder) {
+      const into = out.get(id) ?? new Set();
+      for (const v of set) into.add(v);
+      out.set(id, into);
+    }
+    return out;
+  }
+
+  /**
    * Would the shop put this item on that unit?
    *
    * A back-of-house unit is the kitchen's larder and nothing else — the menu
@@ -5467,7 +5604,7 @@ export class Game {
    */
   backRoomTakes(shelf, itemId, ranges = undefined) {
     if (shelf?.boh !== true) return true;
-    const map = ranges === undefined ? this.larderRanges() : ranges;
+    const map = ranges === undefined ? this.backRanges() : ranges;
     const set = map?.get(shelf.id);
     return !set || set.has(itemId);
   }
@@ -5658,6 +5795,28 @@ export class Game {
       // "Leave that one alone", which is its own switch rather than a side
       // effect of a reservation — see `setShelfHands`.
       if (!this.handMayTouch(shelf)) continue;
+      /**
+       * A BOARD NOBODY CAN BUY FROM MUST NOT BE JUDGED BY A SALES CLOCK.
+       *
+       * `soldDay` is stamped by exactly one thing — a customer buying — and
+       * `chooseShelf` filters `boh` out, so a back-room board can never be sold
+       * from. Its clock therefore never advances and `days` grows without bound:
+       * every stockroom board in the shop goes stale on a timer, whatever is
+       * happening around it.
+       *
+       * What that costs is not a cleared board, it is the ratchet — the hand
+       * clears it AND `giveUpBoard` marks the ITEM, shop-wide, so the shop stops
+       * shelving *and* (since the ordering half was told) stops buying a line
+       * whose only crime was being held in reserve. A reserve sitting still is a
+       * reserve doing its job, which is precisely what this read as evidence
+       * that nobody wants it.
+       *
+       * It bites now because a room can be a reserve; it was always true of a
+       * larder, where the same board is fed by `restock` and drained by `craft`
+       * and neither stamps a sale. Nothing was watching, because a slow-moving
+       * larder looks exactly like a well-stocked one.
+       */
+      if (shelf.boh === true) continue;
       const kept = toList(shelf.assigned);
       for (const stack of this.shelfStacks(shelf)) {
         if ((stack.qty ?? 0) <= 0) continue;          // `releaseBoards`' half
@@ -6017,12 +6176,16 @@ export class Game {
   }
 
   /**
-   * Is this an ingredient for what the machine is set to make? Which is what
+   * Is this an ingredient for anything the machine is set to make? Which is what
    * the shop buys in for it and what a stocker walks over with — so a blender
    * set to salsa stops the shop ordering milk it has nowhere to put.
+   *
+   * Any head, for the reason `loadStation` takes the union: one bin, and a
+   * machine that would happily be handed berries had better light up for them.
    */
   stationWants(station, itemId) {
-    return (this.stationRecipe(station)?.inputs ?? []).some((i) => i.item_id === itemId);
+    return this.stationRecipes(station)
+      .some((r) => (r?.inputs ?? []).some((i) => i.item_id === itemId));
   }
 
   /**
@@ -6553,7 +6716,7 @@ export class Game {
   fixtureSpots(f) {
     return spotsOf(f, {
       layout: this.layout,
-      open: pieceFor(content().fixtures ?? [], f)?.open === true,
+      open: openOf(content().fixtures ?? [], f),
     });
   }
 
@@ -8762,34 +8925,132 @@ export class Game {
   }
 
   /**
-   * The one recipe this appliance is set to, or null if it knows none.
+   * How many recipes this machine may be SET TO at once — its heads.
    *
-   * A machine knows several and runs ONE. It used to run whichever it could —
-   * `nextBatch` took the first recipe the hopper happened to satisfy — and that
-   * is a machine nobody is driving: load a blender for salsa, have a jar of jam
-   * left over from yesterday in it, and it makes smoothies. Worse, it made the
-   * hopper unanswerable, because "how many tomatoes does this take" has no
-   * answer until you know what it is making.
-   *
-   * Null on the record means *nobody has said*, which reads as the first recipe
-   * it knows rather than as idle. Every appliance in every existing shop is that
-   * — a read-time default rather than a migration, the same bargain `kindOf` and
-   * `shell.z` strike — and an appliance that sat there making things yesterday
-   * goes on making them today.
-   *
-   * A choice pointing at a recipe that has since been deleted falls back the
-   * same way. Content is live-editable here, so that is a Tuesday afternoon
-   * rather than a corrupt save.
+   * One on every rung ever authored, which is what makes the whole of this
+   * opt-in: a machine whose tier says nothing is the machine that has always
+   * been here, to the batch and to the tick.
    */
-  stationRecipe(station) {
-    const mine = this.recipesFor(station.station);
-    if (!mine.length) return null;
-    return mine.find((r) => r.id === station.recipe) ?? mine[0];
+  stationLines(station) {
+    return this.fixtureStats(station).lines;
   }
 
   /**
-   * Set which one. Not gated on build mode: this is a choice about what the
-   * shop makes, like reserving a shelf or sowing a bed, not construction.
+   * The heads themselves — `{ recipe, making, startedAt, busyUntil, output }`
+   * each, one per line the tier allows.
+   *
+   * A record with no `lines` is read as ONE head built from the five flat fields
+   * this replaced: a read-time default rather than a migration, the same bargain
+   * `kindOf` and `shell.z` strike, so an old record, an old save and a fresh
+   * seed all agree with nothing to run.
+   *
+   * Grown to fit on the way out and **sliced** to the tier on the way back, so a
+   * machine that has stepped down a rung stops running the head it can no longer
+   * afford. That slice is only ever safe because `tierShortfall` refuses the
+   * step down while anything is set to, cooking in, or waiting on that head —
+   * take the guard away and this is where a batch would silently disappear.
+   */
+  stationSlots(station) {
+    if (!Array.isArray(station.lines)) {
+      station.lines = [{
+        recipe: station.recipe ?? null,
+        making: station.making ?? null,
+        startedAt: station.startedAt ?? 0,
+        busyUntil: station.busyUntil ?? 0,
+        output: station.output ?? null,
+      }];
+      // ...and the old fields go, rather than being left beside the head that
+      // now owns them. A copy is two spellings of one tray, and the stale one
+      // reads perfectly correct until the moment somebody collects: the head
+      // empties, the flat field still says six waiting, and whichever of the two
+      // a reader happens to ask decides what the shop believes.
+      for (const k of ['recipe', 'making', 'startedAt', 'busyUntil', 'output']) delete station[k];
+    }
+    const want = this.stationLines(station);
+    while (station.lines.length < want) {
+      station.lines.push({
+        recipe: null, making: null, startedAt: 0, busyUntil: 0, output: null,
+      });
+    }
+    return station.lines.length === want ? station.lines : station.lines.slice(0, want);
+  }
+
+  /** Is anything set to, cooking in or waiting on this head? */
+  slotInUse(slot) {
+    return Boolean(slot?.recipe || slot?.making || slot?.output);
+  }
+
+  /**
+   * What each head is set to, aligned with `stationSlots`. Null where a head is
+   * pointed at nothing.
+   *
+   * A machine knows several recipes and its heads run one each. It used to run
+   * whichever it could — `nextBatch` took the first recipe the hopper happened
+   * to satisfy — and that is a machine nobody is driving: load a blender for
+   * salsa, have a jar of jam left over from yesterday in it, and it makes
+   * smoothies. Worse, it made the hopper unanswerable, because "how many
+   * tomatoes does this take" has no answer until you know what it is making.
+   *
+   * **The first head falls back and the rest do not**, which is the line between
+   * "nobody has said" and "nothing is set". Null on head 0 has always meant the
+   * first recipe it knows rather than idle — every appliance in every existing
+   * shop is that, and one that sat there making things yesterday goes on making
+   * them today. Null on head 1 means you bought a second head and have not
+   * pointed it at anything, which is idle and has to be, or a twin machine
+   * silently runs its first recipe twice and the rung buys throughput nobody
+   * chose.
+   *
+   * A choice pointing at a recipe that has since been deleted reads the same
+   * way at each end: head 0 falls back, a later head goes quiet. Content is
+   * live-editable here, so that is a Tuesday afternoon rather than a corrupt
+   * save.
+   */
+  stationRecipes(station) {
+    const mine = this.recipesFor(station.station);
+    return this.stationSlots(station).map((slot, i) => {
+      if (!mine.length) return null;
+      return mine.find((r) => r.id === slot.recipe) ?? (i === 0 ? mine[0] : null);
+    });
+  }
+
+  /**
+   * The two halves together — `{ slot, recipe, i }` per head.
+   *
+   * The one spelling of "what is this machine doing", because the alternative is
+   * every caller zipping two lists and one of them getting the order wrong on a
+   * machine where the order is the tie-break.
+   */
+  stationHeads(station) {
+    const recipes = this.stationRecipes(station);
+    return this.stationSlots(station).map((slot, i) => ({ slot, i, recipe: recipes[i] }));
+  }
+
+  /**
+   * The recipe the machine's FIRST head is set to, or null.
+   *
+   * Kept as its own verb because most of the shop still has one honest question
+   * about a machine — what does a shop with one head make — and because every
+   * appliance in the game today has exactly one. Anything that means "everything
+   * this machine is making" wants `stationRecipes`, and the difference is a
+   * whole head going quietly missing.
+   */
+  stationRecipe(station) {
+    return this.stationRecipes(station)[0] ?? null;
+  }
+
+  /**
+   * Set what the machine is making — the whole list, not one head at a time.
+   *
+   * Not gated on build mode: this is a choice about what the shop makes, like
+   * reserving a shelf or sowing a bed, not construction.
+   *
+   * One message carrying the set rather than one per head, which is
+   * `bulkFixtures`' argument said about the other axis: a client sending N
+   * presses to change two heads writes N lines in the feed for one press. The
+   * list is capped at the tier's heads, de-duplicated (two heads on one recipe
+   * is a rung buying throughput, which is not what this sells) and **matched to
+   * the heads already running it**, so re-ordering the picker never shuffles a
+   * batch from one head to another.
    *
    * Whatever is already in the hopper stays where it is. Ingredients the new
    * recipe has no use for are still yours — Empty tips the lot back into crates
@@ -8797,18 +9058,61 @@ export class Game {
    * money. It does mean a machine can sit holding something it will never use,
    * which the bays say out loud by not drawing it.
    */
-  setStationRecipe(playerId, stationId, recipeId) {
+  setStationRecipes(playerId, stationId, recipeIds) {
     const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
     if (!st) return err('no such appliance');
-    const want = this.recipesFor(st.station).find((r) => r.id === recipeId);
-    if (!want) return err(`the ${st.station} cannot make that`);
-    if (st.recipe === want.id) return ok({ station: st.id, recipe: want.id });
+    const mine = this.recipesFor(st.station);
+    const asked = [...new Set((Array.isArray(recipeIds) ? recipeIds : [recipeIds]).filter(Boolean))];
+    const want = [];
+    for (const id of asked) {
+      const r = mine.find((x) => x.id === id);
+      if (!r) return err(`the ${st.station} cannot make that`);
+      want.push(r);
+    }
+    const heads = this.stationSlots(st);
+    if (want.length > heads.length) {
+      return err(heads.length === 1
+        ? `the ${st.station} makes one thing at a time`
+        : `the ${st.station} makes ${heads.length} things at a time`);
+    }
+
+    // Every head keeps the recipe it is already on, so a running batch stays
+    // where it is running and the picker's order never moves a head.
+    const before = heads.map((s) => s.recipe);
+    const taken = new Set();
+    const left = [];
+    for (const r of want) {
+      const at = heads.findIndex((s, i) => s.recipe === r.id && !taken.has(i));
+      if (at >= 0) taken.add(at);
+      else left.push(r);
+    }
+    for (let i = 0; i < heads.length; i++) {
+      if (taken.has(i)) continue;
+      heads[i].recipe = left.shift()?.id ?? null;
+    }
+    if (heads.every((s, i) => s.recipe === before[i])) {
+      return ok({ station: st.id, recipes: heads.map((s) => s.recipe).filter(Boolean) });
+    }
+
     // A batch already running is left to finish. It has eaten its ingredients
     // and its output is promised — cancelling it here would destroy both, and
     // the machine is a minute from being free anyway.
-    st.recipe = want.id;
-    this.pushLog(`The ${st.station} is set to ${want.name}.`);
-    return ok({ station: st.id, recipe: want.id });
+    const names = want.map((r) => r.name);
+    this.pushLog(names.length
+      ? `The ${st.station} is set to ${names.join(' and ')}.`
+      : `The ${st.station} is set to nothing.`);
+    return ok({ station: st.id, recipes: heads.map((s) => s.recipe).filter(Boolean) });
+  }
+
+  /**
+   * Set the machine to exactly one thing, which is what it has always meant.
+   *
+   * Every existing caller and every sweep says it this way, and on a
+   * single-headed machine — which is every machine anybody owns — it is the same
+   * call with the same log line.
+   */
+  setStationRecipe(playerId, stationId, recipeId) {
+    return this.setStationRecipes(playerId, stationId, [recipeId]);
   }
 
   // ---- how much an appliance holds ----------------------------------------
@@ -8824,20 +9128,27 @@ export class Game {
   }
 
   /**
-   * How much of one ingredient the hopper takes: what the recipe it is SET TO
-   * calls for, times the batches it holds. Anything that recipe doesn't want,
-   * it has no room for at all.
+   * How much of one ingredient the hopper takes: what the recipes it is SET TO
+   * call for, times the batches it holds. Anything none of them wants, it has no
+   * room for at all.
    *
    * This used to be the largest call any recipe on the machine made, because a
    * machine that flipped between recipes on its own could not have a bin sized
    * to one of them. That reasoning went with the flipping. The number is now
    * something a player can act on — "3 tomatoes a batch, four batches, twelve"
    * — where before it was the maximum of things it might turn out to be doing.
+   *
+   * **One bin, summed over the heads**, and that is the decision the whole
+   * feature rests on. A hopper per head is the first thing anybody reaches for
+   * and it defeats the case this exists for: two hot drinks that both want milk
+   * would have you loading the same milk twice into the same machine. Summing
+   * keeps the number actionable — it is still "how many tomatoes does this take"
+   * — with two recipes adding into it instead of one.
    */
   stationHopperCap(station, itemId) {
-    const per = (this.stationRecipe(station)?.inputs ?? [])
+    const per = this.stationRecipes(station).reduce((sum, r) => sum + (r?.inputs ?? [])
       .filter((i) => i.item_id === itemId)
-      .reduce((n, i) => Math.max(n, i.qty), 0);
+      .reduce((n, i) => Math.max(n, i.qty), 0), 0);
     return per * this.stationBatches(station);
   }
 
@@ -8847,33 +9158,39 @@ export class Game {
   }
 
   /**
-   * Room left for finished goods, for one recipe.
+   * Room left for finished goods, on ONE head's tray.
    *
-   * Zero when something else is already sitting in the tray, which is what
+   * Zero when something else is already sitting in that tray, which is what
    * keeps "one product at a time" true without ever destroying a batch. The
    * rule used to be enforced *after* the timer ran out — make it, then throw it
    * away if the tray held something else — so a machine with two recipes could
    * silently eat its own ingredients. Asking before starting is the same rule
    * and costs nothing.
+   *
+   * Per head rather than per machine, which is what a second tray *is*: the two
+   * heads never queue behind one another's finished goods, and the rule each one
+   * is held to is the one it has always been held to.
    */
-  stationOutputRoom(station, recipe) {
-    if (station.output && station.output.item_id !== recipe.output_id) return 0;
-    return recipe.output_qty * this.stationBatches(station) - (station.output?.qty ?? 0);
+  stationTrayRoom(station, head) {
+    const { slot, recipe } = head;
+    if (!recipe) return 0;
+    if (slot.output && slot.output.item_id !== recipe.output_id) return 0;
+    return recipe.output_qty * this.stationBatches(station) - (slot.output?.qty ?? 0);
   }
 
   /**
-   * The next batch this appliance can start, or null.
+   * The next batch this head can start, or null.
    *
-   * One candidate — the recipe it is set to. Ingredients in the hopper AND
-   * somewhere to put the result. The second half is the whole difference
-   * between a machine that runs itself down and one that makes a single portion
-   * and waits for a human.
+   * One candidate — the recipe that head is set to. Ingredients in the shared
+   * hopper AND somewhere on its own tray to put the result. The second half is
+   * the whole difference between a machine that runs itself down and one that
+   * makes a single portion and waits for a human.
    */
-  nextBatch(station) {
-    const r = this.stationRecipe(station);
-    if (!r) return null;
+  nextBatch(station, head) {
+    const r = head?.recipe;
+    if (!r || head.slot.making) return null;
     const can = r.inputs.every((i) => (station.contents[i.item_id] ?? 0) >= i.qty)
-      && this.stationOutputRoom(station, r) >= r.output_qty;
+      && this.stationTrayRoom(station, head) >= r.output_qty;
     return can ? r : null;
   }
 
@@ -8925,8 +9242,14 @@ export class Game {
     // out except by tipping the whole machine up. It was every recipe's inputs
     // while the machine chose for itself; now that you choose, a refusal here is
     // the machine telling you it is set to the other thing.
-    const recipe = this.stationRecipe(st);
-    if (!recipe) return err(`no recipes for the ${st.station} yet`);
+    //
+    // The UNION over its heads, because one bin feeds both: a twin machine set
+    // to salsa and smoothies takes tomatoes and berries, and a filter written
+    // against one head would refuse half of what the machine is for while
+    // naming the other recipe in the refusal.
+    const running = this.stationRecipes(st).filter(Boolean);
+    if (!running.length) return err(`no recipes for the ${st.station} yet`);
+    const inputs = new Set(running.flatMap((r) => r.inputs.map((i) => i.item_id)));
 
     /**
      * Every pile the recipe wants, in one press — which is the thing mixed
@@ -8940,10 +9263,11 @@ export class Game {
      * hopper with room for three when you are holding four — a refusal you
      * have to do arithmetic to avoid is a refusal that reads as broken.
      */
-    const wanted = lotStacks(held).filter((s) => recipe.inputs.some((i) => i.item_id === s.item_id));
+    const wanted = lotStacks(held).filter((s) => inputs.has(s.item_id));
     if (!wanted.length) {
       const name = lotLabel(held, content().byId.items);
-      return err(`the ${st.station} is making ${recipe.name} — no use for ${name}`);
+      const making = running.map((r) => r.name).join(' and ');
+      return err(`the ${st.station} is making ${making} — no use for ${name}`);
     }
 
     let moved = 0;
@@ -8971,24 +9295,47 @@ export class Game {
    * a verb of its own for `loadStation`'s reason: what a tray will give up, what
    * your hands have room for and what to say when they have none is the
    * interesting part, and a one-unit path that reimplemented it would drift.
+   *
+   * **Every tray, in head order.** Hands already take mixed armfuls, and one
+   * reach into a machine holding two finished things coming out with both is the
+   * same call `unload` makes about a mixed crate. Head order is what decides
+   * which tray a *tap* takes its one unit off, and it is the same order
+   * `stepStations` starts batches in — the pointer naming a tray for itself is
+   * step 2 of docs/kitchen.md, and deliberately not this.
    */
   collectStation(playerId, stationId, { max = Infinity } = {}) {
     const p = this.players[playerId];
     const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
     if (!p || !st) return err('no such appliance');
-    if (!st.output) return err('nothing ready');
-    const madeId = st.output.item_id;
-    const take = Math.min(st.output.qty, lotRoom(p.carry, madeId, this.carryLot(p)), max);
-    if (take <= 0) {
+    const trays = this.stationSlots(st).filter((slot) => slot.output);
+    if (!trays.length) return err('nothing ready');
+
+    let took = 0;
+    const goods = [];
+    for (const slot of trays) {
+      if (took >= max) break;
+      const madeId = slot.output.item_id;
+      const take = Math.min(slot.output.qty, lotRoom(p.carry, madeId, this.carryLot(p)), max - took);
+      if (take <= 0) continue;
+      slot.output.qty -= take;
+      p.carry = lotAdd(p.carry, madeId, take, this.carryLot(p)).lot;
+      if (slot.output.qty <= 0) slot.output = null;
+      took += take;
+      goods.push({ item_id: madeId, qty: take });
+    }
+
+    if (!took) {
+      // Said about the first tray, which is the one the press was aimed at. A
+      // machine with two trays and hands with room for neither is still "hands
+      // full", and naming both would be a refusal you have to read twice.
+      const madeId = trays[0].output.item_id;
       return lotTotal(p.carry) >= this.carryCapacity(p)
         ? err('hands full')
         : err(`no free hand for ${content().byId.items[madeId]?.name ?? madeId}`);
     }
-
-    st.output.qty -= take;
-    p.carry = lotAdd(p.carry, madeId, take, this.carryLot(p)).lot;
-    if (st.output.qty <= 0) st.output = null;
-    return ok({ collected: take, item_id: madeId });
+    // `item_id` is the first tray it took off, kept beside the list because
+    // every caller written when there was one tray reads it.
+    return ok({ collected: took, item_id: goods[0].item_id, goods });
   }
 
   /**
@@ -9008,53 +9355,61 @@ export class Game {
     if (!stations.length) return;
 
     for (const st of stations) {
-      let finished = null;
+      // Head order, and it is the tie-break as well as the walk order: two heads
+      // wanting the last tomato are settled by which one comes first, never by a
+      // draw. Nothing random happens here, so nothing moves the rng stream and no
+      // balance run diverges over a machine having grown a second head.
+      for (const head of this.stationHeads(st)) {
+        const { slot } = head;
+        let finished = null;
 
-      if (st.making) {
-        if (this.elapsed < st.busyUntil) continue;
-        const recipe = content().byId.recipes[st.making];
-        st.making = null;
-        if (recipe) {
-          const out = st.output ?? { item_id: recipe.output_id, qty: 0 };
-          // Can't disagree any more — `nextBatch` only ever starts a recipe
-          // whose output the tray will accept. Kept as a guard rather than an
-          // assumption because content reloads underneath a running batch.
-          if (out.item_id === recipe.output_id) {
-            out.qty += recipe.output_qty;
-            st.output = out;
-            finished = recipe;
+        if (slot.making) {
+          if (this.elapsed < slot.busyUntil) continue;
+          const recipe = content().byId.recipes[slot.making];
+          slot.making = null;
+          if (recipe) {
+            const out = slot.output ?? { item_id: recipe.output_id, qty: 0 };
+            // Can't disagree any more — `nextBatch` only ever starts a recipe
+            // whose output the tray will accept. Kept as a guard rather than an
+            // assumption because content reloads underneath a running batch.
+            if (out.item_id === recipe.output_id) {
+              out.qty += recipe.output_qty;
+              slot.output = out;
+              finished = recipe;
+            }
           }
         }
-      }
 
-      const next = this.nextBatch(st);
-      if (!next) {
-        // One line per RUN, not per batch. Four batches back to back is four
-        // "is ready" lines in an eight-line log, which buries everything else
-        // that happened this morning — and the useful message is the one that
-        // says how much is waiting, since that is what you are walking over for.
-        //
-        // Never merged (a null key): `st.output.qty` is the whole TRAY, so this
-        // already says the total — a second run's line added to the first would
-        // count what is standing there twice.
-        if (finished) {
-          this.logGoods(null, {
-            post: ` ready at the ${st.station}.`,
-            goods: [{ item_id: st.output.item_id, qty: st.output.qty }],
-          });
+        const next = this.nextBatch(st, head);
+        if (!next) {
+          // One line per RUN, not per batch. Four batches back to back is four
+          // "is ready" lines in an eight-line log, which buries everything else
+          // that happened this morning — and the useful message is the one that
+          // says how much is waiting, since that is what you are walking over for.
+          //
+          // Never merged (a null key): `slot.output.qty` is that whole TRAY, so
+          // this already says the total — a second run's line added to the first
+          // would count what is standing there twice. A twin machine finishing
+          // two runs says two lines, which is two different products.
+          if (finished) {
+            this.logGoods(null, {
+              post: ` ready at the ${st.station}.`,
+              goods: [{ item_id: slot.output.item_id, qty: slot.output.qty }],
+            });
+          }
+          continue;
         }
-        continue;
-      }
 
-      for (const i of next.inputs) {
-        st.contents[i.item_id] -= i.qty;
-        if (st.contents[i.item_id] <= 0) delete st.contents[i.item_id];
+        for (const i of next.inputs) {
+          st.contents[i.item_id] -= i.qty;
+          if (st.contents[i.item_id] <= 0) delete st.contents[i.item_id];
+        }
+        slot.making = next.id;
+        slot.startedAt = this.elapsed;
+        // `minutes` is in-game minutes; a day is DAY_SECONDS real seconds.
+        const speed = this.fixtureStats(st).speed_mult;
+        slot.busyUntil = this.elapsed + (next.minutes / speed / (24 * 60)) * DAY_SECONDS;
       }
-      st.making = next.id;
-      st.startedAt = this.elapsed;
-      // `minutes` is in-game minutes; a day is DAY_SECONDS real seconds.
-      const speed = this.fixtureStats(st).speed_mult;
-      st.busyUntil = this.elapsed + (next.minutes / speed / (24 * 60)) * DAY_SECONDS;
     }
   }
 
@@ -10054,7 +10409,7 @@ export class Game {
   /** The stat block a fixture is currently running on. */
   fixtureStats(idOrFixture) {
     const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
-    if (!f) return { capacity_mult: 1, keeps_mult: 1, speed_mult: 1, unattended: 0 };
+    if (!f) return { capacity_mult: 1, keeps_mult: 1, speed_mult: 1, unattended: 0, lines: 1 };
     const tier = this.fixtureTiers(f)[this.fixtureTier(f) - 1] ?? {};
     return {
       capacity_mult: tier.capacity_mult ?? 1,
@@ -10063,6 +10418,9 @@ export class Game {
       // Zero rather than one: this is not a multiplier on anything, it is a
       // machine that either serves its own line or doesn't, and how well.
       unattended: tier.unattended ?? 0,
+      // ...and one rather than zero, for the opposite reason: this is a count of
+      // heads, and every machine has at least the one it has always had.
+      lines: Math.max(1, Math.trunc(tier.lines ?? 1)),
     };
   }
 
@@ -10156,6 +10514,20 @@ export class Game {
       return null;
     }
     if (f.kind === 'station') {
+      // The heads it would lose, FIRST — before the hopper, because the hopper's
+      // ceiling is the sum over the heads that survive, so a machine dropping a
+      // head fails the ingredient test with a message about tomatoes when what
+      // it is actually about to lose is a recipe. Same ordering rule `buyStock`
+      // learned: the guard that names the real thing goes with the other guards.
+      const lines = this.stationLines(as);
+      const losing = this.stationHeads(f).slice(lines)
+        .filter((h) => this.slotInUse(h.slot));
+      if (losing.length) {
+        const said = losing.map((h) => h.recipe?.name
+          ?? content().byId.recipes[h.slot.making]?.name
+          ?? 'what is on it').join(' and ');
+        return `a smaller one makes ${lines} at a time — take ${said} off it first`;
+      }
       for (const [itemId, qty] of Object.entries(f.contents ?? {})) {
         const cap = this.stationHopperCap(as, itemId);
         if (qty > cap) {
@@ -10163,9 +10535,10 @@ export class Game {
           return `a smaller one takes ${cap}× ${name} and the hopper has ${qty} — empty it first`;
         }
       }
-      const out = f.output;
-      const recipe = out ? this.stationRecipe(as) : null;
-      if (out && recipe && recipe.output_id === out.item_id) {
+      // Every surviving tray against the smaller machine's own ceiling.
+      for (const { slot, recipe } of this.stationHeads(as)) {
+        const out = slot.output;
+        if (!out || !recipe || recipe.output_id !== out.item_id) continue;
         const cap = recipe.output_qty * this.stationBatches(as);
         if (out.qty > cap) return `a smaller one holds ${cap} made up and there are ${out.qty} waiting — collect them first`;
       }
@@ -10337,7 +10710,8 @@ export class Game {
   /** How much stuff is inside a fixture — what "empty it first" is measuring. */
   fixtureContents(f) {
     if (f.kind === 'station') {
-      return Object.values(f.contents ?? {}).reduce((a, b) => a + b, 0) + (f.output?.qty ?? 0);
+      const trays = this.stationSlots(f).reduce((n, slot) => n + (slot.output?.qty ?? 0), 0);
+      return Object.values(f.contents ?? {}).reduce((a, b) => a + b, 0) + trays;
     }
     if (f.kind === 'plot') return f.crop_id ? 1 : 0;
     if (f.kind === 'checkout') return 0;
@@ -10665,11 +11039,14 @@ export class Game {
       moved += n;
     }
     st.contents = {};
-    if (st.output) {
-      this.dropGoods(st.output.item_id, st.output.qty, st.useAt);
-      tipped.push({ item_id: st.output.item_id, qty: st.output.qty });
-      moved += st.output.qty;
-      st.output = null;
+    // Every tray, because "empty it" is a claim about the machine — a twin that
+    // handed back one of its two would look exactly like one that had emptied.
+    for (const slot of this.stationSlots(st)) {
+      if (!slot.output) continue;
+      this.dropGoods(slot.output.item_id, slot.output.qty, st.useAt);
+      tipped.push({ item_id: slot.output.item_id, qty: slot.output.qty });
+      moved += slot.output.qty;
+      slot.output = null;
     }
     if (moved === 0) return err('that hopper is already empty');
     // A batch already underway is left to finish — its ingredients are spent,
@@ -11941,8 +12318,12 @@ export class Game {
     }
 
     // Appliances keep whatever was in them across a re-flow.
+    // The bin and the heads. `lines` carries the four clocks and trays that used
+    // to be four keys on this list, and the old spellings stay on it because a
+    // record built before them is exactly what a re-flow immediately after a
+    // restart is holding.
     carryOver(layout.stations, oldStations, alias,
-      ['contents', 'busyUntil', 'making', 'output', 'startedAt', 'recipe'],
+      ['contents', 'lines', 'busyUntil', 'making', 'output', 'startedAt', 'recipe'],
       (from, to) => from.station === to.station);
 
     // Everything a unit was holding rides across unconditionally, and what the
@@ -14234,10 +14615,11 @@ export class Game {
     // 3. An appliance: take the finished product, or tip in what you're holding.
     const station = this.nearest(this.layout.stations ?? [], p, REACH, (o) => o.useAt);
     if (station) {
-      if (station.output) return this.collectStation(playerId, station.id);
+      const heads = this.stationSlots(station);
+      if (heads.some((slot) => slot.output)) return this.collectStation(playerId, station.id);
       if (p.carry) return this.loadStation(playerId, station.id);
       if (p.haul) return this.loadStation(playerId, station.id, { from: 'haul' });
-      if (station.making) return err(`${station.station} is still going`);
+      if (heads.some((slot) => slot.making)) return err(`${station.station} is still going`);
     }
 
     // 4. Holding stock next to a shelf -> stock it.

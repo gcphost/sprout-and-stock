@@ -116,6 +116,17 @@ const JOB_INFO = {
     blurb: 'Fix boards.',
     detail: 'Clear boards nothing sells off, and merge two half-empty ones.',
   },
+  // One row, like `farm`, and for the same reason: filling a stockroom and
+  // emptying one are two steps of a single loop, and a hire told only to fill
+  // them builds a pile in a room.
+  ferry: {
+    name: 'Run the back',
+    doing: 'running the back',
+    blurb: 'Work the stockrooms.',
+    detail: 'Carry whole crates off the bay into the stockroom nearest where '
+      + 'they sell, and refill shelves out of it. Does nothing until you mark a '
+      + 'unit as a stockroom.',
+  },
 };
 
 /** Highest weight the stepper will climb to. Authored lists sit at 1–10. */
@@ -661,6 +672,14 @@ function tierBlurb(tier, points = 0) {
     gains.push(tier.arranges >= 0.66
       ? 'rearranges the shop — moves what sells to where people walk'
       : 'moves what sells to a better spot when one is obvious');
+  }
+  // Said as the walk it saves, like the two above. What the number sets is how
+  // much of a short cut it takes to be worth diverting for, which is a
+  // threshold in tiles and means nothing on its own.
+  if ((tier.routes ?? 0) > 0) {
+    gains.push(tier.routes >= 0.66
+      ? 'plans their round — always works the nearest bed, queue or crate'
+      : 'takes the nearer bed, queue or crate when it is an obvious short cut');
   }
   if (points > 0) gains.push(`${points} more directive points`);
   if (points < 0) gains.push(`${-points} fewer directive points`);

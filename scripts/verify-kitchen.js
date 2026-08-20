@@ -40,6 +40,16 @@
  * - **A chef who fetches one batch at a time.** The mechanic is only worth
  *   having if somebody uses it, and nobody watches a hire closely enough to
  *   notice they are walking four times for what one trip would carry.
+ * - **A second head that changes the machine every shop already owns.** Section
+ *   10 is about the `lines` rung, and its loudest claim is the control: a rung
+ *   that says nothing about heads is one head, which is every rung ever
+ *   authored. Sections 1–9 are the rest of that control — they are written as
+ *   they were written when a machine had one head, and they still pass.
+ *
+ *   The rest of 10 is invisible twice over. Two heads running and one head
+ *   running twice as fast make the same amount of the same thing; a chef who
+ *   serviced one tray and a chef who serviced both walk the same route. What
+ *   separates them is a number in a tray you were not there to watch fill.
  *
  * Runs on an ephemeral Game, so it never touches the live shop. It does write to
  * the content database — usually the live shared one — so it cleans up on exit,
@@ -83,6 +93,16 @@ const STATION = 'zz-kit-urn';
  */
 const BREW = 'zz-kit-brew-recipe';
 const TEA = 'zz-kit-tea-recipe';
+/**
+ * ...and a third that wants the same ingredient as the first, for section 10.
+ *
+ * Two heads competing for the last bean is the only way to ask which one wins,
+ * and `brew` and `tea` deliberately share nothing — so a machine set to both of
+ * them proves the heads run and proves nothing about the ONE bin they run out
+ * of. Appended rather than inserted, because `mine[0]` being `brew` is what
+ * "an appliance nobody has set is on its first recipe" rests on.
+ */
+const MOCHA = 'zz-kit-mocha-recipe';
 const BEAN_PER_BATCH = 2;
 const BREW_PER_BATCH = 3;
 
@@ -107,6 +127,11 @@ const TEST_ITEMS = [
     base_cost: 2, base_price: 5, stack: 40,
     model: { parts: [{ shape: 'box', color: '#6b3240', pos: [0, 0.1, 0], scale: [0.2, 0.3, 0.2] }] },
   },
+  {
+    id: 'zz-kit-mocha', name: 'Test Mocha', tags: ['beverage', 'shelf-stable'],
+    base_cost: 2, base_price: 5, stack: 40,
+    model: { parts: [{ shape: 'box', color: '#40326b', pos: [0, 0.1, 0], scale: [0.2, 0.3, 0.2] }] },
+  },
 ];
 
 const TEST_RECIPES = [
@@ -119,6 +144,11 @@ const TEST_RECIPES = [
     id: TEA, name: 'Test Tea', station: STATION,
     inputs: [{ item_id: 'zz-kit-leaf', qty: 1 }],
     output_id: 'zz-kit-tea', output_qty: 1, minutes: 1,
+  },
+  {
+    id: MOCHA, name: 'Test Mocha', station: STATION,
+    inputs: [{ item_id: 'zz-kit-bean', qty: BEAN_PER_BATCH }],
+    output_id: 'zz-kit-mocha', output_qty: 1, minutes: 1,
   },
 ];
 
@@ -138,12 +168,23 @@ const TEST_UPGRADE = {
  */
 const URN_PIECE = 'zz-kit-piece';
 const URN_TIER2_MULT = 3;
+/**
+ * ...and a third rung whose ONLY difference from the second is a second head.
+ *
+ * Deliberately identical in `capacity_mult` and `speed_mult` to the rung below
+ * it, so section 10 cannot pass by accident on a machine that simply got bigger
+ * or faster. It is also what makes the step back down a claim about heads alone:
+ * Twin → Large loses a head and changes nothing else, which is the shape
+ * `tierShortfall` has to refuse over.
+ */
+const URN_TWIN = 3;
 const TEST_PIECE = {
   id: URN_PIECE, kind: 'station', name: 'Test Urn', cost: 0,
   model: { parts: [{ shape: 'box', color: '#8a8a92', pos: [0, 0.5, 0], scale: [0.7, 1, 0.7] }] },
   tiers: [
     { name: 'Small', cost: 0, capacity_mult: 1, speed_mult: 1 },
     { name: 'Large', cost: 0, capacity_mult: URN_TIER2_MULT, speed_mult: 1 },
+    { name: 'Twin', cost: 0, capacity_mult: URN_TIER2_MULT, speed_mult: 1, lines: 2 },
   ],
 };
 
@@ -167,9 +208,22 @@ const TEST_PIECE = {
  * that stopped modelling a player (see CLAUDE.md): a broken instrument reads as
  * a broken feature, and this one read as a kitchen that had stopped.
  */
-const brewMade = (g, st) => (st.output?.qty ?? 0)
+const brewMade = (g, st) => trayQty(g, st)
   + Object.values(g.players).reduce((n, p) => n + lotQty(p.carry, 'zz-kit-brew'), 0)
   + (g.deliveries ?? []).reduce((n, c) => n + lotQty(c, 'zz-kit-brew'), 0);
+
+/**
+ * The machine's first head, which is the only one anything in sections 1–9 has.
+ *
+ * `stationSlots` is the one spelling of where a tray and a batch clock live.
+ * They were five loose fields on the record until an appliance could have two
+ * heads, and reading them raw here would be asserting against the shape of the
+ * record rather than against the machine — which passes right up until the day
+ * somebody moves them, and says nothing useful on the day they do.
+ */
+const head = (g, st, i = 0) => g.stationSlots(st)[i];
+/** What is standing on a head's tray, in units. */
+const trayQty = (g, st, i = 0) => head(g, st, i).output?.qty ?? 0;
 
 const TEST_WORKER = {
   id: 'zz-kit-chef', name: 'Test Chef', color: '#d98b4a',
@@ -384,10 +438,10 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   run(g, 60);
 
   eq(st.contents['zz-kit-bean'], undefined, 'it works through the whole hopper unattended');
-  eq(st.output?.item_id, 'zz-kit-brew', 'and what is in the tray is what it makes');
-  eq(st.output?.qty, BREW_PER_BATCH * BATCHES,
+  eq(head(g, st).output?.item_id, 'zz-kit-brew', 'and what is in the tray is what it makes');
+  eq(head(g, st).output?.qty, BREW_PER_BATCH * BATCHES,
     'four batches, not one — an appliance is not a slower shelf');
-  eq(st.making, null, 'and it stops when there is nothing left to make');
+  eq(head(g, st).making, null, 'and it stops when there is nothing left to make');
 
   // One line per run rather than one per batch: four "is ready" lines in an
   // eight-line log buries everything else that happened this morning.
@@ -400,7 +454,7 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   const got = g.collectStation('me', st.id);
   check(got.ok, 'the tray can be collected', got.error ?? '');
   eq(got.collected, cap, 'as much as one person can carry');
-  eq(st.output?.qty, BREW_PER_BATCH * BATCHES - cap, 'and the rest is still waiting');
+  eq(head(g, st).output?.qty, BREW_PER_BATCH * BATCHES - cap, 'and the rest is still waiting');
 }
 
 // ---------------------------------------------------------------------------
@@ -419,27 +473,27 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   hold(g, 'zz-kit-bean', BEAN_PER_BATCH * BATCHES);
   check(g.loadStation('me', st.id).ok, 'four batches go in');
   run(g, 60);
-  eq(st.output?.qty, trayCap, 'the tray fills to its ceiling');
+  eq(head(g, st).output?.qty, trayCap, 'the tray fills to its ceiling');
 
   // Top it up with nobody collecting. It must refuse to start.
   hold(g, 'zz-kit-bean', BEAN_PER_BATCH * BATCHES);
   check(g.loadStation('me', st.id).ok, 'and it will still accept more ingredients');
   run(g, 60);
-  eq(st.output?.qty, trayCap, 'but makes nothing more with nowhere to put it');
+  eq(head(g, st).output?.qty, trayCap, 'but makes nothing more with nowhere to put it');
   eq(st.contents['zz-kit-bean'], BEAN_PER_BATCH * BATCHES,
     'and the ingredients are still in the hopper, not spent on a batch that fell on the floor');
 
   // Take the tray away and it picks straight back up. A machine that needed
   // emptying AND re-loading would be worse than the one this replaced.
   g.players.me.carry = null;
-  while (st.output) {
+  while (head(g, st).output) {
     const res = g.collectStation('me', st.id);
     if (!res.ok) break;
     g.players.me.carry = null;
   }
-  eq(st.output, null, 'the tray empties');
+  eq(head(g, st).output, null, 'the tray empties');
   run(g, 60);
-  eq(st.output?.qty, trayCap, 'and it gets straight back to work on its own');
+  eq(head(g, st).output?.qty, trayCap, 'and it gets straight back to work on its own');
 }
 
 // ---------------------------------------------------------------------------
@@ -490,7 +544,7 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   const collected = { 'zz-kit-brew': 0, 'zz-kit-tea': 0 };
   for (let i = 0; i < 120; i++) {
     run(g, 1);
-    if (st.output) {
+    if (head(g, st).output) {
       const res = g.collectStation('me', st.id);
       if (res.ok) collected[res.item_id] += res.collected;
       g.players.me.carry = null;
@@ -498,9 +552,9 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   }
 
   const beansLeft = st.contents['zz-kit-bean'] ?? 0;
-  const inFlight = st.making ? content_inputs(st.making) : { bean: 0, leaf: 0 };
-  const brewMade = collected['zz-kit-brew'] + (st.output?.item_id === 'zz-kit-brew' ? st.output.qty : 0);
-  const teaMade = collected['zz-kit-tea'] + (st.output?.item_id === 'zz-kit-tea' ? st.output.qty : 0);
+  const inFlight = head(g, st).making ? content_inputs(head(g, st).making) : { bean: 0, leaf: 0 };
+  const brewMade = collected['zz-kit-brew'] + (head(g, st).output?.item_id === 'zz-kit-brew' ? head(g, st).output.qty : 0);
+  const teaMade = collected['zz-kit-tea'] + (head(g, st).output?.item_id === 'zz-kit-tea' ? head(g, st).output.qty : 0);
 
   eq(brewMade / BREW_PER_BATCH * BEAN_PER_BATCH + beansLeft + inFlight.bean, BEAN_PER_BATCH * BATCHES,
     'every bean is accounted for — in the tray, in the hopper, or in the batch running');
@@ -517,7 +571,7 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   g.players.me.carry = null;
   for (let i = 0; i < 60; i++) {
     run(g, 1);
-    if (st.output) { g.collectStation('me', st.id); g.players.me.carry = null; }
+    if (head(g, st).output) { g.collectStation('me', st.id); g.players.me.carry = null; }
   }
   eq(st.contents['zz-kit-leaf'], undefined, 'the leaves it was holding get made');
   eq(g.stationHopperCap(st, 'zz-kit-leaf'), BATCHES,
@@ -550,16 +604,19 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
   // The save, and back off it. `saveState` is exactly what `persist` writes and
   // what a cold start reads, so going through it is the whole round trip.
   const rows = g.saveState().hoppers ?? [];
-  eq(rows.find((r) => r.id === st.id)?.recipe, TEA, 'the save carries the choice');
+  eq(rows.find((r) => r.id === st.id)?.recipes?.[0], TEA, 'the save carries the choice');
 
   const back = fresh();
   const stBack = urn(back);
+  // The old single-field row, on purpose: a save written before a machine could
+  // have two heads is what somebody is mid-game in, and it has to fold into head
+  // 0 rather than be refused.
   back.restoreContents([], [], [{ id: stBack.id, recipe: TEA }]);
   eq(back.stationRecipe(stBack)?.id, TEA, 'and a shop read back off it is still set to it');
 
   // A choice pointing at a recipe somebody has since deleted is a Tuesday
   // afternoon in a game whose content is live-editable, not a corrupt save.
-  stBack.recipe = 'zz-kit-recipe-that-went-away';
+  head(back, stBack).recipe = 'zz-kit-recipe-that-went-away';
   eq(back.stationRecipe(stBack)?.id, BREW,
     'and a choice whose recipe was deleted falls back rather than breaking');
 }
@@ -593,7 +650,7 @@ function content_inputs(recipeId) {
   hold(g2, 'zz-kit-bean', largeCap);
   check(g2.loadStation('me', large.id).ok, 'a large urn takes a large load', '');
   run(g2, 200);
-  eq(large.output?.qty, BREW_PER_BATCH * BATCHES * URN_TIER2_MULT,
+  eq(head(g2, large).output?.qty, BREW_PER_BATCH * BATCHES * URN_TIER2_MULT,
     'and works through all of it in one unattended run');
 }
 
@@ -638,7 +695,7 @@ function content_inputs(recipeId) {
     `peak ${peak}, hands hold ${g.carryCapacity()}`);
   check(brewMade(g, st) > BREW_PER_BATCH,
     'and the machine gets through more than one batch while they do it',
-    `tray ${st.output?.qty ?? 0}, all told ${brewMade(g, st)}`);
+    `tray ${head(g, st).output?.qty ?? 0}, all told ${brewMade(g, st)}`);
 
   // Nobody is wedged. A chef holding something the machine has no room for used
   // to walk back to it forever; the job has to hand that armful to `shelve`.
@@ -714,7 +771,7 @@ function content_inputs(recipeId) {
     .filter((d) => d.item_id === 'zz-kit-brew')
     .reduce((n, d) => n + (d.qty ?? 0), 0);
   eq(crated, 0, 'nothing it makes is ever walked out to the drop-off');
-  eq(st.output?.qty, BREW_PER_BATCH * BATCHES,
+  eq(head(g, st).output?.qty, BREW_PER_BATCH * BATCHES,
     'the hopper it was given runs down and waits on the tray, where it was made');
   eq(shelf.stacks[0].qty, 60,
     'and the stockroom is untouched — nobody fetched a second load for goods with nowhere to go');
@@ -730,7 +787,7 @@ function content_inputs(recipeId) {
   const inHand = lotQty(hand.carry, 'zz-kit-brew');
   check(onShelf + inHand > 0,
     'give it a board and the tray comes out to fill it',
-    `shelf ${onShelf}, hands ${inHand}, tray ${st.output?.qty ?? 0}`);
+    `shelf ${onShelf}, hands ${inHand}, tray ${head(g, st).output?.qty ?? 0}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -778,13 +835,13 @@ function content_inputs(recipeId) {
 
   // ---- out ----
   run(g, 30);
-  const made = st.output?.qty ?? 0;
+  const made = head(g, st).output?.qty ?? 0;
   check(made > 1, 'the machine makes a tray worth grading', `tray ${made}`);
 
   const took = g.tapStation('me', st.id);
   check(took.ok, 'a tap on a ready machine collects', took.error ?? '');
   eq(took.collected, 1, 'one portion off the tray');
-  eq(st.output?.qty, made - 1, 'and the rest is still in the tray');
+  eq(head(g, st).output?.qty, made - 1, 'and the rest is still in the tray');
   eq(lotTotal(g.players.me.carry), 1, 'with one in your hands');
   eq(g.players.me.errand, null, 'and this tap spends its errand too');
 
@@ -796,14 +853,14 @@ function content_inputs(recipeId) {
   check(all.collected > 1, 'more than the tap did — the grade is real', `took ${all.collected}`);
   eq(lotTotal(g.players.me.carry), g.carryCapacity(g.players.me),
     'filling your hands to the brim');
-  eq(all.collected + 1 + (st.output?.qty ?? 0), made,
+  eq(all.collected + 1 + (head(g, st).output?.qty ?? 0), made,
     'and every portion is either in your hands or still in the tray');
 
   // Empty-handed, the hold clears it outright — which is the press that actually
   // frees the machine, since a tray with anything in it blocks the next batch.
   g.players.me.carry = null;
   check(g.collectStation('me', st.id).ok, 'and empty hands take the rest');
-  eq(st.output, null, 'leaving the tray empty and the machine free');
+  eq(head(g, st).output, null, 'leaving the tray empty and the machine free');
 
   // ---- and the two do not fight ----
   // A tray waiting used to take the right button away outright: `actionAt` read
@@ -814,7 +871,7 @@ function content_inputs(recipeId) {
   hold(g, 'zz-kit-bean', 2);
   g.loadStation('me', st.id);
   run(g, 30);
-  check((st.output?.qty ?? 0) > 0, 'the machine has a tray ready again');
+  check((head(g, st).output?.qty ?? 0) > 0, 'the machine has a tray ready again');
 
   hold(g, 'zz-kit-bean', 4);
   g.aimAt('me', st.id);
@@ -844,6 +901,198 @@ function content_inputs(recipeId) {
   Object.assign(g2.players.me, { x: 1, z: 1 });
   check(!g2.tapStation('me', st2.id, true).ok, 'and a tap from across the shop reaches nothing');
   Object.assign(g2.players.me, away);
+}
+
+// ---------------------------------------------------------------------------
+// 10. A rung buys a HEAD, and a machine that never bought one has not moved.
+//
+// Everything above this line is a machine with one head, and every one of those
+// assertions is the control: they are written as they were written when singular
+// was the feature, and they still pass. What is left to say is what a second
+// head does — and the loudest claim in here is the first one, because it is the
+// one that decides whether this is opt-in or a change to every save in
+// existence.
+//
+// The rest is invisible twice over. Two heads running and one head running twice
+// as fast make the same amount of the same thing; a chef who serviced one tray
+// and a chef who serviced both walk the same route. What separates them is a
+// number in a tray you were not there to watch fill.
+// ---------------------------------------------------------------------------
+{
+  // ---- the control ----
+  const g = fresh();
+  const single = urn(g, 2);
+  eq(g.stationLines(single), 1, 'a rung that says nothing about heads is one head');
+  eq(g.stationSlots(single).length, 1, 'and the machine has exactly the one');
+  const two = g.setStationRecipes('me', single.id, [BREW, TEA]);
+  check(!two.ok, 'a one-headed machine refuses a second recipe', JSON.stringify(two));
+  eq(g.stationRecipe(single)?.id, BREW, 'and is still on the one it was on');
+  eq(g.stationHopperCap(single, 'zz-kit-bean'), BEAN_PER_BATCH * BATCHES * URN_TIER2_MULT,
+    'its hopper is sized to that one recipe, exactly as it always was');
+  eq(g.stationHopperCap(single, 'zz-kit-leaf'), 0,
+    'and it has no room at all for what the other recipe wants');
+}
+
+{
+  // ---- two heads, ONE bin ----
+  // Its own shop, because `urn` leaves build mode the way a player leaves it —
+  // off — and a second machine stood in the same one would be refused.
+  const g = fresh();
+  const twin = urn(g, URN_TWIN);
+  eq(g.stationLines(twin), 2, 'a Twin rung buys a second head');
+  eq(g.stationSlots(twin).length, 2, 'and the machine grows one');
+  eq(g.stationRecipe(twin)?.id, BREW, 'the first head is still on the first recipe it knows');
+  eq(g.stationRecipes(twin)[1], null,
+    'and the second is idle rather than quietly running the same thing twice');
+
+  const set = g.setStationRecipes('me', twin.id, [BREW, TEA]);
+  check(set.ok, 'both heads can be set in one press', set.error ?? '');
+  eq(g.stationRecipes(twin)[0]?.id, BREW, 'the first head keeps what it was on');
+  eq(g.stationRecipes(twin)[1]?.id, TEA, 'and the second takes the new one');
+
+  // The whole argument for one bin: the ceiling is the SUM, so a machine set to
+  // two recipes takes what both of them want and you load it once.
+  eq(g.stationHopperCap(twin, 'zz-kit-bean'), BEAN_PER_BATCH * BATCHES * URN_TIER2_MULT,
+    'the hopper still holds a full run of the first head’s ingredient');
+  eq(g.stationHopperCap(twin, 'zz-kit-leaf'), 1 * BATCHES * URN_TIER2_MULT,
+    'and a full run of the second head’s, in the same bin');
+
+  // ...and your hands go in once. `loadStation` takes the union, so an armful of
+  // something only the second head wants is not "no use for that".
+  // Two batches' worth between them and no more, so what comes out fits in one
+  // pair of hands — the reach below is about two TRAYS, not about `carryCapacity`.
+  g.players.me.carry = { stacks: [{ item_id: 'zz-kit-bean', qty: 2 }, { item_id: 'zz-kit-leaf', qty: 2 }] };
+  const load = g.loadStation('me', twin.id);
+  check(load.ok, 'one press loads for both heads', load.error ?? '');
+  eq(twin.contents['zz-kit-bean'], 2, 'the beans go in');
+  eq(twin.contents['zz-kit-leaf'], 2, 'and the leaves go in beside them');
+  g.players.me.carry = null;
+
+  // ---- both heads run, and both trays fill ----
+  run(g, 40);
+  const brewTray = g.stationSlots(twin).find((s) => s.output?.item_id === 'zz-kit-brew');
+  const teaTray = g.stationSlots(twin).find((s) => s.output?.item_id === 'zz-kit-tea');
+  check(!!brewTray, 'the first head made its own thing');
+  check(!!teaTray, 'and the second made its own, at the same time');
+  eq(brewTray?.output?.qty, BREW_PER_BATCH, 'every bean it was given became brew');
+  eq(teaTray?.output?.qty, 2, 'and every leaf became tea');
+
+  // Conservation, over a run long enough for both heads to work through and
+  // stop. Two heads sharing one bin is a new place goods move between, and every
+  // one of those in this game has been a hole.
+  eq(twin.contents['zz-kit-bean'], undefined, 'the hopper is empty of beans');
+  eq(twin.contents['zz-kit-leaf'], undefined, 'and empty of leaves');
+
+  // ---- the trays come off together, and a tap takes ONE ----
+  const tap = g.collectStation('me', twin.id, { max: 1 });
+  check(tap.ok, 'a tap takes off a twin machine', tap.error ?? '');
+  eq(tap.collected, 1, 'and takes exactly one');
+  const all = g.collectStation('me', twin.id);
+  check(all.ok, 'and a hold takes the rest', all.error ?? '');
+  check(all.goods.length === 2, 'off BOTH trays in one reach', JSON.stringify(all.goods));
+  check(g.stationSlots(twin).every((s) => !s.output), 'leaving the machine free at both heads');
+  eq(lotQty(g.players.me.carry, 'zz-kit-brew') + lotQty(g.players.me.carry, 'zz-kit-tea'),
+    BREW_PER_BATCH + 2,
+    'and every portion either side of the reach is in your hands');
+  g.players.me.carry = null;
+}
+
+{
+  // ---- the tie-break is HEAD ORDER, and never a draw ----
+  //
+  // Two heads wanting the last bean is the one thing a shared bin makes possible
+  // that a machine has never had to answer before. Settled by order, so nothing
+  // random happens — a draw here would move the rng stream and two `simulate`
+  // runs either side of buying a Twin rung would diverge with nothing in the
+  // output to say why.
+  const g = fresh();
+  const st = urn(g, URN_TWIN);
+  check(g.setStationRecipes('me', st.id, [BREW, MOCHA]).ok, 'both heads want the same ingredient');
+
+  // Exactly one batch's worth, in the bin they share. Both heads could start.
+  //
+  // Asserted on the TRAY rather than on `making`, which is a state that lasts a
+  // minute of in-game time and is therefore a stopwatch race with the sweep's
+  // own step loop — the same trap `verify:break` names about a charge that ran
+  // out. What went in is a fact that stays put.
+  st.contents['zz-kit-bean'] = BEAN_PER_BATCH;
+  run(g, 30);
+  eq(g.stationSlots(st)[0].output?.item_id, 'zz-kit-brew', 'the first head takes it');
+  eq(g.stationSlots(st)[1].output, null, 'and the second waits rather than splitting it');
+  eq(st.contents['zz-kit-bean'], undefined, 'one batch went in, not two');
+
+  // ...and the one that waited is not stuck. Order is only ever a tie-break, so
+  // block the first head — a full tray of its own product, which is the ceiling
+  // that keeps "one product at a time" true — and the beans go to the second.
+  // Without this the first head wins every time and the second is a head you
+  // paid for that never runs, which is a rung that takes money and does nothing.
+  g.stationSlots(st)[0].output = {
+    item_id: 'zz-kit-brew', qty: BREW_PER_BATCH * g.stationBatches(st),
+  };
+  st.contents['zz-kit-bean'] = BEAN_PER_BATCH;
+  run(g, 30);
+  const mocha = g.stationSlots(st).find((s) => s.output?.item_id === 'zz-kit-mocha');
+  check(!!mocha, 'the second head runs when the first has nowhere to put anything');
+}
+
+{
+  // ---- the way back down, before any money moves ----
+  //
+  // A ladder that goes up and not down is a rung bought by mistake you cannot
+  // undo, and a step down that quietly binned whatever was on the head it took
+  // away would be the same bug the tray ceiling exists to stop, arriving through
+  // the tier menu.
+  const g = fresh();
+  const st = urn(g, URN_TWIN);
+  check(g.setStationRecipes('me', st.id, [BREW, TEA]).ok, 'a twin is set to two things');
+
+  // A tier step is a build verb, so the mode has to be on — `urn` leaves it off
+  // because that is the state a player touches a machine in. Without this the
+  // refusal below lands for "not in build mode", which is a pass for the wrong
+  // reason and would keep passing however the head rule was broken.
+  g.players.me.build = { on: true, tool: 'station' };
+  const cash = g.cash;
+  const down = g.downgradeFixture('me', st.id);
+  check(!down.ok, 'stepping back to one head is refused while two are set', JSON.stringify(down));
+  check(/Test Tea/.test(down.error ?? ''), 'and the refusal names what it would lose', down.error ?? '');
+  eq(g.cash, cash, 'and nothing was charged or refunded on the way');
+  eq(g.stationSlots(st).length, 2, 'the machine still has both heads');
+
+  // Take the second head off it and the step goes through — and what is left is
+  // the machine the first nine sections are about. Re-found by id rather than
+  // reused, because a tier step goes through `repositionFixture`, which re-mints
+  // what it touches: the record in hand is the one from before the step, and
+  // asking IT is asking the machine you no longer have.
+  check(g.setStationRecipes('me', st.id, [BREW]).ok, 'the second head is cleared');
+  const ok2 = g.downgradeFixture('me', st.id);
+  check(ok2.ok, 'and now it steps down', ok2.error ?? '');
+  const small = g.layout.stations.find((s) => s.id === ok2.downgraded);
+  check(!!small, 'and it is still standing there');
+  eq(g.stationLines(small), 1, 'to one head');
+  eq(g.stationSlots(small).length, 1, 'with nothing left of the other');
+  eq(g.stationRecipe(small)?.id, BREW, 'still making what it was making');
+}
+
+{
+  // ---- and the choice survives the round trip, both heads of it ----
+  const g = fresh();
+  const st = urn(g, URN_TWIN);
+  check(g.setStationRecipes('me', st.id, [BREW, TEA]).ok, 'a twin is set to two things');
+
+  g.regenerateLayout();
+  const after = g.layout.stations.find((s) => s.id === st.id);
+  eq(g.stationRecipes(after)[0]?.id, BREW, 'a re-flow keeps the first head');
+  eq(g.stationRecipes(after)[1]?.id, TEA, 'and the second');
+
+  const rows = g.saveState().hoppers ?? [];
+  const saved = rows.find((r) => r.id === st.id)?.recipes;
+  check(Array.isArray(saved) && saved.length === 2, 'the save carries a head each', JSON.stringify(saved));
+
+  const back = fresh();
+  const stBack = urn(back, URN_TWIN);
+  back.restoreContents([], [], [{ id: stBack.id, recipes: saved }]);
+  eq(back.stationRecipes(stBack)[0]?.id, BREW, 'and both come back in the same order');
+  eq(back.stationRecipes(stBack)[1]?.id, TEA, 'which is the order batches start in');
 }
 
 // ---------------------------------------------------------------------------

@@ -181,7 +181,13 @@ function everywhere(g, id) {
   for (const p of Object.values(g.players)) n += lotQty(p.carry, id) + lotQty(p.haul, id);
   for (const st of g.layout.stations ?? []) {
     n += st.contents?.[id] ?? 0;
-    if (st.output?.item_id === id) n += st.output.qty;
+    // Every tray. An appliance can have more than one head since the kitchen
+    // grew a `lines` rung, and a count that read the first would report goods
+    // missing that are standing right there — which in a sweep about goods going
+    // missing is the worst possible false positive.
+    for (const slot of g.stationSlots(st)) {
+      if (slot.output?.item_id === id) n += slot.output.qty;
+    }
   }
   for (const o of g.orders.pending) if (o.item_id === id) n += o.qty;
   return n;
@@ -244,7 +250,7 @@ const saidBinned = (g) => g.log.filter((l) => /^Binned /.test(l.msg));
   eq(lotQty(g.players.me.carry, DEAD.id), 0, 'an armful of it is cleared');
   eq(lotQty(g.players.me.haul, DEAD.id), 0, 'and so is a crate on the shoulder');
   eq(st.contents[DEAD.id], undefined, 'a hopper part-way through it is cleared');
-  eq(st.output, null, 'and the finished tray with it');
+  eq(g.stationSlots(st)[0].output, null, 'and the finished tray with it');
   eq(g.orders.pending.filter((o) => o.item_id === DEAD.id).length, 0,
     'and the order still on the van is cancelled, or one lands again tomorrow');
 

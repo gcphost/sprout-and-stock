@@ -92,6 +92,18 @@ function tierLines(row) {
       t.keeps_mult !== 1 && t.keeps_mult != null ? `keeps ×${t.keeps_mult}` : null,
       t.speed_mult !== 1 && t.speed_mult != null ? `speed ×${t.speed_mult}` : null,
       t.unattended ? `serves itself at ×${t.unattended} speed` : null,
+      // Not a multiplier, and it counts anyway — it is the number of SIDES the
+      // unit is worked from, which is flow. A rung that sold only this and was
+      // printed as "no effect" would be the reference calling a real upgrade
+      // dead, which is the same disagreement the lid warnings exist to stop.
+      // Null is "this rung has no opinion" (see `openOf`), so only a stated
+      // change is worth a line, and a rung that closes one is worth one too.
+      t.open != null ? (t.open ? 'open all round' : 'closed at the back') : null,
+      // ...and nor is this one, for the same reason: it is how many recipes an
+      // appliance may be SET TO at once, which is a number `nextBatch`, the
+      // hopper and the picker all read. A Twin rung printed as "no effect" would
+      // be this file calling the feature it documents dead.
+      (t.lines ?? 1) > 1 ? `makes ${t.lines} at a time` : null,
     ].filter(Boolean);
     // Tier 1 is what a new one already is, so it is exempt: it costs 0 and is
     // supposed to move nothing.
@@ -329,7 +341,8 @@ const GROUPS = [
 const dead = [];
 for (const r of rows) {
   (r.tiers ?? []).forEach((t, i) => {
-    const flat = [t.capacity_mult, t.keeps_mult, t.speed_mult].every((m) => m == null || m === 1);
+    const flat = [t.capacity_mult, t.keeps_mult, t.speed_mult].every((m) => m == null || m === 1)
+      && !t.unattended && (t.lines ?? 1) <= 1;
     if (i > 0 && flat && (t.cost ?? 0) > 0) dead.push(`\`${r.id}\` → **${t.name}** (${money(t.cost)})`);
   });
 }
@@ -357,8 +370,9 @@ md.push(`${rows.length} pieces across ${new Set(rows.map(kindOf)).size} kinds.`)
 md.push('');
 
 if (dead.length) {
-  md.push('> ⚠️ **Tiers that change no number.** `capacity_mult`, `keeps_mult` and');
-  md.push('> `speed_mult` are the only knobs the sim reads, so these rungs take money and');
+  md.push('> ⚠️ **Tiers that change no number.** `capacity_mult`, `keeps_mult`,');
+  md.push('> `speed_mult`, `unattended` and `lines` are the only knobs the sim reads, so');
+  md.push('> these rungs take money and');
   md.push('> do nothing. Sometimes deliberate — the till ladder is priced at 0 because');
   md.push('> nothing reads a till\'s speed yet — but a *paid* one is a bug:');
   md.push('>');

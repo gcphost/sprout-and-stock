@@ -1495,6 +1495,33 @@ of the profit line.
   it, holding all of it. `verify-hand` waits on the board count *and* empty
   hands. Anything asserting on a state a worker walks through needs the same.
 
+### …and the shop went on BUYING what it had given up on
+
+Found on a live save at day 97, two steps after this shipped. The mark is read by
+`shelvesFor`, which refuses a dropped item a shelf before it asks anything else —
+and the buying half had never been told. `pickItem` checks it, so a *bare* board
+was safe; the hole is the **top-up** path in `restock`, which orders more of the
+emptiest pile already standing on a unit, and a given-up item is still standing
+on every other board it was on.
+
+So the vans kept coming and every case landed somewhere nothing could ever shelve
+from. None of the symptoms are here: the yard fills, `bayRoom` collapses so the
+shop stops ordering what it *does* sell, and `putDown` cannot stow onto a full
+pad — its documented promise to hold goods rather than bin them — so the crew
+stand about holding armfuls. Six items given up over days 94–95; the next
+morning's log ordered 9x Dried Pasta, 25x Liquorice and a Breakfast Cereal
+against all six, and the stranded pile went 33 units → 59 in a day.
+
+`givenUp` (`server/sim/staff.js`) is the one spelling, asked by **both** spending
+paths — `buy` and `larderOrder`, since an ingredient strands exactly as a product
+does. A reservation overrules it, shop-wide via `keptFor`, or the shop refuses to
+buy for a board it would happily shelve. It deliberately does not *clear* the
+mark the way `shelvesFor` does: that one is placing goods that already exist,
+this one is deciding whether to create any, and `orders.dropped` keeps one
+writer. `verify:hand` 4bb2 guards it, with two controls — the line still stocked
+is still bought, and the very same board is bought for when nobody gave up on it,
+because a negative that was never orderable proves nothing.
+
 ### What 10 touched
 
 | File | Why |
@@ -1823,6 +1850,196 @@ running the old code.
 code: the stale mean, the constructor ordering, `shelvesFor` blocking the verb
 entirely, and `TRAFFIC_REACH` being too coarse to tell two shelves apart.
 
+## Step 14 — a rung that plans its round ✅
+
+**Built.** Prompted by the plainest question anyone has asked of this file: what
+would make the crew more efficient?
+
+### What was wrong
+
+Nothing a worker chose between had ever been chosen by how far away it was.
+
+That is not a figure of speech. `harvest` and `sow` both took
+`game.layout.plots.find(...)` — the first legal bed in array order — so a
+farmhand standing at the end of a sixteen-bed field walked the length of it to
+reach bed 1, because bed 1 is listed first. `serve` took `tills.find(waiting)`,
+the first till with anybody in the queue. `unload` scored crates
+`stray * 1e6 + moves`, which is a real preference about the *trip* and says
+nothing at all about the walk — so a bay of identical part-crates was worked in
+whatever order the boxes happened to be stored in.
+
+Every one of those is a correct decision. The sum of them is a crew who wander,
+and it reads as the staff being stupid rather than as four `find`s that were
+never asked the question.
+
+It is also invisible twice over: a hire walking to the near bed and a hire
+walking to the far one are the same still frame, and the shop is the same shop
+afterwards either way. Only the clock moved.
+
+### What it is
+
+`routes`, 0..1, on a worker tier. Zero is every rung that existed before it, so
+a save, an export and a fresh seed all run the code that was there.
+
+**It is offered only the candidates a job rates EQUALLY**, and that is the whole
+of what makes it safe rather than a balance change wearing an upgrade's name:
+every ripe bed, every turned bed, every till with somebody waiting, every crate
+that ties `unload`'s own score exactly. It can never trade a better trip for a
+shorter walk, because it is never shown a better trip. The bay is where that
+distinction earns its keep — a nearer, smaller crate is three journeys instead
+of one, and a rung that took it would look exactly like this one.
+
+The number is the dial, the same shape `arranges` uses: it sets how many tiles
+nearer the other target has to be before a hire diverts, interpolating
+`ROUTE_SAVING_MAX` (4) down to `ROUTE_SAVING_MIN` (0.5). A lukewarm rung takes
+an obvious short cut; a keen one always walks the shortest way. The floor is not
+zero on purpose — two targets a hair apart are the same walk, and a pick that
+changed its mind between them would jitter as the hire drifted.
+
+### Three things it rests on
+
+**The saving is measured against the incumbent, never against a running best.**
+Take every improvement in turn and half a tile at a time adds up to a walk
+across the shop, at which point the threshold guards nothing.
+
+**The comparison is strict, so a tie keeps the incumbent.** That is what lets
+the zero branch of `pickNearest` be `list.find(ok)` verbatim rather than a
+re-derivation that happens to agree — and the verbatim branch is what keeps
+`hasSomewhere`'s short-circuit, which walks the shelves once per ripe bed.
+
+**Straight-line, and never `findPath`.** This is asked per candidate per worker
+per tick and A\* is the hottest loop in the game, so a route-length version
+would cost more than the walk it saves. It is only ever a *preference*: a hire
+who picks a bed behind a wall stalls and re-draws, which is exactly what already
+happened to an unreachable bed that was first in the list.
+
+### Where it deliberately does not go
+
+`shelvesFor`. CLAUDE.md records what a drifting score in that sort costs —
+−72% mean profit over three seeds — because that sort decides an item's *home*,
+and a home that moves is the one-item-two-homes spiral arriving by a route
+`homeShelves` cannot see. Distance from a worker drifts faster than footfall
+does. `craft` is left alone for a different reason: which machine to serve is a
+real preference (`wants`, `feasibleRecipe`), not a tie. `idle`'s posts are left
+alone because they are handed out in roster order *so that two clerks never
+share a tile*, which is a rule rather than a walk.
+
+### What 14 touched
+
+| File | Why |
+|---|---|
+| `shared/schemas.js` | `routes` on a worker tier |
+| `server/sim/staff.js` | `routesOf`, `nearestOf`, `pickNearest`, `ROUTE_SAVING_MIN`/`MAX`; the picks in `sow`, `harvest`, `serve`, `freeTill`; the tie lists in `unload` |
+| `client/worker-menu.js` | one line in `tierBlurb`, said as the walk it saves |
+| `scripts/verify-routes.js` | new — 38 checks |
+| `package.json` | `verify:routes`, and into the `verify` chain |
+| the database | a third rung on the clerk, farmhand, stocker and shop-hand |
+
+The chef and the janitor get no such rung, and that is the honest answer rather
+than an omission: `craft` picks by preference and `tidy` already takes the
+nearest pad. A rung authored for them would take money and move no number.
+
+### Still open
+
+- **Unmeasured.** `simulate`'s bot never promotes, so every hire in a balance
+  run is on rung 1 and `routes` reads 0 — the instrument is blind to this the
+  same way it is blind to `packs`, `arranges` and the idle charge. What it is
+  worth is a play-test, not a sweep.
+- **Only 0 and 1 are authored.** The dial is real and `verify:routes` asserts
+  it, but no shipped rung is lukewarm yet. A cheap middle rung on the farmhand
+  is one MCP call if the jump turns out to be too big a step.
+
+## Step 15 — the runner, and a room that is not only the kitchen's ✅
+
+**Built.** Prompted by the question a big shop asks and a small one cannot:
+every case of everything comes off ONE dock.
+
+### What was wrong
+
+In a small building that costs nothing. In a big one the trip from the bay to
+the far aisle is paid once per **armful**, and what you watch is the whole crew
+strung out across the floor in single file carrying six things each. It reads as
+bad pathing. It is bad logistics.
+
+The obvious answer — a reserve near the aisle — was not a thing the shop could
+express, because a `boh` unit was *the kitchen's larder and nothing else*.
+`backRoomTakes` said so, shoppers cannot see one, and the only thing in the game
+that ever took stock back off one was the chef.
+
+### What it became
+
+A back room is now **also a reserve for the shelves near it**, and which shelves
+those are is decided the way `larderRanges` decides a larder's: nearest wins
+(`stockroomRanges`). That is deliberately the same trick rather than a cleverer
+one — a rule you can see from across the shop ("stock ends up in the room next to
+where it sells") beats an optimal assignment nobody can predict, and if you
+disagree you move the room. `backRanges` is the union of the two, because one
+room can be the fryer's larder AND the aisle's reserve without having to choose.
+
+Its range is what the shelves it serves are **reserved for** as well as what they
+hold, or a room could only ever back up a line that is already selling — which is
+backwards, since the board wanting a reserve is the one that keeps running dry.
+Ticking items onto the room itself overrules all of it, and that override needed
+no new code: it lives at the two call sites that already spell it.
+
+`ferry` is the directive. One row rather than two, for the reason `farm` is one:
+
+- **Leg B** — a room with stock the floor is short of, moved to the floor.
+- **Leg A** — a crate on the dock, shouldered whole, into the room that serves it.
+
+The floor is asked **first**, which is the opposite of `farm`'s order and is the
+whole of what stops leg A being a pile-builder: a bare board is money not being
+taken, where a thin stockroom is only a walk somebody will make later.
+
+### Three things it cost, and one that nearly shipped
+
+**`ferryTo` had to be an errand.** `stepStaff` hands ANY shouldered crate to
+`unload`, which scores a floor board perfectly legal — so without it a runner
+walks to the dock, lifts the box, and carries it to the front of the shop. The
+job reads as working and the rooms stay empty. Nothing is wrong on screen: the
+crate got put away, and a tidy shop with empty stockrooms is what you would
+expect a stockroom feature to look like before you had used it.
+
+**`SHIFTERS` is why this took an hour.** The line that ends a half-done errand
+was written `!jobs.some((j) => j.job === 'merchandise')` — which does not say
+"can anybody finish this", it says "is this the one job that had errands when I
+was written". So `ferry` set `s.shifting` and the very next tick wiped it, and
+the runner stood holding six loaves for ever: *precisely* the bug that line
+exists to prevent, caused by the line itself.
+
+**The larder may not be raided.** An ingredient in the room that no floor board
+wants stays put, or the runner walks the fryer's flour out to the shop and the
+chef fetches it back, all afternoon, both of them correct.
+
+**It cannot loop.** Leg B moves room → floor; nothing moves floor → room except
+leg A, which sources crates and never shelves, and `merchandise` cannot cross the
+line at all (it filters `boh === boh`). So there is no pair of verbs that can
+pass a box back and forth — which is what let this ship without `rearrange`'s
+hysteresis.
+
+### What 15 touched
+
+| File | Why |
+|---|---|
+| `server/sim/index.js` | `stockroomRanges`, `backRanges`; `backRoomTakes` reads the union |
+| `server/sim/staff.js` | `ferry`, `SHIFTERS`, the `ferryTo` branch in `stepStaff`, `larders` → `backTakes` |
+| `shared/schemas.js` | `ferry` in `JOBS` |
+| `client/worker-menu.js` | the directive's row |
+| `scripts/verify-ferry.js` | new — 40 checks |
+| the database | the `runner` kind, three rungs |
+
+### Still open
+
+- **Room → room is not in it.** Two rooms can pass one crate back and forth for
+  ever, which is `rearrange`'s oscillation with a longer walk, so it wants its
+  own guard rather than a fourth leg bolted on.
+- **Unmeasured.** `simulate`'s bot never marks a stockroom and never hires a
+  runner, so a balance run is blind to all of it. It should *raise* held stock —
+  that is what a reserve is — and whether that pays is a play-test.
+- **Nothing routes anybody to a NAMED room on the way past.** A runner going to
+  the bay walks empty-handed; carrying something outbound is a real gain and a
+  genuinely harder job.
+
 ## Once a worker is data-driven
 
 These are cheap *because* of the split above, and expensive without it.
@@ -1875,6 +2092,12 @@ Each step leaves the game playable.
 12. ✅ **A rung that packs a crate** — `packs` on a tier, so a bay of
     part-crates is one trip instead of three. Opt-in by default, and the step
     that found `carry_mult` quietly switching hauling off.
+14. ✅ **A rung that plans its round** — `routes` on a tier. The first time
+    anything a worker chooses between has been chosen by how far away it is,
+    and it is only ever offered candidates the job already rates equally.
+15. ✅ **The runner** — `ferry`, and a back room that is a reserve for the
+    shelves near it as well as the kitchen's larder. The dock stops being a
+    walk every hire in a big shop has to make.
 
 Steps 1 and 2 are the ones that matter; everything after is only worth doing
 once a worker is genuinely data-driven. `guard` is deliberately not on this

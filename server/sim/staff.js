@@ -159,6 +159,74 @@ export const carryOf = (s) => Math.max(1, Math.round((kindOf(s)?.carry ?? 6) * t
 const packsOf = (s) => Math.max(0, Math.trunc(tierOf(s).packs ?? 0));
 
 /**
+ * HOW FAR NEARER THE OTHER ONE HAS TO BE.
+ *
+ * The dial behind `routes`, and the same shape `ARRANGE_GAIN_MIN`..`MAX` is: a
+ * keen rung always walks the shortest way, a lukewarm one only takes a short
+ * cut it could not miss. In tiles, because that is what the saving is measured
+ * in and a threshold in any other unit is a number nobody can picture.
+ *
+ * The floor is not zero on purpose. Two targets a hair apart are the same walk,
+ * and diverting between them is a decision with nothing on either side of it —
+ * which is also what would make the pick jitter as a hire drifts between two
+ * beds, the same way `arranges` would oscillate without its own floor.
+ */
+const ROUTE_SAVING_MIN = 0.5;
+const ROUTE_SAVING_MAX = 4;
+
+/** How keen this hire is to plan their round, 0..1. Zero is every rung today. */
+const routesOf = (s) => Math.min(1, Math.max(0, Number(tierOf(s).routes ?? 0)));
+
+/**
+ * The nearest of several targets the job rates EQUALLY — or the one it would
+ * have taken anyway.
+ *
+ * Two things about it are load-bearing. The saving is measured against
+ * `list[0]`, the incumbent, rather than against a running best: taking every
+ * improvement in turn is how half a tile at a time adds up to a walk across the
+ * shop, and the threshold then guards nothing. And the comparison is strict, so
+ * a tie keeps the incumbent — which is what lets the zero case below be the old
+ * code rather than a re-derivation of it that happens to agree.
+ *
+ * Straight-line and never `findPath`, which is a deliberate approximation. This
+ * is asked per candidate per worker per tick and A* is the hottest loop in the
+ * game, so a route-length version would cost more than the walk it saves. It is
+ * also only ever a *preference*: a hire who picks a bed behind a wall stalls and
+ * re-draws (see `stall`), which is exactly what already happens to an
+ * unreachable bed that happens to be first in the list.
+ */
+function nearestOf(s, list, keen) {
+  const first = list[0];
+  if (list.length < 2) return first;
+  const saving = ROUTE_SAVING_MAX - (ROUTE_SAVING_MAX - ROUTE_SAVING_MIN) * keen;
+  const away = (t) => Math.hypot(s.x - t.x, s.z - t.z);
+  const home = away(first);
+  let best = first;
+  let bestAway = home;
+  for (let i = 1; i < list.length; i++) {
+    const d = away(list[i]);
+    if (d < bestAway) { best = list[i]; bestAway = d; }
+  }
+  return home - bestAway >= saving ? best : first;
+}
+
+/**
+ * The target this hire takes out of `list` — first legal, or nearest legal.
+ *
+ * The zero branch is `list.find(ok)` verbatim, and that is the point rather
+ * than an optimisation: every rung in the game reads 0, so a save, an export
+ * and a fresh seed all run the code that was here, and no shop gets faster by
+ * accident. It also keeps `ok`'s short-circuit for the callers whose predicate
+ * is expensive — `harvest` asks `hasSomewhere` per bed, which walks the shelves.
+ */
+function pickNearest(s, list, ok) {
+  const keen = routesOf(s);
+  if (!(keen > 0)) return list.find(ok) ?? null;
+  const all = list.filter(ok);
+  return all.length ? nearestOf(s, all, keen) : null;
+}
+
+/**
  * Add or remove staff entities so they match the roster. Cheap enough to call
  * every tick, which keeps it correct across restarts and firings without
  * needing a hook on every path that changes who works here.
@@ -314,6 +382,15 @@ export function stepStaff(game, dt) {
         idle(game, s);
         continue;
       }
+      // ...and a box lifted FOR a stockroom goes to that stockroom, not to
+      // whichever shelf `unload` scores highest — which is usually a floor
+      // board, so without this a runner does the long walk and then undoes it.
+      // Gated on the hire still carrying the directive, and `ferry` itself
+      // falls through when the room has gone, so the relief guarantee this
+      // branch exists to give is unchanged: something always takes the box.
+      if (s.ferryTo && jobsOf(game, s).some((j) => j.job === 'ferry')
+        && worked(game, s, ferry)) { s.job = 'ferry'; spend(s); s.idleFrom = null; continue; }
+      s.ferryTo = null;
       if (worked(game, s, unload)) { s.job = 'unload'; spend(s); s.idleFrom = null; continue; }
       // Could not even set it down. Stand still rather than fall through to a
       // job that would ignore the box — but take the break first, which is the
@@ -337,12 +414,20 @@ export function stepStaff(game, dt) {
     }
 
     const jobs = jobsOf(game, s);
-    // An errand `merchandise` began, ended. Here rather than only inside that
+    // An errand a two-leg job began, ended. Here rather than only inside that
     // job, because it is the one place that runs whether or not the job does —
     // and `shifting` holds `shelve` off, so a hire left mid-errand by a job
     // taken off their list would stand there holding an armful for ever. Empty
     // hands or no job to finish it: either way there is no errand.
-    if (s.shifting && (!s.carry || !jobs.some((j) => j.job === 'merchandise'))) s.shifting = null;
+    //
+    // `SHIFTERS` and not a literal, which is not tidiness — it is the whole of
+    // what this line does. Written as `=== 'merchandise'` it does not say "can
+    // anybody finish this", it says "is this the one job that had errands when I
+    // was written", so a SECOND two-leg job has its errand wiped on the very
+    // tick it sets it. What that looks like is a hire who pulls a board and then
+    // stands there holding it for ever, which is precisely the bug this line
+    // exists to prevent, caused by the line itself. `ferry` cost an hour to it.
+    if (s.shifting && (!s.carry || !jobs.some((j) => SHIFTERS.has(j.job)))) s.shifting = null;
     let took = false;
     for (const { job } of drawOrder(game, jobs)) {
       const run = JOBS[job];
@@ -779,6 +864,16 @@ function inbound(game, s) {
 const key = (kind, id) => `${kind} ${id}`;
 
 /**
+ * The jobs that walk goods from one place to another in TWO legs, and can
+ * therefore be mid-errand (`s.shifting`) when a tick begins.
+ *
+ * A set rather than a comparison, because the one line that reads it is asking
+ * "is there anybody left who could finish this" — and answering that with the
+ * name of one job is how a second two-leg job ships broken. See `stepStaff`.
+ */
+const SHIFTERS = new Set(['merchandise', 'ferry']);
+
+/**
  * Take it, and answer true so a job can claim and carry on in one breath.
  *
  * NOT called `take`: `craft` has a local `const take` for how many units it
@@ -1086,11 +1181,18 @@ function freeTill(game, s) {
   const taken = new Set(Object.values(game.players)
     .filter((o) => o !== s)
     .map((o) => `${Math.round(o.x)},${Math.round(o.z)}`));
+  // Which till to LEAN ON — this is a pastime's spot, not a post to work. Every
+  // unoccupied one is the same break, so which was never a decision: it was
+  // list order, and a hire at the far end of the counter walked to till 1 to
+  // take five. Exactly the equal-candidates case `routes` is for.
+  const free = [];
   for (const till of game.layout.checkouts ?? []) {
     const spot = tendSpot(till);
-    if (spot && !taken.has(`${Math.round(spot.x)},${Math.round(spot.z)}`)) return spot;
+    if (spot && !taken.has(`${Math.round(spot.x)},${Math.round(spot.z)}`)) free.push(spot);
   }
-  return null;
+  if (!free.length) return null;
+  const keen = routesOf(s);
+  return keen > 0 ? nearestOf(s, free, keen) : free[0];
 }
 
 /**
@@ -1474,7 +1576,13 @@ function serve(game, s) {
   if (!tills.length) return false;
 
   const waiting = (t) => (t.queue ?? []).some((id) => game.customers[id]?.state === 'QUEUE');
-  const till = tills.find(waiting) ?? tills[0];
+  // A queue is a queue: nothing here rates one waiting shopper above another,
+  // so among the tills that HAVE somebody, which one is a question about the
+  // walk. `pickNearest` is `tills.find(waiting)` for every rung that has not
+  // paid for it, which is the fallback below reached by the same route it
+  // always was — and `?? tills[0]` stays, because a till with nobody at it is
+  // only ever somewhere to collect cash from and there is no choice in that.
+  const till = pickNearest(s, tills, waiting) ?? tills[0];
   const post = tendSpot(till);
   const standing = Math.hypot(s.x - post.x, s.z - post.z) <= 0.6;
 
@@ -1522,6 +1630,43 @@ function serve(game, s) {
  * job needed no new check. The gotcha at the bottom of docs/ordering.md is
  * about exactly these two looking identical.
  */
+/**
+ * THE SHOP GAVE UP ON THIS, SO IT MUST NOT BUY IT EITHER.
+ *
+ * `giveUpBoard` marks an *item* on `orders.dropped`, and for two steps only half
+ * the shop was told. `shelvesFor` opens by refusing a dropped item outright — no
+ * shelves, larder or floor — which is the mark doing its job. The buying half
+ * never heard: `pickItem` checks it, so a BARE board is safe, but the top-up
+ * path in `restock` picks "the emptiest pile already on this unit" straight off
+ * `shelfStacks`, and a given-up item is still standing on every other board it
+ * was on. So the van kept coming.
+ *
+ * What that costs is not a slow shop, it is a **one-way pile**: goods arrive,
+ * nothing can ever shelve them, and they sit in the yard until the mark lapses.
+ * Found on a live save on day 97 — six items given up over days 94–95, the
+ * morning's log showing 9x Dried Pasta, 25x Liquorice and 1x Breakfast Cereal
+ * ordered against all six of them, and the stranded pile going from 33 units to
+ * 59 in one day. Every symptom of it is somewhere else: `bayRoom` collapses, so
+ * the shop quietly stops ordering the things it DOES sell, and `putDown` cannot
+ * stow onto a full pad — which is the documented behaviour of holding goods
+ * rather than binning them, so the crew stand about with full arms. What you
+ * watch is a shop whose staff have stopped working, and the cause is a purchase
+ * order four days old.
+ *
+ * **A reservation overrules it**, which is not a nicety — it is the same
+ * exemption `shelvesFor` makes two lines into itself, and the two must agree or
+ * the shop refuses to buy for a board it will happily shelve. `keptFor` is
+ * shop-wide for that reason: ticking any unit for it is you saying the shop's
+ * judgement was wrong, and that answer cannot depend on which shelf is being
+ * asked about.
+ *
+ * It does NOT clear the mark the way `shelvesFor` does. That function is
+ * placing goods that already exist and has to decide where they go; this one is
+ * deciding whether to create any. One writer of `orders.dropped`, or the mark
+ * means something different depending on who asked.
+ */
+const givenUp = (game, id) => game.droppedItem(id) && !game.keptFor(id);
+
 function restock(game, s) {
   if (s.carry) return false;
   if (!game.orders.auto) return false;
@@ -1591,7 +1736,7 @@ function restock(game, s) {
   // ...and which machines each stockroom unit is the larder for, once for the
   // whole queue and for the same reason. Null in every shop with no appliance
   // or no back room, which is the cheap path and most shops.
-  const larders = game.larderRanges();
+  const backTakes = game.backRanges();
   for (const target of game.restockQueue()) {
     // Somebody else is already ordering for this board, or walking to it with an
     // armful. `homeSupply` counts the pending order the moment it is placed, so
@@ -1627,6 +1772,12 @@ function restock(game, s) {
     const buy = (id) => {
       const rule = game.itemRule(id);
       if (rule.auto === false) return 0;
+      // The shop's own judgement about its range, beside the player's switch
+      // above it — see `givenUp`. Here rather than in the item pick below,
+      // because that pick has two branches (a reservation, then the emptiest
+      // pile already standing) and a veto written into one of them is exactly
+      // the half-told rule this is fixing.
+      if (givenUp(game, id)) return 0;
       // Not where the shop keeps this. Nothing will shelve it here, so a van of
       // it lands on the pad and stays.
       if (!homedAt(target, id)) return 0;
@@ -1636,7 +1787,7 @@ function restock(game, s) {
       // that already holds something no machine can use would otherwise go on
       // being topped up for ever, which is the complaint said about the van
       // rather than about the shelf.
-      if (!kept.includes(id) && !game.backRoomTakes(target, id, larders)) return 0;
+      if (!kept.includes(id) && !game.backRoomTakes(target, id, backTakes)) return 0;
       // Already stood at the bay waiting to be shelved. Ordering more of THIS
       // while a crate of it is on the floor is the thing the old shop-wide
       // guard was reaching for, said about the item it is actually about.
@@ -1904,6 +2055,16 @@ function unload(game, s) {
   let fallback = null;
   let fallbackBest = 0;
   let fallbackMoves = 0;
+  // Every box that matched the winner exactly, in bay order — the equal
+  // candidates `routes` is allowed to choose between, and the ONLY thing it may
+  // be offered here. A bay of same-size part-crates ties constantly (`score` is
+  // `stray * 1e6 + moves`, so a tie is the same stray and the same units), and
+  // which of those is serviced first was never a decision — it was the order
+  // the boxes happened to be stored in. Anything that scores lower is a WORSE
+  // TRIP, and a rung that could take one of those to save a walk would be a
+  // balance change rather than an efficiency upgrade.
+  let ties = [];
+  let fallbackTies = [];
   for (const d of game.stockCrates()) {
     // No "same item only" filter any more, and it is not needed: `fit` already
     // scores a box your hands have no room for at zero, whether that is out of
@@ -1947,10 +2108,13 @@ function unload(game, s) {
     // back behind the `MIN_TRIP` preference and leave the empty board bare.
     const anyBare = lotStacks(d).some((k) => bare(roomFor(k.item_id)));
     if (moves >= MIN_TRIP * hands || anyBare || stray) {
-      if (score > best) { best = score; pallet = d; bestMoves = moves; }
-    } else if (score > fallbackBest) { fallbackBest = score; fallback = d; fallbackMoves = moves; }
+      if (score > best) { best = score; pallet = d; bestMoves = moves; ties = [d]; }
+      else if (score === best) ties.push(d);
+    } else if (score > fallbackBest) {
+      fallbackBest = score; fallback = d; fallbackMoves = moves; fallbackTies = [d];
+    } else if (score === fallbackBest) fallbackTies.push(d);
   }
-  if (!pallet && fallback) { pallet = fallback; bestMoves = fallbackMoves; }
+  if (!pallet && fallback) { pallet = fallback; bestMoves = fallbackMoves; ties = fallbackTies; }
 
   // Nothing worth an armful anywhere — so take a stray home instead.
   //
@@ -1977,6 +2141,11 @@ function unload(game, s) {
     }
   }
   if (!pallet) return false;
+  // Two identical trips, so take the near one. `bestMoves` survives untouched
+  // and has to: a tie is the same `moves`, which is what `Game.unload` is capped
+  // at, so swapping between tied boxes cannot change how much comes off one.
+  const keen = routesOf(s);
+  if (keen > 0 && ties.length > 1) pallet = nearestOf(s, ties, keen);
   best = bestMoves;
   claim(s, 'crate', pallet.id);
 
@@ -2683,7 +2852,10 @@ function till(game, s) {
 function sow(game, s) {
   if (s.carry) return false;
   const busy = claimed(game, s);
-  const bed = game.layout.plots.find((p) => !p.crop_id && p.soil === 'tilled'
+  // Every turned bed is the same job, so which one is a question about the walk
+  // and nothing else — see `pickNearest`. Without a rung that says so this is
+  // `plots.find(...)`, which takes bed 1 from the far end of the field.
+  const bed = pickNearest(s, game.layout.plots, (p) => !p.crop_id && p.soil === 'tilled'
     && !busy.has(key('plot', p.id)));
   if (!bed) return false;
   const crop = pickCrop(game, content());
@@ -2720,7 +2892,12 @@ function harvest(game, s) {
   const c = content();
   const spoken = inbound(game, s);
   const busy = claimed(game, s);
-  const ripe = game.layout.plots.find((p) => p.ready && !busy.has(key('plot', p.id))
+  // Ripe is ripe: nothing here rates one bed above another, so the only thing
+  // left to choose on is the walk. `pickNearest` keeps the short-circuit for a
+  // rung that has not paid for this, which matters more here than in `sow` —
+  // `hasSomewhere` walks the shelves, and this would otherwise ask it of every
+  // ripe bed in the field on every draw.
+  const ripe = pickNearest(s, game.layout.plots, (p) => p.ready && !busy.has(key('plot', p.id))
     && hasSomewhere(game, c.byId.crops[p.crop_id]?.item_id, c, spoken));
   if (!ripe) return false;
   claim(s, 'plot', ripe.id);
@@ -2786,13 +2963,21 @@ function craft(game, s) {
   // frees up, instead of in a crate somebody has to fetch back.
   const c = content();
   const spoken = inbound(game, s);
-  const done = stations.filter((st) => st.output)
-    .sort((a, b) => b.output.qty - a.output.qty)
-    .find((st) => shelfFor(game, st.output.item_id, c, spoken));
+  //
+  // Over every TRAY rather than every machine: a twin's two heads are two
+  // trays, and a sweep that read one of them would service a twin machine half
+  // as often as it fills — which reads as a chef ignoring a full tray that is
+  // plainly standing there.
+  const trays = stations.flatMap((st) => game.stationSlots(st)
+    .filter((slot) => slot.output)
+    .map((slot) => ({ st, out: slot.output })));
+  const done = trays
+    .sort((a, b) => b.out.qty - a.out.qty)
+    .find(({ out }) => shelfFor(game, out.item_id, c, spoken));
   if (done) {
-    claim(s, 'station', done.id);
-    if (!goTo(game, s, done.useAt)) return true;
-    game.collectStation(s.id, done.id);
+    claim(s, 'station', done.st.id);
+    if (!goTo(game, s, done.st.useAt)) return true;
+    game.collectStation(s.id, done.st.id);
     s.cooldown = paceOf(s);
     return true;
   }
@@ -2805,16 +2990,18 @@ function craft(game, s) {
   // taking turns. Only a machine with nowhere to put the result is skipped.
   const hungry = stations
     .filter((st) => {
-      // Room for what it is SET to make. Asked of every recipe it knew, a
-      // machine with a tray full of salsa still read as hungry because there
-      // was room for a smoothie — so the chef kept fetching for a batch that
-      // could never start.
-      const r = game.stationRecipe(st);
-      if (!r || game.stationOutputRoom(st, r) < r.output_qty) return false;
+      // Room for what a head is SET to make, on that head's own tray. Asked of
+      // every recipe a machine knew, one with a tray full of salsa still read as
+      // hungry because there was room for a smoothie — so the chef kept fetching
+      // for a batch that could never start. Any head that could run is enough:
+      // a twin with one blocked tray is still a machine worth walking to.
+      //
       // …and room in the SHOP for what comes out of it. Room on the tray only
       // says the machine can physically start; it says nothing about whether
       // anybody wants what it makes, and a tray is emptied by the job above.
-      return hasHome(game, r.output_id, c, spoken);
+      return game.stationHeads(st).some((head) => head.recipe
+        && game.stationTrayRoom(st, head) >= head.recipe.output_qty
+        && hasHome(game, head.recipe.output_id, c, spoken));
     })
     .sort((a, b) => total(a.contents) - total(b.contents));
 
@@ -2892,8 +3079,174 @@ function craft(game, s) {
 }
 
 /** The vocabulary, and the only thing an authored job name is checked against. */
+/**
+ * RUN THE BACK: fill the stockrooms off the dock, and the shelves off the
+ * stockrooms.
+ *
+ * One directive rather than two, for the reason `farm` is one: these are two
+ * steps of a single loop and nobody has ever wanted the first without the
+ * second. A hire told only to fill rooms is a hire building a pile in a room —
+ * which is the "a job that puts something down is not finished until nothing
+ * picks it back up" trap, arriving as a stockroom that silently becomes a
+ * second, worse yard.
+ *
+ * What it is FOR is the walk. Every case in the shop comes off one dock, so in
+ * a big building the trip from the bay to the far aisle is paid once per
+ * armful, and what you watch is the whole crew strung out in single file
+ * carrying six things each. A runner pays that trip once per CRATE — on the
+ * shoulder, which is what `p.haul` is for and why the long leg is the one that
+ * wants it — and the shelves are then refilled from a room a few tiles away.
+ *
+ * The order inside it is not tunable, and it is the opposite of `farm`'s. The
+ * FLOOR comes first: a bare board is money not being taken, where a thin
+ * stockroom is only a walk somebody will make later. So leg B is asked first
+ * and leg A is what a runner does when the front of the shop is fed.
+ *
+ * Three things keep it from being a loop:
+ *
+ *   leg B only ever moves stock the way a shopper does — room to floor — and
+ *   nothing in the game moves stock the other way except leg A, which sources
+ *   crates and never shelves. `merchandise` cannot cross the line either
+ *   (it filters `boh === boh`). So there is no pair of verbs that can pass a
+ *   box back and forth.
+ *
+ *   leg B refuses the LARDER's own range unless the floor also wants it, or a
+ *   runner walks the fryer's flour out to the shop and the chef fetches it
+ *   back — two hires, both correct, undoing each other all afternoon.
+ *
+ *   and both legs need somewhere for the goods to actually GO before anybody
+ *   sets off, which is `boardFor` in both cases rather than a second opinion.
+ */
+function ferry(game, s) {
+  // Leg two of an errand already begun, exactly as `merchandise` opens — and
+  // for the same reason, which is that a hire mid-errand IS a hire holding
+  // something. `deliver` is shared rather than copied: it re-tests the target on
+  // arrival, and a second version of that would be the copy that forgets to.
+  if (s.shifting) {
+    if (!s.carry) { s.shifting = null; return false; }
+    return deliver(game, s);
+  }
+  if (s.carry) return false;
+  const rooms = game.layout.shelves.filter((sh) => sh.boh === true && game.handMayTouch(sh));
+  if (!rooms.length) { s.ferryTo = null; return false; }
+  const c = content();
+  const busy = claimed(game, s);
+  const kept = (sh) => (Array.isArray(sh.assigned) ? sh.assigned : (sh.assigned ? [sh.assigned] : []));
+
+  /**
+   * Already carrying the box: finish the trip it was lifted for.
+   *
+   * This is why leg A cannot simply hand the crate back to the job list.
+   * `stepStaff` sends ANY haul straight to `unload`, which finds it a shelf by
+   * `shelvesFor` — and a floor board is a perfectly legal answer, so the box a
+   * runner lifted to stock the back room gets carried to the front of the shop
+   * instead. The job would look like it worked, and the rooms would stay empty.
+   *
+   * `ferryTo` is the errand, and it is a FIELD rather than a flag on the haul
+   * for the reason `s.haul` is not a flag on `s.carry`: every existing reader of
+   * a shouldered crate goes on asking what it asks and never has to learn that
+   * one of them is spoken for.
+   *
+   * It falls through to `unload` rather than insisting, and that is the same
+   * guarantee `stepStaff`'s haul branch exists to give: a room torn out, marked
+   * back to shop floor, or filled while somebody walked must never leave a crate
+   * welded to a shoulder for the rest of the shift.
+   */
+  if (s.haul) {
+    const room = s.ferryTo ? rooms.find((sh) => sh.id === s.ferryTo) : null;
+    if (!room) { s.ferryTo = null; return false; }
+    claim(s, 'shelf', room.id);
+    if (!goToShelf(game, s, room)) return true;
+    const res = game.stockFromCrate(s.id, room.id);
+    // Spent either way: what would not fit is an ordinary crate on a shoulder
+    // now, and `unload` knows what to do with one of those.
+    s.ferryTo = null;
+    s.cooldown = res.ok ? paceOf(s) : 1;
+    return true;
+  }
+
+  // ---- Leg B: a room with stock the floor is short of. Asked first, see above.
+  if (!s.haul) {
+    const larder = game.larderRanges();
+    let best = null;
+    for (const room of rooms) {
+      if (busy.has(key('shelf', room.id))) continue;
+      for (const stack of game.shelfStacks(room)) {
+        if (!(stack.qty > 0)) continue;
+        // The kitchen's, and the floor does not want it. Leaving this out is
+        // two hires undoing each other — see above.
+        const forKitchen = larder?.get(room.id)?.has(stack.item_id) === true;
+        const item = c.byId.items[stack.item_id];
+        if (!item) continue;                       // deleted out from under us
+        const to = game.layout.shelves.find((sh) => sh.boh !== true
+          && !busy.has(key('shelf', sh.id))
+          && game.handMayTouch(sh)
+          && game.homedAt(sh, stack.item_id)
+          && game.boardFor(sh, item).ok
+          && game.shelfCapacity(sh, item) > 0);
+        if (!to) continue;
+        if (forKitchen && !kept(to).includes(stack.item_id)
+          && !game.shelfStack(to, stack.item_id)) continue;
+        // The board the FLOOR is shortest of, so a runner with one pair of
+        // hands spends them on the emptiest thing rather than on whichever
+        // room happened to be listed first.
+        const short = game.shelfCapacity(to, item) - (game.shelfStack(to, stack.item_id)?.qty ?? 0);
+        if (!best || short > best.short) best = { room, stack, to, short };
+      }
+    }
+    if (best) {
+      claim(s, 'shelf', best.room.id);
+      if (!goToShelf(game, s, best.room)) return true;
+      const res = game.unshelve(s.id, best.room.id, best.stack.item_id, { max: carryOf(s) });
+      if (!res.ok) { s.cooldown = 1; return true; }
+      if (res.left <= 0) game.clearStack(best.room, best.stack.item_id);
+      // The same second leg `merchandise` uses, and for the same reason: the
+      // target is re-tested on arrival, because the shop moves while you walk.
+      s.shifting = { to: best.to.id };
+      s.cooldown = paceOf(s);
+      return true;
+    }
+  }
+
+  // ---- Leg A: a crate off the dock into the room that serves it.
+  //
+  // Whole-crate on the shoulder and never an armful: the whole point of the job
+  // is that the long walk is paid once per BOX, and `unload` already covers the
+  // armful case for anybody whose directive says to do it.
+  const reserve = game.stockroomRanges();
+  const takes = (sh, k) => {
+    const item = c.byId.items[k.item_id];
+    if (!item || !(k.qty > 0)) return false;
+    // Ticked onto the room, or in the range the room serves — the same override
+    // `shelvesFor` and `restock` apply, said here because this is the third
+    // place that decides what a back room is for.
+    if (!kept(sh).includes(k.item_id) && reserve?.get(sh.id)?.has(k.item_id) !== true) return false;
+    return game.boardFor(sh, item).ok && game.shelfCapacity(sh, item) > 0;
+  };
+  const roomFor = (d) => rooms.find((sh) => !busy.has(key('shelf', sh.id))
+    && lotStacks(d).some((k) => takes(sh, k)));
+  // Any box a room will take is the same trip, so which one is a question about
+  // the walk and nothing else — `pickNearest`, which is `find` exactly for a
+  // rung with no `routes`. It matters more here than anywhere it is already
+  // used: a runner's whole job is the length of the walk to the dock.
+  const crate = pickNearest(s, game.stockCrates(), (d) => !d.waste
+    && !busy.has(key('crate', d.id))
+    && onAPad(game, d) && game.crateOnTop(d) && !!roomFor(d));
+  if (!crate) return false;
+  const room = roomFor(crate);
+  if (!room) return false;
+  claim(s, 'crate', crate.id);
+  if (!goTo(game, s, crate, 1.4)) return true;
+  const got = game.liftCrate(s.id, crate.id);
+  // Named on the way up, or the tick after this one is `stepStaff` handing the
+  // box to `unload` — see the haul branch at the top.
+  if (got.ok) s.ferryTo = room.id;
+  s.cooldown = got.ok ? paceOf(s) : 1;
+  return true;
+}
+
 const JOBS = {
-  serve, restock, unload, shelve, tidy, merchandise, farm, craft,
+  serve, restock, unload, shelve, tidy, merchandise, farm, craft, ferry,
 };
 
 const total = (contents) => Object.values(contents ?? {}).reduce((a, b) => a + b, 0);
@@ -2977,33 +3330,45 @@ export function shelfFor(game, itemId, c, spoken = null) {
  */
 function larderOrder(game, s, c, budget) {
   const spoken = inbound(game, s);
+  // Every head of every machine. A second head is a second thing the shop has
+  // been told to make, and a loop that stopped at the first would buy for the
+  // coffee and never for the hot chocolate — which reads as the shop having
+  // ignored half of a decision you took in one press.
   for (const st of game.layout.stations ?? []) {
-    const r = game.stationRecipe(st);
-    if (!r) continue;
-    if (!hasHome(game, r.output_id, c, spoken)) continue;
-    for (const input of r.inputs) {
-      const id = input.item_id;
-      const item = c.byId.items[id];
-      if (!item) continue;
-      const rule = game.itemRule(id);
-      if (rule.auto === false) continue;
-      // Everywhere the goods could already be. `itemHeld` is the boards,
-      // `homeSupply` is the crates, the hands, the beds and the van, and the
-      // hopper is the one place neither of them looks — a machine part-loaded
-      // with bread is not a machine short of bread.
-      // `contents` is a plain {itemId: qty} hopper rather than a lot — read it
-      // as one, or a part-loaded machine reads as empty and orders again.
-      const have = game.itemHeld(id) + game.homeSupply(id) + (st.contents?.[id] ?? 0);
-      if (have >= input.qty) continue;
-      const room = game.stationHopperRoom(st, id);
-      let qty = Math.min(Math.max(input.qty, 0) * 2, room);
-      if (rule.max > 0) qty = Math.min(qty, rule.max - game.itemHeld(id) - game.homeSupply(id));
-      const unit = wholesalePrice(item, game.folded(), game.season);
-      qty = Math.min(qty, Math.floor(budget / Math.max(unit, 0.01)));
-      if (qty <= 0) continue;
-      if (!game.buyStock(s.id, id, qty).ok) continue;
-      s.cooldown = paceOf(s);
-      return true;
+    for (const r of game.stationRecipes(st)) {
+      if (!r) continue;
+      if (!hasHome(game, r.output_id, c, spoken)) continue;
+      for (const input of r.inputs) {
+        const id = input.item_id;
+        const item = c.byId.items[id];
+        if (!item) continue;
+        const rule = game.itemRule(id);
+        if (rule.auto === false) continue;
+        // ...and the same veto, because this path spends money too. An
+        // ingredient the shop has given up on strands exactly as a product
+        // does: `shelvesFor` refuses a dropped item BEFORE it asks about
+        // larders, so nothing carries it to the machine and the crate stands in
+        // the yard. Half a rule is what caused this, so it is not left
+        // half-applied.
+        if (givenUp(game, id)) continue;
+        // Everywhere the goods could already be. `itemHeld` is the boards,
+        // `homeSupply` is the crates, the hands, the beds and the van, and the
+        // hopper is the one place neither of them looks — a machine part-loaded
+        // with bread is not a machine short of bread.
+        // `contents` is a plain {itemId: qty} hopper rather than a lot — read it
+        // as one, or a part-loaded machine reads as empty and orders again.
+        const have = game.itemHeld(id) + game.homeSupply(id) + (st.contents?.[id] ?? 0);
+        if (have >= input.qty) continue;
+        const room = game.stationHopperRoom(st, id);
+        let qty = Math.min(Math.max(input.qty, 0) * 2, room);
+        if (rule.max > 0) qty = Math.min(qty, rule.max - game.itemHeld(id) - game.homeSupply(id));
+        const unit = wholesalePrice(item, game.folded(), game.season);
+        qty = Math.min(qty, Math.floor(budget / Math.max(unit, 0.01)));
+        if (qty <= 0) continue;
+        if (!game.buyStock(s.id, id, qty).ok) continue;
+        s.cooldown = paceOf(s);
+        return true;
+      }
     }
   }
   return false;
@@ -3125,7 +3490,7 @@ function shelvesFor(game, itemId, c, spoken = null) {
   // is asked per pile per worker per tick. A stockroom is the kitchen's larder,
   // so nothing the machines beside it cannot use is walked in there — see
   // `Game.larderRanges`.
-  const larders = game.larderRanges();
+  const backTakes = game.backRanges();
   const usable = game.layout.shelves.filter((sh) => {
     if (shelfKind(sh.kind) !== home) return false;
     // ...unless you TICKED that unit for it, which is the override every other
@@ -3133,7 +3498,7 @@ function shelvesFor(game, itemId, c, spoken = null) {
     // one `droppedItem` and `homedAt` honour. A stockroom kept for what the
     // kitchen makes is a real thing to want, and `verify:kitchen` authors
     // exactly it: the tray has to come out onto a board somebody reserved.
-    if (!kept(sh).includes(itemId) && !game.backRoomTakes(sh, itemId, larders)) return false;
+    if (!kept(sh).includes(itemId) && !game.backRoomTakes(sh, itemId, backTakes)) return false;
     // Not the unit the shop keeps this on. Your own hands are unaffected
     // (`boardFor` never reads it) and ticking a second shelf for it makes that
     // one a home too, which is the whole override. Waived once the home is out
@@ -3294,12 +3659,12 @@ function pickItem(game, shelf, c) {
   // front, where no shopper could ever see it and no machine could use it.
   // Walked once for the whole scoring pass; null on an ordinary shelf, and in
   // any shop with no appliance, which `backRoomTakes` reads as "no rule yet".
-  const larders = shelf.boh === true ? game.larderRanges() : null;
+  const backTakes = shelf.boh === true ? game.backRanges() : null;
 
   const scored = c.items
     .filter((it) => {
       if (crafted.has(it.id)) return false;   // whoever has `craft` makes these
-      if (!game.backRoomTakes(shelf, it.id, larders)) return false;
+      if (!game.backRoomTakes(shelf, it.id, backTakes)) return false;
       // "Never order this" has to bite here as well as on the quantity, or the
       // shop keeps choosing a banned item for every bare shelf, orders nothing,
       // and quietly never stocks that shelf with anything else either.
@@ -3337,17 +3702,21 @@ function pickItem(game, shelf, c) {
 }
 
 /**
- * Ingredients this appliance could still use — the inputs of the recipe it is
+ * Ingredients this appliance could still use — the inputs of the recipes it is
  * set to, and nothing else. `loadStation` refuses the rest, so a chef holding
  * an armful for a recipe the machine is no longer set to would otherwise walk
  * it over, be refused, and go straight back to walk it over again.
+ *
+ * The union over its heads, which is the same set `loadStation` accepts. Half
+ * of it would be a chef who never fetches for the second head.
  */
 function wants(game, st) {
-  return new Set((game.stationRecipe(st)?.inputs ?? []).map((i) => i.item_id));
+  return new Set(game.stationRecipes(st)
+    .flatMap((r) => (r?.inputs ?? []).map((i) => i.item_id)));
 }
 
 /**
- * The recipe this appliance is set to, IF the chef could actually finish it —
+ * A recipe this appliance is set to, IF the chef could actually finish it —
  * every missing ingredient has to be sitting on a shelf somewhere.
  *
  * It used to choose between the machine's recipes, and the sort was there
@@ -3357,6 +3726,11 @@ function wants(game, st) {
  * now, so what is left is only the feasibility half — and answering null is
  * right rather than a deadlock: a chef with nothing to fetch for this machine
  * goes and does one of their other jobs.
+ *
+ * A machine with two heads is two candidates, and the old deadlock does not
+ * come back with them: the walk down the heads stops at the first one that
+ * could be finished *and* has somewhere to put the result, so a blocked head is
+ * stepped over rather than committed to.
  */
 function feasibleRecipe(game, st) {
   // Every board in the shop, not one per unit. This is the line that decided
@@ -3377,13 +3751,17 @@ function feasibleRecipe(game, st) {
     for (const k of lotStacks(d)) stock.set(k.item_id, (stock.get(k.item_id) ?? 0) + k.qty);
   }
 
-  const r = game.stationRecipe(st);
-  if (!r) return null;
-  const possible = r.inputs.every((i) => {
-    const need = i.qty - (st.contents[i.item_id] ?? 0);
-    return need <= 0 || (stock.get(i.item_id) ?? 0) >= need;
-  });
-  return possible ? r : null;
+  for (const head of game.stationHeads(st)) {
+    const r = head.recipe;
+    if (!r) continue;
+    if (game.stationTrayRoom(st, head) < r.output_qty) continue;
+    const possible = r.inputs.every((i) => {
+      const need = i.qty - (st.contents[i.item_id] ?? 0);
+      return need <= 0 || (stock.get(i.item_id) ?? 0) >= need;
+    });
+    if (possible) return r;
+  }
+  return null;
 }
 
 /**

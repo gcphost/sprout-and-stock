@@ -1507,8 +1507,21 @@ what they are doing right now, and **Hire** as the last tab. That makes "who is
 on the tills" a glance rather than a menu. Pressing a person opens their own
 menu in `#panel`, exactly the way pressing a shelf does — two clerks are two
 entries and which one you pressed is the only thing that tells them apart.
-Pressing a kind on the Hire tab **hires**: the tile carries the name, the price
-and how many you already have, so there is nothing left for a menu to say.
+**Holding** a kind on the Hire tab hires: the tile carries the name, the price
+and how many you already have, so there is nothing left for a menu to say — and
+it is a hold rather than a tap because this is the one press in the game that
+spends money with no menu in between and nothing to undo it. A tap says so
+instead of doing it, and the tile fills while you hold (`.tool.holding`), for
+the reason the world's press ring exists: a hold with nothing happening is a
+press that missed until the instant it isn't.
+
+It asked twice for four steps — tap to arm, tap again within four seconds — and
+what that cost was a *mode*: a strip that had to redraw to say it was armed, a
+timer to expire it, and a list of places to clear it (pressing anything else,
+the bar going away, a rebuild landing the second tap on a fresh copy of the
+first tile). A hold is the same protection inside one press, with nothing left
+armed afterwards. It is also the gesture the palette already spends on a shape
+card, so `bar.js` took one callback rather than a mechanism.
 
 Two rules the entries follow, and both are about a strip you read at a glance:
 
@@ -1637,6 +1650,19 @@ and read as having forgotten.
 
 Two things it has to get right, both invisible until they are wrong:
 
+- **A hire wins the aim only while the POINTER arrived on them**
+  (`aimPerson`/`settledWho`, client/main.js). A person outranks the fixture
+  behind them because pointing at one is deliberate — they are a third of a tile
+  wide and they move — and that argument is about the pointer moving onto a
+  person. It is exactly false of a person walking under a pointer that has not
+  moved, which is most of what a shop floor does: you open a shelf, reach back to
+  press it again, a stocker has crossed in front of it, and the press opens the
+  stocker. Nothing on your side of the screen moved and the target changed. So
+  who you have settled on is recorded on `pointermove` — the one event that is
+  you rather than the world — and the ring, the tap and the hold all ask the same
+  function, or the highlight is promising a press that does something else. A
+  finger is exempt, and has to be: there is no hover on a touchscreen, so the
+  press is the arrival and there is no "before" to have settled in.
 - **A live drag outranks a repaint.** A fixture or a hire menu re-renders from
   the snapshot, which calls `showPanel` → `restorePos` — ten times a second,
   each one putting the panel back under the cursor. `restorePos` returns early

@@ -181,10 +181,11 @@ Three other snapshot fields matter:
   as the pause not working, which is precisely what a blade still turning read
   as.
 
-And one trap that is not a field. The night is **compressed at 6×** in `step`,
-so between 20:00 and 08:00 the clock runs at six times speed. Anything that
-schedules audio off world time — a chime on the hour, a shift change — fires six
-times as often overnight. Ambience is safe because it is a gain rather than a
+And one trap that is not a field. The night is **compressed** in `step`
+(`NIGHT_SPEED`, 3× today and 6× when this was written), so between 20:00 and
+08:00 the clock runs faster than the room does. Anything that schedules audio
+off world time — a chime on the hour, a shift change — fires that many times as
+often overnight, and the multiple is a number somebody may retune. Ambience is safe because it is a gain rather than a
 schedule; that is a third reason for the rule, not a coincidence.
 
 ### The budget is what stops it being a slot machine

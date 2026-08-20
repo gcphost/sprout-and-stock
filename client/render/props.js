@@ -819,18 +819,50 @@ function buildBay(model, { solid, ghost, colour }) {
  * Laid out in MODEL space — whoever adds this to the scene turns it to face the
  * way the machine faces, or the outlet ends up round the back.
  */
-export function buildStationBays({ intakes = [], outlet = null, bounds, wells = [] }) {
+export function buildStationBays({
+  intakes = [], outlet = null, bounds, wells = [], column = 0, columns = 1,
+}) {
   const g = new THREE.Group();
   const b = bounds ?? { minX: -0.35, maxX: 0.35, minZ: -0.35, maxZ: 0.35, top: 0.8 };
   // Far enough in that a pad overhangs nothing, and the two rows stay apart on
   // a machine barely two thirds of a tile deep.
   const INSET = 0.17;
 
-  // Authored wells, front-most last — so the outlet is the one at the front and
-  // everything behind it takes ingredients.
-  const sorted = [...wells].sort((a, c) => a.x - c.x);
+  /**
+   * A machine with two heads is two of these, and which wells belong to which
+   * is read off the ART rather than authored as an index — the same rule
+   * `surfacesAt`, `seamStep` and `drawableBoards` are held to, and for
+   * `verify:motion`'s reason: an index taken beside the parts spins the box next
+   * door the day somebody drops a seam past it.
+   *
+   * Ingredients run back-to-front along x, so heads run side by side along z:
+   * the wells sort into `columns` bands by z, and each band is one head's own
+   * hopper-and-tray pair. A machine that authored only one pair — which is every
+   * machine anybody has drawn — hands the same wells to both heads, and they
+   * stand their bays at the same place with the SPREAD below keeping them apart.
+   */
+  const byZ = [...wells].sort((a, c) => a.z - c.z);
+  const band = columns > 1 && byZ.length >= columns * 2
+    ? byZ.slice(
+      Math.round((column * byZ.length) / columns),
+      Math.round(((column + 1) * byZ.length) / columns),
+    )
+    : byZ;
+  // ...and within a head, front-most last — so the outlet is the one at the
+  // front and everything behind it takes ingredients.
+  const sorted = [...band].sort((a, c) => a.x - c.x);
   const tray = sorted.length > 1 ? sorted[sorted.length - 1] : null;
   const hopper = sorted.length > 1 ? sorted.slice(0, -1) : sorted;
+
+  /**
+   * Where this head sits across the machine when the art has not said.
+   *
+   * Zero for a single head, which is every machine that exists — so a shop that
+   * never bought a rung draws exactly what it drew before, to the millimetre.
+   */
+  const lane = columns > 1 && band === byZ
+    ? (column - (columns - 1) / 2) * Math.min(0.3, (b.maxZ - b.minZ) / columns)
+    : 0;
 
   intakes.forEach((s, i) => {
     const bay = buildBay(s.model, {
@@ -849,7 +881,7 @@ export function buildStationBays({ intakes = [], outlet = null, bounds, wells = 
     bay.position.set(
       w ? w.x : b.minX + INSET,
       (w ? w.y : b.top) + 0.02,
-      (w ? w.z : 0) + off,
+      (w ? w.z : 0) + off + lane,
     );
     g.add(bay);
   });
@@ -859,7 +891,11 @@ export function buildStationBays({ intakes = [], outlet = null, bounds, wells = 
     ghost: 0,
     colour: BAY_LOOK.outlet,
   });
-  out.position.set(tray ? tray.x : b.maxX - INSET, (tray ? tray.y : b.top) + 0.02, tray ? tray.z : 0);
+  out.position.set(
+    tray ? tray.x : b.maxX - INSET,
+    (tray ? tray.y : b.top) + 0.02,
+    (tray ? tray.z : 0) + lane,
+  );
   g.add(out);
 
   return g;
@@ -1075,9 +1111,19 @@ export function buildCageMarker(mode = 'aim', size = { x: 1, y: 1, z: 1 }) {
   const t = 0.045;
   // A floor between the bar thickness and the box: a garland is a few
   // centimetres thick, and a cage thinner than its own bars is a solid lump.
-  const hx = Math.max(size.x, t * 4) / 2;
-  const hy = Math.max(size.y, t * 4) / 2;
-  const hz = Math.max(size.z, t * 4) / 2;
+  //
+  // `grow` is the cage's version of `selected` being pushed out to the tile
+  // edge, and it is load-bearing for exactly one pair: the pile you are pointing
+  // at can also be the pile you picked, and two cages measured off the same
+  // meshes are the same twelve bars in two colours, both with `depthTest: false`
+  // — so they z-fight, and which one you see is decided by draw order rather
+  // than by anything either of them means. Held apart, the amber sits inside the
+  // teal and both are readable, which is the same picture a selected unit under
+  // the pointer already gives you.
+  const pad = look.grow ?? 0;
+  const hx = Math.max(size.x, t * 4) / 2 + pad;
+  const hy = Math.max(size.y, t * 4) / 2 + pad;
+  const hz = Math.max(size.z, t * 4) / 2 + pad;
 
   const parts = [];
   const bar = (sx, sy, sz, x, y, z) => parts.push(
@@ -1217,6 +1263,16 @@ const MARKER_LOOK = {
   // belongs to, and on a shelf that is over the *unit*, which is precisely the
   // answer a board marker is not giving. Nothing else about a cage cares.
   board: { color: 0xffd66b, chevron: false },
+  // ...and the pile you PRESSED, which is a different sentence about the same
+  // box. Teal for the reason `selected` is teal — nothing is about to happen to
+  // it, it is the thing you are working out of — and it is the only way the
+  // decision is visible at all: a pick has no deadline and outlives the pointer,
+  // so lent the amber cage it would be a promise about a press, drawn on a shelf
+  // nobody is pointing at. Two cages can be up at once and they answer two
+  // questions: amber is where your hand is, teal is what you picked. On the same
+  // pile the amber sits inside the teal, exactly as the aim frame sits inside
+  // the selection ring on a unit.
+  boardPicked: { color: 0x5fd6c4, chevron: false, grow: 0.05 },
   // Every other one LIKE the one you have picked, while Shift is held. The
   // `selected` teal, because teal is what pressing one would make it — a second
   // colour here would be a third vocabulary for the player to learn about a

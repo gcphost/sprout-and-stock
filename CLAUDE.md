@@ -378,6 +378,55 @@ Twenty-three sweeps, about half a minute:
   all day, changing nothing, looking exactly like a hire doing their job. It
   authors two worker rows and one world row and removes all three on exit.
 
+- `verify:routes` guards the first thing a worker chooses between that is chosen
+  by how far away it is, and every claim in it is invisible twice over: a hire
+  walking to the near bed and a hire walking to the far one are the same still
+  frame, and the shop is the same shop afterwards either way. Only the clock
+  moved. Its control is a rung with no `routes`, which is every rung that
+  existed before it — a farmhand stood ON a ripe bed must still walk the length
+  of the field to bed 1, because `harvest` and `sow` take `plots.find(...)` and
+  a `find` is list order. Its centrepiece is a claim about something NOT
+  happening: a near crate worth two units beside a far one worth six, where a
+  rung that took the near one to save the walk would be turning one trip into
+  three — a balance change wearing an efficiency upgrade, and it would look
+  exactly like the real thing. So the stat is only ever offered candidates the
+  job rates EQUALLY, and the paired claim is that it does break a tie at the
+  bay, or the guard above is satisfied by a stat that does nothing at all. Plus
+  the dial, which is the `packs` trap pointed at a float — a field that is a
+  boolean wearing a number, every value above zero doing the same thing — so one
+  standing spot is offered to a keen rung and a lukewarm one and they must
+  answer differently; that a tie keeps the incumbent, which is what makes the
+  zero case provable rather than coincidental; and conservation, because
+  choosing between two journeys is a place goods could be lost while the choice
+  itself came out right. The thresholds are restated in the sweep rather than
+  imported, or the dial's assertions pass whatever the constants become. It
+  authors three worker rows and removes them on exit.
+
+- `verify:ferry` guards the runner, and the day a back room stopped being only
+  the kitchen's. Every case in the shop comes off one dock, so in a big building
+  the trip to the far aisle is paid once per ARMFUL — eight hires in single file,
+  which reads as bad pathing and is bad logistics. Nothing in it can be looked
+  at: a hire walking to a stockroom and one walking to a shelf are the same still
+  frame, and a crate that reached the right room and one that reached the wrong
+  shelf are both a crate that got put away. Its control is doubled, because two
+  things have to stay opt-in — a shop that never marked a room, and a hire whose
+  kind predates the directive, which is every kind ever authored. Its centrepiece
+  is `ferryTo` surviving `stepStaff`'s haul branch: that branch hands ANY
+  shouldered crate to `unload`, which scores a floor board perfectly legal, so
+  without the errand the runner does the long walk, lifts the box and carries it
+  to the front of the shop — the job reads as working and the rooms simply stay
+  empty, which is what a stockroom feature you have not used yet looks like. Plus
+  that the range is by NEAREST and refuses what nothing near it wants (or a room
+  is a second yard with a roof); that leg B feeds the floor, without which leg A
+  is a pile-builder; that the LARDER is not raided, or the runner and the chef
+  undo each other all afternoon with both of them correct; conservation, since a
+  new place goods move between is a new place they go missing; and relief — a
+  room marked back to shop floor mid-carry must not weld the box to a shoulder,
+  which is `verify:break`'s `TIRED_PACE` pin arriving through a new door. It marks
+  its room through `setBackOfHouse` in build mode rather than writing `boh`,
+  because a sweep that sets the flag passes while the real press is refused. It
+  authors two worker rows and removes them on exit.
+
 - `verify:pick` guards a verb done to SEVERAL fixtures at once, and everything it
   guards is about the middle of the press rather than the end of it — six shelves
   restyled one at a time and six restyled together are the same six shelves
@@ -516,7 +565,7 @@ hand — and so did `verify:orphans`, which is the only one so far written to a
 bug reported from a screenshot, and so did `verify:store`, which caught ninety
 rows on its first run and is the only one that found its bug *before the feature
 it guards had ever run*. `verify:motion`, `verify:hand`, `verify:park`,
-`verify:doors` and `verify:price` are the exceptions and say so: each shipped with its feature,
+`verify:doors`, `verify:price` and `verify:routes` are the exceptions and say so: each shipped with its feature,
 because every claim it makes is invisible in a still frame by construction. None of them is visible in a screenshot of one
 seed — which is exactly why they exist.
 
@@ -638,11 +687,11 @@ what the next step was meant to be.
 | Doc | Covers | Status |
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, and the modifier that demolishes whatever is under the pointer | steps 1–9, 11, 13–19 built; 10 cancelled; 12 next |
-| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, and the rung that rearranges the shop around where customers actually walk | steps 1–6 and 8–13 built; 7 proposed |
+| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, and the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board | steps 1–9 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
-| [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | all proposed |
+| [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | step 1 built (no rung authored yet); 2–4 proposed |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
 | [docs/difficulty.md](docs/difficulty.md) | why a neglected shop finds a level instead of going under — the settle spring, the floor under demand, and a game where standing still is free; difficulty as a second axis beside the starting tier, upkeep as the first fixed cost, and why today's constants are the *easy* preset rather than the default | step 1 built; 2–4 proposed |
@@ -2010,6 +2059,22 @@ what the next step was meant to be.
   38px button up against a wall across the room. The shape lives in `edgeBands`
   in `palette.js` now and both callers ask for it. Anything that draws a second
   picture of something the game already draws has to derive it, not match it.
+- **A person under the pointer is not the same as a person you pointed at.**
+  A hire outranks the fixture behind them, and the argument is that they are a
+  third of a tile wide and they move, so landing on one is deliberate. That is
+  true of the pointer moving onto somebody and exactly false of somebody walking
+  under a pointer that has not moved — which is most of what a shop floor does.
+  What it costs is the *second* press: you open a shelf, reach back to press it
+  again, a stocker has crossed in front of it in the meantime, and the press
+  opens the stocker. Nothing on your side of the screen moved, so it does not
+  read as a mis-click, it reads as the shelf refusing to open. `settledWho` is
+  recorded on `pointermove` — the one event that is you rather than the world —
+  and `aimPerson` is asked by the ring, the tap AND the hold, because a marker
+  that lit up under a rule the press did not share is the green-ghost bug
+  wearing a person. A finger is exempt and has to be: with no hover the press IS
+  the arrival, and there is no "before" to have settled in. The general shape:
+  **anything that decides what the pointer means has a second input nobody
+  declared — the world moving underneath it.**
 - **Aiming at a fixture is not the same as picking a tile.** A shelf is a
   three-quarter-tile-tall box, so on a 45° camera its top face is drawn most of
   a tile up-screen of the ground it stands on. `pickTile` answers "which floor
@@ -2324,6 +2389,42 @@ what the next step was meant to be.
   general shape is the one above wearing the other pair of hands: **a loop closed
   for the job that spawned it is still open for every other caller of the same
   verbs.**
+- **…and for two steps only HALF the shop knew it had given up.** The mark is on
+  the item (`orders.dropped`) and `shelvesFor` opens by refusing a dropped item
+  any shelf at all — larder or floor — which is `giveUpBoard` doing its job. The
+  *buying* half was never told. `pickItem` checks it, so a BARE board was safe,
+  and that is exactly why it survived: the hole is the **top-up** path, which
+  picks the emptiest pile already standing on the unit, and a given-up item is
+  still standing on every other board it was on. So the vans kept coming, and
+  every case landed somewhere nothing could ever shelve from. It is a one-way
+  pile, and **not one symptom appears where the bug is**: the yard fills, so
+  `bayRoom` collapses and the shop quietly stops ordering what it *does* sell,
+  and `putDown` cannot stow onto a full pad — which is its documented promise to
+  hold goods rather than bin them — so the crew stand about with full arms. What
+  you watch is a shop whose staff have stopped working, four days downstream of
+  a purchase order. Found on a live save at day 97: six items given up over days
+  94–95, the next morning's log ordering 9x Dried Pasta, 25x Liquorice and a
+  Breakfast Cereal against all six, and the stranded pile going 33 units → 59 in
+  one day. `givenUp` is the one spelling now and BOTH spending paths ask it —
+  `buy` and `larderOrder`, because an ingredient strands exactly as a product
+  does. A reservation overrules it (`keptFor`, shop-wide) or the shop refuses to
+  buy for a board it would happily shelve. It does **not** clear the mark the
+  way `shelvesFor` does: that function is placing goods that already exist, this
+  one is deciding whether to create any, and one writer of `orders.dropped` is
+  the point. The general shape, and it is the third time in this list: **a rule
+  the shop enforces when PLACING goods has to be asked again when BUYING them,
+  and the two are different files.**
+- **A guard that names ONE job answers a different question than it looks like.**
+  The line in `stepStaff` that ends a half-done errand read
+  `!jobs.some((j) => j.job === 'merchandise')` — which does not say "can anybody
+  finish this", it says "is this the one job that had errands when I was
+  written". So the second two-leg job (`ferry`) set `s.shifting` and the very
+  next tick wiped it, and the hire stood holding six loaves for ever: precisely
+  the bug that line exists to prevent, caused by the line itself, and it looks
+  identical to a pathing fault. `SHIFTERS` is the set now. The shape to watch
+  for: **a predicate written against the only member of a category is a
+  predicate that silently excludes the second one**, and it fails in whichever
+  file adds that member rather than in the file that is wrong.
 - **…and a spill TOPS UP a board, it never opens one.** `homeFull` waives the
   one-home rule when the home has no room left, so goods already paid for are
   not stranded behind a full unit — and "any other legal unit" is the spread bug

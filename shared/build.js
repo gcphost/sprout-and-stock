@@ -60,12 +60,14 @@ import {
  * till, which is not a thing anybody does.
  *
  * The BACK is a fact about the piece rather than the kind, and it is the one
- * piece of this that content owns: `open` on a `fixtures` row (see
- * `shared/pieces.js`). A shelving unit has a back panel and a produce table has
- * four legs, and those are the same kind wearing two shapes — so which of them
- * you can walk all the way round cannot be answered here. It is deliberately
- * NOT a variant: a variant is a look and may never move a number, and how many
- * sides a unit can be worked from moves how a shop flows. See `spotsOf`.
+ * piece of this that content owns: `open` on a `fixtures` row, or on one of its
+ * tier rungs — `openOf` in `shared/pieces.js` resolves the two. A shelving unit
+ * has a back panel and a produce table has four legs, and those are the same
+ * kind wearing two shapes — so which of them you can walk all the way round
+ * cannot be answered here. It is deliberately NOT a variant: a variant is a look
+ * and may never move a number, and how many sides a unit can be worked from
+ * moves how a shop flows. A rung may buy it for the mirror-image reason — that
+ * is exactly the kind of number a tier is supposed to move. See `spotsOf`.
  *
  * It was hardcoded as `{ x: till.x, z: till.z - 1 }` in `server/sim/staff.js`
  * before it was a field — "one tile north", which is right for exactly the
@@ -655,7 +657,8 @@ export function spotsOf(f, { layout = null, open = false } = {}) {
   if (def.behind && f[def.behind]) out.push({ ...f[def.behind], role: 'tend' });
   if (!def.ends || !use) return out;
 
-  // The ends, and — if the piece says it is open all round — the back. Derived
+  // The ends, and — if the piece or its rung says it is open all round — the
+  // back, which is `openOf`'s answer and never a field on the placement. Derived
   // rather than stored, which is the opposite call to `browseAt` and the right
   // one for the same reason: the anchor is a DECISION made when the thing was
   // laid and has to survive being read back, while these are a fact about a box

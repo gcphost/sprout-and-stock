@@ -588,51 +588,79 @@ export function showFixture(ui, f) {
 }
 
 /**
- * The recipe an appliance is set to, resolved the same way the server resolves
- * it: whatever the snapshot says, and failing that the first one the machine
- * knows, because a machine nobody has chosen for is running its first recipe.
+ * The heads on an appliance, resolved the same way the server resolves them:
+ * whatever the snapshot says, and failing that — on the FIRST head only — the
+ * first recipe the machine knows, because a machine nobody has chosen for is
+ * running its first recipe while a second head nobody has pointed anywhere is
+ * idle.
  *
  * Two spellings of "which recipe is this making" is a menu that names one thing
  * while the bays over the machine draw another.
  */
-function stationRecipe(ui, f, live) {
+function stationLines(ui, f, live) {
   const mine = (ui.catalog.recipes ?? []).filter((r) => r.station === f.station);
-  return mine.find((r) => r.id === live?.recipe) ?? mine[0] ?? null;
+  const slots = live?.lines ?? [{ recipe: live?.recipe ?? null }];
+  return slots.map((slot, i) => ({
+    ...slot,
+    recipe: mine.find((r) => r.id === slot.recipe) ?? (i === 0 ? mine[0] : null) ?? null,
+  }));
 }
 
 /**
  * What this appliance could be making, as pickable rows.
  *
- * A machine knows several recipes and runs ONE, so this is a picker rather than
- * a list of checkboxes — the shape a seed picker takes, not the shape a shelf's
- * reservations take. Pressing a row is the whole decision: the hopper resizes
- * to it, the shop starts buying for it, and what the machine will and won't
- * take in your hands changes with it.
+ * A machine knows several recipes and runs one per HEAD, so this is a capped
+ * list of ticks — the shape a shelf's reservations take, with a ceiling. It was
+ * a picker for as long as every machine had one head, and on a machine that
+ * still has one it behaves identically: pressing a row is the whole decision,
+ * the hopper resizes to it, the shop starts buying for it, and what the machine
+ * will and won't take in your hands changes with it.
+ *
+ * Above one head, pressing a row TOGGLES it, and the whole set goes in one
+ * message — `bulkFixtures`' argument on the other axis, since two heads changed
+ * by two presses is two lines in the feed for one decision. A row that would be
+ * the `lines + 1`th is dead with the ceiling said on it, rather than silently
+ * swapping something out: a tick list that quietly drops one to take another is
+ * a list that lies about what a press does.
  *
  * Each row prints its own ingredients, because the choice IS the ingredients —
  * "Fresh Salsa" over "Berry Smoothie" is a decision about whether you have
  * tomatoes. It costs a line and saves opening something else to find out.
  */
 function recipeRows(ui, f, live) {
-  const here = stationRecipe(ui, f, live)?.id ?? null;
-  const batches = live?.batches ?? 1;
+  const heads = stationLines(ui, f, live);
+  const one = heads.length === 1;
+  const on = heads.map((h) => h.recipe?.id).filter(Boolean);
+  const full = on.length >= heads.length;
+  const send = (ids) => ui.net.send('station-recipe', { stationId: f.id, recipeIds: ids });
   return (ui.catalog.recipes ?? [])
     .filter((r) => r.station === f.station)
-    .map((r) => ({
-      icon: ICONS.station,
-      name: r.name,
-      // Per batch, not per hopper. It is the number that decides whether the
-      // thing can run at all, and the hopper's ceiling is on the head above.
-      sub: `${r.inputs.map((i) => `${i.qty}× ${ui.itemName(i.item_id)}`).join(' + ')} → ${r.output_qty ?? 1}× ${ui.itemName(r.output_id)}`,
-      facets: r.inputs.map((i) => ui.itemName(i.item_id)),
-      right: `${(r.minutes ?? 0)}m`,
-      picked: r.id === here,
-      // The one already set is dead rather than absent, the way the shape picker
-      // treats the shape you are already wearing: a row that vanished when you
-      // pressed it would leave the list a different length every time you looked.
-      run: r.id === here ? null
-        : () => ui.net.send('station-recipe', { stationId: f.id, recipeId: r.id }),
-    }));
+    .map((r) => {
+      const picked = on.includes(r.id);
+      // Where the ceiling bites. On a one-headed machine there is no ceiling to
+      // hit — pressing another row REPLACES, which is the picker this has always
+      // been — and the row it is already on is the dead one.
+      const blocked = one ? picked : (picked ? on.length <= 1 : full);
+      return {
+        icon: ICONS.station,
+        name: r.name,
+        // Per batch, not per hopper. It is the number that decides whether the
+        // thing can run at all, and the hopper's ceiling is on the head above.
+        sub: (!one && !picked && full)
+          ? `it makes ${heads.length} at a time — untick one first`
+          : `${r.inputs.map((i) => `${i.qty}× ${ui.itemName(i.item_id)}`).join(' + ')} → ${r.output_qty ?? 1}× ${ui.itemName(r.output_id)}`,
+        facets: r.inputs.map((i) => ui.itemName(i.item_id)),
+        right: `${(r.minutes ?? 0)}m`,
+        picked,
+        // Dead rather than absent, the way the shape picker treats the shape you
+        // are already wearing: a row that vanished when you pressed it would
+        // leave the list a different length every time you looked.
+        run: blocked ? null : () => {
+          if (one) return send([r.id]);
+          return send(picked ? on.filter((id) => id !== r.id) : [...on, r.id]);
+        },
+      };
+    });
 }
 
 /**
@@ -1521,43 +1549,56 @@ function fixtureDetail(ui, f, live) {
     const inside = Object.entries(live?.contents ?? {})
       .map(([id, n]) => `${n}× ${ui.itemName(id)}`).join(', ');
 
-    // The ONE recipe it is set to, with each ingredient counted against what is
-    // actually in the hopper. It listed every recipe the machine knew while the
-    // machine chose for itself, and that was two lists of numbers where only one
-    // of them was ever going to happen. The others are a tab below, as things to
-    // switch to rather than as things it might be doing.
-    const recipe = stationRecipe(ui, f, live);
+    // The recipes it is set to — one block per HEAD, each ingredient counted
+    // against what is actually in the hopper. It listed every recipe the machine
+    // knew while the machine chose for itself, and that was two lists of numbers
+    // where only one of them was ever going to happen. The others are a tab
+    // below, as things to switch to rather than as things it might be doing.
+    const heads = stationLines(ui, f, live);
     const held = (id) => live?.contents?.[id] ?? 0;
 
     // How much of an ingredient this machine takes, computed here off the same
-    // recipe and the same `batches` the server used. The bar has to say the
+    // recipes and the same `batches` the server used. The bar has to say the
     // ceiling: a hopper you can keep filling is only worth filling if the game
     // tells you how far, and "1 / 1" beside a full armful reads as a machine
     // that is refusing you rather than one that is loaded.
+    //
+    // Summed over the heads, because there is ONE bin: two heads that both want
+    // milk want it once, and a per-head ceiling would have the same pile of milk
+    // reading as full against one block and half empty against the other.
     const batches = live?.batches ?? 1;
+    const wants = (id) => heads.reduce((n, h) => n + (h.recipe?.inputs ?? [])
+      .filter((i) => i.item_id === id)
+      .reduce((m, i) => Math.max(m, i.qty), 0), 0) * batches;
 
-    const body = recipe ? `
+    const body = heads.filter((h) => h.recipe).map((h) => `
       <div class="fx-recipe">
         <div class="fx-recipe-h">
-          <span>${esc(recipe.name)}</span>
-          <b>makes ${recipe.output_qty ?? 1}×</b>
+          <span>${esc(h.recipe.name)}</span>
+          <b>makes ${h.recipe.output_qty ?? 1}×</b>
         </div>
-        ${recipe.inputs.map((i) => `
+        ${h.recipe.inputs.map((i) => `
           <div class="fx-ing${held(i.item_id) >= i.qty ? ' ok' : ''}">
             <span>${ui.itemName(i.item_id)}</span>
-            <b>${held(i.item_id)} / ${i.qty * batches}</b>
+            <b>${held(i.item_id)} / ${wants(i.item_id)}</b>
           </div>`).join('')}
-      </div>` : '';
+      </div>`).join('');
 
     // What is waiting to be picked up, which used only ever to be one batch and
-    // so was never worth its own line. It is the reason to walk over now.
-    const ready = live?.output
-      ? `${live.output.qty}× ${ui.itemName(live.output.item_id)}`
+    // so was never worth its own line. It is the reason to walk over now — and
+    // on a machine with two trays it is what says which of them to walk over
+    // for, so it names every one that has something on it.
+    const trays = heads.filter((h) => h.output);
+    const ready = trays.length
+      ? trays.map((h) => `${h.output.qty}× ${ui.itemName(h.output.item_id)}`).join(', ')
       : '<i>nothing</i>';
+    const running = heads.filter((h) => h.making);
 
     return `<div class="fx-detail">
       ${line('In the hopper', inside || '<i>empty</i>')}
-      ${line('Making', live?.making ? ui.itemName(live.output?.item_id ?? live.making) : '<i>idle</i>')}
+      ${line('Making', running.length
+    ? running.map((h) => ui.itemName(h.output?.item_id ?? h.recipe?.output_id ?? h.making)).join(', ')
+    : '<i>idle</i>')}
       ${line('Ready to collect', ready)}
       ${body || line('Set to make', '<i>no recipes yet</i>')}
     </div>`;
@@ -1867,7 +1908,11 @@ function contentsOf(ui, f, live) {
     };
   }
   if (f.kind === 'station') {
-    const n = Object.values(live?.contents ?? {}).reduce((a, b) => a + b, 0) + (live?.output?.qty ?? 0);
+    // Every tray, the way `dumpStation` empties every tray — a twin whose count
+    // ignored the second one would grey Remove out with goods still on it.
+    const trays = (live?.lines ?? [{ output: live?.output ?? null }])
+      .reduce((sum, slot) => sum + (slot.output?.qty ?? 0), 0);
+    const n = Object.values(live?.contents ?? {}).reduce((a, b) => a + b, 0) + trays;
     return { n, blurb: 'Tips the hopper into crates. A batch going is left to finish.' };
   }
   if (f.kind === 'plot') {

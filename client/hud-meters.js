@@ -34,10 +34,20 @@ const DEADBAND = 0.04;
 // sparkline that kept its old size while the type around it shrank would be the
 // biggest thing in the readout, which is the wrong way round for the least
 // urgent number in it.
-// Kept in step with `#flow`'s `min-width` in index.html: the widget is what
-// fills the floor, so a sparkline narrower than it leaves a hole the clock sits
-// on the far side of. Wider bars for free, which at seven days is no loss.
-const SPARK_W = 56;
+// It IS the third column of `.rows` — nothing else in that column is as wide as
+// it ("Summer" is about 38px), so this number is the width of the right-hand end
+// of the card and shaving it shaves the card. That coupling used to run the
+// other way, through a `min-width` on `#flow` that this had to be kept equal to;
+// the grid retired it, and what is left is the simpler statement that the widget
+// is the column.
+//
+// The bars are `slot - 1.5` wide, so the card gives back rather more than the
+// gaps lose: at seven days each bar is a fifth of a pixel narrower per pixel
+// taken off here. Which is the trade to weigh if it ever comes down again — a
+// week's shape is read as the RELATIVE heights of seven marks, so the floor is
+// where the marks stop being distinguishable from each other rather than any
+// particular width.
+const SPARK_W = 54;
 const SPARK_H = 12;
 
 const title = (s) => s.charAt(0).toUpperCase() + s.slice(1);

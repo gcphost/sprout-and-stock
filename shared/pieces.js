@@ -158,6 +158,38 @@ export function boardsOf(rows, f) {
 }
 
 /**
+ * Can you walk all the way round THIS one and work it from the back?
+ *
+ * `open` on the piece is the design's own answer — a produce table has four
+ * legs and a shelving unit has a back panel, at every rung either of them will
+ * ever reach. A rung may also open one, which is `boardsOf`'s argument said
+ * about a side instead of a board: a tier that changes a number the sim reads
+ * is what a tier is FOR, and how many sides a unit is worked from is flow.
+ *
+ * Read DOWN the ladder rather than off the current rung alone. A rung with no
+ * opinion inherits the last one that had one, so opening a unit at tier 2 leaves
+ * it open at tier 3 without authoring it twice — and the alternative is the trap
+ * this exists inside: every rung ever authored is silent on this, so "the rung's
+ * own answer or the piece's" would have tier 3 of an open piece re-closing it
+ * because tier 3 never mentioned it.
+ *
+ * Same tier clamp `boardsOf` uses, and it matters for the same reason: a
+ * placement can name a rung the ladder has since been shortened past, and
+ * reading off the end would answer `undefined` — which here is a unit that
+ * silently loses its back the day somebody edits the catalog.
+ */
+export function openOf(rows, f) {
+  const piece = pieceFor(rows, f);
+  if (!piece) return false;
+  const rungs = piece.tiers ?? [];
+  const tier = Math.min(Math.max(1, Math.trunc(f?.tier ?? 1)), Math.max(1, rungs.length));
+  for (let i = tier - 1; i >= 0; i--) {
+    if (rungs[i]?.open != null) return rungs[i].open === true;
+  }
+  return piece.open === true;
+}
+
+/**
  * What a laid floor is made of.
  *
  * The `model` lookup's opposite number, and it needs its own because a floor is

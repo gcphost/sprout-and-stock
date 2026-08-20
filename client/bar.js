@@ -105,7 +105,7 @@ export const groupAt = (groups, id) => groups.find((g) => g.id === id) ?? groups
  * choice that resolved to something other than what it asked for.
  */
 export function renderBar(el, {
-  groups, at, atSub, picked, choice, onTab, onSubTab, onPick, onShapes,
+  groups, at, atSub, picked, choice, onTab, onSubTab, onPick, onShapes, onHold,
 }) {
   const open = groupAt(groups, at);
   const subs = open?.subs ?? null;
@@ -207,14 +207,26 @@ export function renderBar(el, {
     let timer = null;
     let held = false;
     let from = null;
-    const stop = () => { clearTimeout(timer); timer = null; };
+    const stop = () => { clearTimeout(timer); timer = null; b.classList.remove('holding'); };
+    // What a HOLD on this tile means, or null for a tile where it means nothing.
+    // Two answers now: the shape card on anything that comes in several shapes,
+    // and — on the roster's Hire tiles — taking somebody on. They are the same
+    // gesture pointed at the two different things a tile can be hiding: one more
+    // question, or one press you should not be able to make by accident.
+    const onLong = (it.shapes && onShapes) ? () => onShapes(it)
+      : (onHold ? () => onHold(it) : null);
     b.onpointerdown = (e) => {
       // A hold ARMS the tile on its way to the shape card (`onShapes`), so it is
       // the same press as a tap as far as affording it goes.
-      if (!it.shapes || !onShapes || it.poor) return;
+      if (!onLong || it.poor) return;
       held = false;
       from = { x: e.clientX, y: e.clientY };
-      timer = setTimeout(() => { held = true; onShapes(it); }, HOLD_MS);
+      // The tile fills while you hold it. A hold with no progress on it is
+      // indistinguishable from a press that missed until the moment it fires —
+      // which is what `setHoldProgress` says about the world's own ring, and it
+      // matters more here because this one spends money at the end.
+      b.classList.add('holding');
+      timer = setTimeout(() => { held = true; b.classList.remove('holding'); onLong(); }, HOLD_MS);
     };
     // A strip that scrolls sideways is a strip you drag, and a drag begins as a
     // press that has not let go yet. Without this, pulling the far end of a tab

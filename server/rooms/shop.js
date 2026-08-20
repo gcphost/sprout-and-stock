@@ -529,11 +529,16 @@ export const ShopRoom = (Base) => class extends Base {
     // Which of its recipes an appliance is set to. Same gate as `assign` above
     // and for the same reason: deciding what the kitchen makes is a choice
     // about stock, not construction, so the menu can send it with the build bar
-    // down. It names the recipe it pressed rather than a direction — a machine
+    // down. It names the recipes it wants rather than a direction — a machine
     // that knows four has no "next one".
+    //
+    // The whole SET in one message, because a machine with two heads is two
+    // decisions taken in one press, and `bulkFixtures`' argument applies to this
+    // axis too: N messages is N lines in the feed for one press. `recipeId`
+    // stays readable for the single-headed machine every shop owns.
     this.onMessage('station-recipe', (client, m) => {
-      client.send('action-result', this.game.setStationRecipe(
-        client.sessionId, m?.stationId, m?.recipeId,
+      client.send('action-result', this.game.setStationRecipes(
+        client.sessionId, m?.stationId, m?.recipeIds ?? m?.recipeId,
       ));
     });
 

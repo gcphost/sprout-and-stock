@@ -611,6 +611,23 @@ export const FixtureSchema = z.object({
      */
     unattended: z.number().min(0).max(1).default(0),
     /**
+     * How many recipes this machine may be SET TO at once. Appliances.
+     *
+     * 1 — the default, and every rung there has ever been — is a machine that
+     * knows several recipes and runs one. Above 1 it is a twin: each head holds
+     * its own recipe and runs its own batch, in parallel, out of the one shared
+     * hopper. What the rung sells is how many at once, never *which* — a
+     * `min_tier` on a recipe would take a recipe away from a machine on the way
+     * back down and hide one authored this afternoon from a shop that already
+     * owns the machine for it.
+     *
+     * An integer because it is a count of heads. It is the fifth knob the sim
+     * reads, and `scripts/document-fixtures.js` has to know that or the
+     * generated reference lists a Twin rung under "tiers that change no number"
+     * — the warning that exists to catch exactly the opposite mistake.
+     */
+    lines: z.number().int().min(1).max(4).default(1),
+    /**
      * A light this rung switches on. Null on every rung is a fitting that never
      * glows, which is every fixture in the game except the lamps.
      *
@@ -627,6 +644,28 @@ export const FixtureSchema = z.object({
      * glowing at every rung without authoring it six times.
      */
     emits: emitsShape.nullable().default(null),
+    /**
+     * Whether THIS rung can be worked from the back — see `open` on the piece
+     * below for what the flag means and why it may not be a variant.
+     *
+     * Nullable and falling back to the piece's own, exactly as `emits` does, and
+     * for a sharper reason than saving anyone typing: a boolean that DEFAULTED
+     * would answer false on every rung ever authored, so the piece-level flag
+     * would stop being read the day this field existed and three open pieces
+     * would quietly close. Null is "this rung has no opinion".
+     *
+     * It is the second thing a tier can sell that is not a multiplier, and it
+     * clears the bar `emits` had to clear: how many sides a unit can be worked
+     * from is flow, and flow is money. That is also why it is a TIER and not a
+     * variant — a shape may never move a number, and this one moves plenty.
+     *
+     * A rung that opens a unit and a later rung that says nothing are not a
+     * contradiction: read the ladder down, not up. `openOf` takes the highest
+     * rung at or below this one that has an opinion, so authoring it once at
+     * tier 2 opens tier 3 as well — and a *downgrade* honestly closes the back
+     * again, the same way stepping down a rung can take a board away.
+     */
+    open: z.boolean().nullable().default(null),
   })).min(1).max(6).default([{ name: 'Standard', cost: 0 }]),
   /**
    * What one costs to put down, or 0 to be priced by the upgrade that sells the
@@ -712,6 +751,9 @@ export const FixtureSchema = z.object({
    * It changes reach and what the markers draw, and deliberately nothing else:
    * where the generator reserves a spot, where a tap walks you and what
    * `canPlace` demands all still go by the one stored anchor. See `spotsOf`.
+   *
+   * This is the design's answer at every rung. A rung may override it — see
+   * `open` on a tier above — and `openOf` is the one place the two are resolved.
    */
   open: z.boolean().default(false),
   /**
@@ -840,6 +882,10 @@ export const JOBS = [
   'craft',    // load a station, collect what it made
   'tidy',     // crate what can't be put away
   'merchandise', // take goods back OFF a shelf: clear a dead board, merge a split one
+  // Run the back: fill the stockrooms off the dock, and the shelves off the
+  // stockrooms. ONE directive because it is one loop — a hire told only to fill
+  // rooms builds a pile in a room. See `ferry` in server/sim/staff.js.
+  'ferry',
 ];
 
 /**
@@ -914,6 +960,39 @@ export const WorkerSchema = z.object({
      * tune.
      */
     arranges: z.number().min(0).max(1).default(0),
+    /**
+     * How keen this rung is to plan its round — take the NEAREST of the targets
+     * the job rates equally, rather than the first one on the list. 0 is off,
+     * and is every rung ever authored.
+     *
+     * What it buys is the one thing no rung has ever sold: nothing a hire
+     * chooses between has ever been chosen by how far away it is. `harvest` and
+     * `sow` take `plots.find(...)` — the first legal bed in array order — so a
+     * farmhand standing at the end of a field walks the length of it to reach
+     * bed 1 because bed 1 is listed first. `serve` takes the first till with
+     * anybody in the queue. A bay of identical part-crates is serviced in
+     * whatever order the boxes are stored in. Every one of those is a correct
+     * decision and a walk nobody chose, and in play it reads as a crew who
+     * wander.
+     *
+     * **It never overrules the job's own preference**, which is the whole of
+     * what makes it safe: it is offered the candidates a job rates *equally* —
+     * every ripe bed, every till with somebody waiting, every crate that ties
+     * on `unload`'s own score — so the worst it can do is take one of two
+     * identical trips. A rung
+     * that could trade a better trip for a shorter walk would be a balance
+     * change wearing an efficiency upgrade.
+     *
+     * A number rather than a flag for the same reason `arranges` is one, and
+     * the dial is the same shape: it sets how many tiles nearer the other
+     * target has to be before a hire will divert to it (`ROUTE_SAVING_MIN`..
+     * `MAX` in `server/sim/staff.js`), so a lukewarm rung only takes an obvious
+     * short cut and a keen one always walks the shortest way. The saving is
+     * measured against the target they WOULD have taken, never against a
+     * running best, or a chain of half-tile improvements walks them across the
+     * shop one candidate at a time.
+     */
+    routes: z.number().min(0).max(1).default(0),
     /**
      * What keeping them costs, x this. A promotion that raised what they were
      * worth but not what they cost would be the same free lunch a wage-less

@@ -913,19 +913,13 @@ export function staffGroups(ui) {
     name: w.name,
     note: money(w.cost),
     badge: roster.filter((e) => e.kind === w.id).length || null,
-    title: `${w.name} — ${kindSummary(w)}${
+    // The gesture is in the tip, because it is the one tile on any bar where a
+    // tap does not do the thing — see `UI.holdBarEntry`. A tap says it too, but
+    // a line you only meet by getting it wrong is not where a control should be
+    // explained.
+    title: `${w.name} — ${kindSummary(w)} · hold to hire${
       w.cost > cash ? ` · ${money(w.cost)} and you have ${money(cash)}` : ''}`,
-  })).map((t) => (ui.hireArm === t.kind ? {
-    // Armed: the tile says what the next press does, and says it where the
-    // price was. Same shape the worker menu's Let go uses (`FIRE_ARM_MS`) and
-    // for the same reason said the other way round — a hire refunds nothing, so
-    // the mis-tap that TAKES somebody on costs a day's wage every day until you
-    // notice, and this is the one bar where a press acts with no menu in
-    // between. It has to be the note rather than a chip beside it: the tile is
-    // 76px and the press lands on all of it, so anything that is not the tile
-    // is a target you can miss on the way to confirming.
-    ...t, note: 'Tap to hire', warn: true,
-  } : t));
+  }));
 
   const seen = [...new Set(roster.map((e) => e.kind))];
 

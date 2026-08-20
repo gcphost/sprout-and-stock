@@ -25,13 +25,14 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 `shelf` · kind `shelf` · $45 to build
 
-8 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn)
+9 parts · 4 stages, driven by tier · **4 boards of goods** (12 facings drawn)
 
 Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other way) — looks only, same price and same ladder.
 
 1. **Plain shelving** — free, as built
 2. **Backed shelving** — $120, holds ×1.5
 3. **Signed aisle** — $300, holds ×2
+4. **Tall aisle** — $620, holds ×2.6
 
 #### Bakery
 
@@ -81,13 +82,14 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 `freezer` · kind `freezer` · $260 to build
 
-8 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn) · has glass
+9 parts · 4 stages, driven by tier · **4 boards of goods** (12 facings drawn) · has glass
 
 Shapes: Standard, Chest, Wall run, Wall corner, Wall corner (other way), Endcap — looks only, same price and same ladder.
 
 1. **Glass-door freezer** — free, as built
 2. **Sealed freezer** — $260, keeps ×1.5
 3. **Display freezer** — $620, holds ×1.5, keeps ×2
+4. **Tall display freezer** — $1180, holds ×2, keeps ×2.4
 
 #### Deli
 
@@ -133,12 +135,12 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 `hot-counter` · kind `warmer` · $260 to build
 
-7 parts · **1 board of goods** (3 facings drawn) · has glass
+12 parts · 3 stages, driven by tier · **2 boards of goods** (6 facings drawn) · has glass
 
 💡 Emits `#ffab4f`, intensity 0.55, range 2.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 1. **Heat lamp** — free, as built
-2. **Hot cabinet** — $170, keeps ×1.8
+2. **Hot cabinet** — $170, keeps ×1.8, open all round
 3. **Carvery counter** — $400, holds ×1.3, keeps ×2.6
 
 ### `checkout`

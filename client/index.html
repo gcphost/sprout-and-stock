@@ -693,18 +693,29 @@
          thing this DOES clip is an outline, which is why the focus ring below
          is drawn inset. */
       overflow: hidden;
-      /* THE CARD OWNS ITS HEIGHT NOW, and it has to say so out loud because the
-         thing that used to decide it was an accident: `#doorway` was a fixed
-         48px plaque, so the tallest item in the row was the sign, and the card
-         was 58px because of a number chosen for a piece of lettering. The strip
-         that replaced it is sized BY the card, so with nothing here the row
-         would fall to the height of the readouts — about 42px — and the whole
-         HUD would have quietly shrunk as a side effect of restyling a button.
-         58 is what it has always measured. It is a floor rather than a height,
-         so anything taller than it still fits, and the 640px bar below drops it
-         because a full-width bar across the top of a phone genuinely should
-         take its height from its contents — see the note by `#sign` there. */
-      min-height: 58px;
+      /* THE READOUTS OWN THE HEIGHT, AND THE FLOOR IS ONLY THERE FOR THE WORD.
+         This was 58px, and 58 was never a decision about this card: `#doorway`
+         was a fixed 48px plaque, so the sign was the tallest thing in the row
+         and the card measured whatever a piece of lettering plus the padding
+         came to. The strip that replaced it is sized BY the card, so the number
+         was kept as a floor to stop the HUD quietly shrinking as a side effect
+         of restyling a button — which was the right call at the time and leaves
+         a card carrying about ten pixels of slack above and below two rows of
+         type, on the one panel that is pinned over the thing you are looking at.
+         The rows come to roughly 37px and the padding to 10, so the card now
+         sits a shade under 48 and every pixel of that is a number.
+         What the floor is for is the OTHER thing 58 was holding up, and it is
+         the invariant `#doorway` names: four upright letters run about 40px at
+         8px type, and a card shorter than they are crops the sign — which reads
+         as the word being wrong rather than as the card being small. 46 is that
+         claim written down. It does nothing today, deliberately: it is the thing
+         that fails loudly if the type in this panel ever comes down, instead of
+         a remembered height that also happened to keep the sign whole.
+         The 640px bar below drops it to 0, because a full-width bar across the
+         top of a phone genuinely should take its height from its contents — and
+         it can afford to, because every figure in it is scaled up about a tenth,
+         which puts its rows well clear of the word on their own. */
+      min-height: 46px;
     }
     /* NOTHING IN HERE SHRINKS. The card is a fixed readout in a corner, not a
        column of a page, and flex's default is to shrink an item that does not
@@ -1187,15 +1198,19 @@
        shape, in that order: the number you want most, then the comparison, then
        the trend. Tabular numerals because it changes ten times a second and
        proportional digits make it jitter sideways as it does. */
-    /* `min-width` for the same reason as #money above — this is the fastest
-       changing number on screen, so it is the one that shifts the row most.
-       It has to be the SAME number as `SPARK_W`, and that is the whole of what
-       used to look like a hole in the row. A floor of 70 over a 38px sparkline
-       is 32px of empty column, left-aligned, so it all pooled on the right — and
-       what you see is the clock adrift, half a panel away from the readout it is
-       nearest. Nothing was wrong with either the floor or the sparkline; they
-       simply were not told about each other. Matched, the widget IS the floor
-       and there is no slack for a gap to be made of. */
+    /* THERE IS NO `min-width` HERE ANY MORE, and it is worth saying so, because
+       the bug it was written for is the one this cell keeps having. It was a
+       floor for the same reason `#cash` has one — this is the fastest changing
+       number on screen — and it had to be kept equal to `SPARK_W` by hand, since
+       a floor of 70 over a 38px sparkline is 32px of empty column that all pools
+       on one side: what you see is the clock adrift, half a panel away from the
+       readout it is nearest, and neither the floor nor the sparkline is wrong.
+       The grid retired both halves. `#flow` is `display: contents`, so the
+       number and the week's shape are two cells in two `auto` columns, and a
+       column is exactly as wide as the wider of the two things in it — which is
+       the floor, computed, for every cell in the card at once. So `SPARK_W` is
+       still what sets the right-hand end of the panel; it is simply no longer a
+       number anything else has to be told about. */
     /* A ROW now, not a column: the number and the week's shape are both about
        the money, so they belong on the money LINE — stacked, they were a second
        two-line cell inside a panel that is already two lines, and the card had
@@ -3702,6 +3717,24 @@
     }
     html.can-hover .tool:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1px rgba(58,49,40,.14), 0 4px 10px rgba(58,49,40,.16); }
     .tool:active { transform: translateY(0); }
+    /* A HOLD, filling up. Two tiles ask for one (`bar.js`): a shape card, and
+       taking somebody on — and the second is why this is drawn rather than
+       merely allowed, since a hold with nothing happening is indistinguishable
+       from a press that missed right up until the moment it spends your money.
+       It is the same claim `setHoldProgress` makes about the world's own ring,
+       and it is the same 400ms: the animation is the timer, wearing a colour.
+
+       A sweep UNDER the art rather than a tint over it, for the reason `.tool.on`
+       gives about the ring — a solid block behind a bot turns both to mud — and
+       `pointer-events: none` because it lies over the button that is listening
+       for the release. */
+    .tool.holding::after {
+      content: ''; position: absolute; inset: 0; border-radius: inherit;
+      background: linear-gradient(90deg, rgba(255,214,107,.85), rgba(255,214,107,.55));
+      transform-origin: left center; animation: toolhold .4s linear forwards;
+      pointer-events: none; mix-blend-mode: multiply;
+    }
+    @keyframes toolhold { from { transform: scaleX(0); } to { transform: scaleX(1); } }
     /* Armed. A ring rather than a fill under the art, so the thing you are about
        to build stays the brightest object in its own button — a solid amber
        block behind a wooden shelf turns both to mud. */
@@ -4483,9 +4516,11 @@
       #stats {
         width: 100%; border-radius: 0 0 13px 13px;
         padding: 5px 8px; gap: 8px;
-        /* The corner card's 58px floor is a corner card's number — see the note
-           beside it, and the one below about what the sign used to do to this
-           bar. Across the top of a phone the height is the readouts'. */
+        /* The corner card's floor is there to keep four upright letters whole
+           at 8px type — see the note beside it, and the one below about what
+           the sign used to do to this bar. Everything here is scaled up about a
+           tenth, so the readouts clear the word without being asked to, and the
+           height is theirs. */
         min-height: 0;
       }
       /* THE SIGN USED TO DECIDE HOW TALL THE BAR IS, and that was the whole of

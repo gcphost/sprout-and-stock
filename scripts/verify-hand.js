@@ -455,6 +455,71 @@ const onAShelf = (g, itemId) => g.layout.shelves.some((sh) => (g.shelfStack(sh, 
 }
 
 // ---------------------------------------------------------------------------
+// 4bb2. …and the shop stops BUYING it, which is the half that cost real money.
+//
+// The mark is read by `shelvesFor`, which refuses a dropped item a shelf —
+// larder or floor — before it asks anything else. For two steps the buying half
+// had never been told: `pickItem` checks it, so a BARE board was safe, and the
+// top-up path picks the emptiest pile already standing on the unit, which a
+// given-up item still is on every other board it was on. So the vans kept
+// coming, and every case of it landed somewhere nothing could ever shelve from.
+//
+// Found on a live save: six items given up over two days, the next morning's log
+// ordering 9x Dried Pasta, 25x Liquorice and a Breakfast Cereal against all six,
+// and the stranded pile going 33 units → 59 in a day. Not one symptom of it
+// appears where the bug is — the yard fills, so `putDown` cannot stow and the
+// crew stand about holding armfuls, which reads as the STAFF being broken.
+//
+// The control is the whole section, and it is the assertion that would have
+// caught the over-correction: "nothing was ordered" passes just as well when
+// restocking never ran at all.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh({ jobs: [{ job: 'restock', weight: 1 }] });
+  g.orders.auto = true;
+  // Two thin boards on two SEPARATE units, which is not tidiness: `restock`
+  // orders for one pile per unit per pass — the emptiest homed one — so a
+  // control sharing a shelf with the subject is starved by it rather than by
+  // the rule under test, and would fail this section for the wrong reason.
+  board(g, g.layout.shelves[0], ITEM_A, 1);
+  board(g, g.layout.shelves[1], KEEPER, 1);
+  check(g.dropItem(ITEM_A.id), 'the shop gives up on one of the two');
+
+  const ordered = (id) => (g.orders.pending ?? []).some((o) => o.item_id === id)
+    || g.deliveries.some((d) => lotQty(d, id) > 0);
+  until(g, () => ordered(KEEPER.id));
+  check(ordered(KEEPER.id), 'a van is still sent for the line it still stocks');
+  check(!ordered(ITEM_A.id), '…and never for the one it gave up on');
+
+  // …and the SAME board, unmarked, is bought for. Without this the assertion
+  // above is satisfied by an item that was never orderable in the first place —
+  // a passing negative that proves nothing, which is the failure mode a sweep
+  // written for a specific bug is most prone to.
+  const g1 = fresh({ jobs: [{ job: 'restock', weight: 1 }] });
+  g1.orders.auto = true;
+  board(g1, g1.layout.shelves[0], ITEM_A, 1);
+  const bought = (id) => (g1.orders.pending ?? []).some((o) => o.item_id === id)
+    || g1.deliveries.some((d) => lotQty(d, id) > 0);
+  until(g1, () => bought(ITEM_A.id));
+  check(bought(ITEM_A.id), 'the very same board is bought for when nobody gave up on it');
+
+  // A RESERVATION OVERRULES, exactly as it does in `shelvesFor` — and the two
+  // have to agree, or the shop refuses to buy for a board it would happily
+  // shelve. Shop-wide (`keptFor`), because ticking a unit is you saying the
+  // judgement was wrong and that cannot depend on which shelf is being asked.
+  const g2 = fresh({ jobs: [{ job: 'restock', weight: 1 }] });
+  g2.orders.auto = true;
+  const sh2 = g2.layout.shelves[0];
+  board(g2, sh2, ITEM_A, 1);
+  check(g2.dropItem(ITEM_A.id), 'the shop gives up on it here too');
+  sh2.assigned = [ITEM_A.id];
+  const got = (id) => (g2.orders.pending ?? []).some((o) => o.item_id === id)
+    || g2.deliveries.some((d) => lotQty(d, id) > 0);
+  until(g2, () => got(ITEM_A.id));
+  check(got(ITEM_A.id), 'but a board you ticked for it is bought for anyway');
+}
+
+// ---------------------------------------------------------------------------
 // 4c. It LAPSES, including on a save written while it did not.
 //
 // Forever was argued from the crate — the goods are on a pad, so a mark that

@@ -146,6 +146,18 @@ const WIND_LEAN = 0.16;
  * shelf.
  */
 const BOARD_SNAP_PX = 7;
+
+/**
+ * Which cage a marker mode draws when it is about one PILE rather than a unit.
+ *
+ * A board is marked by a box round the goods whatever the question is, so the
+ * mode cannot simply pass through — but the question still differs, and this is
+ * the one line where it is said: `aim` is where your hand is, `picked` is what
+ * you pressed. Anything not in here is a unit-level mode that has landed on a
+ * board by accident and gets the plain amber cage, which is the old behaviour.
+ */
+const BOARD_LOOK = { aim: 'board', picked: 'boardPicked' };
+
 /** Where a pile of takings sits: on the counter, not inside it. Its label
  *  hangs a fixed distance over the same spot, so the two cannot drift apart. */
 const CASH_Y = 0.95;
@@ -670,6 +682,35 @@ const VEHICLE_TURN = 5;
  * instead of on every packet.
  */
 const ACTOR_CHASE = 4.3;
+
+/**
+ * How long a gap between two frames means you were NOT HERE, rather than that
+ * one frame was slow.
+ *
+ * A chase is the right way to draw somebody walking and the wrong way to draw
+ * somebody who has moved while nobody was looking. `requestAnimationFrame`
+ * stops in a backgrounded tab and the shop does not — the room goes on being
+ * watched, so state keeps landing and every `tx`/`tz` keeps moving, while the
+ * bodies stay exactly where the last drawn frame left them. Come back and the
+ * chase does what it is built to do: eases every shopper and every hire, from
+ * where they were a minute ago to where they are now, over the same second it
+ * would spend on a single step. What that reads as is the whole shop sliding
+ * into place, and the tell is that it happens *only* on returning to the tab.
+ *
+ * So the clamp on `dt` is not enough on its own. It stops the far worse version
+ * of this — a body crossing the world in one frame, a camera fed a minute of
+ * pan — and by clamping it also throws away the one number that says which kind
+ * of gap this was. Hence a threshold on the RAW gap, read before the clamp: past
+ * it, the chase is skipped and everything is put where the shop says it is,
+ * which is what a body that moved unobserved should look like.
+ *
+ * 400ms because it has to sit above the worst honest frame and below anything a
+ * person would call being away. A re-flow of a big shop is tens of milliseconds;
+ * a tab switch is at minimum the time it takes to switch back. Snapping after a
+ * genuine 400ms stall is right anyway — a chase resumed from a half-second-stale
+ * position is a glide too, just a shorter one.
+ */
+const AWAY_MS = 400;
 
 /**
  * Which way to turn a vehicle so its nose points where it is going.
@@ -1564,7 +1605,7 @@ export class Scene {
     // Both props on an appliance: the ingredient row, and what it looks like
     // while it runs. A working look redrawn over MCP should reach the machine
     // that is running right now, not the next batch.
-    for (const [, rec] of this.stationProps) { rec.key = null; rec.workKey = null; }
+    for (const [, rec] of this.stationProps) { rec.keys = []; rec.workKeys = []; }
     // ...and the van that is on the road while you are drawing it. A vehicle is
     // on screen for about six seconds a run, so "it'll be right next time" is a
     // worse answer here than anywhere else in this sweep — the next time is six
@@ -2015,6 +2056,11 @@ export class Scene {
     // renumber it or move it out from under the marker. Whoever is aiming will
     // set it again on the next pointer move or frame.
     this.setAimTarget(null);
+    // ...and the picked pile with it, for the same reason and one more: the
+    // marker is measured off the goods meshes, which this teardown has just
+    // disposed. `liveBoard` re-resolves the pick by id on the next frame, so a
+    // pile that survived the re-flow gets its cage straight back.
+    this.setPickedBoard(null);
   }
 
   /**
@@ -3313,9 +3359,13 @@ export class Scene {
    *
    * A body with no target yet — added this frame, before any snapshot named it
    * — is left where it was put, which is already the right place.
+   *
+   * `snap` is the frame after a tab came back — see `AWAY_MS`. Everybody goes
+   * straight to where the shop says they are, because there is no walk to draw:
+   * they took it while nothing was on screen.
    */
-  animateActors(dt) {
-    const move = 1 - Math.exp(-dt * ACTOR_CHASE);
+  animateActors(dt, snap = false) {
+    const move = snap ? 1 : 1 - Math.exp(-dt * ACTOR_CHASE);
     let slip = 0;
     for (const map of [this.players, this.customers]) {
       for (const rec of map.values()) {
@@ -3343,10 +3393,10 @@ export class Scene {
     this.shadowSlip += slip;
   }
 
-  animateVehicles(dt) {
+  animateVehicles(dt, snap = false) {
     if (!this.vehicleProps.size) return;
-    const move = 1 - Math.exp(-dt * VEHICLE_CHASE);
-    const turn = 1 - Math.exp(-dt * VEHICLE_TURN);
+    const move = snap ? 1 : 1 - Math.exp(-dt * VEHICLE_CHASE);
+    const turn = snap ? 1 : 1 - Math.exp(-dt * VEHICLE_TURN);
     let slip = 0;
     for (const rec of this.vehicleProps.values()) {
       const dx = (rec.x - rec.obj.position.x) * move;
@@ -3363,7 +3413,7 @@ export class Scene {
   }
 
   /**
-   * Which recipe an appliance is set to.
+   * What each head of an appliance is set to, with what that head is doing.
    *
    * Off the snapshot, which is the server's own answer — this used to guess,
    * because there was nothing to read: a machine ran whichever recipe its hopper
@@ -3371,12 +3421,20 @@ export class Scene {
    * flipped to the other as you loaded it. A row of ingredients that changes
    * while you are fetching them is a machine arguing with you.
    *
-   * The fallback to the first recipe mirrors `Game.stationRecipe` for the one
-   * tick a client can be ahead of the content it is drawing.
+   * The fallback to the first recipe on the FIRST head mirrors
+   * `Game.stationRecipes` for the one tick a client can be ahead of the content
+   * it is drawing — and, like there, a later head that is pointed at nothing is
+   * idle rather than pointed at the first thing.
    */
-  stationRecipe(st) {
+  stationLines(st) {
     const mine = (this.catalog.recipes ?? []).filter((r) => r.station === st.station);
-    return mine.find((r) => r.id === st.recipe) ?? mine[0] ?? null;
+    const slots = st.lines ?? [{
+      recipe: st.recipe ?? null, making: st.making ?? null, output: st.output ?? null, progress: st.progress ?? 0,
+    }];
+    return slots.map((slot, i) => ({
+      ...slot,
+      recipe: mine.find((r) => r.id === slot.recipe) ?? (i === 0 ? mine[0] : null) ?? null,
+    }));
   }
 
   /**
@@ -3403,87 +3461,130 @@ export class Scene {
 
     for (const st of stations) {
       seen.add(st.id);
+      const heads = this.stationLines(st);
+      // The machine as a whole is running if ANY head is — which is what drives
+      // its own moving parts and its hum, and is a different question from which
+      // head is mid-batch.
       const making = Boolean(st.making);
-      const recipe = this.stationRecipe(st);
-      // Nothing while it runs: what it was short of went in when the batch
-      // started, so a bay drawn now is a red pad on a machine doing its job.
-      const intakes = making ? [] : (recipe?.inputs ?? []).map((i) => ({
-        model: this.catalog.items[i.item_id]?.model ?? null,
-        need: i.qty,
-        held: st.contents?.[i.item_id] ?? 0,
-      }));
-      const outlet = st.output
-        ? { model: this.catalog.items[st.output.item_id]?.model ?? null, qty: st.output.qty }
-        : null;
 
-      // Rebuilt only when what it says changes, but repositioned every sync —
-      // an appliance you move in build mode has to take its readout with it.
-      const key = [
-        recipe?.id ?? 'idle',
-        intakes.map((s) => `${Math.min(s.held, s.need)}/${s.need}`).join(','),
-        outlet ? `${st.output.item_id}x${outlet.qty}` : '',
-      ].join('|');
       let rec = this.stationProps.get(st.id);
       // Kept and updated in place rather than replaced, because there are three
       // props on this record now and they change on different beats: the bays
       // when the hopper does, the working prop when the batch crosses a stage,
       // the bar ten times a second. Rebuilding the record for one drops the
       // other two.
+      //
+      // Each of the three is a LIST, one per head, for the reason the sim's
+      // record is: a twin machine running two batches would otherwise tell you
+      // about one of them, and which one would be whichever the loop wrote last.
       if (!rec) {
-        rec = { key: null, group: null, work: null, workKey: null, bar: null, making: false };
+        rec = { keys: [], groups: [], work: [], workKeys: [], bars: [], making: false };
         this.stationProps.set(st.id, rec);
       }
 
-      if (rec.key !== key) {
-        if (rec.group) {
-          this.actorRoot.remove(rec.group);
-          disposeGroup(rec.group);
+      const bounds = this.stationBounds(st);
+      const wells = this.stationWells(st);
+      const baseY = this.fixtureBaseY({ kind: 'station' });
+      const yaw = -(this.stationRot(st)) * (Math.PI / 2);
+
+      heads.forEach((head, i) => {
+        const busy = Boolean(head.making);
+        // Nothing while that head runs: what it was short of went in when the
+        // batch started, so a bay drawn now is a red pad on a machine doing its
+        // job. The other head's bays stay up, because it is not running.
+        const intakes = busy ? [] : (head.recipe?.inputs ?? []).map((x) => ({
+          model: this.catalog.items[x.item_id]?.model ?? null,
+          need: x.qty,
+          held: st.contents?.[x.item_id] ?? 0,
+        }));
+        const outlet = head.output
+          ? { model: this.catalog.items[head.output.item_id]?.model ?? null, qty: head.output.qty }
+          : null;
+
+        // Rebuilt only when what it says changes, but repositioned every sync —
+        // an appliance you move in build mode has to take its readout with it.
+        const key = [
+          head.recipe?.id ?? 'idle',
+          intakes.map((s) => `${Math.min(s.held, s.need)}/${s.need}`).join(','),
+          outlet ? `${head.output.item_id}x${outlet.qty}` : '',
+        ].join('|');
+
+        if (rec.keys[i] !== key) {
+          if (rec.groups[i]) {
+            this.actorRoot.remove(rec.groups[i]);
+            disposeGroup(rec.groups[i]);
+          }
+          rec.groups[i] = buildStationBays({
+            intakes, outlet, bounds, wells, column: i, columns: heads.length,
+          });
+          this.actorRoot.add(rec.groups[i]);
+          rec.keys[i] = key;
         }
-        rec.group = buildStationBays({
-          intakes, outlet, bounds: this.stationBounds(st), wells: this.stationWells(st),
-        });
-        this.actorRoot.add(rec.group);
-        rec.key = key;
-      }
 
-      // Stood on the machine and turned with it, out of the layout rather than
-      // the snapshot — which appliance is which is state, but which way round it
-      // stands is the shop. Models are authored facing east, the same convention
-      // `addFixtureProps` uses, or the outlet ends up round the back.
-      rec.group.position.set(st.x, this.fixtureBaseY({ kind: 'station' }), st.z);
-      rec.group.rotation.y = -(this.stationRot(st)) * (Math.PI / 2);
+        // Stood on the machine and turned with it, out of the layout rather than
+        // the snapshot — which appliance is which is state, but which way round
+        // it stands is the shop. Models are authored facing east, the same
+        // convention `addFixtureProps` uses, or the outlet ends up round the back.
+        rec.groups[i].position.set(st.x, baseY, st.z);
+        rec.groups[i].rotation.y = yaw;
 
-      // How far through the batch is, over the machine — the one reading a
-      // still frame can take that the moving parts cannot give you, since
-      // "spinning" says it is on and says nothing about how long is left.
-      if (making && !rec.bar) {
-        rec.bar = buildGrowthBar();
-        this.actorRoot.add(rec.bar);
-      } else if (!making && rec.bar) {
-        this.actorRoot.remove(rec.bar);
-        disposeGroup(rec.bar);
-        rec.bar = null;
-      }
-      if (rec.bar) {
-        rec.bar.position.set(st.x, this.stationSlotY(st), st.z);
-        setGrowthBar(rec.bar, st.progress ?? 0);
-      }
+        // How far through the batch is, over the machine — the one reading a
+        // still frame can take that the moving parts cannot give you, since
+        // "spinning" says it is on and says nothing about how long is left. One
+        // bar per RUNNING head, spread across the machine so two batches are two
+        // readings rather than one bar drawn twice in the same place.
+        if (busy && !rec.bars[i]) {
+          rec.bars[i] = buildGrowthBar();
+          this.actorRoot.add(rec.bars[i]);
+        } else if (!busy && rec.bars[i]) {
+          this.actorRoot.remove(rec.bars[i]);
+          disposeGroup(rec.bars[i]);
+          rec.bars[i] = null;
+        }
+        if (rec.bars[i]) {
+          const lane = heads.length > 1 ? (i - (heads.length - 1) / 2) * 0.3 : 0;
+          rec.bars[i].position.set(
+            st.x + Math.sin(yaw) * lane,
+            this.stationSlotY(st),
+            st.z + Math.cos(yaw) * lane,
+          );
+          setGrowthBar(rec.bars[i], head.progress ?? 0);
+        }
+
+        this.syncStationWork(st, rec, head, i, heads.length);
+      });
+
+      // A machine that has stepped DOWN a rung has fewer heads than it had, and
+      // the props for the ones it lost have to go with them — otherwise a bay
+      // and a half-drawn bar hang over a machine that is not using them, which
+      // reads as the demotion not having worked.
+      this.dropStationHeads(rec, heads.length);
 
       // Read every sync and *animated* every frame — the machine's own moving
       // parts are driven off this, at 60fps, from a flag that arrives at 10.
       rec.making = making;
-      this.syncStationWork(st, rec);
     }
 
     for (const [id, rec] of this.stationProps) {
       if (seen.has(id)) continue;
-      for (const g of [rec.group, rec.work, rec.bar]) {
-        if (!g) continue;
-        this.actorRoot.remove(g);
-        disposeGroup(g);
-      }
+      this.dropStationHeads(rec, 0);
       this.stationProps.delete(id);
     }
+  }
+
+  /** Tear down every head's props from `keep` onward. */
+  dropStationHeads(rec, keep) {
+    for (const list of [rec.groups, rec.work, rec.bars]) {
+      for (let i = keep; i < list.length; i++) {
+        if (!list[i]) continue;
+        this.actorRoot.remove(list[i]);
+        disposeGroup(list[i]);
+        list[i] = null;
+      }
+      list.length = Math.min(list.length, keep);
+    }
+    rec.keys.length = Math.min(rec.keys.length, keep);
+    rec.workKeys.length = Math.min(rec.workKeys.length, keep);
   }
 
   /**
@@ -3517,30 +3618,43 @@ export class Scene {
    * which a re-flow disposes wholesale, and build mode re-flows on every
    * placement. So it is positioned and turned every sync instead, which is also
    * what lets you pick a running machine up and carry it.
+   *
+   * **One per HEAD, each on its own head's clock.** One resolver takes one
+   * number, and a twin machine has two: `model`'s 0..1 is spent on the tier and
+   * `work`'s on how far through a batch it is, so two batches at different
+   * progress do not get a third model — they get this one twice, each at its own
+   * offset with its own `progress`.
    */
-  syncStationWork(st, rec) {
-    const model = st.making ? this.stationWorkModel(st) : null;
-    const t = model ? Math.min(1, Math.max(0, st.progress ?? 0)) : 0;
+  syncStationWork(st, rec, head, i, columns) {
+    const model = head.making ? this.stationWorkModel(st) : null;
+    const t = model ? Math.min(1, Math.max(0, head.progress ?? 0)) : 0;
     const key = model ? `${st.station}:${stageIndexAt(model, t)}` : '';
 
-    if (key !== rec.workKey) {
-      if (rec.work) {
-        this.actorRoot.remove(rec.work);
-        disposeGroup(rec.work);
-        rec.work = null;
+    if (key !== rec.workKeys[i]) {
+      if (rec.work[i]) {
+        this.actorRoot.remove(rec.work[i]);
+        disposeGroup(rec.work[i]);
+        rec.work[i] = null;
       }
       if (model) {
-        rec.work = buildLoopingProp(partsAt(model, t), { castShadow: true });
-        this.actorRoot.add(rec.work);
+        rec.work[i] = buildLoopingProp(partsAt(model, t), { castShadow: true });
+        this.actorRoot.add(rec.work[i]);
       }
-      rec.workKey = key;
+      rec.workKeys[i] = key;
     }
 
-    if (!rec.work) return;
-    rec.work.position.set(st.x, this.fixtureBaseY({ kind: 'station' }), st.z);
+    if (!rec.work[i]) return;
     // Turned to face the way the machine faces — see `stationRot`, or the steam
-    // comes out of the back.
-    rec.work.rotation.y = -(this.stationRot(st)) * (Math.PI / 2);
+    // comes out of the back — and stood in its own head's lane, so a twin does
+    // not steam out of one spout twice.
+    const yaw = -(this.stationRot(st)) * (Math.PI / 2);
+    const lane = columns > 1 ? (i - (columns - 1) / 2) * 0.3 : 0;
+    rec.work[i].position.set(
+      st.x + Math.sin(yaw) * lane,
+      this.fixtureBaseY({ kind: 'station' }),
+      st.z + Math.cos(yaw) * lane,
+    );
+    rec.work[i].rotation.y = yaw;
   }
 
   /** The authored working look of this appliance, or null if nobody drew one. */
@@ -4325,6 +4439,43 @@ export class Scene {
   }
 
   /**
+   * THE PILE YOU PRESSED, marked for as long as it stays pressed.
+   *
+   * Its own channel rather than a mode on `setAimTarget`, and the argument is
+   * `setSelectedTarget`'s word for word: the aim cage is wherever the pointer
+   * happens to be, and this stays on the pile you are working out of even while
+   * you point somewhere else entirely. Folding them together loses the answer
+   * exactly when you move the pointer off — which, for a board, is most of the
+   * time, since the thing you do with one picked is walk the aisle with it.
+   *
+   * That was the whole of what a pick was missing. It is a decision with no
+   * deadline (`pick`, client/main.js), it survives the walk, it is what the
+   * second loaf and the third come off, and it is what the pill's rows are
+   * about — and until now the only moment it was visible was when the pointer
+   * was over nothing at all, borrowing the aim's amber. So taking a loaf named
+   * a pile and then showed you nothing, which reads as the press not having
+   * stuck.
+   *
+   * Keyed like the aim, including the shelf's art, because the pile it is drawn
+   * round shrinks every time you take from it — which is precisely what you are
+   * doing while this is up.
+   */
+  setPickedBoard(f, board = null) {
+    const art = board ? this.shelfProps.get(f?.id)?.key ?? '' : '';
+    const key = f && board ? `${f.id}:${board}:${art}` : null;
+    if (this.pickedKey === key) return;
+    this.pickedKey = key;
+    if (this.pickedMarker) {
+      this.actorRoot.remove(this.pickedMarker);
+      disposeGroup(this.pickedMarker);
+      this.pickedMarker = null;
+    }
+    if (!key) return;
+    this.pickedMarker = this.markerFor(f, 'picked', board);
+    this.actorRoot.add(this.pickedMarker);
+  }
+
+  /**
    * A frame on the tile, or a cage round the thing.
    *
    * Which one is not a style choice, it is what the fixture *is*: everything
@@ -4355,11 +4506,14 @@ export class Scene {
       return m;
     }
     const size = box.getSize(new THREE.Vector3());
-    // `board` rather than the mode it was asked with, and the only difference is
-    // the chevron: a board is one of several on the same unit, and an arrow
-    // floating a tile and a half over the shelf points at the shelf — which is
-    // the one thing this marker exists NOT to say. The cage is the whole answer.
-    const m = buildCageMarker(board ? 'board' : mode, size);
+    // A board look rather than the mode it was asked with, and the only
+    // difference is the chevron: a board is one of several on the same unit, and
+    // an arrow floating a tile and a half over the shelf points at the shelf —
+    // which is the one thing this marker exists NOT to say. The cage is the
+    // whole answer. Which board look is the mode again, because a pile can be
+    // the thing you are pointing at and the thing you picked, and those are two
+    // different sentences — see `MARKER_LOOK.boardPicked`.
+    const m = buildCageMarker(BOARD_LOOK[mode] ?? 'board', size);
     box.getCenter(m.position);
     return m;
   }
@@ -5713,9 +5867,11 @@ export class Scene {
       );
     }
     for (const rec of this.stationProps.values()) {
-      if (!rec.work) continue;
-      animatePuffs(rec.work.userData.puffs, t);
-      animateMotion(rec.work.userData.moving, t, true);
+      for (const work of rec.work) {
+        if (!work) continue;
+        animatePuffs(work.userData.puffs, t);
+        animateMotion(work.userData.moving, t, true);
+      }
     }
   }
 
@@ -5729,7 +5885,12 @@ export class Scene {
     // reason main.js clamps its own: a backgrounded tab comes back with a delta
     // of however long you were away, which would snap the thing being chased
     // straight to its target and lose the corner it was going round.
-    const dt = Math.min(0.05, (now - (this.lastFrameAt ?? now)) / 1000);
+    // ...and the gap it was clamped from, which is the only thing that can tell
+    // a slow frame from a tab that was not being drawn at all. Read before the
+    // clamp throws it away — see `AWAY_MS`.
+    const gap = now - (this.lastFrameAt ?? now);
+    const away = gap >= AWAY_MS;
+    const dt = Math.min(0.05, gap / 1000);
     this.lastFrameAt = now;
     this.animateCash(now);
     this.animatePlots(now);
@@ -5747,10 +5908,10 @@ export class Scene {
     // Repaint the footfall sheet if it moved. It early-outs on both a clean map
     // and a hidden one, so a shop with the overlay off pays a compare a frame.
     this.heat.refresh();
-    this.animateActors(dt);
+    this.animateActors(dt, away);
     // The van and the parked cars. Faster, and for the same reason — see
     // `VEHICLE_CHASE`.
-    this.animateVehicles(dt);
+    this.animateVehicles(dt, away);
     // Appliances. Per-frame like everything else here: a batch is thirty
     // seconds and the flag that says one is running arrives at 10Hz, so a blade
     // that only turned when the snapshot did would read as a dropped frame.

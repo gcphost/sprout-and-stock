@@ -554,6 +554,30 @@ function setShift(on) {
 // and swallows the clicks it covers, so a ghost or a target ring under an open
 // panel would be promising something that cannot happen.
 const pointer = { x: innerWidth / 2, y: innerHeight / 2, onCanvas: true };
+
+/**
+ * WHO THE POINTER HAS SETTLED ON — which is not the same as who is under it.
+ *
+ * A hire outranks the fixture behind them, and the argument for that is that
+ * pointing at one is deliberate: they are a third of a tile wide and they move,
+ * so you do not land on one by accident. That is true of the pointer moving
+ * onto a person. It is exactly false of a person WALKING UNDER a pointer that
+ * has not moved — and the shop is full of them, criss-crossing in front of the
+ * shelving you are working on. What it costs is the second press: you open a
+ * shelf, reach back to press it again, and a stocker has arrived in the
+ * meantime, so the press opens the stocker. Nothing on your side of the screen
+ * moved, and the thing you were aiming at changed.
+ *
+ * So a person wins the aim only while they are the one the pointer *arrived*
+ * on. Recorded on `pointermove` — the one event that is you rather than the
+ * world — and read by everything that asks "am I pointing at somebody"
+ * (`aimPerson`). Somebody who walks under a still pointer is not pointed at;
+ * somebody you slide onto is, from that move onward; and a person you were
+ * already on who steps away takes the aim with them rather than handing it to
+ * whoever replaces them.
+ */
+let settledWho = null;
+
 addEventListener('pointermove', (e) => {
   pointer.x = e.clientX;
   // The lift lives HERE and nowhere else, because this is the one place the
@@ -567,8 +591,31 @@ addEventListener('pointermove', (e) => {
   // move of the mouse is where the flag catches up. `setShift` no-ops when it
   // already agrees, so the ordinary move costs a compare.
   setShift(e.shiftKey);
+  // Who you have moved onto, at the moment you moved. See `settledWho`. Asked
+  // here rather than in the frame loop on purpose: the loop runs with the
+  // pointer standing still, which is the case this exists to answer.
+  settledWho = pointer.onCanvas ? scene.pickPerson(pointer.x, pointer.y)?.hire ?? null : null;
   refreshGhost();
 });
+
+/**
+ * The person a press or a hover at this point is genuinely aimed at.
+ *
+ * One function for the marker, the tap and the hold, for the reason
+ * `boardTakes` is one: a ring is a promise about a press, and a hire ringed by
+ * a rule the press does not share is the green-ghost bug wearing a person.
+ *
+ * A finger is exempt and has to be: there is no hover on a touchscreen, so the
+ * press IS the arrival — there is no "before" to have settled in. `pillDrives`
+ * covers the hover side (it never rings anybody there) and `drag.touch` the
+ * press side, which is set on the way down by the press being answered.
+ */
+function aimPerson(cx, cy) {
+  const who = scene.pickPerson(cx, cy);
+  if (!who?.hire) return null;
+  if (drag.touch || pillDrives()) return who;
+  return who.hire === settledWho ? who : null;
+}
 
 // ---------------------------------------------------------------------------
 // Build ghost
@@ -647,6 +694,28 @@ function refreshGhost(force = false) {
   // during a camera drag nobody is aiming at anything. See `camBusy` for the two
   // drags that are deliberately NOT in it.
   if (spin?.trekking || camBusy()) return;
+
+  // THE PILE YOU PRESSED, before anything below decides what you are POINTING
+  // at — and above every guard in this function, because it is the one marker
+  // here that is not a question about the pointer.
+  //
+  // Everything past this line is a hover: it is suspended in build mode, put
+  // away for a person, dropped where the pill drives, frozen while a ring winds.
+  // None of those is a reason to stop showing which pile you are working out of
+  // — you picked it, it is what the pill's rows are about, and it is what a
+  // press on that unit takes from. Gated only on the pick still existing, which
+  // `liveBoard` re-answers every frame off the shop rather than off a record.
+  //
+  // ...and it goes UP where the aim frame comes down on a touchscreen, which is
+  // the same argument the aim frame makes about itself: the selection is what
+  // the tap actually did, it survives the walk, and a finger has nothing else
+  // that says so.
+  const picked = pick.id ? liveBoard(pick) : null;
+  // The pile sold out, or the unit went with a re-flow. Drop the decision as
+  // well as the marker — `heldBoard` does the same, and a pick nothing can draw
+  // is a subject the pill would go on offering verbs about.
+  if (pick.id && !picked) pick = { id: null, board: null };
+  scene.setPickedBoard(picked?.f ?? null, picked?.board ?? null);
 
   // IS THE POINTER AN AIM, OR A FACT ABOUT A PRESS THAT IS OVER?
   //
@@ -885,9 +954,13 @@ function refreshGhost(force = false) {
     // nothing to do with. `paletteArmed` and not `buildOn`, the same test
     // `boardTakes`, `dropping`, `aimable` and `drag.lift` all make: a fixture
     // menu that borrowed the mode is not somebody building.
+    // ...and not somebody who merely WALKED HERE. `aimPerson` rather than
+    // `pickPerson`: the ring is a promise about a press, the press asks the same
+    // function, and a hire who arrives under a pointer that has not moved was
+    // never pointed at. See `settledWho`.
     const person = pointer.onCanvas && !ui.demolishArmed() && !ui.paletteArmed
       && !pillDrives() && !handsFull()
-      ? scene.pickPerson(pointer.x, pointer.y) : null;
+      ? aimPerson(pointer.x, pointer.y) : null;
     scene.setPersonAim(person?.hire ?? null);
     // The other half of "you can press this", and the half that works before
     // you have looked down at their feet. The ring says which one; the cursor
@@ -928,11 +1001,11 @@ function refreshGhost(force = false) {
     // which board the pointer has, and on a stocked unit the piles are only a
     // few pixels apart. The frame comes back the moment you point at the unit's
     // own frame, which is still the whole unit and still opens its menu.
-    // ...and it stays named for a moment after the pointer leaves it, which is
-    // what makes the dwell worth paying for — see `heldBoard`.
+    // ...and it rests on the pile you PRESSED while the pointer is on nothing,
+    // which is a decision rather than a clock — see `heldBoard`.
     // ...and which PILE, which on a phone is simply the one the tap landed on.
-    // `heldBoard` grades three sources by how recently the pointer was on them,
-    // which is two clocks measuring a hand that is not there.
+    // `heldBoard` weighs a pointer against a press, and neither is a thing a
+    // finger has between taps.
     const held = boardTakes() && !pillDrives() ? heldBoard(aim) : null;
     const board = pillDrives()
       ? (boardTakes() ? aim?.board ?? null : null)
@@ -944,10 +1017,9 @@ function refreshGhost(force = false) {
     // with a highlight), and the green square below has to be lit on the crate's
     // own cell rather than on whatever `pickTile` finds behind it.
     const onPile = aim?.crate ? haulSquare(aim.crate) : null;
-    // `held.f` last, and only reachable when the pointer is on nothing: the
-    // stick is what draws the cage while your hand wanders off the shelf, and
-    // the marker has to be on the unit that pile stands on or there is nothing
-    // to measure the cage against.
+    // `held.f` is the unit the settled pile stands on, which is the same unit
+    // `aim.fixture` names — kept as the last rung because the cage has to be
+    // measured against something, and it is the pile that decides there IS one.
     // ...and NOT where the pill drives, because this whole marker is a hover.
     //
     // The aim frame answers "what would a press land on", which is a question
@@ -971,6 +1043,11 @@ function refreshGhost(force = false) {
     // down, because the only thing that ever took it down was a pointer moving
     // off, so the last board you tapped keeps its cage through the walk away,
     // the crate you picked up and everything you did afterwards.
+    //
+    // ...and that is exactly the marker `setPickedBoard` IS, which is why it is
+    // drawn on a phone and this one is not: a pick is taken down by a press, so
+    // it has a way out a finger can reach, and it is about the tap rather than
+    // about a pointer that has not existed since.
     scene.setAimTarget(
       pillDrives() ? null : ((onPile ? null : aim?.crate) ?? aim?.fixture ?? held?.f ?? null),
       'aim',
@@ -981,9 +1058,13 @@ function refreshGhost(force = false) {
     // a promise about a press and this is a label, and the moment you most want
     // to know what a board holds and how full it is, is with an armful in your
     // hands looking for somewhere to put it.
-    // ...and it lingers with the cage. The card follows the pointer as it always
-    // has, which is what you want here: the thing you were reading stays beside
-    // your hand while it moves rather than sitting back on the shelf you left.
+    // ...and it does NOT linger with the cage, which is the one place those two
+    // markers part company. The card is drawn at the POINTER rather than on the
+    // shelf, so a board that outlives the ray is a panel naming a unit across
+    // the shop, sliding over bare floor with nothing anywhere to connect it to
+    // what it is about — the cage at least sits on the thing it names. So the
+    // cage may rest on `pick` and the card may not: `aim.fixture` only, which is
+    // "you are pointing at this unit, here is the pile of it you are on".
     // ...and it is a HOVER, which is a thing a touchscreen does not have. There
     // it becomes a card pinned to wherever you last tapped, naming a board that
     // outlives the tap, over a shop that keeps moving underneath it: walk away
@@ -1014,12 +1095,8 @@ function refreshGhost(force = false) {
     // along an aisle deciding where a shelf goes threw a card over the shop for
     // every unit you crossed.
     const tipOn = pillDrives() || ui.paused || ui.paletteArmed
-      ? null : (aim?.fixture ?? held?.f ?? null);
-    ui.setBoardTip(
-      shelfById(tipOn?.id),
-      (tipOn === held?.f ? held.board : aim?.board) ?? null,
-      pointer.x, pointer.y,
-    );
+      ? null : (aim?.fixture ?? null);
+    ui.setBoardTip(shelfById(tipOn?.id), aim?.board ?? null, pointer.x, pointer.y);
     // The other half of "you can press this", the way it is for a hire: the cage
     // says which pile, the cursor says there is one to take at all. A crate gets
     // no cursor because a crate is a whole object you can see you are on; a board
@@ -3425,11 +3502,10 @@ const BOARD_DWELL_MS = 240;
  * A dwell is a hover with a clock on it, and a touchscreen has neither half. The
  * pointer is the last place a finger LANDED, so the clock starts on a tap that
  * is already over: the board ripens a quarter of a second afterwards, with the
- * hand long gone, and the stick underneath it lapses `BOARD_STICK_MS` later. So
- * a stocked unit's rows go "Open it", then "Take one / Crate the lot / Open it",
- * then back, about once a second, for as long as you look at it — buttons
- * appearing and disappearing under a thumb that has not moved. That is the
- * cycling, and it is one number.
+ * hand long gone. So a stocked unit's rows went "Open it", then "Take one /
+ * Crate the lot / Open it", then back, about once a second, for as long as you
+ * looked at it — buttons appearing and disappearing under a thumb that has not
+ * moved. That is the cycling, and it is one number.
  *
  * Zero rather than switched off, and the difference is the bug I put in trying
  * the other way. `ripeBoard` is what a press asks, and it answers "picked
@@ -3461,37 +3537,37 @@ const dwellFor = () => (pillDrives() ? 0 : BOARD_DWELL_MS);
 let dwell = { key: null, at: 0, timer: null };
 
 /**
- * How long a settled board STAYS settled once the pointer has left it.
+ * THERE IS NO EXIT DWELL, and the deleted one is worth a paragraph.
  *
- * The dwell alone is only half a gesture. It costs you 240ms to name a pile and
- * then hands it back the instant the ray misses — and the ray misses constantly
- * for reasons that have nothing to do with what you meant: a pile of bread is a
- * few pixels of a shelf drawn at 45°, the gaps between two piles are real gaps,
- * and the goods re-weld on every sale so the group under the pointer stops
- * existing for a frame ten times a second. What that feels like is a cage that
- * flickers while your hand is still, and a decision you have to make again every
- * time you look away.
+ * Leaving used to be delayed the way arriving is — `BOARD_STICK_MS`, 700ms of
+ * grace after the ray stopped meeting the pile — on the argument that the ray
+ * misses for reasons that have nothing to do with what you meant: piles are a
+ * few pixels apart at 45°, the gaps between them are real gaps, and the goods
+ * re-weld on every sale so the group under the pointer stops existing for a
+ * frame ten times a second.
  *
- * So leaving is delayed the way arriving is. Long enough to cover a wander and
- * a re-weld, short enough that it is gone before you have started aiming at
- * something else.
+ * All of that is true and none of it survived the pile becoming something you
+ * PRESS. A grace period is a guess about a hand that has moved on, and a guess
+ * that outlives the pointer is exactly the failure it was meant to hide: what
+ * it bought was a flicker fixed, and what it cost was a stock card naming a
+ * shelf across the shop, following the pointer over bare floor, taken down by
+ * nothing — because the only thing that ever took it down was the pointer
+ * arriving somewhere else, and half the shop is nowhere in particular.
+ *
+ * `pick` is the answer the stick was standing in for. A press says which pile
+ * as plainly as anything in the game, it has no deadline, and it is dropped by
+ * things a player does on purpose. So the marker rests on what you pressed and
+ * the cage follows what you are pointing at — one clock (the arriving dwell),
+ * on the pointer, where the pointer is.
  */
-const BOARD_STICK_MS = 700;
-
-/**
- * ...and the pile it stays on. Held by ID rather than as the record `pickAim`
- * handed over, because a re-flow re-mints every fixture — a record kept across
- * one would draw a cage on a shelf that no longer exists, which is the same
- * staleness `setFixtureRef` documents about a selection.
- */
-let stick = { id: null, board: null, at: 0 };
 
 /**
  * THE PILE YOU ACTUALLY PRESSED, which stays pressed until you say otherwise.
  *
- * The dwell and the stick are both guesses about where your hand is going, and
- * a guess has to expire. A press is not a guess: pointing at the bread and
- * taking a loaf says which pile you are working out of about as plainly as
+ * The dwell is a guess about where your hand is going, and a guess has to
+ * expire — which is why the exit half of it is gone. A press is not a guess:
+ * pointing at the bread and taking a loaf says which pile you work out of as
+ * plainly as
  * anything in the game, so from that moment the shop can simply *know* it and
  * stop asking. That is what makes the whole gesture cheap — the second loaf,
  * and the third, cost no dwell and no aim at all, because the pile is still the
@@ -3682,59 +3758,30 @@ function settledBoard(f, board) {
       timer: key ? setTimeout(() => { dwell.timer = null; refreshGhost(true); }, dwellFor()) : null,
     };
   }
-  const ripe = ripeBoard(f, board);
-  // Stamped on every frame it is still under the pointer, so the grace below
-  // runs from when you LEFT rather than from when you arrived — otherwise
-  // resting on a pile for a second would use the whole stick up standing still.
-  if (ripe) stick = { id: f.id, board: ripe, at: performance.now() };
-  return ripe;
+  return ripeBoard(f, board);
 }
 
 /**
- * The pile the pointer settled on, still lit a moment after it left.
+ * The pile the pointer is on. Only ever that.
  *
- * `settledBoard` first, so a live aim always wins and nothing here can hold a
- * board the pointer has moved off onto another one. The grace only applies when
- * the pointer is over **nothing at all** — no fixture, no crate — which is the
- * one state where holding it promises nothing about a press that is not already
- * true. Point at another pile, at the unit's own frame, at a crate or at a hire
- * and it is gone on that frame: those are all targets with presses of their own,
- * and a cage lit over one of them would be the green-ghost bug with a marker on
- * it, which is the whole thing `boardTakes` and the dwell exist to keep out.
+ * This used to answer with the picked pile too, whenever the pointer was over
+ * nothing at all, because the amber cage was the only marker a pick had — so
+ * "which pile am I working out of" could only be shown by borrowing the marker
+ * that means "what a press would land on". Over bare floor a press does not land
+ * on a board at all, so the borrowed cage was the green-ghost bug wearing a
+ * marker, and the pill listed rows about a shelf across the shop.
  *
- * Re-resolved by id every frame rather than kept as a record, and dropped the
- * moment either the unit or the pile has gone — a cage is measured off the
- * meshes, so one held over goods that have sold falls back to a frame on the
- * tile, which says the wrong thing about a shelf you are not even pointing at.
+ * `setPickedBoard` is what the borrowing was standing in for — a teal cage of
+ * its own, on all the time, said about a decision instead of about a press. With
+ * that up, the amber gets to be honest again and this collapses to the pointer.
+ *
+ * The picked pile is still cheaper to point at than any other, and that is
+ * `ripeBoard`'s clause rather than this one: naming a pile is paid for once, so
+ * going back to it costs no dwell.
  */
 function heldBoard(aim) {
-  // WHAT THE POINTER IS ON WINS, always. A pick is where the marker RESTS —
-  // the pile you go back to when you are pointing at nothing — rather than a
-  // lock on the pointer, because the thing you do with a board selected is walk
-  // the aisle with it, and an aisle you cannot see the boards of is an aisle you
-  // have to stop in. Pressing another pile is what moves the selection; hovering
-  // one only ever shows it to you.
   const board = settledBoard(aim?.fixture ?? null, aim?.board ?? null);
-  if (board) { unstickLater(0); return { f: aim.fixture, board }; }
-  if (aim?.fixture || aim?.crate) { unstickLater(0); return null; }
-  // The pick has no deadline; the stick is the 700ms grace under an unpicked
-  // pile. Both go through the same liveness test, so a board that sells out
-  // takes whichever was resting on it with it.
-  const on = pick.id ? pick : stick;
-  const left = pick.id ? Infinity : BOARD_STICK_MS - (performance.now() - stick.at);
-  if (!on.id || left <= 0) { unstickLater(0); return null; }
-  const held = liveBoard(on);
-  if (!held) {
-    if (pick.id === on.id) pick = { id: null, board: null };
-    else stick = { id: null, board: null, at: 0 };
-    unstickLater(0);
-    return null;
-  }
-  // The same reason the dwell has a timer: nothing fires while the pointer is
-  // still, so a hand that stops on bare floor beside the shelf would hold the
-  // cage for ever — the grace would only ever expire on the next thing you did.
-  unstickLater(left);
-  return held;
+  return board ? { f: aim.fixture, board } : null;
 }
 
 /**
@@ -3748,19 +3795,6 @@ function liveBoard(at) {
   if (!f) return null;
   if (!shelfById(at.id)?.stacks?.some((k) => k.item_id === at.board)) return null;
   return { f, board: at.board };
-}
-
-let stickTimer = null;
-
-/**
- * Re-run the hover pass when the grace runs out. `0` just cancels, and so does
- * `Infinity` — a pick has no deadline, so there is nothing to wake up for.
- */
-function unstickLater(ms) {
-  if (stickTimer) clearTimeout(stickTimer);
-  stickTimer = ms > 0 && ms !== Infinity
-    ? setTimeout(() => { stickTimer = null; refreshGhost(true); }, ms + 16)
-    : null;
 }
 
 /**
@@ -4424,8 +4458,10 @@ function openAtPointer(cx, cy) {
   // ...nor with the bar up, which is the same sentence about the whole mode —
   // see the ring in `refreshGhost`, which has to agree with this or the
   // highlight is advertising a press that does something else.
+  // ...and the fourth thing that takes a hire out of the running is a hire who
+  // walked under a pointer you were not moving — see `aimPerson`.
   const who = ui.demolishArmed() || ui.paletteArmed || handsFull()
-    ? null : scene.pickPerson(cx, cy);
+    ? null : aimPerson(cx, cy);
   if (who?.hire) { showWorker(ui, who.hire); return true; }
 
   const over = pickTarget(cx, cy);
@@ -4517,8 +4553,11 @@ function tapAtPointer(cx, cy) {
     // Build mode is the first of those two said about the mode rather than about
     // one tool, and it is what keeps a tap on a shelf a tap on that shelf while
     // somebody restocks it.
+    // ...and the fourth is somebody who walked into the press rather than being
+    // aimed at: `aimPerson`, which is also what the ring above asks, so the
+    // highlight and the tap cannot disagree about who you meant.
     const who = ui.demolishArmed() || ui.paletteArmed || handsFull()
-      ? null : scene.pickPerson(cx, cy);
+      ? null : aimPerson(cx, cy);
     if (who?.hire) { showWorker(ui, who.hire); return; }
 
     // Past the people, so this press is on something that is not one: the
