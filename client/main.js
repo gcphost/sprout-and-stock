@@ -279,6 +279,21 @@ net.on('state', (m) => {
   // and stopped somewhere else. See `dropOnLeaving`. Before the hints, so the
   // pill is not still offering rows about a unit that has just been dropped.
   if (pillDrives() && !stirring) dropOnLeaving();
+  // A HOVER IS A THING A TOUCHSCREEN DOES NOT HAVE, and this pass is where it
+  // was being invented. `pointer` is the last place a finger touched, which is a
+  // fact about a tap several seconds ago — and re-raycasting it ten times a
+  // second turns the world moving underneath into aim: a hire wanders across the
+  // spot you last tapped and lights up, a crate is set down there and rings, a
+  // board cage opens on a shelf nobody is pointing at. It reads as the shop
+  // highlighting things at random, because from the player's side that is
+  // exactly what it is doing.
+  //
+  // So the pointer's claim on the canvas is spent by the tap that made it. The
+  // rows still re-answer every snapshot — that is what this call is for — but
+  // they answer about what the tap NAMED (`ui.fixtureRef`, see `pressHints`),
+  // which is the one target the player chose and can see ringed. Every real
+  // pointer event sets the flag again, so a tap works exactly as it did.
+  if (pillDrives()) pointer.onCanvas = false;
   if (!ui.buildOn && !stirring) refreshGhost(true);
   // ...and the tour, which is nothing but a predicate over this snapshot. After
   // `ui.update` on purpose: every step asks a question about the UI as well as
@@ -391,7 +406,20 @@ addEventListener('keydown', (e) => {
   // what the SERVER last said (`ui.shopOpen` / `ui.paused` are mirrors), so
   // holding the key cannot get ahead of the shop.
   if (k === 'o') ui.setOpen(!ui.shopOpen);
-  if (k === 'p') ui.setPaused(!ui.paused);
+  // Space is the pause key, which is what every game this one sits next to has
+  // trained. `p` is kept because it is what the button said for as long as it
+  // has had a key on it — a shortcut that stops working is worse than a second
+  // one that does, and neither can get ahead of the shop.
+  //
+  // Space is `preventDefault`ed, and that is not tidiness: the browser's own
+  // meaning for it is "scroll the page", and where focus happens to sit on a
+  // button it is "press that button" — so without this, a space with the clock
+  // last clicked would toggle the pause twice and land back where it started,
+  // which reads as the key not working at all.
+  if (k === 'p' || k === ' ') {
+    if (k === ' ') e.preventDefault();
+    ui.setPaused(!ui.paused);
+  }
 
   // The number row reaches the open tab of the bar, which is what keeps a
   // number meaning the button wearing it however much anybody adds to the
@@ -2292,7 +2320,10 @@ canvas.addEventListener('pointermove', (e) => {
       // left, which reads as the scroll being backwards. Only ever reached by a
       // finger, since a mouse drag in this game turns the view (`drag.turns`),
       // so no desktop gesture changes.
-      const fly = flying() ? -1 : 1;
+      // `building()` and not `flying()`: a pause flies the KEYS and leaves the
+      // drag alone, or pressing pause quietly reverses which way the shop slides
+      // under your finger. See `flying`.
+      const fly = building() ? -1 : 1;
       scene.panBy(fly * (e.clientX - drag.lx), fly * (e.clientY - drag.ly));
     }
   }
@@ -3979,7 +4010,28 @@ function tapAtPointer(cx, cy) {
  * read a menu is how a control scheme stops being learnable. Carrying counts —
  * that is the errand that most needs to reach a tile you cannot see.
  */
-const flying = () => ui.paletteArmed || !!ui.holding;
+const building = () => ui.paletteArmed || !!ui.holding;
+
+/**
+ * ...and stopped time is the other one, for a different reason that lands in the
+ * same place.
+ *
+ * Build mode flies because you are reaching for somewhere you cannot stand. A
+ * paused shop flies because you cannot stand ANYWHERE: the world does not step
+ * while it is held, so the input the keys send is read by nobody and holding W
+ * against a stopped shop is the one gesture in the game that visibly does
+ * nothing at all. The camera is chained to a body that will not move, so a pause
+ * is also the one state where the 14-tile leash has nothing to protect — losing
+ * you is impossible when you are not going anywhere.
+ *
+ * Only the KEYS, deliberately. The drag stays `building()`, because the
+ * inversion there is an argument about which errand you are on — a map you pull
+ * toward you against a place you are reaching for — and pausing to look at your
+ * own shop is squarely the first of those. A finger whose drag reversed
+ * direction on the press of the pause button would read as the pause breaking
+ * the camera.
+ */
+const flying = () => building() || ui.paused;
 
 function pollInput(dt) {
   // Camera is rotated 45°, so screen-up should move you diagonally in world

@@ -282,6 +282,11 @@ export class UI {
       cash: document.getElementById('cash'),
       day: document.getElementById('day'),
       clock: document.getElementById('clock'),
+      // The hour and the play/pause glyph are two children now rather than the
+      // button's own text — `setClock` writes the time ten times a second, and
+      // `textContent` on the button would take the icon out with it every tick.
+      clockTime: document.getElementById('clock-t'),
+      clockPP: document.getElementById('clock-pp'),
       // The date, which is also the shutters (see the CSS).
       shutter: document.getElementById('sign'),
       doorway: document.getElementById('doorway'),
@@ -2976,7 +2981,7 @@ export class UI {
    * had not closed.
    */
   setClock(state) {
-    this.el.clock.textContent = clockLabel(state.time * 24);
+    this.el.clockTime.textContent = clockLabel(state.time * 24);
 
     this.shopOpen = state.shutters ?? state.isOpen ?? true;
     this.paused = !!state.paused;
@@ -3006,7 +3011,15 @@ export class UI {
     // shutters wide open. Two marks for one state have to be read off one field.
     document.body.classList.toggle('shut', !state.isOpen);
     document.body.classList.toggle('held', this.paused);
-    this.el.clock.title = this.paused ? 'Start the clock (P)' : 'Stop the clock (P)';
+    this.el.clock.title = this.paused ? 'Start the clock (Space)' : 'Stop the clock (Space)';
+    // Named as well as drawn: the button's words are an hour, which says nothing
+    // about what pressing it does — the same reason `#sign` beside it carries an
+    // explicit label rather than leaning on `tip.harvest`.
+    this.el.clock.setAttribute('aria-label', this.el.clock.title);
+    // The glyph names the PRESS, the way a media control does: bars while the
+    // clock runs, a triangle while it does not. Inside the `_clockKey` guard, so
+    // this is a couple of writes a day rather than ten a second.
+    this.el.clockPP.innerHTML = this.paused ? ICONS.play : ICONS.pause;
 
     this.el.shutter.classList.toggle('shut', !this.shopOpen);
     this.el.shutter.title = this.shopOpen ? 'Close the shop (O)' : 'Open the shop (O)';
@@ -3014,10 +3027,21 @@ export class UI {
     // about what pressing it does — so unlike every icon-only control in here,
     // this one has to be labelled explicitly rather than by `tip.harvest`.
     this.el.shutter.setAttribute('aria-label', this.el.shutter.title);
-    // A door, open or closed. Written only inside the `_clockKey` guard above,
-    // so this is a couple of writes a day rather than ten a second — and the
-    // icons are baked into the bundle, so there is nothing to fetch.
-    this.el.doorway.innerHTML = this.shopOpen ? ICONS.open : ICONS.shut;
+    // The sign in the door, in the words that are painted on one. Written only
+    // inside the `_clockKey` guard above, so this is a couple of writes a day
+    // rather than ten a second.
+    //
+    // `textContent` and a word, where this used to be an `innerHTML` and a door
+    // glyph. A glyph can only ever say that a state changed; which state it is
+    // has to be learnt by seeing the other one, and an open/closed sign is
+    // precisely the object in a shop that exists to be read by somebody who has
+    // never been in. Capitalised by CSS, so the string stays a word.
+    // SHUT rather than CLOSED, and it is the length that chose it: four letters
+    // against four means the plaque is the same size in both states, so there is
+    // no height to hold still and nothing that can jog. It is also the word the
+    // rest of the game already uses for this — `shopOpen`, `#clock.shut`, "the
+    // shutters" — so the sign and the code say the same thing.
+    this.el.doorway.textContent = this.shopOpen ? 'Open' : 'Shut';
   }
 
   /**
