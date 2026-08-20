@@ -426,6 +426,135 @@ export const TUFT_BLADE = 0.13;
 export const tuftDensity = (surface) => Math.max(1, Math.round(surface?.density || TUFT_DENSITY));
 export const tuftBlade = (surface) => Math.max(0.02, surface?.blade || TUFT_BLADE);
 
+/**
+ * A brick, in tiles, and the joint around it.
+ *
+ * STYLISED, and it has to be. A cell is about a metre and a half of shop, so a
+ * real 215mm brick is a seventh of one and a 65mm course is a twentieth — which
+ * at this camera, on a wall seen from across a room, is a line thinner than a
+ * pixel. What you get for authoring the true size is a red smear, which is
+ * exactly what a per-cell colour already gave us. So these are the biggest
+ * bricks that still read as bricks: three and a bit to a cell, six or seven
+ * courses to a wall, which is roughly the size the crates and the shelving are
+ * drawn at and therefore agrees with everything standing in front of it.
+ *
+ * The joint is what makes it masonry rather than tiling — same argument as the
+ * tufts: what survives at 45° is not the colour, it is that the wall has
+ * TEXTURE, and the shadow in the joint is the whole of that.
+ */
+export const BRICK_W = 0.3;
+export const BRICK_H = 0.16;
+export const BRICK_JOINT = 0.022;
+
+/**
+ * ...and a TILE, which is the same idea with two numbers changed.
+ *
+ * Square and stacked rather than long and half-bonded, which is the whole of the
+ * difference between the two patterns and the reason they are two patterns
+ * rather than one with a flag: what you are choosing when you pick a finish is
+ * "brick" or "tiling", and nobody wants to specify a bond. Everything else — the
+ * proud course, the joint, the mortar underneath — is shared, because it is the
+ * same claim about the same camera.
+ *
+ * The joint is FINER than a brick's. Grout is a couple of millimetres against a
+ * brick's ten, and at this size the difference between them is one pixel — but
+ * it is the pixel that says which one you are looking at.
+ */
+export const TILE_W = 0.22;
+export const TILE_JOINT = 0.014;
+
+/** Which bond a surface is laid in, or null if it is not laid at all. */
+export function bondOf(surface) {
+  if (surface?.pattern === 'brick') {
+    return { w: BRICK_W, h: BRICK_H, joint: BRICK_JOINT, stagger: true };
+  }
+  if (surface?.pattern === 'tiles') {
+    return { w: TILE_W, h: TILE_W, joint: TILE_JOINT, stagger: false };
+  }
+  return null;
+}
+
+/**
+ * The bond — where every brick in one face goes.
+ *
+ * A pure list rather than geometry, because two things draw it: the wall, and
+ * the palette button offering to sell you the tin. That is the rule the whole
+ * of `client/thumb.js` rests on — a picture of a thing has to come from the
+ * thing — and it is why `edgeBands` lives in this file rather than in the
+ * renderer.
+ *
+ * THE BOND IS LAID ON THE WALL, NOT ON THE CELL, and that is the whole of this
+ * function's difficulty. A face is one cell of a wall and is drawn on its own,
+ * so the obvious version lays a whole number of bricks in each cell and closes
+ * the staggered courses with a half brick at either end — which is a perfectly
+ * good wall and has a joint running up it at **every cell boundary**, all the
+ * way along, in every other course. What that draws is a wall built out of
+ * panels: you can see where the segments meet, which is the one thing masonry
+ * is supposed to hide, and it is worse the longer the run.
+ *
+ * So `phase` is where this face begins along its own wall, in tiles, and the
+ * courses are laid on the infinite grid that implies. A brick that straddles a
+ * boundary is CLIPPED rather than shortened, and the two halves — one drawn by
+ * each cell — butt together with no joint between them, because the joint is
+ * only ever inset at an end that is a real end of a brick. They take the same
+ * colour, too: the jitter is seeded off the brick's own position on the wall
+ * rather than off its position in the face, or a split brick comes out as two
+ * slightly different reds and the seam is back in a subtler form.
+ *
+ * The trade this leaves is at a genuine stopped end — the last cell of a run, or
+ * the reveal at a doorway — where a course now ends in a part brick. Which is
+ * what a stopped end looks like anyway, and there is exactly one of them per
+ * run rather than one per cell.
+ *
+ * @param bond   from `bondOf`: how big a brick is and whether courses stagger
+ * @param len    how long the face is, in tiles (a cell, so 1, unless something
+ *               is drawing a sample of it)
+ * @param y0,y1  the band it fills, in tiles above the floor
+ * @param phase  where the face starts along the wall, in tiles
+ */
+export function brickBond(bond, len, y0, y1, phase = 0) {
+  const out = [];
+  const { w: bw, h: bh, joint, stagger } = bond;
+  const rows = Math.max(1, Math.round((y1 - y0) / bh));
+  const h = (y1 - y0) / rows;
+  // A whole number of bricks to the TILE rather than to the face, so the grid is
+  // periodic on the lattice the walls themselves are on — otherwise a run of
+  // twelve cells accumulates a fraction and the courses drift out of true with
+  // everything else in the shop.
+  const cols = Math.max(1, Math.round(1 / bw));
+  const w = 1 / cols;
+  for (let r = 0; r < rows; r++) {
+    const b0 = y0 + r * h;
+    const shift = stagger && r % 2 === 1 ? w / 2 : 0;
+    // The first brick whose span can reach this face, on the global grid.
+    const k0 = Math.floor((phase - shift) / w);
+    for (let k = k0; (k * w) + shift < phase + len; k++) {
+      const s = k * w + shift;
+      const a = Math.max(s, phase);
+      const b = Math.min(s + w, phase + len);
+      if (b - a <= joint) continue;
+      // Inset only where the brick really ends. A cut edge is left square, so
+      // the half in this cell and the half in the next one meet as one brick.
+      const cutA = a > s + 1e-6;
+      const cutB = b < s + w - 1e-6;
+      const x0 = a + (cutA ? 0 : joint / 2);
+      const x1 = b - (cutB ? 0 : joint / 2);
+      if (x1 - x0 <= 0) continue;
+      out.push({
+        // Centred on the face, because that is how a wall box is positioned.
+        off: (x0 + x1) / 2 - phase - len / 2,
+        len: x1 - x0,
+        y0: b0 + joint / 2,
+        y1: b0 + h - joint / 2,
+        // The brick's own place on the wall, so both halves of a split one are
+        // the same brick as far as anything downstream is concerned.
+        seed: Math.round(s * 977 + b0 * 313),
+      });
+    }
+  }
+  return out;
+}
+
 export function patternColor(surface, x, z) {
   const base = surface.color;
   const accent = surface.accent ?? shade(base, -0.16);
@@ -441,6 +570,12 @@ export function patternColor(surface, x, z) {
     // own geometry, in `accent`: see `STRIPE_BARS` and `TUFT_DENSITY` above,
     // and `addStripes` / `addTufts` in `client/render/scene.js`, which lay them.
     : (surface.pattern === 'planks' ? Math.floor(z + (x % 3 === 0 ? 1 : 0)) % 3 === 0 : false);
+  // `brick` joins that pair, and inverts them: what the flat cell gets is the
+  // ACCENT, because the flat part of a brick wall is the mortar and the bricks
+  // are the thing standing on it. Authored the way you would say it out loud —
+  // colour is the brick, accent is the joint — so the swap belongs here rather
+  // than in whoever authors the row.
+  if (surface.pattern === 'brick') return jitter(accent, 0.02, x * 31 + z * 17);
   return jitter(alt ? accent : base, 0.03, x * 31 + z * 17);
 }
 

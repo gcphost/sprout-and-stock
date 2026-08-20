@@ -1713,6 +1713,18 @@
       font-style: normal; font-size: 9.5px; font-weight: 800;
       letter-spacing: .07em; text-transform: uppercase; opacity: .5;
     }
+    /* ...and a row whose press is a key wears the key instead of a mouse — see
+       `keyCap`. Sized off the mouse beside it rather than off the words, because
+       the two sit in one row and a cap the height of the text reads as a badge
+       on the sentence rather than as the thing you press. It does NOT nudge: the
+       animation on the mouse says which button, and there is only one R. */
+    #prompt .pr-key {
+      flex: none; min-width: 15px; padding: 2px 4px; border-radius: 5px;
+      background: rgba(255,255,255,.13);
+      box-shadow: inset 0 -1px 0 rgba(0,0,0,.28);
+      font: inherit; font-size: 10px; font-weight: 800; line-height: 1;
+      text-align: center; opacity: .75;
+    }
     /* The mouse nudges with its own button, which is most of what makes it read
        as a press rather than as a light coming on. */
     #prompt .pr-mouse {
@@ -3238,6 +3250,39 @@
     .nudge svg { display: block; }
     #build-back { left: 2px; }
     #build-on { right: 2px; }
+
+    /* THE BULLDOZER'S OWN PLACE, at the right end of the strip and outside the
+       scroller — the one press whose whole job is "not that, get rid of it",
+       which means you go looking for it rather than browsing to it. A thing you
+       look for has to be findable without reading, and that means the same
+       pixels every time: same tab, same drag position, same thumb.
+
+       It sits ON the strip rather than in it, so the tiles pass underneath —
+       hence its own ground and a shadow, which is `.nudge`'s deal one size up.
+       The scroller is padded by its width so the last tile can still be scrolled
+       clear of it rather than parking permanently behind it.
+
+       Armed, it wears `.tool.on` like any other entry: it IS an entry, drawn
+       from the same row, and a bulldozer that looked different armed would be
+       two vocabularies for one state. */
+    #build-raze {
+      position: absolute; right: 4px; bottom: 6px; z-index: 3;
+      width: 52px; min-width: 52px; max-width: 52px;
+      box-shadow: 0 2px 10px rgba(58,49,40,.28), inset 0 0 0 1px rgba(58,49,40,.10);
+    }
+    #build-raze[hidden] { display: none; }
+    /* ...and the right-hand nudge steps aside for it, or the two share a corner
+       and the arrow that says "more this way" is drawn on top of the button that
+       is not part of the run. Only where there is a bulldozer: a browse bar has
+       none and keeps its arrow in the corner. */
+    #build:not(.browse) #build-on { right: 62px; }
+    #build-raze .nm { color: var(--accent); }
+    #build-raze .ico { height: 30px; font-size: 16px; }
+    /* ...and the room it takes out of the run. `padding-right` rather than a
+       margin on the last tile: the strip is a scroller, so what has to grow is
+       the scrollable box, or the end of the run simply sits under the button
+       with no way to bring it out. */
+    #build:not(.browse) #build-tools { padding-right: 62px; }
     /* An entry, and it is a slot rather than a line of text: the thing itself in
        a recessed well, its name under it, what it costs under that. Sized by a
        floor and a ceiling rather than its contents — a person's note is
@@ -3326,35 +3371,60 @@
       transform: translateY(-2px);
     }
 
-    /* THE BUILD STRIP IS TILES. A picture, the key it answers to, how many you
-       already own, what it costs — and that is the whole button.
+    /* THE BUILD STRIP IS TILES. A picture, a short name, how many you already
+       own, what it costs — and that is the whole button.
 
-       The NAME is what came off it, and only the name. It used to sit under every
-       entry permanently, which with the price made each one three lines and 78px
-       tall at ~100px wide: eight fitted on screen and the strip read as a wall of
-       small text rather than as a row of things. The art is already the label
-       here — `thumb.js` draws the actual piece off its own row, which is the
-       entire reason five floors stopped being five grey glyphs — and a name is
-       long, ragged and only ever a question about ONE entry: the one under the
-       pointer. `tip.js` answers that, at the tile, which is where the question
-       was asked. It went to a caption at the end of the tab row for a while, and
-       that was the same answer given at the other end of the bar.
+       THE NAME CAME OFF ONCE AND IS BACK, and the round trip is the useful part.
+       It used to sit under every entry as a full-width caption, which with the
+       price made each tile three lines and 78px tall at ~100px wide: eight
+       fitted on screen and the strip read as a wall of small text rather than as
+       a row of things. So it went, on the argument that the art is the label —
+       `thumb.js` draws the actual piece off its own row, which is the entire
+       reason five floors stopped being five grey glyphs — and that a name is
+       only ever a question about ONE entry, the one under the pointer, which
+       `tip.js` answers at the tile where the question was asked.
 
-       THE PRICE STAYS. It is four characters, it is right-aligned arithmetic, and
-       it is the actual decision: $40 against $110 across a row of lamps is a
-       comparison, and a comparison you have to hover for one item at a time is
-       not one you can make. Putting it back costs 10px of tile height and buys
-       the only thing on the button anybody was reading.
+       Every line of that is true and every line of it ends at HOVER. A finger
+       cannot ask, so on a phone it reads "the name is available nowhere", and it
+       is not much better with a mouse: a shelf, a bakery case, a produce table
+       and a deli counter are four small brown boxes that differ by a few pixels
+       of silhouette at 38px, and hovering four of them one at a time to find the
+       one you meant is not reading a palette, it is interrogating one. The
+       silhouettes only work for somebody who already knows the catalogue.
+
+       What makes it affordable this time is that it is a SWAP rather than a
+       third line, and that the tile is a chip rather than a card: two lines of
+       8.5px inside 56px, clamped, because "Hot Counter" and "Bakery Case" are
+       two words each and nowrap would ellipsise every fixture worth naming to
+       "Bak…".
+
+       THE PRICE KEEPS ITS ARGUMENT and moves into the well as a chip, opposite
+       `.more`. $40 against $110 down a row of lamps is the actual decision and a
+       comparison you can only make one tile at a time is not one — so it stays
+       visible on every tile, and what it gives up is the right-aligned tabular
+       column, which is worth less than knowing what the thing is.
 
        Browse bars keep their cards. A hire's note is what they are doing right
        now — a readout, not a hover question — and their glyph is a category
        rather than a picture of them, so there is nothing on the button to read
        them off of. */
+    /* SQUARE, near enough: 66px against a button that comes out ~66 tall with a
+       38px well and two lines under it. It is worth the ten pixels because of
+       what they buy on the line that needed them — at 56px a name got about
+       seven characters before it wrapped, so "Chiller" and "Freezer" were each
+       one character from breaking, and a break is what turns a two-word name
+       into a three-line tile. Ten more takes the caption to 9px as well, which
+       is the smallest type in the game that is meant to be READ rather than
+       glanced at. */
     #build:not(.browse) .tool {
-      width: 48px; min-width: 48px; max-width: 48px;
+      width: 66px; min-width: 66px; max-width: 66px;
       padding: 4px; border-radius: 12px; gap: 1px;
     }
-    #build:not(.browse) .tool .nm { display: none; }
+    #build:not(.browse) .tool .nm {
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+      white-space: normal; overflow: hidden;
+      font-size: 9px; font-weight: 800; line-height: 1.15; letter-spacing: -.01em;
+    }
     /* This one comes in shapes: hold it, or press this. A hold nothing on screen
        mentions is a gesture nobody finds, and a shape is cosmetic enough that
        never finding it would read as the game not having them.
@@ -3374,10 +3444,24 @@
       color: rgba(58,49,40,.85); background: rgba(255,255,255,.95);
     }
     #build:not(.browse) .tool .ico { height: 38px; border-radius: 8px; }
-    /* Line height pinned, not left to the font: this is the last line in a button
-       whose height the whole HUD is measured off (`--build-h`), and 1.2× of a
-       9.5px font is a different number of pixels in every browser. */
-    #build:not(.browse) .tool .cost { font-size: 9.5px; line-height: 11px; }
+    /* In the bottom-left of the WELL, which is `.more`'s rule mirrored — same
+       top, same height, same chip — so a tile carrying both reads as a pair
+       rather than as two unrelated marks. Its own ground because it sits over
+       the art, and half of that art is a dark shelf.
+
+       Out of the flow, so the last line in the button is the name: the whole HUD
+       is measured off this button's height (`--build-h`), which is read rather
+       than written down, so the strip and everything stacked above it follow the
+       two-line caption without a second number to keep in step. */
+    #build:not(.browse) .tool .cost {
+      position: absolute; top: 30px; left: 4px; z-index: 1;
+      height: 10px; padding: 0 2px; border-radius: 4px;
+      font-size: 8.5px; font-weight: 800; line-height: 10px; opacity: 1;
+      color: rgba(58,49,40,.62); background: rgba(255,253,248,.8);
+      box-shadow: inset 0 0 0 1px rgba(58,49,40,.11);
+    }
+    #build:not(.browse) .tool.warn .cost { color: var(--accent); }
+    #build:not(.browse) .tool.poor .cost { color: var(--accent); opacity: 1; }
 
     /* A glyph on these two is a category rather than a thing, and an empty
        recess under one is a slot with the thing missing out of it — so a glyph
@@ -4361,7 +4445,15 @@
          cap were written later and inherited nothing, so they went on printing a
          key at a hand that has none. One rule for all of them, under the width
          that decides the whole grammar (`pillDrives`). */
-      .fx-verb .kb, #tip .key { display: none; }
+      /* ...and the palette's own, which that rule missed and which is nine of
+         them in a row rather than one: `1` through `9` printed across the build
+         strip, on the surface where a finger has least room to spare and most to
+         read. It also frees the corner the tile needed — see the name rule up in
+         `#build:not(.browse) .tool`. */
+      /* ...and the press pill's, which is the one of these whose ROW still
+         works: a keyed row is a button like every other row, so only the cap
+         goes and the words stay pressable. */
+      .fx-verb .kb, #tip .key, .tool .key, #prompt .pr-key { display: none; }
 
       /* The front door has always been `min(440px, 100%)`, so the only things
          between it and the edges are the screen's own padding and a title sized
@@ -4493,6 +4585,12 @@
         <div id="build-tools"></div>
         <button id="build-back" class="nudge" type="button" hidden aria-label="More to the left"></button>
         <button id="build-on" class="nudge" type="button" hidden aria-label="More to the right"></button>
+        <!-- The bulldozer, pinned. It is on every tab, so it was the last tile
+             of a row that scrolls — which means its position depended on the tab
+             you were on and how far you had dragged, for the one press you go
+             looking for when something is in the wrong place. `bar.js` fills it
+             from the same entry the strip would have drawn. -->
+        <button id="build-raze" class="tool raze" type="button" hidden></button>
       </div>
       <div id="build-shapes" hidden></div>
     </div>

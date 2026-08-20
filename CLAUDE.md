@@ -212,6 +212,15 @@ Twenty-three sweeps, about half a minute:
   drawn and the machine appears to rewind; that an idle machine sits *exactly*
   where it was drawn, not nearly; and that a `work` model answers to the batch
   while a `model` answers to the tier, which is the whole reason there are two.
+  Since props could be told what the shop is doing it also guards the sweep and
+  the signal, which is the same argument pointed at a thing that moves because of
+  the WORLD: that a sweep is a pose rather than a loop (a hundred frames of
+  quarter past is quarter past), that a hand keeps its distance from its hinge
+  and goes clockwise, that a signed `turns` is the far side of a double-sided
+  face, that the axis is read off the box so a hand swings in its own face, and —
+  the quiet one — that `open` is the shop SERVING rather than the shutters, since
+  a sign wired to the shutters reads OPEN all night and looks completely correct
+  doing it.
   It writes nothing — every piece it needs it authors in memory, and every
   function it calls is pure.
 - `verify:hand` guards the `merchandise` job, which is the first one that takes
@@ -970,6 +979,38 @@ what the next step was meant to be.
   rather than growing its own art-swapping code. The pastime is the proof: a mug
   that empties and a sandwich eaten down to the crusts cost one nullable column
   and one field in `snapshot()`, and no code in the renderer knows what a mug is.
+- **…and a prop can spend that number on the SHOP instead of on itself.** A
+  clock that does not tell the time and an OPEN sign hanging over a shut shop
+  are the same failure, and neither is a bug you can see — they look exactly
+  like a clock and a sign. The cause is that both are props, so their one 0..1
+  was spent on a tier ladder they do not have: `tierProgress` of a single rung
+  is 0 for ever, and a hanging sign was therefore a *photograph* of a sign.
+  `signal` on a piece (`shared/signals.js`, `time` and `open`) replaces that
+  number with the world's, and both readers take it from the one field — stages
+  swap on it, and a part flagged `motion: sweep` turns *to* it, which is a clock
+  hand. Five things about it are worth knowing. It **replaces rather than adds**,
+  so it belongs on decorations and nothing else: a shelf with a signal would
+  author perfectly and quietly stop showing you which shelf you bought, which is
+  the "tier that changes no number" trap pointed the other way. A sweep is a
+  **pose and not a loop** — no easing, no accumulation — because the rest of
+  `animateMotion` is built for a blade winding up, and a clock eased in from
+  twelve is wrong for the first half-second of every session while an
+  accumulated one drifts off the time it is telling. A hand needs an authored
+  **`pivot`**, which is the one thing here that could not be read off the art:
+  a bar offset from a case could be hinged at either end, and turned about its
+  own middle it is a compass needle pointing at two times at once. A watcher is
+  built wearing **every stage at once** with one visible (`buildWatcher`) rather
+  than rebuilt when it swaps, because a signal changes on the shop's clock
+  rather than on a purchase — a rebuild would have to re-run the whole tail of
+  `addFixtureProps` (the pick box, the bake, the layer, the landing) or quietly
+  drop one of them. And a watcher that is also a **lamp** has to take its glow
+  with it (`emittersIn` scales by the signal, `aimLights` re-bakes when it steps),
+  or the art goes dark while the pool of light on the floor goes on saying open,
+  which reads as a rendering fault rather than as a sign that is off. The trap
+  for the next one: **writing has a front.** A tube thick enough to stand proud
+  of both faces of a board is one word and one MIRROR of it, and the far side of
+  the sign says N3PO — so a double-sided sign is the word twice, laid the
+  opposite way round, which is what took `MAX_PARTS` to 36.
 - **…and one resolver takes ONE number, which is why an appliance has two
   models.** `model`'s 0..1 is already spent on the tier — a Commercial machine
   is stage 2 of its own art — and how far through a batch it is runs 0..1 on a
@@ -1538,7 +1579,14 @@ what the next step was meant to be.
   API and `list_worlds` all read the save directly and report the value
   correctly, while the sim has never heard of it. `difficulty` shipped that way
   for an hour, and what gave it away was three difficulty presets returning
-  **byte-identical** takings over three seeds. Every `verify:*` sweep passed
+  **byte-identical** takings over three seeds. **`paint` shipped that way for
+  five steps**, and it is the worse form of the same bug: the constructor's `??`
+  answered `{}`, and the next `persist()` wrote that empty object back over what
+  was stored — so a restart did not fail to restore your paint, it *deleted* it,
+  while the save looked correct in between. `verify:paint` asserted the save
+  CARRIED it and stopped there, which is why a sweep written for this exact
+  layer passed for the whole life of it: **out and back are two different pieces
+  of code, and only one of them is obvious.** Every `verify:*` sweep passed
   either side of it, because every sweep builds its own world and every one of
   those genuinely is the default. A round trip that comes back suspiciously
   equal is the shape this makes.

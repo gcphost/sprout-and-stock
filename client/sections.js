@@ -122,7 +122,7 @@ export const DECOR_SUBS = [
     name: 'Furniture',
     icon: ICONS.town,
     tags: ['furniture'],
-    blurb: 'Somewhere to sit, lean or leave a bike. Indoors or out front — none of it is in anybody’s way.',
+    blurb: 'Somewhere to sit, lean or leave a bike. Indoors or out front.',
   },
   {
     id: 'bits',
@@ -268,7 +268,7 @@ export const BUILD_GROUPS = [
     id: 'decor',
     name: 'Decoration',
     icon: ICONS.decor,
-    blurb: 'Looks. Weighs nothing and stops nobody.',
+    blurb: 'Things you put about the place because you like them there.',
     subs: DECOR_SUBS,
   },
 ];
@@ -357,7 +357,7 @@ export const KIND_TOOLS = {
   'prop-floor': {
     icon: ICONS.fixtures,
     group: 'decor',
-    blurb: 'Stands on the floor and stops nobody. Indoors or out.',
+    blurb: 'Stands on the floor, indoors or out.',
   },
   'prop-ceiling': {
     icon: ICONS.ambient,

@@ -158,8 +158,19 @@ export function animatePuffs(puffs, t) {
  * it has turned means slowing down is slowing down, and it stops wherever it
  * happened to be — which is what a stopped blade does.
  */
-export function animateMotion(moving, t, running) {
+export function animateMotion(moving, t, running, signal = null) {
   for (const m of moving ?? []) {
+    // A sweep is a POSE, not a loop, so it takes none of what follows: no clock,
+    // no phase, and above all no easing. `running` eases a blade up and down
+    // because a machine switching on is a thing you should be able to watch; a
+    // clock hand that eased in from twelve on the frame the shop loaded would be
+    // a clock that is wrong for the first half-second, every time. It is also
+    // the one kind that can legitimately have nothing to say — a snapshot that
+    // has not arrived — and holding still is the honest answer to that.
+    if (m.motion.kind === 'sweep') {
+      if (signal != null) pose(m, signal);
+      continue;
+    }
     const was = m.amp ?? 0;
     const want = running ? 1 : 0;
     const amp = Math.abs(want - was) < STOPPED ? want : was + (want - was) * SETTLE;
@@ -186,6 +197,34 @@ export function animateMotion(moving, t, running) {
     }
   }
 }
+
+/**
+ * One `sweep` part put where the world says it should be. `v` is the signal,
+ * 0..1.
+ *
+ * Turned NEGATIVE, because every angle in three.js is anticlockwise about its
+ * axis and every dial anybody has ever read goes the other way. A hand that ran
+ * backwards would be the kind of bug you look at for a while before believing.
+ *
+ * The hinge is done by hand rather than by nesting each hand in a pivot group,
+ * which is the usual answer and costs an extra Object3D per part plus a matrix
+ * update the welder would have to be taught to leave alone. A rotation about a
+ * point is a rotation about the middle plus the arm swung round with it, and
+ * that is two lines.
+ */
+function pose(m, v) {
+  const angle = -v * (m.motion.turns ?? 1) * TAU;
+  m.mesh.rotation[m.axis] = (m.axis === 'y' ? m.rot : 0) + angle;
+  if (!m.arm) return;
+  m.mesh.position.copy(m.arm).applyAxisAngle(AXES[m.axis], angle).add(m.pivot);
+}
+
+/** The three axes, once, rather than a fresh vector per part per frame. */
+const AXES = {
+  x: new THREE.Vector3(1, 0, 0),
+  y: new THREE.Vector3(0, 1, 0),
+  z: new THREE.Vector3(0, 0, 1),
+};
 
 /** A shared, quantised, translucent material — see FADE_STEPS. */
 function fade(color, k, peak) {

@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   yields     TEXT NOT NULL DEFAULT 'null',-- JSON {cash, every} or null: it earns
   charm      REAL NOT NULL DEFAULT 0,     -- how far word of the shop travels
   open       INTEGER NOT NULL DEFAULT 0,  -- 1 = workable from the back too
+  signal     TEXT,                        -- which world quantity drives the art
   tags       TEXT NOT NULL DEFAULT '[]',  -- JSON array
   created_by TEXT NOT NULL DEFAULT 'seed',
   created_at INTEGER NOT NULL
@@ -370,6 +371,13 @@ const ADDED_COLUMNS = [
   // true of every unit authored before the question could be asked — so no shop
   // gains a side it did not have on the day this landed.
   ['fixtures', 'open', 'INTEGER NOT NULL DEFAULT 0'],
+  // Which world quantity drives the art. Nullable rather than `NOT NULL DEFAULT
+  // ''` like `kind` above, and the difference is the one this column is for: a
+  // blank kind means "this row names itself", which is a real answer, while a
+  // piece that watches nothing has nothing to name. The zod field is
+  // `.nullable()`, so an empty string would be a value it refuses on the way
+  // back in — a row that saves and will not reload.
+  ['fixtures', 'signal', 'TEXT'],
   // 'null' rather than '{}': a pastime with no prop drawn for it yet has no
   // model at all, and an empty object is a model that fails its own schema.
   ['pastimes', 'model', "TEXT NOT NULL DEFAULT 'null'"],

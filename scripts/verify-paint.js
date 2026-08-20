@@ -49,7 +49,7 @@
 
 import { Game } from '../server/sim/index.js';
 import { writeContent } from '../server/content.js';
-import { remove } from '../server/db.js';
+import { remove, deleteWorldRow } from '../server/db.js';
 import { faceKey, faceRun, canPaintFaces, edgeAt, FIXTURE_REFUND } from '../shared/build.js';
 import { E } from '../shared/edges.js';
 
@@ -104,6 +104,10 @@ process.on('exit', () => {
   for (const f of TEST_PAINTS) {
     try { remove('fixtures', f.id); } catch { /* the DB is already gone */ }
   }
+  // ...and the one world this sweep has to write for real — see the round trip
+  // at the bottom, which cannot be asked of an ephemeral game because the thing
+  // being tested is the store.
+  try { deleteWorldRow('verify-paint-roundtrip'); } catch { /* already gone */ }
 });
 
 for (const f of TEST_PAINTS) {
@@ -317,6 +321,51 @@ const fabric = (g) => JSON.stringify([
   // And the save, which is the other way a layer quietly goes away.
   const saved = JSON.parse(JSON.stringify(g.saveState()));
   eq(JSON.stringify(saved.paint), JSON.stringify(painted), 'the save carries it too');
+}
+
+// ---------------------------------------------------------------------------
+// 6. ...AND IT COMES BACK, WHICH IS A DIFFERENT CLAIM FROM GOING OUT.
+//
+// This sweep asserted the save CARRIED the paint and stopped there, and every
+// claim above it is about one session — so it passed, in full, for the whole
+// life of a bug that made painting a shop pointless. `saveState` wrote `paint`
+// from the first day; `Game.create` names every field it hands the constructor
+// and did not name that one, so a reload read `?? {}` and the next `persist()`
+// wrote the empty object back over what was stored. The paint was not lost by
+// the restart, it was DELETED by it, and the save looked perfectly correct in
+// between.
+//
+// So the claim is the round trip rather than either half of it, and it is worth
+// keeping in mind for the next field somebody adds to a save: out and back are
+// two different pieces of code, and only one of them is obvious.
+//
+// It needs a real world row, because `Game.create` reads the store rather than
+// anything it is handed — hence a non-ephemeral game and the cleanup below.
+{
+  const id = 'verify-paint-roundtrip';
+  const g = Game.create({ worldId: id, seed: 'paint', ephemeral: false });
+  g.paint = {};
+  g.cash = 20000;
+  g.freezeShell();
+  g.addPlayer('me', 'Tester');
+  g.players.me.build = { on: true, tool: 'shelf' };
+
+  const wall = allFaces(g)[0];
+  const res = g.paintFaces('me', { ...wall, piece: 'verify-paint-cheap' });
+  check(res.ok, 'a face can be painted in a world that persists', res.error ?? '');
+  const painted = JSON.parse(JSON.stringify(g.paint));
+
+  const back = Game.create({ worldId: id, seed: 'paint', ephemeral: true });
+  eq(JSON.stringify(back.paint), JSON.stringify(painted),
+    'the paint is still there when the world is loaded again');
+  // The second half of the deletion, and the reason a bare "is it there"
+  // assertion is not enough: what did the damage was the empty object being
+  // written back, so the STORED save has to still have it after a reloaded game
+  // has saved once.
+  back.persist();
+  const after = Game.create({ worldId: id, seed: 'paint', ephemeral: true });
+  eq(JSON.stringify(after.paint), JSON.stringify(painted),
+    '...and a reloaded shop that saves does not wipe it');
 }
 
 // ---------------------------------------------------------------------------

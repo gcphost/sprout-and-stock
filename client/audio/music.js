@@ -142,6 +142,32 @@ class Music {
     /** The track on the radio, playing or not — what the LCD says. */
     this.current = null;
     /**
+     * WHICH ATTEMPT TO PUT MUSIC ON IS THE LIVE ONE.
+     *
+     * `next` is async — it fetches and decodes a megabyte of ogg — so between
+     * being asked for a track and starting one, anything can happen: the world
+     * can pause, you can skip twice, the radio can be switched off. Every one of
+     * those is a decision made about a track that has not begun, and the old
+     * code only re-checked two of them (`on`, `armed`), which is how you get two
+     * tracks at once out of a game that was PAUSED:
+     *
+     *   the tab arms on your click, `next` starts decoding, the first snapshot
+     *   arrives saying the world is paused — and the pause finds `this.node`
+     *   null, because nothing is playing yet, so it stops nothing and returns.
+     *   The decode then lands, ignores the pause, and starts playing. Music,
+     *   under a stopped shop. Then you press play: the world un-pauses, the
+     *   resume finds `this.buf` set, builds a SECOND source and assigns it over
+     *   `this.node` — and the first one is still going, with nothing left in the
+     *   object that points at it. Nothing can ever stop it now.
+     *
+     * A counter is the fix rather than one more flag, because the question is
+     * not "is it paused" but "is this still the request the radio wants" — and
+     * that is the same question for a pause, a skip, a mute and a stop. Bumped
+     * by everything that decides what should be playing; an attempt whose number
+     * is stale drops what it decoded on the floor.
+     */
+    this.gen = 0;
+    /**
      * Hold this track instead of moving on.
      *
      * Costs nothing to implement and that is the point worth noting: the source
@@ -263,6 +289,10 @@ class Music {
     if (on_) {
       clearTimeout(this.timer);
       this.timer = null;
+      // Anything still decoding was asked for by the shop as it was a moment
+      // ago, and the shop has stopped. Without this the track lands *after* the
+      // pause and plays through it.
+      this.gen++;
       if (!this.node) return;
       const played = mix.ctx.currentTime - this.began;
       this.left = Math.max(0, this.left - played);
@@ -282,6 +312,13 @@ class Music {
   resume() {
     const ctx = mix.ctx;
     const now = ctx.currentTime;
+    // Belt and braces, and the braces are the ones that failed: this claims
+    // `this.node`, so anything already in it would go on playing with nothing
+    // left pointing at it — unstoppable, unskippable, and audible over the top
+    // of whatever comes next. `this.gen` above should mean there is never
+    // anything here; this is what makes that a bug rather than a doubled track.
+    this.gen++;
+    this.stopNow();
     const src = this.source(this.buf, this.current);
     const gain = ctx.createGain();
     gain.gain.value = 0;
@@ -403,6 +440,7 @@ class Music {
 
   async next() {
     if (!this.on || !mix.armed || this.paused) return;
+    const gen = ++this.gen;
     this.at = (this.at + 1) % TRACKS.length;
     const track = TRACKS[this.at];
 
@@ -417,8 +455,10 @@ class Music {
       this.timer = setTimeout(() => this.next(), 1000);
       return;
     }
-    // Muted or switched off while it was decoding.
-    if (!this.on || !mix.armed) return;
+    // Muted, switched off, PAUSED or asked for something else entirely while it
+    // was decoding — see `this.gen`. The pause is the one that was missing and
+    // the one that costs two tracks at once.
+    if (!this.on || !mix.armed || this.paused || gen !== this.gen) return;
 
     const ctx = mix.ctx;
     const now = ctx.currentTime;

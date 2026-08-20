@@ -19,7 +19,9 @@ import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '..
 import {
   generateLayout, defaultPads, defaultStreet, defaultAwning, buildWalkGrid, isWalkable, carLanes, T,
 } from '../layout.js';
-import { E, SOLID, edgeBetween, edgeFamily } from '../../shared/edges.js';
+import {
+  E, SOLID, edgeBetween, edgeFamily, edgeCharm,
+} from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
   foldModifiers, modifierMeter, departmentMeter, rankShelves, purchaseChance,
@@ -1580,6 +1582,20 @@ export class Game {
       doorShift,
       edits,
       ground,
+      // ...and the finish on the walls, which fell into the trap the note at the
+      // top of this payload describes, in the worst way it can be fallen into.
+      // `saveState` wrote `paint` from the day the brush shipped and this line
+      // was missing, so every load handed the constructor nothing, `?? {}` said
+      // "nobody has painted here", and the FIRST PERSIST AFTER THAT wrote the
+      // empty object back over what was stored. Not a paint that failed to
+      // survive a restart, then — a paint that was deleted by the restart, with
+      // the save file looking entirely correct in between.
+      //
+      // Nothing anywhere disagreed: painting worked, the shop redrew, the money
+      // came off, `verify:paint` passed every claim it makes (all of which are
+      // about one session), and the walls were bare the next time you opened the
+      // world. Which reads as never having painted them.
+      paint: w.paint ?? {},
       yardStamped,
       awningStamped,
       shell,
@@ -13328,7 +13344,17 @@ export class Game {
     const fromShop = this.placements.reduce(
       (s, p) => s + (pieceFor(rows, p)?.charm ?? 0), 0,
     );
-    return round2(fromShop + countUpgrade(this, 'decor', 'charm'));
+    // ...and the building itself, which counted for nothing until now: charm
+    // was a sum over PLACEMENTS, and a wall is not one — it is a number on a
+    // lattice line — so a shop glazed end to end reached exactly as far across
+    // town as a concrete box. Which is upside down, because the frontage is the
+    // only part of a shop somebody who has never been in has ever seen. See
+    // `EDGE_CHARM`: glass only, all four looks alike, and a wall is worth
+    // nothing because every building in the game is made of walls.
+    //
+    // Nothing generates a window, so this moves no existing shop and no balance
+    // run: every pane in the game is one somebody chose to buy.
+    return round2(fromShop + edgeCharm(this.layout) + countUpgrade(this, 'decor', 'charm'));
   }
 
   /**

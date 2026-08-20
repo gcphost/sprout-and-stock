@@ -261,13 +261,29 @@ function tint(hex) {
  * already own — a display case with a strip in it — while a lamp says it once on
  * the piece and glows at every rung. Which is also why this reads `f.tier`: the
  * same fixture is two different lights before and after an upgrade.
+ *
+ * ...and a piece that WATCHES the shop is worth what the shop says it is worth.
+ * `signals` is the last-known value of each, and a watcher's light is scaled by
+ * its own — so an OPEN sign whose art went dark at closing time takes its glow
+ * with it. Without this the geometry would say shut and the pool of light on the
+ * floor under it would go on saying open, which is worse than never having
+ * dimmed it: a sign that is off and still lit reads as a rendering fault.
+ *
+ * A watcher at zero is DROPPED rather than dimmed to nothing, because the pool
+ * is eight lights aimed at the nearest emitters — a dark sign that stayed on the
+ * list would go on holding one of the eight against the shop it is standing in.
  */
-export function emittersIn(fixtures, pieceOf, ceilingY) {
+export function emittersIn(fixtures, pieceOf, ceilingY, signals = null) {
   const out = [];
   for (const f of fixtures) {
     const piece = pieceOf(f);
     const emits = piece?.tiers?.[(f.tier ?? 1) - 1]?.emits ?? piece?.emits;
     if (!emits) continue;
+    // 1 for everything that watches nothing, and for a watcher whose signal has
+    // not arrived — an unlit first frame is a shop that flashes on, and there is
+    // no reading of "we do not know yet" that should turn a lamp off.
+    const worth = piece?.signal ? (signals?.[piece.signal] ?? 1) : 1;
+    if (worth <= 0.001) continue;
     out.push({
       x: f.x,
       // Hung things light from the ceiling; everything else from about the
@@ -276,7 +292,7 @@ export function emittersIn(fixtures, pieceOf, ceilingY) {
       y: f.kind === 'prop-ceiling' ? ceilingY - 0.1 : 0.85,
       z: f.z,
       color: emits.color ?? '#ffd9a0',
-      intensity: emits.intensity ?? 1,
+      intensity: (emits.intensity ?? 1) * worth,
       range: emits.range ?? 4,
     });
   }

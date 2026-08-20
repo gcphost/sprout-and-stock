@@ -2073,5 +2073,51 @@
     "pace": 0.8,
     "carry": 6,
     "color": "#b07cc6"
+  },
+  {
+    "id": "verify-hand-worker",
+    "name": "Test Hand",
+    "tags": [],
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#cccccc",
+          "pos": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.3,
+            0.3
+          ],
+          "rot": 0
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "speed_mult": 1,
+        "pace_mult": 1,
+        "carry_mult": 1,
+        "wage_mult": 1
+      }
+    ],
+    "jobs": [
+      {
+        "job": "merchandise",
+        "weight": 1
+      }
+    ],
+    "cost": 0,
+    "wage": 0,
+    "speed": 20,
+    "pace": 0.05,
+    "carry": 60,
+    "color": "#7a9e4b"
   }
 ]

@@ -125,8 +125,11 @@ export function wayKind(base, rule) {
  *
  * The day a window *does* something — daylight a lamp doesn't have to pay for,
  * charm, a shoplifter who can see the till — that is a number, and it belongs on
- * the piece it distinguishes rather than in here. Right now nothing in the game
- * reads `E.WINDOW` for anything but geometry, which is what makes this cheap.
+ * the piece it distinguishes rather than in here. Charm is the first of those to
+ * arrive, and it landed on the FAMILY rather than on the four looks (see
+ * `EDGE_CHARM`), which is this paragraph's rule holding rather than bending: a
+ * bay window and a shopfront are worth the same, so reglazing is still free and
+ * still never a balance change.
  */
 export const GLAZING = new Map([
   [E.WINDOW, { base: 'window', look: 'standard' }],
@@ -137,6 +140,59 @@ export const GLAZING = new Map([
 
 /** Which looks a window can be given, in the order a menu lists them. */
 export const GLAZING_LOOKS = ['standard', 'full', 'bay', 'high'];
+
+/**
+ * HOW NICE AN EDGE MAKES THE SHOP — `charm` on a catalog row, said about the
+ * wall rather than about a thing standing against it.
+ *
+ * Everything else that has ever moved charm is a *placement*, so the whole
+ * shell of the building — walls, glass, doorways, the frontage — counted for
+ * nothing, and a shop you had glazed end to end reached exactly as far across
+ * town as a concrete box. Which is upside down: the frontage is the only part
+ * of a shop somebody who has never been in has ever seen.
+ *
+ * Three decisions in one small table.
+ *
+ * **It is per family, not per look.** All four glazings are worth the same,
+ * which is the note above holding rather than bending — a look must never move
+ * a number, so a bay window is prettier than a shopfront to you and identical
+ * to the town, and reglazing stays free.
+ *
+ * **A wall and a doorway are worth nothing**, deliberately. Charm is what a
+ * shop has that it did not need, and every building in the game is made of
+ * walls — paying for them would be paying everybody for existing, which moves
+ * the whole curve and distinguishes nobody. Glass is the part you could have
+ * left out.
+ *
+ * **Every glazed edge counts, wherever it is** — including a partition between
+ * two rooms, which is a slightly generous answer chosen over an exactly right
+ * one. The precise rule is "glass that looks outside", and that is a question
+ * about the `indoor` mask: enclosure in this game is all-or-nothing, so the day
+ * somebody takes a wall out, *every* window in the shop would stop earning at
+ * once, footfall would drop, and nothing anywhere would say why. CLAUDE.md has
+ * that trap twice already. A glass partition is a fair thing to be able to buy.
+ *
+ * 0.4 is under the going rate per dollar (a $35 planter is 1.5), and that is on
+ * purpose: you would have built a wall along that run anyway, so what the charm
+ * is priced against is the $14 the glass costs OVER a wall, not the $26.
+ */
+export const EDGE_CHARM = new Map([...GLAZING.keys()].map((k) => [k, 0.4]));
+
+/**
+ * What the whole shell is worth, walked once.
+ *
+ * Over both arrays rather than over a list of what somebody built, because
+ * there is no such list — an edge is a number on a lattice line, which is the
+ * same reason a doorway is the one thing you can point at that has no id.
+ */
+export function edgeCharm(L) {
+  if (!L) return 0;
+  let sum = 0;
+  for (const arr of [L.edgesV, L.edgesH]) {
+    for (let i = 0; i < (arr?.length ?? 0); i++) sum += EDGE_CHARM.get(arr[i]) ?? 0;
+  }
+  return sum;
+}
 
 export const glazingBase = (kind) => GLAZING.get(kind)?.base ?? null;
 export const glazingLook = (kind) => GLAZING.get(kind)?.look ?? null;

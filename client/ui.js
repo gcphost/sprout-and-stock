@@ -94,6 +94,30 @@ function mouseGlyph(right) {
 }
 
 /**
+ * ...and the same thing said about a key, which build mode is the first thing
+ * here to need.
+ *
+ * Every other row on this pill is a mouse button, because every other press it
+ * describes is one. R turns the selected fixture and no button anywhere does
+ * that — so a row for it drawn with a mouse on the front would be promising a
+ * press that does not exist, which is the green-ghost bug with a glyph on it.
+ *
+ * The row is still a BUTTON, and that is the half worth saying out loud: a
+ * phone has no R, so on the one device that cannot make this press at all the
+ * cap is hidden (see the width query in index.html) and the words are pressed
+ * instead. The cap says how to do it without the pill; it is not what does it.
+ *
+ * Same shape the tip's own `.key` uses, because a key cap should read as a key
+ * cap wherever in the game it is drawn.
+ */
+function keyCap(key) {
+  const el = document.createElement('kbd');
+  el.className = 'pr-key';
+  el.textContent = key;
+  return el;
+}
+
+/**
  * How long "tap again to hire" stays armed.
  *
  * The same window `FIRE_ARM_MS` gives Let go in the worker menu, on purpose:
@@ -315,6 +339,7 @@ export class UI {
       buildStrip: document.getElementById('build-strip'),
       buildBack: document.getElementById('build-back'),
       buildOn: document.getElementById('build-on'),
+      buildRaze: document.getElementById('build-raze'),
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
       buildClose: document.getElementById('build-close'),
@@ -1428,6 +1453,8 @@ export class UI {
       strip: this.el.buildStrip,
       back: this.el.buildBack,
       on: this.el.buildOn,
+      // The bulldozer, which is pinned rather than scrolled — see `renderBar`.
+      raze: this.el.buildRaze,
       choice: this.el.buildShapes,
     };
   }
@@ -1644,9 +1671,17 @@ export class UI {
     // has to change between them or the first press looks like a failure of the
     // second.
     if (this.aimed) {
+      // ...and with the bar up, the gestures have moved one line up. The pill
+      // names every press a fixture answers to now (`pressHints`), each with the
+      // button that makes it and each pressable in its own right — which is
+      // strictly more than this line could say, since R and M have no place in a
+      // sentence and no existence at all on a phone. Two surfaces at the bottom
+      // of the screen saying "drag it to move it" is one of them reading as an
+      // echo, so what is left here is the one thing the pill cannot say: which
+      // unit those rows are about.
+      if (this.paletteArmed) return { text: this.fixtureName(this.aimed) };
       return {
-        text: `${this.fixtureName(this.aimed)} — tap to ${this.isSelected(this.aimed) ? 'open it' : 'pick it'}`
-          + `${this.paletteArmed ? ' · drag it to move it' : ''}`,
+        text: `${this.fixtureName(this.aimed)} — tap to ${this.isSelected(this.aimed) ? 'open it' : 'pick it'}`,
       };
     }
     // Empty hands, which is where the mode starts. Says so, because a bar with
@@ -3831,6 +3866,8 @@ export class UI {
       // divide. No `pr-r`, because a reversal is what puts a lone mouse on its
       // own edge and this row has both edges spoken for.
       const both = h.btn === 'lr';
+      // ...and a row whose press is a KEY, which is neither. See `keyCap`.
+      const keyed = h.btn === 'k';
       // A BUTTON when there is a press behind it, and a span when there is not:
       // the armed-action line (`doing`) is a statement about what is happening,
       // and a thing that looks pressable and is not is the green-ghost bug with
@@ -3846,11 +3883,16 @@ export class UI {
       // belongs to neither button (`p.pressing` is one bit that says a button is
       // down and nothing about which), so it gets no mouse rather than one with
       // neither cap lit, which would read as a third state nobody can make.
-      if (!doing || doing.btn) row.innerHTML = mouseGlyph(both ? false : right);
+      if (keyed) row.append(keyCap(h.tag));
+      else if (!doing || doing.btn) row.innerHTML = mouseGlyph(both ? false : right);
       // What makes it something other than a click: how long you hold it, or how
       // many of them. Said in a word rather than drawn, because there is no
       // picture of "twice" that anybody reads as twice.
-      if (h.tag) {
+      //
+      // A keyed row has already spent its tag on the cap above — printing it
+      // again here would be the letter twice, once as a key and once as a
+      // caption, which reads as two different facts about the same press.
+      if (h.tag && !keyed) {
         const tag = document.createElement('i');
         tag.className = 'pr-hold';
         tag.textContent = h.tag;

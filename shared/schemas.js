@@ -19,6 +19,10 @@ import { isSurface } from './build.js';
 // in so a row rewritten through this gate is stored in today's vocabulary — the
 // seed loader, the MCP tools and the director all come through here.
 import { foldJobs } from './jobs.js';
+// The closed set of world quantities a piece may watch. Named here so a signal
+// that does not exist is refused at the gate rather than resolving to nothing in
+// the renderer, which would draw as a clock with no hands.
+import { SIGNAL_NAMES } from './signals.js';
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be lowercase kebab/snake case');
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb hex colour');
@@ -128,6 +132,7 @@ const PART = z.object({
    *   bob     rises and falls by `amount` tiles, `hz` times a second.
    *   shake   judders by `amount` tiles in the ground plane. A press, a fryer.
    *   pulse   swells and shrinks by `amount` of its own size. A lamp, a heater.
+   *   sweep   turns TO the piece's `signal` rather than looping — see below.
    *
    * WHAT COUNTS AS WORKING is the renderer's question, and it has one rule:
    * a thing that can be busy moves while it *is* busy, and a thing that has no
@@ -151,11 +156,36 @@ const PART = z.object({
    * what it owes an answer to.
    */
   motion: z.object({
-    kind: z.enum(['spin', 'bob', 'shake', 'pulse']),
-    /** Cycles a second — turns a second for `spin`. */
+    kind: z.enum(['spin', 'bob', 'shake', 'pulse', 'sweep']),
+    /** Cycles a second — turns a second for `spin`. Ignored by `sweep`, which has no clock. */
     hz: z.number().min(0.05).max(12).default(1.5),
     /** How big the movement is: tiles for `bob`/`shake`, a share of its own size for `pulse`. */
     amount: z.number().min(0).max(1).default(0.05),
+    /**
+     * `sweep` only: how many whole turns the part makes over one run of the
+     * signal, 0 to 1. An hour hand is 2 and a minute hand is 24, which is the
+     * whole of what makes a clock a clock.
+     *
+     * SIGNED, and that is not a tidiness knob: a double-sided sign is the same
+     * hand drawn twice, and the far face is watched from the far side, so the
+     * two have to turn opposite ways to both read clockwise. Deriving that from
+     * which side of the case a part sits on was the alternative, and it would be
+     * a rule that silently spins the wrong way on the first prop that is not a
+     * clock.
+     */
+    turns: z.number().min(-60).max(60).default(1),
+    /**
+     * The point it turns about, in model space. Left out, a part turns about its
+     * own middle, which is what every kind above does and what a fan blade
+     * wants.
+     *
+     * A hand does not: it is hinged at the centre of a face it does not sit in
+     * the middle of, and a hand pivoting about its own waist is a compass
+     * needle. There is no reading of the art that answers this — a bar offset
+     * from a case could be hinged at either end or at neither — so it is the one
+     * thing here that has to be said rather than measured.
+     */
+    pivot: z.tuple([z.number(), z.number(), z.number()]).nullable().default(null),
   }).nullable().default(null),
   /**
    * "Whoever is wearing this decides what colour this part is."
@@ -189,8 +219,27 @@ const PART = z.object({
  * rule, and the cost of raising it is meshes per fixture. Sixteen is still well
  * inside what this renderer does happily, and it is the first number here that
  * was ever load-bearing on what could be MODELLED rather than on what performs.
+ *
+ * A WORD is what broke it the second time, and it is a different kind of demand
+ * from the corner unit's. An L wanted twice a straight unit because it is two
+ * units; letters want a part per STROKE, and there is no care or cleverness that
+ * gets O, P, E and N under four strokes each — the shapes are the shapes.
+ *
+ * And then twice again, for the reason that is obvious only once you have looked
+ * at the thing: **writing has a front**. A tube thick enough to stand proud of
+ * both faces of a panel is one word seen from one side and its mirror from the
+ * other, which is what a real shop window does and what a game reads as a bug —
+ * the far side of the sign says N3PO. So a double-sided sign is the word twice,
+ * laid the opposite way round, and there is no sharing between the two halves.
+ * Sixteen strokes a face, two faces, a board and a hanger: thirty-four.
+ *
+ * The cost is smaller than the number looks: `weld` merges by material, so a
+ * two-colour sign of thirty-four parts is two meshes, exactly as a two-colour
+ * shelf of eight is. What this really caps is authoring effort and the size of a
+ * row — and the day something wants a longer word than OPEN, this is a number
+ * and not a rule.
  */
-const MAX_PARTS = 16;
+const MAX_PARTS = 36;
 
 /**
  * One look, for something that changes as it goes along. `at` is where on the
@@ -473,6 +522,28 @@ export const FixtureSchema = z.object({
    */
   work: ModelSchema.nullable().default(null),
   /**
+   * "This one watches the shop" — which world quantity drives its art, out of
+   * `WORLD_SIGNALS`.
+   *
+   * A third driver for the same one 0..1 `model` already takes, and the reason
+   * it is a piece-level field rather than a second model is that it REPLACES the
+   * number rather than adding one. A tier is a fact about the unit and a signal
+   * is a fact about the shop, and there is no prop that wants both: naming a
+   * signal is how a piece says its ladder is not what its art is about.
+   *
+   * Which is why this belongs on props and nothing else, and why nothing here
+   * enforces that. A shelf with a signal would author perfectly and quietly stop
+   * showing you which shelf you bought — the same shape of trap as a tier that
+   * changes no number, so it is written down instead: **a piece with a real tier
+   * ladder must not name a signal.**
+   *
+   * Both readers take it from here — `stages` swap on it, and a part flagged
+   * `sweep` turns to it — so one field covers a sign that changes look and a
+   * clock hand that changes angle. Null is every piece that ever existed, which
+   * is why nothing in a live shop moved on the day this landed.
+   */
+  signal: z.enum(SIGNAL_NAMES).nullable().default(null),
+  /**
    * Other shapes of the same thing: a corner unit, an endcap, a low one.
    *
    * A variant is a LOOK and nothing else, and that is enforced by where it
@@ -671,7 +742,17 @@ export const FixtureSchema = z.object({
      * this enum knowing which kinds are outdoors, which is not something a look
      * should know.
      */
-    pattern: z.enum(['plain', 'checker', 'planks', 'stripes', 'tufts']).default('plain'),
+    /*
+     * `brick` is the third of those and the first that is about a WALL. It is
+     * here rather than as a per-cell colour for the reason the other two are:
+     * one cell is about a metre and a half, so "brick" drawn as a colour is a
+     * brick the size of a door, which is what a chequer of red and cream
+     * actually looks like on a shopfront. Courses stood proud of the face in
+     * `color` over mortar in `accent`, half-bonded, and stylised rather than
+     * true to scale — a 65mm course is a third of a pixel at this camera, so
+     * the honest choice is between blocky brick and no brick.
+     */
+    pattern: z.enum(['plain', 'checker', 'planks', 'stripes', 'tufts', 'brick', 'tiles']).default('plain'),
     /**
      * How many bars a `stripes` cell is painted with. Null takes the default.
      *

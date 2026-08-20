@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-86 pieces across 18 kinds.
+87 pieces across 18 kinds.
 
 ## Fixtures
 
@@ -33,7 +33,7 @@ Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other
 2. **Backed shelving** — $120, holds ×1.5
 3. **Signed aisle** — $300, holds ×2
 
-#### Bakery Case
+#### Bakery
 
 `bakery-case` · kind `shelf` · $95 to build
 
@@ -45,7 +45,7 @@ Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other
 2. **Heated case** — $120, keeps ×1.6
 3. **Patisserie case** — $300, holds ×1.35, keeps ×2
 
-#### Produce Table
+#### Produce
 
 `produce-table` · kind `shelf` · $38 to build
 
@@ -58,6 +58,20 @@ Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other
 1. **Trestle table** — free, as built
 2. **Tiered display** — $90, holds ×1.4
 3. **Covered stall** — $220, holds ×1.8, keeps ×1.3
+
+#### Gondola
+
+`gondola` · kind `shelf` · $110 to build
+
+11 parts · 3 stages, driven by tier · **6 boards of goods** (18 facings drawn) · seams against a neighbour
+
+🔄 **Open all round** — no back panel, so it is worked from all four sides rather than three. Reach and the working-spot markers only: where it may be built and where a tap walks you go by the one anchor either way.
+
+✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+1. **Open gondola** — free, as built
+2. **Full gondola** — $150, holds ×1.4
+3. **Signed gondola** — $340, holds ×1.8
 
 ### `freezer`
 
@@ -75,7 +89,7 @@ Shapes: Standard, Chest, Wall run, Wall corner, Wall corner (other way), Endcap 
 2. **Sealed freezer** — $260, keeps ×1.5
 3. **Display freezer** — $620, holds ×1.5, keeps ×2
 
-#### Deli Counter
+#### Deli
 
 `deli-counter` · kind `freezer` · $240 to build
 
@@ -87,7 +101,7 @@ Shapes: Standard, Chest, Wall run, Wall corner, Wall corner (other way), Endcap 
 2. **Chilled well** — $150, keeps ×1.8
 3. **Butcher’s counter** — $380, holds ×1.3, keeps ×2.6
 
-#### Open Chiller
+#### Chiller
 
 `open-chiller` · kind `freezer` · $285 to build
 
@@ -155,19 +169,19 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 4 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
 - ⚙️ **Standard** while running — 3 stages across a batch · 1 moving part
-- ⚙️ **Espresso Machine** while running — 3 stages across a batch · steams · 1 moving part · the machine itself shake + bobs
+- ⚙️ **Barista** while running — 3 stages across a batch · steams · 1 moving part · the machine itself shake + bobs
 - ⚙️ **Blender** while running — 3 stages across a batch · 1 moving part · the machine itself pulses
 - ⚙️ **Toaster** while running — 2 stages across a batch · 2 moving parts
-- ⚙️ **Sandwich Press** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
+- ⚙️ **Press** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
 - ⚙️ **Juicer** while running — 3 stages across a batch · 1 moving part
-- ⚙️ **Soft-Serve Machine** while running — 3 stages across a batch · 1 moving part
-- ⚙️ **Deep Fryer** while running — 3 stages across a batch · steams · the machine itself shakes
+- ⚙️ **Soft-Serve** while running — 3 stages across a batch · 1 moving part
+- ⚙️ **Fryer** while running — 3 stages across a batch · steams · the machine itself shakes
 - ⚙️ **Oven** while running — 3 stages across a batch · 1 moving part
 - ⚙️ **Grill** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
-- ⚙️ **Preserving Pot** while running — 3 stages across a batch · steams · the machine itself shakes
-- ⚙️ **Stock Pot** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
+- ⚙️ **Preserver** while running — 3 stages across a batch · steams · the machine itself shakes
+- ⚙️ **Stockpot** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
 
-Shapes: Standard, Espresso Machine, Blender, Toaster, Sandwich Press, Juicer, Soft-Serve Machine, Deep Fryer, Oven, Grill, Preserving Pot, Stock Pot — looks only, same price and same ladder.
+Shapes: Standard, Barista, Blender, Toaster, Press, Juicer, Soft-Serve, Fryer, Oven, Grill, Preserver, Stockpot — looks only, same price and same ladder.
 
 1. **Domestic** — free, as built
 2. **Commercial** — $340, speed ×2
@@ -206,7 +220,7 @@ They weigh nothing, on purpose. No tile stamped, no generator budget, no working
 
 Indoors or out, blocks nobody, nobody stands at it, rotates.
 
-#### Terracotta Planter
+#### Planter
 
 `terracotta-planter` · kind `prop-floor` · $35 to build
 
@@ -214,7 +228,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Basket Stack
+#### Baskets
 
 `basket-stack` · kind `prop-floor` · $20 to build
 
@@ -222,7 +236,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### A-Frame Sign
+#### A-Frame
 
 `a-frame-sign` · kind `prop-floor` · $25 to build
 
@@ -250,7 +264,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 💡 Emits `#ffd7a1`, intensity 1.1, range 4.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Lamp Post
+#### Lamppost
 
 `lamp-post` · kind `prop-floor` · $90 to build
 
@@ -260,7 +274,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 💡 Emits `#ffd9a6`, intensity 1.6, range 7 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Bollard Light
+#### Bollard
 
 `bollard-light` · kind `prop-floor` · $40 to build
 
@@ -278,7 +292,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Potted Fern
+#### Fern
 
 `potted-fern` · kind `prop-floor` · $22 to build
 
@@ -286,7 +300,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Bay Tree
+#### Bay
 
 `bay-tree` · kind `prop-floor` · $70 to build
 
@@ -312,7 +326,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 💡 Emits `#ffd08a`, intensity 0.6, range 3.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Park Bench
+#### Bench
 
 `park-bench` · kind `prop-floor` · $75 to build
 
@@ -320,7 +334,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Bistro Set
+#### Bistro
 
 `bistro-set` · kind `prop-floor` · $95 to build
 
@@ -336,7 +350,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Bike Rack
+#### Rack
 
 `bike-rack` · kind `prop-floor` · $45 to build
 
@@ -344,7 +358,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **0.75** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Oak Barrel
+#### Barrel
 
 `barrel` · kind `prop-floor` · $26 to build
 
@@ -352,7 +366,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **0.75** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Entrance Mat
+#### Doormat
 
 `entrance-mat` · kind `prop-floor` · $12 to build
 
@@ -360,7 +374,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **0.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Rug Runner
+#### Runner
 
 `rug-runner` · kind `prop-floor` · $28 to build
 
@@ -372,7 +386,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a room to hang in.
 
-#### Pendant Lamp
+#### Pendant
 
 `pendant-lamp` · kind `prop-ceiling` · $60 to build
 
@@ -382,7 +396,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#ffd7a1`, intensity 1.3, range 5.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Aisle Sign
+#### Sign
 
 `aisle-sign` · kind `prop-ceiling` · $45 to build
 
@@ -390,7 +404,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 ✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### String Lights
+#### Fairy Lights
 
 `string-lights` · kind `prop-ceiling` · $55 to build
 
@@ -400,7 +414,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#ffe0b0`, intensity 0.8, range 4 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Tube Light
+#### Tube
 
 `tube-light` · kind `prop-ceiling` · $70 to build
 
@@ -410,7 +424,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#e8f0ff`, intensity 1.5, range 6 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Fan Light
+#### Fan
 
 `ceiling-fan` · kind `prop-ceiling` · $110 to build
 
@@ -420,7 +434,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#ffe1b3`, intensity 1, range 5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Panel Light
+#### Panel
 
 `panel-light` · kind `prop-ceiling` · $80 to build
 
@@ -430,7 +444,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#eef4ff`, intensity 1.3, range 5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Paper Lantern
+#### Lantern
 
 `paper-lantern` · kind `prop-ceiling` · $45 to build
 
@@ -450,7 +464,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#ffd08a`, intensity 1.8, range 6.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Hanging Basket
+#### Hanging
 
 `hanging-basket` · kind `prop-ceiling` · $50 to build
 
@@ -458,23 +472,23 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 ✨ Charm **1.75** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Station Clock
+#### Clock
 
 `hanging-clock` · kind `prop-ceiling` · $55 to build
 
-8 parts
+8 parts · 4 parts move always
 
 ✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
 #### Open Sign
 
-`open-sign` · kind `prop-ceiling` · $35 to build
+`open-sign` · kind `prop-ceiling` · $45 to build
 
-4 parts
+34 parts · 2 stages, driven by tier
 
-✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-💡 Emits `#ff8b6b`, intensity 0.5, range 2.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+💡 Emits `#6bffa8`, intensity 0.8, range 3 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 #### Bunting
 
@@ -492,35 +506,35 @@ Not placed and not a cell either — **a finish for one side of a wall**, painte
 
 A finish for one **side** of a wall. Painted along a run, priced per face, and read by nothing but the renderer — the two sides of a wall are two decisions, and neither can move a tile.
 
-#### Cream Emulsion
+#### Cream
 
 `paint-cream` · kind `paint` · $3 per face
 
 Surface `#e8ded0`, plain repeat. No model — a finish is the wall's own skin.
 
-#### Sage Green
+#### Sage
 
 `paint-sage` · kind `paint` · $4 per face
 
 Surface `#8fa383`, plain repeat. No model — a finish is the wall's own skin.
 
-#### Deep Teal
+#### Teal
 
 `paint-teal` · kind `paint` · $5 per face
 
 Surface `#2f6f6a`, plain repeat. No model — a finish is the wall's own skin.
 
-#### Red Brick
+#### Brick
 
 `paint-brick` · kind `paint` · $7 per face
 
-Surface `#9d5240` / `#e0d6c6`, planks repeat. No model — a finish is the wall's own skin.
+Surface `#9d5240` / `#e0d6c6`, brick repeat. No model — a finish is the wall's own skin.
 
-#### White Tile
+#### White
 
 `paint-tile` · kind `paint` · $9 per face
 
-Surface `#eef0ee` / `#c8ccc9`, checker repeat. No model — a finish is the wall's own skin.
+Surface `#eef0ee` / `#c8ccc9`, tiles repeat. No model — a finish is the wall's own skin.
 
 ## Ground
 
@@ -530,37 +544,37 @@ Not placed — **painted**, over an area, priced per tile. These have no anchor 
 
 Ground. Painted over an area, blocks nobody, and is purely a **look** — two designs of floor leave byte-identical tiles.
 
-#### Pine Boards
+#### Pine
 
 `pine-boards` · kind `floor` · $9 per tile
 
 Surface `#c09a63` / `#a8834f`, planks repeat. No model — ground *is* the cell.
 
-#### Chequer Tile
+#### Chequer
 
 `chequer-tile` · kind `floor` · $14 per tile
 
 Surface `#e6e2d8` / `#4a4a52`, checker repeat. No model — ground *is* the cell.
 
-#### Poured Concrete
+#### Concrete
 
 `poured-concrete` · kind `floor` · $6 per tile
 
 Surface `#9b9a94`, plain repeat. No model — ground *is* the cell.
 
-#### Terracotta Tile
+#### Terracotta
 
 `terracotta-tile` · kind `floor` · $16 per tile
 
 Surface `#c2724a` / `#a75f3d`, checker repeat. No model — ground *is* the cell.
 
-#### Slate Flags
+#### Slate
 
 `slate-flags` · kind `floor` · $22 per tile
 
 Surface `#5c626b` / `#4a4f57`, planks repeat. No model — ground *is* the cell.
 
-#### Paving Slabs
+#### Paving
 
 `paving-slabs` · kind `floor` · $7 per tile
 
@@ -578,7 +592,7 @@ Surface `#4b4d51`, plain repeat. No model — ground *is* the cell.
 
 Surface `#8d8478` / `#786f64`, checker repeat. No model — ground *is* the cell.
 
-#### Brick Paving
+#### Brickwork
 
 `brick-paving` · kind `floor` · $11 per tile
 
@@ -640,7 +654,7 @@ Ground. Painted over an area, blocks nobody, and is purely a **look** — two de
 
 Surface `#5f646d` / `#565b63`, plain repeat. No model — ground *is* the cell.
 
-#### Gravel Track
+#### Gravel
 
 `gravel-track` · kind `road` · $2 per tile
 

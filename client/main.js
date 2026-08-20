@@ -775,7 +775,22 @@ function refreshGhost(force = false) {
     // pointing are one event, so it can only ever ring somebody a tenth of a
     // second before opening them, or ring whoever has since walked under the
     // last place a finger touched. A tap on a hire opens them either way.
-    const person = pointer.onCanvas && !ui.demolishArmed() && !pillDrives()
+    // ...and not with your hands full, which is the same rule the tap below
+    // keeps — see `handsFull`. A hire who walks through the pointer must not
+    // take the ring off the shelf you are carrying six loaves towards.
+    // ...and not with the bar up, which is that same sentence about the other
+    // mode and the one where it costs most. The bulldozer has said it since it
+    // was written — "then you are aiming at things, and a clerk wandering in
+    // front of a shelf must not stop you tearing the shelf out" — and every word
+    // of that is true of build mode at large: a hire is a third of a tile wide,
+    // walking, through a shop you are selecting and dragging units in, and they
+    // have no build verb of their own. So they took the ring off whatever you
+    // were about to move, and the marker was a promise about a menu the mode has
+    // nothing to do with. `paletteArmed` and not `buildOn`, the same test
+    // `boardTakes`, `dropping`, `aimable` and `drag.lift` all make: a fixture
+    // menu that borrowed the mode is not somebody building.
+    const person = pointer.onCanvas && !ui.demolishArmed() && !ui.paletteArmed
+      && !pillDrives() && !handsFull()
       ? scene.pickPerson(pointer.x, pointer.y) : null;
     scene.setPersonAim(person?.hire ?? null);
     // The other half of "you can press this", and the half that works before
@@ -893,7 +908,17 @@ function refreshGhost(force = false) {
     // pair — the cage is a thin box round the bread and this is a panel with the
     // item, the count and the capacity in it, sitting over a shop that cannot
     // move. `boardTakes` carries the same clause for the cage.
-    const tipOn = pillDrives() || ui.paused ? null : (aim?.fixture ?? held?.f ?? null);
+    // ...and build mode is the third, which is `boardTakes` again and was the
+    // half this line was deliberately NOT gated on. Not being gated is right for
+    // full hands — you are about to do something with what it names — and it is
+    // exactly wrong for the bar being up, because there the pile is not a target
+    // at all: the cage has been off in build mode for as long as `boardTakes`
+    // has existed, so what was left was a panel naming a stack of bread with
+    // nothing anywhere marking it and no press that could act on it. Sliding
+    // along an aisle deciding where a shelf goes threw a card over the shop for
+    // every unit you crossed.
+    const tipOn = pillDrives() || ui.paused || ui.paletteArmed
+      ? null : (aim?.fixture ?? held?.f ?? null);
     ui.setBoardTip(
       shelfById(tipOn?.id),
       (tipOn === held?.f ? held.board : aim?.board) ?? null,
@@ -1344,6 +1369,29 @@ function atWorkSpotOf(f) {
  */
 const dropping = () => (myCarry() || myHaul())
   && !ui.paletteArmed && !ui.holding && !ui.demolishArmed();
+
+/**
+ * ARE YOUR HANDS FULL? Then a hire is not a target.
+ *
+ * A person is the smallest thing in the shop you can point at, they are the only
+ * thing that MOVES under a stationary pointer, and they outrank everything
+ * behind them — which is exactly right when a hire is what you are looking for,
+ * and exactly wrong the rest of the time. With an armful or a box on your
+ * shoulder, every question you are asking the pointer is about where the goods
+ * go: a shelf, a crate, a square of floor. A stocker crossing that line steals
+ * the ring, the cursor and the tap, and what you get for the press you had
+ * already committed to is their job list — over the shop you were aiming at.
+ *
+ * Nobody has ever wanted to read a rota with their arms full, and the way in is
+ * not lost either: the Staff bar opens the same sheet, and putting the goods
+ * down is one press.
+ *
+ * Deliberately NOT `dropping()`, which is the same fact plus three exclusions
+ * about who owns the ground this frame. Those are the right question for a
+ * floor ghost and the wrong one here — build mode already suspends people by
+ * another route, and a rule about your hands should say so in one clause.
+ */
+const handsFull = () => !!(myCarry() || myHaul());
 
 function canDropAt(tile) {
   const L = scene.storeLayout;
@@ -3245,17 +3293,58 @@ let stick = { id: null, board: null, at: 0 };
  * Set by both buttons, because both are a sentence about that pile: a tap takes
  * one out, a right-tap puts one back, and neither is a question about which.
  *
- * Released by Escape (`ui.escape`, through `dropBoardPick`), by pressing a
- * different pile, and by the pile ceasing to exist. Nothing else: it is a
- * selection rather than an aim, so pointing somewhere else does not take it
- * away — what happens there is that the aim marker on the thing you ARE pointing
- * at wins the frame, which is the same way a picked fixture behaves.
+ * Released by Escape (`ui.escape`, through `dropBoardPick`), by the pile ceasing
+ * to exist, and by any press that is not about it (`dropStalePick`) — a
+ * different pile, the unit's own frame, a crate, a hire, a doorway, bare floor.
+ *
+ * That last one used to read "a different pile, and nothing else", and the word
+ * to keep is **press**: pointing somewhere else still does not take it away, and
+ * that is the whole of what makes the second loaf and the third cost no aim —
+ * the aim marker on the thing you ARE pointing at simply wins the frame, the
+ * same way a picked fixture behaves. What "nothing else" cost is that the only
+ * way to put a pile down was a key nothing on screen mentions, so a cage and a
+ * stock card sat on a unit across the shop long after you had finished with it.
  */
 let pick = { id: null, board: null };
 
 /** A press landed on a pile: that is the one, until something says otherwise. */
 function pickBoard(f, board) {
   if (f && board) pick = { id: f.id, board };
+}
+
+/**
+ * ...and "something says otherwise" is any press that is not about that pile.
+ *
+ * This is the third of the three ways a desktop has to let go of a pick, and it
+ * was DOCUMENTED rather than written: `dropOnLeaving` says overhead that the
+ * desktop already has "Escape, a click on bare floor, or a press on something
+ * else", and the floor branch of `tapAtPointer` only ever dropped the fixture
+ * selection. So the list was really Escape and a different pile — and a pile is
+ * a few pixels of a shelf, which is not a thing anybody presses on purpose to
+ * cancel something. What that leaves is a cage and a stock card on a unit across
+ * the shop, hours after you took a loaf off it, with the only way out a key
+ * nothing on screen mentions.
+ *
+ * It is a press and never a MOVE, which is the distinction the whole gesture
+ * rests on: pointing somewhere else does not drop a pick (that is what makes the
+ * second loaf and the third cost no aim), and pressing somewhere else does. The
+ * marker rules are untouched — what changes is only how long the decision lives.
+ *
+ * Asked with the pointer rather than off the branch that fired, because every
+ * branch of `tapAtPointer` past the tool check is "clicking off it" and listing
+ * them here would be a second copy of that precedence, drifting. `pickAimed` is
+ * the same call the press itself makes a few lines later, so the two can never
+ * disagree about what was under the pointer; the extra raycast only happens when
+ * there is a pick to spend it on.
+ */
+function dropStalePick(cx, cy) {
+  if (!pick.id) return;
+  const still = pickAimed(cx, cy);
+  // The unit AND the pile. Pressing the frame, the base or an end panel of the
+  // very shelf whose bread is picked is a press about the unit — it opens the
+  // menu — so the pile stops being the subject there as much as anywhere else.
+  if (still?.f?.id === pick.id && still.board === pick.board) return;
+  ui.dropBoardPick();
 }
 
 /**
@@ -3534,11 +3623,10 @@ function ripeBoard(f, board) {
  * in, or the pill would describe a press that lands on something else.
  */
 function pressHints({ aim, board, onPile, drop }) {
-  // Build mode arms nothing but the till, so every sentence in here would be
-  // about a press the mode has suspended — the same three exclusions `dropping`
-  // and `boardTakes` already make, and for the same reason: with a bar up, the
-  // pointer belongs to the bar.
-  if (ui.paletteArmed || ui.holding || ui.demolishArmed()) return [];
+  // Carrying a fixture and the bulldozer are both a press with its subject
+  // already decided — the hint line above the bar is what says so, because
+  // neither is a question about what the pointer is on.
+  if (ui.holding || ui.demolishArmed()) return [];
   // ...and a stopped clock is the fourth, for the reason the other three are:
   // every sentence in here is a press this pill promises will do something, and
   // while the world is held not one of them can. A walk has legs and a hold is a
@@ -3598,6 +3686,44 @@ function pressHints({ aim, board, onPile, drop }) {
   // something else from being ignored — this is the fallback, not an override.
   const f = aim?.fixture
     ?? (pillDrives() && !crate ? scene.fixtureById(ui.fixtureRef?.id) ?? null : null);
+
+  // BUILD MODE IS NOT A MODE WITH NO PRESSES IN IT, and for a long time this
+  // pill said it was: `paletteArmed` was a blanket veto at the top of the
+  // function, on the reasoning that the mode suspends every shopkeeping job. It
+  // does — and it puts three of its own in their place. What a fixture answers
+  // to while the bar is up is a tap, a drag and R, none of which is written
+  // anywhere on screen: the line above the bar names the tap and the drag on the
+  // unit you are POINTING at, and the moment you have picked one the two verbs
+  // that act on a selection (R and M) have never been mentioned at all. On a
+  // phone they cannot be — there are no keys — so every build verb bar the tap
+  // was behind a menu you had to know was there.
+  //
+  // Kept to the fixture, which is the whole of what the mode adds. A crate, a
+  // board and a square are shopkeeping and stay silent here exactly as they did
+  // before, because `dropping` and `boardTakes` already refuse the mode and the
+  // rows would be describing presses the bar has taken.
+  if (ui.paletteArmed) {
+    if (!f) return out;
+    // Where the pill drives, the tap only ever picks (`openInTwo`) and the row
+    // is the way in, so it says one thing. On a mouse the tap climbs the ladder
+    // itself and the row names the rung it is standing on — the same split the
+    // out-of-reach branch below already makes, for the same reason.
+    if (pillDrives()) add('l', null, 'Open it', () => openInTwo(f, { open: true }));
+    else add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it', () => openInTwo(f));
+    // The drag, which is the gesture everybody tries first and the one this pill
+    // is worst placed to describe — you cannot pull a fixture with a button. So
+    // the row RUNS it (the same `liftAimed` M does) and the tag says how to make
+    // it without one. `reopen: false`, because a row on the pill came from
+    // pointing, not from a menu — see `liftAimed`.
+    add('l', 'drag', 'Move it', () => liftAimed(f, { reopen: false }));
+    // ...and the one press here that is not a press at all. Only on the unit
+    // that is actually selected, because that is what R acts on — offering it
+    // over a fixture you are merely hovering would turn the one behind you.
+    // `rotateSelected` owns the several-at-once refusal itself, the way the
+    // Rotate button it stands in for does.
+    if (ui.isSelected(f)) add('k', 'R', 'Turn it', () => ui.rotateSelected());
+    return out;
+  }
 
   if (crate && !f) {
     // A box on the floor with one already on your shoulder is the SQUARE it
@@ -4060,12 +4186,21 @@ function openAtPointer(cx, cy) {
   // Not while your hands are full: then every tile is a home for what you carry
   // and there is nothing to look at.
   if (ui.holding) return false;
+  // The same thing the tap says, said about the other press — see
+  // `dropStalePick`. Safe this far in because a hold that already named goods
+  // never reaches here: `drag.took` sends the pull home first, which is the one
+  // hold that IS about the picked pile.
+  dropStalePick(cx, cy);
   // A person outranks the fixture behind them. They are smaller and they
   // move, so pointing at one is deliberate in a way that pointing at a shelf
   // is not — and their menu is the only way to reach what they do all day.
   // Not while the bulldozer is up: then you are aiming at things, and a clerk
   // wandering in front of a shelf must not stop you tearing the shelf out.
-  const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
+  // ...nor with the bar up, which is the same sentence about the whole mode —
+  // see the ring in `refreshGhost`, which has to agree with this or the
+  // highlight is advertising a press that does something else.
+  const who = ui.demolishArmed() || ui.paletteArmed || handsFull()
+    ? null : scene.pickPerson(cx, cy);
   if (who?.hire) { showWorker(ui, who.hire); return true; }
 
   const over = pickTarget(cx, cy);
@@ -4121,6 +4256,12 @@ function tapAtPointer(cx, cy) {
   const kind = ui.ghostKindForTool();
 
   if (!kind && !ui.holding) {
+    // Before the branches rather than inside one of them, because every press
+    // from here down is a press on something, and all of them except one are
+    // "clicking off that pile" — see `dropStalePick`. Above the bulldozer too:
+    // tearing out the unit is about as plainly done with its bread as anything
+    // could be.
+    dropStalePick(cx, cy);
     // The bulldozer keeps the tap as its verb. One tap per thing, on the one
     // thing that is ringed — the tool stays armed after, the way a bulldozer
     // does, because clearing a row otherwise means picking the tool up again
@@ -4145,7 +4286,14 @@ function tapAtPointer(cx, cy) {
     //
     // Not while the bulldozer is armed: then you are aiming at things, and a
     // clerk wandering in front of a shelf must not stop you tearing it out.
-    const who = ui.demolishArmed() ? null : scene.pickPerson(cx, cy);
+    // Hands full is the second thing that takes a hire out of the running, and
+    // it is the one you meet every day — see `handsFull`. The bulldozer above is
+    // about aiming at THINGS; this is about the press already having a subject.
+    // Build mode is the first of those two said about the mode rather than about
+    // one tool, and it is what keeps a tap on a shelf a tap on that shelf while
+    // somebody restocks it.
+    const who = ui.demolishArmed() || ui.paletteArmed || handsFull()
+      ? null : scene.pickPerson(cx, cy);
     if (who?.hire) { showWorker(ui, who.hire); return; }
 
     // Past the people, so this press is on something that is not one: the

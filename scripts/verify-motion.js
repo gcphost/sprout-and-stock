@@ -31,6 +31,30 @@
  *   fallback that pointed the wrong way is six machines steaming out of the
  *   same corner — which reads as bad authoring on five of them.
  *
+ * ...and since props could be told what the shop is doing, three more, which are
+ * the same argument pointed at a thing that moves because of the WORLD rather
+ * than because of itself. A clock is the one prop in the game whose art can be
+ * wrong in a way you could in principle see — you could hold it up against the
+ * HUD — and every way it actually breaks is not that:
+ *
+ * - **A sweep is a pose, not a loop.** Everything above accumulates and eases,
+ *   which is right for a blade and ruinous for a hand: eased, a clock is wrong
+ *   for the first half-second of every session, and accumulated it drifts off
+ *   the time it is supposed to be telling. So the same number has to give the
+ *   same angle for ever, whatever the part did before.
+ * - **A hand hinges at the PIVOT.** Turned about its own middle — which is what
+ *   every other kind of motion does and therefore what this would inherit — a
+ *   hand is a compass needle: a bar sticking out of both sides of the boss,
+ *   pointing at two times at once. The tail end has to stay still.
+ * - **Turning is clockwise, and a signed `turns` is the other side of the
+ *   case.** A double-sided sign is one hand drawn twice, and the far copy is
+ *   watched from the far side — so two faces that turn the same way are one face
+ *   running backwards, which is a thing you would look at for a while.
+ *
+ * Plus what the signal itself is worth, which is where the quiet one lives:
+ * `open` is the shop SERVING, not the shutters. A sign wired to the shutters
+ * reads OPEN all night, every night, and looks completely correct doing it.
+ *
  * Unlike `verify:catalog` this writes NOTHING: every piece it needs is built
  * here and every function it calls is pure, so it can be run against the live
  * database with no cleanup and nothing to leak.
@@ -40,6 +64,7 @@
 
 import { FixtureSchema } from '../shared/schemas.js';
 import { partsAt, variantWork, variantModel, tierProgress, stageIndexAt } from '../shared/model.js';
+import { SIGNAL_NAMES, signalValue } from '../shared/signals.js';
 import { buildModel } from '../client/render/props.js';
 import { buildLoopingProp, animateMotion, animatePuffs } from '../client/render/motion.js';
 
@@ -254,6 +279,167 @@ eq(variantWork({ ...piece, work: null }, 'borrows'), null,
   check(puff.obj.position.y > low, 'a puff rises');
   animatePuffs(g.userData.puffs, 2.4);
   check(Math.abs(puff.obj.position.y - low) < 1e-6, 'and starts again rather than sailing off');
+}
+
+// ---------------------------------------------------------------------------
+// 6. A prop that watches the shop.
+// ---------------------------------------------------------------------------
+{
+  // A clock's hand: up at midnight, hinged at the middle of a face it does not
+  // sit in the middle of. Thin on z, so the face it swings in is x/y.
+  const HAND = {
+    shape: 'box',
+    color: '#3b3630',
+    pos: [0, 0.575, 0.075],
+    scale: [0.03, 0.15, 0.02],
+    motion: { kind: 'sweep', turns: 24, pivot: [0, 0.5, 0.075] },
+  };
+  const at = (v, part = HAND) => {
+    const g = buildModel({ parts: [part] }, {});
+    animateMotion(g.userData.moving, 0, true, v);
+    return g.userData.moving[0].mesh;
+  };
+
+  // -- the gate ------------------------------------------------------------
+  {
+    const good = FixtureSchema.safeParse({
+      ...PIECE, kind: 'prop-ceiling', signal: 'time', model: { parts: [HAND] },
+    });
+    check(good.success, 'the schema accepts a piece that watches the shop',
+      good.success ? '' : good.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
+    eq(good.success ? good.data.signal : null, 'time', '...and keeps which signal it watches');
+    eq(good.success ? good.data.model.parts[0].motion.turns : null, 24, '...and how far a sweep turns');
+    eq(good.success ? good.data.model.parts[0].motion.pivot?.[1] : null, 0.5, '...and where it hinges');
+
+    const bad = FixtureSchema.safeParse({ ...PIECE, signal: 'vibes' });
+    check(!bad.success, 'a signal nobody implemented is refused at the gate');
+    eq(FixtureSchema.parse(PIECE).signal, null,
+      'and a piece that watches nothing says so with a null, which is every piece that predates this');
+  }
+
+  // -- what a signal is worth ----------------------------------------------
+  {
+    eq(signalValue('time', { time: 0.25 }), 0.25, '`time` is how far through the day it is');
+    eq(signalValue('time', {}), null, '...and a snapshot that does not say answers null rather than midnight');
+    // The one that is invisible: a sign wired to the shutters reads OPEN all
+    // night. `isOpen` is the shutters AND the trading day, and only that.
+    eq(signalValue('open', { isOpen: true, shutters: true, trading: true }), 1,
+      '`open` is 1 while the shop is serving');
+    eq(signalValue('open', { isOpen: false, shutters: true, trading: false }), 0,
+      '...and 0 at midnight with the shutters still up, which is the whole point of it');
+    for (const name of SIGNAL_NAMES) {
+      const v = signalValue(name, { time: 0.5, isOpen: true });
+      check(v == null || (v >= 0 && v <= 1), `\`${name}\` answers inside 0..1`, `${v}`);
+    }
+    eq(signalValue('time', null), null, 'and nothing at all answers null rather than throwing');
+  }
+
+  // -- the stage swap ------------------------------------------------------
+  {
+    const sign = {
+      stages: [
+        { name: 'Closed', at: 0, parts: [box('#1d2024')] },
+        { name: 'Open', at: 0.5, parts: [box('#ff6b5a'), box('#5fd3a0')] },
+      ],
+    };
+    eq(stageIndexAt(sign, signalValue('open', { isOpen: false })), 0, 'a shut shop shows the shut face');
+    eq(stageIndexAt(sign, signalValue('open', { isOpen: true })), 1, '...and an open one the open face');
+    eq(partsAt(sign, 0).length, 1, 'which is a different picture');
+    eq(partsAt(sign, 1).length, 2, '...from the other one');
+    // The swap the tier ladder would otherwise have made. A watcher's stages are
+    // the shop's answer, so a piece that resolved them by tier would hang a sign
+    // that reads CLOSED until somebody upgraded it — and there is nothing to
+    // upgrade, because a prop has one rung.
+    eq(tierProgress(1, 1), 0, 'a one-rung ladder is 0 for ever, which is every prop');
+    check(stageIndexAt(sign, tierProgress(1, 1)) !== stageIndexAt(sign, 1),
+      'so a signal and a tier pick different stages, and nothing may pass one where the other is meant');
+  }
+
+  // -- a sweep is a pose ---------------------------------------------------
+  {
+    const g = buildModel({ parts: [HAND] }, {});
+    const m = g.userData.moving[0];
+    const drawn = m.mesh.position.clone();
+
+    // No easing: one frame at a number is the whole answer. Everything else in
+    // this file takes about a second to get where it is going.
+    // A quarter past midnight, deliberately not a round part of a day: at 24
+    // turns a day the minute hand is back where it started at six o'clock, so
+    // half the obvious test values assert nothing at all.
+    animateMotion(g.userData.moving, 0, true, 1 / 96);
+    const first = m.mesh.position.clone();
+    check(first.distanceTo(drawn) > 0.05, 'one frame puts a hand where the world says', `${first.x}`);
+
+    // ...and it does not accumulate. A hundred frames of quarter past is quarter past.
+    for (let i = 0; i < 100; i++) animateMotion(g.userData.moving, i / 60, true, 1 / 96);
+    check(m.mesh.position.distanceTo(first) < 1e-9,
+      'and holding it there for a hundred frames does not walk it round the face');
+
+    // Midnight and midnight are the same pose, which is what "a pose" means.
+    animateMotion(g.userData.moving, 5, true, 0);
+    check(m.mesh.position.distanceTo(drawn) < 1e-9, 'and the same number is always the same angle');
+
+    // A sweep with nothing to read holds still rather than snapping to zero:
+    // the first layout of a session can arrive before any snapshot does.
+    animateMotion(g.userData.moving, 6, true, 1 / 96);
+    const held = m.mesh.position.clone();
+    animateMotion(g.userData.moving, 7, true, null);
+    check(m.mesh.position.distanceTo(held) < 1e-9, 'a sweep with no signal yet holds where it is');
+    // And it is deliberately deaf to the thing every other kind listens to.
+    animateMotion(g.userData.moving, 8, false, 1 / 96);
+    check(m.mesh.position.distanceTo(held) < 1e-9,
+      '...and does not wind down when the thing it is on stops working');
+  }
+
+  // -- the hinge, and which way round ---------------------------------------
+  {
+    const pivot = { x: 0, y: 0.5, z: 0.075 };
+    const noon = at(0);
+    check(Math.abs(noon.position.x - 0) < 1e-9 && noon.position.y > pivot.y,
+      'at midnight a hand points straight up');
+
+    // A quarter of one turn of the minute hand: 24 turns a day, so 1/96 of a day
+    // is a quarter past. It must be at 3 o'clock and not at 9.
+    const quarter = at(1 / 96);
+    check(quarter.position.x > 0.05, 'a quarter of a turn later it is at three o\'clock, not nine',
+      `x=${quarter.position.x.toFixed(3)}`);
+    check(Math.abs(quarter.position.y - pivot.y) < 1e-6, '...level with the boss it hangs off');
+
+    // The hinge. Turned about its own middle the hand's centre would not move at
+    // all, which is the compass-needle bug: a bar poking out both sides.
+    const armWas = Math.hypot(noon.position.x - pivot.x, noon.position.y - pivot.y);
+    const armNow = Math.hypot(quarter.position.x - pivot.x, quarter.position.y - pivot.y);
+    check(Math.abs(armWas - armNow) < 1e-6, 'a hand keeps its distance from the hinge as it goes round',
+      `${armWas.toFixed(4)} then ${armNow.toFixed(4)}`);
+    check(armWas > 0.05, '...and that distance is the offset it was drawn at, not nothing');
+    check(Math.abs(quarter.position.z - pivot.z) < 1e-9, 'and never leaves the face it was drawn in');
+
+    // A part with no pivot turns about its own middle, which is what a fan wants
+    // and is the default every other kind of motion already has.
+    const middle = at(1 / 96, { ...HAND, motion: { kind: 'sweep', turns: 24 } });
+    check(Math.abs(middle.position.x - HAND.pos[0]) < 1e-9
+      && Math.abs(middle.position.y - HAND.pos[1]) < 1e-9,
+    'a sweep with no pivot named turns on the spot');
+
+    // The far side of a double-sided face. Same hand, negative turns, so both
+    // read clockwise from wherever you happen to be standing.
+    const back = at(1 / 96, {
+      ...HAND, pos: [0, 0.575, -0.075], motion: { kind: 'sweep', turns: -24, pivot: [0, 0.5, -0.075] },
+    });
+    check(back.position.x < -0.05, 'the far face of a double-sided prop turns the other way',
+      `x=${back.position.x.toFixed(3)}`);
+
+    // The axis is read off the box. A hand is thinnest on z and swings in x/y; a
+    // blade is thinnest on y and sweeps the floor. Authoring one and getting the
+    // other is a hand that swings edge-on into the wall it is hung on.
+    const blade = at(1 / 4, {
+      shape: 'box', color: '#8a6a4a', pos: [0.3, 0.5, 0], scale: [0.6, 0.02, 0.15],
+      motion: { kind: 'sweep', turns: 1, pivot: [0, 0.5, 0] },
+    });
+    check(Math.abs(blade.position.y - 0.5) < 1e-9 && Math.abs(blade.position.z) > 0.05,
+      'a part that lies flat sweeps the floor rather than the wall',
+      `y=${blade.position.y} z=${blade.position.z.toFixed(3)}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

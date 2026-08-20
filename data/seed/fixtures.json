@@ -1,7 +1,7 @@
 [
   {
     "id": "a-frame-sign",
-    "name": "A-Frame Sign",
+    "name": "A-Frame",
     "model": {
       "parts": [
         {
@@ -161,11 +161,12 @@
     "charm": 0.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "aisle-sign",
-    "name": "Aisle Sign",
+    "name": "Sign",
     "model": {
       "parts": [
         {
@@ -303,7 +304,8 @@
     "charm": 0.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "asphalt",
@@ -333,7 +335,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "awning",
@@ -539,11 +542,12 @@
     "charm": 0.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "bakery-case",
-    "name": "Bakery Case",
+    "name": "Bakery",
     "model": {
       "parts": [
         {
@@ -767,11 +771,12 @@
     "charm": 1,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "barrel",
-    "name": "Oak Barrel",
+    "name": "Barrel",
     "model": {
       "parts": [
         {
@@ -867,7 +872,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -882,11 +892,12 @@
     "charm": 0.75,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "basket-stack",
-    "name": "Basket Stack",
+    "name": "Baskets",
     "model": {
       "parts": [
         {
@@ -1044,11 +1055,12 @@
     "charm": 0.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "bay-tree",
-    "name": "Bay Tree",
+    "name": "Bay",
     "model": {
       "parts": [
         {
@@ -1166,7 +1178,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -1181,11 +1198,12 @@
     "charm": 2.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "bike-rack",
-    "name": "Bike Rack",
+    "name": "Rack",
     "model": {
       "parts": [
         {
@@ -1367,7 +1385,8 @@
     "charm": 0.75,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "bin",
@@ -1529,11 +1548,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "bistro-set",
-    "name": "Bistro Set",
+    "name": "Bistro",
     "model": {
       "parts": [
         {
@@ -1541,13 +1561,13 @@
           "color": "#3b3630",
           "pos": [
             0,
-            0.02,
+            0.03,
             0
           ],
           "scale": [
-            0.24,
-            0.04,
-            0.24
+            0.32,
+            0.06,
+            0.32
           ],
           "rot": 0,
           "surface": false,
@@ -1563,13 +1583,13 @@
           "color": "#3b3630",
           "pos": [
             0,
-            0.24,
+            0.25,
             0
           ],
           "scale": [
-            0.06,
+            0.09,
             0.44,
-            0.06
+            0.09
           ],
           "rot": 0,
           "surface": false,
@@ -1585,13 +1605,57 @@
           "color": "#d8cdb8",
           "pos": [
             0,
-            0.48,
+            0.47,
             0
           ],
           "scale": [
-            0.5,
+            0.76,
+            0.06,
+            0.76
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#3b3630",
+          "pos": [
+            -0.58,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.28,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5a6b5a",
+          "pos": [
+            -0.58,
+            0.3,
+            0
+          ],
+          "scale": [
+            0.36,
             0.05,
-            0.5
+            0.36
           ],
           "rot": 0,
           "surface": false,
@@ -1606,14 +1670,36 @@
           "shape": "box",
           "color": "#5a6b5a",
           "pos": [
-            -0.44,
-            0.12,
+            -0.735,
+            0.47,
             0
           ],
           "scale": [
-            0.07,
-            0.24,
-            0.07
+            0.05,
+            0.38,
+            0.36
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#3b3630",
+          "pos": [
+            0.58,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.28,
+            0.1
           ],
           "rot": 0,
           "surface": false,
@@ -1628,36 +1714,14 @@
           "shape": "box",
           "color": "#5a6b5a",
           "pos": [
-            -0.44,
-            0.26,
-            0
-          ],
-          "scale": [
-            0.26,
-            0.04,
-            0.26
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
-        },
-        {
-          "shape": "box",
-          "color": "#5a6b5a",
-          "pos": [
-            -0.55,
-            0.42,
-            0
-          ],
-          "scale": [
-            0.04,
+            0.58,
             0.3,
-            0.26
+            0
+          ],
+          "scale": [
+            0.36,
+            0.05,
+            0.36
           ],
           "rot": 0,
           "surface": false,
@@ -1672,58 +1736,14 @@
           "shape": "box",
           "color": "#5a6b5a",
           "pos": [
-            0.44,
-            0.12,
+            0.735,
+            0.47,
             0
           ],
           "scale": [
-            0.07,
-            0.24,
-            0.07
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
-        },
-        {
-          "shape": "box",
-          "color": "#5a6b5a",
-          "pos": [
-            0.44,
-            0.26,
-            0
-          ],
-          "scale": [
-            0.26,
-            0.04,
-            0.26
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
-        },
-        {
-          "shape": "box",
-          "color": "#5a6b5a",
-          "pos": [
-            0.55,
-            0.42,
-            0
-          ],
-          "scale": [
-            0.04,
-            0.3,
-            0.26
+            0.05,
+            0.38,
+            0.36
           ],
           "rot": 0,
           "surface": false,
@@ -1739,7 +1759,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -1754,11 +1779,12 @@
     "charm": 2,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "bollard-light",
-    "name": "Bollard Light",
+    "name": "Bollard",
     "model": {
       "parts": [
         {
@@ -1878,7 +1904,8 @@
     "charm": 1,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "break-room",
@@ -1907,11 +1934,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "brick-paving",
-    "name": "Brick Paving",
+    "name": "Brickwork",
     "model": null,
     "tiers": [
       {
@@ -1920,7 +1948,8 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -1931,13 +1960,17 @@
     "surface": {
       "color": "#a35e49",
       "accent": "#8b4e3c",
-      "pattern": "planks"
+      "pattern": "planks",
+      "bars": null,
+      "density": null,
+      "blade": null
     },
     "yields": null,
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "bunting",
@@ -2088,7 +2121,8 @@
     "charm": 1.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "car-park",
@@ -2118,11 +2152,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "ceiling-fan",
-    "name": "Fan Light",
+    "name": "Fan",
     "model": {
       "parts": [
         {
@@ -2294,7 +2329,8 @@
     "charm": 2,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "chandelier",
@@ -2572,7 +2608,8 @@
     "charm": 3.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "checkout",
@@ -3487,11 +3524,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "chequer-tile",
-    "name": "Chequer Tile",
+    "name": "Chequer",
     "model": null,
     "tiers": [
       {
@@ -3499,7 +3537,9 @@
         "cost": 0,
         "capacity_mult": 1,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -3510,13 +3550,17 @@
     "surface": {
       "color": "#e6e2d8",
       "accent": "#4a4a52",
-      "pattern": "checker"
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
     },
     "yields": null,
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "christmas-tree",
@@ -3724,7 +3768,8 @@
     "charm": 2.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "cobblestone",
@@ -3754,7 +3799,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "cooler",
@@ -4877,11 +4923,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "deli-counter",
-    "name": "Deli Counter",
+    "name": "Deli",
     "model": {
       "parts": [
         {
@@ -5061,7 +5108,8 @@
     "charm": 1,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "dirt-bare",
@@ -5090,7 +5138,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "dirt-dust",
@@ -5119,7 +5168,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "dirt-mud",
@@ -5148,7 +5198,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "dirt-packed",
@@ -5177,7 +5228,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "dirt-rut",
@@ -5206,11 +5258,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "entrance-mat",
-    "name": "Entrance Mat",
+    "name": "Doormat",
     "model": {
       "parts": [
         {
@@ -5262,7 +5315,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -5275,7 +5333,8 @@
     "charm": 0.25,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "floor-lamp",
@@ -5399,7 +5458,8 @@
     "charm": 1.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "freezer",
@@ -6989,11 +7049,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "gondola",
-    "name": "Aisle gondola",
+    "name": "Gondola",
     "model": {
       "stages": [
         {
@@ -7693,7 +7754,8 @@
     "charm": 0.5,
     "work": null,
     "open": true,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "grass-burnt",
@@ -7722,7 +7784,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "grass-clover",
@@ -7751,7 +7814,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "grass-dead",
@@ -7780,7 +7844,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "grass-long",
@@ -7809,7 +7874,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "grass-moss",
@@ -7838,7 +7904,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "grass-patchy",
@@ -7867,7 +7934,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "grass-wildflower",
@@ -7896,11 +7964,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "gravel-track",
-    "name": "Gravel Track",
+    "name": "Gravel",
     "model": null,
     "tiers": [
       {
@@ -7909,7 +7978,8 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -7920,17 +7990,21 @@
     "surface": {
       "color": "#9a9184",
       "accent": "#867e72",
-      "pattern": "checker"
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
     },
     "yields": null,
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "hanging-basket",
-    "name": "Hanging Basket",
+    "name": "Hanging",
     "model": {
       "parts": [
         {
@@ -8092,7 +8166,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -8107,11 +8186,12 @@
     "charm": 1.75,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "hanging-clock",
-    "name": "Station Clock",
+    "name": "Clock",
     "model": {
       "parts": [
         {
@@ -8167,8 +8247,8 @@
             0.055
           ],
           "scale": [
-            0.34,
-            0.34,
+            0.36,
+            0.36,
             0.02
           ],
           "rot": 0,
@@ -8189,8 +8269,8 @@
             -0.055
           ],
           "scale": [
-            0.34,
-            0.34,
+            0.36,
+            0.36,
             0.02
           ],
           "rot": 0,
@@ -8207,12 +8287,12 @@
           "color": "#3b3630",
           "pos": [
             0,
-            -0.29,
-            0.07
+            -0.265,
+            0.075
           ],
           "scale": [
-            0.03,
-            0.14,
+            0.032,
+            0.15,
             0.02
           ],
           "rot": 0,
@@ -8221,20 +8301,30 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
-          "motion": null,
+          "motion": {
+            "kind": "sweep",
+            "hz": 1.5,
+            "amount": 0.05,
+            "turns": 24,
+            "pivot": [
+              0,
+              -0.34,
+              0.075
+            ]
+          },
           "tint": null
         },
         {
           "shape": "box",
-          "color": "#3b3630",
+          "color": "#7a3b2e",
           "pos": [
-            0.05,
-            -0.34,
-            0.07
+            0,
+            -0.288,
+            0.075
           ],
           "scale": [
-            0.11,
-            0.03,
+            0.045,
+            0.104,
             0.02
           ],
           "rot": 0,
@@ -8243,7 +8333,17 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
-          "motion": null,
+          "motion": {
+            "kind": "sweep",
+            "hz": 1.5,
+            "amount": 0.05,
+            "turns": 2,
+            "pivot": [
+              0,
+              -0.34,
+              0.075
+            ]
+          },
           "tint": null
         },
         {
@@ -8251,12 +8351,12 @@
           "color": "#3b3630",
           "pos": [
             0,
-            -0.29,
-            -0.07
+            -0.265,
+            -0.075
           ],
           "scale": [
-            0.03,
-            0.14,
+            0.032,
+            0.15,
             0.02
           ],
           "rot": 0,
@@ -8265,20 +8365,30 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
-          "motion": null,
+          "motion": {
+            "kind": "sweep",
+            "hz": 1.5,
+            "amount": 0.05,
+            "turns": -24,
+            "pivot": [
+              0,
+              -0.34,
+              -0.075
+            ]
+          },
           "tint": null
         },
         {
           "shape": "box",
-          "color": "#3b3630",
+          "color": "#7a3b2e",
           "pos": [
-            -0.05,
-            -0.34,
-            -0.07
+            0,
+            -0.288,
+            -0.075
           ],
           "scale": [
-            0.11,
-            0.03,
+            0.045,
+            0.104,
             0.02
           ],
           "rot": 0,
@@ -8287,7 +8397,17 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
-          "motion": null,
+          "motion": {
+            "kind": "sweep",
+            "hz": 1.5,
+            "amount": 0.05,
+            "turns": -2,
+            "pivot": [
+              0,
+              -0.34,
+              -0.075
+            ]
+          },
           "tint": null
         }
       ]
@@ -8295,7 +8415,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -8310,7 +8435,8 @@
     "charm": 1,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": "time"
   },
   {
     "id": "hot-counter",
@@ -8516,11 +8642,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "lamp-post",
-    "name": "Lamp Post",
+    "name": "Lamppost",
     "model": {
       "parts": [
         {
@@ -8662,7 +8789,8 @@
     "charm": 2,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "land-bark",
@@ -8691,7 +8819,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "land-gravel",
@@ -8720,7 +8849,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "land-sand",
@@ -8749,7 +8879,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "land-weeds",
@@ -8778,7 +8909,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "lawn-meadow",
@@ -8807,7 +8939,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "lawn-mown",
@@ -8836,7 +8969,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "lawn-scrub",
@@ -8865,7 +8999,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "lawn-turf",
@@ -8894,7 +9029,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "loading-bay",
@@ -8923,7 +9059,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "money-tree",
@@ -9125,11 +9262,12 @@
     "charm": 4,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "open-chiller",
-    "name": "Open Chiller",
+    "name": "Chiller",
     "model": {
       "parts": [
         {
@@ -10270,130 +10408,1557 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "open-sign",
     "name": "Open Sign",
     "model": {
-      "parts": [
+      "stages": [
         {
-          "shape": "box",
-          "color": "#3b3630",
-          "pos": [
-            0,
-            -0.06,
-            0
-          ],
-          "scale": [
-            0.02,
-            0.12,
-            0.02
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
+          "name": "Closed",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#3b3630",
+              "pos": [
+                0,
+                -0.05,
+                0
+              ],
+              "scale": [
+                0.02,
+                0.1,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#16181c",
+              "pos": [
+                0,
+                -0.3,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.3,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3,
+                -0.3375
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3,
+                -0.2325
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.2275,
+                -0.285
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3725,
+                -0.285
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3,
+                -0.1475
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.2275,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.2825,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.255,
+                -0.0425
+              ],
+              "scale": [
+                0.03,
+                0.05499999999999999,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3,
+                0.0425
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.2275,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.12000000000000001
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3725,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3,
+                0.2325
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.3,
+                0.3375
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.255,
+                0.2675
+              ],
+              "scale": [
+                0.03,
+                0.09,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                -0.04,
+                -0.345,
+                0.3025
+              ],
+              "scale": [
+                0.03,
+                0.09,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3,
+                0.3375
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3,
+                0.2325
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.2275,
+                0.285
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3725,
+                0.285
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3,
+                0.1475
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.2275,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.2825,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.255,
+                0.0425
+              ],
+              "scale": [
+                0.03,
+                0.05499999999999999,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3,
+                -0.0425
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.2275,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.12000000000000001
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3725,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3,
+                -0.2325
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.3,
+                -0.3375
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.255,
+                -0.2675
+              ],
+              "scale": [
+                0.03,
+                0.09,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414d45",
+              "pos": [
+                0.04,
+                -0.345,
+                -0.3025
+              ],
+              "scale": [
+                0.03,
+                0.09,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
         },
         {
-          "shape": "box",
-          "color": "#2a2e33",
-          "pos": [
-            0,
-            -0.26,
-            0
-          ],
-          "scale": [
-            0.08,
-            0.28,
-            0.5
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
-        },
-        {
-          "shape": "box",
-          "color": "#ff6b5a",
-          "pos": [
-            0.045,
-            -0.26,
-            0
-          ],
-          "scale": [
-            0.012,
-            0.18,
-            0.4
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
-        },
-        {
-          "shape": "box",
-          "color": "#ff6b5a",
-          "pos": [
-            -0.045,
-            -0.26,
-            0
-          ],
-          "scale": [
-            0.012,
-            0.18,
-            0.4
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
+          "name": "Open",
+          "at": 0.5,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#3b3630",
+              "pos": [
+                0,
+                -0.05,
+                0
+              ],
+              "scale": [
+                0.02,
+                0.1,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#16181c",
+              "pos": [
+                0,
+                -0.3,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.3,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3,
+                -0.3375
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3,
+                -0.2325
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.2275,
+                -0.285
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3725,
+                -0.285
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3,
+                -0.1475
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.2275,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.2825,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.255,
+                -0.0425
+              ],
+              "scale": [
+                0.03,
+                0.05499999999999999,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3,
+                0.0425
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.2275,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.12000000000000001
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3725,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3,
+                0.2325
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.3,
+                0.3375
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.255,
+                0.2675
+              ],
+              "scale": [
+                0.03,
+                0.09,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                -0.04,
+                -0.345,
+                0.3025
+              ],
+              "scale": [
+                0.03,
+                0.09,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3,
+                0.3375
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3,
+                0.2325
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.2275,
+                0.285
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3725,
+                0.285
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3,
+                0.1475
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.2275,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.2825,
+                0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.255,
+                0.0425
+              ],
+              "scale": [
+                0.03,
+                0.05499999999999999,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3,
+                -0.0425
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.2275,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.12000000000000001
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3725,
+                -0.095
+              ],
+              "scale": [
+                0.03,
+                0.035,
+                0.14
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3,
+                -0.2325
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.3,
+                -0.3375
+              ],
+              "scale": [
+                0.03,
+                0.18,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.255,
+                -0.2675
+              ],
+              "scale": [
+                0.03,
+                0.09,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3dff8e",
+              "pos": [
+                0.04,
+                -0.345,
+                -0.3025
+              ],
+              "scale": [
+                0.03,
+                0.09,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
         }
       ]
     },
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
     "kind": "prop-ceiling",
-    "cost": 35,
+    "cost": 45,
     "emits": {
-      "color": "#ff8b6b",
-      "intensity": 0.5,
-      "range": 2.5
+      "color": "#6bffa8",
+      "intensity": 0.8,
+      "range": 3
     },
     "tags": [
       "sign"
     ],
     "surface": null,
     "yields": null,
-    "charm": 1,
+    "charm": 1.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": "open"
   },
   {
     "id": "paint-brick",
-    "name": "Red Brick",
+    "name": "Brick",
     "model": null,
     "tiers": [
       {
@@ -10414,7 +11979,7 @@
     "surface": {
       "color": "#9d5240",
       "accent": "#e0d6c6",
-      "pattern": "planks",
+      "pattern": "brick",
       "bars": null,
       "density": null,
       "blade": null
@@ -10423,11 +11988,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "paint-cream",
-    "name": "Cream Emulsion",
+    "name": "Cream",
     "model": null,
     "tiers": [
       {
@@ -10457,11 +12023,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "paint-sage",
-    "name": "Sage Green",
+    "name": "Sage",
     "model": null,
     "tiers": [
       {
@@ -10491,11 +12058,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "paint-teal",
-    "name": "Deep Teal",
+    "name": "Teal",
     "model": null,
     "tiers": [
       {
@@ -10525,11 +12093,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "paint-tile",
-    "name": "White Tile",
+    "name": "White",
     "model": null,
     "tiers": [
       {
@@ -10550,7 +12119,7 @@
     "surface": {
       "color": "#eef0ee",
       "accent": "#c8ccc9",
-      "pattern": "checker",
+      "pattern": "tiles",
       "bars": null,
       "density": null,
       "blade": null
@@ -10559,11 +12128,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "panel-light",
-    "name": "Panel Light",
+    "name": "Panel",
     "model": {
       "parts": [
         {
@@ -10639,11 +12209,12 @@
     "charm": 0.25,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "paper-lantern",
-    "name": "Paper Lantern",
+    "name": "Lantern",
     "model": {
       "parts": [
         {
@@ -10741,7 +12312,8 @@
     "charm": 1.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "parasol",
@@ -10856,11 +12428,12 @@
     "charm": 1.25,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "park-bench",
-    "name": "Park Bench",
+    "name": "Bench",
     "model": {
       "parts": [
         {
@@ -11042,7 +12615,8 @@
     "charm": 1.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "paving-path",
@@ -11072,11 +12646,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "paving-slabs",
-    "name": "Paving Slabs",
+    "name": "Paving",
     "model": null,
     "tiers": [
       {
@@ -11085,7 +12660,8 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -11096,17 +12672,21 @@
     "surface": {
       "color": "#c9c7c0",
       "accent": "#b0aea6",
-      "pattern": "checker"
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
     },
     "yields": null,
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "pendant-lamp",
-    "name": "Pendant Lamp",
+    "name": "Pendant",
     "model": {
       "parts": [
         {
@@ -11204,11 +12784,12 @@
     "charm": 1.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "pine-boards",
-    "name": "Pine Boards",
+    "name": "Pine",
     "model": null,
     "tiers": [
       {
@@ -11216,7 +12797,9 @@
         "cost": 0,
         "capacity_mult": 1,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -11227,13 +12810,17 @@
     "surface": {
       "color": "#c09a63",
       "accent": "#a8834f",
-      "pattern": "planks"
+      "pattern": "planks",
+      "bars": null,
+      "density": null,
+      "blade": null
     },
     "yields": null,
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "plot",
@@ -11624,11 +13211,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "potted-fern",
-    "name": "Potted Fern",
+    "name": "Fern",
     "model": {
       "parts": [
         {
@@ -11768,7 +13356,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -11783,11 +13376,12 @@
     "charm": 1,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "poured-concrete",
-    "name": "Poured Concrete",
+    "name": "Concrete",
     "model": null,
     "tiers": [
       {
@@ -11795,7 +13389,9 @@
         "cost": 0,
         "capacity_mult": 1,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -11806,17 +13402,21 @@
     "surface": {
       "color": "#9b9a94",
       "accent": null,
-      "pattern": "plain"
+      "pattern": "plain",
+      "bars": null,
+      "density": null,
+      "blade": null
     },
     "yields": null,
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "produce-table",
-    "name": "Produce Table",
+    "name": "Produce",
     "model": {
       "stages": [
         {
@@ -12296,11 +13896,12 @@
     "charm": 0.5,
     "work": null,
     "open": true,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "rug-runner",
-    "name": "Rug Runner",
+    "name": "Runner",
     "model": {
       "parts": [
         {
@@ -12374,7 +13975,12 @@
     "tiers": [
       {
         "name": "Standard",
-        "cost": 0
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -12387,7 +13993,8 @@
     "charm": 1,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "shelf",
@@ -13850,7 +15457,8 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "shop-floor",
@@ -13876,11 +15484,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "slate-flags",
-    "name": "Slate Flags",
+    "name": "Slate",
     "model": null,
     "tiers": [
       {
@@ -13888,7 +15497,9 @@
         "cost": 0,
         "capacity_mult": 1,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -13899,13 +15510,17 @@
     "surface": {
       "color": "#5c626b",
       "accent": "#4a4f57",
-      "pattern": "planks"
+      "pattern": "planks",
+      "bars": null,
+      "density": null,
+      "blade": null
     },
     "yields": null,
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "station",
@@ -14103,7 +15718,7 @@
     "variants": [
       {
         "id": "coffee-machine",
-        "name": "Espresso Machine",
+        "name": "Barista",
         "model": {
           "stages": [
             {
@@ -16065,7 +17680,7 @@
       },
       {
         "id": "sandwich-press",
-        "name": "Sandwich Press",
+        "name": "Press",
         "model": {
           "parts": [
             {
@@ -16879,7 +18494,7 @@
       },
       {
         "id": "soft-serve",
-        "name": "Soft-Serve Machine",
+        "name": "Soft-Serve",
         "model": {
           "parts": [
             {
@@ -17251,7 +18866,7 @@
       },
       {
         "id": "deep-fryer",
-        "name": "Deep Fryer",
+        "name": "Fryer",
         "model": {
           "parts": [
             {
@@ -18327,7 +19942,7 @@
       },
       {
         "id": "preserving-pot",
-        "name": "Preserving Pot",
+        "name": "Preserver",
         "model": {
           "parts": [
             {
@@ -18625,7 +20240,7 @@
       },
       {
         "id": "stock-pot",
-        "name": "Stock Pot",
+        "name": "Stockpot",
         "model": {
           "parts": [
             {
@@ -19156,7 +20771,8 @@
       "loop": "machine",
       "use": null,
       "done": null
-    }
+    },
+    "signal": null
   },
   {
     "id": "stockroom-floor",
@@ -19185,11 +20801,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "string-lights",
-    "name": "String Lights",
+    "name": "Fairy Lights",
     "model": {
       "parts": [
         {
@@ -19331,7 +20948,8 @@
     "charm": 2,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "tarmac-road",
@@ -19361,11 +20979,12 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "terracotta-planter",
-    "name": "Terracotta Planter",
+    "name": "Planter",
     "model": {
       "parts": [
         {
@@ -19503,11 +21122,12 @@
     "charm": 1.5,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "terracotta-tile",
-    "name": "Terracotta Tile",
+    "name": "Terracotta",
     "model": null,
     "tiers": [
       {
@@ -19515,7 +21135,9 @@
         "cost": 0,
         "capacity_mult": 1,
         "keeps_mult": 1,
-        "speed_mult": 1
+        "speed_mult": 1,
+        "unattended": 0,
+        "emits": null
       }
     ],
     "variants": [],
@@ -19526,17 +21148,21 @@
     "surface": {
       "color": "#c2724a",
       "accent": "#a75f3d",
-      "pattern": "checker"
+      "pattern": "checker",
+      "bars": null,
+      "density": null,
+      "blade": null
     },
     "yields": null,
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "tube-light",
-    "name": "Tube Light",
+    "name": "Tube",
     "model": {
       "parts": [
         {
@@ -19656,7 +21282,8 @@
     "charm": 0.25,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "window-box",
@@ -19859,7 +21486,8 @@
     "charm": 1.25,
     "work": null,
     "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   },
   {
     "id": "zebra-crossing",
@@ -19889,137 +21517,7 @@
     "charm": 0,
     "work": null,
     "open": false,
-    "sfx": null
-  },
-  {
-    "id": "zz-till-bed",
-    "name": "Test Bed",
-    "model": {
-      "parts": [
-        {
-          "shape": "box",
-          "color": "#6b4b32",
-          "pos": [
-            0,
-            0.05,
-            0
-          ],
-          "scale": [
-            0.9,
-            0.1,
-            0.9
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
-        }
-      ]
-    },
-    "tiers": [
-      {
-        "name": "Bare",
-        "cost": 0,
-        "capacity_mult": 1,
-        "keeps_mult": 1,
-        "speed_mult": 1,
-        "unattended": 0,
-        "emits": null
-      },
-      {
-        "name": "Raised",
-        "cost": 0,
-        "capacity_mult": 1,
-        "keeps_mult": 1,
-        "speed_mult": 3,
-        "unattended": 0,
-        "emits": null
-      }
-    ],
-    "variants": [],
-    "kind": "plot",
-    "cost": 0,
-    "emits": null,
-    "tags": [],
-    "surface": null,
-    "yields": null,
-    "charm": 0,
-    "work": null,
-    "open": false,
-    "sfx": null
-  },
-  {
-    "id": "zz-till-piece",
-    "name": "Test Till",
-    "model": {
-      "parts": [
-        {
-          "shape": "box",
-          "color": "#8a8a92",
-          "pos": [
-            0,
-            0.3,
-            0
-          ],
-          "scale": [
-            0.7,
-            0.6,
-            0.7
-          ],
-          "rot": 0,
-          "surface": false,
-          "seam": false,
-          "alpha": 1,
-          "shadow": false,
-          "drift": false,
-          "motion": null,
-          "tint": null
-        }
-      ]
-    },
-    "tiers": [
-      {
-        "name": "Slow",
-        "cost": 0,
-        "capacity_mult": 1,
-        "keeps_mult": 1,
-        "speed_mult": 1,
-        "unattended": 0,
-        "emits": null
-      },
-      {
-        "name": "Quick",
-        "cost": 0,
-        "capacity_mult": 1,
-        "keeps_mult": 1,
-        "speed_mult": 4,
-        "unattended": 0,
-        "emits": null
-      },
-      {
-        "name": "Self",
-        "cost": 0,
-        "capacity_mult": 1,
-        "keeps_mult": 1,
-        "speed_mult": 1,
-        "unattended": 0.5,
-        "emits": null
-      }
-    ],
-    "variants": [],
-    "kind": "checkout",
-    "cost": 0,
-    "emits": null,
-    "tags": [],
-    "surface": null,
-    "yields": null,
-    "charm": 0,
-    "work": null,
-    "open": false,
-    "sfx": null
+    "sfx": null,
+    "signal": null
   }
 ]

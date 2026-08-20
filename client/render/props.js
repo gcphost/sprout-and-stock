@@ -139,6 +139,28 @@ export function paintLit(group, r, g, b) {
  *        It goes through the same `material()` cache, so a shop previewing a
  *        shelf shares materials with the shelves already standing in it.
  */
+/**
+ * Which axis a turning part turns about, read off the box somebody drew.
+ *
+ * `spin` is always Y and says so in the schema — a blade lies flat, and every
+ * spin in the catalog was authored against that. `sweep` cannot be: a clock hand
+ * lives in a vertical face, so its axis is Z, and a hand on a face turned a
+ * quarter is X. There is exactly one axis a flat bar can turn about without
+ * leaving the plane it was drawn in, and it is the one the bar is THINNEST on —
+ * so the art already says it, the same way `seamStep` reads which side a panel
+ * closes rather than being told.
+ *
+ * Ties go to Y, which is the answer for a part that is not flat at all and the
+ * one every other kind of motion assumes.
+ */
+function turnAxis(part) {
+  if (part.motion?.kind !== 'sweep') return 'y';
+  const [sx, sy, sz] = part.scale ?? [1, 1, 1];
+  if (sz <= sx && sz <= sy) return 'z';
+  if (sx < sy && sx < sz) return 'x';
+  return 'y';
+}
+
 export function buildModel(model, {
   castShadow = true, t = 1, abuts = null, skin = null, alpha: ghost = 1,
 } = {}) {
@@ -186,6 +208,17 @@ export function buildModel(model, {
         pos: mesh.position.clone(),
         rot: mesh.rotation.y,
         scale: mesh.scale.clone(),
+        // Which way a `sweep` turns, and about what. Both are measured here
+        // rather than in the animator because this is the one place the part
+        // still exists as authored numbers — a welded mesh has lost its scale.
+        axis: turnAxis(part),
+        // Where the hinge is, as an offset from the part's own middle, so the
+        // animator can swing the mesh round it without a nested group per hand.
+        // Null is "its own middle", which is every other kind of motion.
+        arm: part.motion.pivot
+          ? new THREE.Vector3(px, py, pz).sub(new THREE.Vector3(...part.motion.pivot))
+          : null,
+        pivot: part.motion.pivot ? new THREE.Vector3(...part.motion.pivot) : null,
         // Spread, so the three moving parts of one machine don't beat in
         // lockstep — the same trick the puffs and the angry shoppers use.
         phase: group.userData.moving.length * 0.41,

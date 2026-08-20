@@ -110,7 +110,21 @@ export function renderBar(el, {
   const open = groupAt(groups, at);
   const subs = open?.subs ?? null;
   const sub = subs ? groupAt(subs, atSub) : null;
-  const items = (sub ?? open)?.items ?? [];
+  const all = (sub ?? open)?.items ?? [];
+  // THE BULLDOZER IS FURNITURE, NOT A TILE.
+  //
+  // It is on every tab already (`group: [...]`), which is the palette saying
+  // "this one is not a question about what sort of thing it is" — and then it
+  // was drawn as the last tile of a row that scrolls, so where it is depends on
+  // which tab you are on and how far along you have dragged. What that costs is
+  // the one press you go looking for when something is in the wrong place: you
+  // have to find it, every time, in a different spot.
+  //
+  // Pinned to the right end of the strip instead, outside the scroller, beside
+  // the way out. Same entry, same `onPick`, same armed state — what changes is
+  // only that it has an address.
+  const razer = all.find((it) => it.demolish) ?? null;
+  const items = razer ? all.filter((it) => it !== razer) : all;
 
   // `data-tip-wait`: a tab is five words you learn once and then read past all
   // session, and the pointer crosses this row on its way to everything below it.
@@ -152,6 +166,20 @@ export function renderBar(el, {
       ${it.note ? `<span class="cost">${esc(it.note)}</span>` : ''}
       ${it.shapes ? '<span class="more" data-more="1">▾</span>' : ''}
     </button>`).join(''));
+
+  // ...and the pinned one, drawn from the same entry the strip would have drawn.
+  // Hidden rather than emptied when a tab has no bulldozer in it, so the strip
+  // does not keep a gap for a button that is not there.
+  if (el.raze) {
+    el.raze.hidden = !razer;
+    if (razer) {
+      el.raze.className = `tool raze${razer.id === picked ? ' on' : ''}`;
+      el.raze.title = razer.title ?? razer.name;
+      setHtml(el.raze, `<span class="ico">${razer.icon}</span>`
+        + `<span class="nm">${esc(razer.name)}</span>`);
+      el.raze.onclick = () => onPick(razer);
+    }
+  }
 
   // The last tier is a choice *about the picked entry*, so it only belongs on
   // screen while that entry is. Browsing to another tab used to leave the shape

@@ -278,8 +278,20 @@ const MOTION_HELP =
   + '  bob    rises and falls by `amount` tiles, `hz` times a second.\n'
   + '  shake  judders by `amount` tiles across the ground. A press, a fryer basket.\n'
   + '  pulse  swells and shrinks by `amount` of its own size. A lamp, an element, a heater.\n'
+  + '  sweep  points AT the piece\'s `signal` instead of looping — a clock hand. See SIGNAL.\n'
   + 'A part that can be BUSY moves while it is busy — only an appliance can be busy today — and a part on anything else simply always moves, so a ceiling fan or a mobile turns by authoring one flag. '
   + 'Keep it small: at this camera an `amount` over about 0.08 reads as a fault rather than as a machine, and above about 4Hz anything bobbing is a blur.';
+
+const SIGNAL_HELP =
+  'SIGNAL makes the piece watch the SHOP rather than itself. `signal: "time"` is how far through the day it is (0 at midnight, 0.5 at noon); `signal: "open"` is 1 while the shop is actually serving and 0 otherwise. '
+  + 'It replaces the 0..1 the tier ladder normally drives the art with, so put it on decorations and never on anything with a real ladder — a shelf with a signal stops showing which shelf you bought.\n'
+  + 'Two things read it, and a piece may use both:\n'
+  + '  stages  the whole look swaps. Two stages at `at: 0` and `at: 0.5` on `signal: "open"` is a sign that reads CLOSED and then OPEN. Order them the way the number runs, so stage 1 is the OFF one.\n'
+  + '  sweep   a part turns to it. `motion: {kind: "sweep", turns, pivot}` where `turns` is whole turns over one run of the signal — on `time`, 2 is an hour hand and 24 is a minute hand, and both read twelve o\'clock at midnight with no offset. '
+  + '`pivot` is the point it hinges on in model space, which a hand needs and a fan does not: leave it out and the part turns about its own middle, which on a hand is a compass needle. '
+  + 'Turns are CLOCKWISE; make `turns` negative for a face watched from the other side, which is how a double-sided clock reads right from both.\n'
+  + 'A sweep part must be FLAT, because the axis it turns about is the one it is thinnest on: a hand in an upright face is thin on z, so it swings in that face. '
+  + 'Nothing in the sim reads any of this — it is a picture of the world, so it never needs `simulate`.';
 
 const WORK_HELP =
   'WORK is what it looks like WHILE IT IS RUNNING — a second model, drawn over the piece only for as long as it is mid-batch, in the machine\'s own model space so a puff authored at the spout comes out of the spout. '
@@ -330,6 +342,7 @@ server.registerTool('create_fixture', {
     + 'COST is what one costs to put down. Leave it 0 on a shelf, freezer, till or plot and it stays priced by the upgrade that sells that kind, which is how the whole economy still works. A prop has no upgrade behind it, so a prop with no cost is free — price your decorations.\n\n'
     + `${WORK_HELP}\n\n`
     + `${MOTION_HELP}\n\n`
+    + `${SIGNAL_HELP}\n\n`
     + STAGE_HELP,
   inputSchema: {
     id: z.string().describe('Slug, yours to choose, e.g. "terracotta-planter" or "chiller-shelf". Reuse one to update it.'),
@@ -343,8 +356,8 @@ server.registerTool('create_fixture', {
       accent: z.string().optional().describe('#rrggbb, the second colour of the pattern. Left out it is a darker shade of the first, which is usually what you want.'),
       bars: z.number().int().min(1).max(8).optional()
         .describe('STRIPES ONLY: how many bars a cell is painted with (default 3). The gaps are always the same width as the bars, so this one number is the whole marking: 2 is a wide continental crossing, 5 is a hatched box junction.'),
-      pattern: z.enum(['plain', 'checker', 'planks', 'stripes']).default('plain')
-        .describe('How the two colours repeat, tile by tile. "plain" uses only the first. "stripes" is bands one cell wide running along z — that is a pedestrian crossing, and it is the one pattern whose direction means something, so the same design laid east-west and north-south reads as bars across your way or rails along it.'),
+      pattern: z.enum(['plain', 'checker', 'planks', 'stripes', 'tufts', 'brick', 'tiles']).default('plain')
+        .describe('How the two colours repeat, tile by tile. "plain" uses only the first. "stripes" is bands one cell wide running along z — that is a pedestrian crossing, and it is the one pattern whose direction means something, so the same design laid east-west and north-south reads as bars across your way or rails along it. Three of these are not a per-cell colour at all but real geometry laid over the cell, because a cell is about a metre and a half and nothing flat and finer than that survives a 45° camera: "stripes" (bars), "tufts" (blades of grass, GROUND only — it is what makes a lawn) and "brick"/"tiles" (courses stood proud of the face — brick is long and half-bonded, tiles are square and stacked with a finer joint; PAINT mostly, and in both, colour is the brick and accent is the mortar the flat of the wall takes).'),
     }).optional().describe('GROUND AND PAINT ONLY, and required for one. PAINT is the same authoring shape stood up: a finish for one SIDE of a wall, priced per face, and the two sides of a wall are two decisions the player makes separately. It changes nothing but the picture \u2014 no shopper, no path and no tile reads it \u2014 so a new shade is a row and never a balance run. Ground is a colour and a repeat — there is no geometry, because it is seen edge-on at 45° with a shop standing on it and nothing finer than a tile survives that. The four PADS carry a job, and how big you paint one is how much it holds: `bay` is where wholesale orders land as pallets, `drop` is where hands are cleared and stock waits, `break` seats one resting worker per cell, and `park` parks one shopper\'s car per cell. `floor` and `road` carry none — they are only a look. A road is a PREFERENCE and never a permission: every outdoor cell is drivable already, so what a painted one changes is which lane the van and the cars choose, which means you can draw the drive rather than watch a lorry cross your lawn.'),
     yields: z.object({
       cash: z.number().min(0).max(500).describe('How much money one payout is.'),
@@ -354,6 +367,8 @@ server.registerTool('create_fixture', {
       .describe('How much nicer this makes the shop look, which is how far word of it travels. It raises CATCHMENT \u2014 how much of the town is within reach at all \u2014 rather than reputation, because reputation is what the people who already came in think of you. Saturating: about half the maximum at 10 total charm across the whole shop, so a room full of pot plants is worth about as much as one nice centrepiece. 1 is a pleasant pot plant, 5 is a centrepiece.'),
     open: z.boolean().optional()
       .describe('Can you walk all the way round it? A shelf-like unit (shelf, freezer, appliance) is always workable from its FRONT and both ENDS — that is the kind, not the piece. This says this particular design has no back panel either, so all four sides work: true for a display table or an island unit, false (the default) for anything with a solid back. Reach and the working-spot markers only — where the generator reserves a spot, where a tap walks you and where one may be built are all unchanged. It is the one field on a piece that is not a look: a unit two people can work at once changes how the shop flows, so run `simulate` after setting it.'),
+    signal: z.enum(['time', 'open']).optional()
+      .describe('Makes this piece watch the shop: "time" is how far through the day it is, "open" is whether it is serving. It REPLACES the tier ladder as what drives the art, so it belongs on decorations only. Drives `stages` (the look swaps) and any part flagged `motion: {kind: "sweep"}` (the part turns to it). ' + SIGNAL_HELP),
     variants: z.any().optional().describe('Optional other shapes of this kind: [{id, name, model, work}]. Looks only — no costs, no multipliers, and the kind\'s own model is always offered alongside them as "Standard". `work` is optional and falls back to the piece\'s, which is how one generic "steam and a light" covers every appliance nobody has drawn a specific one for.'),
     tiers: z.array(z.object({
       name: z.string().describe('What this rung is called, e.g. "Chilled" or "Deep Freeze".'),

@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
+import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
   buildBubble, buildCashDrop, buildVehicle,
@@ -37,6 +37,7 @@ import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
   variantModel, variantWork, skinKey,
 } from '../../shared/model.js';
+import { SIGNAL_NAMES, signalValue } from '../../shared/signals.js';
 import { buildPastimeProp, animateRest } from './pastime.js';
 import { buildLoopingProp, animatePuffs, animateMotion } from './motion.js';
 
@@ -447,6 +448,21 @@ const QUARTER = Math.PI / 2;
 const CAM_DIST = BASE_CAM_OFFSET.length();
 const PITCH_HOME = Math.asin(BASE_CAM_OFFSET.y / CAM_DIST);   // ~40°
 /**
+ * ...and that pose as an orientation, inverted, which is what every readout in
+ * the shop is measured against.
+ *
+ * `faceCam` records a base quaternion at the moment a thing is built, and what
+ * that base means is "square to a camera standing HERE". So the aim for any
+ * other camera is the rotation carrying this pose to that one, and this is the
+ * half of it that never changes. Built from `BASE_CAM_OFFSET` rather than from
+ * the two angles, so it cannot drift from the pose those bases were actually
+ * drawn against — it is the same vector the camera starts at.
+ */
+const HOME_CAM_INV = new THREE.Quaternion()
+  .setFromRotationMatrix(new THREE.Matrix4()
+    .lookAt(BASE_CAM_OFFSET, new THREE.Vector3(), AXIS_Y))
+  .invert();
+/**
  * How far the view may be tilted, in radians.
  *
  * The floor used to be 16°, held there on the argument that a view with no
@@ -494,6 +510,9 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 /** Scratch for aiming readouts at the camera, so no frame allocates one. */
 const YAW_Q = new THREE.Quaternion();
+/** ...and the matrix the tilt half of that aim is read out of. See `faceReadouts`. */
+const AIM_M = new THREE.Matrix4();
+const ORIGIN = new THREE.Vector3();
 
 /**
  * The press ripple: how long it lives, and the radii it travels between.
@@ -888,6 +907,7 @@ export class Scene {
     // correct, and only the bar on the crop that started growing *after* you
     // turned is edge-on.
     this.readoutAngle = null;
+    this.readoutPitch = null;
     this.readoutsDirty = true;
     // Live ground marks — press ripples and build stamps, which are one kind of
     // throwaway outline with two sets of endpoints — plus whatever is currently
@@ -921,6 +941,15 @@ export class Scene {
     // Filled by `addFixtureProps` and therefore emptied by it too: the meshes in
     // here belong to groups that a re-flow disposes.
     this.movingFixtures = new Map();
+    // The props that watch the shop rather than themselves — a clock, an open
+    // sign. Filled and emptied by `addFixtureProps` like the map above, and for
+    // the same reason. Small on purpose: nothing walks the shop looking for one,
+    // so a building with none of them costs an empty loop a snapshot.
+    this.signalFixtures = new Map();
+    // ...and what each signal was worth on the last snapshot, so a re-flow can
+    // build a sign already showing the right face rather than correcting itself
+    // on the next tick. See `syncSignals`.
+    this.signals = {};
     // Where each decoration's art actually ended up, by fixture id. Filled and
     // cleared by `addFixtureProps` for the same reason as the map above: it
     // describes meshes a re-flow throws away.
@@ -1381,7 +1410,42 @@ export class Scene {
    * rather than every frame forever.
    */
   faceReadouts() {
-    YAW_Q.setFromAxisAngle(AXIS_Y, this.camAngle);
+    // THE DELTA BETWEEN THE CAMERA THAT WAS AUTHORED FOR AND THE ONE BEING
+    // LOOKED THROUGH — both angles, rather than the yaw this used to be.
+    //
+    // Every base was recorded against `PITCH_HOME`, so a yaw is a complete
+    // answer for exactly one camera: the 40° one the game had when readouts
+    // were built. Tilt away from it and a panel authored to face you is being
+    // looked at from `camPitch - PITCH_HOME` off its own normal — a bar going
+    // slim, then to a bright sliver, then edge-on to nothing — while the money
+    // labels beside it stay perfectly square, because a `THREE.Sprite`
+    // billboards on both axes. Two kinds of readout in one scene disagreeing
+    // about where the camera is, is the tell.
+    //
+    // `q_now · q_home⁻¹` rather than arithmetic on the two angles, and the
+    // reason is a trap worth keeping: the camera sits over the DIAGONAL, so its
+    // right vector at `camAngle` 0 is (1,0,-1)/√2 and not world X. Composing
+    // `Ry(yaw) · Rx(pitch delta)` therefore tilts every readout about an axis
+    // 45° off the one it is meant to, which is right at the home pitch (the term
+    // is zero), wrong everywhere else, and wrong in a way that looks like a
+    // skew rather than like a bug. A delta between two orientations cannot get
+    // that wrong: `q_home` is the pose the bases were drawn for, `q_now` is the
+    // pose being drawn, and one carries the other's appearance to this one
+    // whatever either is made of.
+    //
+    // Read off `camOffset` — which `aimCamera` has already rebuilt from the
+    // eased angles this frame — rather than off `camera.quaternion`, which is
+    // set at the END of the frame loop and would be one frame stale. The bars
+    // would lag the shop through a swing, which is precisely what the eased
+    // `camAngle` here exists to avoid.
+    //
+    // What it buys is a full billboard, which is a look as well as a fix: tilt
+    // right down and the bars stand up like cards instead of lying into the
+    // ground. That is what the sprites have always done, and the alternative —
+    // following the pitch only part way — is a readout that is wrong at both
+    // ends rather than at one.
+    AIM_M.lookAt(this.camOffset, ORIGIN, AXIS_Y);
+    YAW_Q.setFromRotationMatrix(AIM_M).multiply(HOME_CAM_INV);
     const aim = (o) => {
       const base = o.userData.faceCam;
       if (base) o.quaternion.copy(YAW_Q).multiply(base);
@@ -1630,6 +1694,42 @@ export class Scene {
     paintLit(group, c.r, c.g, c.b);
   }
 
+  /**
+   * Point the lamp pool at this layout, with every watcher worth what the shop
+   * currently says it is worth.
+   *
+   * Its own method because it has two callers that could not be further apart: a
+   * re-flow, which is the shop changing shape, and a signal moving, which is the
+   * shop changing its mind. Written twice, the second one would be the one that
+   * quietly forgot to pass the signals.
+   */
+  aimLights(L) {
+    if (!L) return;
+    const fixtures = fixturesIn(L);
+    this.lights.setEmitters(emittersIn(fixtures, (f) => this.pieceOf(f), CEILING_Y, this.signals));
+    // Which of them are lamps that watch something, so `syncSignals` can skip
+    // the whole question in a shop that owns none — which is every shop until
+    // somebody hangs a sign up.
+    this._litWatchers = fixtures.filter((f) => {
+      const piece = this.pieceOf(f);
+      return piece?.signal && (piece.tiers?.[(f.tier ?? 1) - 1]?.emits ?? piece.emits);
+    }).map((f) => this.pieceOf(f).signal);
+    this._litAt = this.lightsWant();
+  }
+
+  /**
+   * What the watched lamps are worth right now, quantised, as one comparable
+   * value.
+   *
+   * Quantised because the bake is expensive and a continuous signal would ask
+   * for one every tick; twelve steps is finer than the hourly rebake the sunset
+   * already runs and coarser than anything an eye could catch a lamp stepping
+   * through.
+   */
+  lightsWant() {
+    return (this._litWatchers ?? []).map((s) => Math.round((this.signals[s] ?? 1) * 12)).join(',');
+  }
+
   rebakeGround() {
     const c = new THREE.Color();
     for (const { group, x, y, z } of this.bakedProps ?? []) this.paintProp(group, x, y, z);
@@ -1679,7 +1779,7 @@ export class Scene {
     // emitter in the shop folded into the per-cell colour the tile mesh was
     // going to carry anyway. It used to be the last line in this method, back
     // when nothing here needed to know where the light was.
-    this.lights.setEmitters(emittersIn(fixturesIn(L), (f) => this.pieceOf(f), CEILING_Y));
+    this.aimLights(L);
     this.bakedGround = [];
 
     // Ground: one big plane rather than 1500 grass tiles. It runs well past the
@@ -1941,6 +2041,106 @@ export class Scene {
   }
 
   /**
+   * What the world is doing, and which face every prop that watches it wears.
+   *
+   * Two halves that arrive from different clocks and are deliberately not in the
+   * same loop as each other. The VALUES are read here, off the snapshot, ten
+   * times a second — a clock hand is a fact about the shop, so reading it any
+   * faster is reading the same number again. The POSE a sweep takes from them is
+   * per-frame, in `animateStations`, because that is the loop that already
+   * knows how to hold still when the world is paused.
+   *
+   * The stage swap is here rather than there for the opposite reason: it is not
+   * an animation. A shop that shut is shut whether or not the page is drawing,
+   * and a pause must not leave a sign lying about it.
+   *
+   * A signal the snapshot cannot answer keeps its last value rather than
+   * defaulting, which is what stops a dropped field reading as midnight.
+   */
+  syncSignals(state) {
+    for (const name of SIGNAL_NAMES) {
+      const v = signalValue(name, state);
+      if (v != null) this.signals[name] = v;
+    }
+    // A watcher that is also a LAMP has to take its glow with it. Re-aiming the
+    // pool is cheap; the bake behind it is a pass over every cell times every
+    // lamp, so this is gated on the value having actually moved a step — the
+    // same bargain `syncDayCycle` strikes when it rebakes on the hour rather
+    // than continuously. `open` is a step already, so a shop shutting pays for
+    // exactly one; a lamp somebody wires to `time` pays for a dozen a day, which
+    // is the order the sunset itself costs.
+    if (this._litWatchers?.length && this.lightsWant() !== this._litAt) {
+      this.aimLights(this._layout?.layout ?? this._layout);
+      this.rebakeGround();
+    }
+    for (const rec of this.signalFixtures.values()) {
+      if (!rec.stages) continue;
+      const v = this.signals[rec.signal];
+      if (v == null) continue;
+      const i = stageIndexAt(rec.model, v);
+      if (i === rec.shown) continue;
+      rec.shown = i;
+      rec.stages.forEach((g, j) => { g.visible = j === i; });
+    }
+  }
+
+  /**
+   * A built model, down to one mesh per colour.
+   *
+   * A shelf is eight or ten primitives that will never move relative to each
+   * other, and a furnished shop is a few hundred of them drawn twice a frame.
+   * Anything flagged `motion` is held out by name: welded, the picture would be
+   * right and the blade would never turn again, which reads as a broken machine
+   * rather than as a broken renderer. Whatever it comes back as still wears the
+   * group's `userData`, so picking, landing and the moving list all go on
+   * pointing at the same things.
+   */
+  weldMoving(prop) {
+    if (!prop || prop.userData.moving?.length === undefined) return prop;
+    const spin = new Set(prop.userData.moving.map((m) => m.mesh));
+    return weld(prop, spin.size ? (o) => spin.has(o) : null);
+  }
+
+  /**
+   * A prop that watches the shop, built wearing EVERY look it has, with the one
+   * the world currently calls for visible.
+   *
+   * Every other staged model in the game is rebuilt when its stage changes — a
+   * crop that grew, a fixture you upgraded — and both of those happen at human
+   * speed, on a thing whose art is about itself. A signal is not: it changes on
+   * the shop's clock rather than on a purchase, so rebuilding would put geometry
+   * churn on a timer nobody pressed, and it would have to re-run the whole tail
+   * of `addFixtureProps` — the pick box, the bake, the layer, the land — or
+   * quietly drop one of them. Building every stage instead costs a few meshes on
+   * a prop with at most sixteen parts and makes the swap a boolean.
+   *
+   * It also keeps the two callers of `modelExtent` honest for free: that
+   * function already answers "how much room does this need" across every stage,
+   * so a pick box drawn round all of them is the box the rest of the game
+   * already believes in.
+   */
+  buildWatcher(model, signal, opts) {
+    const g = new THREE.Group();
+    g.userData.moving = [];
+    g.userData.stages = [];
+    // Which look the shop is asking for, off the last snapshot. Not for the
+    // first re-flow of a session — there has been no snapshot then, and stage 0
+    // for one frame is nothing anybody sees. It is for every re-flow AFTER that:
+    // build mode re-flows on every wall segment of a drag, so a sign that came
+    // back reading CLOSED and corrected itself a tenth of a second later would
+    // flicker its way across the shop as you built.
+    g.userData.shown = stageIndexAt(model, this.signals?.[signal] ?? 0);
+    for (const [i, stage] of model.stages.entries()) {
+      const sub = this.weldMoving(buildModel({ parts: stage.parts }, opts));
+      sub.visible = i === g.userData.shown;
+      g.add(sub);
+      g.userData.stages.push(sub);
+      g.userData.moving.push(...(sub.userData.moving ?? []));
+    }
+    return g;
+  }
+
+  /**
    * Stand every fixture's authored model in the world.
    *
    * These go in `staticRoot` with the rest of the building: a fixture only
@@ -1978,34 +2178,23 @@ export class Scene {
     // Emptied before the loop rather than in `buildWorld` so that the one place
     // that fills it is the one place that clears it.
     this.movingFixtures.clear();
+    this.signalFixtures.clear();
     this.propBoxes.clear();
     this.bakedProps = [];
 
     for (const f of fixturesIn(L)) {
       const model = this.fixtureModel(f);
+      const signal = this.pieceOf(f)?.signal ?? null;
+      const opts = { abuts: (step) => this.carriesOn(byTile, f, step) };
       // A fixture nobody has drawn used to be a coloured tile block, because it
       // WAS a tile. Nothing stamps one now, so an unstyled kind would be an
       // invisible thing you can walk into — hence the fallback block, at the
       // colour and height its tile used to have.
-      let prop = model
-        ? buildModel(model, {
-          t: this.fixtureT(f),
-          abuts: (step) => this.carriesOn(byTile, f, step),
-        })
-        : plainBlock(FIXTURE_LOOK[f.kind]);
+      let prop;
+      if (!model) prop = plainBlock(FIXTURE_LOOK[f.kind]);
+      else if (signal && isStaged(model)) prop = this.buildWatcher(model, signal, opts);
+      else prop = this.weldMoving(buildModel(model, { ...opts, t: this.fixtureT(f) }));
       if (!prop) continue;
-      // Down to one mesh per colour, the same way stock is — a shelf is eight
-      // or ten primitives that will never move relative to each other, and a
-      // furnished shop is a few hundred of them drawn twice a frame. Anything
-      // flagged `motion` is held out by name: the picture would be right and
-      // the blade would never turn again, which reads as a broken machine.
-      // Whatever it comes back as still wears the group's `userData`, so
-      // picking, landing and the moving list all go on pointing at the same
-      // things.
-      if (prop.userData.moving?.length !== undefined) {
-        const spin = new Set(prop.userData.moving.map((m) => m.mesh));
-        prop = weld(prop, spin.size ? (o) => spin.has(o) : null);
-      }
       // Models are authored facing east, which is rot 0 — the same convention
       // the layout generator has always used for which side you work from.
       prop.rotation.y = -(f.rot ?? 0) * (Math.PI / 2);
@@ -2056,7 +2245,25 @@ export class Scene {
       // playing twice rather than as two machines — so each gets a fixed offset
       // out of where it stands, which survives a re-flow the way its id does.
       if (prop.userData.moving?.length) {
-        this.movingFixtures.set(f.id, { moving: prop.userData.moving, phase: (f.x * 0.31 + f.z * 0.17) % 1 });
+        this.movingFixtures.set(f.id, {
+          moving: prop.userData.moving,
+          phase: (f.x * 0.31 + f.z * 0.17) % 1,
+          // What this one watches, if anything, so `animateStations` can hand a
+          // sweep the number it turns to. On the record rather than looked up
+          // there, for the reason the fixture id is stamped on the group above:
+          // this is the call that knows, and a catalog re-read between now and
+          // then would answer about a piece that has since been edited.
+          signal,
+        });
+      }
+      // ...and anything that watches the shop. A prop with stages on a signal is
+      // built wearing EVERY look it has, with one of them visible — see
+      // `buildWatcher`. Registered even when it has no stages, because a clock is
+      // one look with hands on it and `syncSignals` is where its number arrives.
+      if (signal) {
+        this.signalFixtures.set(f.id, {
+          signal, model, stages: prop.userData.stages ?? null, shown: prop.userData.shown ?? 0,
+        });
       }
     }
 
@@ -2276,6 +2483,27 @@ export class Scene {
             cx, cz, dir, y0: band.y0, y1: band.y1, skin: side,
             color: patternColor(surface, vertical ? z : x, Math.round(band.y0 * 8)),
           });
+          // ...and the bricks on top of it, which is the third pattern that is
+          // geometry rather than a colour (`stripes` and `tufts` are the other
+          // two, and the argument is identical): a cell is a metre and a half,
+          // so brick painted as a colour is a brick the size of a door. The flat
+          // skin above is the mortar — see `patternColor` — and these stand
+          // proud of it, so what reads at 45° across a room is the joint's own
+          // shadow rather than a red rectangle.
+          const bond = bondOf(surface);
+          if (!bond) continue;
+          // `phase` is where this face starts along its own wall, so the courses
+          // run THROUGH the cell boundary instead of stopping at it — see
+          // `brickBond`, where the version that stopped is written up. A
+          // vertical wall runs along z and a horizontal one along x.
+          for (const b of brickBond(bond, 1, band.y0, band.y1,
+            (vertical ? z : x) - 0.5)) {
+            push(kind, vertical, {
+              cx, cz, dir, y0: b.y0, y1: b.y1, skin: side, proud: true,
+              off: b.off, len: b.len,
+              color: jitter(surface.color, 0.035, b.seed),
+            });
+          }
         }
       }
     };
@@ -2324,19 +2552,30 @@ export class Scene {
           // fight over the depth buffer and the wall flickers as the camera
           // turns. Which is a bug you only see in motion.
           const skin = b.skin ?? 0;
-          const t = skin ? SKIN : style.t + out;
+          // ...and a course of brick is a finish standing on a finish: thicker
+          // than the skin it sits on and pushed out by half the difference, so
+          // the joint between two of them has a real edge to cast into. Without
+          // the extra thickness it is coplanar with the mortar and you are back
+          // to a flat pattern, drawn twenty times more expensively.
+          const proud = skin && b.proud;
+          const t = skin ? (proud ? SKIN * 2.2 : SKIN) : style.t + out;
           const shift = skin
-            ? skin * ((style.t + SKIN) / 2 - 0.001)
+            ? skin * ((style.t + SKIN) / 2 - 0.001 + (proud ? SKIN * 0.6 : 0))
             : ((b.dir ?? 1) * out) / 2;
+          // How far along the wall the box sits, and how much of it it covers.
+          // One cell of both unless something has asked for less, which today is
+          // only a brick — everything else here spans its cell exactly.
+          const off = b.off ?? 0;
+          const len = b.len ?? 1;
           dummy.position.set(
-            b.cx + (vertical ? shift : 0),
+            b.cx + (vertical ? shift : off),
             (b.y0 + b.y1) / 2,
-            b.cz + (vertical ? 0 : shift),
+            b.cz + (vertical ? off : shift),
           );
           dummy.scale.set(
-            vertical ? t : 1,
+            vertical ? t : len,
             Math.max(0.02, b.y1 - b.y0),
-            vertical ? 1 : t,
+            vertical ? len : t,
           );
           dummy.rotation.set(0, 0, 0);
           dummy.updateMatrix();
@@ -2402,6 +2641,10 @@ export class Scene {
     // pass, which is the one that would otherwise key a carried crate against
     // `undefined` on the first frame and redraw it on the second.
     this.crateCap = state.crateCap ?? 6;
+    // What the shop is doing, for anything drawn to say so. Before the actors,
+    // because this is what a re-flow later in the same frame builds a sign
+    // against.
+    this.syncSignals(state);
     this.syncActors(state.players, this.players, (p) => this.buildActor(p), (p) => actorKey(p));
     this.syncActors(state.customers, this.customers, (c) => buildCharacter(c.color));
     this.syncShelves(state.shelves);
@@ -3314,6 +3557,48 @@ export class Scene {
    * top of a wall answers about that wall rather than about the ground behind it.
    */
   pickFace(clientX, clientY) {
+    // The wall itself first, because a face is a thing you can SEE, and this is
+    // the lesson `pickFixture` already learned about shelves: derive the answer
+    // from a plane and you are answering about the ground somewhere behind what
+    // you are pointing at. It is worse here than it was there. `pickEdge` reads
+    // a plane at wall height and keeps whichever lattice line is nearest, which
+    // is a fine answer to "where would a wall go" — every point in the shop has
+    // a nearest line — and a poor one to "which wall is this", because the two
+    // only agree within half a cell of the line. So painting meant aiming at the
+    // middle of a wall in PLAN while looking at it in elevation, and the side it
+    // picked flipped across a seam you could not see.
+    //
+    // Raycasting the edge meshes answers both halves exactly: the point is on
+    // the surface you were looking at, so which line is a rounding and which
+    // SIDE is the sign of a hair. No instance table — the geometry is
+    // instanced, so `instanceId` would need one, and a point in space needs
+    // nothing.
+    const hit = this.edgeGroup
+      ? this.pointerRay(clientX, clientY).intersectObject(this.edgeGroup, true)[0]
+      : null;
+    if (hit) {
+      const p = hit.point;
+      // Distance from the nearest line of each orientation. A wall is thin, so
+      // the surface you hit is within a hair of its own line and miles from the
+      // other one — which makes this a comparison rather than a threshold, and
+      // therefore free of any number to tune.
+      const vx = Math.round(p.x + 0.5);
+      const hz = Math.round(p.z + 0.5);
+      const dv = Math.abs(p.x - (vx - 0.5));
+      const dh = Math.abs(p.z - (hz - 0.5));
+      const face = dv <= dh
+        ? { o: 'v', x: vx, z: Math.round(p.z), s: p.x < vx - 0.5 ? -1 : 1 }
+        : { o: 'h', x: Math.round(p.x), z: hz, s: p.z < hz - 0.5 ? -1 : 1 };
+      const L = this.storeLayout;
+      const maxX = face.o === 'v' ? L.w : L.w - 1;
+      const maxZ = face.o === 'v' ? L.h - 1 : L.h;
+      if (face.x >= 0 && face.z >= 0 && face.x <= maxX && face.z <= maxZ) return face;
+    }
+
+    // Nothing under the pointer: fall back to the lattice. A gap in a wall is
+    // still somewhere you can aim — the stroke drops the faces with no wall on
+    // them (`faceRun`) — so a drag along a frontage with a doorway in it must
+    // not stop dead at the doorway.
     const seg = this.pickEdge(clientX, clientY);
     if (!seg) return null;
     const along = seg.o === 'v' ? this._hit.x : this._hit.z;
@@ -4156,7 +4441,14 @@ export class Scene {
     // gets a low pad instead — enough to read as "a thing lands here" without
     // pretending to be the shape of whatever piece you picked.
     const look = FIXTURE_LOOK[spec.kind] ?? { h: 0.5, color: TILE_STYLE[T.FLOOR]?.color };
-    const t = tierProgress(spec.tier ?? 1, piece?.tiers?.length ?? 1);
+    // Where on its own 0..1 the ghost draws. A watcher's is the shop's number
+    // rather than its tier — the same swap `addFixtureProps` makes, for the same
+    // reason it makes it, and it has to be made here too or you would be shown a
+    // dark sign and hang up a lit one. Its last-known value, not a live read:
+    // the ghost follows the pointer at 60fps and the shop answers at 10.
+    const t = piece?.signal
+      ? (this.signals[piece.signal] ?? 1)
+      : tierProgress(spec.tier ?? 1, piece?.tiers?.length ?? 1);
     const g = buildFixtureGhost({
       model,
       t,
@@ -5250,7 +5542,14 @@ export class Scene {
     const t = now / 1000;
     for (const [id, body] of this.movingFixtures) {
       const st = this.stationProps.get(id);
-      animateMotion(body.moving, t + body.phase, st ? st.making : true);
+      // ...and, for a `sweep`, the number it points at. Null for everything
+      // else, which is every fixture in the game that is not a clock — a sweep
+      // with nothing to read holds still rather than snapping to zero, so a prop
+      // whose piece names no signal is simply a prop that never moves.
+      animateMotion(
+        body.moving, t + body.phase, st ? st.making : true,
+        body.signal ? this.signals[body.signal] ?? null : null,
+      );
     }
     for (const rec of this.stationProps.values()) {
       if (!rec.work) continue;
@@ -5433,8 +5732,15 @@ export class Scene {
     // Readouts follow the eased angle, not the target one, so they turn *with*
     // the swing instead of snapping to the new corner while the shop is still
     // arriving there.
-    if (this.readoutsDirty || this.camAngle !== this.readoutAngle) {
+    // ...and the same test for the tilt, or the bars follow an orbit and ignore
+    // a drag up the screen — which is the bug this pair exists to prevent, one
+    // axis over. Both are compared rather than a flag set by `tiltView`, for the
+    // reason the yaw is: what a readout has to match is the angle being DRAWN,
+    // which the easing above is still moving.
+    if (this.readoutsDirty
+      || this.camAngle !== this.readoutAngle || this.camPitch !== this.readoutPitch) {
       this.readoutAngle = this.camAngle;
+      this.readoutPitch = this.camPitch;
       this.readoutsDirty = false;
       this.faceReadouts();
     }

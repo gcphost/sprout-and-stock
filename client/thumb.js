@@ -33,7 +33,8 @@
 import { partsAt, variantModel, skinnedParts, skinKey, tierProgress } from '../shared/model.js';
 import { FIXTURES } from '../shared/build.js';
 import {
-  PALETTE, TILE_STYLE, EDGE_STYLE, edgeBands, patternColor, shade, stripeBars, stripeDuty,
+  PALETTE, TILE_STYLE, EDGE_STYLE, bondOf, brickBond, edgeBands, jitter, patternColor, shade,
+  stripeBars, stripeDuty,
 } from './render/palette.js';
 
 /**
@@ -389,7 +390,13 @@ export function artForPiece(row, kind, variant = '') {
     pos: [0, -0.04, 0],
     scale: [1, 0.08, 1],
   }];
-  const art = draw([...base, ...partsAt(model, 0)]);
+  // Stage 0 is "what you get for your money" — see `artForModel` — and that is
+  // the wrong question about a piece that watches the shop. Its stages are not a
+  // ladder you climb, they are the shop's own answer, and its first one is a
+  // sign that is switched OFF: a button showing a dark panel is a button showing
+  // nothing, for a thing that will be lit the moment you hang it up. So a
+  // watcher is drawn at the far end, which is the look it is FOR.
+  const art = draw([...base, ...partsAt(model, row?.signal ? 1 : 0)]);
   byShape.set(variant, art);
   return art;
 }
@@ -438,6 +445,29 @@ export function artForGround(surface) {
   // crossing is the "a picture of a thing has to come from the thing" mistake
   // with the pattern left out of it. Along z, which is what the shape of a
   // 3x3 patch resolves to in the renderer too.
+  // `brick` is the same case as `stripes` and needs the same answer: the cells
+  // above are the mortar, and the bricks are geometry the renderer lays on top,
+  // so a swatch showing three flat cells would be a picture of a wall painted
+  // the colour of grout. Drawn from `brickBond`, which is the list the wall
+  // itself is built from — the whole of why that function is in `palette.js`.
+  //
+  // It is drawn on the FLAT of the patch, like the crossing above, rather than
+  // stood up on the sides. A wall finish shares this swatch with the floors
+  // (`GROUND` and `PAINT` are authored identically), and a button that showed a
+  // section of masonry would be the only entry in the bar drawn from a
+  // different angle from its neighbours.
+  const bond = bondOf(surface);
+  if (bond) {
+    for (const b of brickBond(bond, 3, 0, 3)) {
+      const x0 = 1.5 + b.off - b.len / 2;
+      const x1 = x0 + b.len;
+      cells.push(poly(
+        [[x0, b.y0], [x1, b.y0], [x1, b.y1], [x0, b.y1]].map(([cx, cz]) => project(cx - R, 0, cz - R)),
+        hex(jitter(surface.color, 0.035, b.seed)),
+      ));
+    }
+  }
+
   if (surface.pattern === 'stripes') {
     const bar = hex(surface.accent ?? shade(surface.color, -0.55));
     const n0 = stripeBars(surface);
