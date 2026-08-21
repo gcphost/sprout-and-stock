@@ -1159,10 +1159,6 @@ export class Scene {
     // would leave with it while the rest of the money was still sitting there.
     this.cashLabels = new Map();
     this.deliveryProps = new Map();
-    // Crates whose record has gone while their machine was mid-swing — see
-    // `stepLeaving`. They are drawn for a few tenths of a second longer than the
-    // shop believes in them.
-    this.leaving = [];
     // The lorry on its run and the cars in the car park, in one map, because
     // they are one thing — see `syncVehicles`. In `actorRoot` with the other
     // props, and NOT cleared by `buildWorld`: a vehicle is positioned from the
@@ -2192,12 +2188,16 @@ export class Scene {
     const c = new THREE.Color();
     for (const { group, x, y, z } of this.bakedProps ?? []) this.paintProp(group, x, y, z);
     for (const mesh of this.bakedMeshes ?? []) this.bakeMesh(mesh);
-    for (const { mesh, bare, at } of this.bakedGround ?? []) {
+    for (const { mesh, bare, at, lit } of this.bakedGround ?? []) {
       if (!mesh.instanceColor) continue;
       for (let i = 0; i < mesh.count; i++) {
         c.setRGB(bare[i * 3], bare[i * 3 + 1], bare[i * 3 + 2]);
         this.lights.bakeInto(c, at[i * 3], at[i * 3 + 1], at[i * 3 + 2]);
         mesh.setColorAt(i, c);
+        // ...and the slat batch keeps a copy, because its own frame loop
+        // multiplies a chase into this rather than replacing it. See `lit`
+        // where it is built.
+        if (lit) { lit[i * 3] = c.r; lit[i * 3 + 1] = c.g; lit[i * 3 + 2] = c.b; }
       }
       mesh.instanceColor.needsUpdate = true;
     }
@@ -3764,9 +3764,6 @@ export class Scene {
    * crates are taken and the tower must not shuffle underneath your pointer.
    */
   syncDeliveries(deliveries, cap = 6) {
-    // The page's clock, for `slidePlace` — a snapshot carries no time of its own
-    // and the offset it is being asked about is measured against this one.
-    const now = performance.now() / 1000;
     const seen = new Set();
     const stacks = new Map();
     // Which conveyor cells are carrying something, which is what a loader's lamp
@@ -3885,9 +3882,6 @@ export class Scene {
         existing.userData.homeX = d.x;
         existing.userData.homeZ = d.z;
         existing.userData.beltId = d.belt ?? null;
-        // ...unless it is part way down a spur, in which case the shop's answer
-        // is where the box ENDS UP and not where it is. See `slidePlace`.
-        this.slidePlace(existing, d.belt ?? null, now);
         continue;
       }
       if (existing) {
@@ -3904,12 +3898,6 @@ export class Scene {
       obj.userData.homeX = d.x;
       obj.userData.homeZ = d.z;
       obj.userData.beltId = d.belt ?? null;
-      // A LIFT REBUILDS THE MESH, which is the moment this matters most: the
-      // crate stops being a floor pallet and becomes a riding one (no label, and
-      // `:b` in the key), so it is disposed and made again — at the machine's
-      // centre, a tile from where it was. Placed here it is made at the mouth of
-      // the spur instead, where the box the player was looking at actually was.
-      this.slidePlace(obj, d.belt ?? null, now);
       // A BOX ON A CONVEYOR IS SMALLER THAN A BOX ON THE FLOOR.
       //
       // A pallet is drawn at the size of a thing somebody set down with both
@@ -3942,122 +3930,25 @@ export class Scene {
     }
     for (const [id, obj] of this.deliveryProps) {
       if (seen.has(id)) continue;
-      // A CRATE A LOADER JUST TOOK DOES NOT BLINK OUT — it finishes the journey
-      // it was on.
+      // NOTHING SPECIAL HAPPENS HERE ANY MORE, and that is the whole of the
+      // fix.
       //
-      // This is where "the box vanishes into the machine" actually lived, and
-      // no amount of art on the loader was ever going to fix it. A pour DELETES
-      // the delivery: the goods are on a board now, so the shop is right and the
-      // snapshot is right, and the crate's mesh is disposed on the very tick the
-      // transfer happens. What you watch is a box on a belt ceasing to exist.
+      // A pour used to delete the crate at the machine's centre on the tick it
+      // happened, so this is where the mesh was caught and run down a spur by
+      // hand — a second animator, on the page's clock, guessing at a journey the
+      // shop had already finished. It fought `syncDeliveries` for the same three
+      // numbers at two different rates, and every stutter and ghost came out of
+      // that.
       //
-      // So the mesh outlives the record by a few tenths of a second and rides
-      // the spur out on its own. It is the SAME crate — the same group, the same
-      // goods drawn on it, still in `actorRoot` — carrying on rather than a
-      // stand-in built to look like it. Nothing about the shop is pretended: it
-      // is a picture finishing after the fact it depicts, which is what every
-      // easing animation in here is.
-      //
-      // Handed over only if the machine it was on is mid-swing. Anything else
-      // that removes a crate — you picked it up, it merged, its item was deleted
-      // — is not a journey and must still go instantly, or lifting a box would
-      // leave a ghost of it sliding off a machine that never touched it.
-      // ...and it goes out the side the shop says it went out of. `move.d` is
-      // that side; `move.out` is what makes this a journey rather than a
-      // disappearance, because a loader that LIFTED a box has taken nothing away
-      // — the record it created is still there and `animateStations` is riding
-      // it in. Only a pour ends a crate.
-      const from = obj.userData.beltId;
-      const rec = from ? this.movingFixtures.get(from) : null;
-      const mv = from ? this.armMove?.get(from) : null;
-      const slide = rec?.slides?.length && mv?.out ? Scene.slideFor(rec.slides, mv) : null;
-      // ...and only if the pour is happening NOW. The wire keeps `move` up for
-      // the server's whole say-window, which is three times a slide, so without
-      // this a crate that went away in the tail of that window for some entirely
-      // unrelated reason — you lifted it, its item was deleted, `binOrphans`
-      // swept it — would set off down a spur nothing had asked it to. A ghost
-      // sliding out of a machine that never touched it is worse than the vanish
-      // this whole path exists to fix, because the vanish is at least honest.
-      const fresh = slide && now - (rec.moveAt ?? -99) < Scene.slideSeconds(slide);
-      if (fresh) {
-        this.leaving.push({ obj, at: performance.now() / 1000, slide });
-        this.deliveryProps.delete(id);
-        continue;
-      }
+      // The crate travels for real now (`stepSpur`, server side) and is deleted
+      // when it ARRIVES, so by the time it disappears it is already at the unit
+      // and there is nothing left to draw. A box that goes away for any other
+      // reason — you lifted it, it merged, its item was deleted — goes away the
+      // same way, instantly, which used to need a guard of its own.
       this.actorRoot.remove(obj);
       disposeGroup(obj);
       this.deliveryProps.delete(id);
     }
-  }
-
-  /**
-   * Put a crate where its machine's spur has got to, if it is riding one IN.
-   *
-   * THE ONE PLACE that offset is written, and it has two callers for a reason
-   * that is invisible until you plot it. `syncDeliveries` lands on the snapshot
-   * at 10Hz and `animateStations` on the page's clock at 60, and the snapshot
-   * one writes `d.x`/`d.z` — the machine's own centre, because that is honestly
-   * where the shop says the box is. So one frame in six the crate was slammed
-   * back onto the loader and then picked its journey up again on the next: a box
-   * riding a spur in a visible stutter, which reads as the crate being drawn
-   * wrong rather than as two writers disagreeing at different rates.
-   *
-   * Only ever the INBOUND half. A pour leaves no record to move — see
-   * `stepLeaving`, which rides the same slide with the mesh the shop has already
-   * forgotten.
-   */
-  slidePlace(obj, beltId, t) {
-    const body = beltId ? this.movingFixtures.get(beltId) : null;
-    const mv = beltId ? this.armMove?.get(beltId) : null;
-    if (!body?.slides?.length || !mv || mv.out) return false;
-    const sl = Scene.slideFor(body.slides, mv);
-    if (!sl) return false;
-    const per = Scene.slideSeconds(sl);
-    const gone = t - (body.moveAt ?? -99);
-    if (!(gone >= 0 && gone < per)) return false;
-    // In from the far end of the spur to the middle of the machine, which is
-    // where the run's own hand-off picks it up — the second leg of the L, drawn
-    // backwards. `to` and not a span of its own: the crate travels the length of
-    // the track drawn under it, because they are the same number.
-    const up = (1 - gone / per) * sl.to;
-    obj.position.set(sl.cx + sl.dx * up, obj.position.y, sl.cz + sl.dz * up);
-    return true;
-  }
-
-  /**
-   * The crates that are mid-transfer, and the shop has already forgotten.
-   *
-   * Run down their machine's spur and then disposed — see the hand-over in
-   * `syncDeliveries`. A list rather than a field because a shop can have twenty
-   * loaders swinging at once, and it is drained every frame, so it is empty
-   * almost all of the time.
-   */
-  stepLeaving(t) {
-    if (!this.leaving.length) return;
-    const kept = [];
-    for (const l of this.leaving) {
-      const gone = t - l.at;
-      // At TRACK SPEED, and the length of the spur decides how long that is —
-      // see `Scene.slideSeconds`. A flat duration ran the short hop into a shelf
-      // and the full tile out onto a pad at visibly different rates, on two
-      // pieces of identical track.
-      const per = Scene.slideSeconds(l.slide);
-      if (gone >= per) {
-        this.actorRoot.remove(l.obj);
-        disposeGroup(l.obj);
-        continue;
-      }
-      // Out from the middle of the machine, which is where the run's own
-      // hand-off left it — the second leg of the L. `to` and not a span of its
-      // own: the crate travels the length of the track drawn under it, because
-      // they are the same number.
-      const up = (gone / per) * l.slide.to;
-      l.obj.position.set(
-        l.slide.cx + l.slide.dx * up, l.obj.position.y, l.slide.cz + l.slide.dz * up,
-      );
-      kept.push(l);
-    }
-    this.leaving = kept;
   }
 
   /**
@@ -5691,29 +5582,6 @@ export class Scene {
    * tunnel is the case that proves it.
    */
 
-  /**
-   * WHICH spur a swing went down, when a machine has more than one.
-   *
-   * A loader serves every side it can reach, so a unit in the mouth of an aisle
-   * has two or three — and taking the first in the list is right a third of the
-   * time. Nothing on the wire says which side a swing used; what it does say is
-   * WHAT the swing was (`did`), and that decides the direction: a machine that
-   * took a box was loading ONTO the line, so the spur it used is an inbound one.
-   *
-   * Still a guess between two spurs of the same direction, and deliberately not
-   * fixed by sending the side: it is a tenth of a second of a box on the right
-   * machine going the right way, and the wire is not the place to spend bytes on
-   * which of two identical shelves it came off.
-   *
-   * Falls back to the first rather than to nothing — a loader with only outbound
-   * spurs that reports a load has one spur and it is the one to use, and drawing
-   * nothing at all is the vanishing this whole path exists to end.
-   */
-  static slideFor(slides, said) {
-    const want = said === 'load' ? -1 : 1;
-    return slides.find((sl) => sl.flow === want) ?? slides[0];
-  }
-
   /* `conveyorArc` lived here and went with the curves it drew.
    *
    * It answered "the quarter circle a cell's goods travel", and three things
@@ -5776,7 +5644,7 @@ export class Scene {
         const mesh = new THREE.Object3D();
         const entry = {
           mesh,
-          motion: { kind: 'scroll', hz: p.motion?.hz ?? 1.1, amount: span },
+          motion: { kind: 'chase', hz: p.motion?.hz ?? 1.1, amount: span },
           rot: 0,
           scale: mesh.scale,
           axis: null,
@@ -5799,6 +5667,7 @@ export class Scene {
         mesh.scale.set(dx ? thin : long, high, dz ? thin : long);
         mesh.position.set(c.x + dx * along, y, c.z + dz * along);
         entry.dir = { x: dx, z: dz };
+        Scene.lightSlat(mesh, entry);
         entry.pos = mesh.position.clone();
         entry.scale = mesh.scale.clone();
         if (!byColour.has(p.color)) byColour.set(p.color, []);
@@ -5856,7 +5725,7 @@ export class Scene {
           mesh.position.set(c.x + f.x * along, y, c.z + f.z * along);
           const entry = {
             mesh,
-            motion: { kind: 'scroll', hz: p.motion?.hz ?? 1.1, amount: span },
+            motion: { kind: 'chase', hz: p.motion?.hz ?? 1.1, amount: span },
             rot: 0,
             scale: mesh.scale.clone(),
             axis: null,
@@ -5866,6 +5735,7 @@ export class Scene {
             dir: { x: f.x, z: f.z },
             pos: mesh.position.clone(),
           };
+          Scene.lightSlat(mesh, entry);
           if (!byColour.has(p.color)) byColour.set(p.color, []);
           byColour.get(p.color).push(mesh);
           rec.moving.push(entry);
@@ -5927,7 +5797,7 @@ export class Scene {
           mesh.position.set(c.x + sp.dx * along, y, c.z + sp.dz * along);
           const entry = {
             mesh,
-            motion: { kind: 'scroll', hz: p.motion?.hz ?? 1.1, amount: step },
+            motion: { kind: 'chase', hz: p.motion?.hz ?? 1.1, amount: step },
             rot: 0,
             axis: null,
             arm: null,
@@ -5937,6 +5807,7 @@ export class Scene {
             pos: mesh.position.clone(),
             scale: mesh.scale.clone(),
           };
+          Scene.lightSlat(mesh, entry);
           if (!byColour.has(p.color)) byColour.set(p.color, []);
           byColour.get(p.color).push(mesh);
           // FILED PER SPUR, and NOT on `rec.moving` — which is the one place a
@@ -6013,10 +5884,42 @@ export class Scene {
       im.instanceMatrix.needsUpdate = true;
       im.instanceColor.needsUpdate = true;
       im.layers.set(BAKED_LAYER);
-      this.bakedGround.push({ mesh: im, bare, at });
+      // A MIRROR OF THE BAKED COLOUR, because the chase is a multiplier on it.
+      //
+      // `flushSlats` writes `lit × k` every frame, so it needs the colour this
+      // carrier would be standing still — its hue with the shop's light already
+      // multiplied in. Re-deriving that per frame means a `bakeInto` per slat
+      // per frame, which is the one thing the whole instanced batch exists to
+      // avoid. Kept on the `bakedGround` entry as well as on the batch so that
+      // `rebakeGround` refreshes it when the hour moves: without that the belts
+      // would go on wearing noon's light after dark, which is the one lighting
+      // bug that looks like the belts being emissive on purpose.
+      const lit = new Float32Array(im.instanceColor.array);
+      this.bakedGround.push({ mesh: im, bare, at, lit });
       this.staticRoot.add(im);
-      this.slatBatches.push({ im, holders });
+      this.slatBatches.push({ im, holders, lit });
     }
+  }
+
+  /**
+   * Hang the two things a carrier needs to be LIT rather than moved onto the
+   * holder that stands in for it.
+   *
+   * `flushSlats` walks holders and knows nothing about cells, entries or runs,
+   * so the link back to the motion entry (which owns how far the run has
+   * travelled, and how much of the ease is left) and the carrier's own place
+   * ALONG the flow both have to ride on the object it does see.
+   *
+   * The place is a dot product rather than a distance: a run going east wants
+   * `x` and one going north wants `-z`, and taking either on its own puts every
+   * carrier on half the shop in step with the wrong wave. Two cells of the same
+   * run share a direction, so the phase is continuous across the join with
+   * nothing anywhere having to know where a run begins.
+   */
+  static lightSlat(mesh, entry) {
+    mesh.userData.flow = entry;
+    mesh.userData.wave = mesh.position.x * (entry.dir?.x ?? 1)
+      + mesh.position.z * (entry.dir?.z ?? 0);
   }
 
   /** Is this a part the renderer re-lays rather than the model drawing it? */
@@ -8405,14 +8308,56 @@ export class Scene {
    * `needsUpdate` re-sends the whole buffer either way and setting it inside the
    * loop would re-send it once per bar.
    */
+  /**
+   * The carriers, once a frame — and what moves is the LIGHT on them.
+   *
+   * They used to slide: each one travelled a third of a tile along the run and
+   * wrapped, which is what a real belt does and is not what it looks like here.
+   * At this camera a carrier is about a dozen pixels, so a run of them shuffling
+   * along reads as the parts of the machine drifting rather than as a surface
+   * moving — and a shop with forty cells of belt in it is forty little things
+   * jittering in the corner of your eye all day.
+   *
+   * So the transforms are written once at build and never again, and the flow is
+   * a band of brighter carriers walking the way the goods go. `m.travel` is the
+   * distance the run has covered — accumulated and eased by `animateMotion`, so
+   * a belt that stops fades to still where it stopped rather than sliding back —
+   * and the phase is the carrier's own place along the flow, so the band crosses
+   * cell boundaries without anything knowing where a run starts.
+   *
+   * The matrices are still copied for anything with no chase on it, which is
+   * what keeps this the same one loop rather than two.
+   */
   flushSlats() {
     for (const b of this.slatBatches ?? []) {
+      let movedMatrix = false;
       for (let i = 0; i < b.holders.length; i++) {
         const h = b.holders[i];
-        h.updateMatrix();
-        b.im.setMatrixAt(i, h.matrix);
+        const m = h.userData.flow;
+        if (!m || !b.lit) {
+          h.updateMatrix();
+          b.im.setMatrixAt(i, h.matrix);
+          movedMatrix = true;
+          continue;
+        }
+        // Where this carrier sits in the wave. `travel` already wraps on `span`,
+        // so the difference only has to be folded into the same window.
+        const span = m.span || 0.25;
+        let u = ((m.travel ?? 0) - (h.userData.wave ?? 0)) % span;
+        if (u < 0) u += span;
+        // A band rather than a sine: a smooth swell over the whole run reads as
+        // the lights breathing together, where a short bright stretch reads as
+        // something passing. Cubed so the falloff is quick at the trailing edge.
+        const f = 1 - u / span;
+        const k = 1 + SLAT_LIT * (f * f * f) * (m.amp ?? 0);
+        b.im.setColorAt(i, SLAT_RGB.setRGB(
+          Math.min(1, b.lit[i * 3] * k),
+          Math.min(1, b.lit[i * 3 + 1] * k),
+          Math.min(1, b.lit[i * 3 + 2] * k),
+        ));
       }
-      b.im.instanceMatrix.needsUpdate = true;
+      if (movedMatrix) b.im.instanceMatrix.needsUpdate = true;
+      if (b.lit && b.im.instanceColor) b.im.instanceColor.needsUpdate = true;
     }
   }
 
@@ -8477,52 +8422,32 @@ export class Scene {
         body.signal ? this.signals[body.signal] ?? null : null,
       );
 
-      // A CRATE COMING IN OFF A PAD RIDES THE SPUR, exactly as one going out
-      // does — and for four steps it did not move at all.
+      // ONE SPUR SCROLLS, and it is the one the crate is actually on.
       //
-      // A lift is the only transfer where the crate still EXISTS afterwards, so
-      // it is the only one this can draw: `loadBelt` sets `d.belt` and puts the
-      // box on the machine's own centre in the same tick, which without this is
-      // a crate teleporting a tile sideways onto a machine. The other direction
-      // has no record left to move (the goods are on a board) and is drawn by
-      // `stepLeaving` off the same slide.
+      // Read off the CRATE rather than off a clock of its own, which is the
+      // whole lesson of the three attempts this replaces. The box travels on the
+      // sim's own tick now, so where it is IS the answer to "is this spur
+      // running" — no timer here, nothing to start on an edge, nothing to keep
+      // in step with the server. A spur is live while there is a box somewhere
+      // along it.
       //
-      // Nothing here for a POUR that left goods in the box. A partial pour moves
-      // the goods and not the crate — the box stays on the run and carries on —
-      // so sliding it out and dragging it back would be a picture of a journey
-      // that did not happen, and it would fight `stepBelts`, which is easing the
-      // same crate toward the next cell the whole time. The lamp already says
-      // the machine served that side.
-      //
-      // Timed off `move.n`, a counter that only goes up. The old clock started
-      // on the edge of `did` appearing, and `did` stays set for the server's
-      // whole say-window — so a loader working flat out swung twice inside one
-      // window, the edge never came again, and the second box was never drawn.
-      const mv = this.armMove?.get(id);
+      // Every spur is asked, not just the live one, because the answer for the
+      // others is "stop": `animateMotion` eases a scroll down rather than
+      // cutting it, so a length of track left out of this loop keeps whatever it
+      // was last told and runs for ever.
       if (body.slides?.length) {
-        // Stamped on ARRIVAL rather than here — see `sync`. This loop is one of
-        // two readers and the other one runs on the snapshot.
-        const sl = mv ? Scene.slideFor(body.slides, mv) : null;
-        const per = sl ? Scene.slideSeconds(sl) : 0;
-        const gone = t - (body.moveAt ?? -99);
-        // ONE SPUR MOVES, and it is the one the goods crossed.
-        //
-        // Every spur is asked, not just the active one, because the answer for
-        // the other two is "stop" — `animateMotion` eases a scroll down rather
-        // than cutting it, so a length of track left out of this loop is one
-        // that keeps whatever it was last told. Which is the failure this is
-        // fixing, arriving from the other side.
-        const live = sl && gone >= 0 && gone < per;
+        const box = this.beltOn?.get(id) ?? null;
         for (const s of body.slides) {
           if (!s.rails.length) continue;
-          animateMotion(s.rails, t + body.phase, live && s === sl, null);
+          // Off the machine's centre, along this spur's own axis. A box sitting
+          // squarely on the cell is on no spur at all and scrolls nothing, which
+          // is a loader holding a crate it has not decided about yet.
+          const along = box ? (s.dx ? (box.x - s.cx) * s.dx : (box.z - s.cz) * s.dz) : 0;
+          const off = box ? Math.abs(s.dx ? box.z - s.cz : box.x - s.cx) : 1;
+          animateMotion(s.rails, t + body.phase, along > 0.01 && off < 0.01, null);
         }
-        // The crate riding IN, through the one writer both clocks share.
-        const box = live ? this.deliveryProps.get(this.beltOn?.get(id)?.id) : null;
-        if (box) this.slidePlace(box, id, t);
       }
     }
-    this.stepLeaving(t);
     this.flushSlats();
     for (const rec of this.stationProps.values()) {
       for (const work of rec.work) {
@@ -8912,6 +8837,23 @@ const COVERED_KINDS = new Set(['arm', 'sorter']);
  * to the face. It is the only dark left in the family since the deck went pale.
  */
 const MOUTH_DARK = '#1e232b';
+
+/**
+ * How much brighter a carrier gets as the flow passes over it.
+ *
+ * A multiplier on the baked colour rather than a colour of its own, so a belt
+ * lights up in whatever it is painted and a tier authored in a different grey
+ * needs nothing said about it. Clamped at 1 per channel by the caller, which is
+ * what stops a pale rung blowing out to white while a dark one glows.
+ *
+ * Big enough to catch the eye across the shop and nowhere near a flash: this is
+ * the same fact the old sliding carriers carried, and the reason they went is
+ * that a busy shop should not have forty things twitching in it.
+ */
+const SLAT_LIT = 0.55;
+
+/** Scratch for that, so a frame with hundreds of carriers allocates nothing. */
+const SLAT_RGB = new THREE.Color();
 
 /**
  * How big a crate is while it is riding, against the one that is standing still.

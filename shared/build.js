@@ -1780,6 +1780,23 @@ export const RUN_KINDS = ['belt', 'arm', 'sorter'];
 export const BELT_RUN_MAX = 64;
 
 /**
+ * How far out of a loader's own centre its spur reaches, in tiles.
+ *
+ * Shared because a spur is not decoration: it is a length of track the SIM walks
+ * a crate along and the RENDERER lays rails under, and the two agreeing is the
+ * whole of what makes a box look like it is on the belt rather than beside it.
+ * Kept here rather than in either, for the reason `anchorTile` is — the day they
+ * disagree, nothing errors and nothing logs, the crate simply floats.
+ *
+ * Two numbers because the split is what is standing there. Onto a pad or bare
+ * floor the track runs most of the way across, so there is somewhere to set a
+ * crate down; into a unit it stops just inside, because the unit's own mesh
+ * fills that square and track drawn under it is track nobody will ever see.
+ */
+export const SPUR_UNIT_REACH = 0.66;
+export const SPUR_OPEN_REACH = 1.34;
+
+/**
  * The cells one drag of conveyor lays, in the order a crate would travel them.
  *
  * An L rather than a straight line — the long axis first, then the short — which

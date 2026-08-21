@@ -765,8 +765,24 @@ function armIntoShelf(g, { item = GOODS, prep = null, turn = 0, past = false, lo
 
         const moved = g.armSwing(loader);
         check(moved, 'the swing did something');
+        // ...and what it did was SEND the box, not empty it.
+        //
+        // A swing used to serve every side it could reach in the tick it fired,
+        // which is what made the transfer undrawable: the goods were on the
+        // board and the crate was gone before anything could show a box moving.
+        // A spur takes real time now, so a swing chooses a side and sets the
+        // crate off down it, and the goods change hands when it ARRIVES.
+        //
+        // Which makes this a claim about a machine rather than about an instant:
+        // both sides are still served off one box, one after the other, with the
+        // crate riding back onto the loader in between. The old wording ("in ONE
+        // swing") was the implementation showing through — nobody playing could
+        // ever have told the difference, and the thing they CAN tell is that the
+        // box is visibly on its way somewhere.
+        check(!!crate.spur, '...which is to send the crate down a spur, not to empty it');
+        for (let i = 0; i < 400 && !(on(warm) > 0 && on(cold) > 0); i++) g.stepArms(0.05);
         check(on(warm) > 0 && on(cold) > 0,
-          'ONE swing stocked both sides', `shelf ${on(warm)}, freezer ${on(cold)}`);
+          'both sides are stocked off one box', `shelf ${on(warm)}, freezer ${on(cold)}`);
         eq(units(g), total, '...and nothing was created or destroyed reaching two of them');
       }
     }

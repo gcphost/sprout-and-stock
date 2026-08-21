@@ -42,7 +42,7 @@ import { stepStaff, syncStaff, breakProgress, carryOf, givenUp } from './staff.j
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
-  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, tunnelExit, derivedFlow, beltRunCells, BELT_RUN_MAX, RUN_KINDS,
+  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, tunnelExit, derivedFlow, beltRunCells, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
@@ -10391,6 +10391,12 @@ export class Game {
 
     for (const belt of this.beltOrder()) {
       const crate = onBelt.get(belt.id);
+      // A crate part way along a loader's spur is off the line for the moment —
+      // `stepArms` owns it until it arrives. Its cell stays occupied (it is
+      // still `d.belt`), so the run behind it backs up exactly as it would
+      // behind any other box that is not moving on, which is the honest picture:
+      // the machine is busy.
+      if (crate?.spur) { this.beltClock.set(belt.id, 0); continue; }
       if (!crate) {
         // An empty belt holds no charge. Without this a run that has stood idle
         // all morning flings the next crate along the instant it lands.
@@ -10765,6 +10771,25 @@ export class Game {
     this.armClock ??= new Map();
 
     for (const arm of arms) {
+      // A CRATE PART WAY ALONG A SPUR IS THE WHOLE OF WHAT THIS MACHINE IS
+      // DOING, and it is an ordinary crate doing it.
+      //
+      // This is the fix for the thing every version of the transfer animation
+      // was working around. A pour used to be instant: the goods landed on the
+      // board and the crate ceased to exist, at the machine's centre, on the
+      // tick the swing happened — so the renderer was handed a box that had
+      // vanished and asked to invent the journey afterwards. Two things then
+      // owned where that crate was, the shop and the picture, and they fought
+      // over it at 10Hz and 60Hz respectively. Every stutter, snap-back and
+      // ghost came out of that one disagreement.
+      //
+      // So the crate travels for real, on the sim's own clock, at the run's own
+      // speed, and the transfer happens when it ARRIVES. There is exactly one
+      // answer to where a box is — `d.x`/`d.z`, the same field a crate on any
+      // other cell uses — and the renderer draws it and nothing else.
+      const riding = this.deliveries.find((d) => d.belt === arm.id);
+      if (riding?.spur) { this.stepSpur(arm, riding, dt); continue; }
+
       const mult = this.fixtureStats(arm).speed_mult || 1;
       const per = Game.ARM_SECONDS / mult;
       const clock = (this.armClock.get(arm.id) ?? 0) + dt;
@@ -10868,6 +10893,158 @@ export class Game {
   }
 
   /**
+   * How far a loader's spur reaches on one side, in tiles.
+   *
+   * The renderer lays its rails to the same two numbers — see `SPUR_*_REACH` in
+   * `shared/build.js`, which is why they live there rather than in either half.
+   */
+  spurReach(at) {
+    const onUnit = (this.layout.shelves ?? []).some((u) => u.x === at.x && u.z === at.z)
+      || (this.layout.stations ?? []).some((s) => s.x === at.x && s.z === at.z)
+      || (this.layout.bins ?? []).some((b) => b.x === at.x && b.z === at.z);
+    return onUnit ? SPUR_UNIT_REACH : SPUR_OPEN_REACH;
+  }
+
+  /**
+   * Send a crate off along one of a loader's spurs.
+   *
+   * `out` is which way it crosses: 1 for a pour, which travels from the machine
+   * to the unit and does the transfer on arrival, and 0 for a lift, which starts
+   * at the far end — where the box the player was looking at actually is — and
+   * rides in to join the run.
+   */
+  armSend(arm, at, out) {
+    const crate = this.deliveries.find((d) => d.belt === arm.id);
+    if (!crate) return null;
+    const dx = Math.sign(at.x - arm.x);
+    const dz = Math.sign(at.z - arm.z);
+    crate.spur = { dx, dz, out: out ? 1 : 0, k: 0, reach: this.spurReach(at) };
+    this.stepSpur(arm, crate, 0);
+    return Game.armSide(arm, at, out ? 1 : 0);
+  }
+
+  /**
+   * Advance a crate along the spur it is on, and act when it gets there.
+   *
+   * At TRACK SPEED — `beltSeconds` times the length of the spur — because a spur
+   * is a length of the same run and a box on it has no reason to move at a
+   * different rate from a box one tile back. A `speed_mult` on the machine's own
+   * tier therefore moves this with it, which is what stops a fast loader having a
+   * slow throat.
+   */
+  stepSpur(arm, crate, dt) {
+    const sp = crate.spur;
+    const per = Math.max(0.05, this.beltSeconds(arm) * sp.reach);
+    sp.k = Math.min(1, sp.k + dt / per);
+    // Out runs 0 → 1 and in runs 1 → 0, off the same number, so the two
+    // directions cannot drift apart the way two expressions of them did.
+    const along = (sp.out ? sp.k : 1 - sp.k) * sp.reach;
+    crate.x = r2(arm.x + sp.dx * along);
+    crate.z = r2(arm.z + sp.dz * along);
+    if (sp.k < 1) return;
+
+    crate.spur = null;
+    if (!sp.out) {
+      // Arrived on the machine. It is an ordinary crate on an ordinary cell
+      // again and `stepBelts` takes it from here, with nothing to hand over.
+      crate.x = arm.x;
+      crate.z = arm.z;
+      return;
+    }
+
+    const at = { x: arm.x + sp.dx, z: arm.z + sp.dz };
+    const had = lotTotal(crate);
+    this.armLand(arm, at, crate);
+
+    // A SIDE THAT TOOK NOTHING IS NOT ASKED AGAIN NEXT TIME, and without this
+    // the whole design has a shuttle in it.
+    //
+    // `armTakes` reads `shelfAccepts`, which answers whether the unit is the
+    // right KIND and unreserved — it is not a promise that a board has room
+    // this instant. So a full shelf can probe yes and pour nothing, and the
+    // crate rides out, comes back, and is sent to the same side on the next
+    // swing, for the rest of the save. Every part of that is a machine working
+    // correctly and what you watch is a box going back and forth for ever.
+    //
+    // On the CRATE rather than on the arm, because it is a fact about this box
+    // and that unit: another crate holding something else should still be
+    // offered the same side. Cleared the moment anything moves, so a shelf that
+    // sells down is tried again on the very next swing.
+    if (lotTotal(crate) < had) crate.armNo = null;
+    else crate.armNo = { dx: sp.dx, dz: sp.dz };
+
+    // Still here? Then it is holding something that side would not take — the
+    // shelf filled up while it was travelling, or it was a mixed box and only
+    // part of it belonged there — so it rides back onto the run rather than
+    // being left standing on a shelf. The box that gets emptied is simply gone
+    // by now, which is the one case that needs nothing at all.
+    if (this.deliveries.some((d) => d.id === crate.id)) {
+      crate.spur = { dx: sp.dx, dz: sp.dz, out: 0, k: 0, reach: sp.reach };
+      this.stepSpur(arm, crate, 0);
+    }
+  }
+
+  /**
+   * The transfer itself, at the far end of an outbound spur.
+   *
+   * The same four verbs the swing always ran, in the same order and with the
+   * same rules — what moved is WHEN. `armPlan` picked this side a spur-length
+   * ago on a dry read of these very predicates; this is where the goods actually
+   * change hands.
+   */
+  /**
+   * Would the thing on this side take anything out of this box — asked WITHOUT
+   * moving anything.
+   *
+   * A spur takes time now, so the side has to be chosen before the journey and
+   * the goods change hands at the end of it. That needs a read-only version of
+   * the question `armPour` and `armFeed` answer by doing, and both of them
+   * already carry one: `shelfAccepts` is `boardFor`'s probe (`boardFor` opens a
+   * priced board as a side effect of being asked, which is why it may never be
+   * used as a predicate), and a hopper's is arithmetic on `stationHopperRoom`.
+   * So this is the same two rules read rather than a third opinion about them.
+   *
+   * A shelf that fills up during the trip is not a problem this has to solve —
+   * `stepSpur` rides the box back onto the run if nothing took anything.
+   */
+  armTakes(arm, at, crate) {
+    // The side this very box came back from empty-handed last time — see the
+    // note in `stepSpur`. One side, not a list: what it has to break is the
+    // two-step loop, and a box that has been round every side of a machine
+    // finding nothing should fall through to the off-ramp rather than being
+    // held while a memory of four refusals ages.
+    const no = crate.armNo;
+    if (no && at.x - arm.x === no.dx && at.z - arm.z === no.dz) return false;
+    if (crate.waste) return (this.layout.bins ?? []).some((b) => b.x === at.x && b.z === at.z);
+    const piles = lotStacks(crate);
+    if (!piles.length) return false;
+    const unit = (this.layout.shelves ?? []).find((sh) => sh.x === at.x && sh.z === at.z);
+    if (unit && piles.some((p) => !givenUp(this, p.item_id)
+      && this.shelfAccepts(unit, p.item_id))) return true;
+    const machine = (this.layout.stations ?? []).find((st) => st.x === at.x && st.z === at.z);
+    if (machine) {
+      const inputs = new Set(this.stationRecipes(machine).filter(Boolean)
+        .flatMap((r) => r.inputs.map((i) => i.item_id)));
+      if (piles.some((p) => inputs.has(p.item_id)
+        && this.stationHopperRoom(machine, p.item_id) > 0)) return true;
+    }
+    return false;
+  }
+
+  armLand(arm, at, crate) {
+    if (crate.waste) {
+      const skip = (this.layout.bins ?? []).find((b) => b.x === at.x && b.z === at.z);
+      if (skip) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+      return;
+    }
+    const unit = (this.layout.shelves ?? []).find((sh) => sh.x === at.x && sh.z === at.z);
+    if (unit && this.armPour(unit, crate)) return;
+    const machine = (this.layout.stations ?? []).find((st) => st.x === at.x && st.z === at.z);
+    if (machine && this.armFeed(machine, crate)) return;
+    if (lotTotal(crate)) this.armDrop(arm, at, crate);
+  }
+
+  /**
    * What a loader's lamp should be saying, or null for "nothing lately".
    *
    * In memory and never persisted, which is what lets it be measured against
@@ -10914,7 +11091,20 @@ export class Game {
     // Which half of its job this one does. See `setArmMode`.
     const mode = arm.mode === 'load' || arm.mode === 'unload' ? arm.mode : 'both';
 
-    // 1. Carrying something: give whatever is beside it whatever it will take.
+    // 1. Carrying something: SEND IT down the spur that wants it.
+    //
+    // This used to be the transfer. It served every side it could reach, in one
+    // tick, and the crate was gone before anything had a chance to draw it
+    // moving — which is precisely the hole the renderer spent three attempts
+    // failing to paper over. Now it chooses a side and sets the box off, and
+    // `stepSpur` does the handing over when it gets there.
+    //
+    // ONE SIDE PER SWING is the cost, and it is a real change rather than a
+    // refactor: a mixed box beside a shelf and a freezer used to stock both in
+    // the same instant and now takes a second swing for the second one. The box
+    // rides back onto the machine in between, so the shop ends up in the same
+    // place a moment later, and what you get for the moment is the one thing a
+    // conveyor is for — being able to see where the goods went.
     if (riding && mode !== 'load') {
       // Rubbish goes ONE place. A waste crate is not stock — `stockCrates`
       // filters it out everywhere else in the game for exactly that reason — so
@@ -10922,95 +11112,43 @@ export class Game {
       // a run that can end it is a skip.
       if (riding.waste) {
         for (const s of sides) {
-          const skip = (this.layout.bins ?? []).find((b) => b.x === s.x && b.z === s.z);
-          if (!skip) continue;
-          this.deliveries = this.deliveries.filter((d) => d.id !== riding.id);
-          return Game.armSide(arm, s, 1);
+          if (this.armTakes(arm, s, riding)) return this.armSend(arm, s, 1);
         }
         return null;
       }
       // The side it faces first — that is what `rot` means on a loader now, and
       // it is the one thing the player said out loud. The other three are still
-      // tried, because a loader between two units should serve both rather than
-      // making you place a second one.
+      // asked, because a loader between two units should serve both rather than
+      // making you place a second one; what `rot` buys is going FIRST, which is
+      // what makes it a preference for a mixed box rather than a switch.
       const facing = anchorTile(arm.x, arm.z, arm.rot);
       const order = [facing, ...sides.filter((s) => s.x !== facing.x || s.z !== facing.z)];
-      // EVERY side it can reach, in one swing — not the first that takes
-      // something. A loader stood between two facing units, or in the mouth of
-      // an aisle with shelving on three sides, is the shape a shop actually has,
-      // and serving one of them per swing is not merely slower: whichever unit
-      // came first in this list gets every box, and the others are stocked only
-      // once it is full. What you watch is one shelf filling and its neighbour
-      // staying bare with a loader touching it, which reads as the loader being
-      // aimed wrong. `rot` still decides who is asked FIRST, which is what makes
-      // it a preference for a mixed box rather than a switch.
-      let moved = false;
-      // The first side that actually took something — see `armSide`.
-      let side = null;
       for (const s of order) {
-        // The box emptied on the way round. Everything below would be a pour of
-        // nothing, and `armPour` has already taken it out of `deliveries`.
-        if (!lotTotal(riding)) break;
-        const unit = (this.layout.shelves ?? []).find((sh) => sh.x === s.x && sh.z === s.z);
-        if (unit && this.armPour(unit, riding)) { moved = true; side ??= s; continue; }
-        // ...and a machine's hopper, which is the half of the shop shelving
-        // cannot automate. `armFeed` is its own verb rather than a branch here
-        // for `armPour`'s reason: a hopper's rule about what it will take is
-        // the recipe's, not `boardFor`'s, and one function asking both would be
-        // one caller reading the wrong one.
-        const machine = (this.layout.stations ?? []).find((st) => st.x === s.x && st.z === s.z);
-        if (machine && this.armFeed(machine, riding)) { moved = true; side ??= s; }
+        if (this.armTakes(arm, s, riding)) return this.armSend(arm, s, 1);
       }
-      // ...and if it FACES bare ground, set the rest of the box down on it.
+
+      // ...and if nothing wants it, the off-ramp: a pad beside it, else the bare
+      // ground it FACES. Without this a belt has exactly one exit — a board that
+      // will take the goods — so a crate holding anything no unit on the run
+      // wants rides for ever, round a loop or parked at a dead end, and the shop
+      // looks like it is working.
       //
-      // This is the off-ramp, and without it a belt has exactly one exit: a
-      // board that will take the goods. A crate holding anything no unit on the
-      // run wants therefore rides for ever — round and round a loop, or parked
-      // at a dead end where nothing can reach it, because the crew are told to
-      // leave a riding box alone. Three frozen pizzas on a run with no freezer
-      // on it is a permanent passenger, and the shop looks like it is working.
+      // Pads before the faced tile: bare floor is where a box goes when there is
+      // nowhere better, and a pad is somewhere better by definition. `GOODS_PADS`
+      // and not `PAD_KINDS`, or a loader beside the break room posts its overflow
+      // into the one place in the shop that exists to have nothing in it.
       //
-      // It is the one thing `rot` decides on its own, which is also the answer
-      // to "I do not get to control the loader": every other side of it is
-      // derived. Aim it at shelving and it stocks; aim it at floor, a pad or a
-      // stockroom tile and it unloads there. And it is only reached once every
-      // unit beside it has had its share, so a loader in an aisle does not
-      // choose the floor over the shelf it is bolted to.
-      //
-      // Through `dropGoods` like every other setdown in the game — the crate the
-      // belt was carrying stops existing and an ordinary pallet stands there,
-      // which is what makes the goods findable, tidyable and countable again.
-      if (lotTotal(riding)) {
-        // The side it faces, then ANY PAD beside it.
-        //
-        // Bare floor needs `rot` — a loader that dumped on whatever open ground
-        // it happened to pass would spill boxes down the length of every run.
-        // A pad is different, and the difference is the whole reason pads exist:
-        // painted ground that means *goods go here* is consent already given,
-        // said once, about that square. Having to also aim a loader at your own
-        // yard is asking for the same permission twice.
-        //
-        // Last, after every unit and hopper beside it has had its share, because
-        // a box put away is worth more than a box tidied.
-        // `GOODS_PADS` and not `PAD_KINDS`: the comment below says "the yard,
-        // where a stocker will find it", and a break area is not the yard. With
-        // all four kinds a loader beside the break room posts its overflow into
-        // the one place in the shop that exists to have nothing in it — a box
-        // on a pad, so nothing refuses it and nothing logs it.
-        const pads = sides.filter((s) => GOODS_PADS.some((k) => isPadAt(this.layout, k, s.x, s.z)));
-        // Pads BEFORE the faced tile. Bare floor is where a box goes when there
-        // is nowhere better, and a pad is somewhere better by definition — so a
-        // loader touching both puts it in the yard, where a stocker will find
-        // it, rather than on the aisle it happens to be pointing down.
-        for (const s of [...pads, facing]) {
-          if (!lotTotal(riding)) break;
-          if (this.armDrop(arm, s, riding)) { moved = true; side ??= s; break; }
-        }
+      // Asked DRY, like every other side: `armDrop` does the real thing at the
+      // far end of the journey, and asking it to commit here would set the box
+      // down a spur-length before it arrived.
+      const pads = sides.filter((s) => GOODS_PADS.some((k) => isPadAt(this.layout, k, s.x, s.z)));
+      for (const s of [...pads, facing]) {
+        if (this.armDrop(arm, s, riding, { dry: true })) return this.armSend(arm, s, 1);
       }
 
       // Nothing wanted anything. Not a failure — the crate rides on to the next
       // loader, which `stepBelts` does without being asked.
-      return moved ? Game.armSide(arm, side, 1) : null;
+      return null;
     }
 
     // A loader carrying something is not empty, whatever its mode. Without this
@@ -11048,7 +11186,11 @@ export class Game {
         // failure mode, arriving through a door it did not know about.
         && (!d.waste || met.bins.length > 0)
         && Math.round(d.x) === s.x && Math.round(d.z) === s.z);
-      if (loose && this.loadBelt(arm, loose)) return Game.armSide(arm, s, 0);
+      // Onto the machine, then RIDE IN. `loadBelt` puts the crate on the cell
+      // the instant it is lifted, which without the spur is a box teleporting a
+      // tile sideways onto a loader; started at the far end it travels the track
+      // that is drawn under it, from where the box actually was.
+      if (loose && this.loadBelt(arm, loose)) return this.armSend(arm, s, 0);
     }
 
     // 3. Still empty: pull a board out of a STOCKROOM beside it.
@@ -11077,7 +11219,7 @@ export class Game {
     // something and that one is the swing that tidies.
     for (const s of sides) {
       const machine = (this.layout.stations ?? []).find((st) => st.x === s.x && st.z === s.z);
-      if (machine && this.armTake(arm, machine)) return Game.armSide(arm, s, 0);
+      if (machine && this.armTake(arm, machine)) return this.armSend(arm, s, 0);
     }
 
     // 4a. Still empty: a LOAD-ONLY loader pulls off the unit it is aimed at.
@@ -11098,7 +11240,7 @@ export class Game {
     if (mode === 'load') {
       const unit = (this.layout.shelves ?? []).find((sh) => sh.x === out.x && sh.z === out.z
         && this.handMayTouch(sh));
-      if (unit && this.armPull(arm, unit, met)) return Game.armSide(arm, out, 0);
+      if (unit && this.armPull(arm, unit, met)) return this.armSend(arm, out, 0);
     }
 
     // 4. Still empty: pull a board out of a STOCKROOM beside it.
@@ -11106,7 +11248,7 @@ export class Game {
       const room = (this.layout.shelves ?? [])
         .find((sh) => sh.x === s.x && sh.z === s.z && sh.boh === true && this.handMayTouch(sh));
       if (!room) continue;
-      if (this.armPull(arm, room, met)) return Game.armSide(arm, s, 0);
+      if (this.armPull(arm, room, met)) return this.armSend(arm, s, 0);
     }
     return null;
   }
@@ -11237,7 +11379,7 @@ export class Game {
    */
   static ARM_DROP_STACK = 3;
 
-  armDrop(arm, at, crate) {
+  armDrop(arm, at, crate, { dry = false } = {}) {
     if (this.beltAt(at.x, at.z)) return false;
     if (!isWalkable(this.walk, this.layout, at.x, at.z)) return false;
 
@@ -11265,6 +11407,11 @@ export class Game {
     const standing = this.deliveries.filter((d) => !d.belt
       && cells.some((c) => c.x === Math.round(d.x) && c.z === Math.round(d.z))).length;
     if (standing >= Game.ARM_DROP_STACK * cells.length) return false;
+    // Every refusal is above this line, which is what makes a dry ask honest:
+    // `armSwing` uses it to pick a side before the crate sets off, and a guard
+    // added below it would be one the plan cannot see — a box walked to a square
+    // that turns it away, every swing, for ever.
+    if (dry) return true;
 
     const onIsland = () => this.deliveries.filter((d) => !d.belt
       && cells.some((c) => c.x === Math.round(d.x) && c.z === Math.round(d.z)));

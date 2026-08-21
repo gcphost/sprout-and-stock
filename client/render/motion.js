@@ -223,6 +223,26 @@ export function animateMotion(moving, t, running, signal = null) {
       } else {
         m.mesh.position.x = m.pos.x + m.travel;
       }
+    } else if (kind === 'chase') {
+      // A conveyor carrier, which no longer MOVES — it lights.
+      //
+      // Identical accumulation to `scroll` above and deliberately so: the ease
+      // in and out of `amp` is the whole reason this stays here rather than
+      // being a sine in the renderer. A belt that stops has to stop where it
+      // stopped, and a highlight read straight off the clock would slide
+      // backwards down the run as the amp fell, which is the reversing-blade
+      // bug wearing a light.
+      //
+      // It writes NOTHING to the mesh. `m.travel` is the whole output, and
+      // `Scene.flushSlats` spends it on the instance colour: a band of brighter
+      // carriers walking the way the goods go. The carriers themselves are
+      // nailed down, which is what was asked for — a run of small parts each
+      // physically sliding a third of a tile reads as the machine coming apart
+      // at this camera, where the same fact told in light reads as a belt.
+      const span = amount || 0.25;
+      m.travel = ((m.travel ?? 0) + dt * hz * amp * span) % span;
+      m.span = span;
+      m.amp = amp;
     }
   }
 }
