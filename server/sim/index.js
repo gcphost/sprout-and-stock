@@ -10999,6 +10999,38 @@ export class Game {
     // And it honours `managed`, which the pour half does not and should not.
     // Aiming a loader at a unit is consent to fill it; it is not consent to
     // empty a unit you have explicitly told the crew to leave alone.
+    // 3. Still empty: take a finished tray off a machine beside it.
+    //
+    // Ahead of the stockroom below because a full tray STOPS its machine, where
+    // a stockroom is content to sit — so this is the swing that unblocks
+    // something and that one is the swing that tidies.
+    for (const s of sides) {
+      const machine = (this.layout.stations ?? []).find((st) => st.x === s.x && st.z === s.z);
+      if (machine && this.armTake(arm, machine)) return true;
+    }
+
+    // 4a. Still empty: a LOAD-ONLY loader pulls off the unit it is aimed at.
+    //
+    // `armPull` below is stockrooms only, and the argument for that is sound —
+    // a loader that could pull off any shelf empties the aisle it was bought to
+    // fill, and the two directions undo each other on one run. What makes this
+    // different is that it cannot be an accident: the piece has to be switched
+    // to `load`, which is you saying it never puts anything down, AND turned to
+    // face the unit. A load-only loader has no output side, so `rot` is free to
+    // mean the one thing left for it to mean — the unit it works.
+    //
+    // Same three guards `armPull` earns its exception with, minus the one that
+    // does not apply: back-of-house is replaced by your aim, `managed` still
+    // holds (aiming at a unit is consent to work it, not permission to override
+    // a shelf you told the crew to leave alone), and the destination test stays,
+    // or a loader strips a shelf onto a run with nowhere for the goods to go.
+    if (mode === 'load') {
+      const unit = (this.layout.shelves ?? []).find((sh) => sh.x === out.x && sh.z === out.z
+        && this.handMayTouch(sh));
+      if (unit && this.armPull(arm, unit, met)) return true;
+    }
+
+    // 4. Still empty: pull a board out of a STOCKROOM beside it.
     for (const s of sides) {
       const room = (this.layout.shelves ?? [])
         .find((sh) => sh.x === s.x && sh.z === s.z && sh.boh === true && this.handMayTouch(sh));
@@ -11037,9 +11069,54 @@ export class Game {
   }
 
   /** ...and the one that starts on a stockroom board. See `armSwing` step 3. */
+  /**
+   * Lift a finished batch off a machine's tray onto the run.
+   *
+   * The half of "machine feeds machine" that was missing. `armFeed` has filled
+   * hoppers since step 2, so a loader could always put ingredients IN — and
+   * nothing could ever take the product OUT, so every chain stopped at the
+   * first appliance and waited for a person. Which reads as the kitchen not
+   * being automatable, when it was three quarters of the way there.
+   *
+   * No destination test, unlike `armPull`. A tray is not storage: `lotRoom` is
+   * zero while something is sitting in it, so the machine cannot start the next
+   * batch until it is cleared — emptying it is the point, and a box nothing
+   * downstream wants is what the off-ramp is for. `armPull` needs its test for
+   * the opposite reason: a stockroom is perfectly happy holding stock, so
+   * moving it without a taker is a machine shuffling boxes around your shop.
+   *
+   * One slot per swing, which is what a twin machine's two trays are for: two
+   * heads finish at their own times and each is a separate lift.
+   */
+  armTake(arm, station) {
+    const c = content();
+    for (const slot of this.stationSlots(station)) {
+      const out = slot.output;
+      if (!out || !(out.qty > 0)) continue;
+      if (!c.byId.items[out.item_id]) continue;     // deleted out from under us
+      const take = Math.min(out.qty, this.crateLot().cap);
+      const del = {
+        id: `del-${this.nextDeliveryId++}`,
+        stacks: [{ item_id: out.item_id, qty: take, day: out.day ?? this.day }],
+        x: arm.x,
+        z: arm.z,
+      };
+      out.qty -= take;
+      if (out.qty <= 0) slot.output = null;
+      this.deliveries.push(del);
+      this.loadBelt(arm, del);
+      return true;
+    }
+    return false;
+  }
+
   armPull(arm, room, met) {
     const c = content();
-    const floor = met.shelves.filter((sh) => sh.boh !== true);
+    // Never back onto the unit it came off. Harmless while this was stockrooms
+    // only — a back-of-house unit is never in this list — and a loop the moment
+    // an aimed loader can work a shop-floor shelf: the board comes off, rides
+    // the run, and the only taker downstream is the shelf it started on.
+    const floor = met.shelves.filter((sh) => sh.boh !== true && sh.id !== room.id);
     if (!floor.length) return false;
 
     for (const stack of this.shelfStacks(room)) {
