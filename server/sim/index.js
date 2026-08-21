@@ -42,7 +42,7 @@ import { stepStaff, syncStaff, breakProgress, carryOf, givenUp } from './staff.j
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
-  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, tunnelExit, beltRunCells, BELT_RUN_MAX, RUN_KINDS,
+  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, tunnelExit, derivedFlow, beltRunCells, BELT_RUN_MAX, RUN_KINDS,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
@@ -10549,17 +10549,76 @@ export class Game {
 
     let laid = 0;
     let last = null;
+    const mine = [];
     const out = this.holdReflow(() => {
       for (const c of cells) {
         const res = this.placeFixture(playerId, {
           kind, piece, variant, x: c.x, z: c.z, rot: c.rot,
         });
-        if (res.ok) { laid += 1; last = res.placed ?? last; } else last ??= null;
+        if (res.ok) { laid += 1; last = res.placed ?? last; mine.push(res.placed); } else last ??= null;
       }
       return null;
     });
     void out;
     if (!laid) return err('nothing could go there');
+
+    // The LAST cell aims at a run it is touching, if its own facing aims at
+    // nothing.
+    //
+    // A drag keeps the direction it was dragged in, which is right for every
+    // cell but the final one: that one is the end of the gesture, and the end
+    // of a gesture is usually somewhere you were heading. Dragged up to a line
+    // you already own, it stops one square short of joining it and points at
+    // bare floor — a dead end beside the very run it was drawn to meet, which
+    // reads as the drag having failed rather than as a facing you now have to
+    // fix by hand.
+    //
+    // Only when it aims at nothing (a cell already handing to a conveyor has
+    // made its choice), only when there is EXACTLY ONE candidate — two is a
+    // guess, and a guess about flow is a run that quietly goes the wrong way —
+    // and never back at its own feeder, which is the two-cell tug of war
+    // `conveyorFlow` warns about.
+    // Asked of every cell the drag laid rather than of `last`, which is not the
+    // end you dragged to: `beltRunCells` emits lowest-index-first whichever way
+    // the gesture went, so `last` is the FAR end for half of all drags. Only a
+    // terminus can qualify anyway — every other cell is already aimed at its
+    // neighbour — so sweeping the run costs nothing and cannot pick the wrong
+    // one.
+    // ...and the cell the drag STARTED on, when that was already conveyor.
+    //
+    // Starting a drag on a line you own is how you extend one, and the square
+    // you started from is refused (something is already there) so it never
+    // reaches `mine`. Left out, the new leg is laid and the cell it grew from
+    // goes on pointing wherever it did — a dead end welded to the side of the
+    // run it just spawned. Same rule guards it as the tail: only if it aims at
+    // NOTHING, so a cell already handing on is untouched and a junction keeps
+    // every way out it has.
+    const ends = [
+      conveyorAt(this.layout, Math.round(x), Math.round(z)),
+      to ? conveyorAt(this.layout, Math.round(to.x), Math.round(to.z)) : null,
+    ].filter(Boolean).map((c) => c.id);
+
+    let turned = false;
+    for (const id of [...mine, ...ends]) {
+      const tail = id ? this.findFixture(id)?.ref : null;
+      if (!tail || derivedFlow(tail.kind) || tail.kind === 'under') continue;
+      const ahead = anchorTile(tail.x, tail.z, tail.rot ?? 0);
+      if (conveyorAt(this.layout, ahead.x, ahead.z)) continue;
+      const feeds = (o) => {
+        const w = conveyorNext(this.layout, o);
+        return !!w && w.x === tail.x && w.z === tail.z;
+      };
+      const joins = [0, 1, 2, 3]
+        .map((r) => ({ r, t: anchorTile(tail.x, tail.z, r) }))
+        .map(({ r, t }) => ({ r, o: conveyorAt(this.layout, t.x, t.z) }))
+        .filter(({ o }) => o && !feeds(o));
+      if (joins.length !== 1) continue;
+      tail.rot = joins[0].r;
+      const pl = this.placements.find((q) => q.id === id);
+      if (pl) pl.rot = joins[0].r;
+      turned = true;
+    }
+    if (turned) this.regenerateLayout();
     // One line in the feed. `placeFixture` writes one per cell, which for a
     // sixty-cell drag is a log with nothing else in it.
     this.pushLog(`Laid ${laid} ${FIXTURES[kind]?.label?.toLowerCase() ?? 'belt'} cells.`);

@@ -6452,6 +6452,45 @@ export class Scene {
     // `addConveyorSlats` registers the slats and the loop above registers the
     // lamps — two places, one truth, and a third one added later would be
     // silently welded solid.
+    // A lamp on each tunnel mouth, lit while there is a box in it.
+    //
+    // The same readout a loader has and for the same reason: a mouth with a
+    // crate underground and a mouth with nothing in it are the same still
+    // frame — the box is not drawn, by design, so without this the one piece
+    // whose contents you cannot see is also the one piece with nothing to say.
+    // Drawn here rather than authored on the model because it has to be its own
+    // material: `material()` is a cache keyed by colour, so recolouring through
+    // it would light every cream thing in the shop.
+    for (const c of conveyorsOf(L)) {
+      if (c.kind !== 'under') continue;
+      const lamp = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+        color: new THREE.Color(LAMP_IDLE), flatShading: true,
+      }));
+      lamp.scale.set(0.14, 0.05, 0.14);
+      lamp.position.set(c.x, 0.36, c.z);
+      lamp.raycast = NO_PICK;
+      this.beltRoot.add(lamp);
+      const rec = this.movingFixtures.get(c.id)
+        ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
+      rec.conveyor = true;
+      // What decides the COLOUR, since a mouth has no `armSaid` to report: it
+      // either has a box in it or it has not, and that is the whole readout.
+      rec.mouth = true;
+      (rec.lamps ??= []).push(lamp);
+      rec.moving.push({
+        mesh: lamp,
+        motion: { kind: 'pulse', hz: 1.6, amount: 0.45 },
+        pos: lamp.position.clone(),
+        rot: 0,
+        scale: lamp.scale.clone(),
+        axis: null,
+        arm: null,
+        pivot: null,
+        phase: 0,
+      });
+      this.movingFixtures.set(c.id, rec);
+    }
+
     const moving = new Set();
     for (const rec of this.movingFixtures.values()) {
       if (!rec.conveyor) continue;
@@ -7697,7 +7736,11 @@ export class Scene {
       // working whatever came of it, and a light that stopped moving the moment
       // a pour failed would read as the loader having died.
       const said = this.armSaid?.get(id) ?? null;
-      const hue = said === 'load' ? LAMP_ON : said === 'pass' ? LAMP_PASS : LAMP_IDLE;
+      // A mouth reports what it HOLDS rather than whether it is flowing: the
+      // box inside a tunnel is not drawn, so "there is one in here" is the only
+      // thing this light has to say, and a jam must not turn it off.
+      const hue = body.mouth ? (this.beltBusy?.has(id) ? LAMP_ON : LAMP_IDLE)
+        : said === 'load' ? LAMP_ON : said === 'pass' ? LAMP_PASS : LAMP_IDLE;
       // Set only when it changes, because a `Color.set` per lamp per frame is
       // the cost this whole gating exists to avoid — and `material` here is the
       // lamp's own, never the shared cache.
