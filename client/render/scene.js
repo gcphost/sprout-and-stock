@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
+import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
   buildBubble, buildCashDrop, buildVehicle,
@@ -20,6 +20,7 @@ import {
   buildRipple,
   buildStamp,
   buildFootMark,
+  buildPadGlyph,
   weld, paintLit,
 } from './props.js';
 import { Heat } from './heat.js';
@@ -1158,6 +1159,10 @@ export class Scene {
     // would leave with it while the rest of the money was still sitting there.
     this.cashLabels = new Map();
     this.deliveryProps = new Map();
+    // Crates whose record has gone while their machine was mid-swing — see
+    // `stepLeaving`. They are drawn for a few tenths of a second longer than the
+    // shop believes in them.
+    this.leaving = [];
     // The lorry on its run and the cars in the car park, in one map, because
     // they are one thing — see `syncVehicles`. In `actorRoot` with the other
     // props, and NOT cleared by `buildWorld`: a vehicle is positioned from the
@@ -1903,6 +1908,107 @@ export class Scene {
   }
 
   /**
+   * Paint a job pad: a line round the outside of it, and one symbol in it.
+   *
+   * The edge is drawn CELL BY CELL, from each square's own neighbours, which is
+   * the same trick `addStripes` uses to avoid ever knowing what a patch is: a
+   * side with no pad beyond it is an edge, so an L-shaped bay gets an L-shaped
+   * line and a pad painted up against another one has no line between them.
+   *
+   * The symbol is the half that does need a region, because there is one per pad
+   * rather than one per square — a glyph on every cell is wallpaper, and what is
+   * being imitated is a sign painted on the ground. So the cells are flooded into
+   * connected groups and each gets one, sized to the smaller of its two spans so
+   * a one-cell drop-off is not wearing a symbol three tiles wide.
+   *
+   * Both are baked into the ground light the way the crossing stripes are: a
+   * marking that stayed bright while the shop went dark would read as a decal on
+   * the camera rather than as paint on the floor.
+   */
+  addPadMarks(cells, mark, height, box, dummy) {
+    const has = new Set(cells.map(([x, z]) => `${x},${z}`));
+    const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const edges = [];
+    for (const [x, z] of cells) {
+      for (const [dx, dz] of SIDES) {
+        if (!has.has(`${x + dx},${z + dz}`)) edges.push([x, z, dx, dz]);
+      }
+    }
+
+    if (edges.length) {
+      const LINE = 0.09;
+      const lines = new THREE.InstancedMesh(box, material(mark.ink), edges.length);
+      lines.castShadow = false;
+      lines.receiveShadow = true;
+      lines.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(edges.length * 3), 3);
+      const bare = new Float32Array(edges.length * 3).fill(1);
+      const at = new Float32Array(edges.length * 3);
+      edges.forEach(([x, z, dx, dz], i) => {
+        // Inset by half its own width, so the line sits ON the pad rather than
+        // straddling the seam — half a line hanging over the grass beside it is
+        // a pad that looks a hair too big, which is exactly the thing the edge
+        // is being drawn to say precisely.
+        const y = height + 0.012;
+        dummy.position.set(x + dx * (0.5 - LINE / 2), y, z + dz * (0.5 - LINE / 2));
+        dummy.scale.set(dx ? LINE : 1, 0.02, dz ? LINE : 1);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        lines.setMatrixAt(i, dummy.matrix);
+        at[i * 3] = dummy.position.x;
+        at[i * 3 + 1] = y;
+        at[i * 3 + 2] = dummy.position.z;
+        lines.setColorAt(i, this.lights.bakeInto(new THREE.Color(1, 1, 1), dummy.position.x, y, dummy.position.z));
+      });
+      lines.instanceMatrix.needsUpdate = true;
+      if (lines.instanceColor) lines.instanceColor.needsUpdate = true;
+      lines.layers.set(BAKED_LAYER);
+      this.bakedGround.push({ mesh: lines, bare, at });
+      this.staticRoot.add(lines);
+    }
+
+    // One symbol per connected pad. A plain flood, iterative rather than
+    // recursive — a yard painted wall to wall is a thousand cells and a
+    // recursion that deep is a blown stack while somebody is dragging a brush.
+    const left = new Set(has);
+    while (left.size) {
+      const first = left.values().next().value;
+      const group = [];
+      const queue = [first];
+      left.delete(first);
+      while (queue.length) {
+        const cur = queue.pop();
+        const [cx, cz] = cur.split(',').map(Number);
+        group.push([cx, cz]);
+        for (const [dx, dz] of SIDES) {
+          const k = `${cx + dx},${cz + dz}`;
+          if (left.has(k)) { left.delete(k); queue.push(k); }
+        }
+      }
+      const xs = group.map(([x]) => x);
+      const zs = group.map(([, z]) => z);
+      const w = Math.max(...xs) - Math.min(...xs) + 1;
+      const d = Math.max(...zs) - Math.min(...zs) + 1;
+      // The centre of the pad's own cells, and then the member cell nearest to
+      // it — a U-shaped yard's middle is a square that is not part of the yard,
+      // and a symbol floating in the gap belongs to nothing.
+      const mx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const mz = (Math.min(...zs) + Math.max(...zs)) / 2;
+      const [gx, gz] = group.reduce((best, c) => (
+        (c[0] - mx) ** 2 + (c[1] - mz) ** 2 < (best[0] - mx) ** 2 + (best[1] - mz) ** 2 ? c : best
+      ), group[0]);
+      const size = Math.min(2.2, Math.max(0.7, Math.min(w, d) * 0.8));
+      const glyph = buildPadGlyph(mark.glyph, mark.ink);
+      glyph.scale.set(size, size, 1);
+      glyph.position.set(gx, height + 0.014, gz);
+      // Unbaked, and it is the one mark here that is: a texture's colour lives
+      // on the material rather than on an instance, so there is nothing per-cell
+      // to multiply the light into. A symbol is small enough that a lamp passing
+      // over it changing nothing reads as paint catching the light evenly.
+      this.staticRoot.add(glyph);
+    }
+  }
+
+  /**
    * PLANTING — the second ground pattern that is geometry, and the first with
    * any height to it.
    *
@@ -2317,6 +2423,11 @@ export class Scene {
       if (surface?.pattern === 'stripes') this.addStripes(cells, surface, height, box, dummy);
       if (surface?.pattern === 'tufts') this.addTufts(cells, surface, height, dummy);
 
+      // ...and the marks that say what a pad is FOR, which is the third thing on
+      // this list that is not a colour and the only one that is not a pattern.
+      // See `PAD_MARK`.
+      if (PAD_MARK[kind]) this.addPadMarks(cells, PAD_MARK[kind], height, box, dummy);
+
       // A contrasting top slab, so a raised tile reads as built rather than as
       // an anonymous coloured block. Only the wall is left: the four furniture
       // entries went with the fixture tiles, and furniture draws its own art.
@@ -2697,7 +2808,7 @@ export class Scene {
       // colour, count and thickness are read back off the model, so a tier that
       // wants eight thin ones still gets eight thin ones — they are simply
       // placed by the renderer rather than by the author.
-      const model = this.conveyorBody(this.fixtureModel(f), f);
+      const model = this.conveyorBody(this.fixtureModel(f), f, L);
       const signal = this.pieceOf(f)?.signal ?? null;
       const opts = { abuts: (step) => this.carriesOn(byTile, f, step) };
       // A fixture nobody has drawn used to be a coloured tile block, because it
@@ -3218,12 +3329,33 @@ export class Scene {
     this.syncShelves(state.shelves);
     this.syncPlots(state.plots);
     this.syncCashDrops(state.cashDrops ?? []);
-    this.syncDeliveries(state.deliveries ?? [], this.crateCap);
     // What each loader's last swing came to, which is what its lamp is coloured
-    // by. A map rather than a walk in `animateStations`, because that runs on
-    // the page's clock at 60Hz against a snapshot that arrives at 10.
+    // by, and the transfer itself, which is what the crate travels. Maps rather
+    // than a walk in `animateStations`, because that runs on the page's clock at
+    // 60Hz against a snapshot that arrives at 10.
+    //
+    // BEFORE `syncDeliveries`, which is not tidiness: that function is where a
+    // crate the shop has just forgotten is handed to `stepLeaving`, and it needs
+    // to know which side the swing used to do it. Built afterwards, as it was,
+    // it answered with the PREVIOUS snapshot's swing — right for as long as a
+    // loader swung more slowly than the say-window, and quietly wrong the moment
+    // one did not.
     this.armSaid = new Map((state.arms ?? [])
       .filter((a) => a.did).map((a) => [a.id, a.did]));
+    this.armMove = new Map((state.arms ?? [])
+      .filter((a) => a.move).map((a) => [a.id, a.move]));
+    // WHEN a transfer started is stamped HERE, on arrival, rather than in
+    // `animateStations`. Two readers need it — the frame loop, which runs the
+    // crate down the spur at 60Hz, and `syncDeliveries` below, which has to know
+    // not to put that same crate back on the machine — and a clock started by
+    // one of them is a clock the other cannot see. `move.n` only goes up, so the
+    // edge is unmissable however the snapshots land.
+    const stamp = performance.now() / 1000;
+    for (const [id, m] of this.armMove) {
+      const body = this.movingFixtures.get(id);
+      if (body && body.moveN !== m.n) { body.moveN = m.n; body.moveAt = stamp; }
+    }
+    this.syncDeliveries(state.deliveries ?? [], this.crateCap);
     this.syncVehicles(state.van ?? null, state.cars ?? []);
     this.syncStations(state.stations ?? []);
     this.syncActionRings(state.players, myId);
@@ -3632,6 +3764,9 @@ export class Scene {
    * crates are taken and the tower must not shuffle underneath your pointer.
    */
   syncDeliveries(deliveries, cap = 6) {
+    // The page's clock, for `slidePlace` — a snapshot carries no time of its own
+    // and the offset it is being asked about is measured against this one.
+    const now = performance.now() / 1000;
     const seen = new Set();
     const stacks = new Map();
     // Which conveyor cells are carrying something, which is what a loader's lamp
@@ -3653,6 +3788,11 @@ export class Scene {
     const L = this.storeLayout;
     const onCell = new Map();
     for (const d of deliveries) if (d.belt) onCell.set(d.belt, d);
+    // Kept, because `animateStations` needs to know WHICH crate is on a machine
+    // in order to slide that one down its spur — see the swing below. It is the
+    // same map the jam test is built from; the alternative is a second walk of
+    // `deliveries` on the page's clock rather than on the snapshot's.
+    this.beltOn = onCell;
     this.beltStuck = new Set();
     if (L) {
       for (const c of conveyorsOf(L)) {
@@ -3737,6 +3877,17 @@ export class Scene {
         // Free for everything else: nothing but a belt has ever moved a crate,
         // so this writes the same three numbers it already held.
         existing.position.set(d.x, d.belt ? BELT_DECK : at * CRATE_STEP, d.z);
+        // Where it belongs with nothing happening to it. A swing offsets the
+        // mesh between snapshots (see `animateStations`), so the position it
+        // offsets FROM has to be the one the shop last said rather than wherever
+        // the last frame left it — otherwise every swing walks the crate a
+        // little further down the spur and it drifts off the end.
+        existing.userData.homeX = d.x;
+        existing.userData.homeZ = d.z;
+        existing.userData.beltId = d.belt ?? null;
+        // ...unless it is part way down a spur, in which case the shop's answer
+        // is where the box ENDS UP and not where it is. See `slidePlace`.
+        this.slidePlace(existing, d.belt ?? null, now);
         continue;
       }
       if (existing) {
@@ -3750,6 +3901,15 @@ export class Scene {
       // anything belted (it is in no pile), so this is the belt's own height and
       // never an offset into a tower.
       obj.position.set(d.x, d.belt ? BELT_DECK : at * CRATE_STEP, d.z);
+      obj.userData.homeX = d.x;
+      obj.userData.homeZ = d.z;
+      obj.userData.beltId = d.belt ?? null;
+      // A LIFT REBUILDS THE MESH, which is the moment this matters most: the
+      // crate stops being a floor pallet and becomes a riding one (no label, and
+      // `:b` in the key), so it is disposed and made again — at the machine's
+      // centre, a tile from where it was. Placed here it is made at the mouth of
+      // the spur instead, where the box the player was looking at actually was.
+      this.slidePlace(obj, d.belt ?? null, now);
       // A BOX ON A CONVEYOR IS SMALLER THAN A BOX ON THE FLOOR.
       //
       // A pallet is drawn at the size of a thing somebody set down with both
@@ -3782,10 +3942,122 @@ export class Scene {
     }
     for (const [id, obj] of this.deliveryProps) {
       if (seen.has(id)) continue;
+      // A CRATE A LOADER JUST TOOK DOES NOT BLINK OUT — it finishes the journey
+      // it was on.
+      //
+      // This is where "the box vanishes into the machine" actually lived, and
+      // no amount of art on the loader was ever going to fix it. A pour DELETES
+      // the delivery: the goods are on a board now, so the shop is right and the
+      // snapshot is right, and the crate's mesh is disposed on the very tick the
+      // transfer happens. What you watch is a box on a belt ceasing to exist.
+      //
+      // So the mesh outlives the record by a few tenths of a second and rides
+      // the spur out on its own. It is the SAME crate — the same group, the same
+      // goods drawn on it, still in `actorRoot` — carrying on rather than a
+      // stand-in built to look like it. Nothing about the shop is pretended: it
+      // is a picture finishing after the fact it depicts, which is what every
+      // easing animation in here is.
+      //
+      // Handed over only if the machine it was on is mid-swing. Anything else
+      // that removes a crate — you picked it up, it merged, its item was deleted
+      // — is not a journey and must still go instantly, or lifting a box would
+      // leave a ghost of it sliding off a machine that never touched it.
+      // ...and it goes out the side the shop says it went out of. `move.d` is
+      // that side; `move.out` is what makes this a journey rather than a
+      // disappearance, because a loader that LIFTED a box has taken nothing away
+      // — the record it created is still there and `animateStations` is riding
+      // it in. Only a pour ends a crate.
+      const from = obj.userData.beltId;
+      const rec = from ? this.movingFixtures.get(from) : null;
+      const mv = from ? this.armMove?.get(from) : null;
+      const slide = rec?.slides?.length && mv?.out ? Scene.slideFor(rec.slides, mv) : null;
+      // ...and only if the pour is happening NOW. The wire keeps `move` up for
+      // the server's whole say-window, which is three times a slide, so without
+      // this a crate that went away in the tail of that window for some entirely
+      // unrelated reason — you lifted it, its item was deleted, `binOrphans`
+      // swept it — would set off down a spur nothing had asked it to. A ghost
+      // sliding out of a machine that never touched it is worse than the vanish
+      // this whole path exists to fix, because the vanish is at least honest.
+      const fresh = slide && now - (rec.moveAt ?? -99) < Scene.slideSeconds(slide);
+      if (fresh) {
+        this.leaving.push({ obj, at: performance.now() / 1000, slide });
+        this.deliveryProps.delete(id);
+        continue;
+      }
       this.actorRoot.remove(obj);
       disposeGroup(obj);
       this.deliveryProps.delete(id);
     }
+  }
+
+  /**
+   * Put a crate where its machine's spur has got to, if it is riding one IN.
+   *
+   * THE ONE PLACE that offset is written, and it has two callers for a reason
+   * that is invisible until you plot it. `syncDeliveries` lands on the snapshot
+   * at 10Hz and `animateStations` on the page's clock at 60, and the snapshot
+   * one writes `d.x`/`d.z` — the machine's own centre, because that is honestly
+   * where the shop says the box is. So one frame in six the crate was slammed
+   * back onto the loader and then picked its journey up again on the next: a box
+   * riding a spur in a visible stutter, which reads as the crate being drawn
+   * wrong rather than as two writers disagreeing at different rates.
+   *
+   * Only ever the INBOUND half. A pour leaves no record to move — see
+   * `stepLeaving`, which rides the same slide with the mesh the shop has already
+   * forgotten.
+   */
+  slidePlace(obj, beltId, t) {
+    const body = beltId ? this.movingFixtures.get(beltId) : null;
+    const mv = beltId ? this.armMove?.get(beltId) : null;
+    if (!body?.slides?.length || !mv || mv.out) return false;
+    const sl = Scene.slideFor(body.slides, mv);
+    if (!sl) return false;
+    const per = Scene.slideSeconds(sl);
+    const gone = t - (body.moveAt ?? -99);
+    if (!(gone >= 0 && gone < per)) return false;
+    // In from the far end of the spur to the middle of the machine, which is
+    // where the run's own hand-off picks it up — the second leg of the L, drawn
+    // backwards. `to` and not a span of its own: the crate travels the length of
+    // the track drawn under it, because they are the same number.
+    const up = (1 - gone / per) * sl.to;
+    obj.position.set(sl.cx + sl.dx * up, obj.position.y, sl.cz + sl.dz * up);
+    return true;
+  }
+
+  /**
+   * The crates that are mid-transfer, and the shop has already forgotten.
+   *
+   * Run down their machine's spur and then disposed — see the hand-over in
+   * `syncDeliveries`. A list rather than a field because a shop can have twenty
+   * loaders swinging at once, and it is drained every frame, so it is empty
+   * almost all of the time.
+   */
+  stepLeaving(t) {
+    if (!this.leaving.length) return;
+    const kept = [];
+    for (const l of this.leaving) {
+      const gone = t - l.at;
+      // At TRACK SPEED, and the length of the spur decides how long that is —
+      // see `Scene.slideSeconds`. A flat duration ran the short hop into a shelf
+      // and the full tile out onto a pad at visibly different rates, on two
+      // pieces of identical track.
+      const per = Scene.slideSeconds(l.slide);
+      if (gone >= per) {
+        this.actorRoot.remove(l.obj);
+        disposeGroup(l.obj);
+        continue;
+      }
+      // Out from the middle of the machine, which is where the run's own
+      // hand-off left it — the second leg of the L. `to` and not a span of its
+      // own: the crate travels the length of the track drawn under it, because
+      // they are the same number.
+      const up = (gone / per) * l.slide.to;
+      l.obj.position.set(
+        l.slide.cx + l.slide.dx * up, l.obj.position.y, l.slide.cz + l.slide.dz * up,
+      );
+      kept.push(l);
+    }
+    this.leaving = kept;
   }
 
   /**
@@ -5404,45 +5676,58 @@ export class Scene {
    * and the two must agree about radius and about which way round they go, or a
    * spur meets the run it is joining at a visible kink.
    */
-  /**
-   * Do goods actually cross the line between these two cells?
+  /* `conveyorJoined` lived here and went with the rails it existed for.
    *
-   * The rail rule was "is there a conveyor across this edge", which is a PROXY
-   * for this and an exact one for as long as every neighbour was a neighbour in
-   * the run. A tunnel breaks it in both directions at once: the main line it
-   * ducks under is adjacent to both mouths and connected to neither, so the
-   * mouth opened onto a belt it has nothing to do with and the main line lost
-   * its own kerb where the tunnel passed. Which reads as the rails having been
-   * put on the wrong sides — and they had, because nobody was asking the right
-   * question.
+   * It answered "do goods actually cross the line between these two cells" —
+   * which the rail rule needed, because the cheap version of that question ("is
+   * there a conveyor across this edge") is exact only while every neighbour is
+   * a neighbour IN the run, and a tunnel breaks it both ways at once: the main
+   * line a span ducks under is adjacent to both mouths and connected to
+   * neither, so a mouth grew a kerb onto a belt it has nothing to do with and
+   * the main line lost its own where the tunnel passed.
    *
-   * Either direction counts: a rail is about the edge, and goods crossing it
-   * one way is enough to make it the middle of a belt rather than the outside.
+   * Worth keeping written down rather than only deleted, because the trap comes
+   * back with anything else drawn per EDGE: adjacency is not connection, and a
+   * tunnel is the case that proves it.
    */
-  static conveyorJoined(L, c, other) {
-    if (!other) return false;
-    // Adjacency is still the answer for everything that has no tunnel in it —
-    // two ordinary cells side by side read as one belt, and asking flow here
-    // would put a kerb between two parallel runs that have always been drawn
-    // as one wide deck.
-    if (c.kind !== 'under' && other.kind !== 'under') return true;
-    const hands = (from, to) => {
-      const n = conveyorNext(L, from);
-      if (n && n.x === to.x && n.z === to.z) return true;
-      return conveyorBranches(L, from).some((b) => b.x === to.x && b.z === to.z);
-    };
-    return hands(c, other) || hands(other, c);
+
+  /**
+   * WHICH spur a swing went down, when a machine has more than one.
+   *
+   * A loader serves every side it can reach, so a unit in the mouth of an aisle
+   * has two or three — and taking the first in the list is right a third of the
+   * time. Nothing on the wire says which side a swing used; what it does say is
+   * WHAT the swing was (`did`), and that decides the direction: a machine that
+   * took a box was loading ONTO the line, so the spur it used is an inbound one.
+   *
+   * Still a guess between two spurs of the same direction, and deliberately not
+   * fixed by sending the side: it is a tenth of a second of a box on the right
+   * machine going the right way, and the wire is not the place to spend bytes on
+   * which of two identical shelves it came off.
+   *
+   * Falls back to the first rather than to nothing — a loader with only outbound
+   * spurs that reports a load has one spur and it is the one to use, and drawing
+   * nothing at all is the vanishing this whole path exists to end.
+   */
+  static slideFor(slides, said) {
+    const want = said === 'load' ? -1 : 1;
+    return slides.find((sl) => sl.flow === want) ?? slides[0];
   }
 
-  static conveyorArc(c, from, to) {
-    const cx = c.x + (-from.x + to.x) * 0.5;
-    const cz = c.z + (-from.z + to.z) * 0.5;
-    const a0 = Math.atan2((c.z - from.z * 0.5) - cz, (c.x - from.x * 0.5) - cx);
-    let da = Math.atan2((c.z + to.z * 0.5) - cz, (c.x + to.x * 0.5) - cx) - a0;
-    while (da > Math.PI) da -= Math.PI * 2;
-    while (da < -Math.PI) da += Math.PI * 2;
-    return { cx, cz, a0, da };
-  }
+  /* `conveyorArc` lived here and went with the curves it drew.
+   *
+   * It answered "the quarter circle a cell's goods travel", and three things
+   * were laid on it — the bent groove, the carriers on a corner, and the near
+   * half of a spur at a T. All three are right angles now, for the reason
+   * `addConveyorPaths` gives: the crate is handed cell-centre to cell-centre, so
+   * a curve was a picture of a motion nothing performs.
+   *
+   * Worth a tombstone rather than a silent delete, because the thing it existed
+   * to prevent is not obvious from the straight version: a spur and the bend it
+   * joins have to agree about radius and about which way round they go, or two
+   * lines meet at a visible kink. Anything that puts a curve back needs one
+   * function answering that for both, not two.
+   */
 
   addConveyorSlats(L, geo) {
     // Every slat in the shop, by colour, as ONE draw each.
@@ -5463,7 +5748,12 @@ export class Scene {
     const byColour = new Map();
     for (const c of conveyorsOf(L)) {
       const parts = this.conveyorSlatParts(c);
-      if (!parts.length) continue;
+      // A machine has spurs and no slats of its own — see `conveyorRunSlats`.
+      // Bailing on `parts` alone skipped every loader in the shop before its
+      // spur was ever reached, which is the whole track between a machine and
+      // the unit it feeds simply not being drawn.
+      const spurs = this.conveyorSpurs(L, c);
+      if (!parts.length && !spurs.length) continue;
       const path = this.conveyorPath(L, c);
       const rec = this.movingFixtures.get(c.id)
         ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
@@ -5474,9 +5764,6 @@ export class Scene {
       // would scroll a slat straight through its neighbour.
       const xs = parts.map((p) => p.pos?.[0] ?? 0).sort((a, b) => a - b);
       const span = xs.length > 1 ? Math.abs(xs[1] - xs[0]) : 0.26;
-
-      // The arc, for a corner: centre, radius, and the two ends of the quarter.
-      const { cx, cz, a0, da } = Scene.conveyorArc(c, path.in, path.out);
 
       for (const p of parts) {
         const along = p.pos?.[0] ?? 0;
@@ -5498,25 +5785,20 @@ export class Scene {
           phase: rec.moving.length * 0.41,
         };
 
-        if (path.corner) {
-          // Along-run position becomes a place on the quarter circle.
-          const k = Math.min(1, Math.max(0, along + 0.5));
-          const a = a0 + da * k;
-          // Held to the arc's own band. The authored length is measured across a
-          // straight deck; on a bend the same bar centred at radius 0.5 reaches
-          // past the tile at the outer end, which is the overflow.
-          mesh.scale.set(Math.min(long, 0.62), high, thin);
-          mesh.position.set(cx + Math.cos(a) * 0.5, y, cz + Math.sin(a) * 0.5);
-          mesh.rotation.y = -a;
-          entry.arc = { cx, cz, r: 0.5, dir: Math.sign(da) || 1 };
-          entry.baseA = a;
-        } else {
-          const dx = path.out.x;
-          const dz = path.out.z;
-          mesh.scale.set(dx ? thin : long, high, dz ? thin : long);
-          mesh.position.set(c.x + dx * along, y, c.z + dz * along);
-          entry.dir = { x: dx, z: dz };
-        }
+        // Straight, on a bend as much as anywhere — see the note in
+        // `addConveyorPaths` about why the arc went. Carriers ride the outgoing
+        // leg; the stub back toward the feeding side is deck and nothing else,
+        // which is what a right-angled transfer looks like.
+        // The outgoing half only, on a bend. The other half of the deck is not
+        // drawn there — see `conveyorBody` — so a carrier authored behind the
+        // centre would ride on bare floor. The incoming leg gets its own
+        // carriers below, from the side the goods actually arrive on.
+        if (path.corner && along < 0) continue;
+        const dx = path.out.x;
+        const dz = path.out.z;
+        mesh.scale.set(dx ? thin : long, high, dz ? thin : long);
+        mesh.position.set(c.x + dx * along, y, c.z + dz * along);
+        entry.dir = { x: dx, z: dz };
         entry.pos = mesh.position.clone();
         entry.scale = mesh.scale.clone();
         if (!byColour.has(p.color)) byColour.set(p.color, []);
@@ -5535,18 +5817,26 @@ export class Scene {
       // thing that says which way goods MOVE is missing — which reads as two
       // belts that happen to abut rather than as a T.
       //
-      // It CURVES, and only the half of the curve before the middle is drawn.
+      // It runs STRAIGHT IN and stops at the middle, which is the same right
+      // angle the bend above is drawn as.
       //
-      // A spur is goods turning onto the run, so it is the same quarter circle
-      // a bend is — off its own edge, onto `out`. Laid straight it would point
-      // at the centre of the tile and stop, which reads as a line running into
-      // the side of another one rather than as a line joining it. And it stops
-      // at the middle because the far half of that curve is the through-line's
-      // own track: drawn whole, every T carries two sets of slats along one
-      // path, beating against each other.
+      // It used to curve — the same quarter circle, off its own edge onto `out`,
+      // on the argument that a spur laid straight points at the centre of the
+      // tile and stops, reading as a line running into the side of another one
+      // rather than as a line joining it. That is what a junction IS, and it is
+      // what the goods do: a crate arrives at the middle of this cell and leaves
+      // by whichever way the splitter picked, with no arc anywhere in it.
+      //
+      // Half the leg, still, and for the reason the curve stopped short: the far
+      // half belongs to the through-line's own track, so a whole one gives every
+      // T two sets of carriers along one path, beating against each other.
+      // On a BEND the through-line is itself a spur — goods arrive across the
+      // cell rather than along it — so `path.in` is included there and skipped
+      // everywhere else. Skipped on a straight because the main loop above has
+      // already laid that whole leg; included on a bend because that loop now
+      // stops at the middle.
       for (const f of path.feeds) {
-        if (f.x === path.in.x && f.z === path.in.z) continue;
-        const arc = Scene.conveyorArc(c, f, path.out);
+        if (!path.corner && f.x === path.in.x && f.z === path.in.z) continue;
         for (const p of parts) {
           const along = p.pos?.[0] ?? 0;
           if (along >= 0) continue;
@@ -5554,11 +5844,16 @@ export class Scene {
           const thin = p.scale?.[0] ?? 0.07;
           const high = p.scale?.[1] ?? 0.03;
           const long = p.scale?.[2] ?? 0.56;
-          const a = arc.a0 + arc.da * (along + 0.5);
           const mesh = new THREE.Object3D();
-          mesh.scale.set(Math.min(long, 0.62), high, thin);
-          mesh.position.set(arc.cx + Math.cos(a) * 0.5, y, arc.cz + Math.sin(a) * 0.5);
-          mesh.rotation.y = -a;
+          // In along the feeder's own axis. `f` is the direction goods TRAVEL —
+          // neighbour to cell — and `along` is negative here, so `c + f * along`
+          // starts at the feeding edge and walks to the middle, exactly as a
+          // straight cell's own carriers walk from edge to edge. Subtracting
+          // instead mirrors the half-leg onto the OPPOSITE side of the cell,
+          // which lays track out into a square that has nothing on it and no
+          // reason ever to get one.
+          mesh.scale.set(f.x ? thin : long, high, f.z ? thin : long);
+          mesh.position.set(c.x + f.x * along, y, c.z + f.z * along);
           const entry = {
             mesh,
             motion: { kind: 'scroll', hz: p.motion?.hz ?? 1.1, amount: span },
@@ -5568,8 +5863,7 @@ export class Scene {
             arm: null,
             pivot: null,
             phase: rec.moving.length * 0.41,
-            arc: { cx: arc.cx, cz: arc.cz, r: 0.5, dir: Math.sign(arc.da) || 1 },
-            baseA: a,
+            dir: { x: f.x, z: f.z },
             pos: mesh.position.clone(),
           };
           if (!byColour.has(p.color)) byColour.set(p.color, []);
@@ -5578,70 +5872,103 @@ export class Scene {
         }
       }
 
-      // ...and the corner's own rail: the two outer edges, shortened, plus a
-      // chamfer across the angle between them.
-      if (path.corner) {
-        const diag = { x: (path.in.x - path.out.x) * 0.5, z: (path.in.z - path.out.z) * 0.5 };
-        const len = Math.hypot(diag.x, diag.z) || 1;
-        const ux = diag.x / len;
-        const uz = diag.z / len;
-        // The two edges with nothing across them: a cell is fed from `-in` and
-        // leaves by `+out`, so the outer pair is `+in` and `-out`.
-        //
-        // ...minus any of them a loader POURS across, which is the same
-        // exclusion the straight rails make and for the same reason: goods
-        // physically leave there, so a wall is wrong on the art alone, and the
-        // rail spans 0.07–0.17 while the join mark sits at 0.132, so it eats the
-        // mark whole. A loader on a bend is the ordinary shape at the end of an
-        // aisle — in off the run, out into the column, unloading sideways into
-        // the unit it was bought for — and that unit is exactly one of these two
-        // outer edges. What it drew was the connection walled off, which reads
-        // as the loader not being attached to the thing it is stocking.
-        // ...and minus any of them another CONVEYOR is across, which is the same
-        // exclusion again and the one a bend could not make for itself. `in` and
-        // `out` are a single pair, so a cell that is fed by two lines has a
-        // feeder standing on one of these two edges — and what got drawn was a
-        // wall across a join that works. A T into a bend is the ordinary shape
-        // where a spur meets a run, and the straight rails have refused this
-        // since they were written (`conveyorAt`, in the per-edge loop): a rail
-        // is the OUTSIDE of a run, and an edge with belt across it is the middle
-        // of one however the flow was resolved.
-        const pours = this.conveyorPours(L, c);
-        const outer = [path.in, { x: -path.out.x, z: -path.out.z }]
-          .filter(({ x: ex, z: ez }) => !pours.some((p) => p.x === c.x + ex && p.z === c.z + ez))
-          .filter(({ x: ex, z: ez }) => !Scene.conveyorJoined(L, c, conveyorAt(L, c.x + ex, c.z + ez)));
-        for (const { x: ex, z: ez } of outer) {
-          const rail = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
-          rail.scale.set(ex ? 0.07 : 0.62, 0.1, ez ? 0.07 : 0.62);
-          const shiftX = ex ? 0 : -ux * 0.21;
-          const shiftZ = ez ? 0 : -uz * 0.21;
-          rail.position.set(c.x + ex * 0.47 + shiftX, 0.12, c.z + ez * 0.47 + shiftZ);
-          rail.raycast = NO_PICK;
-          this.beltRoot.add(rail);
-        }
-        // ...and the chamfer only when BOTH outer rails are there to be joined.
-        //
-        // It exists to take the right angle off the outside of a bend, which is
-        // a fact about two rails meeting. Drop one of them for a pour and there
-        // is no angle left — what the chamfer becomes is a half-tile diagonal
-        // bar sitting across the very edge the rail was removed from, which is
-        // the wall back again at 45°, and it eats the join mark exactly as the
-        // rail did.
-        //
-        // A loader on a bend unloading sideways is the ordinary shape at the end
-        // of an aisle, so this is not an edge case: it is what every corner
-        // loader in the shop was drawing.
-        if (outer.length === 2) {
-          const chamfer = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
-          chamfer.scale.set(0.5, 0.1, 0.07);
-          chamfer.position.set(c.x + ux * 0.44, 0.12, c.z + uz * 0.44);
-          chamfer.rotation.y = -(Math.atan2(uz, ux) + Math.PI / 2);
-          chamfer.raycast = NO_PICK;
-          this.beltRoot.add(chamfer);
+      // ...and a SPUR is one more leg of exactly this, which is the whole of
+      // what it should ever have been.
+      //
+      // It was built somewhere else out of something else: `addConveyorPaths`
+      // laid a flat bed and hand-made carriers, in its own colours, at its own
+      // spacing, on its own `rec.spur` list, animated by a second
+      // `animateMotion` call gated on a second clock. Three systems for belts,
+      // loaders and sorters where there is one run — and every one of those
+      // seams is a place the picture can disagree with itself. It did: the spur
+      // scrolled off `armSaid` while the track two inches away scrolled off the
+      // cell being busy, so a loader holding a jammed box had half its own
+      // machine moving.
+      //
+      // Here it is the same `parts` at the same `span`, in the same instanced
+      // batch, on the same `rec.moving` list, driven by the same working flag.
+      // A second belt design costs it nothing, a tier that packs slats closer
+      // packs these closer, and there is no second thing to remember to update.
+      //
+      // The direction is the SPUR's, not the run's: goods cross it outward on a
+      // pour and inward on a lift, and carriers scrolling the wrong way are
+      // worse than still ones, because a still one says nothing and this one
+      // says the opposite of what the machine is doing.
+      const spurParts = spurs.length ? this.conveyorRunSlats(L, c) : [];
+      const spurSpan = (() => {
+        if (spurParts.length < 2) return span;
+        const along = spurParts.map((p) => p.pos?.[0] ?? 0).sort((a, b) => a - b);
+        return Math.abs(along[1] - along[0]);
+      })();
+      for (const sp of spurParts.length ? spurs : []) {
+        // FITTED, not stepped. Walking out at the run's own spacing is right on
+        // a spur long enough to hold two or three bars and silent on the one
+        // that matters most: a loader bolted to a shelf has about a fifth of a
+        // tile of daylight between the two, and at a 0.33 pitch that is one slat
+        // if you are lucky and none if you are not — a length of track drawn
+        // with nothing on it. Three bars minimum, spread evenly, so a short spur
+        // reads as track rather than as a gap, and a long one out onto a pad
+        // still comes out at very nearly the belt's own pitch.
+        // Up to the PAD, not to the end — the last stretch is where the goods
+        // leave, and carriers drawn under it say the opposite. See the pad in
+        // `addConveyorPaths`.
+        const len = Math.max(spurSpan, (sp.to - SPUR_PAD) - sp.from);
+        const n = Math.max(2, Math.round(len / spurSpan));
+        const step = len / n;
+        for (let i = 0; i < n; i++) {
+          const along = sp.from + step * (i + 0.5);
+          const p = spurParts[i % spurParts.length];
+          const y = p.pos?.[1] ?? 0.115;
+          const thin = p.scale?.[0] ?? 0.07;
+          const high = p.scale?.[1] ?? 0.03;
+          const long = p.scale?.[2] ?? 0.56;
+          const mesh = new THREE.Object3D();
+          mesh.scale.set(sp.dx ? thin : long, high, sp.dz ? thin : long);
+          mesh.position.set(c.x + sp.dx * along, y, c.z + sp.dz * along);
+          const entry = {
+            mesh,
+            motion: { kind: 'scroll', hz: p.motion?.hz ?? 1.1, amount: step },
+            rot: 0,
+            axis: null,
+            arm: null,
+            pivot: null,
+            phase: rec.moving.length * 0.41,
+            dir: { x: sp.dx * sp.flow, z: sp.dz * sp.flow },
+            pos: mesh.position.clone(),
+            scale: mesh.scale.clone(),
+          };
+          if (!byColour.has(p.color)) byColour.set(p.color, []);
+          byColour.get(p.color).push(mesh);
+          // FILED PER SPUR, and NOT on `rec.moving` — which is the one place a
+          // spur is not simply another leg of the run.
+          //
+          // `rec.moving` has one working flag for the whole cell, and for the
+          // track through a machine that is right: a crate sitting on a belt IS
+          // the belt working. A spur is idle nearly all of that time. A loader
+          // holds a box for as long as it takes to find somewhere for it, and it
+          // serves ONE side per transfer — so run off the cell's flag, every
+          // spur on the machine scrolls whenever it is holding anything, and
+          // three lengths of track run flat out while goods cross one of them.
+          // That is the lie `beltStuck` was added to stop the main line telling.
+          //
+          // Same slats, same batch, same `scroll`, same `flushSlats`. The only
+          // thing that is per-spur is WHEN — see `animateStations`, which is
+          // handed this list against the side the shop says the goods crossed.
+          const key = `${sp.dx},${sp.dz}`;
+          rec.spurRails ??= new Map();
+          if (!rec.spurRails.has(key)) rec.spurRails.set(key, []);
+          rec.spurRails.get(key).push(entry);
         }
       }
 
-      if (rec.moving.length) this.movingFixtures.set(c.id, rec);
+      // ...and no corner rail or chamfer either, for the reason the straight
+      // ones went (see `addConveyorPaths`): both were the lip of a deck, and the
+      // deck is gone. The chamfer in particular only ever existed to take the
+      // right angle off the OUTSIDE of two rails meeting — with no rails there
+      // is no angle, and the bend is already drawn as a bend by the groove
+      // curving through it.
+
+      if (rec.moving.length || rec.spurRails?.size) this.movingFixtures.set(c.id, rec);
     }
 
     // One instanced mesh per colour, straight onto `staticRoot` and NOT into
@@ -5706,9 +6033,46 @@ export class Scene {
    * quietly leave every fast belt drawing two sets of slats on top of each
    * other.
    */
-  conveyorBody(model, f) {
+  conveyorBody(model, f, L = null) {
     if (!model || !CONVEYOR_KINDS.includes(f.kind)) return model;
-    const strip = (parts) => (parts ?? []).filter((p) => !Scene.isSlat(p) && !Scene.isBack(p));
+    /**
+     * A CORNER GETS HALF A DECK, and this is the leg that used to stick out.
+     *
+     * The deck is authored a full tile long because a belt is a cell repeated —
+     * true of every straight, and false of a bend. The model is turned so its
+     * `+x` is the way the cell hands ON, so the half BEHIND the centre is the
+     * side goods arrive from — which on a straight is the feeding cell and on a
+     * corner is nothing at all. What you get is a stub of track reaching from a
+     * bend out into a square the run never touches, and no amount of correcting
+     * the fillers touches it: it is the fixture's own model, drawn where it was
+     * authored, and the only thing wrong is that half of it is not part of this
+     * cell's path.
+     *
+     * Halved here rather than covered over or drawn separately, so it stays one
+     * mesh from one authored part at whatever colour that tier is painted.
+     */
+    const path = L && f.x != null ? this.conveyorPath(L, f) : null;
+    const half = (p) => {
+      // The deck is the part that spans the tile — the same test `conveyorDeck`
+      // uses to find it, rather than an index into a list somebody may reorder.
+      if (!path?.corner || (p.scale?.[0] ?? 0) < 0.99) return p;
+      const pos = [...(p.pos ?? [0, 0, 0])];
+      const scale = [...p.scale];
+      // From the far side of the incoming leg to the outgoing edge — NOT from
+      // the middle, which is the obvious answer and leaves a notch.
+      //
+      // The leg the cell is fed by is `cross` wide either side of the centre
+      // line, and the filler that draws it starts at `cross` and runs out to the
+      // tile edge. Halve the deck at 0 and the little square between −cross and
+      // 0 belongs to neither of them: an L with a bite out of its outside
+      // corner, which at this camera reads as the two legs not quite meeting.
+      const cross = (p.scale[2] ?? 0) / 2;
+      scale[0] = 0.5 + cross;
+      pos[0] = (pos[0] ?? 0) + 0.25 - cross / 2;
+      return { ...p, pos, scale };
+    };
+    const strip = (parts) => (parts ?? [])
+      .filter((p) => !Scene.isSlat(p) && !Scene.isBack(p)).map(half);
     if (model.stages) {
       return { ...model, stages: model.stages.map((s) => ({ ...s, parts: strip(s.parts) })) };
     }
@@ -5777,6 +6141,45 @@ export class Scene {
     const model = this.fixtureModel(c);
     if (!model) return [];
     return (partsAt(model, this.fixtureT(c)) ?? []).filter((p) => Scene.isSlat(p));
+  }
+
+  /**
+   * The slats to lay along a machine's SPUR — the run's, because the machine has
+   * none of its own.
+   *
+   * A loader is a housing. It is authored as a hood and a deck and nothing that
+   * answers `isSlat`, which is correct — the bars you see crossing it belong to
+   * the belt running underneath. So "draw the spur out of this cell's own slats"
+   * is a rule with no rows in it: `conveyorSlatParts` answered `[]`, the caller
+   * skipped the cell, and the whole spur silently did not exist. That is the
+   * working-system-with-no-content-in-it trap, and it looks exactly like a
+   * feature nobody wired up.
+   *
+   * So it borrows from a neighbour IN the run, which is the honest answer as
+   * well as the working one: a spur is a length of that belt, so it should be
+   * made of that belt's bars, at that belt's spacing, in that belt's colour. A
+   * loader dropped into a run of fast belt gets fast belt's slats and always
+   * will, with nobody having to remember to keep two designs in step.
+   *
+   * Falls back to any conveyor in the shop, then to nothing: a lone loader with
+   * no run attached has no belt to be made of, and drawing a guess would be a
+   * spur in a colour the shop does not own.
+   */
+  conveyorRunSlats(L, c) {
+    const own = this.conveyorSlatParts(c);
+    if (own.length) return own;
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(c.x, c.z, r);
+      const other = conveyorAt(L, n.x, n.z);
+      if (!other) continue;
+      const parts = this.conveyorSlatParts(other);
+      if (parts.length) return parts;
+    }
+    for (const other of conveyorsOf(L)) {
+      const parts = this.conveyorSlatParts(other);
+      if (parts.length) return parts;
+    }
+    return [];
   }
 
   /**
@@ -5896,31 +6299,34 @@ export class Scene {
   }
 
   /**
-   * An arrowhead on one edge of a cell, pointing the way the goods go.
+   * A LINE along one edge of a cell, marking a side goods cross.
    *
-   * Two bars meeting at a point rather than a triangle, because everything else
-   * on this deck is a box and a chevron made of two of them shades and bakes
-   * identically to the rails beside it.
+   * It was an arrowhead, and what it was buying was direction — out at the
+   * neighbour, or back into the loader. The direction is drawn now: the spur's
+   * own carriers scroll the way the goods go, along the whole length of the
+   * track, which is the same fact said by the thing that is actually moving. So
+   * the dart was a second, smaller, static answer to a question the track had
+   * already answered, and at this camera two of them on one machine read as
+   * clutter rather than as a legend.
    *
-   * It sits INSIDE the cell rather than on the line, so it reads as belonging to
-   * the loader and not to the boundary — the same split the end pips make
-   * against the joins.
+   * A bar lying ALONG the edge, which is what is left once the pointing goes:
+   * this side is open, goods cross here. Still inside the cell rather than on
+   * the line, so it reads as belonging to the machine and not to the boundary —
+   * the same split the end pips make against the joins.
    */
   addEdgeChevron(c, n, inward, shift = 0) {
     const dx = Math.sign(n.x - c.x);
     const dz = Math.sign(n.z - c.z);
-    // Where the arrow POINTS: out at the neighbour, or back into the loader.
-    const px = inward ? -dx : dx;
-    const pz = inward ? -dz : dz;
     // Sideways along the edge, for the case where one edge does both.
     const sx = -dz * shift * 0.15;
     const sz = dx * shift * 0.15;
-    const dart = new THREE.Mesh(ARROW_GEO, chevronMaterial(inward));
-    dart.position.set(c.x + dx * 0.34 + sx, 0.133, c.z + dz * 0.34 + sz);
-    dart.rotation.y = -Math.atan2(pz, px);
-    dart.renderOrder = 3;
-    dart.raycast = NO_PICK;
-    this.beltRoot.add(dart);
+    const bar = new THREE.Mesh(PATH_GEO, chevronMaterial(inward));
+    // Across the way the goods travel, so it lies along the edge it marks.
+    bar.scale.set(dx ? 0.05 : 0.3, 0.02, dz ? 0.05 : 0.3);
+    bar.position.set(c.x + dx * 0.34 + sx, 0.133, c.z + dz * 0.34 + sz);
+    bar.renderOrder = 3;
+    bar.raycast = NO_PICK;
+    this.beltRoot.add(bar);
   }
 
   /**
@@ -5955,6 +6361,94 @@ export class Scene {
       if (source) out.push(s);
     }
     return out;
+  }
+
+  /**
+   * Every spur a loader has: which side, which way goods cross it, and how far
+   * the track runs out onto the tile.
+   *
+   * ONE answer, asked by both halves that draw it — `addConveyorSlats` lays the
+   * rails along it, `addConveyorPaths` records it for the crate to travel, and
+   * `animateStations` runs the crate down the number this returns. They were two
+   * copies of the same arithmetic sitting in different functions, and the
+   * failure that makes possible is silent rather than wrong: a crate riding a
+   * spur the rails are not quite under reads as the box floating beside the
+   * track, which points at the crate and never at the two numbers that drifted.
+   *
+   * A side can be both a pour and an intake — a pad beside a `both` loader is
+   * somewhere it drops overflow AND somewhere it lifts from — so the pour wins,
+   * which decides nothing but which way the carriers scroll. WHICH WAY A GIVEN
+   * BOX CROSSES comes off the wire (`move.out`), because that is a fact about
+   * the swing and not about the shape of the machine.
+   */
+  conveyorSpurs(L, c) {
+    const onUnit = (f) => (L.shelves ?? []).some((u) => u.x === f.x && u.z === f.z)
+      || (L.stations ?? []).some((s) => s.x === f.x && s.z === f.z)
+      || (L.bins ?? []).some((b) => b.x === f.x && b.z === f.z);
+    const box = this.conveyorHousing(c);
+    const seen = new Map();
+    const add = (s, flow) => {
+      const key = `${s.x},${s.z}`;
+      if (seen.has(key)) return;
+      const dx = Math.sign(s.x - c.x);
+      const dz = Math.sign(s.z - c.z);
+      seen.set(key, {
+        dx,
+        dz,
+        flow,
+        // It starts just UNDER the hood rather than at its edge — a spur that
+        // began where the housing ends is a second object butted against the
+        // first, which is the join this exists to remove — and it is MEASURED
+        // off the housing rather than written down.
+        //
+        // That is not tidiness. A loader's hood reaches `cross` across the run
+        // and `long` along it, and a constant that clears one buries the other:
+        // at a flat 0.16 against a hood of 0.31, every slat on a spur into a
+        // neighbouring unit was under the machine or under the unit, and what
+        // you saw between a loader and the shelf it stocks was bare floor. The
+        // track was there and drawn correctly and none of it was anywhere you
+        // could look at.
+        from: box ? Math.max(0.1, (dx ? box.long : box.cross) - 0.05) : SPUR_FROM,
+        // How far depends on what is there, and the split is the tile being
+        // OCCUPIED. Onto a pad or bare floor it runs most of the way across, so
+        // there is somewhere to stand a crate; into a unit it stops just inside,
+        // because a shelf's own mesh fills that square and track drawn under it
+        // is track nobody will ever see.
+        to: onUnit(s) ? SPUR_UNIT : SPUR_OPEN,
+      });
+    };
+    for (const s of this.conveyorPours(L, c)) add(s, 1);
+    for (const s of this.conveyorIntake(L, c)) add(s, -1);
+    return [...seen.values()];
+  }
+
+  /**
+   * The spur a transfer used, named by the SIDE the shop says it crossed.
+   *
+   * It used to be guessed from the lamp — "a machine that took a box was loading
+   * onto the line, so the spur it used is an inbound one" — which was wrong in
+   * both halves. `did` is `load` when a swing POURED (the box was emptied into
+   * something), so the guess asked for an inbound spur on every outbound swing;
+   * and a loader with two spurs of the same direction was a coin flip anyway,
+   * which is every one of the load bank in a real shop. `move.d` is the offset
+   * to the side the goods actually crossed, so there is nothing left to guess.
+   */
+  static slideFor(slides, move) {
+    if (!move?.d) return null;
+    return slides.find((sl) => sl.dx === move.d[0] && sl.dz === move.d[1]) ?? null;
+  }
+
+  /**
+   * How long a crate takes to cross a spur — TRACK SPEED, not a constant.
+   *
+   * A spur is a length of the same run, so a box on it moves at the same rate a
+   * box on any other cell does: `BELT_SECONDS` per tile. A fixed duration made
+   * the short spur into a unit and the long one out onto a pad take the same
+   * time, so the two read as different machines — and the long one crawled while
+   * the belt feeding it did not.
+   */
+  static slideSeconds(sl) {
+    return sl.to * BELT_SECONDS;
   }
 
   aimKind(L, c, f, isOut) {
@@ -6067,6 +6561,9 @@ export class Scene {
     // moved onto the class. It was a local const, so the corner branch could
     // not ask it and did not: a loader on a bend built a wall across the very
     // side it unloads through.
+    // ...and it is down to two readers now, the deck having stopped asking it
+    // separately: `outsOf` already carries the pours, so the filler tests one
+    // list rather than two half-questions. See the note there.
     const pourEdge = (c, n) => poursOf(c).some((p) => p.x === n.x && p.z === n.z);
 
     const outsOf = (c) => [
@@ -6129,9 +6626,24 @@ export class Scene {
         // allocation, leaks nothing, and makes a state change a pointer swap
         // rather than a `Color.set`. The chevrons below keep `linkMaterial()`:
         // a direction is not a state and never changes.
+        // A COUPLING SUNK INTO THE TRACK, rather than a chip lying on top of it.
+        //
+        // It sat at 0.132 — a full 0.045 above the deck, which is higher than
+        // the carriers themselves — so at this camera it read as a tile dropped
+        // onto the belt and cast its own little shadow across the rollers. What
+        // it is meant to be is the joint between two cells, and a joint is a
+        // thing you see IN a machine.
+        //
+        // So it drops to a hair over the deck top, and it lies ALONG the seam
+        // rather than being square: a plate spanning the gap reads as two
+        // sections bolted together, where a square pip reads as something set
+        // down there. It stays proud by a fraction rather than flush, because
+        // flush with a dark deck at this angle is invisible — and this is the
+        // one mark on a run that has to be readable, since it is also the flow
+        // readout.
         const link = new THREE.Mesh(geo, flowMaterial(CONVEYOR_LIT.idle));
-        link.scale.set(0.1, 0.02, 0.1);
-        link.position.set(c.x + dx * 0.5, 0.132, c.z + dz * 0.5);
+        link.scale.set(dx ? 0.09 : 0.2, 0.012, dz ? 0.09 : 0.2);
+        link.position.set(c.x + dx * 0.5, 0.092, c.z + dz * 0.5);
         link.renderOrder = 3;
         // Invisible to the pointer. These sit on top of the decks, so without
         // this every tap on a belt hits a decoration with no fixture id on it
@@ -6270,63 +6782,66 @@ export class Scene {
     for (const c of cells) {
       const deck = this.conveyorDeck(L, c);
       if (!deck) continue;
-      // A BEND gets the whole tile, and that is not a shortcut.
+      // A BEND IS A RIGHT ANGLE, and it went round three shapes before this one.
       //
-      // A deck is a straight rectangle and the path through a corner is a
-      // quarter circle, so slats laid on that arc run off the ends of the board
-      // they are supposed to be part of — bars radiating over the grass, which
-      // is what a starburst at the end of a run is. Nothing narrower can hold an
-      // arc: the band it needs IS most of the tile. The outer corner is taken
-      // back off by the chamfered rail, which is what keeps it from reading as a
-      // painted square.
-      // A BEND LAYS ITS TRACK ROUND THE ARC, and it used to take the whole tile.
+      // First a full plate over the whole tile, because a deck is a straight
+      // rectangle and the path through a corner is a quarter circle: nothing
+      // narrower than most of the tile can hold an arc, so the corner got a
+      // board and the chamfered rail took the outside back off. Then, once the
+      // deck went and a run became a groove, that plate was a solid square of
+      // track colour sitting on the floor. Then the groove itself, bent — nine
+      // short segments round the same quarter circle the carriers rode.
       //
-      // That was right about a deck: a board is a straight rectangle, the path
-      // through a corner is a quarter circle, and nothing narrower than most of
-      // the tile can hold an arc — so the corner got a full plate and the
-      // chamfered rail took the outside back off. With the slab gone the same
-      // plate is a solid square of TRACK COLOUR sitting on your floor, one per
-      // bend, which is the deck coming back in the one place it was hardest to
-      // notice it had.
+      // What every one of them was buying is the box travelling a smooth curve,
+      // and the box does no such thing: `stepBelts` hands a crate from the
+      // middle of one cell to the middle of the next, so it turns the corner in
+      // one square step whatever is painted under it. The arc was a drawing of a
+      // motion nothing performs, and at this camera what it actually reads as is
+      // a wobble in a line of otherwise straight track.
       //
-      // So it is the groove itself, bent: short segments along the same quarter
-      // circle the carriers already ride, each turned to face along it. The
-      // ground under a corner is then the ground, exactly as it is under a
-      // straight, and the run reads as one track that turns.
+      // So there is no branch here at all now: a bend is the ordinary deck along
+      // the way OUT, plus the filler below squaring it off toward the side it is
+      // fed from. Two straight legs meeting at a right angle, which is both what
+      // the goods do and what everything else in this shop is made of.
       const path = this.conveyorPath(L, c);
-      if (path.corner) {
-        const { cx, cz, a0, da } = Scene.conveyorArc(c, path.in, path.out);
-        // Enough that the joins between them close at this radius — a segment
-        // per eighth of the quarter leaves a visible facet, and past a dozen it
-        // is meshes for nothing.
-        const STEPS = 9;
-        for (let i = 0; i < STEPS; i++) {
-          const a = a0 + da * ((i + 0.5) / STEPS);
-          const seg = new THREE.Mesh(geo, material(deck.color, 1));
-          // Long enough to overlap its neighbour: the chord of one step at
-          // radius 0.5, with a little over so the corners of two segments meet
-          // rather than leaving a nick on the inside of the bend.
-          seg.scale.set((Math.abs(da) / STEPS) * 0.5 * 1.6, deck.h, deck.cross * 2);
-          seg.position.set(cx + Math.cos(a) * 0.5, deck.y, cz + Math.sin(a) * 0.5);
-          seg.rotation.y = -a;
-          seg.raycast = NO_PICK;
-          this.beltRoot.add(seg);
-        }
-        continue;
-      }
+      const outs = outsOf(c);
       for (const r of [0, 1, 2, 3]) {
         const n = anchorTile(c.x, c.z, r);
-        // A POUR edge needs this every bit as much as a join does, and it is
-        // where the deck stopping short is most visible: the join mark is drawn
-        // on the tile edge at 0.5, the deck only reaches `cross`, so a loader
-        // stocking a shelf showed a green square floating on bare floor with a
-        // strip of ground between it and the belt it belongs to. Which reads as
-        // the mark being misplaced rather than as the deck being short.
-        if (!conveyorAt(L, n.x, n.z) && !pourEdge(c, n)) continue;
-        // Same axis as the deck runs on? Then it already reaches the edge.
-        if (r % 2 === deck.rot % 2) continue;
         const dx = Math.sign(n.x - c.x);
         const dz = Math.sign(n.z - c.z);
+        // ADJACENCY IS NOT CONNECTION, which is the whole of what these stubs
+        // were getting wrong.
+        //
+        // The test was "is there a conveyor across this edge", and that is exact
+        // only while every neighbour is a neighbour IN the run — the same cheap
+        // question the rails got wrong before they were retired, and the reason
+        // `conveyorJoined` existed at all. It is false four ways that all happen
+        // in an ordinary shop: two runs laid side by side down an aisle, a line
+        // passing the mouth of a tunnel that ducks under it, a spur that leaves
+        // rather than joins, and a dead end standing beside a run it has nothing
+        // to do with. Every one of those grew a nub of track poking out of the
+        // side of the line toward something it never hands a box to — which
+        // reads as an unfinished belt, because a stub of deck going nowhere is
+        // exactly what half a belt looks like.
+        //
+        // So the edge has to be one goods actually CROSS: this cell hands to it,
+        // or it hands to this cell. `outs` already carries the pours, which need
+        // the filler every bit as much — the join mark sits on the tile edge at
+        // 0.5 while the deck only reaches `cross`, so a loader stocking a shelf
+        // showed a green square floating on bare floor with a strip of ground
+        // between it and the belt it belongs to.
+        // NEGATED, and it is the one thing in here that is easy to get backwards:
+        // a feeder is stored as the direction goods TRAVEL — neighbour to cell —
+        // while `dx`/`dz` is the side the neighbour is on, which is the opposite
+        // vector. Compared as-is every filler lands on the far side of the cell
+        // from the line feeding it, so a run grows a stub out of the side it has
+        // nothing on and loses the one at the join it does. `conveyorHousing`
+        // spells the same conversion `{ x: -path.in.x, z: -path.in.z }`.
+        const handsTo = outs.some((o) => o.x === n.x && o.z === n.z);
+        const fedBy = path.feeds.some((f) => f.x === -dx && f.z === -dz);
+        if (!handsTo && !fedBy) continue;
+        // Same axis as the deck runs on? Then it already reaches the edge.
+        if (r % 2 === deck.rot % 2) continue;
         const grow = 0.5 - deck.cross;
         if (!(grow > 0.001)) continue;
         // AS WIDE AS THE TRACK, not as wide as the tile. This was `deck.long`,
@@ -6350,47 +6865,21 @@ export class Scene {
 
     this.addConveyorSlats(L, geo);
 
-    // The rails, drawn per EDGE rather than per cell.
+    // NO RAILS. The kerb retired with the deck it was the lip of.
     //
-    // This is the whole of what makes a run look like one belt. Rails authored
-    // on the model put a wall between every pair of cells, so a straight line of
-    // conveyor came out as a row of separate boxed slabs with a lip at every
-    // join — and no amount of getting the deck length right fixes that, because
-    // the rail is the thing you can see.
+    // There was a rail on every edge of a run that had no conveyor across it —
+    // two unbroken sides down a straight, chamfered corners, a cap at the end —
+    // and it was the whole of what made a line of cells read as one belt rather
+    // than as a row of boxed slabs. That argument was about a DECK: a board
+    // standing proud of the floor needs an edge, or it is a slab with nothing
+    // holding the goods on.
     //
-    // A rail belongs to the SIDE of a run: an edge with another conveyor across
-    // it is the middle of the belt and wants nothing at all, and an edge with
-    // anything else across it is the outside and wants a rail. So a straight run
-    // gets two unbroken sides, a corner gets rails on its outer two edges, and
-    // the end of a line gets a cap — all of it falling out of adjacency rather
-    // than out of a variant somebody has to pick.
-    for (const c of cells) {
-      // A corner's two outer edges are drawn by `addConveyorSlats`, chamfered,
-      // because a right angle in the rail is the thing that stops a bend looking
-      // like a bend and starts it looking like two belts that happen to touch.
-      if (this.conveyorPath(L, c)?.corner) continue;
-      for (const r of [0, 1, 2, 3]) {
-        const n = anchorTile(c.x, c.z, r);
-        if (Scene.conveyorJoined(L, c, conveyorAt(L, n.x, n.z))) continue;
-        // ...and neither does an edge the loader POURS across. A rail is the
-        // outside of a run, and goods physically leave here, so a wall is wrong
-        // on the art alone. It was also swallowing the mark whole: the rail
-        // stands 0.1 tall centred at 0.12, so it spans 0.07 to 0.17 and the
-        // join mark sits at 0.132 — inside it. What that looks like is a green
-        // square rendering *underneath* the belt, which is a z-fighting bug
-        // nobody has, on a mark that is exactly where it should be.
-        if (pourEdge(c, n)) continue;
-        const dx = Math.sign(n.x - c.x);
-        const dz = Math.sign(n.z - c.z);
-        const rail = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
-        // Slightly PROUD of the tile on its long axis, so two rails meeting at a
-        // corner overlap instead of leaving a notch of daylight between them.
-        rail.scale.set(dx ? 0.07 : 1.02, 0.1, dz ? 0.07 : 1.02);
-        rail.position.set(c.x + dx * 0.47, 0.12, c.z + dz * 0.47);
-        rail.raycast = NO_PICK;
-        this.beltRoot.add(rail);
-      }
-    }
+    // A track set into the ground has no edge to draw. What the rail became the
+    // moment the slab came off is a grey kerb running round everything you
+    // built, which is the deck's outline surviving the deck — the same thing
+    // `fill` was and the same thing the corner plate was, in the third place it
+    // was hiding. The groove IS the line now; it needs no frame to say where it
+    // goes.
 
     // ...and the output shaft. A loader unloads SIDEWAYS, out of the run, and
     // until now nothing said where — you had a turntable spinning on a belt and
@@ -6413,6 +6902,11 @@ export class Scene {
     // a blade authored in model space would point wherever the run happened to
     // be running. It is the one part of a sorter you can read from across the
     // shop, and without it the piece is a belt cell with a hub on it.
+    // Round, for the beacons below. Built here with the rest of `beltRoot` so
+    // `disposeGroup` frees it on the next re-flow — a shared one would be
+    // disposed out from under every other conveyor mesh in the shop.
+    const domeGeo = new THREE.CylinderGeometry(0.5, 0.42, 1, 12);
+
     // THE SIDES A BOX NEVER CROSSES GET WALLED IN, and that is the inversion.
     //
     // This cut a mouth on every carrying side, which was the same picture drawn
@@ -6438,7 +6932,13 @@ export class Scene {
         { x: -path.in.x, z: -path.in.z },
         path.out,
         ...conveyorBranches(L, c).map((b) => ({ x: Math.sign(b.x - c.x), z: Math.sign(b.z - c.z) })),
-        ...this.conveyorPours(L, c).map((q) => ({ x: Math.sign(q.x - c.x), z: Math.sign(q.z - c.z) })),
+        // EVERY SPUR, which is both directions. This was `conveyorPours` alone,
+        // and a pour is only half of what crosses a loader's sides: the side it
+        // LIFTS from — a pad, a stockroom board — is a side goods cross every
+        // bit as much, and it was being walled shut. So a load-only loader was a
+        // sealed box with a green arrow painted on the panel, and the crate it
+        // was pulling in came through the wall.
+        ...this.conveyorSpurs(L, c).map((q) => ({ x: q.dx, z: q.dz })),
       ]) {
         if (s && (s.x || s.z)) open.add(`${s.x},${s.z}`);
       }
@@ -6459,6 +6959,54 @@ export class Scene {
         wall.raycast = NO_PICK;
         this.beltRoot.add(wall);
       }
+
+      // A BEACON ON THE ROOF — one machine, one light.
+      //
+      // There was a lamp per chute, on the argument that the readout belongs to
+      // the box rather than floating over the shelf, and that argument was
+      // right about a cabinet bolted to a unit. It stopped being about one
+      // thing the day a loader served three: a machine wearing three lights all
+      // saying the same word is a machine you have to check three times to read
+      // once. The roof is the one surface every one of these has, whichever way
+      // it is turned and however many units it feeds.
+      //
+      // ROUND, and against every other mesh on a conveyor — the whole family is
+      // boxes, so the one thing that is not a box is the one thing you look at.
+      // Its own geometry rather than the shared box: `disposeGroup` frees any
+      // geometry it does not recognise, so this is built per re-flow with the
+      // rest of `beltRoot` and goes out with it.
+      //
+      // Its own material for `linkMaterial`'s reason one size up — `material()`
+      // is a cache keyed by colour, and recolouring a lamp through it would turn
+      // every cream thing in the shop green.
+      const beacon = new THREE.Mesh(domeGeo, new THREE.MeshLambertMaterial({
+        color: new THREE.Color(LAMP_IDLE), flatShading: true,
+      }));
+      beacon.scale.set(0.2, 0.11, 0.2);
+      beacon.position.set(c.x, box.y + box.h / 2 + 0.06, c.z);
+      beacon.raycast = NO_PICK;
+      this.beltRoot.add(beacon);
+      const rec = this.movingFixtures.get(c.id)
+        ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
+      rec.conveyor = true;
+      // A sorter has no `armSaid` — it takes nothing and refuses nothing, it
+      // only chooses — so its light answers the question a tunnel mouth's does:
+      // is there a box in here. Without this it is a lamp that is dim for ever,
+      // which is the "tier that changes no number" trap wearing a bulb.
+      if (c.kind === 'sorter') rec.mouth = true;
+      (rec.lamps ??= []).push(beacon);
+      rec.moving.push({
+        mesh: beacon,
+        motion: { kind: 'pulse', hz: 1.6, amount: 0.45 },
+        pos: beacon.position.clone(),
+        rot: 0,
+        scale: beacon.scale.clone(),
+        axis: null,
+        arm: null,
+        pivot: null,
+        phase: rec.moving.length * 0.41,
+      });
+      this.movingFixtures.set(c.id, rec);
     }
 
     for (const c of cells) {
@@ -6481,179 +7029,94 @@ export class Scene {
 
     for (const c of cells) {
       if (c.kind !== 'arm') continue;
-      // Shelving AND machines, which is the half this was missing. A loader
-      // feeds a hopper as readily as it fills a board (`armFeed`, beside
-      // `armPour`) — and drew nothing at all doing it, so an appliance being
-      // automatically fed looked exactly like an appliance standing next to a
-      // conveyor for no reason. The art has to cover everything the swing
-      // covers, or what it says is "this one is connected and that one is not".
-      const units = [...(L.shelves ?? []), ...(L.stations ?? [])];
-      const facing = anchorTile(c.x, c.z, c.rot ?? 0);
-      const sides = [facing, ...[0, 1, 2, 3]
-        .map((r) => anchorTile(c.x, c.z, r))
-        .filter((n) => n.x !== facing.x || n.z !== facing.z)];
-      // EVERY side with shelving on it, not the first one found. A loader pours
-      // into all four neighbours in one swing, so a single shaft is a picture of
-      // a machine doing a quarter of what it does — and the shelf with no shaft
-      // touching it is the one you conclude is not connected, which is exactly
-      // the confusion the shaft was drawn to end. One arm, two or three heads,
-      // which is also what makes a loader in the mouth of an aisle read as
-      // serving the aisle rather than as pointing down it.
-      const targets = sides.filter((n) => units.some((u) => u.x === n.x && u.z === n.z));
-      if (!targets.length) continue;
+      /**
+       * WHERE THE SPUR GOES, so the REAL crate can be moved along it.
+       *
+       * No mesh. There is nothing left to build here: a spur IS track, and
+       * `addConveyorSlats` lays it out of the same authored slats as every other
+       * leg of the run. What was here instead was a second conveyor — its own
+       * bed, its own hand-made carriers, its own colours, spacing and clock —
+       * standing an inch from the real one and free to disagree with it.
+       *
+       * Which leaves this loop holding a description rather than geometry: the
+       * side, and how far along it the goods travel. `animateStations` runs the
+       * crate down that, and `stepLeaving` runs down the one the shop has
+       * already forgotten.
+       *
+       * The MACHINE's own square is the origin, not wherever the crate was. A
+       * transfer is an L — down the run into the middle of the loader, then out
+       * along the spur — and the first leg is `stepBelts`' hand-off, which has
+       * already put the box on this cell's centre by the time a swing happens.
+       * Offsetting from the crate's live position instead adds the two legs
+       * together into a diagonal, because the box is still easing along the run
+       * while the spur pulls it sideways.
+       */
+      const spurs = this.conveyorSpurs(L, c);
+      if (!spurs.length) continue;
 
-      // A CHUTE, not an arm. The arm was a stick with a head on it reaching over
-      // the unit, which reads as a crane rather than as plumbing, and at this
-      // camera it is a big diagonal bar across the shelf it is meant to be
-      // filling. A chute says the same thing — these two are connected, goods go
-      // that way — as an object the size of the goods, and it does not have to
-      // be animated to be believed.
+      // ...on a DECK of its own, in the run's own colour, ending in a PAD.
       //
-      // It rises from the loader's housing and drops into the unit, which is the
-      // one direction that makes sense of both ends: out of a machine, down into
-      // a shelf.
-      for (const target of targets) {
-        const dx = Math.sign(target.x - c.x);
-        const dz = Math.sign(target.z - c.z);
-        // Everything here is sized to what goes UP it — `0.22` is about two
-        // units of stock across. That is the whole difference between this and
-        // the two shapes it replaced: an arm reaching over the unit read as a
-        // crane, and a sloped trough read as a ramp, and both were the size of
-        // the shelf rather than the size of a tin.
-        const wide = 0.22;
-        // Along the line to the unit, and across it. Written once because every
-        // piece below is placed on those two axes and spelling it per mesh is
-        // where a chute ends up facing a different way from its own spine.
-        const put = (mesh, up, across, y) => {
-          mesh.position.set(c.x + dx * up + dz * across, y, c.z + dz * up + dx * across);
-          mesh.raycast = NO_PICK;
-          this.beltRoot.add(mesh);
-        };
-
-        // A little conveyor out of the housing — same vocabulary as the run it
-        // is part of, so what the loader does to a box reads as more belt rather
-        // than as a mechanism you have to learn.
-        const feed = new THREE.Mesh(geo, material(CONVEYOR.frame, 1));
-        feed.scale.set(dx ? 0.34 : wide, 0.07, dz ? 0.34 : wide);
-        put(feed, 0.33, 0, 0.155);
-        // A recess with carriers in it, the same construction the run itself is
-        // — this was three bars across a deck, which is a slat belt, and a
-        // loader wearing one is the old machine bolted onto the new one. It is
-        // the same trap the belt row had: the piece was repainted and the mesh
-        // the renderer derives was not, one level down.
-        const groove = new THREE.Mesh(geo, material(CONVEYOR.track, 1));
-        groove.scale.set(dx ? 0.34 : wide - 0.06, 0.02, dz ? 0.34 : wide - 0.06);
-        put(groove, 0.33, 0, 0.194);
-        for (const s of [-0.1, 0, 0.1]) {
-          const car = new THREE.Mesh(geo, material(CONVEYOR.carrier, 1));
-          car.scale.set(dx ? 0.06 : wide - 0.1, 0.035, dz ? 0.06 : wide - 0.1);
-          put(car, 0.33 + s, 0, 0.206);
+      // The filler above squares a cell off to its own tile edge and stops
+      // there, which is right for everything that is a cell. A spur crosses the
+      // boundary, so past 0.5 its slats were bars lying on the shop floor —
+      // which reads as track that has come apart rather than as track.
+      //
+      // And it does not carry on as track to the very end, because the end is
+      // not more track: it is where the goods LEAVE. Run the carriers all the
+      // way and a spur is a belt that stops for no reason in the middle of a
+      // shelf — the one thing on it you cannot see is the thing it is for. The
+      // last stretch is a plate instead, a shade lighter and standing slightly
+      // proud, which is the same sentence a loading dock makes: track up to
+      // here, and then off. A box drawn sitting on it reads as waiting to be
+      // taken rather than as parked on a conveyor that has failed.
+      const deck = this.conveyorDeck(L, c);
+      if (deck) {
+        for (const sp of spurs) {
+          const near = deck.cross;
+          const wide = deck.cross * 2;
+          const railTo = Math.max(sp.from, sp.to - SPUR_PAD);
+          const len = railTo - near;
+          if (len > 0.01) {
+            const mid = near + len / 2;
+            const bed = new THREE.Mesh(geo, material(deck.color, 1));
+            bed.scale.set(sp.dx ? len : wide, deck.h, sp.dz ? len : wide);
+            bed.position.set(c.x + sp.dx * mid, deck.y, c.z + sp.dz * mid);
+            bed.raycast = NO_PICK;
+            this.beltRoot.add(bed);
+          }
+          const padLen = sp.to - railTo;
+          if (!(padLen > 0.01)) continue;
+          const padMid = railTo + padLen / 2;
+          // DARK, against a pale deck — not lighter, which was the first go and
+          // is invisible: `conveyorDeck` reads its colour off the authored model
+          // and that colour IS `CONVEYOR.deck`, so a pale pad butted onto a pale
+          // bed is one plank of one colour, and what you see is a spur that runs
+          // twice as far as it does. Wider and a touch taller as well, so it
+          // reads as a lip the goods go over rather than as a patch on the belt.
+          const pad = new THREE.Mesh(geo, material(CONVEYOR.track, 1));
+          pad.scale.set(sp.dx ? padLen : wide * 1.18, deck.h * 1.7, sp.dz ? padLen : wide * 1.18);
+          pad.position.set(c.x + sp.dx * padMid, deck.y + deck.h * 0.35, c.z + sp.dz * padMid);
+          pad.raycast = NO_PICK;
+          this.beltRoot.add(pad);
         }
-
-        // ...and the HOUSING, which is what the spine became.
-        //
-        // A bare vertical could say "these two are connected" and could not say
-        // which of them owned it: a grey pole standing on the line between a
-        // loader and a shelf reads as a post, a pipe, or part of the shelving,
-        // and the one thing it is — a machine bolted to that unit — is the
-        // reading it does not get. So it is a cabinet: deeper than it is wide,
-        // with a lid, a face and a collar reaching over onto the unit. The same
-        // vocabulary a machine in this shop already has.
-        //
-        // It stands INSIDE the loader's own cell rather than centred on the
-        // boundary, which is the wall clip: an edge is drawn on that line, so a
-        // 0.2-deep box centred there hangs a tenth of a tile through any wall
-        // you build against it. `0.5 - depth/2` is as close as a thing can get
-        // to an edge from its own side, and it is arithmetic rather than a
-        // nudged constant so it stays true if the cabinet ever gets deeper.
-        const depth = 0.26;
-        const body = new THREE.Mesh(geo, material(CONVEYOR.frame, 1));
-        body.scale.set(dx ? depth : wide + 0.12, 0.74, dz ? depth : wide + 0.12);
-        put(body, 0.5 - depth / 2, 0, 0.37);
-
-        // The lid, which is what stops it reading as a pillar: a box wants a top
-        // that overhangs it, and the shadow line under the overhang is most of
-        // what says "cabinet" at this camera.
-        const lid = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
-        lid.scale.set(dx ? depth + 0.06 : wide + 0.18, 0.06, dz ? depth + 0.06 : wide + 0.18);
-        put(lid, 0.5 - depth / 2, 0, 0.77);
-
-        // The face — a darker inset panel on the side you look at it from, so
-        // the cabinet has a front. The lamp sits on this rather than floating
-        // above the mouth, which is the difference between a light that belongs
-        // to the machine and one hanging in the air over a shelf.
-        const face = new THREE.Mesh(geo, material(CONVEYOR.shadow, 1));
-        face.scale.set(dx ? 0.02 : wide - 0.02, 0.3, dz ? 0.02 : wide - 0.02);
-        put(face, 0.5 - depth - 0.005, 0, 0.5);
-
-        // The COLLAR, reaching over onto the unit and clamped round its end.
-        // This is the part that says hooked-up, and it says it by overlapping:
-        // a mouth that stopped at the edge is two objects standing next to each
-        // other, and the whole question a player is asking of a loader is which
-        // shelf it belongs to.
-        const collar = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
-        collar.scale.set(dx ? 0.3 : wide + 0.1, 0.1, dz ? 0.3 : wide + 0.1);
-        put(collar, 0.6, 0, 0.7);
-
-        // ...and the two straps down the unit's end, which is the same claim
-        // made where you can see it from the other side of the aisle. Short, so
-        // they read as brackets rather than as legs holding the shelf up.
-        for (const side of [-1, 1]) {
-          const strap = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
-          strap.scale.set(dx ? 0.16 : 0.05, 0.055, dz ? 0.16 : 0.05);
-          put(strap, 0.62, side * (wide / 2 + 0.02), 0.62);
-        }
-
-        // ...and the lamp, which is the whole of the animation and now the whole
-        // of the readout as well.
-        //
-        // A spinning turntable was the first answer and it is too much movement
-        // for a machine that spends most of its life waiting — it also hid the
-        // box it was working on. A light says the same thing with nothing
-        // turning, and it says two things the spin never could: it is off when
-        // the loader has nothing, and since `armSaid` it is a different COLOUR
-        // for a box taken and a box waved past.
-        //
-        // On the cabinet's face rather than floating over the mouth, which is
-        // where it used to sit. A light hanging in the air above a shelf belongs
-        // to nothing you can point at; one on the front of a box belongs to the
-        // box — and this is the readout for the machine, so it has to be read as
-        // the machine's.
-        //
-        // Registered onto the fixture's own `moving` list by hand, because this
-        // mesh is drawn HERE rather than authored on the piece — the cabinet is
-        // derived from what is beside the loader, so it cannot be a part in the
-        // model. `addConveyorPaths` runs after `addFixtureProps`, which is what
-        // makes the record there to append to; a re-flow clears both together.
-        //
-        // Its own material rather than `material()`, which is a cache keyed by
-        // colour and shared by every prop in the game wearing that colour —
-        // recolouring one lamp through it would turn every cream-coloured thing
-        // in the shop green. Same reason the grass shader gets its own.
-        const lamp = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
-          color: new THREE.Color(LAMP_IDLE), flatShading: true,
-        }));
-        lamp.scale.set(dx ? 0.03 : 0.12, 0.12, dz ? 0.03 : 0.12);
-        put(lamp, 0.5 - depth - 0.02, 0, 0.6);
-        const rec = this.movingFixtures.get(c.id)
-          ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
-        rec.conveyor = true;
-        // Every spine on a loader that serves two or three units, because the
-        // machine is one machine and its lights should agree.
-        (rec.lamps ??= []).push(lamp);
-        rec.moving.push({
-          mesh: lamp,
-          motion: { kind: 'pulse', hz: 1.6, amount: 0.45 },
-          pos: lamp.position.clone(),
-          rot: 0,
-          scale: lamp.scale.clone(),
-          axis: null,
-          arm: null,
-          pivot: null,
-          phase: rec.moving.length * 0.41,
-        });
-        this.movingFixtures.set(c.id, rec);
       }
+
+      const rec = this.movingFixtures.get(c.id)
+        ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
+      rec.conveyor = true;
+      // The rails laid along each spur ride WITH its descriptor, so the one
+      // thing that knows a transfer is happening drives both the crate and the
+      // track it is on. Two lists looked up separately is how they came to
+      // disagree in the first place.
+      rec.slides = spurs.map((sp) => ({
+        ...sp, cx: c.x, cz: c.z, rails: rec.spurRails?.get(`${sp.dx},${sp.dz}`) ?? [],
+      }));
+      this.movingFixtures.set(c.id, rec);
+
+      // The COLLAR AND STRAPS went with the cabinet they clamped to, and the
+      // light moved to the roof — see `beacon` above. One machine, one readout:
+      // there was a lamp per chute here, so a loader serving three units wore
+      // three of them and they all said the same thing.
     }
 
     // One draw per COLOUR instead of one per bar.
@@ -6720,7 +7183,19 @@ export class Scene {
     const moving = new Set();
     for (const rec of this.movingFixtures.values()) {
       if (!rec.conveyor) continue;
+      // Three lists, and every one of them has to be named here. `weld` freezes
+      // whatever is left, and a frozen thing is drawn in exactly the right place
+      // and never moves again — which reads as the machine having broken rather
+      // than as the weld having worked. `spur` and `slides` are the two that
+      // were added after this loop was written; the trap is that leaving one out
+      // fails silently and looks like a bug in the animation.
       for (const m of rec.moving ?? []) moving.add(m.mesh);
+      // ONE list now. `spur` was a second one and is gone: a spur's carriers are
+      // ordinary slats on `rec.moving`, in the instanced batch with every other
+      // slat in the shop, which is what took this trap away rather than guarding
+      // against it. `slides` is deliberately not here either — it holds no mesh
+      // at all, only the direction and length of a spur. What travels one is the
+      // real crate, which lives in `actorRoot` and was never a weld candidate.
     }
     // `weld` re-hangs what it keeps by decomposing the world matrix into the
     // group's own space, and `beltRoot` is an untransformed child of
@@ -8001,7 +8476,53 @@ export class Scene {
         body.moving, t + body.phase, st ? st.making : (body.conveyor ? !!busy : true),
         body.signal ? this.signals[body.signal] ?? null : null,
       );
+
+      // A CRATE COMING IN OFF A PAD RIDES THE SPUR, exactly as one going out
+      // does — and for four steps it did not move at all.
+      //
+      // A lift is the only transfer where the crate still EXISTS afterwards, so
+      // it is the only one this can draw: `loadBelt` sets `d.belt` and puts the
+      // box on the machine's own centre in the same tick, which without this is
+      // a crate teleporting a tile sideways onto a machine. The other direction
+      // has no record left to move (the goods are on a board) and is drawn by
+      // `stepLeaving` off the same slide.
+      //
+      // Nothing here for a POUR that left goods in the box. A partial pour moves
+      // the goods and not the crate — the box stays on the run and carries on —
+      // so sliding it out and dragging it back would be a picture of a journey
+      // that did not happen, and it would fight `stepBelts`, which is easing the
+      // same crate toward the next cell the whole time. The lamp already says
+      // the machine served that side.
+      //
+      // Timed off `move.n`, a counter that only goes up. The old clock started
+      // on the edge of `did` appearing, and `did` stays set for the server's
+      // whole say-window — so a loader working flat out swung twice inside one
+      // window, the edge never came again, and the second box was never drawn.
+      const mv = this.armMove?.get(id);
+      if (body.slides?.length) {
+        // Stamped on ARRIVAL rather than here — see `sync`. This loop is one of
+        // two readers and the other one runs on the snapshot.
+        const sl = mv ? Scene.slideFor(body.slides, mv) : null;
+        const per = sl ? Scene.slideSeconds(sl) : 0;
+        const gone = t - (body.moveAt ?? -99);
+        // ONE SPUR MOVES, and it is the one the goods crossed.
+        //
+        // Every spur is asked, not just the active one, because the answer for
+        // the other two is "stop" — `animateMotion` eases a scroll down rather
+        // than cutting it, so a length of track left out of this loop is one
+        // that keeps whatever it was last told. Which is the failure this is
+        // fixing, arriving from the other side.
+        const live = sl && gone >= 0 && gone < per;
+        for (const s of body.slides) {
+          if (!s.rails.length) continue;
+          animateMotion(s.rails, t + body.phase, live && s === sl, null);
+        }
+        // The crate riding IN, through the one writer both clocks share.
+        const box = live ? this.deliveryProps.get(this.beltOn?.get(id)?.id) : null;
+        if (box) this.slidePlace(box, id, t);
+      }
     }
+    this.stepLeaving(t);
     this.flushSlats();
     for (const rec of this.stationProps.values()) {
       for (const work of rec.work) {
@@ -8395,16 +8916,68 @@ const MOUTH_DARK = '#1e232b';
 /**
  * How big a crate is while it is riding, against the one that is standing still.
  *
- * A pallet is sized as a thing somebody put down with both hands — most of a
- * tile — and a conveyor is a quarter-tile track threading between machines
- * 0.78 across. At full size it overhangs the rails and clips the housings it
- * passes into, which reads as the machines being drawn in the wrong place
- * rather than as the box being too big for them.
+ * ONE, and the history is the point. It was 0.72, because a pallet was sized as
+ * a thing somebody put down with both hands — most of a tile — and a conveyor is
+ * a quarter-tile track threading between machines 0.78 across: at full size it
+ * overhung the rails and clipped the housings it passed into, which reads as the
+ * machines being drawn in the wrong place rather than as the box being too big.
+ *
+ * That was a fix for a crate 0.52 across, and the crate is 0.442 now — so the
+ * clearance it was buying is already paid for by the box itself, and what the
+ * scale is left doing is the thing you can actually see: the same box shrinks as
+ * it steps onto the belt and swells as a loader sets it down. A crate is one
+ * object in this game, in one size, and "smaller while in transit" is a sentence
+ * nothing else here says.
+ *
+ * Kept as a named 1 rather than deleted, because the pressure that made it 0.72
+ * has not gone anywhere: the next machine drawn tighter than its track will want
+ * this again, and the answer then is to widen the HOUSING. A box that changes
+ * size to fit through a door is the door being wrong.
  */
-const BELT_CRATE = 0.72;
+const BELT_CRATE = 1;
 
 /** Where the top of the track is — what a machine's side walls stand on. */
 const BELT_TOP = 0.09;
+
+/**
+ * How long a crate takes to cross one TILE of track — the server's own
+ * `Game.BELT_SECONDS`.
+ *
+ * A spur is a length of the same run, so what crosses it moves at the rate
+ * everything else on the run moves at, and its duration is its length times
+ * this (`Scene.slideSeconds`). It replaced a flat `SLIDE_SECONDS`, which made
+ * the short hop into a shelf and the full tile out onto a pad take the same
+ * time — two lengths of identical track running at visibly different speeds,
+ * which reads as one of them being broken.
+ *
+ * Duplicated from the sim rather than sent, the way `BELT_DECK` and the rest of
+ * this file's geometry is: it is a constant of the fixture, not a fact about the
+ * shop, and a tier's `speed_mult` moves both ends together anyway. The bound
+ * that matters is the server's `ARM_SAY_SECONDS` (1.2) — the longest spur here
+ * is 1.34 tiles, so the longest slide is 0.80s, and a slide that outlasted the
+ * window would still be running when the next swing arrived.
+ */
+const BELT_SECONDS = 0.6;
+
+/**
+ * How far out of the machine's own centre a spur's track runs.
+ *
+ * `FROM` is under the housing rather than at its edge, `UNIT` stops just inside
+ * an occupied tile, and `OPEN` crosses most of a bare one. All three are read
+ * through `conveyorSpurs` and nowhere else — see there.
+ */
+const SPUR_FROM = 0.16;
+const SPUR_UNIT = 0.66;
+const SPUR_OPEN = 1.34;
+
+/**
+ * How much of a spur's far end is the drop pad rather than track.
+ *
+ * A crate is 0.442 across, so this is a shade under a box: the goods land ON the
+ * pad and overhang it slightly, which is what makes it read as somewhere they
+ * are being handed over rather than as one more tile of belt.
+ */
+const SPUR_PAD = 0.34;
 
 const LINK_GLOW = '#5f9e78';
 // Retired, along with the recess itself — see the note where `CONVEYOR.well`

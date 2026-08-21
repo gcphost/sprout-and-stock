@@ -472,18 +472,46 @@ export function buildStack(model, qty, max) {
   return g;
 }
 
-/** Slots across one shelf board. Three reads as a row of goods, not a pair. */
-const PER_ROW = 3;
+/**
+ * Slots across one shelf board. Three read as a row of goods, not a pair.
+ *
+ * ...and four read as a shop. Three was sized against goods drawn at 0.6, and
+ * the pair moved together when the crate got scaled down — see `GOODS_SCALE`.
+ * What it buys is not tidiness: `shelfShow` scales a quantity into the slots it
+ * has, so slots are the ceiling on how much of a shelf's stock the picture is
+ * able to admit to, and under it a well-stocked unit draws a *fraction* of
+ * itself and reads as one nobody has filled.
+ */
+const PER_ROW = 4;
 
 /**
  * And rows back into it. A board is most of a tile deep and was using a
  * fourteenth of that, because one row is all a unit holding one thing ever
  * needed. Depth is what lets the picture keep the promise below: a shelf
- * kept for one kind gets three boards, and `3 × 3 × 2` is eighteen, which is
+ * kept for one kind gets three boards, and `3 × 4 × 2` is twenty-four, which is
  * more than any shipped item's stack. So sixteen carrots draw sixteen carrots
  * rather than a ceiling, and the number in the menu is a thing you can count.
+ *
+ * Left at two while the row went to four, and that is the camera rather than a
+ * lack of nerve: the rows behind the front one are spread over a fixed 0.56 of
+ * the board's depth however many there are, so a third row does not go further
+ * back — it goes in BETWEEN, at two thirds of the step, into goods that already
+ * overlap on purpose. Depth here is read as "there is more behind", and three
+ * rows of it is the same reading with the back two mashed together.
  */
 const PER_DEEP = 2;
+
+/**
+ * How big a unit of stock is drawn on a board.
+ *
+ * Down 15% from 0.6, alongside the crate and for the same reason — see `CRATE`.
+ * It is a named number rather than a literal at the one call site because it
+ * only means anything against `PER_ROW`: the pitch across a board is a share of
+ * the board, so shrinking the goods without widening the row draws the same
+ * shelf with gaps in it, and widening the row without shrinking the goods draws
+ * four things where three fitted. Either half alone is worse than neither.
+ */
+const GOODS_SCALE = 0.51;
 
 /** Slots on one board — see `PER_DEEP`. */
 const PER_BOARD = PER_ROW * PER_DEEP;
@@ -557,7 +585,7 @@ export function buildShelfGoods(model, qty, surfaces, cap) {
     const off = ((slot % PER_ROW) - (PER_ROW - 1) / 2) * (run / (PER_ROW + 0.4));
 
     const one = buildModel(model);
-    one.scale.setScalar(0.6);
+    one.scale.setScalar(GOODS_SCALE);
     one.position.set(
       s.x + (alongZ ? lip : off),
       // A hair proud of the board, so a flat-bottomed item doesn't z-fight it.
@@ -643,13 +671,23 @@ export function buildCashDrop() {
  * did NOT simply scale is the wall, which came down by a further third on top
  * of it — plank thickness is a fact about planks, and carrying it over is what
  * made the tote look like a crate somebody had painted grey.
+ *
+ * ...and once more by the 0.72 a riding crate used to be scaled by, which is
+ * the same judgement arriving from the other end. A box on a conveyor has been
+ * drawn at 0.72 of the pallet size since there were belts, and that is the size
+ * that has been looked at for hours — threading between machines, going into a
+ * loader, coming off onto a pad — while the floor crate is the one nobody had a
+ * reference for. So the belt was right and the pallet was wrong: this is the
+ * belt's number becoming the crate's, and `BELT_CRATE` drops to 1 so a box is
+ * the same object standing still or moving. Nothing on a conveyor changes size
+ * at all — it was already exactly this.
  */
-const CRATE = 0.442;
-const CRATE_H = 0.191;
-const CRATE_WALL = 0.027;
+const CRATE = 0.318;
+const CRATE_H = 0.138;
+const CRATE_WALL = 0.019;
 
 /** Top of the base panel — the floor the goods stand on. */
-const CRATE_DECK = 0.037;
+const CRATE_DECK = 0.027;
 
 /**
  * How tall one crate stands, and therefore how far up the next one sits.
@@ -1846,6 +1884,110 @@ export function setGrowthBar(group, t) {
   fill.position.x = -BAR_W / 2 + w / 2;
   // A last-stretch colour change, so "nearly" is visible without reading length.
   fill.material = barMaterial(k >= 0.85 ? 'ripe' : 'fill');
+}
+
+/**
+ * The symbol painted in the middle of a job pad, laid FLAT on the ground.
+ *
+ * A sprite is the wrong object here and it is worth saying why, because there is
+ * one right underneath this comment doing nearly the same thing. A sprite always
+ * faces the camera, which is what a crate's count wants — you read it, and a
+ * thing you read should never be at an angle. This is paint. It lies on the
+ * floor, it turns with the shop when the view turns, and it foreshortens like
+ * the tarmac it is on. A billboarded wheelchair standing up out of a parking
+ * space would read as a sign somebody had left lying about.
+ *
+ * Canvas rather than geometry, which is the opposite of the call `addStripes`
+ * makes about a crossing — and the difference is what the mark has to SAY. A
+ * stripe is a shape you could build out of two boxes; a symbol is a drawing, and
+ * a drawing assembled out of flat-shaded cuboids is a puzzle rather than a sign.
+ * There is exactly one of these per painted region, so the texture it costs is
+ * per pad and not per cell.
+ */
+export function buildPadGlyph(glyph, ink) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  paintGlyph(ctx, canvas, glyph, ink);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    // Paint on ground that is already drawn: writing depth would let the mark
+    // hide the goods standing on the pad, and the pad is the one piece of ground
+    // in the shop with things stacked all over it.
+    depthWrite: false,
+  }));
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.renderOrder = 2;
+  return mesh;
+}
+
+/**
+ * The four symbols, drawn with a pen rather than authored.
+ *
+ * Deliberately crude and deliberately not letters. What a pad does is a thing
+ * you should know at a glance from across the shop at a 40° camera, and at that
+ * size a word is a grey smudge — which is the same argument `paintText` makes
+ * about three names on one crate, arriving from the other end.
+ */
+function paintGlyph(ctx, canvas, glyph, ink) {
+  const S = canvas.width;
+  ctx.clearRect(0, 0, S, S);
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+  ctx.lineWidth = S * 0.09;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  if (glyph === 'load') {
+    // A crate coming DOWN onto a line: what a lorry does at a delivery bay, and
+    // the arrow is the half that says which way the goods are going.
+    ctx.beginPath();
+    ctx.moveTo(S * 0.5, S * 0.16);
+    ctx.lineTo(S * 0.5, S * 0.6);
+    ctx.moveTo(S * 0.28, S * 0.42);
+    ctx.lineTo(S * 0.5, S * 0.64);
+    ctx.lineTo(S * 0.72, S * 0.42);
+    ctx.moveTo(S * 0.22, S * 0.82);
+    ctx.lineTo(S * 0.78, S * 0.82);
+    ctx.stroke();
+    return;
+  }
+  if (glyph === 'stock') {
+    // A box, seen the way the whole game draws one — a rectangle with a lid
+    // line across it. The drop-off is where an armful becomes a crate.
+    ctx.strokeRect(S * 0.2, S * 0.26, S * 0.6, S * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(S * 0.2, S * 0.44);
+    ctx.lineTo(S * 0.8, S * 0.44);
+    ctx.stroke();
+    return;
+  }
+  if (glyph === 'charge') {
+    // A bolt. The crew are machines, so a break is a charge — the one pad that
+    // holds people rather than goods, and the one symbol here that is about
+    // them rather than about stock.
+    ctx.beginPath();
+    ctx.moveTo(S * 0.58, S * 0.12);
+    ctx.lineTo(S * 0.3, S * 0.55);
+    ctx.lineTo(S * 0.5, S * 0.55);
+    ctx.lineTo(S * 0.42, S * 0.88);
+    ctx.lineTo(S * 0.72, S * 0.44);
+    ctx.lineTo(S * 0.52, S * 0.44);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+  // Parking. The one place a letter IS the symbol, because it is the letter
+  // every car park on earth already uses.
+  ctx.font = `bold ${Math.round(S * 0.78)}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('P', S * 0.5, S * 0.54);
 }
 
 /** Any short string, hung in the air so it stays readable over any background. */

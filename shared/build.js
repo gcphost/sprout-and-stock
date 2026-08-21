@@ -2484,15 +2484,35 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
   const ground = tileAt(L, x, z);
   const taken = blockedAt(L, x, z, ignoreId);
 
+  /**
+   * One conveyor for another, asked ONCE and asked FIRST.
+   *
+   * It used to be asked inside the "what is this ground made of" refusal, which
+   * is where a belt is refused — `T.BELT` is in neither buildable set, and a
+   * plain belt blocks nobody, so that is the only door it ever knocks on. A
+   * loader and a sorter are housings you cannot walk through, so they are
+   * refused one line EARLIER, by `blocked`, and never reached it.
+   *
+   * What that bought was a ladder with a rung missing in one direction: belt to
+   * loader, fine; loader back to belt, or loader to tunnel, "something is
+   * already there" — about a cell you own, holding a piece of the very run you
+   * are drawing. And the two are the same gesture with the tool swapped, so it
+   * reads as the tunnel tool being broken rather than as a rule about housings.
+   *
+   * Hoisted above `taken` rather than repeated beside it: the two refusals
+   * BOTH mean "there is a conveyor here", which is the answer this function
+   * wants, so a third copy is a third place for the next kind to be forgotten.
+   */
+  const swap = def.flow ? conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping) : null;
+
   // `where` is asked only of something being put down. Of something already
   // standing it is not a fact about the fixture at all — it is a fact about the
   // walls around it, and those move. See `canKeep`.
   if (def.where === 'indoor') {
     if (!keeping && !insideStore(L, x, z)) return no('that has to go inside the shop');
+    if (swap) return swap;
     if (taken) return no('something is already there');
     if (!BUILDABLE_INDOOR.has(ground)) {
-      const swap = conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping);
-      if (swap) return swap;
       return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
   } else if (def.where === 'any') {
@@ -2503,13 +2523,9 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
     // outside", "you can only dig into bare grass"). A kind that may go anywhere
     // fell into it and was told it could only be dug into grass, which reads as
     // the palette offering something the shop refuses.
+    if (swap) return swap;
     if (taken) return no('something is already there');
     if (!BUILDABLE_INDOOR.has(ground) && !BUILDABLE_OUTDOOR.has(ground)) {
-      // A conveyor laid over a conveyor is the one swap allowed anywhere, and
-      // it has to be asked HERE as well now that a run is a `where: 'any'`
-      // thing — the branch it used to live in is the one no belt reaches.
-      const swap = conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping);
-      if (swap) return swap;
       return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
   } else {

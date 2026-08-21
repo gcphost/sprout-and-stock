@@ -208,18 +208,15 @@ export function animateMotion(moving, t, running, signal = null) {
       // belt.
       const span = amount || 0.25;
       m.travel = ((m.travel ?? 0) + dt * hz * amp * span) % span;
-      if (m.arc) {
-        // A slat going round a bend. It travels the same distance per second as
-        // one on a straight — the wrap is still `span` — but the distance is arc
-        // length, so the angle it turns through is that over the radius. Without
-        // this a corner cell either holds still while the run either side of it
-        // moves, or slides its bars sideways off the curve they are drawn on.
-        const a = m.baseA + m.arc.dir * (m.travel / m.arc.r);
-        m.mesh.position.set(
-          m.arc.cx + Math.cos(a) * m.arc.r, m.pos.y, m.arc.cz + Math.sin(a) * m.arc.r,
-        );
-        m.mesh.rotation.y = -a;
-      } else if (m.dir) {
+      // A slat going round a bend used to be a third case here, travelling the
+      // same distance per second as one on a straight (the wrap is still `span`)
+      // but spending it as arc length over a radius. It went with the arc it was
+      // for — see `addConveyorPaths` on why a bend is a right angle now — and it
+      // is worth knowing it existed: the trap it fixed is that a corner cell
+      // either holds still while the run either side of it moves, or slides its
+      // bars off the path they were drawn on, and anything that lays carriers on
+      // a curve again will meet it the same day.
+      if (m.dir) {
         // These live at world coordinates in `staticRoot` rather than inside a
         // model that has been turned for them, so the direction has to be said.
         m.mesh.position.set(m.pos.x + m.dir.x * m.travel, m.pos.y, m.pos.z + m.dir.z * m.travel);

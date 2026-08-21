@@ -2843,6 +2843,10 @@ export class Game {
         // and has nothing left to report — so a flag with no expiry would leave
         // the last green burning over an idle machine all night.
         ...(this.armSaid(a.id) ? { did: this.armSaid(a.id) } : {}),
+        // ...and the transfer itself, which is a different question from what
+        // the lamp says — see `armMove`. `{d, out, n}`: the side, the direction
+        // across it, and a counter the client watches for the edge.
+        ...(this.armMove(a.id) ? { move: this.armMove(a.id) } : {}),
       })),
       sorters: (this.layout.sorters ?? []).map((s) => ({
         id: s.id,
@@ -10818,7 +10822,49 @@ export class Game {
         this.armDid ??= new Map();
         this.armDid.set(arm.id, { what: did ? 'load' : 'pass', at: this.elapsed });
       }
+
+      /**
+       * ...and, separately, the TRANSFER — which side goods crossed and which
+       * way, for the renderer to run the crate down.
+       *
+       * Deliberately not folded into `armDid`. That one is the lamp's, and the
+       * lamp's rules are about judgement: a pickup off the floor is "the run
+       * being fed, not this machine deciding anything", so it is not an answer
+       * and colouring it would be the photograph-of-a-clock trap. A transfer is
+       * the opposite question — a box moved across an edge, and a lift is every
+       * bit as much of one as a pour. Folding them would mean choosing which of
+       * the two rules to break.
+       *
+       * `n` is a counter rather than a stamp because there is no clock on the
+       * wire and the client needs the EDGE. `armSaid`'s window was doing that
+       * job and cannot: it stays set for `ARM_SAY_SECONDS` and a loader working
+       * flat out swings inside that, so two transfers in a row read as one long
+       * one and the second is never drawn. A number that only goes up is an
+       * edge the client cannot miss however the snapshots land.
+       */
+      if (did) {
+        this.armMoved ??= new Map();
+        const was = this.armMoved.get(arm.id);
+        this.armMoved.set(arm.id, {
+          d: [did.x, did.z], out: did.out, at: this.elapsed, n: (was?.n ?? 0) + 1,
+        });
+      }
     }
+  }
+
+  /**
+   * The last transfer a loader made, while it is still worth drawing.
+   *
+   * Same window and the same in-memory-only rule `armSaid` earns — see there —
+   * for the same reason: `elapsed` restarts at zero on every load, so a saved
+   * stamp would sit in the future and no loader would ever animate again.
+   */
+  armMove(id) {
+    const mv = this.armMoved?.get(id);
+    if (!mv) return null;
+    if (mv.at > this.elapsed) return null;
+    return this.elapsed - mv.at <= Game.ARM_SAY_SECONDS
+      ? { d: mv.d, out: mv.out, n: mv.n } : null;
   }
 
   /**
@@ -10837,7 +10883,30 @@ export class Game {
     return this.elapsed - said.at <= Game.ARM_SAY_SECONDS ? said.what : null;
   }
 
-  /** One swing. Returns whether anything actually moved. */
+  /**
+   * One swing. Returns null, or WHICH SIDE the goods crossed and which way.
+   *
+   * It was a boolean, and a boolean is the whole of why the transfer could not
+   * be drawn. A loader serves every side it can reach in one swing, so "it did
+   * something" leaves the renderer guessing between two and three spurs — and
+   * guessing right a third of the time reads as the machine sending goods out of
+   * a side that is bolted to a wall.
+   *
+   * `{x, z}` is the OFFSET to the side, so the client needs no tile arithmetic,
+   * and `out` is which way the goods went across it: 1 for a pour (out of the
+   * box, into the unit) and 0 for a lift (off the pad, onto the run). Nothing
+   * about the swing itself changed — every branch below returns at exactly the
+   * point it used to return `true`, and the object is truthy for `stepArms` and
+   * for `verify:belts`, both of which only ever asked whether.
+   *
+   * The FIRST side that took something, on a swing that serves several: what is
+   * being described is one box leaving one machine, and the goods go where they
+   * go whether or not the picture follows them all the way round.
+   */
+  static armSide(arm, s, out) {
+    return { x: s.x - arm.x, z: s.z - arm.z, out };
+  }
+
   armSwing(arm) {
     const sides = [0, 1, 2, 3].map((r) => anchorTile(arm.x, arm.z, r));
     const riding = this.deliveries.find((d) => d.belt === arm.id);
@@ -10856,9 +10925,9 @@ export class Game {
           const skip = (this.layout.bins ?? []).find((b) => b.x === s.x && b.z === s.z);
           if (!skip) continue;
           this.deliveries = this.deliveries.filter((d) => d.id !== riding.id);
-          return true;
+          return Game.armSide(arm, s, 1);
         }
-        return false;
+        return null;
       }
       // The side it faces first — that is what `rot` means on a loader now, and
       // it is the one thing the player said out loud. The other three are still
@@ -10876,19 +10945,21 @@ export class Game {
       // aimed wrong. `rot` still decides who is asked FIRST, which is what makes
       // it a preference for a mixed box rather than a switch.
       let moved = false;
+      // The first side that actually took something — see `armSide`.
+      let side = null;
       for (const s of order) {
         // The box emptied on the way round. Everything below would be a pour of
         // nothing, and `armPour` has already taken it out of `deliveries`.
         if (!lotTotal(riding)) break;
         const unit = (this.layout.shelves ?? []).find((sh) => sh.x === s.x && sh.z === s.z);
-        if (unit && this.armPour(unit, riding)) { moved = true; continue; }
+        if (unit && this.armPour(unit, riding)) { moved = true; side ??= s; continue; }
         // ...and a machine's hopper, which is the half of the shop shelving
         // cannot automate. `armFeed` is its own verb rather than a branch here
         // for `armPour`'s reason: a hopper's rule about what it will take is
         // the recipe's, not `boardFor`'s, and one function asking both would be
         // one caller reading the wrong one.
         const machine = (this.layout.stations ?? []).find((st) => st.x === s.x && st.z === s.z);
-        if (machine && this.armFeed(machine, riding)) moved = true;
+        if (machine && this.armFeed(machine, riding)) { moved = true; side ??= s; }
       }
       // ...and if it FACES bare ground, set the rest of the box down on it.
       //
@@ -10933,22 +11004,22 @@ export class Game {
         // it, rather than on the aisle it happens to be pointing down.
         for (const s of [...pads, facing]) {
           if (!lotTotal(riding)) break;
-          if (this.armDrop(arm, s, riding)) { moved = true; break; }
+          if (this.armDrop(arm, s, riding)) { moved = true; side ??= s; break; }
         }
       }
 
       // Nothing wanted anything. Not a failure — the crate rides on to the next
       // loader, which `stepBelts` does without being asked.
-      return moved;
+      return moved ? Game.armSide(arm, side, 1) : null;
     }
 
     // A loader carrying something is not empty, whatever its mode. Without this
     // a `load` one would fall through and try to lift a second box on top of the
     // one it is already holding.
-    if (riding) return false;
+    if (riding) return null;
 
     // Nothing goes ON the line here. Everything below is a pickup.
-    if (mode === 'unload') return false;
+    if (mode === 'unload') return null;
 
     // 2. Empty: lift a crate off the floor beside it, which is how goods get out
     // of the yard and onto the run. Never off another conveyor cell — that is
@@ -10977,7 +11048,7 @@ export class Game {
         // failure mode, arriving through a door it did not know about.
         && (!d.waste || met.bins.length > 0)
         && Math.round(d.x) === s.x && Math.round(d.z) === s.z);
-      if (loose && this.loadBelt(arm, loose)) return true;
+      if (loose && this.loadBelt(arm, loose)) return Game.armSide(arm, s, 0);
     }
 
     // 3. Still empty: pull a board out of a STOCKROOM beside it.
@@ -11006,7 +11077,7 @@ export class Game {
     // something and that one is the swing that tidies.
     for (const s of sides) {
       const machine = (this.layout.stations ?? []).find((st) => st.x === s.x && st.z === s.z);
-      if (machine && this.armTake(arm, machine)) return true;
+      if (machine && this.armTake(arm, machine)) return Game.armSide(arm, s, 0);
     }
 
     // 4a. Still empty: a LOAD-ONLY loader pulls off the unit it is aimed at.
@@ -11027,7 +11098,7 @@ export class Game {
     if (mode === 'load') {
       const unit = (this.layout.shelves ?? []).find((sh) => sh.x === out.x && sh.z === out.z
         && this.handMayTouch(sh));
-      if (unit && this.armPull(arm, unit, met)) return true;
+      if (unit && this.armPull(arm, unit, met)) return Game.armSide(arm, out, 0);
     }
 
     // 4. Still empty: pull a board out of a STOCKROOM beside it.
@@ -11035,9 +11106,9 @@ export class Game {
       const room = (this.layout.shelves ?? [])
         .find((sh) => sh.x === s.x && sh.z === s.z && sh.boh === true && this.handMayTouch(sh));
       if (!room) continue;
-      if (this.armPull(arm, room, met)) return true;
+      if (this.armPull(arm, room, met)) return Game.armSide(arm, s, 0);
     }
-    return false;
+    return null;
   }
 
   /**
@@ -14331,6 +14402,40 @@ export class Game {
     }
   }
 
+  /**
+   * The nearest square anybody could stand on, spiralling out from one that
+   * nobody can.
+   *
+   * Only ever asked about goods that have ended up under something — see the
+   * shove in `regenerateLayout`. Breadth-first so the answer is the nearest by
+   * steps rather than the first found on some axis, and bounded because a crate
+   * sealed inside a wall should stay visible where it is rather than be teleported
+   * across the shop: past a few squares the honest answer is that there is
+   * nowhere near, and a box that appeared thirty tiles away would read as goods
+   * having been destroyed.
+   */
+  nearestWalkable(layout, x, z, reach = 4) {
+    const seen = new Set([`${x},${z}`]);
+    let edge = [{ x, z }];
+    for (let step = 0; step < reach; step++) {
+      const next = [];
+      for (const c of edge) {
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = c.x + dx;
+          const nz = c.z + dz;
+          const key = `${nx},${nz}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (nx < 0 || nz < 0 || nx >= layout.w || nz >= layout.h) continue;
+          if (isWalkable(this.walk, layout, nx, nz)) return { x: nx, z: nz };
+          next.push({ x: nx, z: nz });
+        }
+      }
+      edge = next;
+    }
+    return null;
+  }
+
   regenerateLayout(newSeed, alias = {}, { compensate = true, want: asked = null } = {}) {
     // A batch is holding them (`holdReflow`). Remember what this one would have
     // carried and let the batch do it once, at the end.
@@ -14522,9 +14627,48 @@ export class Game {
     // It becomes an ordinary floor crate rather than being moved or binned,
     // which is what every other "the thing under you went away" case in here
     // does: the goods were paid for and somebody can walk over and pick them up.
+    //
+    // EVERY CONVEYOR KIND, not just `layout.belts`. `d.belt` holds the id of the
+    // CELL a crate is riding, and four kinds of thing can be that cell — a belt,
+    // a loader, a sorter, a tunnel mouth — while this list was one of them. So a
+    // box passing through a machine was set down on the machine's own square by
+    // the next re-flow, which is every wall segment of every drag: it stopped
+    // riding, nothing swept it up, and the pile grew. Four loaders in a row had
+    // eleven crates standing in them on a live save.
+    //
+    // It went unnoticed for as long as a loader was walkable, because the result
+    // was an ordinary floor crate somebody could pick up. The day loaders became
+    // machines you cannot walk through, the same bug started producing stock
+    // nothing in the shop can ever reach — see the shove below.
     if (this.deliveries.some((d) => d.belt)) {
-      const live = new Set((layout.belts ?? []).map((b) => b.id));
+      const live = new Set(conveyorsOf(layout).map((c) => c.id));
       for (const d of this.deliveries) if (d.belt && !live.has(d.belt)) d.belt = null;
+    }
+
+    // ...and a crate that has ended up UNDER something is pushed clear.
+    //
+    // A pallet is not in `blocked`, so a fixture may be built on the square one
+    // is standing on, and a fixture that used to be walkable may stop being —
+    // both leave goods on a cell nothing can path to. Every job that lifts a box
+    // routes to its tile, so what that is in play is paid-for stock that no
+    // hire will ever collect and no player can walk to, sitting in plain sight.
+    // It is the `TIRED_PACE` pin arriving through one more door: not a refusal
+    // anywhere, just a thing that quietly never happens again.
+    //
+    // Moved rather than binned or re-crated: the goods were paid for, `d` keeps
+    // its id so nothing else has to be told, and the nearest walkable square is
+    // where somebody would have put it down anyway. A shop with nowhere free at
+    // all leaves it where it is — there is no answer that is better than the one
+    // the player can see.
+    for (const d of this.deliveries) {
+      if (d.belt) continue;
+      const x = Math.round(d.x);
+      const z = Math.round(d.z);
+      if (isWalkable(this.walk, layout, x, z)) continue;
+      const to = this.nearestWalkable(layout, x, z);
+      if (!to) continue;
+      d.x = to.x;
+      d.z = to.z;
     }
     // Rebuilt against the new building on the next tick rather than carried
     // over: both are keyed by fixture id, and a re-flow re-mints them.

@@ -20,17 +20,36 @@ export const PALETTE = {
   /** A plot nobody has turned over yet: scrubby, pale, still half turf. */
   soilRough: '#a89268',
   soilWeed: '#93b96a',
-  /** The delivery pad: cool grey hardstanding, where the lorry drops an order. */
-  bay: '#9aa79b',
+  /**
+   * THE THREE PADS, WHICH USED TO BE THE LOUDEST GROUND IN THE SHOP.
+   *
+   * A bay was sage green, a drop-off was orange timber and a break area was
+   * lilac, on the reasoning that three patches of ground doing three jobs have
+   * to be told apart — which is true, and colour was the only thing any of them
+   * had to say it with. What that bought is a shop floor with a purple rectangle
+   * in the middle of it: the pads are big, they are rectangular, they are indoors
+   * next to the parquet you chose, and the one thing they were never allowed to
+   * do was blend in.
+   *
+   * They are MARKINGS now — see `PAD_MARK`. A painted bay in a real yard is the
+   * same hardstanding as the yard with lines and a symbol on it, and that is the
+   * whole idea: the fill drops back to a quiet tint of the ground it lies on, and
+   * what says which pad it is moves onto the paint, where a disabled bay's
+   * wheelchair says it without the tarmac having to be blue.
+   *
+   * So these are deliberately close to `floor` and `grass` and NOT to each
+   * other — telling the three apart is the marking's job now, and any two of
+   * these that drifted far enough apart to do it by colour would be putting the
+   * rectangle back.
+   */
+  bay: '#ddd3bd',
   bayPlank: '#a8865c',
-  /** The drop-off pad: warm timber decking, where you park an armful. The two
-   *  sit in the same yard holding the same crates, so telling them apart at a
-   *  glance is the entire reason there are two of them. */
-  drop: '#c2a173',
-  /** The break area: a soft indoor mat, warmer and quieter than either pad, so
-   *  the one patch of ground that is for the staff rather than for the stock
-   *  does not read as more yard. */
-  break: '#b59ab8',
+  /** The drop-off pad, where you park an armful. Half a step warmer than the
+   *  bay, which is a hint rather than the answer — see above. */
+  drop: '#e6d6b4',
+  /** The break area: the one pad that is normally indoors, so it is the closest
+   *  of the three to plain floor. */
+  break: '#eadcc4',
   /** The car park: cold tarmac, and the darkest ground in the game on purpose.
    *  It is the one piece of hardstanding a customer sees before the shop, so it
    *  should read as the front of the building rather than as more of the back
@@ -125,10 +144,16 @@ export const TILE_STYLE = {
   [T.DOOR]: { color: PALETTE.door, h: 0.06 },
   [T.PATH]: { color: PALETTE.path, h: 0.05 },
   [T.FENCE]: { color: PALETTE.fence, h: 0.45 },
-  [T.BAY]: { color: PALETTE.bay, h: 0.07 },
-  [T.DROP]: { color: PALETTE.drop, h: 0.07 },
-  [T.BREAK]: { color: PALETTE.break, h: 0.07 },
-  [T.PARK]: { color: PALETTE.park, h: 0.07 },
+  // Level with the floor rather than the 0.07 they stood at. A pad indoors is
+  // ground you have painted, not a platform you have built, and a tenth of a
+  // tile of lip along its edge is exactly what made one read as a slab dropped
+  // on the shop — the same argument `T.ROAD` makes about a kerb, one storey
+  // down. Outdoors the lip survives against grass, which is right: there a pad
+  // IS hardstanding.
+  [T.BAY]: { color: PALETTE.bay, h: 0.06 },
+  [T.DROP]: { color: PALETTE.drop, h: 0.06 },
+  [T.BREAK]: { color: PALETTE.break, h: 0.06 },
+  [T.PARK]: { color: PALETTE.park, h: 0.06 },
   // Flush with the grass rather than raised the 0.07 the pads are. A pad is a
   // platform you put things on and a road is ground you drive over, and a lip
   // along a lane that runs the width of the map would read as a kerb the van
@@ -309,13 +334,16 @@ export const CONVEYOR_LIT = {
    *  the run, which is the whole thing this readout is worth: a jam at the head
    *  lights every cell behind it and you can see where it started. */
   jam: '#e8a33c',
-  /** Empty. QUIET rather than dark, which is not the same thing and was the
-   *  other half of the fifty black squares: "dim" was reasoned about a light
-   *  going out, and a light that goes out on a pale deck is a hole. What idle
-   *  has to be is a mark you can still trace across a dark shop while it says
-   *  nothing — so it sits just under the well it lies in, and the two greens
-   *  above are the only things on a run that ever get louder. */
-  idle: '#98a2ad',
+  /** Empty. DARKER THAN THE TRACK, and it was the other way round for as long
+   *  as the deck was pale: "dim" was reasoned about a light going out, and a
+   *  light that goes out on a pale deck is a hole, so idle was a quiet grey
+   *  ABOVE the deck it lay on. The deck is a dark recess now (`track`), which
+   *  inverts the whole argument — a pale pip on a dark groove is the brightest
+   *  thing on the run saying the least, one per join, all the way down a line
+   *  that is doing nothing. A joint is darker than the metal either side of it.
+   *  The two lit states above are unchanged and are now the only things on a
+   *  run that are lighter than the run. */
+  idle: '#39414c',
 };
 
 /**
@@ -345,6 +373,35 @@ export const CONVEYOR_LIT = {
  * proud in near-white — from a 40° camera that rim is most of what you see of an
  * empty crate, and it is the one part that catches a light at night.
  */
+/**
+ * WHAT IS PAINTED ON A PAD, NOW THAT THE PAD ITSELF SAYS NOTHING.
+ *
+ * The four job pads used to be told apart by the colour of the ground, which is
+ * the one cue that cannot be quiet — see `PALETTE.bay`. A real yard does this
+ * the other way round: the tarmac is tarmac everywhere, and what a bay is FOR is
+ * a line round it and a symbol in the middle of it. A disabled space is the
+ * example worth holding on to, because everybody reads one instantly and none of
+ * it is the colour of the ground.
+ *
+ * Two marks per pad and they do different jobs. The **line** says where the pad
+ * ends, which is the half the fill used to carry and the half that matters while
+ * you are building — how big you painted it is how much it holds, for every one
+ * of these. The **symbol** says which pad it is, once per region rather than
+ * once per cell: a glyph stamped on every square is a tiled wallpaper, and the
+ * thing being imitated is one big sign painted on the ground.
+ *
+ * The ink is a shade of the ground rather than a colour of its own, for the
+ * reason the whole re-key exists — paint on concrete is concrete you can see the
+ * paint on. `park` is the exception and inverts, because tarmac is the one pad
+ * dark enough that a darker line on it is invisible.
+ */
+export const PAD_MARK = {
+  [T.BAY]: { ink: '#a2988a', glyph: 'load' },
+  [T.DROP]: { ink: '#ad9b78', glyph: 'stock' },
+  [T.BREAK]: { ink: '#bcac92', glyph: 'charge' },
+  [T.PARK]: { ink: '#cdd3db', glyph: 'park' },
+};
+
 export const CRATE_LOOK = {
   /** The tote itself. */
   body: '#93a1b2',
