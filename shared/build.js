@@ -137,8 +137,27 @@ export const FIXTURES = {
    * your own aisle and fire `canPlace`'s stranding warning on every cell of the
    * drag. And because a non-blocking fixture is invisible to `blocked`, the
    * tile stamp is the ONLY thing refusing a second belt on the same square —
-   * `T.BELT` is not in `BUILDABLE_INDOOR`, exactly as `T.PLOT` is not in
+   * `T.BELT` is in NEITHER buildable set, exactly as `T.PLOT` is not in
    * `BUILDABLE_OUTDOOR`, which is how two beds have always refused to share.
+   * Both sets matter now rather than just the indoor one: see `where` below.
+   *
+   * `where: 'any'` — either side of the wall, on floor or on grass. It was
+   * `'indoor'`, which is the shelf's rule borrowed by something that is not
+   * shelving, and it is wrong about the one journey a conveyor most obviously
+   * replaces: the walk from the yard. A dock is outdoors, the bay is outdoors,
+   * and a run that had to begin inside the building could not be pointed at
+   * either — so the machine that exists to stop hires crossing the shop was
+   * refused at the exact end of the trip that is longest. Nothing about a belt
+   * wants a roof; it is ground with a direction on it.
+   *
+   * It also takes conveyors out of `whatThisUnroofs`, which is the half you
+   * would otherwise find later: a run that legitimately leaves the building
+   * would warn "that leaves a belt standing outside" on every wall segment of
+   * every drag, and a warning that fires whatever you do is one nobody reads.
+   *
+   * Pads and roads are still refused, and deliberately — `BUILDABLE_OUTDOOR` is
+   * bare grass, so painting a bay does not stop being a bay because you ran a
+   * line over the corner of it. Lay the run alongside and let a loader reach in.
    *
    * `anchor: null` because there is no side you work a belt from. A crate is
    * lifted off it the way a crate is lifted off anything — by pointing at the
@@ -150,7 +169,7 @@ export const FIXTURES = {
    * field that already existed.
    */
   belt: {
-    label: 'Belt', blocks: false, ground: T.BELT, where: 'indoor', rotates: true, anchor: null,
+    label: 'Belt', blocks: false, ground: T.BELT, where: 'any', rotates: true, anchor: null,
     // Which cells it moves goods BETWEEN, as quarter turns off `rot`. Its own
     // field rather than `anchor`, and the split is the whole point: `anchor` is
     // a tile the GENERATOR RESERVES, so saying it here would keep clear the very
@@ -197,7 +216,7 @@ export const FIXTURES = {
    * shelving beside it is an expensive belt.
    */
   arm: {
-    label: 'Loader', blocks: false, ground: T.BELT, where: 'indoor', rotates: true, anchor: null,
+    label: 'Loader', blocks: false, ground: T.BELT, where: 'any', rotates: true, anchor: null,
     flow: { out: 0 },
     works: true,
   },
@@ -228,7 +247,7 @@ export const FIXTURES = {
    * answering for the biggest pile is the chevron bug wearing a filter.
    */
   sorter: {
-    label: 'Sorter', blocks: false, ground: T.BELT, where: 'indoor', rotates: true, anchor: null,
+    label: 'Sorter', blocks: false, ground: T.BELT, where: 'any', rotates: true, anchor: null,
     flow: { out: 0 },
     works: true,
   },
@@ -2252,6 +2271,48 @@ export function fixturesOf(L) {
  *                        { keeping } — judging something already standing.
  * @returns {{ok: boolean, reason?: string, warn?: string}}
  */
+/**
+ * One conveyor for another, in place — or null, meaning "no, for the ordinary
+ * reason".
+ *
+ * Hoisted out of the indoor branch the day a run stopped being an indoor thing.
+ * It reads `def.flow` rather than a list of kinds, so it is about the *shape* of
+ * a fixture rather than about where the shop currently lets one stand, which is
+ * what makes it survive the next move of that sort.
+ *
+ * You lay a run first and then decide which cells stock a shelf, so "delete the
+ * belt, then place a loader on the hole" is two presses for one idea — and the
+ * hole is a gap in a line you were looking at, which is the worst moment to be
+ * asked to re-derive where you were.
+ */
+function conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping) {
+  if (!def.flow || ground !== T.BELT || keeping) return null;
+  const here = conveyorAt(L, x, z);
+  if (!here) return null;
+  // ITSELF, first — which is what makes a conveyor rotatable at all.
+  //
+  // `ignoreId` un-blocks the cell for the fixture being moved everywhere else
+  // in here, and it could not reach this branch: a conveyor stamps `T.BELT` on
+  // its own square, that stamp is what refuses a second one, and the stamp does
+  // not know who laid it. So a loader asked to turn was refused on all four
+  // facings, `rotateFixture` reported "nowhere for it to turn to", and the only
+  // way to change one was to delete it and lay it again — which nothing
+  // anywhere says, so what it reads as is R being a dead key on the one piece
+  // whose whole job is which way it points.
+  //
+  // Before the kind test rather than folded into it, because the answer is
+  // different: swapping a belt for a loader is a purchase and warns about what
+  // it replaces, where turning a piece you already own costs nothing and has
+  // nothing to say.
+  if (here.id === ignoreId) return { ok: true };
+  // Only between the two conveyor kinds, and never for the same kind: a belt
+  // over a belt is a press that takes money and changes nothing.
+  if (here.kind !== spec.kind) {
+    return { ok: true, warn: `replaces the ${FIXTURES[here.kind]?.label?.toLowerCase() ?? 'belt'} that is there` };
+  }
+  return null;
+}
+
 export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
   const def = FIXTURES[spec.kind];
   if (!def) return no(`"${spec.kind}" is not something you can build`);
@@ -2276,37 +2337,8 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
     if (!keeping && !insideStore(L, x, z)) return no('that has to go inside the shop');
     if (taken) return no('something is already there');
     if (!BUILDABLE_INDOOR.has(ground)) {
-      // ...except one conveyor for the other, in place. You lay a run first and
-      // then decide which cells stock a shelf, so "delete the belt, then place a
-      // loader on the hole" is two presses for one idea — and the hole is a gap
-      // in a line you were looking at, which is the worst moment to be asked to
-      // re-derive where you were.
-      //
-      // Only between the two conveyor kinds, and never for the same kind: a
-      // belt over a belt is a press that takes money and changes nothing.
-      if (def.flow && ground === T.BELT && !keeping) {
-        const here = conveyorAt(L, x, z);
-        // ITSELF, first — which is what makes a conveyor rotatable at all.
-        //
-        // `ignoreId` un-blocks the cell for the fixture being moved everywhere
-        // else in here, and it could not reach this branch: a conveyor stamps
-        // `T.BELT` on its own square, that stamp is what refuses a second one,
-        // and the stamp does not know who laid it. So a loader asked to turn
-        // was refused on all four facings, `rotateFixture` reported "nowhere
-        // for it to turn to", and the only way to change one was to delete it
-        // and lay it again — which nothing anywhere says, so what it reads as
-        // is R being a dead key on the one piece whose whole job is which way
-        // it points.
-        //
-        // Before the kind test rather than folded into it, because the answer
-        // is different: swapping a belt for a loader is a purchase and warns
-        // about what it replaces, where turning a piece you already own costs
-        // nothing and has nothing to say.
-        if (here && here.id === ignoreId) return { ok: true };
-        if (here && here.kind !== spec.kind) {
-          return { ok: true, warn: `replaces the ${FIXTURES[here.kind]?.label?.toLowerCase() ?? 'belt'} that is there` };
-        }
-      }
+      const swap = conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping);
+      if (swap) return swap;
       return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
   } else if (def.where === 'any') {
@@ -2319,6 +2351,11 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
     // the palette offering something the shop refuses.
     if (taken) return no('something is already there');
     if (!BUILDABLE_INDOOR.has(ground) && !BUILDABLE_OUTDOOR.has(ground)) {
+      // A conveyor laid over a conveyor is the one swap allowed anywhere, and
+      // it has to be asked HERE as well now that a run is a `where: 'any'`
+      // thing — the branch it used to live in is the one no belt reaches.
+      const swap = conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping);
+      if (swap) return swap;
       return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
   } else {

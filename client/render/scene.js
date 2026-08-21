@@ -85,6 +85,22 @@ const EYE_Y = 0.8;
 const SKIN = 0.015;
 
 /**
+ * How far a wall's surface stands into the cell beside it — see `artSetback`.
+ *
+ * Half a wall's thickness (0.17 / 2), plus the finish that may be laid on it and
+ * the course of brick that may stand proud of THAT, which is the worst case and
+ * the right one to seat art against: a shelf that clears a bare wall and clips
+ * the moment you paint it is a bug you would find while decorating, which is the
+ * one time nobody is looking at the shelf.
+ *
+ * Derived from the same two numbers `addEdges` builds with rather than typed, so
+ * a wall that gets thicker takes its clearance with it. `EDGE_STYLE[E.WALL].t`
+ * and not the shutter's 0.2: a roller door is a way THROUGH, so nothing is ever
+ * backed onto one.
+ */
+const WALL_FACE = (EDGE_STYLE[E.WALL].t + SKIN) / 2 + SKIN * 1.7;
+
+/**
  * The ceiling on planted blades, across the whole world.
  *
  * `MAX_LIGHTS`' opposite number, decided for the same reason and at the same
@@ -1032,6 +1048,9 @@ export class Scene {
     // allocating a vector every frame.
     this.camPan = new THREE.Vector3();
     this.camAim = new THREE.Vector3();
+    // Where a restored view wants to be centred, until there is a settled
+    // `camTarget` to measure the offset from. See `takeCentre`.
+    this._wantCentre = null;
     // Whether that pan is bounded by the world rather than by a radius around
     // the player — build mode, where the view has to reach places nobody can
     // stand. See `setFreeRoam`.
@@ -1334,11 +1353,27 @@ export class Scene {
       this.camAngle = yaw;
     }
     if (centre && Number.isFinite(centre.x) && Number.isFinite(centre.z)) {
-      this.camPan.x = centre.x - this.camTarget.x;
-      this.camPan.z = centre.z - this.camTarget.z;
-      this.clampPan();
+      // Held as a WISH rather than applied and forgotten. `camPan` is an offset
+      // off `camTarget`, and `camTarget` is not settled when this runs: the
+      // layout parks it on the door, and the first snapshot carrying you moves
+      // it to your body. Converting to an offset against the door and letting
+      // the target move afterwards keeps the offset and loses the centre — so
+      // the view ends up `you - door` away from where it was left, and since
+      // that new spot is what gets saved, every reload adds the gap again. It
+      // reads as the camera walking away from the shop a bit further each time.
+      this._wantCentre = { x: centre.x, z: centre.z };
+      this.takeCentre();
     }
     this.aimCamera();
+  }
+
+  /** Re-seat the pan so the view sits on `_wantCentre`, against the target as it is NOW. */
+  takeCentre() {
+    const c = this._wantCentre;
+    if (!c) return;
+    this.camPan.x = c.x - this.camTarget.x;
+    this.camPan.z = c.z - this.camTarget.z;
+    this.clampPan();
   }
 
   /**
@@ -2470,6 +2505,77 @@ export class Scene {
   }
 
   /**
+   * How far to seat a fixture's art off a wall behind it, as a world offset.
+   *
+   * A wall is drawn ON the line between two cells and is `t` thick (0.17),
+   * centred — so it eats about 0.085 of a tile into the cell on each side, and
+   * a painted brick face adds a `SKIN` on top of a `SKIN`, standing proud. The
+   * art meanwhile fills its cell: most units reach ±0.39 to ±0.44 and the
+   * gondola reaches ±0.525 along its face, which is wider than the tile it
+   * stands on. So the end of a run meeting a wall side-on clips by up to 0.14,
+   * and a run of shelving ending at a wall is the common case rather than a
+   * corner of one.
+   *
+   * **It is a look and never a rule** — the same line the floor brush draws.
+   * Nothing here touches `tiles`, `blocked`, a working spot or a queue: the
+   * fixture still occupies its cell, is still reached from the same side, and
+   * still costs the same. The art is simply seated against the wall's FACE
+   * rather than against the cell boundary, which is where a real shelf stands.
+   *
+   * Measured rather than constant, and that is the whole of why it needs the
+   * model. Shifted by a flat 0.085 a shallow unit would come away from the wall
+   * it is standing against and leave a gap — the same bug pointed the other
+   * way, and harder to attribute because nothing is intersecting. So the shift
+   * is the OVERLAP, `max(0, reach − free space)`, which is zero for anything
+   * that already fits and moves nothing in a shop with no walls in it.
+   *
+   * **All four sides, and the first version did only the back, which was the
+   * wrong axis and moved nothing at all.** A model is authored facing east, so
+   * its back is `-x` — and that is the SHALLOW way round: shelving runs 0.60 to
+   * 0.76 front-to-back and 0.78 to 1.05 along its own face. Every unit already
+   * cleared the wall it was backed onto, and what actually pokes through is the
+   * END of a run into a wall it meets side-on, which the back test cannot see.
+   * The tell was a fix that built, ran and changed nothing — worth knowing
+   * because "shelves back onto walls" is such a good story that it is easy to
+   * check the geometry against the story instead of against the art.
+   *
+   * Opposite pairs are summed rather than fought over: a unit in a one-tile
+   * alcove is squeezed from both ends and the two shifts cancel toward the
+   * middle, which is where it should be. And only a kind with an `anchor` — a
+   * belt, a plot and a decoration have no front, and a plot IS the ground.
+   */
+  artSetback(L, f) {
+    const def = FIXTURES[f.kind];
+    if (!def?.anchor) return null;
+    const x = Math.round(f.x);
+    const z = Math.round(f.z);
+    const b = modelBounds(partsAt(this.fixtureModel(f), this.fixtureT(f)));
+    const free = 0.5 - WALL_FACE;
+    // How far the art reaches in each of its own four directions, paired with
+    // the quarter turn off `rot` that points that way in the world. `+x` is the
+    // front, so `+z` is a quarter turn past it — which is what the renderer's
+    // own `rotation.y = -rot * (π/2)` works out to.
+    const reach = [
+      [0, b.maxX], [1, b.maxZ], [2, -b.minX], [3, -b.minZ],
+    ];
+    let dx = 0;
+    let dz = 0;
+    for (const [turnBy, out] of reach) {
+      const over = out - free;
+      if (!(over > 0.001)) continue;
+      // The unit offset that way, borrowed off `anchorTile` at the origin rather
+      // than re-listing the four facings here — one spelling of which way a
+      // quarter turn points, in the file that owns it.
+      const dir = anchorTile(0, 0, rot4((f.rot ?? 0) + turnBy));
+      if (!SOLID.has(edgeBetween(L, x, z, x + dir.x, z + dir.z))) continue;
+      // Away from the wall, which is the opposite of the way it was reaching.
+      dx -= dir.x * over;
+      dz -= dir.z * over;
+    }
+    return dx || dz ? { dx, dz } : null;
+  }
+
+  /**
    * Stand every fixture's authored model in the world.
    *
    * These go in `staticRoot` with the rest of the building: a fixture only
@@ -2546,7 +2652,12 @@ export class Scene {
       // question about the shop rather than about the model. See
       // `attachConveyorBack`.
       this.attachConveyorBack(L, f, prop, flowRot);
-      prop.position.set(f.x, this.fixtureBaseY(f), f.z);
+      // Seated off the wall behind it, if there is one and the art would go
+      // through it. Null everywhere else, which is most of the shop — see
+      // `artSetback`. Its stock is moved by the SAME call in `syncShelves`, or
+      // the goods stay where the shelf used to be drawn.
+      const off = this.artSetback(L, f);
+      prop.position.set(f.x + (off?.dx ?? 0), this.fixtureBaseY(f), f.z + (off?.dz ?? 0));
       // One thing you can point at, whatever it is made of. `pickFixture`
       // raycasts these and walks back up to whichever group wears the flag.
       prop.userData.pick = true;
@@ -3062,6 +3173,11 @@ export class Scene {
     if (eye) {
       this.camTarget.set(eye.x, EYE_Y, eye.z);
       this.camFollowing = true;
+      // ...and a restored view takes its offset from HERE, once. This is the
+      // first moment the target is the thing it will be for the rest of the
+      // session, and it is the same reference the pose was saved against — so
+      // the round trip is exact rather than off by however far you had walked.
+      if (this._wantCentre) { this.takeCentre(); this._wantCentre = null; }
     }
 
     // The day cycle. `daylight` is 0 at open and close, 1 at midday.
@@ -3485,7 +3601,9 @@ export class Scene {
         this.actorRoot.remove(existing);
         disposeGroup(existing);
       }
-      const obj = buildPallet(piles, { covered, cap, waste: d.waste === true });
+      const obj = buildPallet(piles, {
+        covered, cap, waste: d.waste === true, label: !d.belt,
+      });
       // Sat on the deck of the belt rather than on the floor. `at` is 0 for
       // anything belted (it is in no pile), so this is the belt's own height and
       // never an offset into a tower.
@@ -5089,7 +5207,12 @@ export class Scene {
     // is round a corner.
     const inLine = feeds.find((f) => f.x === dirOut.x && f.z === dirOut.z);
     const dirIn = inLine ?? feeds[0] ?? dirOut;
-    return { in: dirIn, out: dirOut, corner: dirIn.x !== dirOut.x || dirIn.z !== dirOut.z };
+    // Every feeder, not just the one the path is drawn from. A cell can be a T,
+    // and `in`/`out` is a single pair — so the second line in has no place in
+    // the path at all and is invisible unless somebody asks for it by name.
+    return {
+      in: dirIn, out: dirOut, feeds, corner: dirIn.x !== dirOut.x || dirIn.z !== dirOut.z,
+    };
   }
 
   /**
@@ -5111,6 +5234,25 @@ export class Scene {
    * in `staticRoot` at world coordinates rather than inside a model that has
    * been rotated for them.
    */
+  /**
+   * The quarter circle a cell's goods travel, entering by `from` and leaving by
+   * `to` — centre, and the two ends of the sweep.
+   *
+   * Its own function because a T draws more than one of these: the through-line
+   * curves in off `path.in` and every other feeder curves in off its own edge,
+   * and the two must agree about radius and about which way round they go, or a
+   * spur meets the run it is joining at a visible kink.
+   */
+  static conveyorArc(c, from, to) {
+    const cx = c.x + (-from.x + to.x) * 0.5;
+    const cz = c.z + (-from.z + to.z) * 0.5;
+    const a0 = Math.atan2((c.z - from.z * 0.5) - cz, (c.x - from.x * 0.5) - cx);
+    let da = Math.atan2((c.z + to.z * 0.5) - cz, (c.x + to.x * 0.5) - cx) - a0;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    return { cx, cz, a0, da };
+  }
+
   addConveyorSlats(L, geo) {
     // Every slat in the shop, by colour, as ONE draw each.
     //
@@ -5143,12 +5285,7 @@ export class Scene {
       const span = xs.length > 1 ? Math.abs(xs[1] - xs[0]) : 0.26;
 
       // The arc, for a corner: centre, radius, and the two ends of the quarter.
-      const cx = c.x + (-path.in.x + path.out.x) * 0.5;
-      const cz = c.z + (-path.in.z + path.out.z) * 0.5;
-      const a0 = Math.atan2((c.z - path.in.z * 0.5) - cz, (c.x - path.in.x * 0.5) - cx);
-      let da = Math.atan2((c.z + path.out.z * 0.5) - cz, (c.x + path.out.x * 0.5) - cx) - a0;
-      while (da > Math.PI) da -= Math.PI * 2;
-      while (da < -Math.PI) da += Math.PI * 2;
+      const { cx, cz, a0, da } = Scene.conveyorArc(c, path.in, path.out);
 
       for (const p of parts) {
         const along = p.pos?.[0] ?? 0;
@@ -5196,6 +5333,60 @@ export class Scene {
         rec.moving.push(entry);
       }
 
+      // ...and a SPUR for every other line that feeds this cell.
+      //
+      // `in`/`out` is one pair, so a cell fed by two lines draws the path of
+      // one of them and nothing at all for the other. On a bend that is the
+      // worst it looks: what you get is a belt curving in from a single side,
+      // with the run that actually joins here simply stopping at the tile edge
+      // against a deck it is touching. The deck already reaches that edge and
+      // the rail is already dropped there, so the join is drawn and only the
+      // thing that says which way goods MOVE is missing — which reads as two
+      // belts that happen to abut rather than as a T.
+      //
+      // It CURVES, and only the half of the curve before the middle is drawn.
+      //
+      // A spur is goods turning onto the run, so it is the same quarter circle
+      // a bend is — off its own edge, onto `out`. Laid straight it would point
+      // at the centre of the tile and stop, which reads as a line running into
+      // the side of another one rather than as a line joining it. And it stops
+      // at the middle because the far half of that curve is the through-line's
+      // own track: drawn whole, every T carries two sets of slats along one
+      // path, beating against each other.
+      for (const f of path.feeds) {
+        if (f.x === path.in.x && f.z === path.in.z) continue;
+        const arc = Scene.conveyorArc(c, f, path.out);
+        for (const p of parts) {
+          const along = p.pos?.[0] ?? 0;
+          if (along >= 0) continue;
+          const y = p.pos?.[1] ?? 0.115;
+          const thin = p.scale?.[0] ?? 0.07;
+          const high = p.scale?.[1] ?? 0.03;
+          const long = p.scale?.[2] ?? 0.56;
+          const a = arc.a0 + arc.da * (along + 0.5);
+          const mesh = new THREE.Object3D();
+          mesh.scale.set(Math.min(long, 0.62), high, thin);
+          mesh.position.set(arc.cx + Math.cos(a) * 0.5, y, arc.cz + Math.sin(a) * 0.5);
+          mesh.rotation.y = -a;
+          const entry = {
+            mesh,
+            motion: { kind: 'scroll', hz: p.motion?.hz ?? 1.1, amount: span },
+            rot: 0,
+            scale: mesh.scale.clone(),
+            axis: null,
+            arm: null,
+            pivot: null,
+            phase: rec.moving.length * 0.41,
+            arc: { cx: arc.cx, cz: arc.cz, r: 0.5, dir: Math.sign(arc.da) || 1 },
+            baseA: a,
+            pos: mesh.position.clone(),
+          };
+          if (!byColour.has(p.color)) byColour.set(p.color, []);
+          byColour.get(p.color).push(mesh);
+          rec.moving.push(entry);
+        }
+      }
+
       // ...and the corner's own rail: the two outer edges, shortened, plus a
       // chamfer across the angle between them.
       if (path.corner) {
@@ -5215,9 +5406,19 @@ export class Scene {
         // the unit it was bought for — and that unit is exactly one of these two
         // outer edges. What it drew was the connection walled off, which reads
         // as the loader not being attached to the thing it is stocking.
+        // ...and minus any of them another CONVEYOR is across, which is the same
+        // exclusion again and the one a bend could not make for itself. `in` and
+        // `out` are a single pair, so a cell that is fed by two lines has a
+        // feeder standing on one of these two edges — and what got drawn was a
+        // wall across a join that works. A T into a bend is the ordinary shape
+        // where a spur meets a run, and the straight rails have refused this
+        // since they were written (`conveyorAt`, in the per-edge loop): a rail
+        // is the OUTSIDE of a run, and an edge with belt across it is the middle
+        // of one however the flow was resolved.
         const pours = this.conveyorPours(L, c);
         const outer = [path.in, { x: -path.out.x, z: -path.out.z }]
-          .filter(({ x: ex, z: ez }) => !pours.some((p) => p.x === c.x + ex && p.z === c.z + ez));
+          .filter(({ x: ex, z: ez }) => !pours.some((p) => p.x === c.x + ex && p.z === c.z + ez))
+          .filter(({ x: ex, z: ez }) => !conveyorAt(L, c.x + ex, c.z + ez));
         for (const { x: ex, z: ez } of outer) {
           const rail = new THREE.Mesh(geo, material('#4b5563', 1));
           rail.scale.set(ex ? 0.07 : 0.62, 0.1, ez ? 0.07 : 0.62);
@@ -7054,7 +7255,17 @@ export class Scene {
       // Rows have a front and a back, so the goods have to turn with the unit.
       // A flat top doesn't care, which is why this never mattered before.
       rec.group.rotation.y = -(def.rot ?? 0) * (Math.PI / 2);
-      rec.group.position.set(def.x, rows.length ? 0 : this.fixtureHeight(fx), def.z);
+      // The same seat-off-the-wall the unit itself got in `addFixtureProps`.
+      // Asked again rather than remembered, because these two groups live under
+      // different roots and are rebuilt on different clocks — a stored offset
+      // would be the one from the shop before last on the first sync after a
+      // re-flow, which is goods hanging a tenth of a tile off their own shelf.
+      const off = this.artSetback(this.storeLayout, fx);
+      rec.group.position.set(
+        def.x + (off?.dx ?? 0),
+        rows.length ? 0 : this.fixtureHeight(fx),
+        def.z + (off?.dz ?? 0),
+      );
 
       // A unit holds one kind per BOARD now, so this draws a list rather than a
       // single item — board n gets stack n, top down, which is the order

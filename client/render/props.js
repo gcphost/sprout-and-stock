@@ -674,7 +674,9 @@ export const BELT_DECK = 0.12;
  * crate says what is in it in words instead: the one place in the game a crate
  * has ever needed to name itself is when you cannot see into it.
  */
-export function buildPallet(piles, { covered = false, cap = 6, waste = false } = {}) {
+export function buildPallet(piles, {
+  covered = false, cap = 6, waste = false, label = true,
+} = {}) {
   const g = new THREE.Group();
   const qty = piles.reduce((n, p) => n + p.qty, 0);
 
@@ -779,10 +781,20 @@ export function buildPallet(piles, { covered = false, cap = 6, waste = false } =
   // A row per pile rather than a list, because `LOT_KINDS` is 3 and three names
   // run together shrink to an unreadable width — see `paintText`, which now
   // takes the height out of the size instead.
+  //
+  // ...and a box that is MOVING wears none of it. A name is a thing you read,
+  // and reading is the one thing you cannot do to a label sliding across the
+  // shop — so a run of belt was a row of captions gliding past, each of them
+  // legible for about a second, all of them layered over the aisle behind. It
+  // is the readout-per-tile call said about a box that will not hold still:
+  // what a crate on a conveyor is FOR is where it is going, and where it is
+  // going is drawn by the belt under it. Standing still it says its name again,
+  // because `d.belt` is in the delivery prop's cache key.
+  if (!label) return g;
   const said = piles.some((p) => p.name)
     ? piles.map((p) => `${p.qty}x ${p.name || '?'}`).join('\n')
     : `x${qty}`;
-  const label = buildTextSprite(said, {
+  const tag = buildTextSprite(said, {
     fill: '#ffe9b8',
     // A buried crate's label sits on its own front between two boxes, so it has
     // less room than one hanging in clear air above the pile.
@@ -791,8 +803,8 @@ export function buildPallet(piles, { covered = false, cap = 6, waste = false } =
   // Clear air over the rim, measured off the rim rather than typed as a height:
   // a shorter crate would otherwise leave its count floating further above the
   // box than a taller one did, which reads as the label belonging to nothing.
-  label.position.y = covered ? CRATE_DECK + CRATE_H / 2 : CRATE_STEP + 0.47;
-  g.add(label);
+  tag.position.y = covered ? CRATE_DECK + CRATE_H / 2 : CRATE_STEP + 0.47;
+  g.add(tag);
 
   return g;
 }
@@ -1960,7 +1972,16 @@ export function weld(group, keep = null) {
     // re-callable — the shop re-bakes as the light moves. Multiplying in place
     // would compound: dusk over dusk over dusk, until the shop is black. So the
     // baked hue is remembered and every re-bake is hue × brightness from clean.
-    if (hues) merged.userData.baseColor = Float32Array.from(merged.attributes.color.array);
+    //
+    // A NEW object rather than a field on the one that is there, because
+    // `BufferGeometry.copy` assigns `userData` by reference — so a clone shares
+    // it with the geometry it was cloned from, and the primitives here are
+    // shared by the whole shop (`GEO`, and `PATH_GEO` over in the renderer).
+    // Written in place, one belt would hand its hue to every mesh in the game
+    // cut from the same box: the last weld wins, and `paintLit` then paints
+    // somebody else's colour wherever the vertex counts happen to agree and
+    // falls through to bare brightness — white — wherever they do not.
+    if (hues) merged.userData = { ...merged.userData, baseColor: Float32Array.from(merged.attributes.color.array) };
     const mesh = new THREE.Mesh(merged, mat);
     mesh.castShadow = cast;
     mesh.receiveShadow = receive;

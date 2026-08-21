@@ -5416,16 +5416,46 @@ const DRAW_HZ = 40;
  * screen silently stops updating, which is the worst failure this renderer has.
  *
  * `paused` sidesteps all of it, because it already stops the wind and
- * `animateStations` at the source. A low rate rather than none at all, so a
- * camera drag or a menu opening over a stopped shop is still smooth enough to
- * use and nothing can look frozen for more than a frame or two.
+ * `animateStations` at the source. A low rate rather than none at all, so
+ * nothing can look frozen for more than a frame or two.
+ *
+ * It applies to a stopped shop NOBODY IS TOUCHING, which is the half that was
+ * missing — see `LIVELY_MS`.
  */
 const PAUSED_HZ = 10;
+/**
+ * ...and how long an input buys the full rate back.
+ *
+ * The rate above was argued as "a camera drag over a stopped shop is still
+ * smooth enough to use", and that is the one claim in here that does not
+ * survive being tried: 10Hz is fine for a picture that is not changing and
+ * awful for one you are dragging, because a pan is the single thing on this
+ * screen whose whole quality IS the frame rate. Every other frame a stopped
+ * shop draws is genuinely wasted, and every frame it draws while you are moving
+ * the camera is the only thing you are looking at. A pause is also exactly when
+ * you go and look around — the shop is stopped *so that* you can — so the state
+ * that saves the most frames is the state in which the saving is most visible.
+ *
+ * A window rather than a flag, because there is no "stopped dragging" event
+ * that fires reliably: a pointer leaving the window, a key released while
+ * another has focus, a wheel that simply stops. A stamp bumped on any input
+ * decays on its own, which cannot get stuck at either rate.
+ *
+ * Half a second, which is longer than the gap between two `pointermove`s of
+ * even a slow drag and short enough that letting go settles back within a beat.
+ * The listeners are capture-phase on `window` so nothing can swallow them
+ * before this sees them, and passive so none of them can cost a scroll.
+ */
+const LIVELY_MS = 500;
 let lastDraw = 0;
+let livelyAt = 0;
+for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup']) {
+  addEventListener(ev, () => { livelyAt = performance.now(); }, { capture: true, passive: true });
+}
 
 function loop() {
   const now = performance.now();
-  const hz = scene.paused ? PAUSED_HZ : DRAW_HZ;
+  const hz = scene.paused && now - livelyAt > LIVELY_MS ? PAUSED_HZ : DRAW_HZ;
   // Slack, or a 60Hz panel lands 16.7ms either side of a 25ms target and every
   // other frame is skipped — which is 30fps wearing a 40fps constant.
   if (now - lastDraw < (1000 / hz) - 4) {

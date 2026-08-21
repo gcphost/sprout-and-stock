@@ -7963,14 +7963,34 @@ export class Game {
     this.orders.pending.push(order);
     this.persist();
 
-    // One line per VAN, not per board. Keyed by the run, so everything going on
-    // the same lorry lands on the same line however many separate decisions put
-    // it there — which is what `restock` is, one board at a time.
-    const who = this.saidBy(playerId, 'ordered');
-    this.logGoods(`order:${run.hour}`, {
-      pre: `${who.verb} `, post: ` — on the ${hourLabel(run.hour)} van.`,
-      goods: [{ item_id: itemId, qty: take }], by: who.by,
-    });
+    /**
+     * Your own orders only. A hire topping the shop up says nothing.
+     *
+     * One line per VAN was already the fold — keyed by the run, so everything
+     * going on the same lorry lands on one line however many separate decisions
+     * put it there, which is what `restock` is, one board at a time. That is as
+     * far as folding can get, and it is not far enough, for two reasons that
+     * only show up in a shop big enough to need the job: the fold amends the
+     * NEWEST line only, so anything else happening in between starts a fresh
+     * one, and it matches on `by`, so sixteen hires ordering is sixteen lines
+     * whatever the key says. A mature shop's feed was mostly its own crew
+     * telling it they had done the thing they are employed to do.
+     *
+     * Which is the line the whole feed is drawn on: an event is something that
+     * happened TO the shop, not a job loop narrating itself. Nothing is lost —
+     * the supplier lists every pending order with what is on it and how long it
+     * has to run, and that panel is a live state rather than a thing you had to
+     * be watching the feed to catch.
+     *
+     * Your own hand stays, because a press you made is not a loop.
+     */
+    if (!p.staff) {
+      const who = this.saidBy(playerId, 'ordered');
+      this.logGoods(`order:${run.hour}`, {
+        pre: `${who.verb} `, post: ` — on the ${hourLabel(run.hour)} van.`,
+        goods: [{ item_id: itemId, qty: take }], by: who.by,
+      });
+    }
     return ok({
       ordered: take, cost: round2(cost), delivery: true, orderId: order.id,
       arrivesAt: hourLabel(run.hour), arrivesIn: round2(run.wait),
@@ -8489,25 +8509,24 @@ export class Game {
     this.orders.pending = this.orders.pending.filter((o) => !landed.has(o.id));
 
     for (const o of run) this.dropGoods(o.item_id, o.qty, pad);
-    // One line for the run, not one per order. That is the whole point of a
-    // run: everything asked for before the cutoff turns up together, and a log
-    // that said it six times would read as six vans.
-    //
-    // It said "42 units across 6 orders", which is arithmetic rather than
-    // news — it counted the paperwork instead of naming the goods, so the one
-    // question you have standing at a bay ("what turned up?") was answered by
-    // walking over and looking in the crates. `logGoods` is called per order and
-    // merges, which also folds two orders of the same item into one chip.
-    //
-    // Named by its RUN, the same hour `buyStock` promised you when you ordered:
-    // two vans a day means "the van's here" is ambiguous the moment you have
-    // ordered off both of them.
-    const hour = run.find((o) => o.runHour != null)?.runHour;
-    this.logGoods(null, {
-      pre: hour != null ? `The ${hourLabel(hour)} van's here — ` : "The van's here — ",
-      post: ' at the bay.',
-      goods: run.map((o) => ({ item_id: o.item_id, qty: o.qty })),
-    });
+    /**
+     * An arrival writes nothing, and that is a deletion rather than a fold.
+     *
+     * It was already one line for the whole run — everything asked for before
+     * the cutoff turns up together, named by its hour so two vans a day are
+     * told apart — and one line is still one line per RUN, of which a grown
+     * shop has six or more a day. Paired with the order that caused it, that
+     * was over half the feed in a shop on day 238, and every one of those pairs
+     * says the same thing twice: goods you bought turned up, as they always do.
+     *
+     * The van is the announcement. It drives in, it backs onto the dock, and
+     * the crates are standing on the bay afterwards — which is a picture of
+     * exactly this sentence, on the part of the screen you are already looking
+     * at. A feed line for it is a subtitle on something visible.
+     *
+     * The goods themselves are not silent: anything that spoils, is binned or
+     * cannot be shelved still says so, and those are the ones you can miss.
+     */
     this.persist();
   }
 
