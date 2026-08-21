@@ -333,8 +333,8 @@ const GROUND_LINE = 0.08;
  * Where a curtain's strips stop, and what decides it.
  *
  * Not a feel number: it is the tallest thing that has to pass UNDER one. A crate
- * riding a conveyor sits on `BELT_DECK` (0.12) and stands `CRATE_STEP` (0.31),
- * so the top of the tallest thing a curtain must clear is 0.43 — and the point
+ * riding a conveyor sits on `BELT_DECK` (0.12) and stands `CRATE_STEP` (0.27),
+ * so the top of the tallest thing a curtain must clear is 0.39 — and the point
  * of the piece is that a run of belt carries straight on through it while a
  * shopper cannot. Strips that grazed the box would read as the crate clipping
  * the wall, which is the same picture as a bug in the belt.

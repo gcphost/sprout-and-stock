@@ -858,6 +858,10 @@ function compose(req, storeW, storeH, allowDrops = true) {
       arm.tier = p.tier ?? 1;
       arm.variant = p.variant ?? '';
       arm.piece = p.piece ?? null;
+      // Which half of its job it does. Carried across a re-flow like a sorter's
+      // `auto`, or every wall segment you drag hands the shop's loaders back
+      // their pickup behind you.
+      arm.mode = p.mode === 'load' || p.mode === 'unload' ? p.mode : 'both';
       armsOut.push(arm);
       // Nothing occupied and nothing reserved — see `makeArm`.
     } else if (p.kind === 'sorter') {
@@ -873,6 +877,10 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // a shelf's `managed`, or every wall segment you drag turns the shop's
       // sorters back on behind you.
       sorter.auto = p.auto !== false;
+      // ...and the side rejects go down, for the same reason and with the same
+      // trap: a re-flow rebuilds this record from the placement, so a field left
+      // out here is one that clears itself on the next wall you draw.
+      sorter.reject = Number.isInteger(p.reject) ? p.reject : null;
       sortersOut.push(sorter);
     } else if (p.kind === 'checkout') {
       occupy(p.x, p.z);
@@ -1379,6 +1387,9 @@ function makeSorter(id, x, z, rot) {
     z,
     rot,
     auto: true,
+    // Which quarter turn takes what nothing wants. Null on every sorter ever
+    // built, which is what makes the reject line opt-in — see `sorterOut`.
+    reject: null,
   };
 }
 
@@ -1400,6 +1411,8 @@ function makeArm(id, x, z, rot) {
     x,
     z,
     rot,
+    // Both halves, which is every loader ever built — see `setArmMode`.
+    mode: 'both',
   };
 }
 

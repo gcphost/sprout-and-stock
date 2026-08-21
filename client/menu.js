@@ -28,7 +28,7 @@ import { loadCrew, greeterOfTheDay, turntable } from './greeter.js';
 import { api } from './front-api.js';
 import { bootHide } from './boot.js';
 import { wireScroll } from './scroll.js';
-import { SUPPORT_URL, SUPPORT_LINE, SUPPORT_LABEL } from './links.js';
+import { SUPPORT_URL, SUPPORT_LABEL } from './links.js';
 import { ICONS } from './icons.js';
 
 export { setMenuApi } from './front-api.js';
@@ -529,6 +529,59 @@ export class Menu {
           title="${this.hushed ? 'Menu music off' : 'Menu music on'}"
           aria-label="${this.hushed ? 'Turn the menu music on' : 'Turn the menu music off'}"
         >${this.hushed ? '🔇' : '🔊'}</button>
+
+        <!-- The tip jar, and this is the one screen it belongs on: it is the
+             only moment in the game where nobody is mid-anything. Asking from
+             the HUD interrupts a shop; asking on the front door does not.
+
+             It sits in the OPPOSITE CORNER to the mute button and for the same
+             reason, which is why the two are written next to each other. In the
+             column it was a sentence and a button between the last save and the
+             bottom of the box — a whole section of the menu, at the weight of
+             the thing somebody actually came here for, pushing the list of
+             shops up the screen to make room for an ask nobody arrived to
+             answer. Fixed to the corner it costs the menu nothing and is still
+             there to be found. It is early in the markup rather than last
+             because it is out of flow: where it sits in here decides nothing,
+             and it belongs beside the other bit of screen furniture.
+
+             THE LINE THAT USED TO BE ABOVE IT IS GONE, and gone rather than
+             tucked into a tooltip: a caption pinned under a 440px column on a
+             phone is not a footnote, it is a paragraph lying across the bottom
+             of the menu, which is the complaint that moved this here in the
+             first place. The words are not lost — SUPPORT_LINE is still the
+             caption on the Menu's own row (client/sections.js), which is a list
+             you are reading rather than a screen you are leaving.
+
+             A plain <a> rather than a row with a handler, deliberately. Every
+             other press on this screen resolves the menu with a world, so a
+             button that instead navigates away is the one control here whose
+             outcome is a different kind of thing — and a link is the one widget
+             every person alive already knows leaves the page. It also means the
+             browser owns the middle-click, the long-press and the hover URL,
+             none of which a handler would have given back.
+
+             It is a BUTTON to look at and a link to use. As a bare hyperlink it
+             was the only underlined text on a screen made entirely of tiles, in
+             the one colour this palette reserves for marks — which is why it
+             read as an error message rather than as an offer. It borrows
+             .menu-add's language at two thirds the size: same cream, same inset
+             keyline, same press-down, quieter than the button somebody actually
+             came here for.
+
+             What the label must never say is "buy me a coffee" — there is no
+             "me" here, and the coffee is the donation platform's metaphor
+             rather than this game's. The wording and the argument for it live
+             in client/links.js.
+
+             noopener matters more here than usual: this tab holds an unsaved
+             shop. See client/links.js — and note that a backtick anywhere in
+             this comment would end the template literal it is written inside,
+             which is why there is not one in it. -->
+        <a class="menu-support" href="${SUPPORT_URL}"
+          target="_blank" rel="noopener noreferrer"
+        >${ICONS.support}${SUPPORT_LABEL}</a>
+
         ${this.greeter()}
         <h1>Sprocket <span>&amp;</span> Stock</h1>
         <p class="menu-tag">Run a shop with a crew of robots. You're the only human in it.</p>
@@ -645,43 +698,6 @@ export class Menu {
         </div>
 
         <p class="menu-foot">${this.busy ? 'Working…' : '&nbsp;'}</p>
-
-        <!-- The tip jar, and this is the one screen it belongs on: it is the
-             only moment in the game where nobody is mid-anything. Asking from
-             the HUD interrupts a shop; asking here is a line under a menu
-             somebody is already reading.
-
-             A plain <a> rather than a row with a handler, deliberately. Every
-             other press on this screen resolves the menu with a world, so a
-             button that instead navigates away is the one control here whose
-             outcome is a different kind of thing — and a link is the one widget
-             every person alive already knows leaves the page. It also means the
-             browser owns the middle-click, the long-press and the hover URL,
-             none of which a handler would have given back.
-
-             It is a BUTTON to look at and a link to use. As a bare hyperlink it
-             was the only underlined text on a screen made entirely of tiles, in
-             the one colour this palette reserves for marks — which is why it
-             read as an error message rather than as an offer. It borrows
-             .menu-add's language at two thirds the size: same cream, same inset
-             keyline, same press-down, quieter than the button somebody actually
-             came here for.
-
-             The line above it is the whole tone, and what it must never say is
-             "buy me a coffee" — there is no "me" here, and the coffee is the
-             donation platform's metaphor rather than this game's. The wording
-             and the argument for it live in client/links.js.
-
-             noopener matters more here than usual: this tab holds an unsaved
-             shop. See client/links.js — and note that a backtick anywhere in
-             this comment would end the template literal it is written inside,
-             which is why there is not one in it. -->
-        <div class="menu-tip">
-          <p>${SUPPORT_LINE}</p>
-          <a class="menu-support" href="${SUPPORT_URL}"
-            target="_blank" rel="noopener noreferrer"
-          >${ICONS.support}${SUPPORT_LABEL}</a>
-        </div>
       </div>`;
 
     const list = this.root.querySelector('.menu-list');

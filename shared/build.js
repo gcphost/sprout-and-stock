@@ -1499,6 +1499,25 @@ export function padCells(L, kind) {
 export const isPadAt = (L, kind, x, z) => tileAt(L, x, z) === groundTile(kind);
 
 /**
+ * The pads that hold GOODS, as opposed to the ones that hold people.
+ *
+ * `PAD_KINDS` is all four — the bay, the drop-off, the break area and the car
+ * park — and it is the right list for anything asking "is this painted ground
+ * doing a job". It is exactly the wrong list for anything moving stock, and
+ * that is the boolean-over-two-kinds trap wearing painted ground: for as long
+ * as every pad held goods, `PAD_KINDS` and "somewhere a crate may go" were the
+ * same set by coincidence rather than by rule, and the break area is what
+ * retired that. A crate of frozen chicken set down where your crew take their
+ * charge is not wrong in any way the code can see — it is a box on a pad — and
+ * nothing anywhere would say a word.
+ *
+ * `Game.onAPad` has spelled this inline as `bay || drop` since crates could be
+ * packed. This is that spelling, named, so the sim and anything drawing a
+ * picture of the sim cannot drift apart about it.
+ */
+export const GOODS_PADS = ['bay', 'drop'];
+
+/**
  * May this stroke be painted?
  *
  * Same two answers as everything else here, and the split falls in a slightly
@@ -1527,7 +1546,22 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
   if (!cells?.length) return no('nothing to lay');
   const laying = kind != null;
   if (laying && groundTile(kind) == null) return no('that is not a kind of ground');
-  const want = laying ? groundTile(kind) : T.GRASS;
+  const lay = laying ? groundTile(kind) : null;
+  /**
+   * What this stroke LEAVES on a cell — and taking ground up has two answers.
+   *
+   * Outdoors it is grass, which is what the world is made of before anybody
+   * does anything. Indoors it is FLOOR, because grass is not what is under a
+   * shop: a building whose ground you scraped is not a lawn with walls round
+   * it, it is a shop with a hole in it — a cell that refuses every shelf and
+   * every bed, which is the one thing `bared` exists to warn about. The eraser
+   * was the only tool in the game that could make one without asking, and it
+   * did it on the most ordinary press there is: undoing a floor design you had
+   * just laid.
+   *
+   * Per cell rather than per stroke, because a drag can cross the wall.
+   */
+  const leaves = (x, z) => (laying ? lay : (insideStore(L, x, z) ? T.FLOOR : T.GRASS));
   const painted = groundIndex(L);
 
   // What the pads have now, so the stroke can be judged against what it would
@@ -1546,6 +1580,7 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
 
     const ground = tileAt(L, x, z);
     const was = groundKindOfTile(ground);
+    const want = leaves(x, z);
 
     if (laying) {
       // Only ever over ground. Everything else a cell can be made of is
@@ -1566,7 +1601,10 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
       // across a field would otherwise report every cell of it as a change,
       // charge for the stroke, and warn about the holes it left in a shop where
       // nothing moved. The design is the real question — bare lawn is the bare
-      // ground this stroke produces, and lawn somebody painted is not.
+      // ground this stroke produces, and lawn somebody painted is not. Indoors
+      // `want` is floor, so plain shop floor is the same no-op in here that
+      // plain grass is outside, and an eraser dragged across a bare aisle
+      // charges nothing and warns about nothing.
       if (ground === want && (painted.get(`${x},${z}`) ?? null) == null) continue;
       // See above: this would drop the fixture rather than strand it.
       if (blockedAt(L, x, z)) return no('something is standing on it');
@@ -1651,11 +1689,22 @@ export const BELT_RUN_MAX = 64;
  * it is the one place in this game where that is true. The last cell keeps the
  * facing it arrived with, or a run would end pointing at whatever rot 0 is.
  *
+ * `rot` is what a cell faces when the gesture has not said — which is the seed
+ * of the walk, and therefore the answer for a drag of ONE. That case is not an
+ * edge case, it is how you place a single belt: press, release, no travel, no
+ * direction. Seeded at a literal 0 it ignored R entirely, so the one tool in
+ * the game whose whole point is which way it points was also the only one that
+ * could not be turned before it was put down — and R visibly turned the ghost
+ * while it did it, because the ghost is drawn from the armed rotation and the
+ * placement was not.
+ *
  * The far end is the POINTER's, never the tail of this list — CLAUDE.md's scar
  * about `edgeRun` — so the caller sends what it aimed at and the server runs
- * this same function against it.
+ * this same function against it. `rot` goes over the wire for exactly the same
+ * reason: it is an input to this generator, so a server that defaulted it would
+ * lay a different run from the one the ghost drew.
  */
-export function beltRunCells(from, to, max = BELT_RUN_MAX) {
+export function beltRunCells(from, to, max = BELT_RUN_MAX, rot = 0) {
   if (!from) return [];
   const end = to ?? from;
   const dx = end.x - from.x;
@@ -1675,7 +1724,7 @@ export function beltRunCells(from, to, max = BELT_RUN_MAX) {
     const a = anchorTile(0, 0, r);
     return { r, x: a.x, z: a.z };
   });
-  let last = 0;
+  let last = rot4(rot);
   return cells.map((c, i) => {
     const nxt = cells[i + 1];
     if (nxt) {
@@ -1828,6 +1877,31 @@ function conveyorFlow(L) {
     const f = anchorTile(a.x, a.z, a.rot ?? 0);
     const other = at.get(`${f.x},${f.z}`);
     if (!other) continue;
+    // ...and only ever into a PLAIN BELT, which is the whole of what this
+    // shortcut was ever for and the only case it can be right about.
+    //
+    // What it exists to allow is a loader taking stock off a shelf and injecting
+    // it into a line beside it, and a line is a belt: somebody aimed that belt,
+    // so the direction is declared and there is no argument to have. Aimed at
+    // anything whose own flow is DERIVED, the shortcut is a guess that wins over
+    // the walk — and the two disagree in the two ways that matter.
+    //
+    // At a junction it deletes the branch. Aiming a loader at the sorter beside
+    // it is how everybody says "this line comes off there", and read as an
+    // output it says the opposite — that the loader feeds the junction. Since
+    // `conveyorBranches` drops any neighbour whose flow points back, the one act
+    // meant to join the branch on is the act that disqualifies it, and the
+    // sorter ends up with no branch at all.
+    //
+    // And loader-to-loader it PING-PONGS. A row of them aimed along the aisle
+    // each self-answers at its neighbour, so a crate the junction pushes into
+    // the end of the row is handed straight back the way it came: one cell out,
+    // one cell home, for ever. It reads as the branch rejecting the box.
+    //
+    // Left unseeded, the forward walk reaches the whole chain from whatever
+    // feeds it and derives every cell of it in the one consistent direction,
+    // which is the answer the walk exists to give.
+    if (other.kind !== 'belt') continue;
     const back = map.get(other.id);
     if (back && back.x === a.x && back.z === a.z) continue;
     map.set(a.id, { x: f.x, z: f.z });
@@ -1938,8 +2012,25 @@ export function conveyorBranches(L, cell) {
     const other = conveyorAt(L, n.x, n.z);
     if (!other) continue;
     if (straight && n.x === straight.x && n.z === straight.z) continue;
+    // The side you AIMED it at is a branch full stop — the one thing on this
+    // piece the player said out loud, and it outranks every derivation here.
+    //
+    // It did not, and that is what made a splitter unusable. The test below
+    // drops any neighbour whose flow comes back at us, which is right for the
+    // three incidental sides and catastrophic for the named one: a loader is
+    // the natural thing to start a branch with, aiming it at the junction is
+    // how you say the two are joined, and a loader aimed at a conveyor takes
+    // that as its own output — so the act of connecting the branch is what
+    // deleted it. No blade drawn, nothing ever diverted, and a run that looks
+    // wired the whole time. Nobody could find that from playing.
+    //
+    // A DECLARED flow still wins, because a plain belt's rotation is the player
+    // speaking too and two cells pointing at each other is a genuine tug of war
+    // rather than a derivation artefact. Only that one case is refused.
+    const isNamed = n.x === named.x && n.z === named.z;
     const to = conveyorNext(L, other);
-    if (to && to.x === cell.x && to.z === cell.z) continue;
+    const back = to && to.x === cell.x && to.z === cell.z;
+    if (back && (!isNamed || !derivedFlow(other.kind))) continue;
     out.push({ x: n.x, z: n.z });
   }
   // The side `rot` names goes first — a tie is settled by what you aimed it at.
@@ -2005,7 +2096,45 @@ export function conveyorRun(L, cell) {
  * with eighteen units — and the walk that knows what is down there does not care
  * which of the three it finds.
  */
+/**
+ * Cached against the layout the way `conveyorFlow` is, and for a sharper reason:
+ * this is a walk of the whole downstream network, and an IDLE loader asks it
+ * every tick. `armSwing` needs it only to decide whether rubbish may ride, so a
+ * shop with twenty loaders standing still was re-walking every cell of every run
+ * twenty times a second — 62% of the entire sim, to answer a question whose
+ * answer cannot change until somebody builds something.
+ *
+ * What it answers with is a list of LIVE records, so caching the list is not
+ * caching the shop: `shelfAccepts` and `stationHopperRoom` still read the unit
+ * as it is this tick. Only the shape of the network is remembered, and the same
+ * three array identities `conveyorFlow` watches are what retire it — a re-flow
+ * builds new ones, which is what makes a purchase or a demolition land.
+ */
+const MEETS = new WeakMap();
+
 export function conveyorMeets(L, cell) {
+  if (!cell) return { shelves: [], stations: [], bins: [] };
+  const belts = L?.belts ?? [];
+  const arms = L?.arms ?? [];
+  const sorters = L?.sorters ?? [];
+  let had = MEETS.get(L);
+  if (!had || had.belts !== belts || had.arms !== arms || had.sorters !== sorters
+    || had.shelves !== (L?.shelves ?? null) || had.stations !== (L?.stations ?? null)
+    || had.bins !== (L?.bins ?? null)) {
+    had = {
+      belts,
+      arms,
+      sorters,
+      shelves: L?.shelves ?? null,
+      stations: L?.stations ?? null,
+      bins: L?.bins ?? null,
+      byCell: new Map(),
+    };
+    MEETS.set(L, had);
+  }
+  const hit = had.byCell.get(cell.id);
+  if (hit) return hit;
+
   const out = { shelves: [], stations: [], bins: [] };
   const seen = new Set();
   const take = (list, from, key) => {
@@ -2024,6 +2153,7 @@ export function conveyorMeets(L, cell) {
       take(out.bins, L?.bins, n);
     }
   }
+  had.byCell.set(cell.id, out);
   return out;
 }
 
@@ -2156,6 +2286,23 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
       // belt over a belt is a press that takes money and changes nothing.
       if (def.flow && ground === T.BELT && !keeping) {
         const here = conveyorAt(L, x, z);
+        // ITSELF, first — which is what makes a conveyor rotatable at all.
+        //
+        // `ignoreId` un-blocks the cell for the fixture being moved everywhere
+        // else in here, and it could not reach this branch: a conveyor stamps
+        // `T.BELT` on its own square, that stamp is what refuses a second one,
+        // and the stamp does not know who laid it. So a loader asked to turn
+        // was refused on all four facings, `rotateFixture` reported "nowhere
+        // for it to turn to", and the only way to change one was to delete it
+        // and lay it again — which nothing anywhere says, so what it reads as
+        // is R being a dead key on the one piece whose whole job is which way
+        // it points.
+        //
+        // Before the kind test rather than folded into it, because the answer
+        // is different: swapping a belt for a loader is a purchase and warns
+        // about what it replaces, where turning a piece you already own costs
+        // nothing and has nothing to say.
+        if (here && here.id === ignoreId) return { ok: true };
         if (here && here.kind !== spec.kind) {
           return { ok: true, warn: `replaces the ${FIXTURES[here.kind]?.label?.toLowerCase() ?? 'belt'} that is there` };
         }

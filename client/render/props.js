@@ -554,13 +554,20 @@ export function buildCashDrop() {
  * the rim hiding most of it. Everything below is derived from these three
  * numbers rather than typed out again, so the goods cannot quietly stop fitting
  * the crate the next time it changes size.
+ *
+ * ...and 0.6 was still most of a tile. A box that fills its square reads as
+ * furniture rather than as something somebody carries, and a pile of three of
+ * them stood as tall as the shelving beside it. Shrunk by an eighth on every
+ * axis at once, which is the only way to do it: the proportions are what make
+ * it read as a crate, and the goods, the stacking step and the label all come
+ * off these numbers, so they follow on their own.
  */
-const CRATE = 0.6;
-const CRATE_H = 0.26;
-const CRATE_WALL = 0.055;
+const CRATE = 0.52;
+const CRATE_H = 0.225;
+const CRATE_WALL = 0.048;
 
 /** Top of the pallet boards — the floor the goods stand on. */
-const CRATE_DECK = 0.05;
+const CRATE_DECK = 0.043;
 
 /**
  * How tall one crate stands, and therefore how far up the next one sits.
@@ -707,7 +714,10 @@ export function buildPallet(piles, { covered = false, cap = 6, waste = false } =
     // less room than one hanging in clear air above the pile.
     scale: covered ? 0.62 : 0.7,
   });
-  label.position.y = covered ? CRATE_DECK + CRATE_H / 2 : 0.78;
+  // Clear air over the rim, measured off the rim rather than typed as a height:
+  // a shorter crate would otherwise leave its count floating further above the
+  // box than a taller one did, which reads as the label belonging to nothing.
+  label.position.y = covered ? CRATE_DECK + CRATE_H / 2 : CRATE_STEP + 0.47;
   g.add(label);
 
   return g;

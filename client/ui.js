@@ -2915,7 +2915,14 @@ export class UI {
       ${!stacked && r.right ? `<div class="price">${r.right}</div>` : ''}
       ${r.count ? `<span class="held ${r.countClass ?? ''}">${r.count}</span>` : ''}
       ${r.rule ?? (cols ? '<span class="rule"></span>' : '')}
-      ${r.button ? `<button data-btn="${i}"${r.button.danger ? ' class="danger"' : ''}>${r.button.label}</button>`
+      ${r.button ? `<button data-btn="${i}"${
+    // What the press IS, for anything outside this file that has to NAME it —
+    // the tutorial's pulse, today. `data-btn` cannot: it is an index into a
+    // list that re-sorts, and one row's slot is another row's slot the moment
+    // a van arrives. Same argument, and the same shape, as `data-entry` on a
+    // bar tile. Optional, because most rows have one button and nothing has
+    // ever needed to point at it.
+    r.button.tag ? ` data-btn-tag="${r.button.tag}"` : ''}${r.button.danger ? ' class="danger"' : ''}>${r.button.label}</button>`
     // An empty cell under a head, for the rows that have nothing in that
     // column — a made-here item has no standing order and no buy button, and
     // dropping the cells rather than emptying them slides its count and its

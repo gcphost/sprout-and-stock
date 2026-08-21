@@ -707,7 +707,17 @@ function refreshGhost(force = false) {
   // A wall tool previews the line under the pointer, not a tile. While a drag
   // is live the drag owns the ghost — it knows the whole run, this only ever
   // knows the one segment you are hovering. Same for a brush and its area.
-  if (edgeDrag || floorDrag || faceDrag) return;
+  //
+  // `beltDrag` was missing from this list for the whole life of the conveyor
+  // drag, and it is the predicate-against-the-members-that-existed trap again:
+  // the guard was written when there were three drags and the fourth arrived in
+  // another file. What it looks like is a drag with NO PREVIEW AT ALL, which
+  // reads as the preview never having been built — and it was, and it worked.
+  // `showBeltDrag` set the floor ghost on every pointer move and this function
+  // cleared it on the very next frame, twenty times a second, because a belt is
+  // a fixture rather than a brush so it falls past the ground-brush branch to
+  // the blanket `setFloorGhost(null, null)` below.
+  if (edgeDrag || floorDrag || faceDrag || beltDrag) return;
 
   // ...and while a held press is WALKING you to what it named, for the same
   // reason said the other way round: the pointer is holding still and the SHOP
@@ -918,12 +928,6 @@ function refreshGhost(force = false) {
   // brush and the wall tools need the palette, the bulldozer is its own veto — so
   // the guard cannot strand a ghost in a build tool's hands.
   if (!dropping()) scene.setFloorGhost(null, null);
-
-  // Dead-end marks on every belt in the shop, while the palette is up. Driven
-  // from here rather than from `toggleBuild` because it also has to appear when
-  // a belt is BUILT — `setFlowMarks` keys off `layoutVersion`, so it re-cuts
-  // itself as the run grows and costs nothing on the frames in between.
-  scene.setFlowMarks(ui.paletteArmed);
 
   const kind = aiming ? ui.ghostKindForTool() : null;
   if (!kind) {
@@ -1801,7 +1805,28 @@ function armPut(cx, cy) {
   return null;
 }
 
+/**
+ * The crate you are pointing at, or null while pointing means something else.
+ *
+ * The three exclusions are `boardTakes`' exactly, and for the same reason: the
+ * palette places, a fixture in your hands is looking for a home, and the
+ * bulldozer aims at what is already there. A box is goods, and moving goods is
+ * shopkeeping — build mode is the mode where the pointer is about the BUILDING,
+ * and the one job it deliberately keeps is the till.
+ *
+ * The gate lives here rather than at the call sites because there are five of
+ * them and they had drifted: the press was already refusing while the palette
+ * was up, and the tap and the pill were not — so a tap in build mode selected a
+ * crate that the press one gesture earlier had ignored. One answer to "am I
+ * pointing at a crate" is the only way those stay in step.
+ *
+ * `pickWay` is the deliberate exception and asks `Scene.pickPallet` raw, because
+ * what it wants is OCCLUSION rather than a target: a wall you cannot see through
+ * a stack of boxes is not a wall you were aiming at, whether or not those boxes
+ * are something you could pick up right now.
+ */
 function aimCrate(cx, cy) {
+  if (ui.paletteArmed || ui.holding || ui.demolishArmed()) return null;
   const hit = scene.pickPallet(cx, cy);
   if (!hit) return null;
   const x = Math.round(hit.x);
@@ -2370,7 +2395,9 @@ let beltDrag = null;
 function showBeltDrag(cx, cy) {
   if (!beltDrag) return null;
   const to = scene.pickTile(cx, cy);
-  const cells = beltRunCells(beltDrag.start, to, BELT_RUN_MAX);
+  // Same four arguments the server re-runs this with, `rot` included, or the
+  // ghost is a preview of a different run from the one the release lays.
+  const cells = beltRunCells(beltDrag.start, to, BELT_RUN_MAX, ui.buildRot);
   if (!cells.length) { scene.setFloorGhost(null, null); return null; }
   const L = scene.storeLayout;
   const ok = cells.filter((c) => canPlace(L, {
@@ -3007,7 +3034,10 @@ function endPress(e) {
     if (drawn) {
       if (!drawn.ok) { ui.toast('nothing can go along there', true); return; }
       const to = drawn.to ? { x: drawn.to.x, z: drawn.to.z } : null;
-      net.send('build-run', { kind, piece, x: start.x, z: start.z, to });
+      // The armed rotation goes with it — see `beltRunCells`. A drag says which
+      // way every cell but the last one faces; R says the rest, and for a press
+      // that never travelled it says all of it.
+      net.send('build-run', { kind, piece, x: start.x, z: start.z, to, rot: ui.buildRot });
     }
     return;
   }
@@ -3507,7 +3537,12 @@ const sameSpot = (a, b) => !!a && !!b && a.o === b.o && a.x === b.x && a.z === b
 function pickWay(cx, cy, blocked = false) {
   if (!ui.paletteArmed) return null;
   if (blocked || ui.holding || ui.demolishArmed() || dropping()) return null;
-  if (aimCrate(cx, cy)) return null;
+  // The raw pick, NOT `aimCrate` — see its header. This is the one caller asking
+  // whether a box is in the LINE OF SIGHT rather than whether it is a target,
+  // and `aimCrate` answers null throughout build mode, which is precisely when
+  // this function runs. Asking it here would offer a doorway through a stack of
+  // crates on every press.
+  if (scene.pickPallet(cx, cy)) return null;
   const seg = scene.pickEdge(cx, cy);
   return seg && hasEdgeMenu(scene.storeLayout, seg) ? seg : null;
 }
@@ -5217,11 +5252,139 @@ function stepPerf(now, ms) {
   perf.worst = 0;
 }
 
+// ---------------------------------------------------------------------------
+// `?tiles` — the debug grid, and the number under the pointer
+//
+// Two halves of one question, and each is useless without the other. The grid
+// (`scene.setTileGrid`, drawn in client/render/tile-grid.js) answers "where is
+// 11,23" — somebody else's coordinate, and you have to find it. The readout
+// answers the same question backwards: "what is THIS" — the tile you are
+// pointing at, which is what you need when you are the one about to say a
+// coordinate to somebody. The grid alone leaves you counting to check; the
+// readout alone leaves you sweeping the pointer over the shop hunting for a
+// tile you were handed.
+//
+// It reads `pickTile` in the frame loop rather than on `pointermove`, which is
+// cheaper AND more honest: the tile under a pointer that has not moved changes
+// every time the camera does, and a number that went stale while you panned is
+// worse than no number.
+//
+// Its own element with its own styles, for the reason `stepPerf` gives — the
+// HUD is laid out in stacks that other things measure, and a debug readout that
+// pushed the toolbar around would be moving the thing it was brought in to
+// look at.
+// ---------------------------------------------------------------------------
+
+const tilesOn = new URLSearchParams(location.search).has('tiles');
+const tileRead = { el: null, said: '' };
+
+// Said now, long before there is a shop to draw it over: the scene records the
+// wish and cuts the sheet on the first `buildWorld`. Boot order stays somebody
+// else's problem.
+if (tilesOn) scene.setTileGrid(true);
+
+function stepTileRead() {
+  if (!tilesOn) return;
+  if (!tileRead.el) {
+    tileRead.el = document.createElement('div');
+    tileRead.el.style.cssText = 'position:fixed;left:8px;top:8px;z-index:99;'
+      + 'font:600 12px/1.4 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,.62);'
+      + 'padding:4px 7px;border-radius:6px;pointer-events:none;white-space:pre';
+    document.body.append(tileRead.el);
+  }
+  const at = pointer.onCanvas ? scene.pickTile(pointer.x, pointer.y) : null;
+  // Off the map is a real answer and has to be said, or the readout freezes on
+  // the last tile you crossed and reads as the pointer having stuck.
+  const said = at ? `tile ${at.x},${at.z}` : 'tile —';
+  if (said === tileRead.said) return;
+  tileRead.said = said;
+  tileRead.el.textContent = said;
+}
+
+// ---------------------------------------------------------------------------
+// The view comes back the way you left it
+//
+// In `localStorage` rather than on the save, and it is the same argument
+// `shutterUsed` and `whoAmI` make: how you like the camera and whether you were
+// building are facts about the PERSON, not about the shop. Two people in one
+// shop do not share a camera, and being handed a second world does not make you
+// want to look at it from a different angle.
+//
+// Split across two keys for the one field where that argument does not hold.
+// Pitch, yaw and the mode are yours everywhere; WHERE the view is sitting is a
+// map coordinate, so it belongs to the world it is a coordinate in — restore
+// one shop's centre into another and the view opens somewhere arbitrary, which
+// is worse than not remembering at all.
+//
+// Saved off the frame loop on a half-second throttle rather than at every
+// mutation site, and that is deliberate: the pose is moved by a drag, a key, a
+// pinch, a fly, a re-centre and a follow, and a save hung on each of those is
+// six places to forget the seventh. The value is stringified and compared, so a
+// still camera writes nothing at all.
+// ---------------------------------------------------------------------------
+
+const VIEW_KEY = 'sns-view';
+const viewAtKey = (id) => `sns-view-at:${id}`;
+
+const readJson = (key) => {
+  try { return JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { return null; }
+};
+const writeJson = (key, v) => {
+  try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* private mode */ }
+};
+
+let viewRestored = false;
+let viewSavedAt = 0;
+let viewSaved = '';
+
+/**
+ * Put it back, once, on the first frame there is a shop to put it back into.
+ *
+ * It waits for the layout because the centre is clamped against the map, and a
+ * clamp run before the world arrives is a clamp against nothing — which reads
+ * as the position being remembered and then thrown away.
+ *
+ * The mode is restored by pressing the BUTTON rather than by setting the flags:
+ * build mode is three states on one press (mode, mode + palette, off), the
+ * server has to be told, and the bar, the hotbar and the ghost all hang off it.
+ * `pressBuild` is that sequence and it is already the thing that is right; a
+ * second copy of it here would be a fourth state nobody designed.
+ */
+function restoreView() {
+  if (viewRestored || !scene.storeLayout) return;
+  viewRestored = true;
+  const pref = readJson(VIEW_KEY) ?? {};
+  if (pref.build === 'mode' || pref.build === 'bar') {
+    ui.pressBuild();
+    if (pref.build === 'bar') ui.pressBuild();
+  }
+  // Before the centre, never after: `freeRoam` decides which of the two bounds
+  // `clampPan` applies, and a build-mode centre clamped to the 14-tile leash is
+  // hauled back to your body on the frame it is restored.
+  scene.setFreeRoam(flying());
+  const centre = ui.worldId ? readJson(viewAtKey(ui.worldId)) : null;
+  scene.applyView({ pitch: pref.pitch, yaw: pref.yaw, centre: centre ?? undefined });
+}
+
+function saveView(now) {
+  if (!viewRestored || now - viewSavedAt < 500) return;
+  viewSavedAt = now;
+  const v = scene.viewState();
+  const build = !ui.buildOn ? null : (ui.bar === 'build' ? 'bar' : 'mode');
+  const line = JSON.stringify([v.pitch, v.yaw, build, v.centre.x, v.centre.z]);
+  if (line === viewSaved) return;
+  viewSaved = line;
+  writeJson(VIEW_KEY, { pitch: v.pitch, yaw: v.yaw, build });
+  if (ui.worldId) writeJson(viewAtKey(ui.worldId), v.centre);
+}
+
 function loop() {
   const now = performance.now();
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   stepPerf(now, now - lastFrame);
+  stepTileRead();
   lastFrame = now;
+  restoreView();
   pollInput(dt);
   if (ui.buildOn) refreshGhost();
   // How far through a held press we are, recomputed per frame rather than
@@ -5233,6 +5396,7 @@ function loop() {
     ? (performance.now() - drag.pressedAt) / LONG_PRESS_MS
     : null);
   scene.render();
+  saveView(now);
   requestAnimationFrame(loop);
 }
 

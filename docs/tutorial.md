@@ -101,6 +101,25 @@ crate is not a fixture, so `setMarkedSet` (which wants an `f`) has nothing to
 hang on; one ring in screen space answers for a crate, a shelf, and the bare
 tile you are asked to walk to, which is none of the above.
 
+**A hole is a place to work, and it cannot name a press.** The buying beat lights
+the whole supplier, deliberately — *which* case you buy is the half of that step
+that is yours — but a lit panel of forty rows wearing forty identical `×6`
+buttons says nothing about what ends the card, and the one press being asked for
+is 200px below the sentence asking for it. `pulse` on an `at` is a second
+selector, measured every frame the way the hole is and drawn with the same mark
+at button size. It **cuts nothing** (the veil is `at.el`'s business, so every
+other row stays pressable) and it **never sets `lost`** — a frame where the
+button is not in the document is a frame with no pulse, where `lost` would be a
+blackout offering to give up on the step. Two things it needs that are not
+obvious: the target has to be *clipped to its scroller*, because
+`getBoundingClientRect` answers for a row scrolled out of a panel exactly as it
+answers for one you can see (an unclipped mark pulses over the search box —
+`holeFor`'s `scrollIntoView` note is the same trap from the other side); and the
+button has to be **nameable**, which is `data-btn-tag` beside `data-btn` for the
+reason `data-entry` sits beside `data-slot` — an index into a list that re-sorts
+is not a name. Only the ordering press carries the tag: Cancel and Stock are the
+same slot saying something else.
+
 **Three answers to "where is the hole", and the third is what makes it safe.**
 A step with no target at all wants the veil *whole* — that is the first and last
 card, which are read rather than acted on, and which carry a button. A step that

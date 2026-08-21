@@ -328,27 +328,52 @@ function grassPatch(g, w = 2, h = 2) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Taking it up, and the one thing that must refuse.
+// 6. Taking it up, and the hole the eraser can no longer make indoors.
 //
 // Bare ground under a shelf is not a consequence you are allowed to cause, and
 // that is a deliberate exception to "impossible refuses, inadvisable warns".
 // The generator would not leave the shelf standing on grass — it would DROP the
 // placement on the next re-flow and refund it. A brush that quietly sells your
 // shelving and its stock back is a bulldozer wearing a paintbrush.
+//
+// The way that is enforced changed, and the claim got STRONGER rather than
+// weaker: taking ground up now leaves floor indoors and grass only outside, so
+// there is no longer any such thing as a hole in a shop for the eraser to make.
+// Which means the refusal is not the interesting assertion any more — the
+// interesting one is that the tile is still floor and the shelf is still
+// standing on it afterwards. A refusal proves the gesture was stopped; this
+// proves there was nothing to stop.
+//
+// The refusal is still under test, on the case that can still strand something:
+// a cell whose TILE would change under a fixture. Indoors that is a pad being
+// taken up, not plain floor.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
   const shelf = g.layout.shelves[0];
   const under = canPaintGround(g.layout, [{ x: shelf.x, z: shelf.z }], null, null);
-  check(!under.ok, 'the floor under a shelf cannot be taken up');
-  eq(under.reason, 'something is standing on it', 'and says why');
+  check(under.ok && under.unchanged, 'the floor under a shelf is nothing the eraser can take up',
+    under.reason ?? '');
+
+  const wipe = g.buildGround('me', { x: shelf.x, z: shelf.z, piece: '' });
+  check(wipe.ok, 'and the press is answered rather than refused', wipe.error ?? '');
+  eq(groundAt(g, shelf.x, shelf.z), T.FLOOR, 'the tile is still shop floor');
+  check(g.layout.shelves.some((s) => s.x === shelf.x && s.z === shelf.z),
+    'and the shelf is still standing on it');
 
   // A stroke is judged whole, so one bad cell refuses the gesture rather than
-  // laying up to it and then billing for the part that worked.
-  const spanning = canPaintGround(g.layout, groundStroke(
-    { x: shelf.x - 1, z: shelf.z }, { x: shelf.x + 1, z: shelf.z },
-  ), null, null);
-  check(!spanning.ok, 'and a stroke that merely clips one is refused entire');
+  // laying up to it and then billing for the part that worked. A bay indoors is
+  // the cell that can still be a bad one: erasing it takes the tile from bay to
+  // floor, which is a change, and something standing on it would be stranded.
+  const bay = g.layout.bay?.cells?.[0];
+  if (bay) {
+    const onBay = g.placeFixture('me', { kind: 'shelf', x: bay.x, z: bay.z, rot: 0 });
+    if (onBay.ok) {
+      const scrape = canPaintGround(g.layout, [bay], null, null);
+      check(!scrape.ok, 'ground that WOULD change under a fixture is still refused');
+      eq(scrape.reason, 'something is standing on it', 'and says why');
+    }
+  }
 
   // A bed is off limits, and says which job it is you would be taking away.
   const L = g.layout;
@@ -372,21 +397,38 @@ function grassPatch(g, w = 2, h = 2) {
   check(/last delivery bay/.test(allOfIt.warn ?? ''),
     'but that one warns, because an order would have nowhere to land', allOfIt.warn ?? 'none');
 
-  // Empty floor comes up, and warns about what it leaves, because bare ground
-  // indoors is a cell nothing can ever use: a shelf needs floor, a bed needs
-  // to be outdoors, and there is no third thing to do with it.
+  // Empty floor indoors comes up as FLOOR, which is the whole of this change.
+  //
+  // It used to come up as grass and warn you that it had left a cell nothing
+  // could ever use. That is a truthful warning about a thing nobody wants: the
+  // ordinary reason to scrape a cell indoors is to undo a floor design you have
+  // just laid, and the answer to that was a hole, priced, with a caution
+  // attached. Grass is what the world is made of before anyone builds; it is
+  // not what is under a shop.
+  //
+  // So the assertion is the pair — no warning, because nothing was bared, and a
+  // shelf still stands there afterwards, because the cell is still floor.
   const open = { x: L.store.x + 1, z: L.store.z + 1 };
   eq(groundAt(g, open.x, open.z), T.FLOOR, 'there is empty shop floor to test on');
   const up = canPaintGround(L, [open], null, null);
   check(up.ok, 'empty floor can be taken up');
-  check(/nothing can be built or dug on/.test(up.warn ?? ''),
-    'with a warning about what it leaves', up.warn ?? 'none');
+  check(!/nothing can be built or dug on/.test(up.warn ?? ''),
+    'and warns about no hole, because indoors it leaves none', up.warn ?? 'none');
 
   const res = g.buildGround('me', { ...open, piece: '' });
   check(res.ok, 'and the action goes through', res.error ?? '');
-  eq(groundAt(g, open.x, open.z), T.GRASS, 'leaving bare ground where the floor was');
+  eq(groundAt(g, open.x, open.z), T.FLOOR, 'leaving shop floor where the floor was');
   const onBare = g.placeFixture('me', { kind: 'shelf', x: open.x, z: open.z, rot: 0 });
-  check(!onBare.ok, 'which is a cell no shelf can stand on — exactly as the warning said');
+  check(onBare.ok, 'which is still a cell a shelf can stand on', onBare.error ?? '');
+
+  // ...and OUTSIDE it is grass exactly as it always was, which is the control
+  // that keeps this from being "the eraser stopped working".
+  const out = grassPatch(g, 2, 2);
+  g.buildGround('me', { ...out, piece: 'verify-floor-cheap' });
+  eq(groundAt(g, out.x, out.z), T.FLOOR, 'a paved patch outdoors is floor');
+  const scraped = g.buildGround('me', { ...out, piece: '' });
+  check(scraped.ok, 'and it comes up', scraped.error ?? '');
+  eq(groundAt(g, out.x, out.z), T.GRASS, 'back to grass, because it is not in the shop');
 }
 
 // ---------------------------------------------------------------------------

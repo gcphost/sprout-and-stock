@@ -66,7 +66,7 @@ import { Game } from '../server/sim/index.js';
 import { writeContent, refresh } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
-import { canPlace, anchorTile, isWalkableTile, edgeAt, beltRunCells, BELT_RUN_MAX } from '../shared/build.js';
+import { canPlace, anchorTile, isWalkableTile, edgeAt, beltRunCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets } from '../shared/build.js';
 import { E, canStep, shopperCanCross } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 import { lotQty, lotTotal, lotStacks } from '../shared/lot.js';
@@ -101,6 +101,11 @@ const ARM = {
   model: { parts: [{ shape: 'box', color: '#6b7280', pos: [0, 0.4, 0], scale: [0.4, 0.8, 0.4] }] },
   tiers: [{ name: 'Standard', cost: 0 }],
 };
+/** Storage to paint a SECOND island of drop-off with. See 18c. */
+const STORE = {
+  id: 'zz-belt-store', kind: 'drop', name: 'Test Storage', cost: 1,
+  surface: { color: '#8b8f96' },
+};
 
 /**
  * An ordinary stocker, so the belt can be asked the one question a sweep over
@@ -115,12 +120,13 @@ const STOCKER = {
 
 process.on('exit', () => {
   for (const [t, id] of [['items', GOODS.id], ['items', COLD.id],
-    ['fixtures', BELT.id], ['fixtures', ARM.id], ['workers', STOCKER.id]]) {
+    ['fixtures', BELT.id], ['fixtures', ARM.id], ['fixtures', STORE.id],
+    ['workers', STOCKER.id]]) {
     try { remove(t, id); } catch { /* best effort */ }
   }
 });
 for (const [kind, row] of [['item', GOODS], ['item', COLD], ['fixture', BELT], ['fixture', ARM],
-  ['worker', STOCKER]]) {
+  ['fixture', STORE], ['worker', STOCKER]]) {
   const res = writeContent(kind, row, 'verify');
   check(res.ok, `the catalog accepts the test ${kind} ${row.id}`, res.error ?? '');
 }
@@ -244,6 +250,38 @@ function crateOn(g, belt, item = GOODS, qty = 4) {
   eq(after, before, 'a hundred ticks of the belt pass move no tile, no block and no wall');
   eq(g.cash, cash, '...and cost nothing');
   eq(g.deliveries.length, 0, '...and conjure no crates');
+}
+
+// ---------------------------------------------------------------------------
+// 1b. A drag says which way; R says the rest — and for a drag of ONE it says all.
+//
+// `beltRunCells` is pure and this is the one claim in the file that is about a
+// gesture rather than about goods, which is why it is worth pinning here: a
+// press that never travelled has no direction in it, so the seed IS the answer,
+// and seeded at a literal 0 the one fixture whose entire point is which way it
+// points was the only one in the game that could not be turned before being put
+// down. It is not invisible — a belt facing north is a belt facing north — but
+// it is invisible in the FILE, because a run of two or more overwrites the seed
+// on its very first cell and every test anybody would think to write uses one.
+// ---------------------------------------------------------------------------
+{
+  const from = { x: 5, z: 5 };
+  for (const rot of [0, 1, 2, 3]) {
+    const one = beltRunCells(from, from, BELT_RUN_MAX, rot);
+    eq(one.length, 1, `a press that never travelled lays one cell (rot ${rot})`);
+    eq(one[0].rot, rot, `...facing the way R left it (rot ${rot})`);
+  }
+
+  // ...and the drag still wins wherever it has something to say. Every cell but
+  // the last faces the next one whatever was armed, or turning the ghost before
+  // a drag would lay a run that does not join up.
+  const east = beltRunCells(from, { x: from.x + 3, z: from.z }, BELT_RUN_MAX, 2);
+  eq(east.length, 4, 'a drag of three lays four cells');
+  const heads = new Set(east.slice(0, 3).map((c) => c.rot));
+  eq(heads.size, 1, 'every cell but the last faces the same way');
+  check(!heads.has(2) || east[0].rot === 2,
+    'and faces the way the gesture went rather than the way R did');
+  eq(east[3].rot, east[2].rot, 'the last cell keeps the facing it arrived with');
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,6 +1158,18 @@ function beltRect(g) {
 
       // The splitter, which is what it is with the thinking off: alternate.
       g.setSorterAuto('me', sorter.id, false);
+      // ...and the switch is on the WIRE, which is the half the sim cannot
+      // fail. `sortRows` reads `live.auto` off the snapshot, so a flag that
+      // only ever reached the layout leaves the menu describing a junction that
+      // has moved: the row you are on stays lit, its press is dead by design,
+      // and the other row sends, works, logs and never takes the highlight.
+      // Two dead buttons, one of them silent — see `managed`, same bug.
+      eq(g.snapshot().sorters?.find((s) => s.id === sorter.id)?.auto, false,
+        'the snapshot carries which way a sorter sends things');
+      g.setSorterAuto('me', sorter.id, true);
+      eq(g.snapshot().sorters?.find((s) => s.id === sorter.id)?.auto, true,
+        '...and carries it back the other way');
+      g.setSorterAuto('me', sorter.id, false);
       const went = [];
       for (let i = 0; i < 4; i++) {
         const crate = crateOn(g, sorter, GOODS, 2);
@@ -1137,6 +1187,446 @@ function beltRect(g) {
       run(g, 60);
       eq(units(g), total, 'nothing is created or destroyed going through it');
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 18d. A split is between the lines that WANT it, never across the junction.
+//
+// The claim only exists at a junction with THREE ways out, which is why nothing
+// above catches it: with two, "exactly one is keen" and "alternate" cover the
+// ground between them. With three — a spur to the yard, a line still being
+// built, a column with no loader on it yet, all perfectly ordinary — one exit is
+// never keen, can never win the single-keen test, and used to draw its full
+// share of the alternation anyway.
+//
+// It is invisible because every box that went the right way went the right way.
+// A third of the frozen goods riding off down a dead line reads as a sorter that
+// works intermittently, which cannot be told from one that is guessing — and it
+// gets worse the more of the shop you automate, since each line you add is one
+// more slot for goods that had somewhere to be.
+//
+// Asked of `sorterOut` rather than of a run, because the failure is a choice and
+// a run would only show it as a box in the wrong place several seconds later.
+// The paired assertion is that both keen lines are still used: narrowing the
+// pool to a single winner would satisfy "never the dead one" while quietly
+// turning the splitter off.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  let rig = null;
+  for (const sh of g.layout.shelves ?? []) {
+    // Shelf at (x,z); loaders at (x+1,z) and (x,z+1) both touch it; the sorter
+    // at (x+1,z+1) touches both loaders; the feeder comes up from the south and
+    // the dead line leaves to the east.
+    for (const [ax, az] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const armA = { x: sh.x + ax, z: sh.z };
+      const armB = { x: sh.x, z: sh.z + az };
+      const sorter = { x: sh.x + ax, z: sh.z + az };
+      const dead = { x: sh.x + ax * 2, z: sh.z + az };
+      const feeder = { x: sh.x + ax, z: sh.z + az * 2 };
+      const plan = [
+        ['arm', armA, aim(armA, sh)],
+        ['arm', armB, aim(armB, sh)],
+        ['sorter', sorter, aim(sorter, armB)],
+        ['belt', dead, aim(dead, { x: dead.x + ax, z: dead.z })],
+        ['belt', feeder, aim(feeder, sorter)],
+      ];
+      if (!plan.every(([kind, at]) => canPlace(g.layout, { kind, x: at.x, z: at.z, rot: 0 }).ok)) continue;
+      const built = plan.every(([kind, at, rot]) => g.placeFixture('me', {
+        kind, piece: kind === 'sorter' ? 'sorter' : (kind === 'arm' ? ARM.id : BELT.id),
+        x: at.x, z: at.z, rot,
+      }).ok);
+      if (!built) continue;
+      rig = { sorter: g.beltAt(sorter.x, sorter.z), armA, armB, dead };
+      break;
+    }
+    if (rig) break;
+  }
+  check(!!rig, 'a junction with three ways out, two of them serving a shelf');
+
+  if (rig) {
+    const ways = [g.beltNext(rig.sorter), ...conveyorBranches(g.layout, rig.sorter)]
+      .filter((w) => w && g.beltAt(w.x, w.z));
+    eq(ways.length, 3, 'the junction really has three ways out');
+
+    const serves = (w) => {
+      const met = conveyorMeets(g.layout, g.beltAt(w.x, w.z));
+      return met.shelves.some((u) => g.shelfAccepts(u, GOODS.id));
+    };
+    const live = ways.filter(serves);
+    eq(live.length, 2, '...two of which can put the box away');
+    const dud = ways.find((w) => !serves(w));
+    check(!!dud, '...and one that serves nothing at all');
+
+    if (dud && live.length === 2) {
+      const went = [];
+      for (let i = 0; i < 12; i++) {
+        // A crate of its own each time, or `sortChoice` answers with the one it
+        // remembers and twelve draws is one draw asked twelve times.
+        const to = g.sorterOut(rig.sorter, { id: `probe-${i}`, stacks: [{ item_id: GOODS.id, qty: 2 }] });
+        went.push(to && to.x === dud.x && to.z === dud.z ? 'x'
+          : `${live.findIndex((w) => w.x === to?.x && w.z === to?.z)}`);
+      }
+      eq(went.filter((w) => w === 'x').length, 0,
+        'nothing is ever sent down the line that serves nothing', went.join(''));
+      eq(new Set(went).size, 2, '...and both lines that want it are still shared', went.join(''));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 18f. A loader that only loads, and the pad it stands beside.
+//
+// Its centrepiece is a round trip that must NOT happen, and the shape is the one
+// `verify:hand` was written for: a board the hand clears must not come straight
+// back. Here it is a pad. `armDrop` prefers painted ground over everything —
+// consent already given — so a loader with a yard on one side and no shelving
+// beside it lifts a box off that yard and puts it straight back down on it. The
+// run it was bought to feed never gets anything, and every frame of it is a
+// machine doing its job.
+//
+// The control is `both`, which is every loader ever built: the round trip has to
+// still happen there, or this is not a switch, it is a change to every save.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const pad = g.dropPad();
+  check(!!pad?.cells?.length, 'the shop has a yard to stand beside');
+
+  // A loader touching a pad cell with no shelving anywhere near it.
+  let arm = null; // eslint-disable-line prefer-const
+  let cell = null;
+  for (const c of pad?.cells ?? []) {
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(c.x, c.z, r);
+      if (!canPlace(g.layout, { kind: 'arm', x: n.x, z: n.z, rot: 0 }).ok) continue;
+      if ((g.layout.shelves ?? []).some((sh) => [0, 1, 2, 3]
+        .map((q) => anchorTile(n.x, n.z, q))
+        .some((s) => s.x === sh.x && s.z === sh.z))) continue;
+      if (!g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: n.x, z: n.z, rot: 0 }).ok) continue;
+      arm = g.beltAt(n.x, n.z);
+      cell = c;
+      break;
+    }
+    if (arm) break;
+  }
+  check(!!arm, 'a loader stands on the yard with nothing to stock');
+
+  if (arm && cell) {
+    eq(arm.mode ?? 'both', 'both', 'a loader is built doing both halves');
+
+    // The control. `both` lifts it and — with nowhere better — puts it back.
+    const put = () => {
+      g.deliveries = [];
+      g.dropGoods(GOODS.id, 4, { x: cell.x, z: cell.z }, { exact: true });
+    };
+    put();
+    const total = units(g);
+    run(g, 40);
+    const backOnPad = g.deliveries.some((d) => !d.belt
+      && Math.round(d.x) === cell.x && Math.round(d.z) === cell.z);
+    check(backOnPad, 'doing both, it sets the box back down on the yard');
+    eq(units(g), total, '...losing nothing on the way');
+
+    // The version has to MOVE, which is `verify:pick`'s centrepiece said about a
+    // setting instead of a selection. The marks and chutes this flag decides all
+    // live in `staticRoot`, and the client rebuilds that only when the number
+    // changes — so without a bump the switch takes effect in the sim while the
+    // picture goes on showing the old one until the next wall you draw. A switch
+    // that works and looks like it did nothing is worse than one that does
+    // nothing, because you press it again.
+    const wasVersion = g.layoutVersion;
+    const set = g.setArmMode('me', arm.id, 'load');
+    check(set.ok, 'it can be told to only put goods on', set.error ?? '');
+    check(g.layoutVersion !== wasVersion, '...and the shop is told to redraw');
+    eq(g.snapshot().arms?.find((a) => a.id === arm.id)?.mode, 'load',
+      'the snapshot carries it, or the menu describes a machine that has moved');
+
+    put();
+    const t2 = units(g);
+    run(g, 40);
+    const stillPad = g.deliveries.some((d) => !d.belt
+      && Math.round(d.x) === cell.x && Math.round(d.z) === cell.z);
+    check(!stillPad, 'told to only load, it never puts one back on the yard');
+    check(g.deliveries.some((d) => d.belt), '...it is on the line instead');
+    eq(units(g), t2, '...and nothing is created or destroyed either way');
+
+    // A re-flow rebuilds the record from the placement — build mode re-flows on
+    // every wall segment, so a field the generator forgets clears itself.
+    g.regenerateLayout();
+    eq(g.beltAt(arm.x, arm.z)?.mode, 'load', '...and it survives a re-flow');
+
+    // ...and it lifts from the pad even when it is POINTING at it. `armSwing`
+    // refuses to lift off the side it unloads onto, which is what stops the
+    // off-ramp being a two-tick loop — and a load-only loader has no off-ramp,
+    // so the exclusion prevents nothing and costs it the one square it was
+    // turned toward. Two loaders side by side, one aimed at the yard and one at
+    // bare floor, would do different things with nothing on screen to say why.
+    // Turned through the real verb rather than by writing `rot`, which is
+    // `verify:ferry`'s note about `setBackOfHouse`: a sweep that sets the field
+    // passes while the actual press is refused.
+    let facing = arm.id;
+    for (let i = 0; i < 4; i++) {
+      const now = g.findFixture(facing);
+      const n = anchorTile(now.x, now.z, now.rot ?? 0);
+      if (n.x === cell.x && n.z === cell.z) break;
+      const spun2 = g.rotateFixture('me', facing, 1);
+      if (!spun2.ok) break;
+      facing = spun2.rotated;
+    }
+    const aimedAtPad = (() => {
+      const now = g.findFixture(facing);
+      const n = anchorTile(now.x, now.z, now.rot ?? 0);
+      return n.x === cell.x && n.z === cell.z;
+    })();
+    check(aimedAtPad, 'the loader can be turned to face the yard');
+    if (aimedAtPad) {
+      g.setArmMode('me', facing, 'load');
+      g.deliveries = [];
+      g.dropGoods(GOODS.id, 4, { x: cell.x, z: cell.z }, { exact: true });
+      run(g, 40);
+      check(g.deliveries.some((d) => d.belt),
+        'a load-only loader lifts from the pad it is POINTING at');
+    }
+    arm = g.findFixture(facing) ?? arm;
+
+    // ...and a ROTATION, which is a different path and the one that actually
+    // happens. `repositionFixture` builds a fresh placement naming each field it
+    // keeps, so a setting left out is not un-copied, it is RESET — by the
+    // re-flow that same call triggers. The press that does it is R, which is
+    // the press you use to aim a loader at the line you want, so the machine
+    // hands its pickup back at the exact moment you are setting it up. It looks
+    // like the button not working, because the turn you asked for did happen.
+    const turned = g.rotateFixture('me', arm.id, 1);
+    check(turned.ok, 'the loader can be turned', turned.error ?? '');
+    // A turn RE-MINTS the id, which is the trap `bulkFixtures` already records:
+    // anything captured before the press goes stale under it.
+    const spun = g.findFixture(turned.rotated ?? arm.id);
+    eq(spun?.mode, 'load', '...and turning it does not hand back its pickup');
+    const armId = spun?.id ?? arm.id;
+
+    // The mirror, which is the claim that keeps this from being one switch with
+    // two names: told to only unload, it must never lift.
+    const flip = g.setArmMode('me', armId, 'unload');
+    check(flip.ok, 'it can be told to only take goods off', flip.error ?? '');
+    g.deliveries = [];
+    g.dropGoods(GOODS.id, 4, { x: cell.x, z: cell.z }, { exact: true });
+    run(g, 40);
+    check(!g.deliveries.some((d) => d.belt), 'told to only unload, it lifts nothing');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 18e. The reject line: where a box nothing wants goes.
+//
+// Its control is every sorter ever built — `reject` null, and an unwanted box
+// splits across the junction exactly as it did before this existed. That
+// assertion is the one that decides whether this is opt-in or a change to every
+// save in the world.
+//
+// The claim that costs a shop is the negative one: a reject line must never take
+// a box a line WOULD have shelved. That is the `homeFull` spread bug with a
+// switch on it, and it is invisible — goods arriving at the yard instead of the
+// shelf look exactly like goods that had nowhere else to go.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  let rig = null;
+  for (const sh of g.layout.shelves ?? []) {
+    for (const [ax, az] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const arm = { x: sh.x + ax, z: sh.z };
+      const sorter = { x: sh.x + ax, z: sh.z + az };
+      const dead = { x: sh.x + ax * 2, z: sh.z + az };
+      const feeder = { x: sh.x + ax, z: sh.z + az * 2 };
+      const plan = [
+        ['arm', arm, aim(arm, sh)],
+        ['sorter', sorter, aim(sorter, arm)],
+        ['belt', dead, aim(dead, { x: dead.x + ax, z: dead.z })],
+        ['belt', feeder, aim(feeder, sorter)],
+      ];
+      if (!plan.every(([kind, at]) => canPlace(g.layout, { kind, x: at.x, z: at.z, rot: 0 }).ok)) continue;
+      if (!plan.every(([kind, at, rot]) => g.placeFixture('me', {
+        kind, piece: kind === 'sorter' ? 'sorter' : (kind === 'arm' ? ARM.id : BELT.id),
+        x: at.x, z: at.z, rot,
+      }).ok)) continue;
+      rig = { sorter: g.beltAt(sorter.x, sorter.z), arm, dead };
+      break;
+    }
+    if (rig) break;
+  }
+  check(!!rig, 'a junction with a shelf line and a line that serves nothing');
+
+  if (rig) {
+    const s = rig.sorter;
+    eq(s.reject ?? null, null, 'a sorter is built with no reject line');
+
+    // The control: with none set, a box nothing wants is shared out.
+    const stray = (i) => ({ id: `stray-${i}`, stacks: [{ item_id: COLD.id, qty: 2 }] });
+    // COLD needs a freezer and this shop has none, so no line is ever keen.
+    const before = [];
+    for (let i = 0; i < 8; i++) {
+      const to = g.sorterOut(s, stray(i));
+      before.push(`${to?.x},${to?.z}`);
+    }
+    check(new Set(before).size > 1, 'with no reject line, strays are split', before.join(' '));
+
+    const toDead = [0, 1, 2, 3].find((r) => {
+      const n = anchorTile(s.x, s.z, r);
+      return n.x === rig.dead.x && n.z === rig.dead.z;
+    });
+    const set = g.setSorterReject('me', s.id, toDead);
+    check(set.ok, 'the dead line can be named as the reject', set.error ?? '');
+    eq(g.snapshot().sorters?.find((q) => q.id === s.id)?.reject, toDead,
+      'the snapshot carries it, or the menu describes a junction that has moved');
+
+    // Every stray, down the one line, every time.
+    const after = [];
+    for (let i = 0; i < 8; i++) {
+      const to = g.sorterOut(rig.sorter, stray(100 + i));
+      after.push(to && to.x === rig.dead.x && to.z === rig.dead.z ? 'r' : 'x');
+    }
+    eq(after.filter((w) => w === 'x').length, 0,
+      'every box nothing wants goes down the reject line', after.join(''));
+
+    // ...and the one that would be a leak: a box a line CAN shelve still goes
+    // to that line. Asserted after the reject is set, because "sends strays
+    // away" passes on a sorter that sends everything away.
+    const keen = g.sorterOut(rig.sorter, { id: 'keen-1', stacks: [{ item_id: GOODS.id, qty: 2 }] });
+    check(keen && !(keen.x === rig.dead.x && keen.z === rig.dead.z),
+      'a box the shelf line will take is NOT rejected');
+
+    // A re-flow rebuilds the record from the placement — build mode re-flows on
+    // every wall segment, so a field the generator forgets clears itself behind
+    // you while you are still drawing.
+    g.regenerateLayout();
+    eq(g.beltAt(s.x, s.z)?.reject, toDead, '...and it survives a re-flow');
+
+    // ...and a rotation keeps BOTH of a sorter's settings. `auto` has had this
+    // hole since the day it shipped: turning a junction switched the crew back
+    // on, silently, in the one press you use to aim its branch.
+    g.setSorterAuto('me', s.id, false);
+    const spun = g.rotateFixture('me', s.id, 1);
+    check(spun.ok, 'the sorter can be turned', spun.error ?? '');
+    const now = g.findFixture(spun.rotated ?? s.id);
+    eq(now?.auto, false, '...and turning it does not switch the crew back on');
+    eq(now?.reject, toDead, '...nor forget where strays go');
+    g.setSorterAuto('me', now.id, true);
+
+    const off = g.setSorterReject('me', now.id, null);
+    check(off.ok, 'and it can be cleared again', off.error ?? '');
+    eq(g.findFixture(now.id)?.reject ?? null, null, '...back to splitting');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 18b. ...and the reject side pointed at GROUND, which is a box coming OFF.
+//
+// A reject line was a line and that was the whole of what it could be: both the
+// branch test and the reject test ask `beltAt`, so a junction aimed at a pad or
+// at bare floor had a side the piece could not see. Not refused and not warned —
+// INVISIBLE, which is the failure worth a sweep: the player says "put what
+// nothing wants over there", the shop accepts the press, and the box goes down
+// the trunk anyway. Nothing anywhere disagrees with them.
+//
+// Its control is the pair that must NOT eject: a box a line will take, and a
+// sorter with no reject at all. Nearly every way of getting an off-ramp wrong
+// takes too much rather than too little — an ejector that fires whenever it is
+// asked passes "strays come off" and quietly empties the whole run onto the
+// floor, which reads as the belt leaking rather than as the rule being wrong.
+//
+// And the one that is a claim about a thing NOT happening: a loader cannot
+// stand in for this. It offers the box to whatever is beside IT and off-ramps
+// the remainder, so it has no way to ask what is further down the run — which
+// is why the piece that chooses between lines is the only one that can.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  let rig = null;
+  for (const sh of g.layout.shelves ?? []) {
+    for (const [ax, az] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const arm = { x: sh.x + ax, z: sh.z };
+      const sorter = { x: sh.x + ax, z: sh.z + az };
+      const feeder = { x: sh.x + ax, z: sh.z + az * 2 };
+      // The square the strays are meant to land on — ordinary walkable floor,
+      // with nothing built on it at all. That is the whole point: it is not a
+      // conveyor, so nothing about the junction can currently see it.
+      const ground = { x: sh.x + ax * 2, z: sh.z + az };
+      const plan = [
+        ['arm', arm, aim(arm, sh)],
+        ['sorter', sorter, aim(sorter, arm)],
+        ['belt', feeder, aim(feeder, sorter)],
+      ];
+      if (!plan.every(([kind, at]) => canPlace(g.layout, { kind, x: at.x, z: at.z, rot: 0 }).ok)) continue;
+      if (g.beltAt(ground.x, ground.z)) continue;
+      if (!isWalkableTile(g.layout, ground.x, ground.z)) continue;
+      if (!plan.every(([kind, at, rot]) => g.placeFixture('me', {
+        kind, piece: kind === 'sorter' ? 'sorter' : (kind === 'arm' ? ARM.id : BELT.id),
+        x: at.x, z: at.z, rot,
+      }).ok)) continue;
+      rig = { sorter: g.beltAt(sorter.x, sorter.z), ground };
+      break;
+    }
+    if (rig) break;
+  }
+  check(!!rig, 'a junction with a shelf line and bare floor beside it');
+
+  if (rig) {
+    const s = rig.sorter;
+    const stray = (i) => ({ id: `gstray-${i}`, stacks: [{ item_id: COLD.id, qty: 2 }] });
+    const takeable = (i) => ({ id: `gkeen-${i}`, stacks: [{ item_id: GOODS.id, qty: 2 }] });
+
+    // THE CONTROL, and it is the assertion that decides whether any of this is
+    // opt-in: every sorter ever built has `reject` null, and one of those must
+    // never set a box down however unwanted it is.
+    eq(g.sorterEject(s, stray(0)), null,
+      'with no reject set, nothing is ever ejected — every sorter in every save');
+
+    const toGround = [0, 1, 2, 3].find((r) => {
+      const n = anchorTile(s.x, s.z, r);
+      return n.x === rig.ground.x && n.z === rig.ground.z;
+    });
+    const set = g.setSorterReject('me', s.id, toGround);
+    check(set.ok, 'bare floor can be named as the reject side', set.error ?? '');
+
+    // COLD wants a freezer and this shop has none, so no line is ever keen.
+    const out = g.sorterEject(s, stray(1));
+    check(out && out.x === rig.ground.x && out.z === rig.ground.z,
+      'a box nothing wants is ejected onto the named square', JSON.stringify(out));
+
+    // ...and the leak, which is the half that matters: a box a line WILL take
+    // stays on the run. "Strays come off" passes on an ejector that ejects
+    // everything, and that one empties the shop onto the floor.
+    eq(g.sorterEject(s, takeable(1)), null,
+      'a box the shelf line will take is NOT ejected');
+
+    // A conveyor on the reject side is the hand-off, never a setdown — going
+    // through the drop door would put two crates on one cell. The sorter's own
+    // `rot` points at the loader that feeds the shelf, so it is one by
+    // construction; asserted rather than assumed, or the rig could drift.
+    const named = anchorTile(s.x, s.z, s.rot ?? 0);
+    check(!!g.beltAt(named.x, named.z), 'the side it points at is a conveyor');
+    const line = g.setSorterReject('me', s.id, s.rot ?? 0);
+    check(line.ok, 'a line can still be named as the reject', line.error ?? '');
+    eq(g.sorterEject(g.beltAt(s.x, s.z), stray(2)), null,
+      'a reject side that is a LINE hands on rather than setting down');
+    g.setSorterReject('me', s.id, toGround);
+
+    // The goods actually arrive, and nothing is created or destroyed doing it.
+    const s2 = g.beltAt(s.x, s.z);
+    const box = { id: 'gride-1', belt: s2.id, x: s2.x, z: s2.z, stacks: [{ item_id: COLD.id, qty: 5 }] };
+    g.deliveries.push(box);
+    const held = units(g);
+    for (let i = 0; i < 400; i++) g.step(0.05);
+    const landed = g.deliveries.filter((d) => !d.belt
+      && Math.round(d.x) === rig.ground.x && Math.round(d.z) === rig.ground.z);
+    check(landed.length > 0, 'the crate leaves the run and stands on that square');
+    eq(units(g), held, '...and conservation holds across the ejection');
+
+    // It survives the two things that rebuild the record — a re-flow fires on
+    // every wall segment of a drag, and R re-mints the id of what it turns.
+    g.regenerateLayout();
+    eq(g.beltAt(s.x, s.z)?.reject, toGround, '...and a ground reject survives a re-flow');
   }
 }
 
@@ -1232,6 +1722,80 @@ function beltRect(g) {
       eq(units(g), total, '...and nothing created or destroyed on the way');
       void crate;
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 18c. ...and it lands on the pad cell it is TOUCHING.
+//
+// The claim is that a crate does not teleport, and it is invisible twice over:
+// a box that rode to the end of a run and was set down beside it, and one that
+// was set down thirty tiles away, are the same box on the same pad — and the
+// place you were watching is empty either way, which reads as goods having been
+// destroyed rather than moved.
+//
+// A pad is ONE named region and has never had to be one shape: the brush paints
+// cells, so a drop-off is whatever you dragged over, in as many pieces as you
+// felt like. `dropGoods` fills a region by list order, so a lone storage cell
+// painted at the end of an aisle handed its boxes to the yard by the back door.
+// `stow` is right to take the whole region — you walked there, so you are at the
+// pad — and that is exactly what a machine standing on one cell cannot say.
+//
+// Written as a pair, because either half alone passes on the bug: the box has
+// to arrive on the near island AND nothing may appear on the far one. A sweep
+// that only counted crates-on-the-pad was satisfied by the teleport.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const yard = (g.dropPad()?.cells ?? []).map((c) => ({ x: c.x, z: c.z }));
+  check(yard.length > 0, 'the shop starts with a yard to be far from');
+
+  const far = (c) => yard.every((y) => Math.abs(y.x - c.x) + Math.abs(y.z - c.z) > 2);
+  const S = g.layout.store;
+  let spot = null;
+  let arm = null; // eslint-disable-line prefer-const
+  for (let z = S.z + 1; z < S.z + S.h - 1 && !arm; z++) {
+    for (let x = S.x + 1; x < S.x + S.w - 1 && !arm; x++) {
+      const cell = { x, z };
+      if (!far(cell)) continue;
+      // A neighbour the loader can stand on, aimed at anything but the cell —
+      // the pad is consent, so being pointed elsewhere is the whole of 18b and
+      // this inherits it rather than restating it.
+      const side = [0, 1, 2, 3].map((r) => anchorTile(x, z, r))
+        .find((n) => canPlace(g.layout, { kind: 'arm', x: n.x, z: n.z, rot: 0 }).ok);
+      if (!side) continue;
+      const paint = g.buildGround('me', { x, z, w: 1, d: 1, piece: STORE.id });
+      if (!paint.ok) continue;
+      const away = [0, 1, 2, 3].find((q) => {
+        const f = anchorTile(side.x, side.z, q);
+        return f.x !== x || f.z !== z;
+      });
+      const put = g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: side.x, z: side.z, rot: away });
+      if (!put.ok) continue;
+      spot = cell;
+      arm = g.beltAt(side.x, side.z);
+    }
+  }
+  check(!!arm, 'a lone storage cell is painted away from the yard, with a loader beside it');
+
+  if (arm && spot) {
+    const cells = g.dropPad()?.cells ?? [];
+    check(cells.some((c) => c.x === spot.x && c.z === spot.z)
+      && yard.every((y) => Math.abs(y.x - spot.x) + Math.abs(y.z - spot.z) > 1),
+      'the pad is now one region in two pieces');
+
+    const crate = crateOn(g, arm, COLD, 4);
+    const total = units(g);
+    run(g, 60);
+
+    const onCell = g.deliveries.filter((d) => !d.belt
+      && Math.round(d.x) === spot.x && Math.round(d.z) === spot.z);
+    const onYard = g.deliveries.filter((d) => !d.belt
+      && yard.some((y) => y.x === Math.round(d.x) && y.z === Math.round(d.z)));
+    check(onCell.length > 0, 'the box is set down on the cell the loader touches');
+    eq(onYard.length, 0, '...and none of it turns up in the yard across the shop');
+    eq(units(g), total, '...and nothing created or destroyed on the way');
+    void crate;
   }
 }
 

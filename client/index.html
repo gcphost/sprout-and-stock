@@ -61,7 +61,20 @@
        touch hit rather than on the thing you pressed. Inherited, so it is one
        declaration rather than one per surface. */
     html { -webkit-tap-highlight-color: transparent; }
-    html, body { margin: 0; height: 100%; overflow: hidden; }
+    /* `overscroll-behavior-x` on the root is the one place that turns off the
+       trackpad's swipe-back, and it has to be said here rather than on `#game`
+       — where it already is, and where it does nothing, because a canvas is not
+       a scroll container. The canvas was never the exposure anyway: its wheel
+       handler is non-passive and calls `preventDefault`, so a two-finger swipe
+       over the shop is already swallowed. What is exposed is every HUD list —
+       and `wireScroll` deliberately does NOT swallow a notch at either END of a
+       horizontal strip, so that the wheel goes on to whatever is behind it. The
+       build bar is exactly that: flick the palette sideways, hit the end, and
+       the leftover delta reaches the document as a history gesture. Which
+       navigates AWAY FROM THE GAME mid-build — a whole page teardown, so what
+       you get is the tab going white and then a reload, and nothing anywhere
+       connects it to the strip you were scrolling. */
+    html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior-x: none; }
     body {
       font: 14px/1.45 ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif;
       color: var(--ink);
@@ -608,22 +621,24 @@
        made of buttons, wearing the colour this palette keeps for marks — so it
        read as an error line rather than as an offer.
 
-       The line above it sits on the sky, so it takes `.menu-tag`'s stroke for
-       the same reason that one does: dark text straight onto grass has no
-       contrast at the bottom of its own descenders. */
-    .menu-tip { margin: 14px 0 0; text-align: center; }
-    .menu-tip p {
-      margin: 0 0 7px; font-size: 11.5px; font-weight: 700;
-      color: rgba(58,49,40,.58);
-      -webkit-text-stroke: 4px rgba(255,252,245,.72); paint-order: stroke fill;
-    }
-    /* `.menu-add`'s language at two thirds the weight — same cream, same inset
+       BOTTOM-LEFT OF THE SCREEN, which is the mute button's argument said about
+       the other corner: this is not a way of choosing a shop. Inside the column
+       it was a sentence and a button between the last save and the bottom of
+       the box — a whole section of a menu, at the size of the thing somebody
+       actually came here for, pushing the list of shops up to make room for an
+       ask nobody arrived to answer. Out of flow it costs the list nothing,
+       which is the whole of what moving it buys. `fixed` rather than absolute
+       for the reason the mute button is: the box scrolls, and a tip jar that
+       scrolls away is one nobody finds.
+
+       `.menu-add`'s language at two thirds the weight — same cream, same inset
        keyline, same press — because this must never compete with the button
-       somebody actually came here for. `inline-flex` and `fit-content` keep the
-       hit area on the words: a centred BLOCK link is clickable across the dead
-       space either side of it, which on a phone is a stray tap that leaves the
-       game with a shop unsaved behind it. */
+       somebody actually came here for. `inline-flex` keeps the hit area on the
+       words: a BLOCK link is clickable across the dead space either side of it,
+       which in a corner of the sky is a stray tap that leaves the game with a
+       shop unsaved behind it. */
     .menu-support {
+      position: fixed; left: 16px; bottom: 16px; z-index: 1;
       display: inline-flex; align-items: center; gap: 7px;
       border-radius: 11px; padding: 8px 14px;
       font-size: 12.5px; font-weight: 800; color: var(--ink);
@@ -4204,12 +4219,19 @@
     /* The hole's outline. It is drawn OUTSIDE the rect (a spread shadow rather
        than a border) so it never covers a pixel of the thing it is pointing at
        — a 3px border on a 40px rail button eats the badge in its corner. */
-    .tt-ring {
-      position: absolute; border-radius: 14px; pointer-events: none;
+    .tt-mark {
+      position: absolute; pointer-events: none;
       box-shadow: 0 0 0 3px var(--good), 0 0 0 9px rgba(90, 163, 86, .3);
       animation: ttpulse 1.9s ease-in-out infinite;
     }
-    .tt-ring[hidden] { display: none; }
+    .tt-mark[hidden] { display: none; }
+    .tt-ring { border-radius: 14px; }
+    /* ...and the same mark at button size, for a press INSIDE the hole. A hole
+       the width of a panel says "work in here" and cannot say which of forty
+       identical buttons is the one that finishes the step. It cuts nothing and
+       blocks nothing — the veil is the hole's business, and the whole panel
+       stays live — so this is a picture and only a picture. */
+    .tt-pulse { border-radius: 9px; }
     @keyframes ttpulse {
       0%, 100% { box-shadow: 0 0 0 3px var(--good), 0 0 0 8px rgba(90, 163, 86, .28); }
       50% { box-shadow: 0 0 0 3px var(--good), 0 0 0 15px rgba(90, 163, 86, 0); }

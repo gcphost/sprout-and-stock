@@ -1521,7 +1521,16 @@ function itemRows(ui) {
               danger: true,
               run: () => ui.net.send('cancel-order', { itemId: it.id }),
             }
-            : { label: '×6', run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }) },
+            // Tagged because the tour points at it — see `data-btn-tag` in
+            // ui.js. Only the ordering press carries one: Cancel and Stock are
+            // the same slot saying something else, and a mark that landed on
+            // either would be teaching a press that is not the one being asked
+            // for.
+            : {
+              label: '×6',
+              tag: 'buy',
+              run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }),
+            },
     };
   // `todo` leads, because the first tab is a queue of four kinds of job and the
   // kinds used to be tabs — every key after it is what orders one rank within

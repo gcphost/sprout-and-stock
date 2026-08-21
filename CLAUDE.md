@@ -489,7 +489,27 @@ Thirty sweeps, about a minute:
   today, which is that nothing in `stepBelts` consults an edge at all, so the
   crate crosses because nobody asked. That is exactly why it is written down:
   the day a run respects the walls it passes through, the curtain has to be the
-  exception, and there would otherwise be nothing anywhere to say so.
+  exception, and there would otherwise be nothing anywhere to say so. And since
+  the off-ramp, a second PAIR: that a box set down on a pad lands on the cell
+  the loader is TOUCHING, and that none of it turns up on the far island. A pad
+  is one named region in as many pieces as you painted it, and `dropGoods` fills
+  a region by list order — so a loader beside the fridges handed its box to the
+  yard thirty tiles away. That is not a wrong shelf, it is a crate crossing the
+  shop instantly, and what it reads as is goods being DESTROYED, because the
+  place you were watching is empty afterwards and nothing logs a thing. Both
+  halves or neither: a sweep that only counted crates-on-the-pad passes on the
+  teleport. And a third, which only EXISTS at a junction with three ways out:
+  that a split goes to the lines that WANT the box rather than across the
+  junction at large. Below three that distinction cannot be drawn — "exactly one
+  is keen" and "alternate" cover the ground between them — so two-way coverage
+  passes on it for ever. With three, one exit serves nothing (a spur to the
+  yard, a line still being built, a column with no loader on it yet), is
+  therefore never keen, can never win the single-keen test, and drew its full
+  share of the alternation regardless: **4 boxes in 12** down a dead line beside
+  two good ones. Every box that arrived arrived correctly, so it reads as a
+  sorter that works intermittently, which cannot be told from one that is
+  guessing. Paired with "both good lines are still shared", or narrowing the
+  pool to a single winner passes the first half and turns the splitter off.
 
 - `verify:paint` guards the same claim `verify:floor` makes about the ground,
   said about the other surface in the building — and it has to be made again
@@ -2283,6 +2303,20 @@ what the next step was meant to be.
   has: **a list whose membership used to imply a fact stops implying it the
   moment something can be in it for a new reason**, and none of the old readers
   looks wrong afterwards.
+- **`repositionFixture` NAMES every field it keeps, so a setting left out is
+  reset rather than merely not copied.** It builds a fresh placement — `boh`,
+  `piece`, `tier`, `variant` — and then re-flows, and the re-flow rebuilds the
+  record from that placement. So a field it forgets is handed back its default
+  by the same call. It is `Game.create`'s named-field trap in the one place a
+  *player press* runs it: the press is **R**. Turning a loader to aim it at the
+  line you want gave the machine its pickup back; turning a sorter switched the
+  crew back on and forgot where strays went. All three look exactly like the
+  button not working, because the turn you asked for did happen — and the
+  setting you cannot see resets under it. `sorter.auto` had it from the day it
+  shipped and nothing caught it, because every sweep tested a re-flow
+  (`regenerateLayout`) and a re-flow is not a reposition. The fields ride as
+  `undefined` rather than as defaults, or this file and `server/layout.js` each
+  own half of what a new piece does.
 - **Fixture ids live in two namespaces.** The generator mints `shelf-p0`,
   `till-p0`…; anything the player positioned keeps an `fx-N` id. They must never
   collide, or a re-flow hands a shelf someone else's stock.

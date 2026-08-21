@@ -593,6 +593,29 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
 
+    // Which half of its job a loader does. Build mode only, like the two below.
+    this.onMessage('arm-mode', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setArmMode(client.sessionId, id, m?.mode),
+        (n) => (m?.mode === 'load' ? `${n} loaders only put goods on the line now.`
+          : m?.mode === 'unload' ? `${n} loaders only take goods off the line now.`
+            : `${n} loaders load and unload again.`),
+      ));
+    });
+
+    // ...and which way it sends what nothing wants. Build mode only, like
+    // `sorter-auto` and for the same reason.
+    this.onMessage('sorter-reject', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setSorterReject(client.sessionId, id, m?.rot ?? null),
+        (n) => (m?.rot == null
+          ? `${n} sorters split what nothing wants again.`
+          : `${n} sorters send what nothing wants down one line.`),
+      ));
+    });
+
     // What the shop does without being asked, and what that may cost per day.
     // Each field is optional — the supplier sends the one row you pressed, for
     // the same reason `assign` carries `on`: a message that re-sent the other

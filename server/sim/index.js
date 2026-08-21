@@ -45,7 +45,7 @@ import {
   conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, beltRunCells, BELT_RUN_MAX, CONVEYOR_KINDS,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
-  GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
+  GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
   shelfKind, holdsGoods, isPaint, faceKey, faceRun, canPaintFaces,
 } from '../../shared/build.js';
 import {
@@ -2821,6 +2821,29 @@ export class Game {
         yield: p.yield ?? 0,
       })),
       queues: this.layout.checkouts.map((c) => ({ id: c.id, queue: c.queue?.length ?? 0 })),
+      // Which way each junction is sending things, and it is here for exactly
+      // the reason `managed` is: `sortRows` reads `live.auto`, so with nothing
+      // on the wire it was always undefined, always resolved to the default,
+      // and left "Let the crew sort it" permanently lit with a dead press under
+      // it while "Just split it evenly" sent, worked, logged, and never moved
+      // the highlight. Two dead buttons is what a control with no state on the
+      // wire looks like, and it is invisible in the sim — `sorterOut` reads the
+      // layout and was right the whole time. Empty on every shop that has never
+      // built one, which is the shape the list is in until somebody does.
+      // On the WIRE, or the loader menu describes a machine that has moved —
+      // the trap `verify:belts` already pins about a sorter's `auto`.
+      arms: (this.layout.arms ?? []).map((a) => ({
+        id: a.id,
+        mode: a.mode === 'load' || a.mode === 'unload' ? a.mode : 'both',
+      })),
+      sorters: (this.layout.sorters ?? []).map((s) => ({
+        id: s.id,
+        auto: s.auto !== false,
+        // On the WIRE, or the menu describes a junction that has moved — the
+        // trap `verify:belts` already pins about `auto`.
+        reject: Number.isInteger(s.reject) ? s.reject : null,
+        rot: s.rot ?? 0,
+      })),
       cashDrops: this.cashDrops.map((d) => ({
         id: d.id, x: r2(d.x), z: r2(d.z), amount: d.amount,
       })),
@@ -9877,7 +9900,82 @@ export class Game {
    * balance number in this game is downstream of how many times `this.rng` has
    * been called.
    */
-  sorterOut(cell, crate) {
+  /**
+   * Can this box be put away anywhere down that way out?
+   *
+   * One spelling, because two things ask it now — which line a box takes, and
+   * whether it comes off the run altogether — and a junction that chose a line
+   * by one rule and ejected by another would eject boxes it had just decided
+   * somebody wanted. That is the shape CLAUDE.md keeps recording: the shop's
+   * rule and the hand's rule drifting apart until a unit takes a press it never
+   * advertised.
+   */
+  sorterWants(side, crate) {
+    const met = conveyorMeets(this.layout, this.beltAt(side.x, side.z));
+    // Rubbish is a one-answer question: the line with a skip on it. Asked
+    // against shelving it would be false everywhere and every box of rot
+    // would take whichever branch the counter happened to be on.
+    if (crate.waste) return met.bins.length > 0;
+    const piles = lotStacks(crate).filter((p) => p.qty > 0);
+    if (!piles.length) return false;
+    // A hopper counts as somewhere goods can go, or a line feeding the
+    // kitchen is invisible to the one piece whose job is choosing lines.
+    return piles.every((p) => !givenUp(this, p.item_id)
+      && (met.shelves.some((u) => this.shelfAccepts(u, p.item_id))
+        || met.stations.some((st) => this.stationHopperRoom(st, p.item_id) > 0
+          && this.stationRecipes(st).filter(Boolean)
+            .some((r) => r.inputs.some((i) => i.item_id === p.item_id)))));
+  }
+
+  /**
+   * ...and the reject side pointed at GROUND, which takes the box off the run.
+   *
+   * A reject line is a line, and that is the whole of what it could be: both the
+   * branch test and the reject test ask `beltAt`, so a sorter aimed at a pad or
+   * at bare floor has a side the piece cannot see at all. Not refused and not
+   * warned — invisible, which is why it reads as the junction ignoring you.
+   *
+   * What the player is saying is the sentence the junction already computes:
+   * *if nothing down any of these lines wants it, put it down over there.* The
+   * keen test is the same one `sorterOut` sorts by, so a box is only ever set
+   * down once every line has been asked and none of them had anywhere to put it.
+   *
+   * A loader cannot stand in for this and that is the point of it being here. A
+   * loader offers the box to whatever is beside IT and off-ramps the remainder,
+   * so one stood on a junction with no shelving next to it dumps every box that
+   * passes — it has no way to ask what is further down the run. Only the piece
+   * that chooses between lines can know that nobody wanted it.
+   *
+   * Asked of every way out rather than of the CLEAR ones, which is the one place
+   * this deliberately parts company with the reject *line* above. A jam is a
+   * reason to wait — `stepBelts` already does — where a drop is a hire's walk to
+   * undo, so ejecting stock because an aisle was briefly busy would quietly
+   * hand the automation back to the crew.
+   */
+  sorterEject(cell, crate) {
+    if (!cell || cell.kind !== 'sorter' || !crate) return null;
+    if (!Number.isInteger(cell.reject)) return null;
+    const at = anchorTile(cell.x, cell.z, cell.reject);
+    // A conveyor on that side is the hand-off above, not a setdown. `armDrop`
+    // refuses it too, and going through here would put two crates on one cell.
+    if (this.beltAt(at.x, at.z)) return null;
+    const straight = this.beltNext(cell);
+    const branches = conveyorBranches(this.layout, cell);
+    const ways = straight ? [straight, ...branches] : branches;
+    // `auto` off is a plain splitter with the thinking switched off, and the
+    // reject line takes everything in that state. Ground says the same thing.
+    const keenAny = cell.auto !== false
+      && ways.some((w) => this.sorterWants(w, crate));
+    return keenAny ? null : at;
+  }
+
+  /**
+   * @param {(to: {x: number, z: number}) => boolean} [free] whether a way out
+   *   has room on it this tick. Optional, because `sorterOut` is asked by things
+   *   that only want to know the shape of the junction; only `stepBelts` knows
+   *   what is standing where.
+   */
+  sorterOut(cell, crate, free = null) {
     const straight = this.beltNext(cell);
     if (cell.kind !== 'sorter') return straight;
     const branches = conveyorBranches(this.layout, cell);
@@ -9887,6 +9985,25 @@ export class Game {
     // would ignore half of what it was standing in the middle of.
     const ways = straight ? [straight, ...branches] : branches;
     if (ways.length === 1) return ways[0];
+
+    /**
+     * The ways out that have room on them THIS TICK.
+     *
+     * A junction is the one piece in a run where backpressure has an alternative
+     * — everywhere else a blocked cell can only wait, and waiting is the right
+     * answer because there is nowhere else for the box to be. Here there is, and
+     * a sorter that ignores it hands its box to a line that has stopped while a
+     * clear line sits beside it: the branch backs up to the junction, the trunk
+     * stops behind it, and a shop with one full aisle is a shop where nothing
+     * moves at all. That is what a jam looks like from the outside — not a full
+     * fridge, a dead conveyor.
+     *
+     * Every way blocked falls back to the whole list, so the decision is
+     * unchanged when there is nothing to choose between and the crate simply
+     * waits where it is.
+     */
+    const clear = free ? ways.filter((w) => free(w)) : ways;
+    const open = clear.length ? clear : ways;
 
     // Decided ONCE, when the box arrives, and remembered until it leaves.
     //
@@ -9899,41 +10016,102 @@ export class Game {
     // delivery is a field in the save.
     this.sortChoice ??= new Map();
     const had = this.sortChoice.get(crate?.id);
-    if (had && had.cell === cell.id) return had.to;
+    // ...and a remembered choice is dropped if the way it named has JAMMED and
+    // another has room. The memory is there so the answer cannot flicker tick to
+    // tick, which is still what it does for every ordinary hand-off — but a line
+    // that has stopped is not a flicker, and holding the box against it is the
+    // deadlock above with a decision already made.
+    if (had && had.cell === cell.id
+      && (!free || free(had.to) || !clear.length)) return had.to;
 
     const pick = (to) => {
       if (crate) this.sortChoice.set(crate.id, { cell: cell.id, to });
       return to;
     };
 
+    // The ways the alternation below is allowed to choose between. Narrowed to
+    // the keen ones when there are any — see below — and left as the whole
+    // junction for a box nothing wants and for a sorter you have switched the
+    // thinking off on.
+    let pool = open;
+    let keenAny = false;
+
+    // The side rejects go down, if the player named one. A stored quarter turn
+    // rather than a cell, because a cell is a fact about the shop as it was the
+    // day you pressed the button — move the run and the sorter would be aimed
+    // at a square with nothing on it, silently.
+    const reject = Number.isInteger(cell.reject)
+      ? anchorTile(cell.x, cell.z, cell.reject) : null;
+
     if (cell.auto !== false && crate) {
-      const wants = (side) => {
-        const met = conveyorMeets(this.layout, this.beltAt(side.x, side.z));
-        // Rubbish is a one-answer question: the line with a skip on it. Asked
-        // against shelving it would be false everywhere and every box of rot
-        // would take whichever branch the counter happened to be on.
-        if (crate.waste) return met.bins.length > 0;
-        const piles = lotStacks(crate).filter((p) => p.qty > 0);
-        if (!piles.length) return false;
-        // A hopper counts as somewhere goods can go, or a line feeding the
-        // kitchen is invisible to the one piece whose job is choosing lines.
-        return piles.every((p) => !givenUp(this, p.item_id)
-          && (met.shelves.some((u) => this.shelfAccepts(u, p.item_id))
-            || met.stations.some((st) => this.stationHopperRoom(st, p.item_id) > 0
-              && this.stationRecipes(st).filter(Boolean)
-                .some((r) => r.inputs.some((i) => i.item_id === p.item_id)))));
-      };
+      const wants = (side) => this.sorterWants(side, crate);
       // The one line that can actually put this box away. Exactly one, or it is
       // not an answer: two lines that would both take it is a choice with no
       // right side, and none is a box nothing wants — both of those split.
-      const keen = ways.filter(wants);
+      // The reject line is never a candidate for wanting something. It is
+      // where goods go when nothing wants them, and a spur that happens to run
+      // past a shelf would otherwise become an ordinary destination and take
+      // its share of the sorting — which is the one thing the player has just
+      // said it is not for.
+      const keen = open.filter((w) => (!reject || w.x !== reject.x || w.z !== reject.z) && wants(w));
+      keenAny = keen.length > 0;
       if (keen.length === 1) return pick(keen[0]);
+      // ...but a split is between the lines that WANT it, not across the
+      // junction at large.
+      //
+      // "Two lines would both take it" is a choice with no right side and
+      // balancing them is the right answer. Falling through to every way out is
+      // a different sentence, and it is the one that was being said: a junction
+      // in a real shop has an exit that serves nothing — a spur to the yard, a
+      // line still being built, a column of belt with no loader on it yet — and
+      // that exit is never keen, so it can never win the test above and used to
+      // collect its full share of everything anyway.
+      //
+      // What that looks like is a sorter that does not sort. A shop with three
+      // ways out of one junction, two of them reaching the freezers and the
+      // third reaching nothing, sent a third of its frozen goods down the dead
+      // line — where they rode to the end and stopped. Every box that DID
+      // arrive was correct, so the piece reads as working intermittently, which
+      // is indistinguishable from it being random. And it gets worse the more
+      // of your shop you automate, because every line you add is another
+      // alternation slot for goods that have somewhere better to be.
+      //
+      // Nothing keen still splits across everything, which is the case the
+      // paragraph above is about and is unchanged: a box no line wants has no
+      // better claim on one exit than another.
+      if (keen.length) pool = keen;
+    }
+
+    // ...and with NOTHING keen, the reject line if there is one.
+    //
+    // A shop's junction almost always has a line that is not a destination: the
+    // spur back to the yard, the loop past the skip, the column that has not
+    // grown a loader yet. Splitting a box no line wants across every way out
+    // scatters it — a third here, a third there — and each third then rides to
+    // the end of a line that was never going to take it. What the player wants
+    // to say is one sentence, and until now there was nowhere to say it: *if
+    // nobody wants it, send it that way.*
+    //
+    // Only when nothing is keen. A reject line that could outrank a line which
+    // WILL take the goods is not a reject line, it is a leak — and it would be
+    // the `homeFull` spread bug with a switch on it.
+    //
+    // `null` is every sorter that has ever been built, so this is opt-in to the
+    // cent: no reject set and the split below is exactly what it always was.
+    if (reject && !keenAny) {
+      const on = this.beltAt(reject.x, reject.z);
+      // Clear only — a jammed reject line must not swallow the alternation, or
+      // one stuck box downstream stops the junction dead.
+      if (on && (!free || free(reject))) return pick(reject);
     }
 
     this.sorterTurn ??= new Map();
     const n = (this.sorterTurn.get(cell.id) ?? 0) + 1;
     this.sorterTurn.set(cell.id, n);
-    return pick(ways[n % ways.length]);
+    // Over the CLEAR ways, so "split it evenly" stays even over the boxes that
+    // actually got through rather than over the turns it took — alternating onto
+    // a stopped line is a splitter that spends half its turns doing nothing.
+    return pick(pool[n % pool.length]);
   }
 
   /**
@@ -9961,6 +10139,105 @@ export class Game {
       ? 'The crew will choose which way that sorter sends things.'
       : 'That sorter splits everything evenly now.');
     return ok({ id, auto: cell.auto });
+  }
+
+  /**
+   * Name the side a sorter sends what nothing wants down — or clear it.
+   *
+   * A quarter turn rather than a cell id, for `rot`'s own reason: the run on the
+   * other side is rebuilt on every re-flow and re-minted with it, so a stored
+   * neighbour would go stale the first time you extended the line. A turn is a
+   * fact about the junction.
+   *
+   * Deliberately its own field rather than `rot`. `rot` is the branch you aimed
+   * at and it is a preference among the lines that DO want things; rejects are
+   * the opposite question, and the line you want them down is very often the one
+   * you did not aim at.
+   */
+  setSorterReject(playerId, id, rot) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+    if (f.kind !== 'sorter') return err('that is not a sorter');
+    const cell = (this.layout.sorters ?? []).find((s) => s.id === id);
+    if (!cell) return err('that is not a sorter');
+
+    const to = rot == null ? null : rot4(rot);
+    if (to != null) {
+      // A line to hand it down, or somewhere to set it down — see `sorterEject`.
+      // Refusing everything that is not a conveyor is what made a sorter aimed
+      // at its own yard do nothing at all, silently.
+      const n = anchorTile(cell.x, cell.z, to);
+      if (!this.beltAt(n.x, n.z) && !isWalkable(this.walk, this.layout, n.x, n.z)) {
+        return err('there is nowhere on that side to send them');
+      }
+    }
+    cell.reject = to;
+    // ...onto the PLACEMENT as well, which is what `compose` re-reads — see
+    // `setSorterAuto` for why a flag written only to the layout switches itself
+    // back off behind you while you are still drawing.
+    const placement = this.placements.find((p) => p.id === id);
+    if (placement) placement.reject = to;
+    this.persist();
+    this.pushLog(to == null
+      ? 'That sorter splits what nothing wants again.'
+      : 'That sorter sends what nothing wants down one line.');
+    return ok({ id, reject: to });
+  }
+
+  /**
+   * Which half of its job a loader does.
+   *
+   * One machine that both lifts and pours is the right default and it is what
+   * makes a run work with nothing configured — it is also why there is no
+   * separate loader and unloader in this game. What it cannot do is stand
+   * between a pad and a line: `armDrop` prefers a pad over everything, so a
+   * loader with a yard on one side and no shelving beside it lifts a box off
+   * that yard and puts it straight back, and the run it was bought to feed
+   * never gets anything. It reads as a machine working perfectly.
+   *
+   * `load` is a belt cell that also lifts: it never pours, never off-ramps and
+   * never bins, so the only way off it is the run. `unload` is the mirror — it
+   * stocks and sets down and never picks anything up, which is what stops a
+   * stockroom or a pad beside a line quietly swallowing everything going past.
+   *
+   * `both` is every loader ever built, so this is opt-in to the cent.
+   */
+  static ARM_MODES = ['both', 'load', 'unload'];
+
+  setArmMode(playerId, id, mode) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+    if (f.kind !== 'arm') return err('that is not a loader');
+    if (!Game.ARM_MODES.includes(mode)) return err('a loader cannot do that');
+    const cell = (this.layout.arms ?? []).find((a) => a.id === id);
+    if (!cell) return err('that is not a loader');
+    cell.mode = mode;
+    // ...onto the PLACEMENT too — `compose` rebuilds the record on every
+    // re-flow, and build mode re-flows on every wall segment of a drag.
+    const placement = this.placements.find((p) => p.id === id);
+    if (placement) placement.mode = mode;
+    // ...and the shop has to be REDRAWN, which `setBackOfHouse` deliberately
+    // does not do and this one has to.
+    //
+    // That function's argument is that `boh` changes no art, so re-flowing to
+    // change who may look at a shelf is the shop visibly rebuilding under a
+    // checkbox. This flag is the opposite: it decides which sides wear an
+    // intake chevron and which wear a chute, and every one of those lives in
+    // `staticRoot`, which the client disposes and rebuilds only when the
+    // version moves. Without this the setting takes effect immediately in the
+    // sim and the picture goes on showing the old one until the next wall you
+    // draw — a switch that works and looks like it did nothing, which is worse
+    // than one that does nothing.
+    //
+    // A bare bump rather than `regenerateLayout`: nothing has moved, so there is
+    // no generator to re-run and no shopper whose path needs throwing away. The
+    // room re-sends the layout the next time it notices the number changed.
+    this.layoutVersion++;
+    this.persist();
+    this.pushLog(mode === 'load' ? 'That loader only puts goods on the line now.'
+      : mode === 'unload' ? 'That loader only takes goods off the line now.'
+        : 'That loader loads and unloads again.');
+    return ok({ id, mode });
   }
 
   /** How long one cell takes this belt, at its tier. */
@@ -10010,7 +10287,34 @@ export class Game {
       const clock = (this.beltClock.get(belt.id) ?? 0) + dt;
       const per = this.beltSeconds(belt);
 
-      const to = this.sorterOut(belt, crate);
+      // A sorter whose reject side is GROUND takes the box off the run instead
+      // of handing it on. Charged the same cell-time as a hand-off, or an
+      // ejected box vanishes the tick it lands while every other box on the run
+      // glides — which is the jam-at-the-brim bug wearing an off-ramp.
+      const eject = this.sorterEject(belt, crate);
+      if (eject) {
+        if (clock < per) {
+          this.beltClock.set(belt.id, clock);
+          crate.x = belt.x;
+          crate.z = belt.z;
+          continue;
+        }
+        if (this.armDrop(belt, eject, crate)) {
+          onBelt.delete(belt.id);
+          this.beltClock.delete(belt.id);
+          this.sortChoice?.delete(crate.id);
+          continue;
+        }
+        // The pad is full, or that square stopped being somewhere a box may go.
+        // Carry on down the line rather than jamming, which is the same call the
+        // reject LINE makes about a spur that has backed up: a stray with
+        // nowhere to be is still better on the run than stopping the junction.
+      }
+
+      const to = this.sorterOut(belt, crate, (w) => {
+        const a = this.beltAt(w.x, w.z);
+        return !!a && !onBelt.has(a.id);
+      });
       const ahead = to ? this.beltAt(to.x, to.z) : null;
       // A terminus, or a full cell. Sit the box squarely on its own cell — a
       // jammed crate frozen four fifths of the way onto the next one reads as
@@ -10102,13 +10406,17 @@ export class Game {
    * make the tool unusable in the shop it exists for. Nothing laid at all is the
    * only error.
    */
-  buildRun(playerId, { kind, piece = null, variant = '', x, z, to = null } = {}) {
+  buildRun(playerId, { kind, piece = null, variant = '', x, z, to = null, rot = 0 } = {}) {
     const p = this.players[playerId];
     if (!p?.build?.on) return err('not in build mode');
     if (!CONVEYOR_KINDS.includes(kind)) return err('that is not a conveyor');
 
+    // `rot` is an input to the generator, not a decoration on the message: it is
+    // what a cell faces when the drag did not say, which is every cell of a
+    // one-cell run. Defaulting it here rather than carrying it over the wire
+    // would lay a run facing north out of a ghost the player had turned.
     const cells = beltRunCells({ x: Math.round(x), z: Math.round(z) },
-      to ? { x: Math.round(to.x), z: Math.round(to.z) } : null, BELT_RUN_MAX);
+      to ? { x: Math.round(to.x), z: Math.round(to.z) } : null, BELT_RUN_MAX, rot);
     if (!cells.length) return err('nothing to lay');
 
     let laid = 0;
@@ -10283,8 +10591,11 @@ export class Game {
     const sides = [0, 1, 2, 3].map((r) => anchorTile(arm.x, arm.z, r));
     const riding = this.deliveries.find((d) => d.belt === arm.id);
 
+    // Which half of its job this one does. See `setArmMode`.
+    const mode = arm.mode === 'load' || arm.mode === 'unload' ? arm.mode : 'both';
+
     // 1. Carrying something: give whatever is beside it whatever it will take.
-    if (riding) {
+    if (riding && mode !== 'load') {
       // Rubbish goes ONE place. A waste crate is not stock — `stockCrates`
       // filters it out everywhere else in the game for exactly that reason — so
       // it must never be offered to a board or a hopper, and the only thing on
@@ -10359,7 +10670,12 @@ export class Game {
         //
         // Last, after every unit and hopper beside it has had its share, because
         // a box put away is worth more than a box tidied.
-        const pads = sides.filter((s) => PAD_KINDS.some((k) => isPadAt(this.layout, k, s.x, s.z)));
+        // `GOODS_PADS` and not `PAD_KINDS`: the comment below says "the yard,
+        // where a stocker will find it", and a break area is not the yard. With
+        // all four kinds a loader beside the break room posts its overflow into
+        // the one place in the shop that exists to have nothing in it — a box
+        // on a pad, so nothing refuses it and nothing logs it.
+        const pads = sides.filter((s) => GOODS_PADS.some((k) => isPadAt(this.layout, k, s.x, s.z)));
         // Pads BEFORE the faced tile. Bare floor is where a box goes when there
         // is nowhere better, and a pad is somewhere better by definition — so a
         // loader touching both puts it in the yard, where a stocker will find
@@ -10375,6 +10691,14 @@ export class Game {
       return moved;
     }
 
+    // A loader carrying something is not empty, whatever its mode. Without this
+    // a `load` one would fall through and try to lift a second box on top of the
+    // one it is already holding.
+    if (riding) return false;
+
+    // Nothing goes ON the line here. Everything below is a pickup.
+    if (mode === 'unload') return false;
+
     // 2. Empty: lift a crate off the floor beside it, which is how goods get out
     // of the yard and onto the run. Never off another conveyor cell — that is
     // `stepBelts`' job and doing it here would let a loader jump the queue.
@@ -10385,9 +10709,17 @@ export class Game {
     const out = anchorTile(arm.x, arm.z, arm.rot);
     const met = conveyorMeets(this.layout, arm);
     for (const s of sides) {
-      if (s.x === out.x && s.z === out.z) continue;
+      // ...unless it never puts anything down, in which case there is no loop to
+      // prevent and the exclusion is pure cost. A load-only loader aimed at the
+      // yard it is standing on refuses to lift from that yard — which is the
+      // one thing it was turned that way to do — while an identical one next to
+      // it, pointing at bare floor, works. Two machines side by side doing
+      // different things for a reason nothing on screen can show.
+      if (mode !== 'load' && s.x === out.x && s.z === out.z) continue;
       if (this.beltAt(s.x, s.z)) continue;
       const loose = this.deliveries.find((d) => !d.belt
+        // ...and never the box this same loader just set down. See `armDrop`.
+        && d.byArm !== arm.id
         // Rubbish rides only if there is a skip down the line. Without that a
         // box of rot is lifted onto a conveyor that has nowhere to end it and
         // jams the run for the rest of the save — the bin feature's own
@@ -10513,21 +10845,62 @@ export class Game {
     // How full is "full". One square holds `ARM_DROP_STACK`; a PAD holds that
     // per cell you painted, which is `bayRoom`'s promise said about a machine —
     // how big you made your yard is how much it takes.
+    //
+    // ...but only the PART of the pad this loader is standing against. A pad is
+    // one named region and nothing has ever required it to be one shape: paint
+    // a cell beside your fridges and it joins the yard by the back door, tens of
+    // tiles away. `dropGoods` fills a region by list order, so the box left the
+    // end of the run and materialised at the bay — which is not a slow delivery
+    // or a wrong shelf, it is a crate TELEPORTING across the shop, and it reads
+    // as goods being destroyed because the place you were watching is empty
+    // afterwards.
+    //
+    // `stow` is right to take the whole region: you walked to the pad, so the
+    // pad is where you are. A machine touches exactly one cell, and the cells
+    // reachable from that one by ordinary adjacency are the only ones it can be
+    // said to be standing at.
     const padKind = PAD_KINDS.find((k) => isPadAt(this.layout, k, at.x, at.z));
-    const cells = padKind === 'drop' ? (this.layout.drop?.cells ?? [])
-      : padKind === 'bay' ? (this.layout.bay?.cells ?? []) : [{ x: at.x, z: at.z }];
+    const region = padKind === 'drop' ? this.layout.drop
+      : padKind === 'bay' ? this.layout.bay : null;
+    const cells = region ? padIsland(region.cells ?? [], at) : [{ x: at.x, z: at.z }];
     const standing = this.deliveries.filter((d) => !d.belt
       && cells.some((c) => c.x === Math.round(d.x) && c.z === Math.round(d.z))).length;
     if (standing >= Game.ARM_DROP_STACK * cells.length) return false;
 
-    // Onto the PAD as a region when it is one, the way `stow` does — so boxes
-    // fill the cells you painted rather than towering on the single square the
-    // loader happens to touch. How big your yard is has been a decision since
-    // the pads became paintable, and a machine filling it has to honour that.
-    const kind = PAD_KINDS.find((k) => isPadAt(this.layout, k, at.x, at.z));
-    const region = kind === 'drop' ? this.layout.drop : (kind === 'bay' ? this.layout.bay : null);
-    this.dropLot(crate, region ?? at, { exact: !region });
+    const onIsland = () => this.deliveries.filter((d) => !d.belt
+      && cells.some((c) => c.x === Math.round(d.x) && c.z === Math.round(d.z)));
+    const before = new Map(onIsland().map((d) => [d.id, lotTotal(d)]));
+
+    // The island as a region of its own, so boxes still fill the cells you
+    // painted rather than towering on the one square the loader happens to
+    // touch — which is the promise the whole-region version was making and the
+    // only part of it that was ever this machine's to make.
+    this.dropLot(crate, cells.length > 1 ? { ...at, cells } : at, { exact: true });
     this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+
+    // Whose box this is, so the loader that set it down does not lift it again.
+    //
+    // Step 2 refuses to pick up off the side it FACES, and that guard was the
+    // whole defence against the off-ramp being a loop — which is right while the
+    // faced tile is where the box goes. It stopped being that when pads were
+    // preferred *before* the faced tile: a loader touching its own yard drops
+    // there, the pad is not the faced tile, so the very next swing picks the
+    // same box straight back up and puts it back on the run. Out, in, out, in —
+    // and what you watch is a machine working perfectly.
+    //
+    // Marked rather than made a rule about pads, because lifting stock off a pad
+    // is the ordinary way goods get out of the yard and onto a run at all, and a
+    // loader that refused its own yard would be the bay feature switched off.
+    // Only this arm honours it; hands and hires never look.
+    //
+    // Which is why it is the boxes the drop LANDED IN rather than every box on
+    // the pad. Marking the area is the same sentence for a loader that touches
+    // one lone cell and switched-off for one bolted to the yard, since a bay is
+    // where the crates already are — so the guard against a two-tick loop would
+    // quietly cost that loader every delivery the shop ever takes.
+    for (const d of onIsland()) {
+      if ((before.get(d.id) ?? -1) < lotTotal(d)) d.byArm = arm.id;
+    }
     return true;
   }
 
@@ -12717,6 +13090,23 @@ export class Game {
       // shape: a corner shelf you pick up is still a corner shelf when it lands.
       tier: Math.max(1, Math.trunc(Number(spec.tier ?? this.fixtureTier(id)) || 1)),
       variant: spec.variant ?? this.fixtureVariant(id),
+      // ...and every SETTING the piece carries, for `boh`'s reason said about
+      // the three fields that arrived after it.
+      //
+      // This builds a fresh placement and names each field it keeps, so a
+      // setting left out is not merely not copied — it is reset to the default,
+      // by the re-flow at the bottom of this function. And the press that does
+      // it is R: turning a loader to point at the line you want handed the
+      // machine its pickup back, turning a sorter switched the crew back on.
+      // Both look exactly like the button not having worked, because the thing
+      // you asked for DID happen.
+      //
+      // `undefined` rather than a default, so `compose` applies the one default
+      // there is — otherwise this file and `server/layout.js` each own half of
+      // what a new loader does.
+      mode: from.mode,
+      auto: from.auto,
+      reject: from.reject,
     };
     const check = canPlace(this.layout, placement, { ignoreId: id });
     if (!check.ok) return err(check.reason);
@@ -12939,6 +13329,11 @@ export class Game {
     for (const c of cells) {
       const key = `${c.x},${c.z}`;
       const had = painted.get(key) ?? null;
+      // What this cell ENDS UP as, which for the eraser is a question about
+      // where the cell is — floor indoors, grass outside. The same split
+      // `canPaintGround.leaves` makes, and it has to be the same split or the
+      // ghost promises a floor the stroke turns into a lawn.
+      const lay = piece ? kind : (insideStore(this.layout, c.x, c.z) ? 'floor' : null);
       if (had === (piece?.id ?? null) && this.groundKindAt(c.x, c.z) === kind) continue;
       // The bulldozer's own version of that skip, and it needs one of its own
       // because taking ground up does not name a kind to compare against. It
@@ -12947,7 +13342,7 @@ export class Game {
       // across a field would write a `k: null` entry per cell and report the
       // lot as taken up. What a stroke LEAVES is bare lawn with no design, so a
       // cell that is already that is a cell this did nothing to.
-      if (!piece && had == null && this.groundKindAt(c.x, c.z) === 'lawn') continue;
+      if (!piece && had == null && this.groundKindAt(c.x, c.z) === (lay ?? 'lawn')) continue;
 
       // Pay the difference, exactly as swapping a wall for a window does: what
       // was underfoot is worth `FIXTURE_REFUND` of what it cost, whether you
@@ -12956,7 +13351,7 @@ export class Game {
       if (cost > 0 && this.cash - spent < cost) { short = true; break; }
 
       spent = round2(spent + cost);
-      kept.set(key, { x: c.x, z: c.z, k: kind, p: piece?.id ?? null });
+      kept.set(key, { x: c.x, z: c.z, k: lay, p: piece?.id ?? null });
       laid++;
     }
 
@@ -16625,6 +17020,43 @@ function rosterFromUpgrades(w) {
       name: kinds[role].name,
       jobs: kinds[role].jobs.map((j) => ({ job: j.job, weight: j.weight })),
     }));
+}
+
+/**
+ * The run of pad cells reachable from one of them, by ordinary adjacency.
+ *
+ * A pad is one named region and has never had to be one shape — the brush
+ * paints cells, so a drop-off is whatever you dragged over, in as many pieces as
+ * you felt like. Everything that reads a pad as a place (`stow`, `bayRoom`)
+ * is right to take the lot: you walked there, so you are at the pad. A machine
+ * is not, it is at one cell, and the difference is the whole of `armDrop`.
+ *
+ * Four-way rather than eight, because that is what "the same pad, carried on"
+ * means to everything else in this game that walks: two cells touching at a
+ * corner are two places, and a loader cannot reach round the diagonal any more
+ * than a hire can.
+ */
+function padIsland(cells, at) {
+  const key = (c) => `${Math.round(c.x)},${Math.round(c.z)}`;
+  const left = new Map(cells.map((c) => [key(c), c]));
+  const start = left.get(key(at));
+  if (!start) return [{ x: Math.round(at.x), z: Math.round(at.z) }];
+
+  const out = [];
+  const queue = [start];
+  left.delete(key(start));
+  while (queue.length) {
+    const c = queue.pop();
+    out.push(c);
+    for (const n of [{ x: c.x + 1, z: c.z }, { x: c.x - 1, z: c.z },
+      { x: c.x, z: c.z + 1 }, { x: c.x, z: c.z - 1 }]) {
+      const hit = left.get(key(n));
+      if (!hit) continue;
+      left.delete(key(n));
+      queue.push(hit);
+    }
+  }
+  return out;
 }
 
 /** Sum a payload field across every owned upgrade of a given kind. */

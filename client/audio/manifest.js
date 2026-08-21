@@ -33,6 +33,14 @@ import place from './sfx/place.ogg';
 import remove from './sfx/remove.ogg';
 import robot from './sfx/robot.ogg';
 import machine from './sfx/machine.ogg';
+import pump from './sfx/pump.ogg';
+import boil from './sfx/boil.ogg';
+import motorFast from './sfx/motor-fast.ogg';
+import motorHeavy from './sfx/motor-heavy.ogg';
+import compressor from './sfx/compressor.ogg';
+import element from './sfx/element.ogg';
+import extractor from './sfx/extractor.ogg';
+import sizzle from './sfx/sizzle.ogg';
 
 import mall from './music/mall.ogg';
 import chillin from './music/chillin.ogg';
@@ -53,6 +61,7 @@ import hop from './music/hop.ogg';
 const KENNEY = { by: 'Kenney', from: 'kenney.nl', licence: 'CC0' };
 const MDKIERAN = { by: 'mdkieran', from: 'OpenGameArt', licence: 'CC0' };
 const RUBBERDUCK = { by: 'rubberduck', from: 'OpenGameArt', licence: 'CC0' };
+const ANTUMDELUGE = { by: 'AntumDeluge', from: 'OpenGameArt', licence: 'CC0' };
 const MONPLAISIR = { by: 'Monplaisir', from: 'Wikimedia Commons / Free Music Archive', licence: 'CC0' };
 const KOMIKU = { by: 'Komiku', from: 'Wikimedia Commons / Free Music Archive', licence: 'CC0' };
 
@@ -141,6 +150,47 @@ export const SOUNDS = [
   // different direction. The file went with it: an asset nothing names is a
   // download every player pays for and nobody hears.
   { id: 'machine', url: machine, gain: 0.16, loops: true, name: 'Appliance running', ...RUBBERDUCK },
+  /**
+   * ...and seven more of them, because one was eleven machines humming the same
+   * note.
+   *
+   * Every appliance in the game is a VARIANT of one `station` row, so for as
+   * long as a sound could only be named on the piece there was exactly one
+   * kitchen noise however many machines you owned — and pitching one file apart
+   * per variant (`sfxShape.rate`, which is still what separates the ones that
+   * share a file below) makes eleven notes rather than eleven machines. A
+   * blender is not a deep fryer played fast.
+   *
+   * They are named for the NOISE and never for the appliance — `pump`, not
+   * `coffee-machine` — because a variant names one of these and two variants
+   * can want the same noise. A row called `coffee-machine` would be a sound
+   * nothing but the coffee machine could ever politely use, which is how a
+   * shared library turns into eleven near-duplicates.
+   *
+   * All seven come out of the same CC0 pack `machine` does (rubberduck's *30
+   * CC0 SFX loops*), which is worth knowing for the reason the licence note at
+   * the top of this file gives: one pack, one credit line, one thing to check.
+   *
+   * THE GAINS ARE ALL 0.16 AND THAT IS A STARTING POINT RATHER THAN A MIX.
+   * It is what `machine` was tuned to by ear, and these are its packmates at
+   * roughly its normalisation — but a bath of boiling oil and a small motor are
+   * not the same loudness in the file any more than they are in a kitchen. The
+   * Menu's Sound rows play each of these on press, which is where to fix it,
+   * and the note on `machine` above is the argument: with a loop, start here
+   * and go DOWN.
+   */
+  { id: 'pump', url: pump, gain: 0.16, loops: true, name: 'Pump', ...RUBBERDUCK },
+  { id: 'boil', url: boil, gain: 0.16, loops: true, name: 'Boiling', ...RUBBERDUCK },
+  { id: 'motor-fast', url: motorFast, gain: 0.16, loops: true, name: 'Fast motor', ...RUBBERDUCK },
+  { id: 'motor-heavy', url: motorHeavy, gain: 0.16, loops: true, name: 'Heavy motor', ...RUBBERDUCK },
+  { id: 'compressor', url: compressor, gain: 0.16, loops: true, name: 'Compressor', ...RUBBERDUCK },
+  { id: 'element', url: element, gain: 0.16, loops: true, name: 'Heating element', ...RUBBERDUCK },
+  { id: 'extractor', url: extractor, gain: 0.16, loops: true, name: 'Extractor fan', ...RUBBERDUCK },
+  // The one loop from outside that pack, and the only appliance noise that is
+  // not a machine at all: an oven under the broiler is a fire, and a motor
+  // pitched down is a motor pitched down. Crackle rather than roar because a
+  // roar is what a shop full of them would become — this one has gaps in it.
+  { id: 'sizzle', url: sizzle, gain: 0.16, loops: true, name: 'Broiling', ...ANTUMDELUGE },
 ];
 
 /**

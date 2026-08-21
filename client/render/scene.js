@@ -25,7 +25,7 @@ import {
 import { Heat } from './heat.js';
 import { T } from '../../shared/tiles.js';
 import {
-  FIXTURES, workSpots, flowSpots, conveyorNext, conveyorAt, conveyorsOf, conveyorBranches, CONVEYOR_KINDS, derivedFlow, anchorTile, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind,
+  FIXTURES, workSpots, flowSpots, conveyorNext, conveyorAt, conveyorsOf, conveyorBranches, CONVEYOR_KINDS, derivedFlow, anchorTile, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind, GOODS_PADS, isPadAt, isWalkableTile,
   faceKey,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
@@ -33,7 +33,7 @@ import { hash01 } from '../../shared/hash.js';
 // Only for the wall's own thickness, which the paint ghost has to stand proud
 // of — see `setFaceGhost`. Everything else in here reads edge kinds as the raw
 // numbers the layout carries, through `EDGE_STYLE`.
-import { E } from '../../shared/edges.js';
+import { E, SOLID, edgeBetween } from '../../shared/edges.js';
 import { Lights, emittersIn, BAKED_LAYER } from './lights.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
@@ -41,6 +41,7 @@ import {
   variantModel, variantWork, skinKey,
 } from '../../shared/model.js';
 import { SIGNAL_NAMES, signalValue } from '../../shared/signals.js';
+import { buildTileGrid, disposeTileGrid } from './tile-grid.js';
 import { buildPastimeProp, animateRest } from './pastime.js';
 import { buildLoopingProp, animatePuffs, animateMotion } from './motion.js';
 
@@ -1043,6 +1044,17 @@ export class Scene {
     this.heat = new Heat();
     this.scene.add(this.heat.group);
 
+    // The `?tiles` debug grid, and for exactly the reason the heat sheet gives
+    // above: it is added straight to the scene rather than to `staticRoot`, so
+    // that a re-flow neither rebuilds it nor — the expensive half — leaks the
+    // canvas texture it owns, which `disposeGroup` is deliberately not in the
+    // business of freeing. See `buildTileGrid`. Off unless somebody asked.
+    this.tileGrid = null;
+    this.tileGridOn = false;
+    // The dimensions the current sheet was drawn for. Nothing else in the
+    // layout can invalidate it, so this is the whole test.
+    this.tileGridFor = '';
+
     this.players = new Map();
     this.customers = new Map();
     this.stationProps = new Map();
@@ -1243,6 +1255,58 @@ export class Scene {
     const flat = Math.cos(this.camPitch) * CAM_DIST;
     this.camOffset.set(flat * Math.SQRT1_2, Math.sin(this.camPitch) * CAM_DIST, flat * Math.SQRT1_2)
       .applyAxisAngle(AXIS_Y, this.camAngle);
+  }
+
+  /**
+   * How the view is posed, in a shape that survives a reload.
+   *
+   * Angles are the person's taste and go back exactly. The POSITION is the one
+   * that needs thought, and it is stored as where the view is CENTRED rather
+   * than as `camPan` — because `camPan` is an offset off whoever it is chained
+   * to, and on the next load that is a body which may have moved, or respawned
+   * at the door, or been put back by `Game.away` a tile over. Restoring the
+   * offset would put the view a consistent distance from a different place,
+   * which is the same bug the bay-window trap has: a number that means "from
+   * here" stored across the moment "here" changes.
+   *
+   * `centre` is only worth anything while the view is off its leash — the leash
+   * hauls a shopkeeping camera back to your body within a frame — so it is
+   * written whatever the mode and read only by a caller restoring `freeRoam`.
+   */
+  viewState() {
+    return {
+      pitch: this.camPitch,
+      yaw: this.camYaw,
+      centre: { x: this.camTarget.x + this.camPan.x, z: this.camTarget.z + this.camPan.z },
+    };
+  }
+
+  /**
+   * ...and back again. Every field optional, because a stored record written by
+   * an older build is missing whichever ones did not exist yet, and a view that
+   * refused to restore at all over one absent number is worse than a view that
+   * restores the two it recognises.
+   *
+   * `clampPan` is left to do the bounding rather than trusting the stored
+   * numbers: a shop can be SMALLER than it was when the record was written —
+   * you can take land back — so a centre off the end of the map is an ordinary
+   * thing to read back, not a corrupt one.
+   */
+  applyView({ pitch, yaw, centre } = {}) {
+    if (Number.isFinite(pitch)) this.camPitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, pitch));
+    if (Number.isFinite(yaw)) {
+      this.camYaw = yaw;
+      // The DRAWN angle too, or the ease spends the first second of the session
+      // swinging from wherever the camera was built to where you left it — which
+      // reads as the shop spinning itself on load.
+      this.camAngle = yaw;
+    }
+    if (centre && Number.isFinite(centre.x) && Number.isFinite(centre.z)) {
+      this.camPan.x = centre.x - this.camTarget.x;
+      this.camPan.z = centre.z - this.camTarget.z;
+      this.clampPan();
+    }
+    this.aimCamera();
   }
 
   /**
@@ -1883,6 +1947,47 @@ export class Scene {
     }
   }
 
+  /**
+   * Turn the `?tiles` debug grid on or off.
+   *
+   * Idempotent and safe before the first layout arrives — boot reads the URL
+   * long before the shop is open, so this records the wish and `syncTileGrid`
+   * honours it the moment there is a map to draw one over.
+   */
+  setTileGrid(on) {
+    this.tileGridOn = !!on;
+    if (this.tileGridOn) this.syncTileGrid(this.storeLayout);
+    else this.dropTileGrid();
+  }
+
+  dropTileGrid() {
+    if (!this.tileGrid) return;
+    this.scene.remove(this.tileGrid);
+    disposeTileGrid(this.tileGrid);
+    this.tileGrid = null;
+    this.tileGridFor = '';
+  }
+
+  /**
+   * Re-cut the sheet if — and only if — the map changed size.
+   *
+   * Called from `buildWorld`, which runs on every wall segment of a drag, so
+   * the early return is the point rather than a tidy-up: repainting a 2048²
+   * canvas per segment is a build tool that stutters, and the picture would be
+   * identical every time. Buying land is the one thing that can move it.
+   */
+  syncTileGrid(L) {
+    if (!this.tileGridOn || !L) return;
+    const key = `${L.w}x${L.h}`;
+    if (key === this.tileGridFor && this.tileGrid) return;
+    this.dropTileGrid();
+    const aniso = this.renderer?.capabilities?.getMaxAnisotropy?.() ?? 1;
+    this.tileGrid = buildTileGrid(L.w, L.h, aniso);
+    if (!this.tileGrid) return;
+    this.tileGridFor = key;
+    this.scene.add(this.tileGrid);
+  }
+
   /** Redraw the world we already have — for when the art changed, not the shop. */
   rebuildWorld() {
     if (!this._layout) return;
@@ -2088,6 +2193,8 @@ export class Scene {
     // — which is a lurch at exactly the moment the shop appears.
     if (!this.camFollowing) this.camTarget.set(L.door.x, EYE_Y, L.door.z + 2);
     this.storeLayout = L;
+    // Only ever redraws when the map has changed SIZE — see `syncTileGrid`.
+    this.syncTileGrid(L);
     // The fixture the pointer was over belongs to the old layout — a re-flow can
     // renumber it or move it out from under the marker. Whoever is aiming will
     // set it again on the next pointer move or frame.
@@ -2371,6 +2478,10 @@ export class Scene {
       // shaft is drawn separately.
       const flowRot = derivedFlow(f.kind) ? this.conveyorFacing(L, f) : (f.rot ?? 0);
       prop.rotation.y = -flowRot * (Math.PI / 2);
+      // ...and the housing goes on a side nothing is attached to, which is a
+      // question about the shop rather than about the model. See
+      // `attachConveyorBack`.
+      this.attachConveyorBack(L, f, prop, flowRot);
       prop.position.set(f.x, this.fixtureBaseY(f), f.z);
       // One thing you can point at, whatever it is made of. `pickFixture`
       // raycasts these and walks back up to whichever group wears the flag.
@@ -4156,40 +4267,35 @@ export class Scene {
       // The unit is still what you are pointing at everywhere its stock is not —
       // a tap on the frame, the base or an end panel has to go on opening the
       // menu, or pricing and assignment stop being one press away. So reaching
-      // through is not a general rule about fixtures; it is these two cases, and
-      // both are "the pile is *there* and you cannot get at it":
+      // through is not a general rule about fixtures; it is ONE case:
       //
       // - **glass**, which is drawn so you can see through it (`material`,
       //   `depthWrite: false`) and would otherwise be the one part of a unit
       //   that shows you goods and refuses to name them.
-      // - **a pile sealed in** (`sealedPile`) — a wall unit is a box with a lid,
-      //   and on a fixed camera two of its four rotations put the back of that
-      //   box to you. What the shelves get away with is having no top: you look
-      //   down over the back panel onto the boards, which is why a shelf turned
-      //   away still answers and a freezer turned away answers with nothing at
-      //   all, at every pixel, for ever. The stock is *rendered*, it is simply
-      //   somewhere no ray of this camera reaches.
       //
-      // Asked of the pile rather than of the piece, because it is a fact about
-      // where the unit is standing rather than about how it was drawn — the same
-      // freezer answers differently at rot 1 and rot 3, and a rule written
-      // against the model could only ever be wrong at two of them.
+      // It used to be two, and the second was the opposite of this one: a pile
+      // *sealed in* — a wall unit is a box with a lid, and on a fixed camera two
+      // of its four rotations put the back of that box to you — was reached
+      // through as well, on the argument that the cage draws with
+      // `depthTest: false` so you could at least see what you had named.
       //
-      // The marker can say so, which is what makes this honest rather than a
-      // pointer that names what you cannot see: `buildCageMarker` draws with
-      // `depthTest: false`, so the cage round a pile inside a sealed box is
-      // drawn *over* the box. You point at the freezer and see which pile you
-      // would take.
+      // What that is, said plainly, is naming goods through an opaque box, and
+      // it is the one thing the pointer is not allowed to do anywhere else in
+      // the game. The rule now is the one you can state in a sentence: **you can
+      // point at a pile you can see.** Glass you can see through; a lid you
+      // cannot. A sealed unit answers as the whole unit, which opens its menu —
+      // the older path, still one press, and the one that can show you a board
+      // no camera angle reaches.
+      //
       // `!front.board` because a pile in the open is already the answer: without
-      // it, a unit holding one visible kind and one sealed one would hand you
-      // the sealed one for every pixel of the pile you can actually see.
+      // it, a unit holding one visible kind and one behind glass would hand you
+      // the far one for every pixel of the pile you can actually see.
       // By id, never by identity: `allFixtures` rebuilds its records on every
       // call (`fixturesIn` spreads them), so the same fixture met twice down one
       // ray is two objects and `===` is false for every unit in the shop. It
       // fails silently as "the reach-through never fires", which is exactly the
       // bug it was written to fix.
-      if (board && !front.board && front.f.id === f.id
-        && (front.transparent || this.sealedPile(f, board))) {
+      if (board && !front.board && front.f.id === f.id && front.transparent) {
         // At the FRONT's distance. That is where this fixture really starts, and
         // `pickAim` weighs the number against a crate standing in front of it.
         return { ...answer, dist: front.dist };
@@ -4223,9 +4329,21 @@ export class Scene {
     // Measured in pixels for the same reason it is measured at all: what is hard
     // here is a distance on the SCREEN, and a distance in the world is a
     // different number at every zoom.
+    //
+    // ...and the snap has to honour the see-it rule above, which is the half
+    // that is easy to miss and does all the work. Dropping the sealed
+    // reach-through on its own changes NOTHING on screen: a lidded unit stops
+    // answering with a board up there, falls through to here with no board, and
+    // this pads its way to exactly the same pile — screen-space distance knows
+    // nothing about what is in front of what. Two routes to one wrong answer, so
+    // both have to be shut or neither is.
     if (got?.f && !got.board) {
       const near = this.nearestBoard(got.f, clientX, clientY);
-      if (near) return { ...got, board: near };
+      // Asked of the WINNER rather than inside the loop: `sealedPile` fires
+      // eight rays, and this is a hover path. One pile's worth is what the old
+      // reach-through already cost every frame, so this is the same budget
+      // pointed at the opposite question.
+      if (near && !this.sealedPile(got.f, near)) return { ...got, board: near };
     }
     return got;
   }
@@ -5000,7 +5118,19 @@ export class Scene {
         const uz = diag.z / len;
         // The two edges with nothing across them: a cell is fed from `-in` and
         // leaves by `+out`, so the outer pair is `+in` and `-out`.
-        const outer = [path.in, { x: -path.out.x, z: -path.out.z }];
+        //
+        // ...minus any of them a loader POURS across, which is the same
+        // exclusion the straight rails make and for the same reason: goods
+        // physically leave there, so a wall is wrong on the art alone, and the
+        // rail spans 0.07–0.17 while the join mark sits at 0.132, so it eats the
+        // mark whole. A loader on a bend is the ordinary shape at the end of an
+        // aisle — in off the run, out into the column, unloading sideways into
+        // the unit it was bought for — and that unit is exactly one of these two
+        // outer edges. What it drew was the connection walled off, which reads
+        // as the loader not being attached to the thing it is stocking.
+        const pours = this.conveyorPours(L, c);
+        const outer = [path.in, { x: -path.out.x, z: -path.out.z }]
+          .filter(({ x: ex, z: ez }) => !pours.some((p) => p.x === c.x + ex && p.z === c.z + ez));
         for (const { x: ex, z: ez } of outer) {
           const rail = new THREE.Mesh(geo, material('#4b5563', 1));
           rail.scale.set(ex ? 0.07 : 0.62, 0.1, ez ? 0.07 : 0.62);
@@ -5010,12 +5140,26 @@ export class Scene {
           rail.raycast = NO_PICK;
           this.staticRoot.add(rail);
         }
-        const chamfer = new THREE.Mesh(geo, material('#4b5563', 1));
-        chamfer.scale.set(0.5, 0.1, 0.07);
-        chamfer.position.set(c.x + ux * 0.44, 0.12, c.z + uz * 0.44);
-        chamfer.rotation.y = -(Math.atan2(uz, ux) + Math.PI / 2);
-        chamfer.raycast = NO_PICK;
-        this.staticRoot.add(chamfer);
+        // ...and the chamfer only when BOTH outer rails are there to be joined.
+        //
+        // It exists to take the right angle off the outside of a bend, which is
+        // a fact about two rails meeting. Drop one of them for a pour and there
+        // is no angle left — what the chamfer becomes is a half-tile diagonal
+        // bar sitting across the very edge the rail was removed from, which is
+        // the wall back again at 45°, and it eats the join mark exactly as the
+        // rail did.
+        //
+        // A loader on a bend unloading sideways is the ordinary shape at the end
+        // of an aisle, so this is not an edge case: it is what every corner
+        // loader in the shop was drawing.
+        if (outer.length === 2) {
+          const chamfer = new THREE.Mesh(geo, material('#4b5563', 1));
+          chamfer.scale.set(0.5, 0.1, 0.07);
+          chamfer.position.set(c.x + ux * 0.44, 0.12, c.z + uz * 0.44);
+          chamfer.rotation.y = -(Math.atan2(uz, ux) + Math.PI / 2);
+          chamfer.raycast = NO_PICK;
+          this.staticRoot.add(chamfer);
+        }
       }
 
       if (rec.moving.length) this.movingFixtures.set(c.id, rec);
@@ -5024,6 +5168,9 @@ export class Scene {
 
   /** Is this a part the renderer re-lays rather than the model drawing it? */
   static isSlat(p) { return p?.motion?.kind === 'scroll'; }
+
+  /** ...and the housing, which the renderer puts on a side nothing is attached to. */
+  static isBack(p) { return p?.back === true; }
 
   /**
    * The same model with its slats taken out — see `addConveyorSlats`.
@@ -5035,11 +5182,68 @@ export class Scene {
    */
   conveyorBody(model, f) {
     if (!model || !CONVEYOR_KINDS.includes(f.kind)) return model;
-    const strip = (parts) => (parts ?? []).filter((p) => !Scene.isSlat(p));
+    const strip = (parts) => (parts ?? []).filter((p) => !Scene.isSlat(p) && !Scene.isBack(p));
     if (model.stages) {
       return { ...model, stages: model.stages.map((s) => ({ ...s, parts: strip(s.parts) })) };
     }
     return { ...model, parts: strip(model.parts) };
+  }
+
+  /**
+   * Hang a conveyor's housing on a side that has nothing attached to it.
+   *
+   * A loader has four sides and on a working run three of them are spoken for:
+   * the cell that feeds it, the cell it hands to, and the unit it pours into.
+   * The fourth is the outside — a wall, or bare floor — and that is the only
+   * place a solid two-foot back belongs.
+   *
+   * Authored, it cannot know any of that. It sits at the model's `-z`, and a
+   * loader is turned by the FLOW rather than by `rot`, so on a bend it swings
+   * round and parks against whichever side the run leaves by. What you get is a
+   * curb across the boundary with the belt that feeds it — which reads as the
+   * two cells not being connected, on a run that is working perfectly.
+   *
+   * A CHILD of the fixture group rather than a mesh of its own, so it stays
+   * pickable, moves with the piece and is disposed with it. Its rotation is the
+   * difference between the side we chose and the way the body is already
+   * turned; the body's own `-z` is `FACING[rot + 3]`, which is what makes that
+   * subtraction the whole of the placement.
+   *
+   * A wall beats bare floor, because that is the side the housing reads as
+   * belonging to — and with every side attached it draws NOTHING, which is the
+   * right answer for a cell in the middle of a junction and the one an authored
+   * part can never give.
+   */
+  attachConveyorBack(L, f, prop, flowRot) {
+    if (!CONVEYOR_KINDS.includes(f.kind)) return;
+    const model = this.fixtureModel(f);
+    const parts = (partsAt(model, this.fixtureT(f)) ?? []).filter(Scene.isBack);
+    if (!parts.length) return;
+
+    // Every side goods cross, in either direction. Pouring out was the obvious
+    // half and taking in is the half that was missed: a loader told to only load
+    // has no pours at all, so *every* side reads as free and the housing parks
+    // on the yard it is lifting from. Which is the same wall in the same wrong
+    // place, arrived at from the opposite direction.
+    const used = [...this.conveyorPours(L, f), ...this.conveyorIntake(L, f)];
+    const free = [];
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(f.x, f.z, r);
+      if (conveyorAt(L, n.x, n.z)) continue;
+      if (used.some((p) => p.x === n.x && p.z === n.z)) continue;
+      free.push({ r, walled: SOLID.has(edgeBetween(L, f.x, f.z, n.x, n.z)) });
+    }
+    if (!free.length) return;
+    const pick = free.find((s) => s.walled) ?? free[0];
+
+    // `-z` of a body turned by `flowRot` points at `FACING[flowRot + 3]`, so the
+    // turn that lands it on `pick.r` is `pick.r + 1` — and the child carries
+    // only the difference, because the parent is already turned by the flow.
+    const want = rot4(pick.r + 1);
+    const group = buildModel({ parts }, { t: this.fixtureT(f) });
+    if (!group) return;
+    group.rotation.y = -rot4(want - flowRot) * (Math.PI / 2);
+    prop.add(group);
   }
 
   /** ...and only the slats, at this cell's own tier. */
@@ -5079,6 +5283,146 @@ export class Scene {
   }
 
   /**
+   * What the side a loader or a sorter is AIMED at turns out to be.
+   *
+   * The four answers are the three meanings `rot` carries plus the one nobody
+   * intends, and they are ordered the way `armSwing` asks: a unit first, then
+   * the run, then somewhere to set a box down. A pad is `drop` rather than a
+   * fourth answer because it is the same act — `armDrop` treats painted ground
+   * as consent already given, which is a reason to prefer it and not a
+   * different thing to do with the box.
+   *
+   * `dead` is the one worth drawing. A loader aimed at a wall, a queue tile or
+   * the back of a freezer has no first unit, no output and no off-ramp — every
+   * one of its four sides still works, so the shop looks fine, and the piece is
+   * simply not doing the job you turned it to do.
+   */
+  /**
+   * The sides a loader physically hands goods out through.
+   *
+   * Every side it can reach rather than the one `rot` names, because that is
+   * what `armSwing` does — it pours into all four in one swing and `rot` only
+   * decides who is asked first. A conveyor neighbour is the run rather than a
+   * pour: it is either a way out already counted or not a way out at all.
+   *
+   * On the class rather than inside `addConveyorPaths` because the corner rails
+   * live in `addConveyorSlats` and need the same answer. Bare floor is
+   * deliberately not here — `armSwing` will lift off any tile and `armDrop`
+   * will set down on the one it faces, so "floor" is true of nearly every
+   * loader in every shop, and a mark that fires everywhere is one you stop
+   * reading.
+   */
+  conveyorPours(L, c) {
+    if (c.kind !== 'arm') return [];
+    // A loader told to only put goods ON the line pours nowhere, so nothing
+    // beside it is a hand-over — no chute, no join mark, no rail dropped for an
+    // edge goods no longer cross. See `setArmMode`.
+    if (c.mode === 'load') return [];
+    const out = [];
+    for (const r of [0, 1, 2, 3]) {
+      const s = anchorTile(c.x, c.z, r);
+      if (conveyorAt(L, s.x, s.z)) continue;
+      const takes = (L.shelves ?? []).some((sh) => sh.x === s.x && sh.z === s.z)
+        || (L.stations ?? []).some((st) => st.x === s.x && st.z === s.z)
+        || (L.bins ?? []).some((bn) => bn.x === s.x && bn.z === s.z)
+        || GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z));
+      if (takes) out.push(s);
+    }
+    return out;
+  }
+
+  /**
+   * An arrowhead on one edge of a cell, pointing the way the goods go.
+   *
+   * Two bars meeting at a point rather than a triangle, because everything else
+   * on this deck is a box and a chevron made of two of them shades and bakes
+   * identically to the rails beside it.
+   *
+   * It sits INSIDE the cell rather than on the line, so it reads as belonging to
+   * the loader and not to the boundary — the same split the end pips make
+   * against the joins.
+   */
+  addEdgeChevron(c, n, inward, shift = 0) {
+    const dx = Math.sign(n.x - c.x);
+    const dz = Math.sign(n.z - c.z);
+    // Where the arrow POINTS: out at the neighbour, or back into the loader.
+    const px = inward ? -dx : dx;
+    const pz = inward ? -dz : dz;
+    // Sideways along the edge, for the case where one edge does both.
+    const sx = -dz * shift * 0.15;
+    const sz = dx * shift * 0.15;
+    const dart = new THREE.Mesh(ARROW_GEO, chevronMaterial(inward));
+    dart.position.set(c.x + dx * 0.34 + sx, 0.133, c.z + dz * 0.34 + sz);
+    dart.rotation.y = -Math.atan2(pz, px);
+    dart.renderOrder = 3;
+    dart.raycast = NO_PICK;
+    this.staticRoot.add(dart);
+  }
+
+  /**
+   * The sides a loader takes goods OFF, as opposed to the sides it pours into.
+   *
+   * `armSwing` will lift a loose crate off any side that is not a conveyor and
+   * is not the one it faces, so "where does it pick up" is nearly always three
+   * sides and marking all of them would be noise — the same call the join marks
+   * already make about bare floor. What is marked is a STANDING source: painted
+   * ground, which means *goods live here*, and a stockroom shelf, which is the
+   * one place a loader may pull stock back off a unit.
+   *
+   * Both are facts about what you built rather than about where a box happens to
+   * be lying this second, which is the line the whole marking layer draws.
+   */
+  conveyorIntake(L, c) {
+    if (c.kind !== 'arm') return [];
+    if (c.mode === 'unload') return [];
+    const faced = anchorTile(c.x, c.z, c.rot ?? 0);
+    const out = [];
+    for (const r of [0, 1, 2, 3]) {
+      const s = anchorTile(c.x, c.z, r);
+      // The side it unloads onto is never a side it lifts from — three sides in,
+      // one side out, which is what stops the off-ramp being a loop. A load-only
+      // loader has no off-ramp, so there is no loop and the exclusion would just
+      // cost it the pad it is pointing at. Mirrors `armSwing`, or the arrow says
+      // one thing and the machine does another.
+      if (c.mode !== 'load' && s.x === faced.x && s.z === faced.z) continue;
+      if (conveyorAt(L, s.x, s.z)) continue;
+      const source = GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z))
+        || (L.shelves ?? []).some((sh) => sh.x === s.x && sh.z === s.z && sh.boh === true);
+      if (source) out.push(s);
+    }
+    return out;
+  }
+
+  aimKind(L, c, f, isOut) {
+    if ((L.shelves ?? []).some((u) => u.x === f.x && u.z === f.z)
+      || (L.stations ?? []).some((s) => s.x === f.x && s.z === f.z)
+      || (L.bins ?? []).some((b) => b.x === f.x && b.z === f.z)) return 'unit';
+
+    // A conveyor is two completely different answers and the tell is whether it
+    // is actually taking goods from this cell.
+    //
+    // Aimed at a real output there is a join on that very edge already, moving
+    // with the aim, so a bar beside it is the same sentence twice — which is
+    // what two marks on one edge read as: a join that has gone wrong.
+    //
+    // Aimed at anything else the rotation does NOTHING, and it has to say so.
+    // `conveyorFlow`'s shortcut only fires into a PLAIN BELT that is not
+    // pointing back — so a loader turned to face its own feeder, or the loader
+    // next to it, has named a side that is not a unit to stock, not an output
+    // (the shortcut is refused) and not ground to set a box down on (`armDrop`
+    // refuses a conveyor). Every one of those is `dead`, and calling it a line
+    // was drawing a connection over a cell where nothing crosses at all.
+    if (conveyorAt(L, f.x, f.z)) return isOut ? null : 'dead';
+
+    // The same pair `armDrop` refuses on, in the same order — a mark drawn from
+    // a second opinion about where a box may go is a mark that promises an
+    // off-ramp the sim declines to use.
+    if (GOODS_PADS.some((k) => isPadAt(L, k, f.x, f.z))
+      || isWalkableTile(L, f.x, f.z)) return 'drop';
+    return 'dead';
+  }
+
+  /**
    * The path goods actually take through every conveyor cell, drawn on the deck.
    *
    * The authored chevron says which way a BELT points, which is the same fact
@@ -5106,48 +5450,204 @@ export class Scene {
     // and `disposeGroup` frees geometry it has not seen before, so this is
     // registered once at module level and never handed to it.
     const geo = PATH_GEO;
-    for (const c of cells) {
-      // BOTH ways out. A sorter's branch is a join like any other and the mark
-      // is the only thing in play that says a cell hands over — leaving it off
-      // would make the one piece with a decision to make the one piece whose
-      // second line looks unconnected.
-      for (const to of [conveyorNext(L, c), ...conveyorBranches(L, c)]) {
-      const on = to && conveyorAt(L, to.x, to.z);
-      if (!on) continue;
-      const dx = Math.sign(to.x - c.x);
-      const dz = Math.sign(to.z - c.z);
 
-      // From the middle of the cell out to the edge it leaves by. The half
-      // toward the FEEDER is drawn by that cell's own bar, which is what makes
-      // a run join up rather than a row of separate dashes.
-      // One small square on the JOIN, and nothing down the middle of the cell.
-      //
-      // The line this replaces ran half a tile per cell and joined up into an
-      // unbroken stripe down the whole run, which is a lot of paint for a fact
-      // you only need at the joints — and on a straight run it says nothing at
-      // all, because every cell of it looks the same. A mark that exists only
-      // where two cells HAND OVER is the same information with the redundancy
-      // taken out: a bend shows one, a junction shows one per branch, and a dead
-      // end is the gap.
-      // The well first, a shade under the mark, so it reads as sunk into the
-      // deck rather than as a sticker on top of it.
+    /**
+     * Every way OUT of a cell that actually moves goods.
+     *
+     * BOTH ways out of a sorter — a branch is a join like any other, and
+     * leaving it off would make the one piece with a decision to make the one
+     * piece whose second line looks unconnected.
+     *
+     * And a LOADER's consumers, which is the half that was missing and the
+     * reason the red dead-end warning could be retired rather than merely
+     * disliked. Two different mechanisms wear this one mark: `stepBelts` only
+     * ever hands to another conveyor cell — a plain belt facing a shelf is a
+     * *terminus*, and the crate sits on it for ever — while a loader is the one
+     * kind that pours into what is beside it. So a loader's joins are its
+     * shelving, its machines and its skip, and marking only the conveyor ones
+     * left the piece whose entire job is handing goods over as the piece that
+     * looked unconnected.
+     *
+     * All four sides rather than the one `rot` names, because that is what
+     * `armSwing` does: it pours into every side it can reach in one swing and
+     * `rot` only decides who is asked FIRST. Marking the faced side alone would
+     * be a picture of a loader serving one shelf while it stocks three.
+     *
+     * A goods PAD counts too, and it is the one edge here that carries traffic
+     * in both directions: `armDrop` sets an unwanted box down on it, and step 2
+     * of the same swing LIFTS a loose crate off it — which is how stock gets
+     * out of the bay and onto a run at all, with no second kind of machine.
+     * That makes a loader against the bay the source of everything downstream
+     * of it, and it was the one join in the whole system with nothing at all to
+     * say so.
+     *
+     * What is deliberately NOT marked is bare floor. `armSwing` will lift a
+     * crate off any adjacent tile and `armDrop` will set one down on the tile it
+     * faces, so "floor" is true of very nearly every loader in every shop — a
+     * mark that fires everywhere is one you stop reading, and it would drown the
+     * joins that mean something. The line this draws is a STANDING hand-over:
+     * one that is a fact about what you built, rather than about where a box
+     * happens to be lying this second.
+     */
+    const poursOf = (c) => this.conveyorPours(L, c);
+    // A pour edge and a conveyor join are the same claim — goods cross here —
+    // and FOUR loops have to agree about which edges those are: the mark, the
+    // deck that has to reach it, the rail that must not be across it, and — in
+    // `addConveyorSlats` — the corner's own pair of rails, which is why this
+    // moved onto the class. It was a local const, so the corner branch could
+    // not ask it and did not: a loader on a bend built a wall across the very
+    // side it unloads through.
+    const pourEdge = (c, n) => poursOf(c).some((p) => p.x === n.x && p.z === n.z);
+
+    const outsOf = (c) => [
+      ...[conveyorNext(L, c), ...conveyorBranches(L, c)]
+        .filter((to) => to && conveyorAt(L, to.x, to.z)),
+      ...poursOf(c),
+    ];
+
+    for (const c of cells) {
+      for (const to of outsOf(c)) {
+        const dx = Math.sign(to.x - c.x);
+        const dz = Math.sign(to.z - c.z);
+
+        // One small square on the JOIN, and nothing down the middle of the cell.
+        //
+        // The line this replaces ran half a tile per cell and joined up into an
+        // unbroken stripe down the whole run, which is a lot of paint for a fact
+        // you only need at the joints — and on a straight run it says nothing at
+        // all, because every cell of it looks the same. A mark that exists only
+        // where two cells HAND OVER is the same information with the redundancy
+        // taken out: a bend shows one, a junction shows one per branch, and a
+        // dead end is the gap.
+        //
+        // The well first, a shade under the mark, so it reads as sunk into the
+        // deck rather than as a sticker on top of it.
+        const well = new THREE.Mesh(geo, material(LINK_WELL, 1));
+        well.scale.set(0.17, 0.02, 0.17);
+        well.position.set(c.x + dx * 0.5, 0.128, c.z + dz * 0.5);
+        well.renderOrder = 2;
+        well.raycast = NO_PICK;
+        this.staticRoot.add(well);
+
+        const link = new THREE.Mesh(geo, linkMaterial());
+        link.scale.set(0.1, 0.02, 0.1);
+        link.position.set(c.x + dx * 0.5, 0.132, c.z + dz * 0.5);
+        link.renderOrder = 3;
+        // Invisible to the pointer. These sit on top of the decks, so without
+        // this every tap on a belt hits a decoration with no fixture id on it
+        // and selection silently answers nothing.
+        link.raycast = NO_PICK;
+        this.staticRoot.add(link);
+      }
+    }
+
+    // ...and the two ENDS of every run. See `endMaterial` for why these are
+    // drawn at all — the join marks say where two cells hand over, and are
+    // therefore silent about the one thing that stops a branch working, which is
+    // that nothing upstream ever hands into it.
+    //
+    // Derived from the same `conveyorNext`/`conveyorBranches` pair the joins are,
+    // rather than from rotation: a loader's `rot` is the side it unloads into and
+    // a sorter's is its branch, so a picture drawn off either would be a picture
+    // of a run nobody is playing. Which is the whole reason this is here.
+    const fed = new Set();
+    for (const c of cells) {
+      for (const to of [conveyorNext(L, c), ...conveyorBranches(L, c)]) {
+        const on = to && conveyorAt(L, to.x, to.z);
+        if (on) fed.add(on.id);
+      }
+    }
+    for (const c of cells) {
+      // The same `outsOf` the joins are drawn from, which is the whole of what
+      // keeps the two marks from contradicting each other: a loader stocking a
+      // shelf would otherwise wear a green join AND a "nothing downstream" pip.
+      const outs = outsOf(c);
+      // A ring is every cell fed and every cell handing on, which is a run with
+      // no ends — correct, and nothing to draw.
+      for (const tail of [false, true]) {
+        if (tail ? outs.length : fed.has(c.id)) continue;
+        // A pip in the middle of the deck rather than on an edge: an end is a
+        // fact about the CELL, where a join is a fact about the line between
+        // two, and putting both on the edge would read as one more join.
+        const pip = new THREE.Mesh(geo, endMaterial(tail));
+        pip.scale.set(0.16, 0.02, 0.16);
+        pip.position.set(c.x + (tail ? 0.11 : -0.11), 0.134, c.z);
+        pip.renderOrder = 3;
+        pip.raycast = NO_PICK;
+        this.staticRoot.add(pip);
+      }
+    }
+
+    // ...and WHICH WAY goods cross each working edge of a loader.
+    //
+    // The join marks say an edge carries goods and stop there, which was fine
+    // while every loader did both halves of its job: a pad beside one was both a
+    // place it lifted from and a place it set down, so there was no direction to
+    // draw. There is now, and a pad edge that only feeds looks exactly like a pad
+    // edge that only receives — which is the whole thing the mode switch exists
+    // to let you choose between.
+    //
+    // A chevron rather than a second colour, because the fact is a DIRECTION and
+    // colour cannot carry one. Same green as the join it sits inside, for the
+    // same reason: this is the join saying more, not a second kind of mark.
+    for (const c of cells) {
+      if (c.kind !== 'arm') continue;
+      const ins = this.conveyorIntake(L, c);
+      const outs = this.conveyorPours(L, c);
+      // An edge can be BOTH — a pad beside a loader doing both halves of its
+      // job is a place it lifts from and a place it sets down. Drawn on the same
+      // spot the two arrowheads cross into an X, which is a shape that means
+      // neither, so they step aside and sit alongside each other.
+      const key = (n) => `${n.x},${n.z}`;
+      const shared = new Set(ins.map(key).filter((k) => outs.some((o) => key(o) === k)));
+      for (const n of ins) this.addEdgeChevron(c, n, true, shared.has(key(n)) ? -1 : 0);
+      for (const n of outs) this.addEdgeChevron(c, n, false, shared.has(key(n)) ? 1 : 0);
+    }
+
+    // ...and which way the piece is AIMED, which is the one thing on it the
+    // player said out loud and the one thing nothing drew.
+    //
+    // A loader serves every side it can reach, so the art has no direction in
+    // it and the joins above are deliberately all four sides — both of which
+    // are right, and together they mean pressing R changed nothing on screen.
+    // That is not a missing flourish. `rot` has three separate meanings now
+    // (`docs/belts.md`): the unit it stocks FIRST, or — aimed at a conveyor —
+    // its output, or — aimed at bare ground — the off-ramp that is the only
+    // exit a box nothing wants will ever get. A piece with three meanings and
+    // no tell is a piece you rotate at random until the shop behaves.
+    //
+    // Only the kinds whose flow is DERIVED. A plain belt's `rot` *is* its flow,
+    // so the join it hands over on has said this already, and a second mark on
+    // the same edge is a second opinion about the same fact.
+    //
+    // A bar just inside the edge rather than a square on it: a join is a fact
+    // about the line between two cells and this is a fact about one of them, so
+    // it must not read as one more hand-over. What it is aimed at colours it,
+    // because "aimed at nothing" and "aimed at the shelf" are the two answers
+    // that look identical from a chair and differ by a whole afternoon.
+    for (const c of cells) {
+      if (!derivedFlow(c.kind)) continue;
+      const f = anchorTile(c.x, c.z, c.rot ?? 0);
+      const dx = Math.sign(f.x - c.x);
+      const dz = Math.sign(f.z - c.z);
+
+      // `null` is the edge the join already speaks for — see `aimKind`.
+      const kind = this.aimKind(L, c, f, outsOf(c).some((o) => o.x === f.x && o.z === f.z));
+      if (!kind) continue;
+
       const well = new THREE.Mesh(geo, material(LINK_WELL, 1));
-      well.scale.set(0.17, 0.02, 0.17);
-      well.position.set(c.x + dx * 0.5, 0.128, c.z + dz * 0.5);
+      well.scale.set(dz ? 0.34 : 0.1, 0.02, dz ? 0.1 : 0.34);
+      well.position.set(c.x + dx * 0.33, 0.128, c.z + dz * 0.33);
       well.renderOrder = 2;
       well.raycast = NO_PICK;
       this.staticRoot.add(well);
 
-      const link = new THREE.Mesh(geo, linkMaterial());
-      link.scale.set(0.1, 0.02, 0.1);
-      link.position.set(c.x + dx * 0.5, 0.132, c.z + dz * 0.5);
-      link.renderOrder = 3;
-      // Invisible to the pointer. These sit on top of the decks, so without
-      // this every tap on a belt hits a decoration with no fixture id on it and
-      // selection silently answers nothing.
-      link.raycast = NO_PICK;
-      this.staticRoot.add(link);
-      }
+      const bar = new THREE.Mesh(geo, aimMaterial(kind));
+      bar.scale.set(dz ? 0.26 : 0.06, 0.02, dz ? 0.06 : 0.26);
+      bar.position.set(c.x + dx * 0.33, 0.132, c.z + dz * 0.33);
+      bar.renderOrder = 3;
+      bar.raycast = NO_PICK;
+      this.staticRoot.add(bar);
     }
 
     // The GAP a narrow deck leaves at a join, filled per edge.
@@ -5187,7 +5687,13 @@ export class Scene {
       }
       for (const r of [0, 1, 2, 3]) {
         const n = anchorTile(c.x, c.z, r);
-        if (!conveyorAt(L, n.x, n.z)) continue;
+        // A POUR edge needs this every bit as much as a join does, and it is
+        // where the deck stopping short is most visible: the join mark is drawn
+        // on the tile edge at 0.5, the deck only reaches `cross`, so a loader
+        // stocking a shelf showed a green square floating on bare floor with a
+        // strip of ground between it and the belt it belongs to. Which reads as
+        // the mark being misplaced rather than as the deck being short.
+        if (!conveyorAt(L, n.x, n.z) && !pourEdge(c, n)) continue;
         // Same axis as the deck runs on? Then it already reaches the edge.
         if (r % 2 === deck.rot % 2) continue;
         const dx = Math.sign(n.x - c.x);
@@ -5227,6 +5733,14 @@ export class Scene {
       for (const r of [0, 1, 2, 3]) {
         const n = anchorTile(c.x, c.z, r);
         if (conveyorAt(L, n.x, n.z)) continue;
+        // ...and neither does an edge the loader POURS across. A rail is the
+        // outside of a run, and goods physically leave here, so a wall is wrong
+        // on the art alone. It was also swallowing the mark whole: the rail
+        // stands 0.1 tall centred at 0.12, so it spans 0.07 to 0.17 and the
+        // join mark sits at 0.132 — inside it. What that looks like is a green
+        // square rendering *underneath* the belt, which is a z-fighting bug
+        // nobody has, on a mark that is exactly where it should be.
+        if (pourEdge(c, n)) continue;
         const dx = Math.sign(n.x - c.x);
         const dz = Math.sign(n.z - c.z);
         const rail = new THREE.Mesh(geo, material('#4b5563', 1));
@@ -5391,87 +5905,6 @@ export class Scene {
         this.movingFixtures.set(c.id, rec);
       }
     }
-  }
-
-  /**
-   * Arrows over every belt and arm in the shop, while the palette is up.
-   *
-   * The chevron on a belt's deck says which way THAT belt runs. It cannot say
-   * the thing you actually need, which is whether the run is JOINED — and a
-   * broken junction and a working one are the same dark rectangle, so a shop
-   * where one belt is turned a quarter wrong looks exactly like a shop where
-   * everything is fine and simply does nothing.
-   *
-   * Amber where it hands to something, red where it hands to nothing. The
-   * verdict colours are already spoken for on the ghost and this deliberately
-   * borrows them: a red mark in build mode means "this will not work" wherever
-   * you see it.
-   *
-   * Only while `on`, because it is a build-mode answer to a build-mode
-   * question — a shop floor permanently strung with arrows would be reading
-   * out plumbing at somebody who is trying to look at their shop.
-   */
-  setFlowMarks(on) {
-    const key = on ? `${this.layoutVersion ?? 0}:${(this.storeLayout?.belts ?? []).length}:${(this.storeLayout?.arms ?? []).length}` : null;
-    if (this.flowMarkKey === key) return;
-    this.flowMarkKey = key;
-    if (this.flowMarks) {
-      this.actorRoot.remove(this.flowMarks);
-      disposeGroup(this.flowMarks);
-      this.flowMarks = null;
-    }
-    if (!on || !this.storeLayout) return;
-
-    const L = this.storeLayout;
-    const belts = L.belts ?? [];
-    const arms = L.arms ?? [];
-    if (!belts.length && !arms.length) return;
-
-    const isBelt = (x, z) => belts.some((b) => b.x === x && b.z === z);
-    const takes = (x, z) => (L.shelves ?? []).some((sh) => sh.x === x && sh.z === z)
-      || (L.stations ?? []).some((st) => st.x === x && st.z === z)
-      || (L.bins ?? []).some((bn) => bn.x === x && bn.z === z);
-
-    const g = new THREE.Group();
-    // ONLY the cells that go nowhere.
-    //
-    // It used to mark every face of every belt — an in-arrow, an out-arrow, and
-    // an amber-or-red verdict on each — which is a lot of furniture over a shop
-    // you are trying to look at, and nearly all of it says "this is fine". The
-    // green mark on the join already says a cell hands over, in play and not
-    // only in build mode. What is left is the one thing you cannot see: a run
-    // that stops.
-    //
-    // And it asks `conveyorNext` rather than reading `rot`, so it answers for a
-    // LOADER too. A loader's output is derived, so the old `rot`-based arrow was
-    // pointing at the shelf it stocks and calling that the flow — which is a
-    // mark that is wrong about exactly the piece you are most likely to have
-    // aimed by hand.
-    for (const f of conveyorsOf(L)) {
-      const onto = (to) => to && (isBelt(to.x, to.z)
-        || arms.some((a) => a.x === to.x && a.z === to.z)
-        || (L.sorters ?? []).some((s) => s.x === to.x && s.z === to.z)
-        || takes(to.x, to.z));
-      const to = conveyorNext(L, f);
-      // ANY way out landing is enough. A sorter with a working branch and a
-      // straight-on into a wall is a piece doing its job — marking it is telling
-      // somebody a thing they built on purpose is broken, and a warning that
-      // fires on a working shop is one you learn to stop reading.
-      if (onto(to) || conveyorBranches(L, f).some(onto)) continue;
-      // Where it TRIES to go, so the mark points at the gap rather than sitting
-      // in the middle of the cell saying nothing about which side is the
-      // problem. A loader whose output resolved to nothing at all falls back to
-      // its own facing, which is the only direction it has.
-      const face = to ?? anchorTile(f.x, f.z, f.rot ?? 0);
-      const mark = buildWorkSpot('out', { x: 0, z: 0 }, 0xe2564a);
-      mark.position.set(f.x + (face.x - f.x) * 0.34, 0.02, f.z + (face.z - f.z) * 0.34);
-      // The arrow reads its direction off its own offset, which is zero here
-      // because it is drawn at the fixture — so it is turned by hand instead.
-      mark.rotation.y = Math.atan2(face.x - f.x, face.z - f.z);
-      g.add(mark);
-    }
-    this.flowMarks = g;
-    this.actorRoot.add(g);
   }
 
   setBuildGhost(spec) {
@@ -6992,6 +7425,119 @@ let LINK_MAT = null;
 const linkMaterial = () => {
   LINK_MAT ??= new THREE.MeshBasicMaterial({ color: new THREE.Color(LINK_GLOW) });
   return LINK_MAT;
+};
+
+/**
+ * The two ENDS of a run, which the join marks cannot say.
+ *
+ * A join mark is drawn where two cells hand over, so a run that works is a line
+ * of them and a run that does not is the same line with a gap somewhere — which
+ * is a fact about the cell you are NOT looking at. The two ends are the ones
+ * that cost you a shop: a cell nothing hands to only ever receives goods by
+ * hand, and a cell that hands to nothing is where the line stops.
+ *
+ * Neither is an error. A head standing on your bay is the ordinary way goods get
+ * onto a run, and a loader dead-ending against the shelf it fills is the whole
+ * point of a loader. What they are is the two places a run can silently not be
+ * connected to the rest of the shop, and until now the art said nothing at all
+ * about either — a branch nothing feeds draws exactly like a branch that works.
+ *
+ * Amber for a head and red for a tail, on the same argument `CHARGE_LOOK` makes:
+ * two states are two colours, and a reader who cannot tell them apart still sees
+ * that this cell is one of the ends. Basic materials for `linkMaterial`'s reason
+ * — these lie flat on a deck and must not go out at the back of a dim shop.
+ */
+const END_HEAD = '#e0a341';
+const END_TAIL = '#e2564a';
+let END_MATS = null;
+const endMaterial = (tail) => {
+  END_MATS ??= [END_HEAD, END_TAIL]
+    .map((c) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c) }));
+  return END_MATS[tail ? 1 : 0];
+};
+
+/**
+ * Which way goods cross a loader's edge — ON to the line, or OFF it.
+ *
+ * Colour AND direction rather than direction alone. The arrowhead is the fact,
+ * but a shop is read at a glance from across the room and at that size a
+ * quarter-tile arrow is a smudge: what survives is the colour, which is the same
+ * argument `stripes` makes about a pattern on the ground.
+ *
+ * Green comes on, amber goes off — the way in is the way the shop gains, and
+ * amber is already what a run's HEAD wears, which is the same claim about the
+ * same thing said one cell earlier.
+ */
+const CHEV_IN = '#5fbf8a';
+const CHEV_OUT = '#e0a341';
+
+/**
+ * The arrowhead itself, as ONE flat dart rather than two crossed bars.
+ *
+ * Two boxes at forty-five degrees is what everything else on this deck is made
+ * of and it is the wrong tool here: they overlap at the apex, so the point — the
+ * one part of an arrow that carries the meaning — comes out as a thick lump,
+ * and at this camera a lump with two tails reads as an X.
+ *
+ * Four points and two triangles: a tip, two barbs, and a notch between them. The
+ * notch is what keeps it from reading as a play button, and it costs one vertex.
+ * Authored pointing +x, the same convention every model in the game uses, so
+ * `rotation.y` aims it and nothing else has to know.
+ *
+ * One geometry for every arrow in the shop — it is never scaled per instance, so
+ * the size lives here rather than in four `scale.set` calls that could drift.
+ */
+const ARROW_GEO = (() => {
+  const g = new THREE.BufferGeometry();
+  const tip = 0.17;
+  const back = -0.09;
+  const notch = -0.02;
+  const half = 0.13;
+  // Wound so both faces point UP. Get this backwards and the arrows are built,
+  // positioned and aimed perfectly, and every one of them is culled — the scene
+  // says 23 darts and the floor says none, which is a shape you cannot tell from
+  // "the code never ran".
+  g.setAttribute('position', new THREE.Float32BufferAttribute([
+    tip, 0, 0, notch, 0, 0, back, 0, half,
+    tip, 0, 0, back, 0, -half, notch, 0, 0,
+  ], 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(
+    Array.from({ length: 6 }, () => [0, 1, 0]).flat(), 3,
+  ));
+  return g;
+})();
+let CHEV_MATS = null;
+const chevronMaterial = (inward) => {
+  CHEV_MATS ??= [CHEV_OUT, CHEV_IN]
+    .map((c) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c) }));
+  return CHEV_MATS[inward ? 1 : 0];
+};
+
+/**
+ * The four things a loader or a sorter can be aimed at. See `aimKind`.
+ *
+ * Deliberately NOT the join green. A join says goods cross this edge and is
+ * drawn on all four sides of a loader; this says which side you chose, and the
+ * two sharing a colour would read as the aim being the only way out.
+ *
+ * `dead` is the loud one and is still not red — a loader aimed at a wall is a
+ * piece doing three quarters of its job, where red on this deck already means a
+ * run that stops. Grey against three lit colours is "this one says nothing",
+ * which is exactly the claim.
+ *
+ * There is no colour for "aimed at the run". That edge carries a join already
+ * and the join moves with the aim, so the bar is suppressed rather than drawn
+ * beside it — two marks on one edge read as a join that has gone wrong.
+ */
+const AIM_LOOK = { unit: '#79b6d8', drop: '#c98b52', dead: '#565c66' };
+const AIM_MATS = new Map();
+const aimMaterial = (kind) => {
+  if (!AIM_MATS.has(kind)) {
+    AIM_MATS.set(kind, new THREE.MeshBasicMaterial({
+      color: new THREE.Color(AIM_LOOK[kind] ?? AIM_LOOK.dead),
+    }));
+  }
+  return AIM_MATS.get(kind);
 };
 
 /** A mesh that is drawn and never pointed at. */

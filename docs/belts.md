@@ -7,7 +7,7 @@ rather than discovered later, and should not be started.
 
 What shipped: the `belt`, `arm` and `sorter` kinds, the tile they stamp, the
 downstream-first tick with backpressure, the catalog rows, a `scroll` motion kind
-for the slats, and `verify:belts` — 238 assertions. One thing is NOT in it and is
+for the slats, and `verify:belts` — 325 assertions. One thing is NOT in it and is
 called out where it belongs below: the belt is placed a cell at a time rather
 than dragged as a run (step 1's "laying a run").
 
@@ -447,6 +447,33 @@ for the rest of the save, and a mat of one is a stockroom that holds a single
 box. And the pickup side **skips the faced tile**: three sides in, one side out,
 or the off-ramp is a loop that sets a box down and lifts it straight back up.
 
+### …and a pad is consent, which is why the box must not TELEPORT
+
+A pad outranks the faced tile — painted ground that means *goods go here* is
+permission already given, so aiming a loader at your own yard is asking for it
+twice. What that inherited from `stow` is the pad as a **region**, and there the
+two callers part company. You walked to the pad, so the pad is where you are; a
+machine is at one cell. A pad has never had to be one shape — the brush paints
+cells — so a lone storage square painted at the end of an aisle is the same named
+region as the yard by the back door, and `dropGoods` fills a region *by list
+order*. A live shop had a loader set a box down beside its fridges and the box
+appear thirty tiles away at the bay, merged into an unrelated crate.
+
+That is not a slow delivery or a wrong shelf. It is a crate crossing the shop
+instantly, and **it reads as goods having been destroyed**, because the place you
+were watching is empty afterwards and nothing anywhere says otherwise. The
+report it arrives as is "the crate disappeared".
+
+`padIsland` is the fix: the cells reachable from the touched one by ordinary
+four-way adjacency. Two things about it. It is **four-way and not eight**,
+because two cells touching at a corner are two places to everything else in this
+game that walks. And the same island bounds the **`byArm` mark** — the guard that
+stops a loader lifting back what it just set down. Marked over the whole region
+that guard is switched-off for the loader that needs it most: a bay is where the
+crates already are, so a loader bolted to one would refuse every delivery the
+shop ever takes. It marks the boxes the drop **landed in**, which is the only
+thing it was ever about.
+
 Not done, and it is the obvious next thing: **the shop does not yet buy or pack
 FOR a line.** `restock` and `pickItem` know nothing about conveyors, so the
 ordering fills a belt-served shelf exactly as it fills any other, and `packCrate`
@@ -486,6 +513,107 @@ Both sides would take it, neither would, or the box is mixed — then it alterna
 That is a splitter, it balances two lines, and it is the same piece. `auto: false`
 pins it there: a junction you have switched the thinking off on is still a
 junction, and "does nothing" would be the wrong thing for it to become.
+
+…and the split is between the lines that **want** it, not across the junction at
+large. That distinction does not exist at a two-way sorter, which is why it took
+a real shop to find: with three ways out, one of them is an exit that serves
+nothing — a spur to the yard, a line still being built, a column with no loader
+on it yet — and such a line is never keen, so it can never win the single-keen
+test and used to draw its full share of the alternation regardless. Measured at
+**4 boxes in 12** down a dead line in a junction with two good ones. Every box
+that arrived was correct, so what it reads as is a sorter that works
+intermittently, which cannot be told from one that is guessing — and it gets
+worse the more of the shop you automate, because each line you add is another
+slot for goods that had somewhere to be. Nothing keen still splits across
+everything: a box no line wants has no better claim on one exit than another.
+
+### Which half of its job a loader does
+
+One machine that both lifts and pours is why there is no separate loader and
+unloader in this game, and it is what makes a run work with nothing configured.
+What it cannot do is stand between a pad and a line. `armDrop` prefers painted
+ground over everything — consent already given, said once, about that square — so
+a loader with a yard on one side and no shelving beside it lifts a box off that
+yard and puts it straight back on it. The run it was bought to feed never gets
+anything, and every frame of it is a machine doing its job.
+
+`mode` is `both` on every loader ever built. `load` is a belt cell that also
+lifts — it never pours, never off-ramps and never bins, so the only way off it is
+the run. `unload` is the mirror, and it is what stops a stockroom or a pad beside
+a line swallowing everything going past.
+
+The pair is deliberately not one boolean. "Does it lift" and "does it put down"
+are two questions, and a shop wants each of them answered alone: the loader on
+the yard is `load`, the loader at the end of an aisle is `unload`, and the one in
+the middle of a run beside two chillers is `both`.
+
+### …and the line for what nothing wants
+
+Splitting a stray across every way out scatters it, and each share then rides to
+the end of a line that was never going to take it. Almost every real junction has
+a way out that is not a destination — the spur back to the yard, the loop past
+the skip, the column that has not grown a loader yet — and the sentence the
+player wants is *if nobody wants it, send it that way.* There was nowhere to say
+it.
+
+`reject` is a quarter turn on the sorter, `null` on every one ever built. Four
+things about it. It is a **turn and not a cell**, for `rot`'s own reason: the run
+next door is rebuilt and re-minted on every re-flow, so a stored neighbour goes
+stale the first time you extend the line. It fires **only when nothing is keen** —
+a reject line that could outrank a line which *will* take the goods is not a
+reject line, it is a leak, and it is `homeFull`'s spread bug with a switch on it.
+The reject side is **excluded from wanting things**, or a spur that happens to
+pass a shelf quietly becomes an ordinary destination and takes its share of the
+sorting. And it is skipped when **jammed**, or one stuck box downstream stops the
+junction dead.
+
+It is a **separate field from `rot`** because they are opposite questions: `rot`
+is the branch you aimed at, a preference among the lines that do want things, and
+the line you want strays down is very often the one you did not aim at. The menu
+says "the way it points" rather than naming a compass side, because the junction
+is aimed and you are looking at it.
+
+### …and a reject side is a PLACE, not only a line
+
+A reject line was a line, and for a while that was the whole of what it could be.
+Both the branch test and the reject test ask `beltAt`, so a junction aimed at a
+pad or at bare floor had a side the piece **could not see at all** — not refused
+and not warned, invisible. The press was accepted, the field was stored, and the
+box went down the trunk anyway. Nothing anywhere disagreed with the player.
+
+That is the shape this file keeps recording, and it is worse here than most,
+because the sentence somebody is trying to say is one the junction **has already
+worked out**: `keenAny` is exactly *does anything down any of these lines want
+this box*. It computed the right answer twenty times a second and then had
+nowhere to put the box. A real shop's junction sits next to the yard far more
+often than it sits next to a spare spur.
+
+So `sorterEject` is the other half of `reject`: a conveyor on that side hands on
+as it always did, and a **pad or walkable floor** takes the box off the run
+through `armDrop` — the loader's own off-ramp, already island-aware, already
+capped at `ARM_DROP_STACK`, already marking `byArm`. Four things about it.
+
+**A loader cannot stand in for this, and that is the whole argument for putting
+it on the sorter.** A loader offers the box to whatever is beside *it* and
+off-ramps the remainder, so it has no way to ask what is further down the run.
+One stood on a junction with no shelving next to it dumps *every* box that
+passes and the line dies. Only the piece that chooses between lines can know that
+nobody wanted it.
+
+**The keen test is `sorterOut`'s own**, extracted to `sorterWants` rather than
+copied. A junction that chose a line by one rule and ejected by another would
+eject boxes it had just decided somebody wanted — the same drift CLAUDE.md
+records between the shop's rule and the hand's.
+
+**It asks every way out, not the clear ones**, which is the one place this parts
+company with the reject *line* above. A jam is a reason to wait and `stepBelts`
+already waits; a drop is a hire's walk to undo. Ejecting stock because an aisle
+was briefly busy hands the automation quietly back to the crew.
+
+**A full pad carries on down the line** rather than jamming the junction, which
+is the same call the reject line makes about a spur that has backed up. And the
+ejection is **charged a cell-time**, or the box vanishes the tick it lands while
+every other box on the run glides — the jam-at-the-brim bug wearing an off-ramp.
 
 The alternation is a counter rather than a draw, because every balance number in
 this game is downstream of how many times `this.rng` has been called. And the
@@ -570,6 +698,45 @@ this ships **with** the feature, the way `verify:doors`, `verify:park`,
 - **A sorter diverts a pure crate and passes a mixed one**, asserted against a
   mixed control, because nearly every way of getting a filter wrong moves too
   much rather than too little.
+- **A load-only loader never puts a box back on the pad it lifted from**, with
+  `both` as the control doing exactly that round trip — the switch has to change
+  something or it is a change to every save instead. Paired with the mirror: an
+  unload-only one lifts nothing. Plus survival across a re-flow AND across a
+  ROTATION, which is the press that actually happens: `repositionFixture` builds
+  a fresh placement naming each field it keeps, so a setting left out is not
+  un-copied but RESET, by the re-flow that same call triggers. Aiming a loader
+  at the line you want handed the machine its pickup back at the exact moment
+  you were setting it up. Asserted of a sorter's `auto` too, which had the hole
+  from the day it shipped. And that the version MOVES on a mode change: the
+  chevrons and chutes it decides live in `staticRoot`, which the client rebuilds
+  only when that number changes, so without a bump the switch works in the sim
+  while the picture keeps showing the old one — a switch that looks like it did
+  nothing, which is worse than one that does nothing.
+- **A reject line takes only what nothing wants**, against the control that
+  every sorter is built without one. Paired with the claim that costs a shop: a
+  box a line WOULD have shelved is never rejected — "sends strays away" passes
+  on a sorter that sends everything away. Plus that it survives a re-flow, since
+  build mode re-flows on every wall segment of a drag.
+- **…and a reject side that is GROUND takes the box off the run**, which is the
+  half that was invisible rather than wrong: aimed at a pad or bare floor, the
+  press was accepted and nothing happened. Its control is the same one — a
+  sorter with no reject never ejects anything, however unwanted — and its leak
+  case is the same too, because an ejector that fires whenever it is asked
+  passes "strays come off" while quietly emptying the run onto the floor. Plus
+  that a conveyor on that side still HANDS ON rather than setting down (two
+  crates on one cell otherwise), conservation across the ejection, and survival
+  of a re-flow. What it cannot assert is the thing that makes it belong on the
+  sorter at all: a loader in the same square dumps everything, because it can
+  only ask what is beside it.
+- **A split goes to the lines that want it**, asserted at a junction with THREE
+  ways out — the claim does not exist below three, which is why two-way coverage
+  never caught it. Paired with "both good lines are still shared", or narrowing
+  the pool to one winner passes the first half while turning the splitter off.
+- **An off-ramped box lands on the pad cell the loader is TOUCHING.** Written as
+  a pair and worthless split in half: it has to arrive on the near island *and*
+  nothing may turn up on the far one, because a sweep that only counted
+  crates-on-the-pad is satisfied by the teleport. The one assertion in this file
+  written to a bug reported from a screenshot — "see that crate? it disappeared."
 - **A re-flow does not restart a belt.** `verify:park`'s claim about the car:
   building re-flows on every wall segment, so a crate that began its ride again
   each time never arrives. A crate mid-belt is *parked*, not reset.

@@ -364,6 +364,21 @@ export function variantWork(kind, variant) {
 }
 
 /**
+ * What one shape of a kind SOUNDS like, or the piece's own if it says nothing.
+ *
+ * The same fallback as `variantWork`, doing the same work for the same reason:
+ * one `sfx` on the piece is every appliance in the shop humming the identical
+ * note, which reads as one machine you can hear from everywhere rather than as
+ * a kitchen. Whole-record rather than field-by-field — a variant that speaks up
+ * owns its noise outright, the way one that authors a `work` owns its running
+ * look outright, so there is no half-inherited state to reason about.
+ */
+export function variantSfx(kind, variant) {
+  if (!variant) return kind?.sfx ?? null;
+  return (kind?.variants ?? []).find((v) => v.id === variant)?.sfx ?? kind?.sfx ?? null;
+}
+
+/**
  * The parts to draw for a body wearing a skin: every part it was authored with,
  * repainted where it named a slot, plus whatever the skin bolts on.
  *

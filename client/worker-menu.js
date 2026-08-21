@@ -279,9 +279,16 @@ export function showWorker(ui, workerId) {
       : 'The camera rides on them until you walk somewhere yourself.',
     watching ? 'Stop' : 'Follow', { off: !body, on: watching }));
 
+  // Both rungs or neither, which is the fixture menu's rule and is here for the
+  // identical reason: the squares are `flex: 1`, so a row that gains a sixth
+  // narrows and shifts every one of them under a pointer that has not moved.
+  // Installing firmware slid Roll back under your finger, so the obvious second
+  // press undid what you had just paid for — and at the top of the ladder the
+  // Install square vanishes and does the same thing the other way.
   const next = nextTier(kind, entry.tier);
-  if (next) {
-    const afford = (ui.state?.cash ?? 0) >= next.cost;
+  const back = prevTier(kind, entry.tier);
+  if (next || back) {
+    const afford = next && (ui.state?.cash ?? 0) >= next.cost;
     // The rung's name is authored and can be any length, so it goes in the
     // wrapping description rather than the one-line title — the same call the
     // fixture menu makes, for the same reason. The title is the verb, which is
@@ -291,27 +298,26 @@ export function showWorker(ui, workerId) {
     // is NEW at this step and only at this step. Said on the button that grants
     // it, because a unit that starts wandering off with no warning reads as
     // something having gone wrong with the promotion you just paid for.
-    const learns = next.tier === 2 ? ' Starts charging itself when there is nothing on.' : '';
-    const blurb = `${esc(next.name)} — ${tierBlurb(next, JOB_POINTS_PER_RUNG)}${learns}`;
+    const learns = next?.tier === 2 ? ' Starts charging itself when there is nothing on.' : '';
+    const blurb = next ? `${esc(next.name)} — ${tierBlurb(next, JOB_POINTS_PER_RUNG)}${learns}` : '';
     foot.push(actIcon('promote', ICONS.tierup, 'Install firmware',
-      afford ? blurb : `${blurb} You cannot afford it yet.`, 'Install',
+      next ? (afford ? blurb : `${blurb} You cannot afford it yet.`)
+        : 'Already on the latest firmware there is.', 'Install',
       // A purely cosmetic rung is free, and `$0` reads as a broken number.
-      { off: !afford, right: next.cost > 0 ? money(next.cost) : 'free' }));
-  }
+      { off: !afford, right: next && next.cost > 0 ? money(next.cost) : next ? 'free' : '' }));
 
-  // The way back down, and the only rung on any ladder where going down has an
-  // ongoing argument for it: a grade is charged every day in wages, so this is
-  // a decision rather than an undo. Nothing shows on somebody who was never
-  // promoted — the row appears when there is a rung under them.
-  const back = prevTier(kind, entry.tier);
-  if (back) {
-    const saving = back.saves > 0 ? ` Saves ${money(back.saves)} a day in lease.` : '';
+    // The way back down, and the only rung on any ladder where going down has an
+    // ongoing argument for it: a grade is charged every day in wages, so this is
+    // a decision rather than an undo.
+    const saving = back?.saves > 0 ? ` Saves ${money(back.saves)} a day in lease.` : '';
     // ...and the same sentence pointed the other way. Losing it silently is the
     // half of a rollback nobody would connect to the button.
-    const forgets = back.tier === 1 ? ' Stops charging itself between jobs.' : '';
+    const forgets = back?.tier === 1 ? ' Stops charging itself between jobs.' : '';
     foot.push(actIcon('demote', ICONS.tierdown, 'Roll back',
-      `Back to ${esc(back.name)} — ${tierBlurb(back, -JOB_POINTS_PER_RUNG)}${forgets}${saving} Half of that firmware back.`,
-      'Roll back', { right: back.refund > 0 ? signed(back.refund) : '' }));
+      back
+        ? `Back to ${esc(back.name)} — ${tierBlurb(back, -JOB_POINTS_PER_RUNG)}${forgets}${saving} Half of that firmware back.`
+        : 'Nothing under them — this is the firmware they shipped with.',
+      'Roll back', { off: !back, right: back && back.refund > 0 ? signed(back.refund) : '' }));
   }
 
   // The latch has to be visible in a square, and it used to be visible in the

@@ -402,8 +402,19 @@ const STEPS = [
         + 'there, until you hire a stocker to do it.'
       : 'Stock comes from three places: bought in here, grown in the beds out '
         + 'the side, or made on a machine.'),
+    // The hole is the whole panel, because choosing WHAT to buy is the half of
+    // this step that is yours — but a lit panel cannot say which press ends it,
+    // and forty rows of `×6` is exactly the list where that matters. So the
+    // first row that can actually be bought gets the small mark: `.owned` is
+    // what a row wears when it is dimmed for having nowhere to go or costing
+    // more than the till holds, and pulsing one of those is teaching a press
+    // the shop refuses. The drill-down's own `×6` is in the same selector,
+    // since one press into an item is still being in the supplier.
     at: (t) => (inSupplier(t)
-      ? { el: '#panel' }
+      ? {
+        el: '#panel',
+        pulse: '#panel .sec-row:not(.owned) [data-btn-tag="buy"], #panel [data-act="buy"]',
+      }
       : { el: '[data-rail="stock"]' }),
     done(t) { return (t.state?.orders?.pending ?? []).length > 0 || t.crateSeen; },
   },
@@ -1182,7 +1193,8 @@ export class Tutor {
     this.el.innerHTML = `
       <div class="tt-veil tt-n"></div><div class="tt-veil tt-s"></div>
       <div class="tt-veil tt-w"></div><div class="tt-veil tt-e"></div>
-      <div class="tt-ring" hidden></div>
+      <div class="tt-mark tt-ring" hidden></div>
+      <div class="tt-mark tt-pulse" hidden></div>
       <div class="tt-aim" hidden><i></i><i></i><b></b></div>
       <div class="tt-card">
         <div class="tt-bot">${FACE}</div>
@@ -1199,6 +1211,7 @@ export class Tutor {
       </div>`;
     this.card = this.el.querySelector('.tt-card');
     this.ring = this.el.querySelector('.tt-ring');
+    this.pulse = this.el.querySelector('.tt-pulse');
     this.aimEl = this.el.querySelector('.tt-aim');
     this.el.querySelector('.tt-skip').onclick = () => this.quit('skipped');
     this.el.querySelector('.tt-next').onclick = () => this.next();
@@ -1275,6 +1288,10 @@ export class Tutor {
     this.card.classList.toggle('holding', this.held);
     const want = this.step.at?.(this) ?? null;
     const box = this.holeFor(want);
+    // Before either branch below, because it belongs to neither: the small mark
+    // is about a press and the veil is about a rectangle, and a step can want
+    // one without the other.
+    this.pulseAt(want?.pulse ?? null);
 
     const W = window.innerWidth;
     const H = window.innerHeight;
@@ -1325,6 +1342,51 @@ export class Tutor {
     }
 
     this.pin(box);
+  }
+
+  /**
+   * The press INSIDE the hole.
+   *
+   * A hole the width of a panel says "work in here", and the supplier is forty
+   * rows of identical buttons: the step that asks you to buy a case had a lit
+   * panel, a sentence, and nothing anywhere saying which of the forty presses
+   * it meant. `pulse` is a second selector on the same `at`, measured the same
+   * way and drawn with the same mark at button size.
+   *
+   * Two things keep it from being a second hole, and both are what make it
+   * cheap. It **cuts nothing** — the veil is decided by `at.el` alone, so the
+   * whole panel stays live and buying something else off a row it never lit is
+   * still yours to do. And it **never sets `lost`**: a frame where the button is
+   * not in the document (the list scrolled, the drill-down open, a repaint
+   * mid-flight) is a frame with no pulse, where `lost` would be a blackout
+   * offering to give up on the step.
+   *
+   * The clip is the half that is not obvious. `getBoundingClientRect` answers
+   * for a row scrolled out of its own panel exactly as it answers for one you
+   * can see, so an unclipped mark is a ring pulsing over the search box — the
+   * same trap `holeFor`'s `scrollIntoView` note is about, arriving from the
+   * other side. It is measured against the SCROLLER rather than the panel,
+   * because the head, the tabs and the search box are inside the panel too.
+   */
+  pulseAt(sel) {
+    const el = this.pulse;
+    if (!el) return;
+    const t = sel ? document.querySelector(sel) : null;
+    const r = t?.getBoundingClientRect();
+    if (!r?.width || !r?.height) { el.hidden = true; return; }
+    // Its middle rather than its edges: a row half under the head strip is
+    // still the row being pointed at, and a test on the edges would blink the
+    // mark on and off as the list moved a pixel.
+    const clip = t.closest('.pnl-mid, #panel-body, .hud')?.getBoundingClientRect();
+    const cy = r.top + r.height / 2;
+    if (clip && (cy < clip.top || cy > clip.bottom)) { el.hidden = true; return; }
+    el.hidden = false;
+    Object.assign(el.style, {
+      top: `${Math.round(r.top - 3)}px`,
+      left: `${Math.round(r.left - 3)}px`,
+      width: `${Math.round(r.width + 6)}px`,
+      height: `${Math.round(r.height + 6)}px`,
+    });
   }
 
   /**

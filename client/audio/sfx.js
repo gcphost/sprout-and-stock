@@ -224,6 +224,14 @@ class Sfx {
       const level = w.spec.gain * w.place.scale;
       rec.gain.gain.setTargetAtTime(level, now, 0.08);
       rec.pan?.pan.setTargetAtTime(w.place.pan, now, 0.08);
+      // Restyling a machine keeps the tile and the file and changes the note, so
+      // the pitch has to follow without a stop and a start — which is the same
+      // claim the key makes about a re-flow. Ramped, because a machine winding
+      // between two speeds is the one honest way for a hum to change pitch.
+      const rate = w.rate ?? 1;
+      if (rec.src.playbackRate.value !== rate) {
+        rec.src.playbackRate.setTargetAtTime(rate, now, 0.12);
+      }
     }
   }
 
@@ -234,6 +242,10 @@ class Sfx {
     const src = ctx.createBufferSource();
     src.buffer = w.buf;
     src.loop = true;
+    // How low or high this particular machine hums. Authored per variant, and
+    // it is the whole of what makes a row of appliances sound like a row of
+    // appliances off one file — see `sfxShape.rate`.
+    if (w.rate && w.rate !== 1) src.playbackRate.value = w.rate;
     const g = ctx.createGain();
     g.gain.value = 0;
 

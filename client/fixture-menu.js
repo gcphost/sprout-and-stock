@@ -483,33 +483,52 @@ export function showFixture(ui, f) {
 
   // Upgrading sits above the destructive half of the list: it is the thing you
   // are most likely to have opened a shelf you already like in order to do.
+  //
+  // The pair is all-or-nothing, and that is `.fx-verb.off`'s rule rather than a
+  // preference: these squares are `flex: 1`, so a row that gains a sixth does
+  // not append one — it narrows and shifts all five, under a pointer that has
+  // not moved. Pressing Upgrade therefore slid Downgrade under your finger, and
+  // the second press UNDID the first, for real money, in both directions (the
+  // top rung takes Upgrade away again). So a fixture with a ladder always shows
+  // both rungs and greys whichever end it is standing on. The dead square this
+  // was avoiding is real and is the cheaper of the two: it appears only on
+  // something that can be climbed at all, next to the verb it is the other half
+  // of, and it never moves.
   const next = nextTier(ui, f);
-  if (next) {
-    const afford = (ui.state?.cash ?? 0) >= next.cost;
+  const back = prevTier(ui, f);
+  if (next || back) {
+    const afford = next && (ui.state?.cash ?? 0) >= next.cost;
     // The tier name is authored content and can be any length, so it goes in the
     // wrapping description rather than the one-line title — `Upgrade to With a
     // register` was both clipped and barely a sentence. The title is the verb,
     // which is fixed and short; the row below it says what you actually get.
-    const blurb = `${next.name} — ${tierBlurb(next)}`;
+    const blurb = next ? `${next.name} — ${tierBlurb(next)}` : '';
     foot.push(actIcon('upgrade', ICONS.tierup, 'Upgrade',
-      alone ?? (afford ? blurb : `${blurb} You cannot afford it yet.`), 'Upgrade',
+      alone ?? (next
+        ? (afford ? blurb : `${blurb} You cannot afford it yet.`)
+        : 'Already the best there is.'), 'Upgrade',
       // A tier that is purely cosmetic still costs nothing, and `$0` in the
       // price column reads as a broken number rather than as good news.
-      { off: !afford || bulk, right: next.cost > 0 ? money(next.cost) : 'free' }));
-  }
+      { off: !afford || bulk, right: next && next.cost > 0 ? money(next.cost) : next ? 'free' : '' }));
 
-  // Straight under Upgrade, because it is the same ladder and the pair reads as
-  // one control. It only appears on something that has actually been climbed —
-  // a Standard shelf showing a greyed Downgrade would put a dead square on
-  // every fixture in the shop to serve the few that are not on rung one.
-  const back = prevTier(ui, f);
-  if (back) {
+    // Straight under Upgrade, because it is the same ladder and the pair reads
+    // as one control.
     foot.push(actIcon('downgrade', ICONS.tierdown, 'Downgrade',
-      alone ?? `Back to ${back.name} — ${tierBlurb(back)} Half of that rung back, and it keeps its stock.`,
-      'Downgrade', { right: back.refund > 0 ? signed(back.refund) : '', ...only }));
+      alone ?? (back
+        ? `Back to ${back.name} — ${tierBlurb(back)} Half of that rung back, and it keeps its stock.`
+        : 'Already on the first rung.'),
+      'Downgrade', { off: !back, right: back && back.refund > 0 ? signed(back.refund) : '', ...only }));
   }
 
+  // ...and the same rule as the ladder pair above, one square along, where what
+  // slides under your finger is Remove. Unlabelling is the last press in a
+  // sequence people make in one go — Empty, then Unlabel — and it used to take
+  // its own square away with it, sliding a single-press Remove into the spot the
+  // finger was already coming back to. So a unit that can ever hold anything
+  // always keeps the square and greys it when there is nothing left in it; a
+  // kind that can never hold anything still shows none.
   const holds = contentsOf(ui, f, live);
+  const emptiable = holdsGoods(kind) || kind === 'station' || kind === 'plot';
   if (holds.n > 0) {
     foot.push(actIcon('empty', ICONS.empty, 'Empty it', alone ?? holds.blurb, 'Empty',
       { right: `${holds.n}`, ...only }));
@@ -526,6 +545,10 @@ export function showFixture(ui, f) {
       // Not "Label" — that reads as a verb for putting one ON, which is the
       // opposite of what this does and is a tab away.
       'Unlabel', { ...only }));
+  } else if (emptiable) {
+    foot.push(actIcon('empty', ICONS.empty, 'Empty it',
+      alone ?? (kind === 'plot' ? 'Nothing growing in it.' : 'Nothing in it.'),
+      'Empty', { off: true }));
   }
 
   // A greyed square says nothing about why, and this is the one verb people
@@ -1114,7 +1137,76 @@ function sortRows(ui, f, live, { lives = [live] } = {}) {
       name: s.name,
       sub: s.sub,
       picked: at,
-      run: at ? null : () => ui.net.send('sorter-auto', { ids: aimAt(ui, f), on: s.on }),
+      // Through `withBuildMode` like every other verb the server gates on the
+      // mode. Without it the row is offered, pressed, and refused with "you have
+      // to be in build mode" — while the menu it was pressed in opened perfectly
+      // well outside the mode, so the game is asking for a permission it never
+      // said it needed and the switch reads as simply not working.
+      run: at ? null : () => ui.withBuildMode(
+        () => ui.net.send('sorter-auto', { ids: aimAt(ui, f), on: s.on }),
+      ),
+    };
+  });
+}
+
+/**
+ * Which half of its job a loader does.
+ *
+ * One machine that both lifts and pours is what makes a run work with nothing
+ * configured, and it is why there is no separate loader and unloader. What it
+ * cannot do is stand between a pad and a line: a loader with a yard on one side
+ * and no shelving beside it lifts a box off that yard and puts it straight back,
+ * because a pad outranks everything as somewhere to set a box down. The line it
+ * was bought to feed never gets anything, and the machine looks like it is
+ * working the whole time.
+ */
+const ARM_MODES = [
+  { mode: 'both', name: 'Load and unload', sub: 'Lifts boxes onto the line and stocks whatever is beside it.' },
+  { mode: 'load', name: 'Only put goods on', sub: 'Lifts from the floor or a pad beside it. Never sets anything down.' },
+  { mode: 'unload', name: 'Only take goods off', sub: 'Stocks and sets down. Never picks anything up.' },
+];
+
+function armRows(ui, f, live, { lives = [live] } = {}) {
+  return ARM_MODES.map((r) => {
+    const at = allSay(lives, (l) => (l?.mode ?? 'both') === r.mode);
+    return {
+      icon: ICONS.stocker,
+      name: r.name,
+      sub: r.sub,
+      picked: at,
+      run: at ? null : () => ui.withBuildMode(
+        () => ui.net.send('arm-mode', { ids: aimAt(ui, f), mode: r.mode }),
+      ),
+    };
+  });
+}
+
+/**
+ * Where a box nothing wants goes.
+ *
+ * Two rows rather than four compass points, because the address is already on
+ * screen: the junction is aimed, and "the way it is pointing" is a thing you can
+ * see and change with R. Naming a side in a list would be a second way of saying
+ * the same thing, in words, about a shop you are looking at.
+ *
+ * Off is every sorter that has ever been built — with no reject line an unwanted
+ * box splits across the junction exactly as it always did.
+ */
+function rejectRows(ui, f, live, { lives = [live] } = {}) {
+  const rot = live?.rot ?? 0;
+  return [
+    { set: null, name: 'Split what nothing wants', sub: 'Shares strays across every line out of the junction.' },
+    { set: rot, name: 'Send strays the way it points', sub: 'Anything no line can take goes that way — down the line, or set down if that side is ground.' },
+  ].map((r) => {
+    const at = allSay(lives, (l) => (Number.isInteger(l?.reject) ? l.reject : null) === r.set);
+    return {
+      icon: ICONS.stocker,
+      name: r.name,
+      sub: r.sub,
+      picked: at,
+      run: at ? null : () => ui.withBuildMode(
+        () => ui.net.send('sorter-reject', { ids: aimAt(ui, f), rot: r.set }),
+      ),
     };
   });
 }
@@ -1177,8 +1269,12 @@ function settingRows(ui, f, live, sel = {}) {
     under('When it gets refilled', priorityRows(ui, f, live, sel));
     under('The shop hand', handRows(ui, f, live, sel));
   }
+  if (many.every((g) => g.kind === 'arm')) {
+    under('What it does', armRows(ui, f, live, sel));
+  }
   if (many.every((g) => g.kind === 'sorter')) {
     under('Which way it sends things', sortRows(ui, f, live, sel));
+    under('What nothing wants', rejectRows(ui, f, live, sel));
   }
   under('Set up', modifierRows(ui, f, live, sel));
   return rows;
@@ -1265,6 +1361,8 @@ export function liveFixture(ui, f) {
   if (f.kind === 'plot') return s.plots?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'station') return s.stations?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'checkout') return s.queues?.find((x) => x.id === f.id) ?? null;
+  if (f.kind === 'sorter') return s.sorters?.find((x) => x.id === f.id) ?? null;
+  if (f.kind === 'arm') return s.arms?.find((x) => x.id === f.id) ?? null;
   return null;
 }
 

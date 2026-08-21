@@ -26,6 +26,7 @@
 
 import { sfx } from './sfx.js';
 import { pieceFor } from '../../shared/pieces.js';
+import { variantSfx } from '../../shared/model.js';
 
 /**
  * What finishing each kind of action sounds like.
@@ -45,6 +46,11 @@ const ON_FINISH = {
   take: 'pickup',
   crate: 'crate',
   stow: 'crate',
+  // Setting a box or an armful down on a square you named. It made its noise
+  // through the crate-on-the-floor diff below until that diff was retired, and
+  // it is the one drop in the game with no other tell — `stow` at least lands
+  // on the pad you were walking to.
+  setdown: 'crate',
   serve: 'sale',
 };
 
@@ -129,7 +135,6 @@ function hash01(str) {
 class Events {
   constructor() {
     this.drops = new Set();
-    this.crates = new Set();
     /**
      * Who has already been shouted about — see docs/security.md step 2.
      *
@@ -279,11 +284,18 @@ class Events {
       for (const f of arr) {
         if (!f || f.x == null) continue;
         const piece = pieceFor(this.pieces, { ...f, kind: f.kind ?? kind });
-        const id = piece?.sfx?.loop;
+        // Through the VARIANT, which is the difference between a kitchen and one
+        // machine you can hear from anywhere: every appliance in the game is a
+        // shape of one `station` row, so a sound read off the piece alone is the
+        // same note eleven times over. Falls back to the piece, so nothing that
+        // never authored a shape changes.
+        const sfxOf = variantSfx(piece, f.variant);
+        const id = sfxOf?.loop;
         if (!id) continue;
         out.push({
           key: `${f.x},${f.z}`,
           id,
+          rate: sfxOf.rate ?? 1,
           at: { x: f.x, z: f.z },
           // A machine with a working look is a machine with a working sound.
           working: !!piece.work,
@@ -321,9 +333,9 @@ class Events {
    * One snapshot in, some noises out.
    *
    * The **first** snapshot of a session seeds the baseline and plays nothing.
-   * Without that, joining a shop with fourteen crates on the pad and money on
-   * three counters is fourteen crate thumps and three tills in one frame — a
-   * diff against nothing is a diff in which the entire world just happened.
+   * Without that, joining a shop with money on three counters and a shopper
+   * mid-storm-out is three tills and an alarm in one frame — a diff against
+   * nothing is a diff in which the entire world just happened.
    */
   update(state, myId, onAlarm = null) {
     if (!state) return;
@@ -339,12 +351,10 @@ class Events {
     this.loops(state);
 
     const drops = new Set((state.cashDrops ?? []).map((d) => d.id));
-    const crates = new Set((state.deliveries ?? []).map((d) => d.id));
 
     if (!this.seeded) {
       this.seeded = true;
       this.drops = drops;
-      this.crates = crates;
       this.rememberShoppers(state);
       this.vanPhase = state.van?.phase ?? null;
       this.owned = (state.ownedUpgrades ?? []).length;
@@ -392,12 +402,22 @@ class Events {
     for (const id of this.thieves) if (!seen.has(id)) this.thieves.delete(id);
     for (const id of seen) this.thieves.add(id);
 
-    // A crate landing. Deliveries, a stripped shelf, an armful put down — one
-    // entity, one noise, which is the same argument `dropGoods` makes about
-    // there only being one kind of goods-on-the-floor.
-    for (const d of state.deliveries ?? []) {
-      if (!this.crates.has(d.id)) sfx.play('crate', d);
-    }
+    // A crate landing used to be diffed off `deliveries` here, on the argument
+    // that one entity deserves one noise — which is a claim about the OBJECT
+    // where a sound is a claim about who did something. `dropGoods` is the
+    // single place a crate is made and most of its callers are nobody: a
+    // stocker stowing an armful, a packer boxing a bay, a loader mounding boxes
+    // off the end of a run, a sorter splitting an overfull one. On a shop with
+    // belts in it that is a thud every few ticks, for ever, none of which is
+    // news and none of which you asked for — the slot machine the caps in
+    // docs/audio.md exist to prevent, arriving through the one event that
+    // scales with how automated the shop is.
+    //
+    // So the crate thud is yours: `ON_FINISH` fires it off the shop's own count
+    // of actions YOU finished, which is the same channel the shelving and
+    // harvesting noises come from and cannot be triggered by anybody else's
+    // work. The van keeps its two reverse beeps, which is what actually
+    // announces a delivery — the thumps were never how you knew it had come.
 
     // A shop-wide upgrade off the Upgrades bar. The same noise a fixture rung
     // makes, because from the player's side it is the same press: money for a
@@ -482,7 +502,6 @@ class Events {
     if (haul && !this.haul) sfx.play('crate', me);
 
     this.drops = drops;
-    this.crates = crates;
     this.rememberShoppers(state);
     this.remember(me);
   }

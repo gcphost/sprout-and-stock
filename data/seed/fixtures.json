@@ -331,6 +331,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": null,
           "tint": null
         },
@@ -353,6 +354,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": {
             "kind": "scroll",
             "hz": 1.1,
@@ -381,6 +383,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": {
             "kind": "scroll",
             "hz": 1.1,
@@ -409,6 +412,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": {
             "kind": "scroll",
             "hz": 1.1,
@@ -437,6 +441,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": {
             "kind": "scroll",
             "hz": 1.1,
@@ -465,6 +470,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": true,
           "motion": null,
           "tint": null
         },
@@ -487,6 +493,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": true,
           "motion": null,
           "tint": null
         }
@@ -22972,6 +22979,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": null,
           "tint": null
         },
@@ -22994,6 +23002,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": {
             "kind": "scroll",
             "hz": 1.1,
@@ -23022,6 +23031,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": {
             "kind": "scroll",
             "hz": 1.1,
@@ -23050,6 +23060,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": {
             "kind": "scroll",
             "hz": 1.1,
@@ -23078,6 +23089,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": {
             "kind": "scroll",
             "hz": 1.1,
@@ -23106,6 +23118,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": null,
           "tint": null
         }
@@ -23166,6 +23179,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -23188,6 +23202,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -23210,6 +23225,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -23238,6 +23254,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -23260,6 +23277,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -23282,6 +23300,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -23304,6 +23323,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -23320,6 +23340,7 @@
         "speed_mult": 1,
         "unattended": 0,
         "lines": 1,
+        "covers": 0,
         "emits": null,
         "open": null
       },
@@ -23331,6 +23352,7 @@
         "speed_mult": 2,
         "unattended": 0,
         "lines": 1,
+        "covers": 0,
         "emits": null,
         "open": null
       },
@@ -23342,6 +23364,7 @@
         "speed_mult": 2,
         "unattended": 0,
         "lines": 2,
+        "covers": 0,
         "emits": null,
         "open": null
       }
@@ -23375,6 +23398,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23397,6 +23421,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23419,6 +23444,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23441,6 +23467,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23463,6 +23490,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23485,6 +23513,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23507,6 +23536,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23529,6 +23559,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "shake",
                     "hz": 7,
@@ -23557,6 +23588,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "bob",
                     "hz": 1.1,
@@ -23591,6 +23623,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23613,6 +23646,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23635,6 +23669,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23657,6 +23692,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23679,6 +23715,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23701,6 +23738,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23723,6 +23761,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23745,6 +23784,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "shake",
                     "hz": 7,
@@ -23773,6 +23813,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "bob",
                     "hz": 1.1,
@@ -23811,6 +23852,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 5,
@@ -23839,6 +23881,7 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -23867,6 +23910,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 5,
@@ -23895,6 +23939,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23917,6 +23962,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23939,6 +23985,7 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -23967,6 +24014,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -23989,6 +24037,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24011,12 +24060,19 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "pump",
+          "use": null,
+          "done": null,
+          "rate": 1
         }
       },
       {
@@ -24047,6 +24103,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24069,6 +24126,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24091,6 +24149,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24113,6 +24172,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24135,6 +24195,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24157,6 +24218,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24179,6 +24241,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 6,
@@ -24207,6 +24270,7 @@
                   "alpha": 0.45,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24229,6 +24293,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24251,6 +24316,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -24279,6 +24345,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24301,6 +24368,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24323,6 +24391,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24345,6 +24414,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24367,6 +24437,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24389,6 +24460,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24411,6 +24483,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 6,
@@ -24439,6 +24512,7 @@
                   "alpha": 0.45,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24461,6 +24535,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24483,6 +24558,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -24515,6 +24591,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "spin",
                     "hz": 7,
@@ -24549,6 +24626,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "spin",
                     "hz": 7,
@@ -24577,6 +24655,7 @@
                   "alpha": 0.85,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -24605,6 +24684,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "spin",
                     "hz": 9,
@@ -24633,12 +24713,19 @@
                   "alpha": 0.85,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "motor-fast",
+          "use": null,
+          "done": null,
+          "rate": 1.25
         }
       },
       {
@@ -24669,6 +24756,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24691,6 +24779,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24713,6 +24802,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24735,6 +24825,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24757,6 +24848,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24779,6 +24871,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24801,6 +24894,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24823,6 +24917,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24845,6 +24940,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24867,6 +24963,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24889,6 +24986,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24911,6 +25009,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -24939,6 +25038,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24961,6 +25061,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -24983,6 +25084,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25005,6 +25107,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25027,6 +25130,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25049,6 +25153,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25071,6 +25176,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25093,6 +25199,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25115,6 +25222,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25137,6 +25245,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25159,6 +25268,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25181,6 +25291,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -25213,6 +25324,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.6,
@@ -25241,6 +25353,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.6,
@@ -25275,6 +25388,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 2.4,
@@ -25303,6 +25417,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 2.4,
@@ -25331,12 +25446,19 @@
                   "alpha": 0.55,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "element",
+          "use": null,
+          "done": null,
+          "rate": 1
         }
       },
       {
@@ -25363,6 +25485,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25385,6 +25508,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25407,6 +25531,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25429,6 +25554,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25451,6 +25577,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25473,6 +25600,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25495,6 +25623,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "shake",
                 "hz": 9,
@@ -25523,6 +25652,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25545,6 +25675,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25567,6 +25698,7 @@
               "alpha": 0.4,
               "shadow": false,
               "drift": true,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -25597,6 +25729,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.2,
@@ -25631,6 +25764,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.2,
@@ -25659,6 +25793,7 @@
                   "alpha": 0.55,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -25687,6 +25822,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 2.2,
@@ -25715,6 +25851,7 @@
                   "alpha": 0.55,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -25737,12 +25874,19 @@
                   "alpha": 0.55,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "element",
+          "use": null,
+          "done": null,
+          "rate": 0.85
         }
       },
       {
@@ -25769,6 +25913,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25791,6 +25936,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25813,6 +25959,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25835,6 +25982,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25857,6 +26005,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25879,6 +26028,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25901,6 +26051,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25923,6 +26074,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25945,6 +26097,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -25967,6 +26120,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -25997,6 +26151,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "spin",
                     "hz": 3,
@@ -26025,6 +26180,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -26053,6 +26209,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "spin",
                     "hz": 3.4,
@@ -26081,6 +26238,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -26103,6 +26261,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -26131,6 +26290,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "spin",
                     "hz": 2.2,
@@ -26159,12 +26319,19 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "motor-fast",
+          "use": null,
+          "done": null,
+          "rate": 0.95
         }
       },
       {
@@ -26191,6 +26358,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26213,6 +26381,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26235,6 +26404,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26257,6 +26427,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26279,6 +26450,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26301,6 +26473,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26323,6 +26496,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26345,6 +26519,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26367,6 +26542,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -26397,6 +26573,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.1,
@@ -26431,6 +26608,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.1,
@@ -26459,6 +26637,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -26487,6 +26666,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.1,
@@ -26515,6 +26695,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -26537,12 +26718,19 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "compressor",
+          "use": null,
+          "done": null,
+          "rate": 1
         }
       },
       {
@@ -26569,6 +26757,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26591,6 +26780,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26613,6 +26803,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "shake",
                 "hz": 7,
@@ -26641,6 +26832,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26663,6 +26855,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26685,6 +26878,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26707,6 +26901,7 @@
               "alpha": 0.4,
               "shadow": false,
               "drift": true,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26729,6 +26924,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -26751,6 +26947,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -26781,6 +26978,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -26803,6 +27001,7 @@
                   "alpha": 0.6,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -26831,6 +27030,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -26853,6 +27053,7 @@
                   "alpha": 0.6,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -26875,6 +27076,7 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -26903,6 +27105,7 @@
                   "alpha": 1,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -26925,6 +27128,7 @@
                   "alpha": 0.6,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -26947,12 +27151,19 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "boil",
+          "use": null,
+          "done": null,
+          "rate": 0.78
         }
       },
       {
@@ -26979,6 +27190,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27001,6 +27213,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27023,6 +27236,7 @@
               "alpha": 0.55,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27045,6 +27259,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27067,6 +27282,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27089,6 +27305,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27111,6 +27328,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -27141,6 +27359,7 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 0.8,
@@ -27175,6 +27394,7 @@
                   "alpha": 0.7,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.2,
@@ -27203,6 +27423,7 @@
                   "alpha": 0.45,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -27231,6 +27452,7 @@
                   "alpha": 0.85,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.6,
@@ -27259,6 +27481,7 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -27281,12 +27504,19 @@
                   "alpha": 0.4,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "sizzle",
+          "use": null,
+          "done": null,
+          "rate": 0.9
         }
       },
       {
@@ -27313,6 +27543,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27335,6 +27566,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27357,6 +27589,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "shake",
                 "hz": 5,
@@ -27385,6 +27618,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "shake",
                 "hz": 5,
@@ -27413,6 +27647,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "shake",
                 "hz": 5,
@@ -27441,6 +27676,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27463,6 +27699,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -27493,6 +27730,7 @@
                   "alpha": 0.45,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1,
@@ -27527,6 +27765,7 @@
                   "alpha": 0.7,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.6,
@@ -27555,6 +27794,7 @@
                   "alpha": 0.4,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -27583,6 +27823,7 @@
                   "alpha": 0.85,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 2.2,
@@ -27611,6 +27852,7 @@
                   "alpha": 0.45,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -27633,12 +27875,19 @@
                   "alpha": 0.35,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "extractor",
+          "use": null,
+          "done": null,
+          "rate": 1
         }
       },
       {
@@ -27665,6 +27914,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27687,6 +27937,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27709,6 +27960,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27731,6 +27983,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "shake",
                 "hz": 4,
@@ -27759,6 +28012,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27781,6 +28035,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -27811,6 +28066,7 @@
                   "alpha": 0.35,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -27839,6 +28095,7 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -27861,6 +28118,7 @@
                   "alpha": 0.4,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -27889,6 +28147,7 @@
                   "alpha": 0.55,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -27911,6 +28170,7 @@
                   "alpha": 0.45,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -27933,12 +28193,19 @@
                   "alpha": 0.3,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "boil",
+          "use": null,
+          "done": null,
+          "rate": 1.05
         }
       },
       {
@@ -27965,6 +28232,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -27987,6 +28255,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -28009,6 +28278,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -28031,6 +28301,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -28053,6 +28324,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "shake",
                 "hz": 4.5,
@@ -28081,6 +28353,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -28103,6 +28376,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -28125,6 +28399,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -28155,6 +28430,7 @@
                   "alpha": 0.45,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 0.9,
@@ -28189,6 +28465,7 @@
                   "alpha": 0.7,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 1.5,
@@ -28217,6 +28494,7 @@
                   "alpha": 0.45,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
@@ -28245,6 +28523,7 @@
                   "alpha": 0.85,
                   "shadow": false,
                   "drift": false,
+                  "back": false,
                   "motion": {
                     "kind": "pulse",
                     "hz": 2.2,
@@ -28273,6 +28552,7 @@
                   "alpha": 0.5,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 },
@@ -28295,12 +28575,19 @@
                   "alpha": 0.35,
                   "shadow": false,
                   "drift": true,
+                  "back": false,
                   "motion": null,
                   "tint": null
                 }
               ]
             }
           ]
+        },
+        "sfx": {
+          "loop": "boil",
+          "use": null,
+          "done": null,
+          "rate": 0.95
         }
       }
     ],
@@ -28336,6 +28623,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "pulse",
                 "hz": 1.4,
@@ -28370,6 +28658,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "pulse",
                 "hz": 1.4,
@@ -28398,6 +28687,7 @@
               "alpha": 0.55,
               "shadow": false,
               "drift": true,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -28426,6 +28716,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": {
                 "kind": "pulse",
                 "hz": 2.6,
@@ -28454,6 +28745,7 @@
               "alpha": 0.55,
               "shadow": false,
               "drift": true,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -28476,6 +28768,7 @@
               "alpha": 0.55,
               "shadow": false,
               "drift": true,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -28487,7 +28780,8 @@
     "sfx": {
       "loop": "machine",
       "use": null,
-      "done": null
+      "done": null,
+      "rate": 1
     },
     "signal": null
   },

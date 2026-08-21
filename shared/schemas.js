@@ -119,6 +119,28 @@ const PART = z.object({
    */
   drift: z.boolean().default(false),
   /**
+   * "This part is the BACK of the piece — put it where nothing is attached."
+   *
+   * Only conveyors read it, and it is the same lesson the rails already
+   * learned. A rail authored on a belt model puts a wall between every pair of
+   * cells, so a straight run comes out as a row of boxed slabs; the fix was to
+   * stop authoring rails and let the renderer lay them per EDGE, from what is
+   * actually across each one.
+   *
+   * A loader's housing is that bug in the one place it survived. It is authored
+   * at the model's `-z`, and a loader is turned by the FLOW rather than by
+   * `rot`, so on a bend it swings round and comes to rest against whichever
+   * side the run happens to leave by — a two-foot curb across the boundary with
+   * the belt that feeds it. It is not a rendering slip you can argue about: the
+   * piece has four sides, three of them attached to something, and the housing
+   * is standing on one of the three.
+   *
+   * So the part stays authored — colour, size and height are the author's — and
+   * the renderer chooses the SIDE, preferring one with a wall across it and
+   * drawing nothing at all when every side is spoken for.
+   */
+  back: z.boolean().default(false),
+  /**
    * "This part MOVES while the thing it belongs to is working."
    *
    * A machine mid-batch and a machine that has been sat there since Tuesday
@@ -492,6 +514,23 @@ const sfxShape = z.object({
   use: slug.nullable().default(null),
   /** When a batch finishes. */
   done: slug.nullable().default(null),
+  /**
+   * How fast to play it, which is how LOW or HIGH it sounds.
+   *
+   * The one field here that is not an id, and it is here because of the
+   * asymmetry above: a sound has to be in the bundle, so authoring picks from
+   * what ships — and the game ships one machine loop against eleven appliances,
+   * every one of them a variant of a single row. Eleven machines humming the
+   * identical note is not eleven machines, it is one machine you can hear from
+   * anywhere, which is the same failure `startLoop`'s start-offset hash exists
+   * to prevent said about pitch instead of phase.
+   *
+   * A blender is not a deep fryer at 0.8×, and nobody should pretend it is —
+   * this buys a shop that sounds like it has different machines in it, not a
+   * sound library. The bounds are where a loop still reads as machinery: under
+   * about 0.6 it is a generator, over about 1.6 it is a dentist.
+   */
+  rate: z.number().min(0.6).max(1.6).default(1),
 });
 
 /**
@@ -609,6 +648,16 @@ export const FixtureSchema = z.object({
     name: z.string().min(1).max(32),
     model: ModelSchema,
     work: ModelSchema.nullable().default(null),
+    /**
+     * ...and what it sounds like while it does, which is here for exactly the
+     * argument `work` is: what a machine looks like running is a look, and so
+     * is what it sounds like. Every appliance in the game is a variant of one
+     * row, so a sound authored only on the piece is one noise for the whole
+     * kitchen — the ear's version of six machines steaming out of the same
+     * corner. Falls back to the piece's, so a shape that says nothing sounds
+     * the way it always did.
+     */
+    sfx: sfxShape.nullable().default(null),
   })).max(16).default([]),
   /**
    * Tier 1 is what a new one is, so it costs nothing and is listed first.
