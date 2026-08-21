@@ -13663,7 +13663,14 @@ export class Game {
       // `canPaintGround.leaves` makes, and it has to be the same split or the
       // ghost promises a floor the stroke turns into a lawn.
       const lay = piece ? kind : (insideStore(this.layout, c.x, c.z) ? 'floor' : null);
-      if (had === (piece?.id ?? null) && this.groundKindAt(c.x, c.z) === kind) continue;
+      // What kind of ground this cell IS, and `tiles` is not always the one to
+      // ask. A belt stamps `T.BELT` over whatever was painted, so `groundKindAt`
+      // answers null on every cell of a run — and both skips below would then
+      // miss, so laying the same floor under the same conveyor would charge for
+      // it again on every stroke, for ever. The stored row is what survives the
+      // stamp, and it is the thing this loop is about to overwrite anyway.
+      const now = this.groundKindAt(c.x, c.z) ?? kept.get(key)?.k ?? null;
+      if (had === (piece?.id ?? null) && now === kind) continue;
       // The bulldozer's own version of that skip, and it needs one of its own
       // because taking ground up does not name a kind to compare against. It
       // used to fall out of `groundKindAt` answering null on bare grass, which
@@ -13671,7 +13678,7 @@ export class Game {
       // across a field would write a `k: null` entry per cell and report the
       // lot as taken up. What a stroke LEAVES is bare lawn with no design, so a
       // cell that is already that is a cell this did nothing to.
-      if (!piece && had == null && this.groundKindAt(c.x, c.z) === (lay ?? 'lawn')) continue;
+      if (!piece && had == null && now === (lay ?? 'lawn')) continue;
 
       // Pay the difference, exactly as swapping a wall for a window does: what
       // was underfoot is worth `FIXTURE_REFUND` of what it cost, whether you

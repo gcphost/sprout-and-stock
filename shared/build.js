@@ -216,7 +216,15 @@ export const FIXTURES = {
    * shelving beside it is an expensive belt.
    */
   arm: {
-    label: 'Loader', blocks: false, ground: T.BELT, where: 'any', rotates: true, anchor: null,
+    // BLOCKS, unlike the belt it stands in, and it is the one of these three that
+    // does. A run is ground you walk over — that is the whole of what `T.BELT`
+    // buys and why a belt down an aisle is not a wall. A loader stopped being
+    // ground the day it became a housing the track goes INTO: it is waist-high,
+    // it swallows the crate, and a shopper strolling through it is the thing you
+    // can see rather than a rule anybody has to know. The tile stays `T.BELT`,
+    // so this is `blocked` doing the refusing for the first time on a conveyor
+    // — and both still say no to a second piece on the square.
+    label: 'Loader', blocks: true, ground: T.BELT, where: 'any', rotates: true, anchor: null,
     flow: { out: 0 },
     works: true,
   },
@@ -247,7 +255,8 @@ export const FIXTURES = {
    * answering for the biggest pile is the chevron bug wearing a filter.
    */
   sorter: {
-    label: 'Sorter', blocks: false, ground: T.BELT, where: 'any', rotates: true, anchor: null,
+    // ...and the same again, for the same reason: it wears the same housing.
+    label: 'Sorter', blocks: true, ground: T.BELT, where: 'any', rotates: true, anchor: null,
     flow: { out: 0 },
     works: true,
   },
@@ -1628,6 +1637,43 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
     const ground = tileAt(L, x, z);
     const was = groundKindOfTile(ground);
     const want = leaves(x, z);
+
+    // UNDER A CONVEYOR IS STILL GROUND, and this is the one cell where a stroke
+    // changes the look without changing the tile.
+    //
+    // A belt stamps `T.BELT`, which is not a ground kind — so `was` is null and
+    // the rule below read it as busy, the same answer it gives a bed or a wall.
+    // That is right about everything else it covers and wrong about a track: a
+    // conveyor is not a floor covering, it is a rail set INTO whatever is
+    // already there, and the renderer draws the cell as the ground it lies on.
+    // What it cost was that a run laid across your parquet could never be
+    // parquet again — you would have to tear the belt up to redecorate under it
+    // and rebuild it afterwards, which is a lot of ceremony for a colour.
+    //
+    // The stamp has to survive, because a non-blocking fixture is refused a
+    // shared cell by its TILE and nothing else — so `T.BELT` going away is a
+    // second belt on the same square. That is what makes this a look-only
+    // stroke: the design lands in the overlay, `compose` re-stamps the tile
+    // after the ground layer, and the cell comes back a belt standing on
+    // parquet.
+    //
+    // Only the ground that was already there, though. The tile cannot move, so
+    // laying a delivery bay here would paint a strip that looks like a pad, is
+    // not one, and never will be — which is a lie you can see. Indoors that
+    // means floor and outdoors it means lawn, read the way `leaves` reads it.
+    if (ground === T.BELT) {
+      const base = insideStore(L, x, z) ? T.FLOOR : T.GRASS;
+      if (laying && lay !== base) {
+        return no(base === T.FLOOR
+          ? 'only floor goes under a conveyor'
+          : 'only ground goes under a conveyor');
+      }
+      // The design is the only thing that can differ, so it is the whole test —
+      // asking whether the TILE moved would report every cell of a run as
+      // changed on every stroke and charge for all of them, for ever.
+      if ((painted.get(`${x},${z}`) ?? null) !== (laying ? piece : null)) changed++;
+      continue;
+    }
 
     if (laying) {
       // Only ever over ground. Everything else a cell can be made of is

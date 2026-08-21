@@ -26,7 +26,7 @@ import { T, WALKABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
-  FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS,
+  FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
 } from '../shared/build.js';
 
 export { T };
@@ -866,8 +866,20 @@ function compose(req, storeW, storeH, allowDrops = true) {
       under.piece = p.piece ?? null;
       undersOut.push(under);
     } else if (p.kind === 'arm') {
-      // A loader IS a belt cell — same stamp, same non-blocking, same reason.
-      // See `FIXTURES.arm`.
+      // A loader is a belt cell by its STAMP and not by its footprint, and those
+      // two came apart the day it became a housing. It still sets `T.BELT` — that
+      // is what makes the square a conveyor and what refuses a second piece on it
+      // — and it also occupies, because it is a waist-high machine you would walk
+      // into. See `FIXTURES.arm`.
+      //
+      // Asked of the table rather than written here, which is the whole point of
+      // this line existing: `blocks` was flipped in `shared/build.js` and this
+      // branch went on saying "same non-blocking" in a comment, so `canPlace`
+      // refused the cell and the walk grid never heard about it. What that looks
+      // like is shoppers strolling straight through the machine — a rule that is
+      // enforced in one of the two places it has to be is not half enforced, it
+      // is off.
+      if (FIXTURES[p.kind]?.blocks) occupy(p.x, p.z);
       set(p.x, p.z, T.BELT);
       const arm = makeArm(p.id, p.x, p.z, p.rot ?? 0);
       arm.tier = p.tier ?? 1;
@@ -880,9 +892,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
       armsOut.push(arm);
       // Nothing occupied and nothing reserved — see `makeArm`.
     } else if (p.kind === 'sorter') {
-      // A sorter IS a belt cell too — same stamp, same non-blocking. The only
-      // thing it has that a belt has not is a second way out, and that is read
-      // at tick time off `rot` rather than reserved here.
+      // A sorter is a belt cell by its stamp too, and wears the loader's housing
+      // — so the same pair, read from the same table. The only thing it has that
+      // a belt has not is a second way out, and that is read at tick time off
+      // `rot` rather than reserved here.
+      if (FIXTURES[p.kind]?.blocks) occupy(p.x, p.z);
       set(p.x, p.z, T.BELT);
       const sorter = makeSorter(p.id, p.x, p.z, p.rot ?? 0);
       sorter.tier = p.tier ?? 1;

@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
+import { PALETTE, TILE_STYLE, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
   buildBubble, buildCashDrop, buildVehicle,
@@ -558,12 +558,26 @@ const HOME_CAM_INV = new THREE.Quaternion()
  * apron is sized off 1/sin of this number, and that term went from 3.6 to 19.
  * See the note there.
  *
- * The ceiling is short of straight down for the opposite reason: at 90° a
+ * The ceiling used to be 62°, held there on the matching argument: at 90° a
  * fixture is its own footprint and the shop reads as a floor plan, and an ortho
  * camera gives you no perspective back to say which way anything is facing.
+ * That is a claim about how it *looks* too, so it went the same way as the
+ * floor's — a plan view of your own shop is a thing worth being able to ask
+ * for — and 88° is a degeneracy guard rather than a taste decision. At 90° the
+ * camera stands directly over what it is looking at, which makes `lookAt`'s up
+ * vector parallel to the view and leaves the YAW undefined: three.js nudges its
+ * way out of the singularity rather than failing, so what you would get is a
+ * view that quietly stops answering the turn keys. Two tiles of horizontal
+ * offset is enough that `panBy`'s `hypot(hx, hz)` never reaches its `|| 1`
+ * fallback either, which is the same singularity read off the same vector.
+ *
+ * Honestly worse up there, and neither is a bug to fix: nothing is drawn at an
+ * angle any more, so a shelf and a freezer are told apart by their tops alone;
+ * and the facing of everything you have placed stops being visible, which is
+ * exactly what a floor plan is.
  */
 const PITCH_MIN = 3 * (Math.PI / 180);
-const PITCH_MAX = 62 * (Math.PI / 180);
+const PITCH_MAX = 88 * (Math.PI / 180);
 
 /** How far the view may be shoved off the player it follows, in tiles. */
 const PAN_LIMIT = 14;
@@ -2199,7 +2213,28 @@ export class Scene {
         // baked lamp light on it. It has a ground kind now (`GROUND.lawn`) and
         // goes through this loop like every other cell, which is one more
         // instanced mesh and no other change.
-        const kind = L.tiles[z * L.w + x];
+        const raw = L.tiles[z * L.w + x];
+        // A BELT DRAWS AS THE GROUND IT IS LYING ON.
+        //
+        // `T.BELT` has never had a `TILE_STYLE` entry, so a belt cell drew no
+        // ground mesh at all and the pale slab you saw was the fixture's own
+        // authored deck — which is why a run laid across your parquet was a grey
+        // strip through it. A conveyor is not a floor covering: what it is is a
+        // track set INTO whatever is already there, so the deck came off the art
+        // and the cell renders as the ground the belt is standing on.
+        //
+        // Resolved to a real tile kind rather than given a style of its own,
+        // which is what makes it free: the painted design at this cell, the
+        // height, the jitter, the bake and the batching key all go on being
+        // decided by the code below, for a cell that is now honestly `T.FLOOR`.
+        //
+        // Read off `indoor` because a belt is `where: 'any'` — a run out to the
+        // yard is ordinary, and a floor slab under it would be a strip of shop
+        // laid across the grass. It is the same mask `computeIndoor` re-answers
+        // every re-flow, so a belt inside a room you later knock down changes
+        // its own ground with the room, which is the right answer and not one
+        // anything has to remember.
+        const kind = raw === T.BELT ? (L.indoor?.[z * L.w + x] ? T.FLOOR : T.GRASS) : raw;
         // Any painted ground, not just floor: a delivery bay is a design on a
         // cell the same way parquet is, and one that only floor could carry
         // would draw every authored bay in the palette's default colour.
@@ -3654,6 +3689,20 @@ export class Scene {
       // out and rebuilt at the far mouth — a box between two ends is nowhere at
       // all, and leaving it drawn parks it on the entry ramp for the length of
       // the span and then teleports it.
+      // Underground, and ONLY underground.
+      //
+      // A loader and a sorter hid their crate for a while, on the reasoning that
+      // a box inside a machine should not be drawn sitting on its roof. What
+      // that cost is the one thing a conveyor is for: the box vanished at the
+      // mouth and reappeared a cell later, so a run with machines in it stepped
+      // instead of flowing — and a stutter on a line whose whole job is smooth
+      // movement reads as the belt being broken. A tunnel gets away with it
+      // because the span is genuinely somewhere else and takes real seconds; a
+      // housing is one cell and about half of one.
+      //
+      // So the machine went up on legs instead: the hood clears a riding crate,
+      // the track runs under it, and you watch the box go through. Covered by
+      // what is over it rather than by not being drawn.
       if (d.hidden) continue;
       seen.add(d.id);
       const at = level.get(d.id) ?? 0;
@@ -3701,6 +3750,20 @@ export class Scene {
       // anything belted (it is in no pile), so this is the belt's own height and
       // never an offset into a tower.
       obj.position.set(d.x, d.belt ? BELT_DECK : at * CRATE_STEP, d.z);
+      // A BOX ON A CONVEYOR IS SMALLER THAN A BOX ON THE FLOOR.
+      //
+      // A pallet is drawn at the size of a thing somebody set down with both
+      // hands, which is most of a tile — right in the yard, and too big the
+      // moment it is riding a quarter-tile track past a machine 0.78 across. It
+      // overhung the rails, and where a run went into a loader it went through
+      // the housing on the way in: what you saw was a crate clipping a machine,
+      // which reads as the machine being drawn in the wrong place.
+      //
+      // Scaled rather than modelled twice: it is the same crate with the same
+      // goods on it and the same label rules, seen in transit. `BELT_DECK` is
+      // measured to the carriers so the foot stays on the track — a scale about
+      // the group's own origin lifts nothing, because that origin is the foot.
+      if (d.belt) obj.scale.setScalar(BELT_CRATE);
       // A hand's turn per crate, so a tower reads as boxes somebody put there
       // rather than as one extruded box, and each one's edges stay findable to
       // point at. Alternating rather than random: a prop rebuilt on every
@@ -5548,7 +5611,7 @@ export class Scene {
           .filter(({ x: ex, z: ez }) => !pours.some((p) => p.x === c.x + ex && p.z === c.z + ez))
           .filter(({ x: ex, z: ez }) => !Scene.conveyorJoined(L, c, conveyorAt(L, c.x + ex, c.z + ez)));
         for (const { x: ex, z: ez } of outer) {
-          const rail = new THREE.Mesh(geo, material('#4b5563', 1));
+          const rail = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
           rail.scale.set(ex ? 0.07 : 0.62, 0.1, ez ? 0.07 : 0.62);
           const shiftX = ex ? 0 : -ux * 0.21;
           const shiftZ = ez ? 0 : -uz * 0.21;
@@ -5569,7 +5632,7 @@ export class Scene {
         // of an aisle, so this is not an edge case: it is what every corner
         // loader in the shop was drawing.
         if (outer.length === 2) {
-          const chamfer = new THREE.Mesh(geo, material('#4b5563', 1));
+          const chamfer = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
           chamfer.scale.set(0.5, 0.1, 0.07);
           chamfer.position.set(c.x + ux * 0.44, 0.12, c.z + uz * 0.44);
           chamfer.rotation.y = -(Math.atan2(uz, ux) + Math.PI / 2);
@@ -5728,6 +5791,14 @@ export class Scene {
    * one structural thing every conveyor model has and the only handle that does
    * not need the piece to declare anything new. `long` is that span, `cross` is
    * its half-extent the other way — the half that leaves the gap.
+   *
+   * SINCE THE SLAB CAME OFF, that part is the TRACK — the recess the carriers
+   * run in — and the test finds it without being changed, because it is still
+   * the only thing on the model a tile wide. That is the right answer rather
+   * than a lucky one: what this function is for is the piece that has to stay
+   * unbroken across a join, and with the deck gone the groove is that piece.
+   * The cell under it is ordinary ground now, so there is nothing else left to
+   * be continuous.
    */
   conveyorDeck(L, c) {
     const model = this.fixtureModel(c);
@@ -5775,6 +5846,36 @@ export class Scene {
    * loader in every shop, and a mark that fires everywhere is one you stop
    * reading.
    */
+  /**
+   * The box a loader or a sorter is enclosed in — where its faces are.
+   *
+   * Measured off the authored model rather than written down here, exactly as
+   * `conveyorDeck` is and for the same reason: the housing is content, somebody
+   * can draw a taller one this afternoon, and a mouth cut at a remembered height
+   * is a dark patch floating beside a machine.
+   *
+   * The tallest part is the housing. A lid sits on top of it and a turntable on
+   * top of that, so it is the DEEPEST rather than the highest — the one part
+   * that has a face for a hole to go in.
+   */
+  conveyorHousing(c) {
+    const model = this.fixtureModel(c);
+    if (!model) return null;
+    const parts = partsAt(model, this.fixtureT(c)) ?? [];
+    let best = null;
+    for (const p of parts) {
+      if ((p.scale?.[1] ?? 0) < 0.2) continue;
+      if (!best || p.scale[1] > best.scale[1]) best = p;
+    }
+    if (!best) return null;
+    return {
+      y: best.pos?.[1] ?? best.scale[1] / 2,
+      h: best.scale[1],
+      long: best.scale[0] / 2,
+      cross: best.scale[2] / 2,
+    };
+  }
+
   conveyorPours(L, c) {
     if (c.kind !== 'arm') return [];
     // A loader told to only put goods ON the line pours nowhere, so nothing
@@ -5989,16 +6090,46 @@ export class Scene {
         // taken out: a bend shows one, a junction shows one per branch, and a
         // dead end is the gap.
         //
-        // The well first, a shade under the mark, so it reads as sunk into the
-        // deck rather than as a sticker on top of it.
-        const well = new THREE.Mesh(geo, material(LINK_WELL, 1));
-        well.scale.set(0.17, 0.02, 0.17);
-        well.position.set(c.x + dx * 0.5, 0.128, c.z + dz * 0.5);
-        well.renderOrder = 2;
-        well.raycast = NO_PICK;
-        this.beltRoot.add(well);
+        // THE WELL IS GONE, and it is worth saying what it was for. It was a
+        // slightly larger, darker plate under the mark, so the eye read a recess
+        // with something lit at the bottom of it — a claim about a DECK, and
+        // there is no deck any more. Left on a run with none, it is a grey chip
+        // lying on your floor at every join, one per cell, which is most of what
+        // "there is still a lot of grey on them" was: the mark it framed is
+        // three tenths the size and the frame was doing all the shouting.
+        //
+        // Nothing replaces it. A lit mark on the ground needs no socket to read
+        // as lit, because it is the only thing on the cell that glows.
 
-        const link = new THREE.Mesh(geo, linkMaterial());
+        // THE MARK IS THE READOUT NOW, and it did not cost a mesh to become one.
+        //
+        // A run of belt could be traced and never READ: a conveyor carrying a
+        // box and a conveyor that has been jammed since Tuesday are the same
+        // still frame, and the only thing that ever said otherwise was a crate
+        // sitting on a cell — which tells you where a box is and nothing about
+        // whether it is going anywhere. That matters more here than on any other
+        // fixture, because backpressure is the whole texture of a belt: a run
+        // that has stopped is *supposed* to stop, so the shop looks correct
+        // while doing nothing, and the one signal the player has is invisible.
+        //
+        // What the colour says is per CELL and lands on the join because a jam
+        // is exactly a hand-over that did not happen — the mark between two
+        // cells goes amber when the box on the near one cannot cross it. So a
+        // box in flight is a green dot travelling down a line of quiet ones, and
+        // a jam at the head lights a growing amber tail back down the run,
+        // pointing at where it started.
+        //
+        // THREE SHARED MATERIALS, SWAPPED — never one of its own recoloured,
+        // which is what the lamps do and is wrong at this count. `disposeGroup`
+        // deliberately frees no mesh materials (they are nearly all the shared
+        // `material()` cache), so a material minted per mark is a material
+        // leaked per mark on every re-flow — and build mode re-flows on every
+        // wall segment of a drag. There are three states and hundreds of marks;
+        // pointing each mark at one of three module-level materials costs no
+        // allocation, leaks nothing, and makes a state change a pointer swap
+        // rather than a `Color.set`. The chevrons below keep `linkMaterial()`:
+        // a direction is not a state and never changes.
+        const link = new THREE.Mesh(geo, flowMaterial(CONVEYOR_LIT.idle));
         link.scale.set(0.1, 0.02, 0.1);
         link.position.set(c.x + dx * 0.5, 0.132, c.z + dz * 0.5);
         link.renderOrder = 3;
@@ -6007,6 +6138,14 @@ export class Scene {
         // and selection silently answers nothing.
         link.raycast = NO_PICK;
         this.beltRoot.add(link);
+        // Filed under the cell that HANDS ON, not the one receiving: a cell with
+        // three ways out of it owns three marks and they answer together, which
+        // is what makes a sorter's branches all light as one box goes through.
+        const rec = this.movingFixtures.get(c.id)
+          ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
+        rec.conveyor = true;
+        (rec.flow ??= []).push(link);
+        this.movingFixtures.set(c.id, rec);
       }
     }
 
@@ -6104,13 +6243,7 @@ export class Scene {
       const kind = this.aimKind(L, c, f, outsOf(c).some((o) => o.x === f.x && o.z === f.z));
       if (!kind) continue;
 
-      const well = new THREE.Mesh(geo, material(LINK_WELL, 1));
-      well.scale.set(dz ? 0.34 : 0.1, 0.02, dz ? 0.1 : 0.34);
-      well.position.set(c.x + dx * 0.33, 0.128, c.z + dz * 0.33);
-      well.renderOrder = 2;
-      well.raycast = NO_PICK;
-      this.beltRoot.add(well);
-
+      // ...and no well under this one either — same reason as the join's.
       const bar = new THREE.Mesh(geo, aimMaterial(kind));
       bar.scale.set(dz ? 0.26 : 0.06, 0.02, dz ? 0.06 : 0.26);
       bar.position.set(c.x + dx * 0.33, 0.132, c.z + dz * 0.33);
@@ -6146,12 +6279,39 @@ export class Scene {
       // arc: the band it needs IS most of the tile. The outer corner is taken
       // back off by the chamfered rail, which is what keeps it from reading as a
       // painted square.
-      if (this.conveyorPath(L, c).corner) {
-        const pad = new THREE.Mesh(geo, material(deck.color, 1));
-        pad.scale.set(1, deck.h, 1);
-        pad.position.set(c.x, deck.y, c.z);
-        pad.raycast = NO_PICK;
-        this.beltRoot.add(pad);
+      // A BEND LAYS ITS TRACK ROUND THE ARC, and it used to take the whole tile.
+      //
+      // That was right about a deck: a board is a straight rectangle, the path
+      // through a corner is a quarter circle, and nothing narrower than most of
+      // the tile can hold an arc — so the corner got a full plate and the
+      // chamfered rail took the outside back off. With the slab gone the same
+      // plate is a solid square of TRACK COLOUR sitting on your floor, one per
+      // bend, which is the deck coming back in the one place it was hardest to
+      // notice it had.
+      //
+      // So it is the groove itself, bent: short segments along the same quarter
+      // circle the carriers already ride, each turned to face along it. The
+      // ground under a corner is then the ground, exactly as it is under a
+      // straight, and the run reads as one track that turns.
+      const path = this.conveyorPath(L, c);
+      if (path.corner) {
+        const { cx, cz, a0, da } = Scene.conveyorArc(c, path.in, path.out);
+        // Enough that the joins between them close at this radius — a segment
+        // per eighth of the quarter leaves a visible facet, and past a dozen it
+        // is meshes for nothing.
+        const STEPS = 9;
+        for (let i = 0; i < STEPS; i++) {
+          const a = a0 + da * ((i + 0.5) / STEPS);
+          const seg = new THREE.Mesh(geo, material(deck.color, 1));
+          // Long enough to overlap its neighbour: the chord of one step at
+          // radius 0.5, with a little over so the corners of two segments meet
+          // rather than leaving a nick on the inside of the bend.
+          seg.scale.set((Math.abs(da) / STEPS) * 0.5 * 1.6, deck.h, deck.cross * 2);
+          seg.position.set(cx + Math.cos(a) * 0.5, deck.y, cz + Math.sin(a) * 0.5);
+          seg.rotation.y = -a;
+          seg.raycast = NO_PICK;
+          this.beltRoot.add(seg);
+        }
         continue;
       }
       for (const r of [0, 1, 2, 3]) {
@@ -6169,8 +6329,18 @@ export class Scene {
         const dz = Math.sign(n.z - c.z);
         const grow = 0.5 - deck.cross;
         if (!(grow > 0.001)) continue;
+        // AS WIDE AS THE TRACK, not as wide as the tile. This was `deck.long`,
+        // which is the span ALONG the run — a full tile — and that was invisible
+        // while the thing being extended was a board two thirds of a tile across
+        // in its own pale grey: the filler squared the cell off and read as more
+        // deck. Against a narrow groove it is a slab 0.37 × 1 of track colour at
+        // every cross join, which is most of a tile, and what a run of them looks
+        // like is a dark floor with a conveyor drawn on it. Which is exactly the
+        // deck coming back — the third time, in the third place, and the only one
+        // where the number was right for the shape it was written against.
+        const wide = deck.cross * 2;
         const fill = new THREE.Mesh(geo, material(deck.color, 1));
-        fill.scale.set(dx ? grow : deck.long, deck.h, dz ? grow : deck.long);
+        fill.scale.set(dx ? grow : wide, deck.h, dz ? grow : wide);
         const out = deck.cross + grow / 2;
         fill.position.set(c.x + dx * out, deck.y, c.z + dz * out);
         fill.raycast = NO_PICK;
@@ -6212,7 +6382,7 @@ export class Scene {
         if (pourEdge(c, n)) continue;
         const dx = Math.sign(n.x - c.x);
         const dz = Math.sign(n.z - c.z);
-        const rail = new THREE.Mesh(geo, material('#4b5563', 1));
+        const rail = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
         // Slightly PROUD of the tile on its long axis, so two rails meeting at a
         // corner overlap instead of leaving a notch of daylight between them.
         rail.scale.set(dx ? 0.07 : 1.02, 0.1, dz ? 0.07 : 1.02);
@@ -6243,6 +6413,54 @@ export class Scene {
     // a blade authored in model space would point wherever the run happened to
     // be running. It is the one part of a sorter you can read from across the
     // shop, and without it the piece is a belt cell with a hub on it.
+    // THE SIDES A BOX NEVER CROSSES GET WALLED IN, and that is the inversion.
+    //
+    // This cut a mouth on every carrying side, which was the same picture drawn
+    // from the wrong end: openings painted onto a solid box, and a crate that
+    // had to be hidden because it would have gone through the wall. The machine
+    // stands on legs now, so the gap under the hood is already an opening on
+    // all four sides — what it needs is the three-quarters of it that nothing
+    // uses closed off, or it is a table.
+    //
+    // Derived rather than authored, for the reason the chute and the blades
+    // already are: which sides carry goods is a fact about the RUN and about
+    // what is standing next to it, and a panel placed in model space would wall
+    // whichever side the piece happened to be drawn facing. Three sources, and
+    // they are the three ways a box can leave a cell — the line in, the line out
+    // and every branch, plus every unit a loader pours into.
+    for (const c of cells) {
+      if (!COVERED_KINDS.has(c.kind)) continue;
+      const box = this.conveyorHousing(c);
+      if (!box) continue;
+      const path = this.conveyorPath(L, c);
+      const open = new Set();
+      for (const s of [
+        { x: -path.in.x, z: -path.in.z },
+        path.out,
+        ...conveyorBranches(L, c).map((b) => ({ x: Math.sign(b.x - c.x), z: Math.sign(b.z - c.z) })),
+        ...this.conveyorPours(L, c).map((q) => ({ x: Math.sign(q.x - c.x), z: Math.sign(q.z - c.z) })),
+      ]) {
+        if (s && (s.x || s.z)) open.add(`${s.x},${s.z}`);
+      }
+      // From the deck up to the underside of the hood, which is the whole of
+      // what the legs left open. Measured off the housing rather than written
+      // down, exactly as the housing itself is measured off the model — a wall
+      // sized to a remembered hood is a panel with daylight over it the day
+      // somebody draws a taller machine.
+      const under = box.y - box.h / 2;
+      const high = under - BELT_TOP;
+      if (!(high > 0.02)) continue;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (open.has(`${dx},${dz}`)) continue;
+        const face = dx ? box.long : box.cross;
+        const wall = new THREE.Mesh(geo, material(CONVEYOR.frame, 1));
+        wall.scale.set(dx ? 0.06 : box.cross * 2, high, dz ? 0.06 : box.long * 2);
+        wall.position.set(c.x + dx * face, BELT_TOP + high / 2, c.z + dz * face);
+        wall.raycast = NO_PICK;
+        this.beltRoot.add(wall);
+      }
+    }
+
     for (const c of cells) {
       if (c.kind !== 'sorter') continue;
       // One blade per way out, because a junction where four lines meet uses all
@@ -6250,7 +6468,7 @@ export class Scene {
       for (const br of conveyorBranches(L, c)) {
         const dx = Math.sign(br.x - c.x);
         const dz = Math.sign(br.z - c.z);
-        const blade = new THREE.Mesh(geo, material('#8d97a5', 1));
+        const blade = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
         blade.scale.set(0.5, 0.06, 0.09);
         blade.position.set(c.x + dx * 0.2, 0.22, c.z + dz * 0.2);
         // Across the branch at forty-five degrees, which is what a diverter is:
@@ -6315,13 +6533,21 @@ export class Scene {
         // A little conveyor out of the housing — same vocabulary as the run it
         // is part of, so what the loader does to a box reads as more belt rather
         // than as a mechanism you have to learn.
-        const feed = new THREE.Mesh(geo, material('#2f333a', 1));
+        const feed = new THREE.Mesh(geo, material(CONVEYOR.frame, 1));
         feed.scale.set(dx ? 0.34 : wide, 0.07, dz ? 0.34 : wide);
         put(feed, 0.33, 0, 0.155);
+        // A recess with carriers in it, the same construction the run itself is
+        // — this was three bars across a deck, which is a slat belt, and a
+        // loader wearing one is the old machine bolted onto the new one. It is
+        // the same trap the belt row had: the piece was repainted and the mesh
+        // the renderer derives was not, one level down.
+        const groove = new THREE.Mesh(geo, material(CONVEYOR.track, 1));
+        groove.scale.set(dx ? 0.34 : wide - 0.06, 0.02, dz ? 0.34 : wide - 0.06);
+        put(groove, 0.33, 0, 0.194);
         for (const s of [-0.1, 0, 0.1]) {
-          const slat = new THREE.Mesh(geo, material('#5b6472', 1));
-          slat.scale.set(dx ? 0.05 : wide - 0.03, 0.025, dz ? 0.05 : wide - 0.03);
-          put(slat, 0.33 + s, 0, 0.20);
+          const car = new THREE.Mesh(geo, material(CONVEYOR.carrier, 1));
+          car.scale.set(dx ? 0.06 : wide - 0.1, 0.035, dz ? 0.06 : wide - 0.1);
+          put(car, 0.33 + s, 0, 0.206);
         }
 
         // ...and the HOUSING, which is what the spine became.
@@ -6341,14 +6567,14 @@ export class Scene {
         // to an edge from its own side, and it is arithmetic rather than a
         // nudged constant so it stays true if the cabinet ever gets deeper.
         const depth = 0.26;
-        const body = new THREE.Mesh(geo, material('#6b7280', 1));
+        const body = new THREE.Mesh(geo, material(CONVEYOR.frame, 1));
         body.scale.set(dx ? depth : wide + 0.12, 0.74, dz ? depth : wide + 0.12);
         put(body, 0.5 - depth / 2, 0, 0.37);
 
         // The lid, which is what stops it reading as a pillar: a box wants a top
         // that overhangs it, and the shadow line under the overhang is most of
         // what says "cabinet" at this camera.
-        const lid = new THREE.Mesh(geo, material('#8d97a5', 1));
+        const lid = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
         lid.scale.set(dx ? depth + 0.06 : wide + 0.18, 0.06, dz ? depth + 0.06 : wide + 0.18);
         put(lid, 0.5 - depth / 2, 0, 0.77);
 
@@ -6356,7 +6582,7 @@ export class Scene {
         // the cabinet has a front. The lamp sits on this rather than floating
         // above the mouth, which is the difference between a light that belongs
         // to the machine and one hanging in the air over a shelf.
-        const face = new THREE.Mesh(geo, material('#3b424e', 1));
+        const face = new THREE.Mesh(geo, material(CONVEYOR.shadow, 1));
         face.scale.set(dx ? 0.02 : wide - 0.02, 0.3, dz ? 0.02 : wide - 0.02);
         put(face, 0.5 - depth - 0.005, 0, 0.5);
 
@@ -6365,7 +6591,7 @@ export class Scene {
         // a mouth that stopped at the edge is two objects standing next to each
         // other, and the whole question a player is asking of a loader is which
         // shelf it belongs to.
-        const collar = new THREE.Mesh(geo, material('#8d97a5', 1));
+        const collar = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
         collar.scale.set(dx ? 0.3 : wide + 0.1, 0.1, dz ? 0.3 : wide + 0.1);
         put(collar, 0.6, 0, 0.7);
 
@@ -6373,7 +6599,7 @@ export class Scene {
         // made where you can see it from the other side of the aisle. Short, so
         // they read as brackets rather than as legs holding the shelf up.
         for (const side of [-1, 1]) {
-          const strap = new THREE.Mesh(geo, material('#4b5563', 1));
+          const strap = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
           strap.scale.set(dx ? 0.16 : 0.05, 0.055, dz ? 0.16 : 0.05);
           put(strap, 0.62, side * (wide / 2 + 0.02), 0.62);
         }
@@ -7748,6 +7974,25 @@ export class Scene {
         body.lit = hue;
         for (const lamp of body.lamps) lamp.material.color.set(hue);
       }
+      // ...and the join marks, which answer a different question from the lamp
+      // above and have to be asked separately even on the cell that has both.
+      // A loader's lamp reports what it last DID (`armSaid`) — it took a box, it
+      // passed one on — and its join marks report whether goods are CROSSING,
+      // which is the run's business rather than the machine's. Folding them
+      // would put a loader's refusal on the line either side of it and read as
+      // the belt having jammed.
+      //
+      // Jam beats carrying, and the order is the point: a jammed cell is holding
+      // a box, so `beltBusy` is true of it too, and asking that first would
+      // paint every jam green — which is the state this exists to make visible,
+      // wearing the colour of the state it is not.
+      const flow = this.beltStuck?.has(id) ? CONVEYOR_LIT.jam
+        : this.beltBusy?.has(id) ? CONVEYOR_LIT.on : CONVEYOR_LIT.idle;
+      if (body.flow && body.flowLit !== flow) {
+        body.flowLit = flow;
+        const mat = flowMaterial(flow);
+        for (const mark of body.flow) mark.material = mat;
+      }
       // ...and, for a `sweep`, the number it points at. Null for everything
       // else, which is every fixture in the game that is not a clock — a sweep
       // with nothing to read holds still rather than snapping to zero, so a prop
@@ -8121,12 +8366,81 @@ const LAMP_PASS = '#d99b1f';
  * darker plate under the mark, so the eye reads a recess with something lit at
  * the bottom of it.
  */
+/**
+ * The conveyor kinds that are a machine standing in the run rather than run.
+ *
+ * They wear a hood on legs: the track carries straight under it and the crate
+ * stays drawn the whole way through, which is the second answer to a question
+ * this got wrong once. The first was to hide the box on these cells the way a
+ * tunnel does — and a tunnel can, because its span is genuinely elsewhere and
+ * takes seconds, where a housing is one cell and half a second. What you got
+ * was a run that stepped instead of flowing.
+ *
+ * So what the set decides now is which sides get WALLED. Everything a box
+ * crosses stays open; everything else is closed in, which is what makes the
+ * thing read as a machine with the line running through it.
+ */
+const COVERED_KINDS = new Set(['arm', 'sorter']);
+
+/**
+ * What is behind a machine's mouth.
+ *
+ * Darker than anything else on a conveyor, and deliberately not `CONVEYOR.track`
+ * — a recess is the one place on the run that should read as having no light in
+ * it, and at the track's grey the panel goes back to looking like a plate bolted
+ * to the face. It is the only dark left in the family since the deck went pale.
+ */
+const MOUTH_DARK = '#1e232b';
+
+/**
+ * How big a crate is while it is riding, against the one that is standing still.
+ *
+ * A pallet is sized as a thing somebody put down with both hands — most of a
+ * tile — and a conveyor is a quarter-tile track threading between machines
+ * 0.78 across. At full size it overhangs the rails and clips the housings it
+ * passes into, which reads as the machines being drawn in the wrong place
+ * rather than as the box being too big for them.
+ */
+const BELT_CRATE = 0.72;
+
+/** Where the top of the track is — what a machine's side walls stand on. */
+const BELT_TOP = 0.09;
+
 const LINK_GLOW = '#5f9e78';
-const LINK_WELL = '#1b1f26';
+// Retired, along with the recess itself — see the note where `CONVEYOR.well`
+// used to be. A join mark lies on the ground now and needs no socket.
 let LINK_MAT = null;
 const linkMaterial = () => {
   LINK_MAT ??= new THREE.MeshBasicMaterial({ color: new THREE.Color(LINK_GLOW) });
   return LINK_MAT;
+};
+
+/**
+ * ...and the same mark once it started saying what the run is DOING.
+ *
+ * One material per state rather than one per mark, kept at module level and
+ * never disposed. Two reasons, and the second is the one that bites:
+ *
+ * - A state change becomes `mesh.material = mat`, a pointer swap, instead of a
+ *   `Color.set` on every mark of every cell.
+ * - `disposeGroup` frees no mesh materials on purpose — almost every mesh in
+ *   the game wears the shared `material()` cache — so anything that mints its
+ *   own per mesh leaks one per re-flow, and build mode re-flows on every wall
+ *   segment of a drag. A busy shop has hundreds of these marks.
+ *
+ * Basic rather than Lambert, like the mark it replaces: nothing shades it, so
+ * it is the same colour at the dark end of the shop as at the lit end — which
+ * is what "it lights up" means for a mesh this small, and the entire reason the
+ * readout still works at night when the deck under it does not.
+ */
+const FLOW_MATS = new Map();
+const flowMaterial = (hex) => {
+  let m = FLOW_MATS.get(hex);
+  if (!m) {
+    m = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex) });
+    FLOW_MATS.set(hex, m);
+  }
+  return m;
 };
 
 /**

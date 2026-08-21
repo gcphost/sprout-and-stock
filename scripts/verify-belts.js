@@ -305,6 +305,39 @@ function crateOn(g, belt, item = GOODS, qty = 4) {
   const again = canPlace(g.layout, { kind: 'belt', x: a.x, z: a.z, rot: 0 });
   check(!again.ok, 'a second belt on the same cell is refused', JSON.stringify(again));
 
+  // ...AND A MACHINE IN THE RUN IS THE OTHER ANSWER, which is why this is here
+  // rather than taken as read from the line above. A belt is ground and a loader
+  // is a housing standing in it — waist-high, with the crate going inside — so
+  // the two disagree about the walk grid while sharing a tile stamp, and that
+  // pair is the easiest thing in this file to half-implement.
+  //
+  // It shipped half-implemented: `blocks` was flipped in `shared/build.js`, so
+  // `canPlace` refused the cell, and `compose`'s arm branch went on saying "same
+  // non-blocking" in a comment and never called `occupy`. Every sweep passed,
+  // because not one of them asked. What it looks like in play is shoppers
+  // strolling straight through the machine — a rule enforced in one of the two
+  // places it lives is not half enforced, it is off.
+  {
+    const gm = fresh();
+    const line = beltRun(gm, 3);
+    check(!!line, 'there is a run to stand a loader in');
+    lay(gm, [line[0], line[2]]);
+    const mid = line[1];
+    const put = gm.placeFixture('me', { kind: 'arm', piece: ARM.id, x: mid.x, z: mid.z, rot: 0 });
+    check(put.ok, 'a loader goes in the middle of the run', JSON.stringify(put));
+    const at = mid.z * gm.layout.w + mid.x;
+    eq(gm.layout.tiles[at], T.BELT, 'a loader still stamps belt — it is part of the run');
+    eq(gm.layout.blocked[at], 1, 'and it occupies its cell, unlike the belt either side');
+    check(!isWalkableTile(gm.layout, mid.x, mid.z), 'so nobody walks through the machine');
+    // Both halves, or a re-flow hands the cell back: `compose` rebuilds every
+    // record from its placement, and this is the branch that forgot once.
+    gm.regenerateLayout();
+    eq(gm.layout.blocked[mid.z * gm.layout.w + mid.x], 1, 'and it is still occupied after a re-flow');
+    // The control, in the same shop: the belt beside it did not become a wall.
+    eq(gm.layout.blocked[line[0].z * gm.layout.w + line[0].x], 0,
+      'while the belt next to it still blocks nobody');
+  }
+
   // The `else`-is-`makeShelf` trap. A purchase re-flows, so this is the state
   // the shop is actually in a moment later — not a hypothetical.
   const ids = cells.map((c) => g.beltAt(c.x, c.z).id);

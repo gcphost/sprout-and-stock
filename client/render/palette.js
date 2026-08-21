@@ -170,11 +170,14 @@ export const FIXTURE_LOOK = {
   // as a wall down the aisle. Not zero like a plot, though — a conveyor stands
   // proud of the floor, and `fixtureHeight` reads this to aim at it.
   belt: { color: PALETTE.station, h: 0.12 },
-  // Belt-height: a loader stands IN the run, so an undrawn one must not be a
-  // waist-high block interrupting a line of flat conveyor.
-  arm: { color: PALETTE.station, h: 0.18 },
+  // A loader is a HOUSING the track runs into — the crate goes inside and is not
+  // drawn — so this is the height of the machine rather than of the belt it
+  // stands in. It was 0.18, which was the run's own height back when a loader
+  // was a deck with a cabinet beside it, and left there it aims the pointer and
+  // the ghost at the track under the box you are trying to press.
+  arm: { color: PALETTE.station, h: 0.78 },
   // ...and the same again for a junction, for the same reason.
-  sorter: { color: PALETTE.station, h: 0.18 },
+  sorter: { color: PALETTE.station, h: 0.78 },
   // ...and for a tunnel mouth. Missing, this is `undefined`, `plainBlock`
   // answers null and the fixture is never added to the scene AT ALL — no mesh
   // to raycast, so it cannot be pointed at, turned, bulldozed or shift-deleted,
@@ -209,6 +212,168 @@ export const FIXTURE_LOOK = {
  * otherwise" means on the schema; this is for when even the row has gone.
  */
 export const VEHICLE_LOOK = { color: PALETTE.vehicle, l: 1.4, w: 0.7, h: 0.6 };
+
+/**
+ * THE CONVEYOR, WHICH USED TO BE THE DARKEST THING IN THE SHOP.
+ *
+ * A belt was `#2f333a` — near black — with slate `#5b6472` slats, in a shop
+ * whose floor is `#f0ddb8` and whose walls are `#fbf8f0`. Two things came of
+ * that, and neither of them is a bug anywhere:
+ *
+ * - **In daylight it read as a hole cut in the floor.** Everything else here is
+ *   light and warm, so a black slab was out of key with the entire art
+ *   direction rather than merely dark — it looked like industrial plant dropped
+ *   into a bright friendly shop, which is exactly what black steel and rubber
+ *   slats are a picture of.
+ * - **At night it disappeared.** A thing that is only a *value* — dark on
+ *   light — has nothing left once the light goes, and a run of belt is the one
+ *   fixture you most want to be able to trace across a dark shop.
+ *
+ * So the whole family is re-keyed to pale polymer, which is also what makes it
+ * read as modern: real intralogistics gear stopped being painted steel a decade
+ * ago and is now light grey plastic with one coloured light on it. The light is
+ * the other half — see `CONVEYOR_LIT` below.
+ *
+ * Named roles rather than hexes at the call sites, because the same six colours
+ * are spelled in two places that cannot see each other: the authored `fixtures`
+ * rows (the deck, the slats, the chevrons) and the meshes the renderer derives
+ * (kerbs, chamfers, a loader's cabinet, a tunnel throat). A run whose authored
+ * half was repainted and whose derived half was not is a belt with a dark kerb
+ * down one side of it, which reads as a rendering fault.
+ */
+export const CONVEYOR = {
+  /** The bed goods ride on. The lightest thing in the family. */
+  deck: '#c8d0da',
+  /** The recess goods travel in, and the carriers that travel in it.
+   *
+   *  NOT SLATS, and that is the whole of what the re-key was actually for. A
+   *  slat belt is a picture of 1975 whatever colour it is painted — repainting
+   *  one pale fixes the value problem and leaves you looking at the same
+   *  machine. Every rung is a track with carriers gliding in it now, and the
+   *  ladder climbs by carrier (steel, then lit, then maglev) rather than being
+   *  a slat belt at the bottom that turns modern at the top.
+   *
+   *  The renderer draws one of these too — the little feed out of a loader's
+   *  cabinet — so the pair lives here rather than only in the authored rows,
+   *  or a loader stays a slat belt bolted to a track. */
+  track: '#4a525e',
+  carrier: '#7f8d9e',
+  /** What a slat used to be. Kept because a `fixtures` row somebody authored
+   *  before this could still be wearing bars, and an unmapped colour is worse
+   *  than an old-fashioned one. */
+  slat: '#8b96a6',
+  /** Kerbs, chamfers and straps: the lip of the track. */
+  rail: '#414956',
+  /** A machine's body — a loader's cabinet, a sorter's housing. A shade up from
+   *  the rail so it reads as an object standing in the run rather than as more
+   *  of the run, and dark like everything else the run is made of: these were
+   *  pale grey back when they stood on a pale deck, and once the deck came off
+   *  they were the last of it — a row of light chunks along a dark track, which
+   *  is the same out-of-key complaint the belt itself started with, pointed at
+   *  the machines instead of the ground. The lamp is the bright part. */
+  frame: '#4e5865',
+  /** Chevrons and the small dark details. Darker than the deck on purpose: on a
+   *  pale bed the direction mark is the thing that has to be legible, and it was
+   *  authored LIGHTER than its slats back when the deck was nearly black. */
+  trim: '#6c7784',
+  /* No `well`. A join mark used to sit in a recess — a shade under the deck, so
+     the eye read something lit at the bottom of a socket — and it went twice:
+     first as `#1b1f26`, a sensible recess in a nearly-black belt and a hole
+     punched in a pale one, then as a grey chip lying on the floor once the deck
+     came off entirely. A lit mark on bare ground needs no socket, because it is
+     the only thing on the cell that glows. */
+  /** A recess, and the one place a conveyor is still allowed to be dark: a
+   *  tunnel throat is a hole, and a hole that is not dark is a decal. */
+  shadow: '#3b424e',
+};
+
+/**
+ * ...and the light along it, which is the half that works at night.
+ *
+ * Three states, and they are a READOUT rather than decoration: a run tells you
+ * what it is doing from across the shop, without hovering anything, the way the
+ * loader lamps already do. Flowing, jammed, idle.
+ *
+ * `on` is the green the loader lamps already use, deliberately — a belt that
+ * has a box on it and a loader that just took one are the same fact reported by
+ * two pieces, and two greens would read as two different facts.
+ *
+ * These are drawn UNLIT (`MeshBasicMaterial`), which is what makes the night
+ * case work and is also why they must be bright rather than merely coloured:
+ * nothing shades them, so a mid-tone here looks like paint instead of light.
+ */
+export const CONVEYOR_LIT = {
+  /** Carrying something. */
+  on: '#63d489',
+  /** Backed up — the box has nowhere to go. Amber, and it propagates back down
+   *  the run, which is the whole thing this readout is worth: a jam at the head
+   *  lights every cell behind it and you can see where it started. */
+  jam: '#e8a33c',
+  /** Empty. QUIET rather than dark, which is not the same thing and was the
+   *  other half of the fifty black squares: "dim" was reasoned about a light
+   *  going out, and a light that goes out on a pale deck is a hole. What idle
+   *  has to be is a mark you can still trace across a dark shop while it says
+   *  nothing — so it sits just under the well it lies in, and the two greens
+   *  above are the only things on a run that ever get louder. */
+  idle: '#98a2ad',
+};
+
+/**
+ * THE CRATE, WHICH RODE THE CONVEYOR IN LOOKING LIKE A FRUIT BOX.
+ *
+ * It was `#a8763f` — the same hex as `soil`, pallet boards underneath and four
+ * plank walls — which was right in a shop where the only things that moved
+ * goods were people and a lorry. The belts re-keyed the whole logistics family
+ * to pale polymer, and the box a machine hands to another machine is the one
+ * thing that touches every part of that chain: bay, shoulder, deck, arm, shelf.
+ * A timber box on a moulded track is the same "industrial plant dropped into
+ * the wrong picture" the black belt was, arriving from the other direction.
+ *
+ * So it is a moulded tote, and the split of the four colours is the design
+ * rather than a shading pass. **The body is the darkest thing here that isn't a
+ * detail**, and that is a legibility rule rather than taste: a crate spends its
+ * life standing on `deck` (`#c8d0da`) and on `floor` (`#f0ddb8`), so a pale box
+ * is a box you cannot find — the belt readout says a cell is carrying something
+ * and the something has to be visible from the same distance.
+ *
+ * **The goods are the colour.** Wood is warm and saturated and it argued with
+ * every tomato standing in it; a neutral cool grey is a backdrop, which is the
+ * whole reason real totes are grey.
+ *
+ * And what says *moulded* at this camera is the LIP. A box drawn as four flat
+ * walls reads as sheet material whatever it is painted, so the top edge stands
+ * proud in near-white — from a 40° camera that rim is most of what you see of an
+ * empty crate, and it is the one part that catches a light at night.
+ */
+export const CRATE_LOOK = {
+  /** The tote itself. */
+  body: '#93a1b2',
+  /** The rim, standing proud of the walls. The brightest part of the box. */
+  lip: '#e2e8ef',
+  /** Corner posts — the mouldings a stack interlocks by, which is why they run
+   *  the full height and stand a hair outside the walls. */
+  post: '#5d6875',
+  /** The skid it stands on, inset so the box reads as sitting on a foot rather
+   *  than as a solid block. Darkest, because it is in its own shadow. */
+  skid: '#4c5561',
+};
+
+/**
+ * ...and the same tote in the drab it comes back as once it is holding rot.
+ *
+ * Same silhouette on purpose — see `buildPallet`: what tells you it is rubbish
+ * is where it is and who is carrying it, and a second shape would be a new
+ * object to learn for a box that behaves like every other box. Olive-grey and
+ * flatter, so it reads as spoiled from across the shop without the goods inside
+ * having to change colour. The lip comes down with it: a bright rim on the skip
+ * box would make rubbish the crispest thing in the yard.
+ */
+export const WASTE_LOOK = {
+  body: '#79796a',
+  lip: '#a5a492',
+  post: '#4f5045',
+  skid: '#43443b',
+};
 
 /**
  * The three things an edge can be made of, once each.
