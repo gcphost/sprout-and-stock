@@ -55,7 +55,10 @@ const CHOICE = {
     name: 'Anyone',
     short: 'Anyone',
     icon: ICONS.walk,
-    sub: 'Shoppers and staff both, in and out. What a doorway has always been.',
+    // Deliberately says nothing about doorways: one table serves three families
+    // now, and "what a doorway has always been" is a sentence about a curtain
+    // that is simply not true of one.
+    sub: 'Shoppers and staff both, in and out. Nobody is turned back here.',
   },
   staff: {
     name: 'Staff only',
@@ -104,10 +107,41 @@ const CHOICE = {
   },
 };
 
-/** What each family is called, and what its choice is called. */
+/**
+ * What each family is called, what its choice is called, and — where one way is
+ * not on offer — why not.
+ *
+ * `noWay` used to be a ternary on `family === 'gate'` with the door's answer as
+ * the else, which is the shape that breaks in whichever file adds the third
+ * member: a curtain would have been told that it has the same on both sides,
+ * about an edge with a shop one side of it and a stockroom the other. Two
+ * families refuse one way and they refuse it for different reasons, so the
+ * reason belongs beside the family.
+ */
 const FAMILY = {
-  door: { what: 'Doorway', asks: 'Open to' },
-  gate: { what: 'Gate', asks: 'Open to' },
+  door: {
+    what: 'Doorway',
+    asks: 'Open to',
+    noWay: 'One way needs an inside and an outside — this has the same on both sides.',
+  },
+  gate: {
+    what: 'Gate',
+    asks: 'Open to',
+    noWay: 'A fence never makes a room, so there is no in or out here.',
+  },
+  curtain: {
+    what: 'Strip curtain',
+    asks: 'Open to',
+    noWay: 'Strips you push through both ways have no direction in them.',
+  },
+  // No `noWay`, and that is the same answer the doorway's is: a roller door
+  // encloses, so anywhere it is a boundary it has an in and an out, and
+  // `choicesFor` is what decides whether the two squares are on offer.
+  shutter: {
+    what: 'Roller door',
+    asks: 'Open to',
+    noWay: 'One way needs an inside and an outside — this has the same on both sides.',
+  },
   window: { what: 'Window', asks: 'Glazed' },
 };
 
@@ -203,9 +237,7 @@ export function showEdgeMenu(ui, at) {
   // The one thing a square cannot say, and only where it is true: one way is
   // offered on a boundary that HAS an in and an out, so anywhere else the two
   // missing squares would read as a bug rather than as an answer.
-  const why = (family === 'window' || choices.includes('in')) ? null : (family === 'gate'
-    ? 'A fence never makes a room, so there is no in or out here.'
-    : 'One way needs an inside and an outside — this has the same on both sides.');
+  const why = (family === 'window' || choices.includes('in')) ? null : meta.noWay;
 
   // The head is a picture of the edge and what its choice means. The picture comes
   // off `EDGE_STYLE` through `artForEdge` — the same record the renderer builds the

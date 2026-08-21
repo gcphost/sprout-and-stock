@@ -130,6 +130,16 @@ class Events {
   constructor() {
     this.drops = new Set();
     this.crates = new Set();
+    /**
+     * Who has already been shouted about — see docs/security.md step 2.
+     *
+     * A set of ids rather than a count, because the alert is about a PERSON and
+     * a shop can have two thieves in it at once: a counter would shout for the
+     * first and go quiet for the second, which is the one that would actually
+     * get away with it. Never cleared while they are on the map, so a thief
+     * crossing the shop is one alert rather than one every frame.
+     */
+    this.thieves = new Set();
     this.action = null;
     this.acts = 0;
     this.carry = null;
@@ -315,7 +325,7 @@ class Events {
    * three counters is fourteen crate thumps and three tills in one frame — a
    * diff against nothing is a diff in which the entire world just happened.
    */
-  update(state, myId) {
+  update(state, myId, onAlarm = null) {
     if (!state) return;
 
     const me = state.players?.find((p) => p.id === myId) ?? null;
@@ -355,6 +365,32 @@ class Events {
     for (const id of this.drops) {
       if (!drops.has(id)) { sfx.play('coins', me); break; }
     }
+
+    /**
+     * Somebody has just walked off with your stock.
+     *
+     * The loudest thing the shop can say, and the only one that is about a
+     * person rather than a thing. It fires on the COMMIT — the tick `stole`
+     * appears on the wire — rather than on the spawn, because a shop that
+     * flagged a thief as they came through the door would have read their mind
+     * and thrown away the whole decision this exists to hand you.
+     *
+     * Gathered here rather than off the log, for docs/audio.md's reason: the
+     * feed is prose written for a reader, and a sound has to be attached to the
+     * frame the thing happened in.
+     */
+    const seen = new Set();
+    for (const c of state.customers ?? []) {
+      if (!c.stole) continue;
+      seen.add(c.id);
+      if (this.thieves.has(c.id)) continue;
+      sfx.play('error', c, { every: 0, rate: 0.7 });
+      onAlarm?.(c);
+    }
+    // Forgotten only once they are off the map, or a thief who walks behind a
+    // shelf for a frame comes back as a fresh alarm.
+    for (const id of this.thieves) if (!seen.has(id)) this.thieves.delete(id);
+    for (const id of seen) this.thieves.add(id);
 
     // A crate landing. Deliveries, a stripped shelf, an armful put down — one
     // entity, one noise, which is the same argument `dropGoods` makes about

@@ -61,6 +61,27 @@ export const T = {
    * shortest line across somebody's lawn.
    */
   ROAD: 15,
+  /**
+   * A conveyor. The first ground that MOVES something, and the second after
+   * `PLOT` that a fixture makes rather than a brush.
+   *
+   * It is ground for the same reason a bed is: a belt is not a thing standing
+   * on the floor, it is what the floor is made of there — you walk over it, it
+   * blocks nobody, and a run of twenty that owned its cells would be a wall
+   * drawn through your own shop. `verify:catalog` asks every fixture to either
+   * occupy its cell or be what the cell is made of, and this is the second
+   * answer.
+   *
+   * The stamp is also what stops two belts landing on one cell. A non-blocking
+   * fixture is invisible to `blocked`, so the only thing refusing the second
+   * one is that `BUILDABLE_INDOOR` no longer holds what the first one made —
+   * exactly how two plots have always refused to share a square.
+   *
+   * Which WAY it runs is not here and must never be: a tile holds one value,
+   * and direction is a fact about the placement (`rot`), which is where every
+   * other facing in the game already lives.
+   */
+  BELT: 16,
 };
 
 /**
@@ -74,6 +95,10 @@ export const WALKABLE = new Set([
   // taking that away would mean a lane you paint can wall your own shop off.
   // Nothing in this game gets run over.
   T.ROAD,
+  // Walkable for the same reason, said indoors: a belt laid down an aisle must
+  // not be a wall, and a run you cannot step over would cut the shop in half
+  // one cell at a time with no refusal anywhere to say so.
+  T.BELT,
 ]);
 
 /** Ground you can stand a shop fixture on — bare indoor floor and nothing else. */

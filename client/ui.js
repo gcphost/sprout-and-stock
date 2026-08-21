@@ -333,6 +333,7 @@ export class UI {
       panelTitle: document.getElementById('panel-title'),
       panelBody: document.getElementById('panel-body'),
       carry: document.getElementById('carry'),
+      stam: document.getElementById('stam'),
       build: document.getElementById('build'),
       buildGroups: document.getElementById('build-groups'),
       buildSubs: document.getElementById('build-subs'),
@@ -3500,6 +3501,7 @@ export class UI {
     // off the box, so "the only move is to put it down" stopped being true.
     // What is in your hands, a row per pile — see `setCarry`.
     this.setCarry(me?.haul ?? null, me?.carry ?? null);
+    this.setStamina(me);
     this.updatePrompt(me?.action ?? null);
     // Which seed is chosen is the SERVER's answer, mirrored down rather than
     // kept alongside. Two copies of it disagreed in both directions: sowing
@@ -3704,6 +3706,30 @@ export class UI {
    * Signature-tested, because this is on the 10Hz path and rebuilding a handful
    * of rows ten times a second to redraw the same armful is work nobody sees.
    */
+  /**
+   * The chase bar — see docs/security.md step 3.
+   *
+   * Absent from the wire means full, which is the ordinary state of the shop
+   * and therefore the one that should cost nothing: `stamina` is only sent when
+   * it is below 1 (see the player snapshot), so this is a compare against
+   * `undefined` on every frame of a game nobody is running in.
+   *
+   * `spent` is its own class rather than "width is zero", because being winded
+   * is a STATE you are in and an empty bar alone reads as a bar that has
+   * stopped working — which is exactly the confusion the hysteresis in
+   * `stepPlayers` was added to prevent, arriving through the readout instead.
+   */
+  setStamina(me) {
+    const v = me?.stamina;
+    const show = v != null && v < 1;
+    const key = show ? `${Math.round(v * 40)}` : '';
+    if (key === this._stamKey) return;
+    this._stamKey = key;
+    this.el.stam.classList.toggle('show', show);
+    this.el.stam.classList.toggle('spent', show && v <= 0.02);
+    this.el.stam.firstElementChild.style.transform = `scaleX(${show ? v : 1})`;
+  }
+
   setCarry(haul, carry) {
     const stacks = lotStacks(haul ?? carry);
     const key = `${haul ? 'h' : 'c'}|${stacks.map((s) => `${s.item_id}:${s.qty}`).join(',')}`;

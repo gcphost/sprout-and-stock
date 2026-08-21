@@ -1084,6 +1084,41 @@ const HANDS = [
   },
 ];
 
+/**
+ * What a sorter does with a box, which is one decision with two answers.
+ *
+ * On, the crew read what is actually down each of its two lines and send a box
+ * the way it can be put away — which is a filter that can never fall behind your
+ * catalogue, because there is no filter. Off, it is a plain splitter: alternate
+ * ways out, every crate, which is the other job people want from a junction and
+ * is what a junction with the thinking switched off should honestly be.
+ */
+const SORTS = [
+  {
+    on: true,
+    name: 'Let the crew sort it',
+    sub: 'Sends each box down whichever line can actually shelve it. A mixed box splits.',
+  },
+  {
+    on: false,
+    name: 'Just split it evenly',
+    sub: 'Alternates, box by box, whatever is in them.',
+  },
+];
+
+function sortRows(ui, f, live, { lives = [live] } = {}) {
+  return SORTS.map((s) => {
+    const at = allSay(lives, (l) => (l?.auto !== false) === s.on);
+    return {
+      icon: ICONS.stocker,
+      name: s.name,
+      sub: s.sub,
+      picked: at,
+      run: at ? null : () => ui.net.send('sorter-auto', { ids: aimAt(ui, f), on: s.on }),
+    };
+  });
+}
+
 function handRows(ui, f, live, { lives = [live] } = {}) {
   return HANDS.map((h) => {
     // Ticked only when they all say it — see `allSay`. A selection that
@@ -1141,6 +1176,9 @@ function settingRows(ui, f, live, sel = {}) {
   if (many.every((g) => holdsGoods(g.kind))) {
     under('When it gets refilled', priorityRows(ui, f, live, sel));
     under('The shop hand', handRows(ui, f, live, sel));
+  }
+  if (many.every((g) => g.kind === 'sorter')) {
+    under('Which way it sends things', sortRows(ui, f, live, sel));
   }
   under('Set up', modifierRows(ui, f, live, sel));
   return rows;
@@ -1882,6 +1920,15 @@ function tierBlurb(tier) {
   // ladder that changes who has to be standing there — "0.45×" is a ratio
   // nobody can price, and "serves its own queue" is the whole reason to buy it.
   if ((tier.unattended ?? 0) > 0) gains.push('serves its own queue with nobody on it');
+  // Said first when it is there, and it never shares a line with the rest: this
+  // is not a better till, it is the shop losing its queues, and a rung that
+  // reads "works 1.2× as fast, bills 12 at once" buries the only half anybody
+  // is buying. The cost is named here too, because it is the one rung whose
+  // price is not the number on the button.
+  if ((tier.covers ?? 0) > 0) {
+    return `No queue at all — shoppers walk out and are billed on the way. `
+      + `Reads ${tier.covers} at once; past that it starts missing things.`;
+  }
   return gains.length ? `${gains.join(', ')}.` : 'Same job, better looking.';
 }
 

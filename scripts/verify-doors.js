@@ -80,8 +80,8 @@ import { findPath } from '../server/sim/pathing.js';
 import { queueLane, canPlaceEdge, canPlaceEdges } from '../shared/build.js';
 import {
   E, SOLID, ENCLOSING, RULED, WAYS, GLAZING, GLAZING_LOOKS, computeIndoor,
-  edgeBetween, eviOf, ehiOf, shopperCanCross, wayBase, wayRule, wayKind,
-  glazingKind, glazingLook, edgeFamily,
+  edgeBetween, eviOf, ehiOf, canStep, shopperCanCross, wayBase, wayRule, wayKind,
+  wayDefault, glazingKind, glazingLook, edgeFamily,
 } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 
@@ -192,8 +192,13 @@ const routes = (g, ent, goal) => g.pathTo(ent, goal);
 {
   for (const [kind, w] of WAYS) {
     check(!SOLID.has(kind), `a ${w.base} with rule "${w.rule}" is never solid`);
-    eq(ENCLOSING.has(kind), w.base === 'door',
-      `a ${w.base} with rule "${w.rule}" encloses iff it is a doorway`);
+    // Against the row's own `roofs` and not against `base === 'door'`, which is
+    // what this line said until there was a third family. That version was not
+    // merely narrow — it was the assertion and the implementation being the same
+    // sentence twice, so it could only ever have caught a typo. A curtain roofs
+    // and a gate does not, and no word in either name says so.
+    eq(ENCLOSING.has(kind), !!w.roofs,
+      `a ${w.base} with rule "${w.rule}" encloses iff its row says it roofs`);
     eq(RULED.has(kind), w.rule !== 'all', `"${w.rule}" is ruled iff it is not "all"`);
     eq(wayKind(w.base, w.rule), kind, `${w.base}/${w.rule} resolves back to itself`);
   }
@@ -201,8 +206,25 @@ const routes = (g, ent, goal) => g.pathTo(ent, goal);
   // off the enclosure, a fence never encloses, so a one-way gate would be a
   // button that takes a press and changes no number.
   eq(wayKind('gate', 'in'), null, 'there is no one-way gate');
+  eq(wayKind('curtain', 'in'), null, 'and no one-way curtain either');
   eq(wayBase(E.WALL), null, 'a wall is not a way through');
   eq(wayRule(E.DOOR), 'all', 'and a plain doorway is for everybody');
+
+  // Which kind the palette lays, and it is the one thing in this table that is
+  // an ORDER rather than a membership — `WAY_RULES` is a menu order everywhere
+  // else, and its head is what the tool builds. A doorway is for everybody until
+  // you say otherwise, so staff-only is something you find; a curtain is bought
+  // *because* shoppers cannot use it, so one that arrived open would be a tool
+  // that does the opposite of its own label until you tapped every segment of
+  // the run you had just dragged. Both halves asserted, because "the head of the
+  // list" is only a decision if the two families disagree about it.
+  eq(wayDefault('curtain'), E.CURTAIN_STAFF, 'the curtain tool lays the signed one');
+  eq(wayDefault('door'), E.DOOR, '...where the doorway tool lays the open one');
+  eq(wayDefault('gate'), E.GATE, '...and so does the gate');
+  // The curtain's argument pointed the other way, and it is a decision for the
+  // same reason: a roller door is the front of a workshop as often as it is the
+  // back of a stockroom, so it arrives open and you sign it after it is up.
+  eq(wayDefault('shutter'), E.SHUTTER, '...and so does the roller door');
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +254,25 @@ const routes = (g, ent, goal) => g.pathTo(ent, goal);
   fencedStaff.edgesH[ehiOf(fencedStaff.w, 4, 7)] = E.GATE_STAFF;
   eq(enclosure(fencedStaff), enclosure(fenced), 'a staff gate encloses exactly as a gate does');
   check(!enclosure(fencedStaff).includes('1'), 'which is to say: not at all');
+
+  // A curtain is the one opening that goes in an INTERIOR wall by design — you
+  // hang it across an aisle to cut the back off the shop — and that is precisely
+  // where getting `roofs` wrong hides. Enclosure is all-or-nothing, so a curtain
+  // that did not roof would not make a slightly smaller shop, it would take the
+  // roof off the whole building: every shelf refused, the refusal reading
+  // "something is already there", and the cause four rooms away from the symptom.
+  // Byte-for-byte against the wall it replaced, not merely "still has an inside".
+  const curtained = pad(12, 12);
+  ring(curtained, 2, 2, 4, 4, E.WALL);
+  curtained.edgesH[ehiOf(curtained.w, 3, 5)] = E.DOOR;
+  const walled = enclosure(curtained);
+  curtained.edgesV[eviOf(curtained.w, 4, 3)] = E.CURTAIN_STAFF;
+  eq(enclosure(curtained), walled, 'a curtain across the middle of a room roofs it exactly as the wall did');
+
+  const front = pad(12, 12);
+  ring(front, 2, 2, 4, 4, E.WALL);
+  front.edgesH[ehiOf(front.w, 3, 5)] = E.CURTAIN_STAFF;
+  eq(enclosure(front), walled, '...and so does one hung where the doorway was');
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +297,37 @@ const routes = (g, ent, goal) => g.pathTo(ent, goal);
     return p;
   })());
   check(shopperCanCross(open, 3, 5, 3, 4), 'where a plain one lets them in');
+
+  // The same two answers out of a curtain, and the reason it is asked again
+  // rather than inherited from the loop in section 0 is that a curtain is the
+  // first opening whose default is the signed kind: the sweep that matters is
+  // the one a player gets by dragging the tool, and for every other family that
+  // is the permissive row. Asked on an INTERIOR line, which is where curtains
+  // go and which is also the case a one-way rule falls through — so this is
+  // `rule === 'staff'` answering rather than the enclosure answering for it.
+  const inner = settle((() => {
+    const p = pad(12, 12);
+    ring(p, 2, 2, 6, 6, E.WALL);
+    p.edgesH[ehiOf(p.w, 3, 7)] = E.DOOR;
+    p.edgesV[eviOf(p.w, 5, 4)] = wayDefault('curtain');
+    return p;
+  })());
+  eq(inner.indoor[4 * inner.w + 4], 1, 'both sides of the curtain are indoors');
+  eq(inner.indoor[4 * inner.w + 5], 1, '...which is what makes it a partition rather than a door');
+  check(!SOLID.has(edgeBetween(inner, 4, 4, 5, 4)), 'a curtain is not a wall');
+  check(canStep(inner, 4, 4, 5, 4), 'so a hire pushes through it');
+  check(canStep(inner, 5, 4, 4, 4), '...and back');
+  check(!shopperCanCross(inner, 4, 4, 5, 4), 'and a shopper does not');
+  check(!shopperCanCross(inner, 5, 4, 4, 4), '...from either side, one way being no answer here');
+
+  const openCurtain = settle((() => {
+    const p = pad(12, 12);
+    ring(p, 2, 2, 6, 6, E.WALL);
+    p.edgesH[ehiOf(p.w, 3, 7)] = E.DOOR;
+    p.edgesV[eviOf(p.w, 5, 4)] = E.CURTAIN;
+    return p;
+  })());
+  check(shopperCanCross(openCurtain, 4, 4, 5, 4), 'where one you opened up lets them through');
 }
 
 // ---------------------------------------------------------------------------

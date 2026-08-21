@@ -8,6 +8,7 @@ import {
   FIXTURES, isProp, isGround, isPaint, isSurface, FLOOR_KIND, STOCK_KINDS, shelfKind, FIXTURE_REFUND,
 } from '../shared/build.js';
 import { homeKind } from '../shared/tags.js';
+import { wayDefault } from '../shared/edges.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { variantsOf } from '../shared/model.js';
 import { artForModel, artForTool, artForWorker } from './thumb.js';
@@ -140,6 +141,7 @@ export const BUILD_GROUPS = [
   { id: 'shop', name: 'Shop', icon: ICONS.shelf, blurb: 'Where goods sit and money changes hands.' },
   { id: 'appliance', name: 'Appliances', icon: ICONS.station, blurb: 'Machines that turn stock into something worth more.' },
   { id: 'farm', name: 'Farm', icon: ICONS.plot, blurb: 'Beds to grow in, and what fences them off.' },
+  { id: 'logistics', name: 'Logistics', icon: ICONS.crate, blurb: 'Moves stock about without anybody walking it.' },
   {
     id: 'shell',
     name: 'Building',
@@ -345,6 +347,24 @@ export const KIND_TOOLS = {
     group: 'shop',
     blurb: 'Takes money. Needs a clear run alongside for the queue.',
   },
+  // Reusing `move` and `station` rather than baking two new glyphs: `ICONS`
+  // throws on a name nobody added, and adding one is a build step
+  // (`scripts/build-icons.js` + `npm run icons`) rather than a line here.
+  belt: {
+    icon: ICONS.move,
+    group: 'logistics',
+    blurb: 'Carries crates one cell at a time, the way it faces. Walk over it.',
+  },
+  arm: {
+    icon: ICONS.station,
+    group: 'logistics',
+    blurb: 'A belt cell that also stocks. Put it in the run beside a shelf.',
+  },
+  sorter: {
+    icon: ICONS.supplier,
+    group: 'logistics',
+    blurb: 'A junction. R sets the branch; the crew pick which box goes down it.',
+  },
   plot: {
     icon: ICONS.plot,
     group: 'farm',
@@ -518,6 +538,37 @@ export const BUILD_TOOLS = [
     // for a staff doorway on purpose — you find out a door should be one after the
     // room exists — so the tool that builds them is where it has to be said.
     blurb: 'A way through. Still counts as part of the enclosure. Tap one you have already built to say who it is for.',
+  },
+  // The roller door. Its own tool rather than a look on the doorway, because a
+  // family is the set of things that swap for a *refit* — and swapping a $34
+  // doorway for a $46 shutter is a purchase, not a change of mind about one.
+  {
+    id: 'shutter',
+    edge: 15,
+    group: 'shell',
+    sub: 'walls',
+    icon: ICONS.crate,
+    name: 'Roller door',
+    blurb: 'A garage bay door, rolled up under its lintel. Part of the enclosure, like any doorway. Tap one you have already built to say who it is for.',
+  },
+  // The curtain, and it is the one opening whose palette button lays the SIGNED
+  // kind (`wayDefault`, shared/edges.js). A doorway is for everybody until you
+  // decide otherwise, which is why staff-only is a property you find rather than
+  // a button; a curtain is bought precisely so that shoppers cannot come through,
+  // so one that arrived open would need every segment of the run you just dragged
+  // tapping before it did the thing on its own label. The menu is still there for
+  // the other way round.
+  {
+    id: 'curtain',
+    // The one entry here that reads its kind rather than writing the number
+    // down, because which curtain the button lays is a decision with an argument
+    // behind it and `WAY_RULES` is where that argument lives.
+    edge: wayDefault('curtain'),
+    group: 'shell',
+    sub: 'walls',
+    icon: ICONS.staff,
+    name: 'Strip curtain',
+    blurb: 'Hangs clear of the floor, so belts and crates carry on through it. Shoppers do not. Tap one to open it to everybody.',
   },
   // Fences. Same tool, same drag, same lattice — and deliberately not the same
   // *meaning*: a fence never encloses (`ENCLOSING`, shared/edges.js), so fencing

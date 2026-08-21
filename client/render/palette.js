@@ -59,6 +59,22 @@ export const PALETTE = {
   path: '#d9cbb0',
   fence: '#c99a63',
   door: '#f6f3ea',
+  // A strip curtain: milky PVC on a metal rail. Deliberately opaque rather than
+  // glass — the alpha band in `edgeBands` is one shared value (`GLASS`, 0.35),
+  // which on something the size of a wall reads as an absence, and the thing
+  // that makes strips read as strips is the GAP between them rather than seeing
+  // through the plastic. The tint is cool against `wall` so a curtained-off
+  // corner is legible as a different material from across the room.
+  curtain: '#dfe9e6',
+  curtainRail: '#9aa4b0',
+  // A roller shutter, coiled up under its own lintel. Galvanised rather than
+  // painted, and two shades of it: the coil is read edge-on at this camera, so
+  // what says "slats" is the banding across it and a single colour would draw a
+  // grey pelmet. The track is darker than both, which is what keeps the jambs
+  // from reading as part of the roll.
+  shutter: '#c6ccd4',
+  shutterDeep: '#a4adb8',
+  shutterTrack: '#868f9a',
   // A rule painted across a threshold. What a signed way through gets instead of
   // its own geometry: a staff door and a doorway are the same hole in the same
   // wall, so the only honest difference is a marking on the floor of it — which
@@ -145,6 +161,20 @@ export const FIXTURE_LOOK = {
   // art. Waist-high and blocking, so an undrawn one is still a thing you can
   // see you would walk into.
   bin: { color: PALETTE.station, h: 0.6 },
+  // `warmer` was missing from this table for the whole life of the hot counter,
+  // and it never showed because the shipped row has art — an undrawn one is
+  // `plainBlock(undefined)`, which is null, which `addFixtureProps` skips: an
+  // invisible fixture you can walk into, with nothing anywhere to say so.
+  warmer: { color: PALETTE.counter, h: 0.65 },
+  // Low, because a belt is walked over and anything waist-high here would read
+  // as a wall down the aisle. Not zero like a plot, though — a conveyor stands
+  // proud of the floor, and `fixtureHeight` reads this to aim at it.
+  belt: { color: PALETTE.station, h: 0.12 },
+  // Belt-height: a loader stands IN the run, so an undrawn one must not be a
+  // waist-high block interrupting a line of flat conveyor.
+  arm: { color: PALETTE.station, h: 0.18 },
+  // ...and the same again for a junction, for the same reason.
+  sorter: { color: PALETTE.station, h: 0.18 },
   'prop-floor': { color: PALETTE.floor, h: 0.3 },
   'prop-ceiling': { color: PALETTE.floor, h: 0.3 },
 };
@@ -187,6 +217,30 @@ const EDGE_BASE = {
   // a threshold underfoot, with nothing in between.
   door: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, opening: true },
   gate: { color: PALETTE.fence, h: 0.5, t: 0.14, opening: true },
+  // ...and a curtain is the other way up: strips hanging from a rail, with the
+  // gap at the BOTTOM rather than in the middle. `drop` is where they stop, and
+  // it is the whole authored fact about the piece — everything else falls out of
+  // it. See `CURTAIN_DROP` for what sets the number.
+  //
+  // `color` is the WALL and not the plastic, which is doing three jobs at once.
+  // The pelmet the strips hang off is wall, so it takes paint the way a window's
+  // frame does; the palette button draws its stubs in the base colour, so a
+  // curtain reads as strips set in a wall rather than as a milky slab with a
+  // fringe in it; and the strips carrying their own colour is what keeps a
+  // finish off them, which is right — nobody paints PVC.
+  curtain: {
+    color: PALETTE.wall, top: PALETTE.curtainRail, h: 1.1, t: 0.1, curtain: true,
+  },
+  // ...and a roller door is a doorway with the machinery drawn: the same header
+  // and the same threshold, plus the coil that is the whole reason you can tell
+  // it is one, and a track down each jamb. `color` is the WALL for the reason
+  // the curtain's is — the lintel takes paint the way a window frame does, and
+  // the slats carrying their own colour is what keeps a finish off galvanised
+  // steel. Thicker than a plain wall (a shutter box stands proud of the
+  // brickwork) and the tracks ride that thickness for free.
+  shutter: {
+    color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.2, shutter: true,
+  },
   // ...and a window is a wall with a hole in the middle of it. `sill` and `head`
   // are where the glass starts and stops, and they are the WHOLE difference
   // between the four glazings — see `GLAZING` in shared/edges.js. Anything that
@@ -230,6 +284,20 @@ export const EDGE_STYLE = {
   [E.DOOR_IN]: { ...EDGE_BASE.door, mark: PALETTE.markIn },
   [E.DOOR_OUT]: { ...EDGE_BASE.door, mark: PALETTE.markOut },
   [E.GATE_STAFF]: { ...EDGE_BASE.gate, mark: PALETTE.markStaff },
+  // The mark rides on the RAIL rather than on a threshold, because a curtain
+  // does not have one — the gap under it is the piece. Same argument as the
+  // painted step under a signed doorway: who a way through is for is invisible
+  // otherwise, and this is a rule you flip and then want to check.
+  [E.CURTAIN]: EDGE_BASE.curtain,
+  [E.CURTAIN_STAFF]: { ...EDGE_BASE.curtain, mark: PALETTE.markStaff },
+  // The mark goes back on the threshold here, where a curtain had to move it to
+  // the rail: a roller door is a hole you walk through the middle of, so it has
+  // a step under it exactly as a doorway does, and putting the stripe on the
+  // shutter box would hide it behind the coil from every camera angle.
+  [E.SHUTTER]: EDGE_BASE.shutter,
+  [E.SHUTTER_STAFF]: { ...EDGE_BASE.shutter, mark: PALETTE.markStaff },
+  [E.SHUTTER_IN]: { ...EDGE_BASE.shutter, mark: PALETTE.markIn },
+  [E.SHUTTER_OUT]: { ...EDGE_BASE.shutter, mark: PALETTE.markOut },
 };
 
 /** How see-through a pane of glass is. Read by the geometry and the material. */
@@ -260,6 +328,68 @@ export const GLASS = 0.35;
  * glazing authored with its sill on the deck gets the fix by construction.
  */
 const GROUND_LINE = 0.08;
+
+/**
+ * Where a curtain's strips stop, and what decides it.
+ *
+ * Not a feel number: it is the tallest thing that has to pass UNDER one. A crate
+ * riding a conveyor sits on `BELT_DECK` (0.12) and stands `CRATE_STEP` (0.31),
+ * so the top of the tallest thing a curtain must clear is 0.43 — and the point
+ * of the piece is that a run of belt carries straight on through it while a
+ * shopper cannot. Strips that grazed the box would read as the crate clipping
+ * the wall, which is the same picture as a bug in the belt.
+ *
+ * A hand's width over that, and no more. Every centimetre above this is a hole
+ * in the partition you can see the stockroom through.
+ */
+const CURTAIN_DROP = 0.5;
+
+/**
+ * How many strips one cell of curtain is cut into, and how much of the pitch
+ * each one covers.
+ *
+ * The gap is the entire reason this is geometry rather than a colour, and it is
+ * the argument `stripes` and `tufts` already make about the ground: what
+ * survives of a flat pattern at 45° across a room is its colour. Six per cell
+ * against a cell that is a metre and a half puts a strip at about the width of a
+ * real one, and 0.86 of the pitch leaves a joint you can see without leaving a
+ * window you can see the shop through.
+ */
+const CURTAIN_STRIPS = 6;
+const CURTAIN_DUTY = 0.86;
+
+/**
+ * A roller shutter that is UP, and the three numbers that say so.
+ *
+ * The picture has to carry the whole claim on its own, because nothing else
+ * does: an open roller door and a doorway are the same hole in the same wall to
+ * every rule in the game (they cost different money and that is it), so if the
+ * coil and the tracks do not read at a glance then what you have bought is a
+ * doorway at a mark-up. Same argument the painted threshold under a signed door
+ * makes about a rule you cannot otherwise see.
+ *
+ * `SHUTTER_COIL` is how far the roll hangs below the lintel and it is a
+ * headroom decision rather than a look: everything that walks through here
+ * clears `CURTAIN_DROP`, and a coil that dropped past halfway would be a
+ * doorway with a low bar across it — which reads as a shutter stuck halfway
+ * down, i.e. the one state this piece is not in.
+ *
+ * `SHUTTER_RIBS` is what makes the coil a coil. Three courses, alternating,
+ * because a single slab of grey under a lintel is a pelmet — this is `stripes`,
+ * `tufts` and the curtain's own strips making the same argument for the fourth
+ * time: what survives of a flat pattern across a room at 45° is its colour, so
+ * the banding is geometry.
+ *
+ * `SHUTTER_TRACK` is the width of the guide down each jamb. Wide enough to see
+ * from across the shop, narrow enough that a run of them does not close the
+ * opening up — and it is drawn INSIDE the cell rather than on the line between
+ * two, so a two-cell bay reads as a pair of doors rather than as one wide one.
+ * That is honest: each cell is separately a way through, and each one is
+ * separately something you can sign.
+ */
+const SHUTTER_COIL = 0.22;
+const SHUTTER_RIBS = 3;
+const SHUTTER_TRACK = 0.11;
 
 /**
  * The stack of boxes one edge is built from, bottom to top.
@@ -296,6 +426,74 @@ export function edgeBands(style) {
       // through keeps a little of the extra, because that stripe is the only
       // thing on screen saying who a door is for and it is being read edge-on.
       { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
+    ];
+  }
+  // A roller door, up: an opening's header and threshold, with the coil hung
+  // under the lintel and a track down each jamb.
+  //
+  // Deliberately built out of the opening's own two bands rather than beside
+  // them — the head and the step are the same bands at the same heights, so a
+  // roller door in a painted wall takes the paint on exactly the parts of it
+  // that are wall, and a signed one puts its stripe where a signed doorway puts
+  // it. What is added is the machinery, and every piece of that carries its own
+  // colour, which is what keeps a finish off it.
+  if (style.shutter) {
+    const head = style.h - 0.16;
+    const coil = head - SHUTTER_COIL;
+    const rib = SHUTTER_COIL / SHUTTER_RIBS;
+    const jamb = 0.5 - SHUTTER_TRACK / 2;
+    return [
+      { y0: head, y1: style.h },
+      { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
+      // The coil, inset so it sits BETWEEN the tracks rather than over them —
+      // a roll running the full width would bury the top of each guide, and the
+      // guides are half of what says "shutter" from a distance.
+      ...Array.from({ length: SHUTTER_RIBS }, (_, i) => ({
+        y0: coil + rib * i,
+        y1: coil + rib * (i + 1),
+        color: i % 2 ? PALETTE.shutterDeep : PALETTE.shutter,
+        off: 0,
+        len: 1 - SHUTTER_TRACK * 2,
+      })),
+      // ...and the two guides, which are the one thing in `edgeBands` that runs
+      // UP a cell rather than across it. `off`/`len` place a band along the
+      // wall, so a vertical member is simply a short band that is tall — no new
+      // machinery, the same way the curtain's strips ride a brick course's.
+      ...[-1, 1].map((s) => ({
+        y0: GROUND_LINE,
+        y1: head,
+        color: PALETTE.shutterTrack,
+        off: s * jamb,
+        len: SHUTTER_TRACK,
+      })),
+    ];
+  }
+  // A curtain: a rail, and strips hanging off it that stop short of the deck.
+  //
+  // The inverse of an opening — the hole is at the bottom instead of the middle
+  // — and it is the first edge whose bands do not span their cell. `off` and
+  // `len` are how a brick course already says that, so the strips ride the
+  // machinery that was there rather than teaching the renderer a second shape.
+  if (style.curtain) {
+    const drop = Math.max(GROUND_LINE, style.drop ?? CURTAIN_DROP);
+    const head = style.h - 0.1;
+    const pitch = 1 / CURTAIN_STRIPS;
+    // Who it is for, on the rail. Under the rail rather than on it, because the
+    // coping the renderer lays along the top of a capped run would sit right
+    // over it — a mark you cannot see is the whole feature unmarked.
+    const band = style.mark ? 0.05 : 0;
+    return [
+      { y0: head, y1: style.h },
+      ...(band ? [{ y0: head - band, y1: head, color: style.mark }] : []),
+      // ...and the strips hang off the BOTTOM of whatever that came to, rather
+      // than off the rail. Run up to `head` regardless and they cover the mark
+      // for most of the cell at exactly the same thickness — two coplanar faces,
+      // one depth buffer, so which one you see depends on the camera. Same
+      // artefact `GROUND_LINE` is written up for, a wall higher.
+      ...Array.from({ length: CURTAIN_STRIPS }, (_, i) => ({
+        y0: drop, y1: head - band, color: PALETTE.curtain,
+        off: -0.5 + pitch * (i + 0.5), len: pitch * CURTAIN_DUTY,
+      })),
     ];
   }
   // Glazed: sill, header, and a see-through band filling the gap. Where that gap

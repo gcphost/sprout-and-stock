@@ -206,6 +206,12 @@ export function generateLayout({
   // Placed only — a shop is never generated one, so this is always whatever
   // `budgetOf` counted and 0 for every shop that has never bought one.
   bins = 0,
+  // Placed only, both of them, for the same reason `bins` is: nothing
+  // procedural lays a conveyor, so these are always whatever `budgetOf`
+  // counted and 0 for every shop that has never built one.
+  belts = 0,
+  arms = 0,
+  sorters = 0,
   checkouts = 1,
   plots = 4,
   stations = [],
@@ -217,7 +223,7 @@ export function generateLayout({
   shell = null,
 } = {}) {
   const req = {
-    seed, shelves, freezers, warmers, bins, checkouts, plots, stations,
+    seed, shelves, freezers, warmers, bins, belts, arms, sorters, checkouts, plots, stations,
     placements: placements ?? [],
     // Walls, windows and doorways the player drew. An overlay for the same
     // reason `placements` is one: the generator rebuilds the shell from scratch
@@ -642,12 +648,15 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const plotsOut = [];
   const propsOut = [];
   const binsOut = [];
+  const beltsOut = [];
+  const armsOut = [];
+  const sortersOut = [];
   const layoutSoFar = () => ({
     w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ },
     bay, drop, break: breakRoom,
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
-    props: propsOut, bins: binsOut,
+    props: propsOut, bins: binsOut, belts: beltsOut, arms: armsOut, sorters: sortersOut,
     ground: groundOut,
     blocked,
   });
@@ -675,6 +684,9 @@ function compose(req, storeW, storeH, allowDrops = true) {
     freezer: req.freezers,
     warmer: req.warmers,
     bin: req.bins,
+    belt: req.belts,
+    arm: req.arms,
+    sorter: req.sorters,
     checkout: req.checkouts,
     plot: req.plots,
   });
@@ -825,6 +837,43 @@ function compose(req, storeW, storeH, allowDrops = true) {
       bin.piece = p.piece ?? null;
       binsOut.push(bin);
       reserve(bin.useAt);
+    } else if (p.kind === 'belt') {
+      // No `occupy`: a belt is walked over. The tile stamp is doing the work
+      // `blocked` does for everything else — it is what makes the square a
+      // conveyor, and it is what refuses the second belt on it, exactly as
+      // `T.PLOT` refuses the second bed.
+      set(p.x, p.z, T.BELT);
+      const belt = makeBelt(p.id, p.x, p.z, p.rot ?? 0);
+      belt.tier = p.tier ?? 1;
+      belt.variant = p.variant ?? '';
+      belt.piece = p.piece ?? null;
+      beltsOut.push(belt);
+      // Nothing reserved. A belt has no working spot, so there is no tile the
+      // generator has to keep clear for it.
+    } else if (p.kind === 'arm') {
+      // A loader IS a belt cell — same stamp, same non-blocking, same reason.
+      // See `FIXTURES.arm`.
+      set(p.x, p.z, T.BELT);
+      const arm = makeArm(p.id, p.x, p.z, p.rot ?? 0);
+      arm.tier = p.tier ?? 1;
+      arm.variant = p.variant ?? '';
+      arm.piece = p.piece ?? null;
+      armsOut.push(arm);
+      // Nothing occupied and nothing reserved — see `makeArm`.
+    } else if (p.kind === 'sorter') {
+      // A sorter IS a belt cell too — same stamp, same non-blocking. The only
+      // thing it has that a belt has not is a second way out, and that is read
+      // at tick time off `rot` rather than reserved here.
+      set(p.x, p.z, T.BELT);
+      const sorter = makeSorter(p.id, p.x, p.z, p.rot ?? 0);
+      sorter.tier = p.tier ?? 1;
+      sorter.variant = p.variant ?? '';
+      sorter.piece = p.piece ?? null;
+      // Whether the crew choose its branch for it. Carried across a re-flow like
+      // a shelf's `managed`, or every wall segment you drag turns the shop's
+      // sorters back on behind you.
+      sorter.auto = p.auto !== false;
+      sortersOut.push(sorter);
     } else if (p.kind === 'checkout') {
       occupy(p.x, p.z);
       const till = makeCheckout(layoutSoFar(), p.id, p.x, p.z, p.rot ?? 1, checkoutsOut);
@@ -1076,6 +1125,27 @@ function compose(req, storeW, storeH, allowDrops = true) {
        */
       bins: binsOut,
       /**
+       * The conveyor, one record per cell, and the arms that load and unload
+       * it. Both placed only — nothing generates either, so every shop that
+       * already exists opens with two empty lists and plays exactly as it did.
+       *
+       * Their own lists rather than entries in `props`: a prop is a thing that
+       * weighs nothing and is never asked a question, and both of these are
+       * ticked every frame. A belt is also not in `shelves` for a sharper
+       * reason — `makeShelf` runs everything it is handed through `shelfKind`,
+       * which normalises an unknown kind to `'shelf'`, so a belt filed there
+       * would come back from the next re-flow as shelving with bread on it.
+       */
+      belts: beltsOut,
+      arms: armsOut,
+      /**
+       * ...and the junctions. A third list rather than a flag on `belts`,
+       * because every loop that walks a run asks `conveyorsOf` and the one that
+       * decides where a crate goes has to be able to tell a two-output cell from
+       * a one-output cell without reading a field that most rows do not have.
+       */
+      sorters: sortersOut,
+      /**
        * Which design of floor is painted on each cell that has one.
        *
        * Sparse, and separate from `tiles` on purpose: `tiles` says what may
@@ -1261,6 +1331,75 @@ function makeBin(id, x, z, rot) {
     z,
     rot,
     useAt: anchorTile(x, z, rot),
+  };
+}
+
+/**
+ * One cell of conveyor.
+ *
+ * No working spot, because there is no side you stand at to use a belt — you
+ * point at the crate on it, and the crate is aimed at the way every other crate
+ * in the game is. `anchorTile` is still what says where it HANDS TO, but that
+ * is read at tick time off `rot` rather than stored, because the answer has to
+ * be re-derived every time anyway: the cell in front of a belt may hold a belt
+ * this second and an arm the next, and a stored neighbour id would be a link
+ * that survives its own target being demolished.
+ *
+ * `kind` for the reason every constructor here carries one — `pieceFor` matches
+ * on `piece` AND `kind`, so forgetting it resolves to no catalog row and every
+ * speed tier you sold silently does nothing.
+ */
+function makeBelt(id, x, z, rot) {
+  return {
+    tier: 1,
+    variant: '',
+    id,
+    kind: 'belt',
+    x,
+    z,
+    rot,
+  };
+}
+
+/**
+ * One junction of conveyor.
+ *
+ * `auto` is the only field a belt has not got: whether the crew decide its
+ * branch for it. True by default, because a sorter that does nothing until you
+ * have told it what to do is a piece you buy and then have to configure, and the
+ * shop already knows what is down each of its two lines.
+ */
+function makeSorter(id, x, z, rot) {
+  return {
+    tier: 1,
+    variant: '',
+    id,
+    kind: 'sorter',
+    x,
+    z,
+    rot,
+    auto: true,
+  };
+}
+
+/**
+ * An arm. Takes from the cell behind it, gives to the cell in front.
+ *
+ * No working spot, and that is the whole of what is worth knowing about this
+ * constructor. The two cells an arm cares about are `anchorTile(rot)` (what it
+ * gives to) and `behindTile(rot)` (what it takes from), both derived at tick
+ * time — and an `anchor` would RESERVE one of them, which is the generator
+ * keeping clear the exact square the belt or shelf being fed has to stand on.
+ */
+function makeArm(id, x, z, rot) {
+  return {
+    tier: 1,
+    variant: '',
+    id,
+    kind: 'arm',
+    x,
+    z,
+    rot,
   };
 }
 

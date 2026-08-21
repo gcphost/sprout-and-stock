@@ -114,7 +114,7 @@ its canvas and hands you the PNG. Look at it. `stock_shop` first if you want
 the shelves full rather than an empty building.
 
 **After touching `layout.js`, `shared/build.js` or an action — run `npm run verify`.**
-Twenty-three sweeps, about half a minute:
+Thirty sweeps, about a minute:
 
 - `verify:layout` generates ~100k layouts across seeds × counts and asserts the
   generator placed *exactly* what it was asked for, that every fixture has a
@@ -443,6 +443,54 @@ Twenty-three sweeps, about half a minute:
   ordinary play — that a selection of one comes back in the verb's own shape,
   with no fold, no summary and no held re-flow. It authors nothing.
 
+- `verify:belts` guards the first thing in the shop that moves goods with nobody
+  walking, and every claim in it is invisible twice over: a crate that rode a
+  conveyor and a crate a hire carried are the same box on the same shelf, and the
+  shop is the same shop afterwards either way — only the wage bill moved. Its
+  control is doubled, because two lists have to stay empty: a shop that never
+  built a belt and one that never built an arm are both the old game, and the two
+  new passes must cost them nothing. Then the claims a belt brings by being
+  GROUND rather than furniture: it stamps `T.BELT`, blocks nobody, stays walkable,
+  and — because a non-blocking fixture is invisible to `blocked` — that stamp is
+  the *only* thing refusing a second belt on the square, exactly as `T.PLOT` is
+  for two beds. Its centrepiece is **backpressure**, which is one `if` and the
+  entire texture: a belt that cannot hand on must STOP, never spill to the floor,
+  never merge with the box in front of it, and un-jam the moment the head clears —
+  a spill would bury the shop in crates while looking like it was working, and it
+  would throw away the one signal the player has. Plus the ordering, which is why
+  `beltOrder` exists at all: stepped in list order a crate crosses the shop in a
+  single tick and a belt is a teleporter with an animation on it, while stepped
+  against a snapshot a run drains like a slinky — both read as belts being broken
+  and neither is a crash. And the arm, which is where the review effort belongs:
+  it obeys the placement rule (`shelfAccepts` to probe, `pourInto` to commit) and
+  **exactly one** judgement rule, `givenUp` — asserted as a value each way, since
+  "obeys everything a hire obeys" passes every other assertion in the file. One
+  claim is about a thing not happening at all: a thousand idle ticks must open no
+  boards, because `boardFor` is not a predicate — it calls `openStack`, which
+  pushes a real priced board as a side effect of being asked, and an arm would do
+  that twenty times a second. Since step 2b it also guards who may put something
+  ON one, which is three claims about the same sentence. That a hand posts an
+  armful or a shoulder onto a cell and a **second** box is refused, which is the
+  one square in the game where "already has a crate on it" is a no. That one
+  SWING serves every side — asserted of a single swing against a shelf and a
+  freezer, because over a long run both fill either way and the difference exists
+  nowhere else. And the pair about the crew, which is doubled in both directions:
+  a stocker posts a box onto a run that serves it rather than walking it to the
+  shelf, and **never lifts one that is riding** — `unload` scores a crate off a
+  pad as a stray, which is a 1e6 bonus, so unfiltered the conveyor works
+  perfectly and is emptied by the crew it exists to replace. Its control is
+  doubled again for the same reason: no belt at all, and a belt that goes
+  NOWHERE, since a hire who read "there is a belt" rather than "the belt serves
+  this" would walk every delivery onto a dead-ended run. It authors two items,
+  two fixture rows and a worker, and removes them on exit. Since the strip
+  curtain it also guards a claim that is a PAIR and is worthless split in half:
+  that a crate rides *under* a partition a shopper cannot cross. Either half
+  alone is satisfied by a wall or by nothing — and note what it passes for
+  today, which is that nothing in `stepBelts` consults an edge at all, so the
+  crate crosses because nobody asked. That is exactly why it is written down:
+  the day a run respects the walls it passes through, the curtain has to be the
+  exception, and there would otherwise be nothing anywhere to say so.
+
 - `verify:paint` guards the same claim `verify:floor` makes about the ground,
   said about the other surface in the building — and it has to be made again
   rather than inherited, because paint goes somewhere nothing had gone before:
@@ -686,8 +734,10 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, and the modifier that demolishes whatever is under the pointer | steps 1–9, 11, 13–19 built; 10 cancelled; 12 next |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, and the roller door that is a way through whose whole feature is the picture | steps 1–9, 11, 13–21 built; 10 cancelled; 12 next |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
+| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue | steps 1–3 and 2b built; 4–6 proposed |
+| [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, and the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board | steps 1–9 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
@@ -2140,6 +2190,99 @@ what the next step was meant to be.
   balance number measured a shop that never hired and never grew, and nothing in
   the output said so. It walks the queue until something works now, and the
   numbers moved a lot when it did.
+- **`generateLayout` is called from TWO places, and only one of them is the one
+  you are looking at.** `Game.create` builds the first layout and
+  `regenerateLayout` builds every one after it, and each spells the budget
+  hand-off out by hand — `shelves: want.shelf, freezers: want.freezers, …`. So a
+  new kind added to the first call site works perfectly until the next re-flow,
+  which is the purchase itself: `compose`'s gate is
+  `if (!(budget[p.kind] > 0)) shed(p)`, and a kind the second call site never
+  mentions has a budget of 0, so it is built, charged for, and then dropped and
+  **refunded** by the re-flow that same press triggers. Money back, so nothing
+  looks stolen; what you see is the shop accepting something and then refusing
+  it. `belt` shipped that way for about ten minutes and the tell was that
+  `placeFixture` answered `{ok: true, placed: 'fx-18'}` while `layout.belts` was
+  `[]`. The general shape is the one `Game.create`'s named-field payload already
+  has: **out and back are two different pieces of code, and only one of them is
+  obvious.**
+- **A non-blocking fixture is refused a shared cell by its TILE, not by
+  `blocked`.** `plot` has always been this and `belt` is the second. `canPlace`
+  asks two questions — what the ground is made of, and whether anything stands on
+  it — and a kind with `blocks: false` never answers the second, so the only
+  thing stopping two of them on one square is that the first one's `ground` stamp
+  is no longer in `BUILDABLE_INDOOR`/`BUILDABLE_OUTDOOR`. Which means a
+  walk-over kind authored *without* a `ground` does not merely look wrong: you
+  can stack an unlimited number of them on one cell, and `verify:catalog` is what
+  catches it — every fixture must "either occupy its cell or be what the cell is
+  made of", and that assertion is a deliberate invariant rather than an accident.
+- **Only `ChannelHost` swallows a throwing message handler — Colyseus does
+  not.** `verify:host` asserts that an unknown message type and a handler that
+  throws are both survivable, and that claim is about the seam rather than about
+  the game: the try/catch is in `server/rooms/host.js`, and the Colyseus base has
+  none. So a bare identifier in a `Game` verb reached from one message is a
+  *glitch* on the web build and a **dead process** on the desktop one — which is
+  the exact divergence the seam exists to prevent, arriving as "it works on your
+  machine". `buildRun` shipped referencing `CONVEYOR_KINDS` without importing it,
+  and since every press of a conveyor tool goes through `build-run`, what it read
+  as was the server dying when you place a loader. The lesson is the sweep, not
+  the import: **a verb reached from exactly one message is a verb no sweep
+  touches**, and `verify:*` drives `Game` directly.
+- **A belt's only exit used to be a BOARD, so anything nothing wanted rode for
+  ever.** Round a loop, or parked at a dead end where nothing can reach it, since
+  the crew are told to leave a riding box alone — three frozen pizzas on a run
+  with no freezer on it is a permanent passenger and the shop looks like it is
+  working. A loader facing bare ground sets the rest of the box down on it
+  (`armDrop`, through `dropGoods` like every other setdown), which is also the
+  one thing `rot` decides on its own now that flow is derived. Three things keep
+  it from burying the floor, and each is its own failure: it is reached only
+  **after** every unit beside it has had its share, so a loader bolted to a shelf
+  never prefers the ground; the mat **stacks to `ARM_DROP_STACK` and then stops**,
+  because uncapped it is a tower for the rest of the save and a mat of one is a
+  stockroom that holds a single box; and the pickup side **skips the faced tile**
+  — three sides in, one side out, or the off-ramp is a loop that sets a box down
+  and lifts it straight back up on the next swing.
+- **A loader has no output, so flow has to be resolved for the whole layout at
+  once.** `rot` on a loader is the shelf it unloads INTO — aiming it at the shelf
+  must not break the run — so where a crate goes next is derived, and the
+  derivation cannot be done cell by cell. Two shapes were shipped and both are
+  wrong in ways that draw identically to a working belt. *Refusing to ask a
+  neighbouring loader* (its answer is derived too, so asking is circular) is
+  right for a loader with a belt on either side and wrong for every run MADE of
+  loaders — which is what an aisle becomes once each cell stocks a shelf: nobody
+  in a row of four has a feeder, nobody carries straight on, and the run bends
+  wherever rotation order points. *Asking recursively with a guard set* is worse:
+  "unknown" reads as "open", so the far end of a straight run resolves BACKWARDS
+  and the two halves meet in the middle. `conveyorFlow` is the answer — flow has
+  a source, every plain belt knows its own direction, so it is a walk FORWARD
+  from the belts and a loader reached that way has a feeder. Three consequences
+  worth keeping: **put belts on your corners**, because the last tie-break is
+  "a plain belt over another loader" and a belt is the one of the two that
+  carries information; a ring made entirely of loaders is degenerate by
+  construction and falls back to a guess; and the result is cached against
+  `L.belts`/`L.arms` by identity, so anything that *mutates* those arrays in
+  place rather than re-flowing would hand out a stale map.
+- **…and a jammed crate must drop its charge, not hold it at the brim.** A
+  hand-off is instant — the travel is drawn on the cell you land ON — so a crate
+  that arrives with its clock already at `per` moves again on the very next tick.
+  A crate queued behind another is blocked *every* time it lands, so it jumps
+  cell to cell for ever while the box in front of it glides. Three boxes on a
+  loop, one of them smooth, and it reads as the other two being drawn wrong
+  rather than as a queue. A cleared jam costs one cell-time per box, which is
+  what a conveyor draining looks like and is the thing being bought.
+- **…and a crate riding a belt is a STRAY as far as `unload` is concerned, which
+  is a 1e6 bonus.** `stockCrates()` is deliberately the whole list — `homeSupply`
+  counts a box on a conveyor as supply the shop already owns, `binOrphans` sweeps
+  it, spoilage ages it, and every one of those is right about a crate wherever it
+  is. A hire is the one reader for which it is not: `onAPad` is false for a box
+  in transit, and `unload` scores `stray * 1e6 + moves`, so every stocker in the
+  shop abandons the bay and beelines for whatever is going past. The belt would
+  work perfectly and be emptied by the crew it exists to replace, and what you
+  would watch is staff doing their jobs. `floorCrates()` is "a crate anybody may
+  walk up to and lift" and the five job sites that LIFT ask it; everything that
+  COUNTS goes on asking `stockCrates`. The general shape is the one `inACar`
+  has: **a list whose membership used to imply a fact stops implying it the
+  moment something can be in it for a new reason**, and none of the old readers
+  looks wrong afterwards.
 - **Fixture ids live in two namespaces.** The generator mints `shelf-p0`,
   `till-p0`…; anything the player positioned keeps an `fx-N` id. They must never
   collide, or a re-flow hands a shelf someone else's stock.

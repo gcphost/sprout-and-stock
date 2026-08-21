@@ -58,6 +58,33 @@ export const E = {
   WINDOW_BAY: 11,
   /** A strip up under the lintel: light, no view. What a stockroom gets. */
   WINDOW_HIGH: 12,
+  // A curtain, which is a way through you do not open. The hanging plastic strips
+  // that divide a warehouse: goods go under it, people push through it, and it
+  // ends a hand's width above the deck so a crate on a conveyor never touches it.
+  // Two kinds for the same reason a doorway has four — see WAYS.
+  /** Strips everybody pushes through. */
+  CURTAIN: 13,
+  /** ...and the one you actually buy: shoppers treat it as a wall. */
+  CURTAIN_STAFF: 14,
+  // A roller shutter, rolled up. The way into a loading bay: a full-height
+  // opening with the slats coiled under the lintel and a track down either
+  // jamb. Four kinds for the same reason a doorway has four — it encloses, so
+  // it has an in and an out to be one-way about.
+  //
+  // There is deliberately no SHUT one. A shutter that is down is not a way
+  // through at all — it is a wall with slats on it — so it would be a *look*,
+  // and a look is the axis `GLAZING` has and `WAYS` does not. Adding it here
+  // would be a kind that is passable in the table and impassable in the
+  // picture, which is the disagreement every green-ghost bug in this codebase
+  // is made of.
+  /** A garage bay door, open. */
+  SHUTTER: 15,
+  /** ...and the one a delivery bay usually wants. */
+  SHUTTER_STAFF: 16,
+  /** In only. */
+  SHUTTER_IN: 17,
+  /** Out only. */
+  SHUTTER_OUT: 18,
 };
 
 /**
@@ -69,34 +96,70 @@ export const E = {
  * representation stays one array lookup, because `SOLID.has(edgeBetween(...))`
  * is in the inner loop of A* and runs a few thousand times per path.
  *
- * `base` is what it is built out of — which decides enclosure, price and how it
- * draws. `rule` is who may cross:
+ * `base` is what it is built out of — which decides price and how it draws.
+ * `rule` is who may cross:
  *
  *   all    everybody, which is what a doorway has always been
  *   staff  you and whoever works for you. A shopper treats it as a wall.
  *   in     a shopper may cross it into the shop, never back out
  *   out    the other way round
  *
- * There is deliberately no GATE_IN/GATE_OUT. Which way is "in" is read off the
- * enclosure rather than stored (see `shopperCanCross`), and a fence never
- * encloses — so a one-way gate would be a rung that changes no number, which
- * is the trap CLAUDE.md names about tiers. Staff-only needs no direction and so
- * a gate gets that one.
+ * ...and `roofs` is whether this is part of the enclosure, which used to be read
+ * off `base === 'door'` in the one line that builds `ENCLOSING`. That was true
+ * while a doorway was the only opening that made a room, and it is the shape
+ * CLAUDE.md names twice — a predicate written against the only member of a
+ * category silently excludes the second one, in whichever file adds it. A
+ * curtain roofs and a gate does not, and neither of those is derivable from the
+ * word "door".
+ *
+ * There is deliberately no GATE_IN/GATE_OUT, and no one-way CURTAIN. Which way
+ * is "in" is read off the enclosure rather than stored (see `shopperCanCross`),
+ * and a fence never encloses — so a one-way gate would be a rung that changes no
+ * number, which is the trap CLAUDE.md names about tiers. A curtain refuses it for
+ * a different reason and the honest one: strips you push through both ways have
+ * no direction in them, so a one-way curtain would be a rule with no picture.
+ * Staff-only needs no direction, so both of them get that one.
  */
 export const WAYS = new Map([
-  [E.DOOR, { base: 'door', rule: 'all' }],
-  [E.DOOR_STAFF, { base: 'door', rule: 'staff' }],
-  [E.DOOR_IN, { base: 'door', rule: 'in' }],
-  [E.DOOR_OUT, { base: 'door', rule: 'out' }],
-  [E.GATE, { base: 'gate', rule: 'all' }],
-  [E.GATE_STAFF, { base: 'gate', rule: 'staff' }],
+  [E.DOOR, { base: 'door', rule: 'all', roofs: true }],
+  [E.DOOR_STAFF, { base: 'door', rule: 'staff', roofs: true }],
+  [E.DOOR_IN, { base: 'door', rule: 'in', roofs: true }],
+  [E.DOOR_OUT, { base: 'door', rule: 'out', roofs: true }],
+  [E.GATE, { base: 'gate', rule: 'all', roofs: false }],
+  [E.GATE_STAFF, { base: 'gate', rule: 'staff', roofs: false }],
+  [E.CURTAIN, { base: 'curtain', rule: 'all', roofs: true }],
+  [E.CURTAIN_STAFF, { base: 'curtain', rule: 'staff', roofs: true }],
+  [E.SHUTTER, { base: 'shutter', rule: 'all', roofs: true }],
+  [E.SHUTTER_STAFF, { base: 'shutter', rule: 'staff', roofs: true }],
+  [E.SHUTTER_IN, { base: 'shutter', rule: 'in', roofs: true }],
+  [E.SHUTTER_OUT, { base: 'shutter', rule: 'out', roofs: true }],
 ]);
 
-/** Which rules each sort of opening can be given, in the order a menu lists them. */
+/**
+ * Which rules each sort of opening can be given, in the order a menu lists them.
+ *
+ * A curtain's list is the only one that does not lead with `all`, and that is the
+ * one place the order means something: the first entry is what the palette button
+ * lays. Nobody hangs strips across their stockroom door so that shoppers can walk
+ * through it — the whole reason to buy one is that they cannot — so a curtain that
+ * arrived open would be a tool that does the opposite of the thing on its label
+ * until you tapped every segment you had just dragged.
+ */
 export const WAY_RULES = {
   door: ['all', 'staff', 'in', 'out'],
   gate: ['all', 'staff'],
+  curtain: ['staff', 'all'],
+  // ...and a shutter leads with `all` rather than with `staff`, which is the
+  // curtain's argument coming out the other way. A curtain is bought *because*
+  // shoppers cannot use it. A roller door is bought because it is a big hole —
+  // it is the front of a workshop as often as it is the back of a stockroom —
+  // so which side of it the town is on is a thing you decide after it is up,
+  // the way you do about a doorway.
+  shutter: ['all', 'staff', 'in', 'out'],
 };
+
+/** What the palette lays when you drag this sort of opening out. */
+export const wayDefault = (base) => wayKind(base, WAY_RULES[base]?.[0] ?? 'all');
 
 /** What sort of opening this is, or null for anything that isn't one. */
 export const wayBase = (kind) => WAYS.get(kind)?.base ?? null;
@@ -228,10 +291,16 @@ export const SOLID = new Set([E.WALL, E.FENCE, ...GLAZING.keys()]);
  *
  * A FENCE is deliberately absent, and so is every gate. Fencing a field must
  * never roof it.
+ *
+ * Which of the two an opening is comes off `roofs` on its own row rather than
+ * off its `base`, because a curtain is the third answer and reads like neither:
+ * it is a hole in the wall that shoppers cannot use, and it has to make a room
+ * or hanging one across your aisle would take the roof off the whole shop —
+ * enclosure being all-or-nothing.
  */
 export const ENCLOSING = new Set([E.WALL,
   ...GLAZING.keys(),
-  ...[...WAYS].filter(([, w]) => w.base === 'door').map(([kind]) => kind)]);
+  ...[...WAYS].filter(([, w]) => w.roofs).map(([kind]) => kind)]);
 
 /**
  * Openings with a rule on them — the ones that are not a way through for

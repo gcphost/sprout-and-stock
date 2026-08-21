@@ -12,7 +12,8 @@
  * there, including two things nobody would think to write down by hand:
  *
  *   - **a tier that changes no number.** `capacity_mult`, `keeps_mult`,
- *     `speed_mult` and `unattended` are the only knobs the sim reads, so a rung
+ *     `speed_mult`, `unattended`, `lines` and `covers` are the only knobs the
+ *     sim reads, so a rung
  *     that moves none of them and costs money is a button that takes your cash
  *     and does nothing. They are flagged rather than hidden, because sometimes
  *     it is deliberate — the till ladder was priced at 0 for exactly this
@@ -104,6 +105,11 @@ function tierLines(row) {
       // hopper and the picker all read. A Twin rung printed as "no effect" would
       // be this file calling the feature it documents dead.
       (t.lines ?? 1) > 1 ? `makes ${t.lines} at a time` : null,
+      // ...and the sixth, which is the one that retires the whole ladder above
+      // it: a rung with `covers` is not a faster till, it is a shop that stops
+      // having queues. Printed as a count because that is what it is — how many
+      // shoppers it reads cleanly before shrinkage starts climbing.
+      (t.covers ?? 0) > 0 ? `bills ${t.covers} at once, no queue` : null,
     ].filter(Boolean);
     // Tier 1 is what a new one already is, so it is exempt: it costs 0 and is
     // supposed to move nothing.
@@ -342,7 +348,7 @@ const dead = [];
 for (const r of rows) {
   (r.tiers ?? []).forEach((t, i) => {
     const flat = [t.capacity_mult, t.keeps_mult, t.speed_mult].every((m) => m == null || m === 1)
-      && !t.unattended && (t.lines ?? 1) <= 1;
+      && !t.unattended && (t.lines ?? 1) <= 1 && (t.covers ?? 0) <= 0;
     if (i > 0 && flat && (t.cost ?? 0) > 0) dead.push(`\`${r.id}\` → **${t.name}** (${money(t.cost)})`);
   });
 }
@@ -371,7 +377,8 @@ md.push('');
 
 if (dead.length) {
   md.push('> ⚠️ **Tiers that change no number.** `capacity_mult`, `keeps_mult`,');
-  md.push('> `speed_mult`, `unattended` and `lines` are the only knobs the sim reads, so');
+  md.push('> `speed_mult`, `unattended`, `lines` and `covers` are the only knobs the sim');
+  md.push('> reads, so');
   md.push('> these rungs take money and');
   md.push('> do nothing. Sometimes deliberate — the till ladder is priced at 0 because');
   md.push('> nothing reads a till\'s speed yet — but a *paid* one is a bug:');

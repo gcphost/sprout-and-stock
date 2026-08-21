@@ -229,6 +229,58 @@
     ]
   },
   {
+    "id": "space-3",
+    "name": "North Paddock",
+    "description": "Three more rows behind the shop, where the yard is — the one direction the map could not grow until now. The whole world slides south and the new rows become the back. Nothing you built moves relative to anything else: walls, paint, pads and crates all go together.",
+    "cost": 1200,
+    "kind": "space",
+    "payload": {
+      "north": 6
+    },
+    "requires": [
+      "space-2"
+    ]
+  },
+  {
+    "id": "space-4",
+    "name": "West Paddock",
+    "description": "Three more columns down the west flank, the mirror of the east strip and the same trick as the north one — the world slides east and the new ground appears on the left. Ground to wall, floor, farm and pave; nothing is built for you.",
+    "cost": 1500,
+    "kind": "space",
+    "payload": {
+      "west": 3
+    },
+    "requires": [
+      "space-2"
+    ]
+  },
+  {
+    "id": "space-5",
+    "name": "Back Field",
+    "description": "Five more rows behind the North Paddock — room for a proper yard, a second dock, a stockroom annex or a block of beds out of sight of the street. The deepest single piece of land the shop can buy.",
+    "cost": 2600,
+    "kind": "space",
+    "payload": {
+      "north": 12
+    },
+    "requires": [
+      "space-3"
+    ]
+  },
+  {
+    "id": "space-6",
+    "name": "The Back Forty",
+    "description": "Twenty more rows behind the Back Field — enough to put the whole shop somewhere else and still have a yard. The last piece of land on the map.",
+    "cost": 6000,
+    "kind": "space",
+    "payload": {
+      "north": 20
+    },
+    "requires": [
+      "space-5"
+    ]
+  },
+  {
     "id": "staff-chef",
     "name": "Hire a Chef",
     "description": "Works the appliances: gathers ingredients, makes the products, shelves them.",

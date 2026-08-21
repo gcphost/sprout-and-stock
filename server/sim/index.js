@@ -20,7 +20,7 @@ import {
   generateLayout, defaultPads, defaultStreet, defaultAwning, buildWalkGrid, isWalkable, carLanes, T,
 } from '../layout.js';
 import {
-  E, SOLID, edgeBetween, edgeFamily, edgeCharm,
+  E, SOLID, edgeBetween, edgeFamily, edgeCharm, wayDefault, shopperCanCross,
 } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
@@ -38,10 +38,11 @@ import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { difficultyOf } from '../../shared/difficulty.js';
 import { cleanName } from '../../shared/names.js';
 import { makeNamer } from './names.js';
-import { stepStaff, syncStaff, breakProgress, carryOf } from './staff.js';
+import { stepStaff, syncStaff, breakProgress, carryOf, givenUp } from './staff.js';
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import {
-  FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND,
+  FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
+  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, beltRunCells, BELT_RUN_MAX, CONVEYOR_KINDS,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
@@ -220,6 +221,17 @@ const EDGE_COST = {
   // choosing a shopfront is a balance change and `simulate` has to be re-run over
   // a picture. It is also what makes reglazing free — see the refit below.
   [E.WINDOW_FULL]: 26, [E.WINDOW_BAY]: 26, [E.WINDOW_HIGH]: 26,
+  // A curtain is cheaper than the doorway it stands in for and dearer than the
+  // wall it interrupts, which is the shape of what it is: less build than an
+  // opening, more than a partition. Both rules at one price, the way a signed
+  // doorway is — the refit in `buildEdge` is what makes opening one up and
+  // shutting it again cost nothing.
+  [E.CURTAIN]: 22, [E.CURTAIN_STAFF]: 22,
+  // A roller door is the dearest thing you can put in a wall, and it should be:
+  // it is a doorway plus the widest hole the shell can have plus the gear to
+  // hold it up. All four rules at one price, the way a signed doorway is — the
+  // refit in `buildEdge` is what makes signing one and unsigning it free.
+  [E.SHUTTER]: 46, [E.SHUTTER_STAFF]: 46, [E.SHUTTER_IN]: 46, [E.SHUTTER_OUT]: 46,
 };
 const EDGE_LABEL = {
   [E.WALL]: 'a wall', [E.WINDOW]: 'a window', [E.DOOR]: 'a doorway',
@@ -228,6 +240,9 @@ const EDGE_LABEL = {
   [E.DOOR_OUT]: 'an exit', [E.GATE_STAFF]: 'a staff gate',
   [E.WINDOW_FULL]: 'a shopfront', [E.WINDOW_BAY]: 'a bay window',
   [E.WINDOW_HIGH]: 'a high window',
+  [E.CURTAIN_STAFF]: 'a strip curtain', [E.CURTAIN]: 'an open strip curtain',
+  [E.SHUTTER]: 'a roller door', [E.SHUTTER_STAFF]: 'a staff roller door',
+  [E.SHUTTER_IN]: 'a roller entrance', [E.SHUTTER_OUT]: 'a roller exit',
 };
 const PLAYER_SPEED = 4.2;      // tiles/sec
 const CUSTOMER_SPEED = 2.2;
@@ -885,6 +900,87 @@ const MOOD_REP = 0.25;
 const STORM_SPEED = 1.6;
 
 /**
+ * How much faster than an ordinary walk somebody leaving with your stock goes.
+ *
+ * Deliberately a hair above `STORM_SPEED`, so a thief reads as *running* next
+ * to the shopper who merely gave up on you — the two are the same picture
+ * otherwise, both crossing the shop toward the door at a clip, and step 2's
+ * whole job is making one of them tell itself apart from the other.
+ *
+ * The real constraint is step 3's: this must land between a player's walk and a
+ * player's sprint. Change it and the chase either cannot be lost or cannot be
+ * won, and neither of those is visible in anything short of playing it.
+ */
+const THIEF_SPEED = 2.1;
+
+/**
+ * The chase, in four numbers — see docs/security.md step 3.
+ *
+ * The one that decides whether any of this is a game is the relationship
+ * between `THIEF_SPEED` above and these: a thief runs at `CUSTOMER_SPEED *
+ * 2.1` = 4.62, a player WALKS at `PLAYER_SPEED` 4.2 and sprints at 6.72. So
+ * strolling after somebody loses ground, slowly, and sprinting closes about two
+ * tiles a second.
+ *
+ * It shipped the other way round for about ten minutes and was completely
+ * broken in a way nothing would have reported: at 1.75 a thief moved at 3.85
+ * against a 4.2 walk, so you caught every one of them without pressing
+ * anything, and the sprint, the stamina and the whole of step 3 were decoration
+ * on a chase that could not be lost. Anything that retunes either speed has to
+ * re-check the pair — `verify:theft` drives a real chase rather than comparing
+ * the constants, precisely so it cannot be satisfied by two numbers that look
+ * sensible apart.
+ *
+ * `STAMINA_REST` is the beat before it starts coming back, and it is what stops
+ * a tapped sprint key being free: without it the cheapest way to chase anybody
+ * is to stutter the key and never spend a thing.
+ */
+const SPRINT_SPEED = 1.6;
+const STAMINA_DRAIN = 0.25;   // full bar = 4s of running
+const STAMINA_REGEN = 0.14;   // ...and about 7s to get it back
+const STAMINA_REST = 0.8;     // seconds after letting go before it refills
+
+/**
+ * How much of the bar you have to get back before you may sprint again, once
+ * you have run yourself flat.
+ *
+ * Without it an empty bar is not empty for any length of time: the rest beat
+ * passes, a sliver regenerates, and that sliver buys exactly one sprinting
+ * tick before it is spent again. What that produces is a player who strobes
+ * between running and walking several times a second — which reads as the
+ * sprint key being broken rather than as being out of puff, and it is not
+ * visible in the bar, because the bar is sat on the floor the whole time
+ * either way. Found by `verify:theft` rather than by eye, which is the only
+ * way it was ever going to be found.
+ */
+const STAMINA_FLOOR = 0.3;
+
+/**
+ * How close you have to be, and how long before you can do it again.
+ *
+ * A range rather than a reach, because a tazer that needed `UNLOAD_REACH` would
+ * be a tackle — and the whole shape of the chase is that you close the gap and
+ * then take the shot, rather than close the gap and then touch them.
+ *
+ * The cooldown is the only one in the game: every other action in here is a
+ * DURATION, a ring you hold down. A hold is exactly wrong mid-sprint — half a
+ * second stood still is a thief two tiles further away, so the gesture would
+ * lose every chase it was used in. What stops it being spam is the wait
+ * afterwards instead.
+ */
+/**
+ * How much one guard on the payroll is worth against `steal_chance`.
+ *
+ * One guard roughly halves it, two take it to a third, three to a quarter —
+ * `1 / (1 + n)`, which is the shape that keeps the fourth hire from being a
+ * rounding error AND keeps the mechanic alive at any headcount.
+ */
+const GUARD_DETER = 1.0;
+
+const TAZE_RANGE = 2.6;
+const TAZE_COOLDOWN = 2.5;
+
+/**
  * How cross someone looks, 0..1. Derived here rather than on the client so the
  * renderer and the sim can't drift on what "cross" means — the same mistake
  * `shared/build.js` exists to prevent for the build ghost.
@@ -1009,13 +1105,45 @@ const ACTION_TIMES = {
 const AUTO_SERVE_TIME = 1.5;
 
 /**
+ * What a walk-out shop loses, and the two numbers that shape the whole rung.
+ *
+ * `WALKOUT_MISS` is the share of basket LINES the sensors fail to bill when the
+ * shop is carrying exactly as many people as it has `covers` for. Below that it
+ * scales down proportionally — a quiet shop is very nearly perfect, which is
+ * what makes the thing feel like magic the day you buy it — and above it, it
+ * keeps climbing to `WALKOUT_MISS_MAX`.
+ *
+ * Per LINE rather than per basket, because a system that misses things misses
+ * *things*: what the shop loses is a named item somebody walked out with, which
+ * is something a player can be told and be annoyed about. A flat haircut off the
+ * total is a percentage, and nobody has ever been annoyed at a percentage.
+ *
+ * The cap is not a kindness. Uncapped, a shop that gets briefly slammed bills
+ * almost nothing, which reads as the sensors having broken rather than as being
+ * overloaded — and a mechanic that looks broken when it is working hardest is
+ * one nobody trusts enough to buy.
+ */
+const WALKOUT_MISS = 0.08;
+const WALKOUT_MISS_MAX = 0.4;
+
+/** Share of the day's takings a shop has to lose before it is told to buy more. */
+const WALKOUT_NAG = 0.03;
+
+/**
  * What a fixture costs when its catalog row doesn't say.
  *
  * A floor rather than a price list: a kind is buildable whether or not anybody
  * has drawn one, and a shelf that fell out of the catalog must not become free
  * shelving. Content is what actually prices things — see `fixtureUnitCost`.
  */
-const FALLBACK_FIXTURE_COST = { shelf: 60, freezer: 260, checkout: 300, plot: 40, station: 200 };
+const FALLBACK_FIXTURE_COST = {
+  shelf: 60, freezer: 260, checkout: 300, plot: 40, station: 200,
+  // A belt is bought by the RUN — twenty of them to cross a shop — so the
+  // per-cell floor has to be small enough that laying one is a decision about
+  // the floor plan rather than about the money. The arm is where the price is,
+  // because an arm is the thing that actually replaces a pair of hands.
+  belt: 25, arm: 180, sorter: 140,
+};
 
 /** How much of a fixture's price a discount deal may ever take off. */
 const MAX_FIXTURE_DISCOUNT = 0.6;
@@ -1598,6 +1726,9 @@ export class Game {
       freezers: want.freezer,
       warmers: want.warmer ?? 0,
       bins: want.bin ?? 0,
+      belts: want.belt ?? 0,
+      arms: want.arm ?? 0,
+      sorters: want.sorter ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       stations: want.stations,
@@ -2490,6 +2621,14 @@ export class Game {
       players: Object.values(this.players).map((p) => ({
         id: p.id, name: p.name, x: r2(p.x), z: r2(p.z), facing: r2(p.facing),
         carry: p.carry, color: p.color, staff: p.staff ?? null,
+        // The chase, for whoever is running it. Only ever sent for a human —
+        // staff have `energy`, which is a different resource on a different
+        // clock (see docs/security.md step 3), and sending both would invite
+        // exactly the confusion the split exists to prevent. Omitted entirely
+        // at full and ready, so an ordinary frame in a shop nobody is chasing
+        // anybody in is the size it always was.
+        ...(!p.staff && (p.stamina ?? 1) < 1 ? { stamina: r2(p.stamina) } : {}),
+        ...(!p.staff && (p.tazeCooldown ?? 0) > 0 ? { tazeIn: r2(p.tazeCooldown) } : {}),
         // A crate on the shoulder. Its own field rather than a flag on `carry`
         // so every existing reader — the ghost of where an armful could go, the
         // HUD, the props — keeps answering about hands and never has to learn
@@ -2609,6 +2748,12 @@ export class Game {
         // armful, so a shop with no kits authored looks exactly as it did.
         kit: this.kitOf(c),
         mood: r2(c.mood), anger: r2(angerOf(c)), want: c.wantHint ?? null,
+        // Whether this is the one to run after. On the wire rather than derived
+        // from `state`, because a thief IS a `LEAVE` — that is the whole design
+        // (see `stealAway`) — so the client has no other way to tell them from
+        // somebody who simply finished shopping. Omitted entirely when false,
+        // which keeps every frame in an honest shop the size it already was.
+        ...(c.stole ? { stole: true } : {}),
       })),
       shelves: this.layout.shelves.map((s) => ({
         id: s.id, kind: s.kind,
@@ -2693,6 +2838,21 @@ export class Game {
         // — every crate in every existing shop is stock, and a `false` on all
         // of them is bytes at 10Hz saying nothing.
         ...(d.waste ? { waste: true } : {}),
+        // Riding a conveyor. Sent for the same reason and on the same terms as
+        // `waste` — only when true, because every crate in every shop that has
+        // never built a belt is on the floor.
+        //
+        // The renderer needs it rather than being able to work it out: it piles
+        // crates by rounded tile and derives height from the level in the pile,
+        // so a box on a belt would be filed into whatever tower happens to share
+        // its square and drawn sitting on the floor under it.
+        // ...and it is the CELL's id rather than a bare true, because a loader
+        // with a box on it is a loader that is working, and that is what its
+        // lamp is wired to. A boolean would leave the renderer matching crates
+        // to cells by rounded position — which is exactly wrong mid-hand-off,
+        // when a box is drawn between two of them and neither rounding is a lie
+        // you would want a light blinking on.
+        ...(d.belt ? { belt: d.belt } : {}),
       })),
       /**
        * How many a crate holds, so the renderer can draw one as full when it
@@ -3092,6 +3252,13 @@ export class Game {
     // advanced, and the drive from the edge of the map is a thing with wheels
     // that must not go six times faster at night.
     this.stepOrders(dt);
+    // The conveyor, immediately after the van and before anybody with legs, for
+    // the reason the note above gives about deliveries: a crate has to be where
+    // it actually IS before a stocker looks for one, or every hire in the shop
+    // spends the tick walking to a box that has already moved on.
+    this.stepBelts(dt);
+    this.stepArms(dt);
+
     this.stepPlayers(dt);
     // The *world's* delta, not the tick's: a roofed bed holds its clock still by
     // moving `plantedAt` along with `elapsed`, and `elapsed` runs on the scaled
@@ -3237,6 +3404,25 @@ export class Game {
       ? `, ${this.stats.turnedAway} turned away at the door`
       : '';
     this.pushLog(`Day ${this.day} — ${this.season}. Yesterday: $${this.stats.revenue.toFixed(2)} in, ${this.stats.sold} sold, ${this.stats.abandoned} walked out${turned}.`);
+    // ...and its own line rather than a clause on that one, because it is the
+    // only number in the day that names something to BUY. Named by the worst
+    // item, since "3.4% shrinkage" is a figure and "9x Frozen Pizza" is a
+    // grievance — and the second one is what gets somebody to put another
+    // sensor in. Silent on a day that lost nothing, so a shop inside its cover
+    // never reads a zero to find that out.
+    if (this.stats.unbilled > 0) this.pushLog(this.saidUnbilled(this.stats));
+    // ...and the other set of books. Its own line beside the sensors' rather
+    // than folded into a single "shrinkage" total, because the two prescribe
+    // opposite things — one says buy another sensor and the other says somebody
+    // walked out of your shop with your bread. Netted, neither gets said.
+    if (this.stats.stolen > 0) {
+      const items = content().byId.items;
+      const [id, qty] = Object.entries(this.stats.stolenItems)
+        .reduce((a, b) => (b[1] > a[1] ? b : a), ['', 0]);
+      const worst = id ? ` Mostly ${qty}x ${items[id]?.name ?? id}.` : '';
+      this.pushLog(`$${this.stats.stolenValue.toFixed(2)} was stolen — `
+        + `${this.stats.stolen} unit${this.stats.stolen === 1 ? '' : 's'} out the door.${worst}`);
+    }
     // Hand the finished day to whoever is watching (the balance runner reads
     // this, since `stats` is about to be wiped for the new day).
     this._lastDayStats = this.stats;
@@ -3731,6 +3917,13 @@ export class Game {
     // A snapshot, because the loop pushes onto the list it is walking.
     for (const d of [...this.deliveries]) {
       if (lotTotal(d) <= cap) continue;
+      // Never on a conveyor. This peels the excess onto the SAME tile as a
+      // pile, and one cell of belt holds exactly one crate — so a split here
+      // would put two boxes on a square the belt pass can only ever move one of,
+      // and the second would sit there for the rest of the save. Nothing can
+      // overfill a belt anyway: everything that loads one is bounded by
+      // `crateLot`, so this is a guard rather than a case.
+      if (d.belt) continue;
       // Down to the brim, biggest pile first — `lotSweep`'s ordering, and for
       // its reason: it levels the box rather than emptying it in arrival order,
       // so what is left is the box a glance would have expected.
@@ -3874,6 +4067,36 @@ export class Game {
       const { dx = 0, dz = 0 } = p.input ?? {};
       const steering = dx !== 0 || dz !== 0;
 
+      /**
+       * Stamina, which is spent only while actually running somewhere.
+       *
+       * Held down standing still it costs nothing on purpose: the bar is for
+       * closing a gap, and a player who drained it by leaning on a key in an
+       * empty shop would arrive at the one moment it matters with none of it.
+       * The rest beat runs on the same clock rather than a stamp, because
+       * `elapsed` restarts at zero on every load — the trap `plantedAt` and
+       * `yieldedAt` are already written around.
+       */
+      const wantsSprint = !!(p.input?.sprint) && steering;
+      // Run yourself flat and you are winded until a real chunk of the bar is
+      // back — see `STAMINA_FLOOR`. Cleared on the way UP rather than on the
+      // way down, which is what makes it hysteresis rather than a second
+      // threshold: cleared at the same number it is set at, the strobe simply
+      // moves to that number.
+      if ((p.stamina ?? 1) <= 0) p.winded = true;
+      else if (p.winded && p.stamina >= STAMINA_FLOOR) p.winded = false;
+
+      const canSprint = wantsSprint && !p.winded && (p.stamina ?? 1) > 0;
+      if (canSprint) {
+        p.stamina = Math.max(0, (p.stamina ?? 1) - STAMINA_DRAIN * dt);
+        p.staminaRest = STAMINA_REST;
+      } else {
+        p.staminaRest = Math.max(0, (p.staminaRest ?? 0) - dt);
+        if (p.staminaRest <= 0) p.stamina = Math.min(1, (p.stamina ?? 1) + STAMINA_REGEN * dt);
+      }
+      p.sprinting = canSprint;
+      if (p.tazeCooldown > 0) p.tazeCooldown = Math.max(0, p.tazeCooldown - dt);
+
       // Steering outranks a walk order, always, and cancels it on the first
       // frame of input rather than fighting it. A key that only slowed the
       // route down would read as the game ignoring you — and this is the whole
@@ -3898,7 +4121,10 @@ export class Game {
       // magnitude instead of snapping everyone to full sprint. Keys send a unit
       // vector and are unaffected.
       const throttle = Math.min(1, len);
-      const speed = PLAYER_SPEED * this.speedMult() * throttle;
+      // Sprint multiplies the walk rather than replacing it, so boots still help
+      // — which is the one bit of emergent generosity in the chase: an upgrade
+      // bought to cross the shop faster turns out to catch shoplifters too.
+      const speed = PLAYER_SPEED * this.speedMult() * throttle * (canSprint ? SPRINT_SPEED : 1);
       const nx = p.x + (dx / len) * speed * dt;
       const nz = p.z + (dz / len) * speed * dt;
 
@@ -4508,15 +4734,22 @@ export class Game {
       // A box, or an armful — same target, same verb, and the only differences
       // are how long it takes and what the label says. Both end as a crate on
       // that tile, because a crate is the only thing goods on the floor are.
+      // ...and a conveyor cell is a tile like any other as far as the errand is
+      // concerned — the verb is the same and only the label changes. Said here
+      // because the ring names what is about to happen, and "Put it down" over a
+      // belt is the one square in the shop where that sentence is wrong.
+      const onBelt = !!conveyorAt(this.layout, e.x, e.z);
       if (!p.haul) {
         return {
-          kind: 'setdown', target: 'ground', label: 'Put it down', time: ACTION_TIMES.stow,
+          kind: 'setdown', target: 'ground', time: ACTION_TIMES.stow,
+          label: onBelt ? 'Put it on the belt' : 'Put it down',
           at: { x: e.x, z: e.z },
           run: () => spend(() => this.dropCarry(p.id, e.x, e.z)),
         };
       }
       return {
-        kind: 'setdown', target: 'ground', label: 'Set it down', time: ACTION_TIMES.crate,
+        kind: 'setdown', target: 'ground', time: ACTION_TIMES.crate,
+        label: onBelt ? 'Set it on the belt' : 'Set it down',
         at: { x: e.x, z: e.z },
         run: () => spend(() => this.dropCrate(p.id, e.x, e.z)),
       };
@@ -6512,10 +6745,109 @@ export class Game {
     if (!down && p.action) p.action.elapsed = 0;
   }
 
-  setInput(id, dx, dz) {
+  setInput(id, dx, dz, sprint = false) {
     const p = this.players[id];
     if (!p) return;
-    p.input = { dx: clamp(dx, -1, 1), dz: clamp(dz, -1, 1) };
+    // Sprint rides on the movement message rather than getting one of its own,
+    // because it is a property of THIS steering rather than a mode you switch
+    // on: the key going up has to reach the server in the same breath the
+    // direction does, or letting go of both leaves somebody sprinting on the
+    // last vector until the next frame.
+    p.input = { dx: clamp(dx, -1, 1), dz: clamp(dz, -1, 1), sprint: !!sprint };
+  }
+
+  /**
+   * Stop a thief — see docs/security.md step 3.
+   *
+   * Named rather than proximity, like every other verb that touches goods: the
+   * shop floor at the end of a chase has your staff, the shopper who was in the
+   * way and the person you are actually after all inside a couple of tiles, and
+   * "the nearest one" is nobody's choice. `aimPerson` on the client already
+   * answers which person you pointed at and settles it on `pointermove`, so
+   * somebody crossing under a still pointer cannot steal the shot.
+   *
+   * The goods come back as an ordinary pallet through `dropGoods`, never
+   * straight onto a shelf. Three reasons, and the third is the real one: there
+   * is exactly one "goods on the floor" object in this game and inventing a
+   * second is the mistake that function exists to prevent; a crate is a receipt
+   * you can see from across the shop, where a restocked shelf is invisible; and
+   * a stocker will tidy it away for free, which is a job that already exists.
+   *
+   * They stay marked afterwards. `stole` is never cleared, so a released thief
+   * cannot be re-rolled into an honest shopper on their way out — and the mark
+   * is what step 4's guard will read to know who to keep an eye on.
+   */
+  taze(playerId, custId) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if ((p.tazeCooldown ?? 0) > 0) return err('the tazer is still charging');
+
+    const cust = this.customers[custId];
+    if (!cust) return err('nobody there');
+    if (!cust.stole) return err('they have not taken anything');
+    if (!(cust.bought?.length > 0)) return err('they are already empty-handed');
+    if (Math.hypot(cust.x - p.x, cust.z - p.z) > TAZE_RANGE) return err('too far away');
+
+    // Charged whatever happens next, so a miss costs the same as a hit — the
+    // cooldown is the price of the shot, not of the outcome.
+    p.tazeCooldown = TAZE_COOLDOWN;
+
+    const { recovered, said } = this.catchThief(cust, p);
+    return ok({ caught: cust.id, recovered, said });
+  }
+
+  /**
+   * What actually happens when somebody is stopped — shared by your tazer and
+   * by a guard on the payroll.
+   *
+   * Split out the moment there were two callers rather than left inside `taze`,
+   * because the two differ ONLY in how they decide they may do it: you need
+   * range and a charged tazer, a hire needs to have caught up. Everything after
+   * that decision — where the goods land, how the books are netted, that they
+   * stop running, what the log says — has to be identical, and a second copy is
+   * how a guard's catch quietly stops crediting `recovered` six months from now.
+   */
+  catchThief(cust, by = null) {
+    const goods = cust.bought ?? [];
+    cust.bought = [];
+    // Dropped where THEY are standing rather than where you are: the crate is
+    // evidence of where you caught them, and a box appearing at your own feet
+    // reads as the shop handing you a reward.
+    //
+    // A basket is a LIST OF LINES — one entry per unit, each with the price it
+    // was going to be sold at — and `dropGoods` takes one item and a quantity,
+    // so it is folded first. Folded rather than called per line because
+    // `dropGoods` merges into a crate already standing there: unfolded it works
+    // and does the merge lookup once per loaf.
+    const piles = new Map();
+    for (const line of goods) piles.set(line.item_id, (piles.get(line.item_id) ?? 0) + 1);
+    const at = { x: cust.x, z: cust.z };
+    for (const [itemId, qty] of piles) this.dropGoods(itemId, qty, at);
+
+    const items = content().byId.items;
+    const recovered = goods.length;
+    for (const line of goods) {
+      this.stats.stolen = Math.max(0, this.stats.stolen - 1);
+      this.stats.stolenValue = round2(Math.max(0, this.stats.stolenValue - line.price));
+      const left = (this.stats.stolenItems[line.item_id] ?? 0) - 1;
+      if (left > 0) this.stats.stolenItems[line.item_id] = left;
+      else delete this.stats.stolenItems[line.item_id];
+    }
+    this.stats.recovered += recovered;
+
+    // Back to a walk. `fleeSpeed` reads `stole`, so the flag alone would have
+    // them jog out having been caught — which reads as the taze not working.
+    cust.caught = true;
+    cust.path = null;
+    this.leaveShop(cust);
+
+    const said = goods.map((l) => items[l.item_id]?.name ?? l.item_id).slice(0, 3).join(', ');
+    // Named when a hire did it, because "somebody on your payroll earned their
+    // wage just then" is the whole reason to have hired one, and a line that
+    // read the same either way would hide it.
+    const who = by?.staff ? `${by.name} stopped` : 'Stopped';
+    this.pushLog(`${who} ${cust.name ?? 'a shoplifter'} — got back ${said}.`);
+    return { recovered, said };
   }
 
   /**
@@ -8219,7 +8551,11 @@ export class Game {
     // and sorting a mixed armful into separate boxes becomes impossible. The
     // ghost already draws the distinction — the square you pointed at is the
     // square it lights.
-    const here = (d) => !d.waste && (slots.some((s) => s.x === d.x && s.z === d.z)
+    // `!d.belt` for the same reason as `!d.waste`: a crate riding a conveyor is
+    // not somewhere goods may be put. A run of belt is a queue, and a setdown
+    // that merged into whichever box happened to be passing would both lose the
+    // count and hand your armful to a shelf at the far end of the shop.
+    const here = (d) => !d.waste && !d.belt && (slots.some((s) => s.x === d.x && s.z === d.z)
       || (!exact && Math.hypot(d.x - at.x, d.z - at.z) <= 2.2));
 
     const opts = this.crateLot();
@@ -8691,8 +9027,9 @@ export class Game {
    * aim at a buried crate arms nothing rather than arming a refusal.
    */
   crateOnTop(crate) {
+    if (crate.belt) return true;
     const n = (d) => Number(String(d.id).slice(4)) || 0;
-    return !this.deliveries.some((d) => d.id !== crate.id
+    return !this.deliveries.some((d) => d.id !== crate.id && !d.belt
       && Math.round(d.x) === Math.round(crate.x)
       && Math.round(d.z) === Math.round(crate.z)
       && n(d) > n(crate));
@@ -8711,7 +9048,12 @@ export class Game {
    * rather than by reading a list.
    */
   crateStacked(crate) {
-    return this.deliveries.some((d) => d.id !== crate.id
+    // A conveyor holds one crate per cell and never a pile, so a belted box is
+    // neither stacked nor something another box can be stacked on. Without both
+    // halves, a belt running past a tower of crates makes the box on it
+    // unliftable — "take the top crate off first", of a pile it is not in.
+    if (crate.belt) return false;
+    return this.deliveries.some((d) => d.id !== crate.id && !d.belt
       && Math.round(d.x) === Math.round(crate.x)
       && Math.round(d.z) === Math.round(crate.z));
   }
@@ -8808,8 +9150,20 @@ export class Game {
     }
     if (Math.hypot(at.x - p.x, at.z - p.z) > UNLOAD_REACH) return err('too far to reach');
 
+    // A conveyor cell is a square you can put a box ON, and the belt takes it
+    // from there. Same gesture, same reach, same green square — see `beltPut`
+    // for why it is not `dropGoods`.
     const qty = lotTotal(p.haul);
     const itemId = lotMain(p.haul).item_id;
+
+    const cell = conveyorAt(this.layout, at.x, at.z);
+    if (cell) {
+      const res = this.beltPut(p.haul, cell);
+      if (!res.ok) return res;
+      p.haul = null;
+      return ok({ dropped: qty, item_id: itemId, at, belt: cell.id });
+    }
+
     // `exact`: the square you pointed at is the square it lands on, and a crate
     // one tile over is a different crate. See `dropGoods`.
     this.dropLot(p.haul, at, { exact: true });
@@ -8852,6 +9206,18 @@ export class Game {
 
     const qty = lotTotal(p.carry);
     const itemId = lotMain(p.carry).item_id;
+
+    // ...and the same on a conveyor, which is what makes a belt something you
+    // can feed by hand: an armful goes into a box and the box rides off. See
+    // `dropCrate`'s half of this, and `beltPut` for why it is not `dropGoods`.
+    const cell = conveyorAt(this.layout, at.x, at.z);
+    if (cell) {
+      const res = this.beltPut(p.carry, cell);
+      if (!res.ok) return res;
+      p.carry = null;
+      return ok({ dropped: qty, item_id: itemId, at, belt: cell.id });
+    }
+
     // One tile, so `dropGoods` gets a point rather than a region — three piles
     // put down together share the cell and stack, which is what a pile of boxes
     // on one square already means and what `pickPallet` picks apart by height.
@@ -9350,6 +9716,863 @@ export class Game {
    * day. Nothing about that is visible in a screenshot or in the log; what you
    * see is a kitchen that produces about one thing.
    */
+  // -------------------------------------------------------------------------
+  // The conveyor
+  // -------------------------------------------------------------------------
+
+  /**
+   * Seconds a crate spends on one cell of belt at `speed_mult` 1, and seconds
+   * an arm takes over one swing.
+   *
+   * Both are `dt` rather than `world` and that is a balance decision rather
+   * than a rendering one: `world` runs at `NIGHT_SPEED` through the small
+   * hours, so a belt on the scaled clock would move three times as much stock
+   * overnight as it does by day, for free, and nothing anywhere would say so.
+   * The rule the rest of `step` follows is that time-passage scales and bodies
+   * do not — a belt is a body.
+   */
+  static BELT_SECONDS = 0.6;
+
+  static ARM_SECONDS = 0.9;
+
+  /**
+   * The conveyor cell standing here, belt or loader.
+   *
+   * One lookup for both, because a loader IS a belt as far as everything that
+   * moves goods is concerned — it stands in the run rather than beside it, and
+   * the only thing that tells them apart is the one extra thing a loader does
+   * per swing. Two lookups would mean every hand-off in `stepBelts` asking two
+   * questions, and the day somebody forgot the second one a crate would stop
+   * dead at every loader in the shop.
+   */
+  beltAt(x, z) {
+    const bx = Math.round(x);
+    const bz = Math.round(z);
+    return conveyorAt(this.layout, bx, bz);
+  }
+
+  /**
+   * Every belt, ordered so that a belt is stepped AFTER whatever it feeds.
+   *
+   * This is the whole reason the pass is not just a loop over the list, and the
+   * bug it exists to prevent is not subtle once you see it. If a belt moves
+   * before the one downstream of it, its crate lands on a cell that is about to
+   * be vacated *and is then moved again by that cell's own turn* — so a crate
+   * crosses the entire shop in a single tick and a belt is a teleporter with an
+   * animation on it. Order it the other way and a run advances one cell per
+   * tick as a LINE, which is what a conveyor looks like.
+   *
+   * The alternative — snapshot the occupancy first and move everything against
+   * the old picture — is correct and drains a run like a slinky: one crate
+   * moves per gap per tick, so a twenty-cell belt takes twenty ticks to close
+   * up behind each box. It reads as belts being broken.
+   *
+   * A cycle has no such order by definition, and the leftovers are appended in
+   * list order rather than dropped. What that means in play is that a closed
+   * loop with every cell full stays jammed, which is the honest answer: a ring
+   * nothing comes off is a ring nothing comes off.
+   *
+   * Cached against `layoutVersion`, because it can only change when the
+   * building does, and it is walked twenty times a second.
+   */
+  beltOrder() {
+    const belts = conveyorsOf(this.layout);
+    if (this._beltOrderAt === this.layoutVersion && this._beltOrder) return this._beltOrder;
+
+    const cell = new Map();
+    for (const b of belts) cell.set(`${b.x},${b.z}`, b);
+
+    // Who feeds whom. `next` is what this belt hands to; `feeders` is the
+    // reverse, which is what the walk below consumes.
+    const next = new Map();
+    const feeders = new Map();
+    for (const b of belts) {
+      const to = this.beltNext(b);
+      const n = to ? (cell.get(`${to.x},${to.z}`) ?? null) : null;
+      next.set(b.id, n);
+      if (n) {
+        if (!feeders.has(n.id)) feeders.set(n.id, []);
+        feeders.get(n.id).push(b);
+      }
+    }
+
+    // Kahn's algorithm over the reversed graph: a terminus has nothing
+    // downstream of it, so it goes first, and each belt is released once
+    // everything it feeds has already been placed.
+    const out = [];
+    const seen = new Set();
+    const queue = belts.filter((b) => !next.get(b.id));
+    while (queue.length) {
+      const b = queue.shift();
+      if (seen.has(b.id)) continue;
+      seen.add(b.id);
+      out.push(b);
+      for (const f of feeders.get(b.id) ?? []) {
+        if (!seen.has(f.id)) queue.push(f);
+      }
+    }
+    // Whatever is left is in a loop, and a loop has no terminus to start from by
+    // definition. It is NOT dropped — a belt that stopped being stepped because
+    // you joined it into a ring would be a run that silently died the moment you
+    // closed it — and it is not left in list order either, which is what it was
+    // for the whole of steps 1 and 2.
+    //
+    // List order is the teleporter bug, wearing a ring. A crate on a cell that
+    // is stepped before the cell in front of it lands somewhere that is about to
+    // move again in the same tick, so it crosses the whole loop in one frame and
+    // the belt is an animation over an instant hand-off. Nobody would build a
+    // ring during step 1 (it takes a corner and a return leg), which is exactly
+    // why this sat here looking harmless.
+    //
+    // So: cut each remaining ring at one arbitrary cell and walk its feeders
+    // backwards from there, which is Kahn's algorithm given a terminus by hand.
+    // Every hand-off in the ring is then downstream-first except the ONE at the
+    // cut, and that one costs a single extra tick per lap rather than a crate
+    // skating a lap per tick.
+    for (const start of belts) {
+      if (seen.has(start.id)) continue;
+      const queue = [start];
+      while (queue.length) {
+        const b = queue.shift();
+        if (seen.has(b.id)) continue;
+        seen.add(b.id);
+        out.push(b);
+        for (const f of feeders.get(b.id) ?? []) {
+          if (!seen.has(f.id)) queue.push(f);
+        }
+      }
+    }
+
+    this._beltOrder = out;
+    this._beltOrderAt = this.layoutVersion;
+    return out;
+  }
+
+  /** The cell this conveyor hands its crate to — see `conveyorNext`. */
+  beltNext(cell) {
+    return conveyorNext(this.layout, cell);
+  }
+
+  /**
+   * Which way out THIS crate takes, which is only ever a question at a sorter.
+   *
+   * A sorter has two: straight on, derived from the run like a loader's, and a
+   * branch, which is its `rot`. What decides is not a filter but where the goods
+   * can actually GO — `conveyorServes` walks each side forward and `shelfAccepts`
+   * is the shop's own one rule for whether a unit will have something, so a
+   * sorter is right about an item authored this afternoon and there is nothing
+   * to keep up to date. A filter on the fixture is a list that falls behind your
+   * catalogue, and a line that has quietly stopped carrying half your stock
+   * looks exactly like a line that is working.
+   *
+   * It only ever diverts a crate every pile of which wants the branch, which is
+   * docs/belts.md step 3's rule with the destination in place of the tag. A box
+   * of carrots and eggs has no correct direction, and answering for the biggest
+   * pile is the chevron bug wearing a junction.
+   *
+   * With no answer — a mixed box, or one both sides would take, or one neither
+   * would — it SPLITS: alternate ways out, which is the other job people want
+   * from a junction and the only thing it does at all with `auto` off. The
+   * alternation is a counter on the fixture rather than a draw, because every
+   * balance number in this game is downstream of how many times `this.rng` has
+   * been called.
+   */
+  sorterOut(cell, crate) {
+    const straight = this.beltNext(cell);
+    if (cell.kind !== 'sorter') return straight;
+    const branches = conveyorBranches(this.layout, cell);
+    if (!branches.length) return straight;
+    // Every way out, `rot`'s first and the straight-on among them. A junction
+    // where four lines meet has four, and a piece that only ever knew about two
+    // would ignore half of what it was standing in the middle of.
+    const ways = straight ? [straight, ...branches] : branches;
+    if (ways.length === 1) return ways[0];
+
+    // Decided ONCE, when the box arrives, and remembered until it leaves.
+    //
+    // This is asked every tick, because the occupancy test needs to know which
+    // cell to look at — so an answer recomputed each time is an answer that
+    // flickers: the alternation would flip twenty times a second and the box
+    // would leave by whichever side the tick it was ready happened to land on,
+    // which is a coin toss wearing a rule. In memory rather than on the crate,
+    // because it is true for the length of one hand-off and a field on a
+    // delivery is a field in the save.
+    this.sortChoice ??= new Map();
+    const had = this.sortChoice.get(crate?.id);
+    if (had && had.cell === cell.id) return had.to;
+
+    const pick = (to) => {
+      if (crate) this.sortChoice.set(crate.id, { cell: cell.id, to });
+      return to;
+    };
+
+    if (cell.auto !== false && crate) {
+      const wants = (side) => {
+        const met = conveyorMeets(this.layout, this.beltAt(side.x, side.z));
+        // Rubbish is a one-answer question: the line with a skip on it. Asked
+        // against shelving it would be false everywhere and every box of rot
+        // would take whichever branch the counter happened to be on.
+        if (crate.waste) return met.bins.length > 0;
+        const piles = lotStacks(crate).filter((p) => p.qty > 0);
+        if (!piles.length) return false;
+        // A hopper counts as somewhere goods can go, or a line feeding the
+        // kitchen is invisible to the one piece whose job is choosing lines.
+        return piles.every((p) => !givenUp(this, p.item_id)
+          && (met.shelves.some((u) => this.shelfAccepts(u, p.item_id))
+            || met.stations.some((st) => this.stationHopperRoom(st, p.item_id) > 0
+              && this.stationRecipes(st).filter(Boolean)
+                .some((r) => r.inputs.some((i) => i.item_id === p.item_id)))));
+      };
+      // The one line that can actually put this box away. Exactly one, or it is
+      // not an answer: two lines that would both take it is a choice with no
+      // right side, and none is a box nothing wants — both of those split.
+      const keen = ways.filter(wants);
+      if (keen.length === 1) return pick(keen[0]);
+    }
+
+    this.sorterTurn ??= new Map();
+    const n = (this.sorterTurn.get(cell.id) ?? 0) + 1;
+    this.sorterTurn.set(cell.id, n);
+    return pick(ways[n % ways.length]);
+  }
+
+  /**
+   * Hand a sorter back to the crew, or take it off them.
+   *
+   * `auto` off is a plain splitter — alternate ways out, every crate — which is
+   * the honest thing for it to be rather than "does nothing": a junction you
+   * have switched the thinking off on is still a junction.
+   */
+  setSorterAuto(playerId, id, auto) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+    if (f.kind !== 'sorter') return err('that is not a sorter');
+    const cell = (this.layout.sorters ?? []).find((s) => s.id === id);
+    if (!cell) return err('that is not a sorter');
+    cell.auto = auto !== false;
+    // ...and onto the PLACEMENT, which is what `compose` re-reads. The layout
+    // record is rebuilt from scratch on every re-flow, and build mode re-flows
+    // on every wall segment of a drag — so a flag written only there is one that
+    // switches itself back on behind you while you are still drawing.
+    const placement = this.placements.find((p) => p.id === id);
+    if (placement) placement.auto = cell.auto;
+    this.persist();
+    this.pushLog(cell.auto
+      ? 'The crew will choose which way that sorter sends things.'
+      : 'That sorter splits everything evenly now.');
+    return ok({ id, auto: cell.auto });
+  }
+
+  /** How long one cell takes this belt, at its tier. */
+  beltSeconds(belt) {
+    const mult = this.fixtureStats(belt).speed_mult || 1;
+    return Game.BELT_SECONDS / mult;
+  }
+
+  /**
+   * Advance every crate that is riding a belt.
+   *
+   * A crate on a belt is an ORDINARY crate that names one — `d.belt` is a
+   * fixture id and nothing else — which is the decision the whole feature rests
+   * on: `deliveries` is already swept for spoilage, counted by `homeSupply`,
+   * binned by `binOrphans` and saved raw, so a belt invents no seventh place
+   * for goods to live and every one of those loops goes on being right without
+   * being told anything.
+   *
+   * A belt that cannot hand on simply does not, and the belt behind it then
+   * cannot either. That is backpressure and it is the entire texture of the
+   * thing: a jammed line is a row of boxes not moving, which is a picture you
+   * can read and act on. Nothing ever spills onto the floor at the end of a
+   * run — a belt pointed at a wall backs up. Spilling would bury the shop in
+   * boxes while looking like it was working, and it would throw away the one
+   * signal the player needs.
+   */
+  stepBelts(dt) {
+    // BOTH lists, or a shop that laid a row of loaders and no plain belt never
+    // steps one of them — which is not an odd thing to build, it is what an
+    // aisle looks like once every cell is stocking a shelf. `beltAt` and
+    // `beltOrder` have always answered for both; this was the one place that
+    // asked about half of it.
+    if (!conveyorsOf(this.layout).length) return;
+
+    const onBelt = new Map();
+    for (const d of this.deliveries) if (d.belt) onBelt.set(d.belt, d);
+
+    this.beltClock ??= new Map();
+    for (const belt of this.beltOrder()) {
+      const crate = onBelt.get(belt.id);
+      if (!crate) {
+        // An empty belt holds no charge. Without this a run that has stood idle
+        // all morning flings the next crate along the instant it lands.
+        this.beltClock.delete(belt.id);
+        continue;
+      }
+      const clock = (this.beltClock.get(belt.id) ?? 0) + dt;
+      const per = this.beltSeconds(belt);
+
+      const to = this.sorterOut(belt, crate);
+      const ahead = to ? this.beltAt(to.x, to.z) : null;
+      // A terminus, or a full cell. Sit the box squarely on its own cell — a
+      // jammed crate frozen four fifths of the way onto the next one reads as
+      // the belt having broken mid-step — and DROP the charge rather than
+      // holding it at the brim.
+      //
+      // Holding it was the first shape and the reasoning was that a crate which
+      // has already waited should move the tick the way clears rather than
+      // starting its journey again. What it actually buys is a hand-off with no
+      // travel in it: the transfer itself is instant and the tween happens on
+      // the cell you land on, so a crate that arrives already at `per` moves
+      // again immediately, and a crate queued behind another is blocked every
+      // single time it lands. It therefore jumps cell to cell for ever while the
+      // one in front of it glides — which is exactly what a run of three boxes
+      // looked like, and it reads as two of them being drawn wrong rather than
+      // as a queue.
+      //
+      // A cleared jam costs one cell-time per box now. That is what a conveyor
+      // draining looks like, and the animation is the thing being bought.
+      if (!ahead || onBelt.has(ahead.id)) {
+        this.beltClock.set(belt.id, 0);
+        crate.x = belt.x;
+        crate.z = belt.z;
+        continue;
+      }
+
+      // Part way. The crate's cell is still THIS belt — `d.belt` is the truth
+      // and everything that asks a question about where a box is rounds — but
+      // its drawn position travels, or a conveyor is a thing that teleports a
+      // tile at a time.
+      if (clock < per) {
+        this.beltClock.set(belt.id, clock);
+        const k = clock / per;
+        crate.x = r2(belt.x + (ahead.x - belt.x) * k);
+        crate.z = r2(belt.z + (ahead.z - belt.z) * k);
+        continue;
+      }
+
+      onBelt.delete(belt.id);
+      this.beltClock.delete(belt.id);
+      this.sortChoice?.delete(crate.id);
+      crate.belt = ahead.id;
+      crate.x = ahead.x;
+      crate.z = ahead.z;
+      onBelt.set(ahead.id, crate);
+      this.beltClock.set(ahead.id, 0);
+    }
+  }
+
+  /**
+   * Put a crate onto a belt, or refuse.
+   *
+   * One cell holds one crate, and this is the only thing that ever sets
+   * `d.belt`. Deliberately NOT routed through `dropGoods`: that function merges
+   * with a crate of the same kind within a couple of tiles and stacks a new box
+   * on the cell when it cannot, and both are exactly wrong on a conveyor. A run
+   * of belt is a QUEUE, and a queue whose members merge is a queue that
+   * silently loses its own count.
+   */
+  loadBelt(belt, crate) {
+    if (!belt || !crate) return false;
+    if (this.deliveries.some((d) => d.belt === belt.id)) return false;
+    crate.belt = belt.id;
+    crate.x = belt.x;
+    crate.z = belt.z;
+    this.beltClock ??= new Map();
+    this.beltClock.set(belt.id, 0);
+    return true;
+  }
+
+  /**
+   * Lay a run of conveyor in one drag.
+   *
+   * Twelve cells was twelve presses and twelve re-flows, which is not a design
+   * decision — it is step 1's "laying a run" never having been done, and it is
+   * exactly the thing that makes somebody conclude belts are tedious rather than
+   * unfinished.
+   *
+   * Two ends on the wire and never the list, for the 4KB cap and for the scar
+   * CLAUDE.md records about `edgeRun`: the client sends what the POINTER aimed
+   * at and this re-runs the same generator, so the two cannot disagree about
+   * which way the run went.
+   *
+   * One `holdReflow` around the lot, so a run is one re-flow rather than
+   * sixty-four — and a re-flow is the client disposing its entire scene, so the
+   * difference is not tidiness. A cell that refuses (something is already there,
+   * you ran out of money) is SKIPPED rather than stopping the run: a drag across
+   * a shop will clip a shelf, and refusing the whole gesture for one cell would
+   * make the tool unusable in the shop it exists for. Nothing laid at all is the
+   * only error.
+   */
+  buildRun(playerId, { kind, piece = null, variant = '', x, z, to = null } = {}) {
+    const p = this.players[playerId];
+    if (!p?.build?.on) return err('not in build mode');
+    if (!CONVEYOR_KINDS.includes(kind)) return err('that is not a conveyor');
+
+    const cells = beltRunCells({ x: Math.round(x), z: Math.round(z) },
+      to ? { x: Math.round(to.x), z: Math.round(to.z) } : null, BELT_RUN_MAX);
+    if (!cells.length) return err('nothing to lay');
+
+    let laid = 0;
+    let last = null;
+    const out = this.holdReflow(() => {
+      for (const c of cells) {
+        const res = this.placeFixture(playerId, {
+          kind, piece, variant, x: c.x, z: c.z, rot: c.rot,
+        });
+        if (res.ok) { laid += 1; last = res.placed ?? last; } else last ??= null;
+      }
+      return null;
+    });
+    void out;
+    if (!laid) return err('nothing could go there');
+    // One line in the feed. `placeFixture` writes one per cell, which for a
+    // sixty-cell drag is a log with nothing else in it.
+    this.pushLog(`Laid ${laid} ${FIXTURES[kind]?.label?.toLowerCase() ?? 'belt'} cells.`);
+    return ok({ laid, placed: last });
+  }
+
+  /**
+   * Put a LOT — an armful, or what was on a shoulder — onto a conveyor cell.
+   *
+   * `loadBelt` moves a crate that already exists; this one mints the box. They
+   * are two verbs rather than one because everything that lets go of goods in
+   * this game holds a *lot* and never a crate: hands, a shoulder, a stripped
+   * board. `dropGoods` is the answer everywhere else and is exactly the wrong
+   * answer here, for the reason its own `!d.belt` guard already gives — it
+   * merges with a box within a couple of tiles and stacks a second one on the
+   * cell when it cannot, and a run of belt is a QUEUE. One crate per cell, no
+   * merge, no pile.
+   *
+   * It takes the whole lot in one box and does not cap, which is safe by
+   * construction rather than by luck: hands hold `carryCapacity` (six) and a
+   * shoulder holds what came out of a crate, so both are already inside
+   * `crateLot()`. Capping here would mean a partial setdown — half your armful
+   * on the belt and half still in your hands — which is a state no gesture in
+   * the game has and every caller would have to learn about.
+   *
+   * The spoilage stamp rides across untouched. `lotStacks` hands back copies, so
+   * this is a read and the `day` on each pile comes with it — a box that
+   * laundered its clock on the way onto a belt would make the conveyor the way
+   * to beat rot, and a crate of laundered flour looks exactly like a crate of
+   * flour.
+   */
+  beltPut(lot, cell) {
+    if (!cell) return err('that is not a conveyor');
+    const piles = lotStacks(lot);
+    if (!piles.length) return err('nothing to put down');
+    if (this.deliveries.some((d) => d.belt === cell.id)) {
+      return err('there is already a crate on that belt');
+    }
+
+    const del = {
+      id: `del-${this.nextDeliveryId++}`,
+      stacks: piles.map((p) => ({ item_id: p.item_id, qty: p.qty, day: p.day ?? this.day })),
+      x: cell.x,
+      z: cell.z,
+      belt: cell.id,
+    };
+    this.deliveries.push(del);
+    this.beltClock ??= new Map();
+    this.beltClock.set(cell.id, 0);
+    return ok({ crate: del.id, belt: cell.id, qty: lotTotal(del) });
+  }
+
+  /**
+   * A free conveyor cell whose run would actually deliver some of this lot.
+   *
+   * The question a hire asks before deciding whether to walk a box to a shelf,
+   * and the reason it is on `Game` rather than in `staff.js` is that the player
+   * asks it too — the ghost has to know whether the square it is lighting is a
+   * belt that goes anywhere.
+   *
+   * Three things it insists on, and each is a way of not being a hole:
+   *
+   *   the cell is EMPTY — one crate per cell, so a jammed run is not somewhere
+   *   goods may be posted and backpressure survives being helped;
+   *
+   *   something downstream WANTS it — `conveyorServes` walks the run forward,
+   *   and the units it finds are asked the shop's own question (`shelfAccepts`,
+   *   never `boardFor`, which would open a priced board per probe per tick);
+   *
+   *   and the shop has not GIVEN UP on the goods, which is the one judgement
+   *   rule a loader takes and has to be asked here as well — otherwise the
+   *   answer is "yes, put it on" and the loader at the far end refuses it, which
+   *   is `merchandise`'s round trip with a conveyor in the middle.
+   */
+  beltFor(lot, { from = null, skip = null } = {}) {
+    const cells = conveyorsOf(this.layout);
+    if (!cells.length) return null;
+    const piles = lotStacks(lot).filter((p) => p.qty > 0 && !givenUp(this, p.item_id));
+    if (!piles.length) return null;
+    const busy = new Set(this.deliveries.filter((d) => d.belt).map((d) => d.belt));
+
+    let best = null;
+    let bestD = Infinity;
+    for (const cell of cells) {
+      if (busy.has(cell.id)) continue;
+      if (skip?.has(cell.id)) continue;
+      const units = conveyorServes(this.layout, cell);
+      if (!units.length) continue;
+      if (!piles.some((p) => units.some((u) => this.shelfAccepts(u, p.item_id)))) continue;
+      // Nearest, because any cell on a run that serves this box is the same
+      // errand and which one is a question about the walk and nothing else.
+      const d = from ? Math.hypot(cell.x - from.x, cell.z - from.z) : 0;
+      if (d < bestD) { best = cell; bestD = d; }
+    }
+    return best;
+  }
+
+  /**
+   * The crates a worker may walk up to and lift.
+   *
+   * `stockCrates` is deliberately the WHOLE list — `homeSupply` counts a box on
+   * a belt as supply the shop already owns, `binOrphans` sweeps it, spoilage
+   * ages it — and every one of those is right about a crate wherever it is.
+   * A hire is the one reader for which it is not: a box riding a conveyor scores
+   * as a *stray* (`onAPad` is false), which is a 1e6 bonus in `unload`'s own
+   * ranking, so every stocker in the shop would abandon the bay and beeline for
+   * whatever was going past. The belt would work perfectly and be emptied by the
+   * crew it exists to replace.
+   */
+  floorCrates() {
+    return this.deliveries.filter((d) => !d.waste && !d.belt);
+  }
+
+  /**
+   * The loaders. Each one is a belt cell that also talks to its neighbours.
+   *
+   * Two things per swing, in this order:
+   *
+   *   1. **Unload sideways.** If it is carrying a crate, pour into whatever
+   *      shelving is beside it. Whatever the unit will not take stays in the
+   *      box and rides on down the run to the next loader, which is the whole
+   *      point of being inline: one row of belt stocks a whole aisle, and each
+   *      unit takes its own.
+   *   2. **Pick up.** If it is empty and there is a crate on the floor beside
+   *      it, lift it onto itself. That is what gets goods out of the bay and
+   *      onto the run without a second kind of machine.
+   *
+   * Movement is not here at all — `stepBelts` already walks loaders along with
+   * belts, because `beltAt` answers for both. A loader that could not hand on
+   * would be a plug in the middle of every run.
+   *
+   * What it is NOT is a hire. It is aimed — you put it beside that shelf — so
+   * it asks none of the shop's judgement rules except `givenUp`, which exists
+   * for exactly the thing a loader is: something acting unattended, in a loop.
+   * See docs/belts.md step 2.
+   */
+  stepArms(dt) {
+    const arms = this.layout.arms ?? [];
+    if (!arms.length) return;
+    this.armClock ??= new Map();
+
+    for (const arm of arms) {
+      const mult = this.fixtureStats(arm).speed_mult || 1;
+      const per = Game.ARM_SECONDS / mult;
+      const clock = (this.armClock.get(arm.id) ?? 0) + dt;
+      if (clock < per) { this.armClock.set(arm.id, clock); continue; }
+
+      if (this.armSwing(arm)) this.armClock.set(arm.id, 0);
+      // A swing that found nothing to do keeps its charge, so a loader waiting
+      // on a crate acts the tick one arrives rather than a full swing later.
+      else this.armClock.set(arm.id, per);
+    }
+  }
+
+  /** One swing. Returns whether anything actually moved. */
+  armSwing(arm) {
+    const sides = [0, 1, 2, 3].map((r) => anchorTile(arm.x, arm.z, r));
+    const riding = this.deliveries.find((d) => d.belt === arm.id);
+
+    // 1. Carrying something: give whatever is beside it whatever it will take.
+    if (riding) {
+      // Rubbish goes ONE place. A waste crate is not stock — `stockCrates`
+      // filters it out everywhere else in the game for exactly that reason — so
+      // it must never be offered to a board or a hopper, and the only thing on
+      // a run that can end it is a skip.
+      if (riding.waste) {
+        for (const s of sides) {
+          const skip = (this.layout.bins ?? []).find((b) => b.x === s.x && b.z === s.z);
+          if (!skip) continue;
+          this.deliveries = this.deliveries.filter((d) => d.id !== riding.id);
+          return true;
+        }
+        return false;
+      }
+      // The side it faces first — that is what `rot` means on a loader now, and
+      // it is the one thing the player said out loud. The other three are still
+      // tried, because a loader between two units should serve both rather than
+      // making you place a second one.
+      const facing = anchorTile(arm.x, arm.z, arm.rot);
+      const order = [facing, ...sides.filter((s) => s.x !== facing.x || s.z !== facing.z)];
+      // EVERY side it can reach, in one swing — not the first that takes
+      // something. A loader stood between two facing units, or in the mouth of
+      // an aisle with shelving on three sides, is the shape a shop actually has,
+      // and serving one of them per swing is not merely slower: whichever unit
+      // came first in this list gets every box, and the others are stocked only
+      // once it is full. What you watch is one shelf filling and its neighbour
+      // staying bare with a loader touching it, which reads as the loader being
+      // aimed wrong. `rot` still decides who is asked FIRST, which is what makes
+      // it a preference for a mixed box rather than a switch.
+      let moved = false;
+      for (const s of order) {
+        // The box emptied on the way round. Everything below would be a pour of
+        // nothing, and `armPour` has already taken it out of `deliveries`.
+        if (!lotTotal(riding)) break;
+        const unit = (this.layout.shelves ?? []).find((sh) => sh.x === s.x && sh.z === s.z);
+        if (unit && this.armPour(unit, riding)) { moved = true; continue; }
+        // ...and a machine's hopper, which is the half of the shop shelving
+        // cannot automate. `armFeed` is its own verb rather than a branch here
+        // for `armPour`'s reason: a hopper's rule about what it will take is
+        // the recipe's, not `boardFor`'s, and one function asking both would be
+        // one caller reading the wrong one.
+        const machine = (this.layout.stations ?? []).find((st) => st.x === s.x && st.z === s.z);
+        if (machine && this.armFeed(machine, riding)) moved = true;
+      }
+      // ...and if it FACES bare ground, set the rest of the box down on it.
+      //
+      // This is the off-ramp, and without it a belt has exactly one exit: a
+      // board that will take the goods. A crate holding anything no unit on the
+      // run wants therefore rides for ever — round and round a loop, or parked
+      // at a dead end where nothing can reach it, because the crew are told to
+      // leave a riding box alone. Three frozen pizzas on a run with no freezer
+      // on it is a permanent passenger, and the shop looks like it is working.
+      //
+      // It is the one thing `rot` decides on its own, which is also the answer
+      // to "I do not get to control the loader": every other side of it is
+      // derived. Aim it at shelving and it stocks; aim it at floor, a pad or a
+      // stockroom tile and it unloads there. And it is only reached once every
+      // unit beside it has had its share, so a loader in an aisle does not
+      // choose the floor over the shelf it is bolted to.
+      //
+      // Through `dropGoods` like every other setdown in the game — the crate the
+      // belt was carrying stops existing and an ordinary pallet stands there,
+      // which is what makes the goods findable, tidyable and countable again.
+      if (lotTotal(riding)) {
+        // The side it faces, then ANY PAD beside it.
+        //
+        // Bare floor needs `rot` — a loader that dumped on whatever open ground
+        // it happened to pass would spill boxes down the length of every run.
+        // A pad is different, and the difference is the whole reason pads exist:
+        // painted ground that means *goods go here* is consent already given,
+        // said once, about that square. Having to also aim a loader at your own
+        // yard is asking for the same permission twice.
+        //
+        // Last, after every unit and hopper beside it has had its share, because
+        // a box put away is worth more than a box tidied.
+        const pads = sides.filter((s) => PAD_KINDS.some((k) => isPadAt(this.layout, k, s.x, s.z)));
+        // Pads BEFORE the faced tile. Bare floor is where a box goes when there
+        // is nowhere better, and a pad is somewhere better by definition — so a
+        // loader touching both puts it in the yard, where a stocker will find
+        // it, rather than on the aisle it happens to be pointing down.
+        for (const s of [...pads, facing]) {
+          if (!lotTotal(riding)) break;
+          if (this.armDrop(arm, s, riding)) { moved = true; break; }
+        }
+      }
+
+      // Nothing wanted anything. Not a failure — the crate rides on to the next
+      // loader, which `stepBelts` does without being asked.
+      return moved;
+    }
+
+    // 2. Empty: lift a crate off the floor beside it, which is how goods get out
+    // of the yard and onto the run. Never off another conveyor cell — that is
+    // `stepBelts`' job and doing it here would let a loader jump the queue.
+    //
+    // ...and never off the side it UNLOADS onto, or the off-ramp above is a
+    // loop: the box goes down, the loader is empty, and the next swing picks the
+    // same box straight back up. Three sides in, one side out.
+    const out = anchorTile(arm.x, arm.z, arm.rot);
+    const met = conveyorMeets(this.layout, arm);
+    for (const s of sides) {
+      if (s.x === out.x && s.z === out.z) continue;
+      if (this.beltAt(s.x, s.z)) continue;
+      const loose = this.deliveries.find((d) => !d.belt
+        // Rubbish rides only if there is a skip down the line. Without that a
+        // box of rot is lifted onto a conveyor that has nowhere to end it and
+        // jams the run for the rest of the save — the bin feature's own
+        // failure mode, arriving through a door it did not know about.
+        && (!d.waste || met.bins.length > 0)
+        && Math.round(d.x) === s.x && Math.round(d.z) === s.z);
+      if (loose && this.loadBelt(arm, loose)) return true;
+    }
+
+    // 3. Still empty: pull a board out of a STOCKROOM beside it.
+    //
+    // This is `ferry` leg B with no legs — the one direction goods have never
+    // moved on a belt, and the reason a marked room could not be automated at
+    // all. It is deliberately the only case where a loader takes stock OFF a
+    // unit, and three things keep that from being a machine that strips your
+    // shop.
+    //
+    // Back of house ONLY. A loader that could pull off any shelf is a loader
+    // that empties the aisle it was bought to fill, and the two directions would
+    // undo each other on the same run.
+    //
+    // Something downstream has to WANT it — the shop floor, not another room —
+    // which is what makes it terminate: stock moves room to floor and there is
+    // no verb anywhere that moves it back.
+    //
+    // And it honours `managed`, which the pour half does not and should not.
+    // Aiming a loader at a unit is consent to fill it; it is not consent to
+    // empty a unit you have explicitly told the crew to leave alone.
+    for (const s of sides) {
+      const room = (this.layout.shelves ?? [])
+        .find((sh) => sh.x === s.x && sh.z === s.z && sh.boh === true && this.handMayTouch(sh));
+      if (!room) continue;
+      if (this.armPull(arm, room, met)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * A loader's half of a swing that ends in a hopper.
+   *
+   * `loadStation` is the player's verb and takes a player, so this is the same
+   * arithmetic said about a crate: only what a running recipe wants, only as
+   * much as the hopper has room for, and what the machine has no use for stays
+   * in the box and rides on to whatever does.
+   */
+  armFeed(station, crate) {
+    const running = this.stationRecipes(station).filter(Boolean);
+    if (!running.length) return false;
+    const inputs = new Set(running.flatMap((r) => r.inputs.map((i) => i.item_id)));
+
+    let moved = 0;
+    for (const pile of lotStacks(crate)) {
+      if (!inputs.has(pile.item_id)) continue;
+      const room = this.stationHopperRoom(station, pile.item_id);
+      const take = Math.min(pile.qty, room);
+      if (!(take > 0)) continue;
+      station.contents[pile.item_id] = (station.contents[pile.item_id] ?? 0) + take;
+      crate.stacks = lotTake(crate, pile.item_id, take).lot?.stacks ?? [];
+      moved += take;
+    }
+    if (!moved) return false;
+    if (!lotTotal(crate)) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+    return true;
+  }
+
+  /** ...and the one that starts on a stockroom board. See `armSwing` step 3. */
+  armPull(arm, room, met) {
+    const c = content();
+    const floor = met.shelves.filter((sh) => sh.boh !== true);
+    if (!floor.length) return false;
+
+    for (const stack of this.shelfStacks(room)) {
+      if (!(stack.qty > 0)) continue;
+      const item = c.byId.items[stack.item_id];
+      if (!item) continue;                          // deleted out from under us
+      if (givenUp(this, stack.item_id)) continue;
+      if (!floor.some((sh) => this.shelfAccepts(sh, stack.item_id))) continue;
+
+      const opts = this.crateLot();
+      const take = Math.min(stack.qty, opts.cap);
+      const del = {
+        id: `del-${this.nextDeliveryId++}`,
+        stacks: [{ item_id: stack.item_id, qty: take, day: stack.day ?? this.day }],
+        x: arm.x,
+        z: arm.z,
+      };
+      stack.qty -= take;
+      if (stack.qty <= 0) this.clearStack(room, stack.item_id);
+      this.deliveries.push(del);
+      this.loadBelt(arm, del);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * ...and an arm's half of a swing that ends on the FLOOR.
+   *
+   * Refuses three tiles, and each refusal is a different failure:
+   *
+   *   another conveyor — that is `stepBelts`' hand-off, and setting a box down
+   *   on a belt through this door would put two crates on one cell;
+   *
+   *   anything not walkable — the live grid rather than the tile kind, so a
+   *   loader facing a wall, a shelf or the inside of a freezer sets nothing down
+   *   there. It is the same test `dropCrate` makes and for the same reason;
+   *
+   *   and a cell already carrying `ARM_DROP_STACK` boxes. It STACKS up to that,
+   *   the way every other pile in the game does — `dropGoods` tops up a box of
+   *   the same thing and stands a new one on top when it cannot, and
+   *   `pickPallet` picks the tower apart by height — so a loader unloading a
+   *   stockroom builds a readable pile rather than jamming after one box. The
+   *   cap is what keeps it from being a tower for the rest of the save: at three
+   *   the loader stops, which is the same backpressure the run itself has and
+   *   the same picture you can read.
+   */
+  static ARM_DROP_STACK = 3;
+
+  armDrop(arm, at, crate) {
+    if (this.beltAt(at.x, at.z)) return false;
+    if (!isWalkable(this.walk, this.layout, at.x, at.z)) return false;
+
+    // How full is "full". One square holds `ARM_DROP_STACK`; a PAD holds that
+    // per cell you painted, which is `bayRoom`'s promise said about a machine —
+    // how big you made your yard is how much it takes.
+    const padKind = PAD_KINDS.find((k) => isPadAt(this.layout, k, at.x, at.z));
+    const cells = padKind === 'drop' ? (this.layout.drop?.cells ?? [])
+      : padKind === 'bay' ? (this.layout.bay?.cells ?? []) : [{ x: at.x, z: at.z }];
+    const standing = this.deliveries.filter((d) => !d.belt
+      && cells.some((c) => c.x === Math.round(d.x) && c.z === Math.round(d.z))).length;
+    if (standing >= Game.ARM_DROP_STACK * cells.length) return false;
+
+    // Onto the PAD as a region when it is one, the way `stow` does — so boxes
+    // fill the cells you painted rather than towering on the single square the
+    // loader happens to touch. How big your yard is has been a decision since
+    // the pads became paintable, and a machine filling it has to honour that.
+    const kind = PAD_KINDS.find((k) => isPadAt(this.layout, k, at.x, at.z));
+    const region = kind === 'drop' ? this.layout.drop : (kind === 'bay' ? this.layout.bay : null);
+    this.dropLot(crate, region ?? at, { exact: !region });
+    this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+    return true;
+  }
+
+  /**
+   * An arm's half of a swing that ends on a shelf.
+   *
+   * `shelfAccepts` probes and `pourInto` commits, and that pairing is not
+   * stylistic. `boardFor` is the authoritative rule and it is NOT a predicate —
+   * it calls `openStack`, which pushes a real, priced, zero-quantity board onto
+   * the unit as a side effect of being asked. Four job sites already use it as
+   * a yes/no and throw the answer away, and each of those probes eats a board
+   * slot and divides `shelfCapacity` for everything else standing there until
+   * the next day roll. A hire does that a few times a minute; an arm would do
+   * it twenty times a second, for ever.
+   */
+  armPour(unit, crate) {
+    const piles = lotStacks(crate);
+    if (!piles.length) return false;
+
+    // Only what this unit will actually take, and only what the shop has not
+    // given up on. Asked per pile rather than of the crate as a whole, because
+    // a mixed box may hold one kind this shelf wants and two it does not.
+    const wanted = piles.filter((p) => !givenUp(this, p.item_id) && this.shelfAccepts(unit, p.item_id));
+    if (!wanted.length) return false;
+
+    const lot = { stacks: wanted.map((p) => ({ ...p })) };
+    const res = this.pourInto(unit, lot);
+    const moved = res?.moved ?? 0;
+    if (!(moved > 0)) return false;
+
+    // Take back out of the crate exactly what landed, and read the remainder
+    // off `res.left` rather than off `lot`. `pourInto` does not mutate what it
+    // is handed — it threads a running `left` through `lotTake` and returns it —
+    // so measuring against the lot we passed in would see the ORIGINAL
+    // quantities, conclude nothing moved, and leave the crate full while the
+    // shelf filled. Goods out of nothing, once per swing, twenty times a
+    // second, and the only tell would be a shop quietly getting richer.
+    for (const p of wanted) {
+      const took = p.qty - lotQty(res.left, p.item_id);
+      if (took > 0) crate.stacks = lotTake(crate, p.item_id, took).lot?.stacks ?? [];
+    }
+    if (!lotTotal(crate)) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+    return true;
+  }
+
   stepStations(dt) {
     const stations = this.layout.stations ?? [];
     if (!stations.length) return;
@@ -10279,6 +11502,9 @@ export class Game {
       // more than one and the list they came from no longer says which.
       ...(this.layout.props ?? []).map((p) => ({ ...p, ref: p })),
       ...(this.layout.bins ?? []).map((b) => ({ ...b, kind: 'bin', ref: b })),
+      ...(this.layout.belts ?? []).map((b) => ({ ...b, kind: 'belt', ref: b })),
+      ...(this.layout.arms ?? []).map((a) => ({ ...a, kind: 'arm', ref: a })),
+      ...(this.layout.sorters ?? []).map((s) => ({ ...s, kind: 'sorter', ref: s })),
     ];
   }
 
@@ -10409,7 +11635,7 @@ export class Game {
   /** The stat block a fixture is currently running on. */
   fixtureStats(idOrFixture) {
     const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
-    if (!f) return { capacity_mult: 1, keeps_mult: 1, speed_mult: 1, unattended: 0, lines: 1 };
+    if (!f) return { capacity_mult: 1, keeps_mult: 1, speed_mult: 1, unattended: 0, lines: 1, covers: 0 };
     const tier = this.fixtureTiers(f)[this.fixtureTier(f) - 1] ?? {};
     return {
       capacity_mult: tier.capacity_mult ?? 1,
@@ -10421,6 +11647,10 @@ export class Game {
       // ...and one rather than zero, for the opposite reason: this is a count of
       // heads, and every machine has at least the one it has always had.
       lines: Math.max(1, Math.trunc(tier.lines ?? 1)),
+      // Zero for the same reason `unattended` is: a till is not a walk-out
+      // sensor that covers nobody, it is a different thing entirely, and the
+      // default has to be the shop everybody already owns.
+      covers: Math.max(0, Math.trunc(tier.covers ?? 0)),
     };
   }
 
@@ -10715,6 +11945,13 @@ export class Game {
     }
     if (f.kind === 'plot') return f.crop_id ? 1 : 0;
     if (f.kind === 'checkout') return 0;
+    // A belt holds nothing itself — the crate on it is an ordinary crate that
+    // happens to name this belt, and it is picked up the way any crate is. So
+    // "empty it first" would be asking you to clear a square you can already
+    // walk onto and lift from. Its own branch rather than the fallback below,
+    // which returns `shelfQty` and would read `stacks` off a record that has
+    // none: 0 today by luck, and wrong the first time a belt grows a field.
+    if (f.kind === 'belt' || f.kind === 'arm') return 0;
     // Across every board — "empty it first" has to mean the whole unit, or a
     // shelf with a full middle board would pass the check that guards removing
     // it and take the goods with it when it went.
@@ -11203,6 +12440,11 @@ export class Game {
     costs['window-bay'] = EDGE_COST[E.WINDOW_BAY];
     costs['window-high'] = EDGE_COST[E.WINDOW_HIGH];
     costs.door = EDGE_COST[E.DOOR];
+    // Keyed off the kind the palette actually lays rather than off `E.CURTAIN`,
+    // so the button prints what the button charges even though the two curtains
+    // are one price today. The day they are not, this line is already right.
+    costs.curtain = EDGE_COST[wayDefault('curtain')];
+    costs.shutter = EDGE_COST[E.SHUTTER];
     costs.fence = EDGE_COST[E.FENCE];
     costs.gate = EDGE_COST[E.GATE];
     // Demolishing is deliberately absent rather than priced at 0. It pays you
@@ -11219,6 +12461,20 @@ export class Game {
 
     const kind = spec.kind;
     if (!FIXTURES[kind]) return err('you cannot build that');
+
+    // Swapping one conveyor for the other in place — see `canPlace`. You lay a
+    // run first and then decide which cells stock a shelf, so "delete the belt,
+    // then place a loader on the hole" is two presses for one idea.
+    //
+    // Taken out here, before anything else happens, which is the house rule a
+    // guard has to follow: `buyStock` charged for an order it then refused, and
+    // the fix was to put the guard with the other guards. The refund is
+    // `removeFixture`'s own, so a swap costs exactly what a sell-and-rebuy costs
+    // and no amount of swapping can print money.
+    if (FIXTURES[kind]?.flow) {
+      const here = this.beltAt(Math.round(spec.x), Math.round(spec.z));
+      if (here && here.kind !== kind) this.removeFixture(playerId, here.id);
+    }
 
     // Which appliance, for a station. It rides on the placement the way a
     // variant does, because to the build rules every appliance is the same
@@ -11933,7 +13189,21 @@ export class Game {
     if (up.kind === 'space') {
       const dw = Math.max(0, Math.trunc(up.payload.width ?? 0));
       const dh = Math.max(0, Math.trunc(up.payload.depth ?? 0));
-      this.grow = { w: this.grow.w + dw, h: this.grow.h + dh };
+      // ...and the two that grow the other way. `grow` is the world's SIZE and
+      // has no sides, so all four payloads add to the same pair of numbers —
+      // what makes north and west different is the shift, and nothing else. A
+      // paddock that named a direction the world could not slide in would be a
+      // row that takes money and hands you land somewhere you did not ask for.
+      const dwWest = Math.max(0, Math.trunc(up.payload.west ?? 0));
+      const dhNorth = Math.max(0, Math.trunc(up.payload.north ?? 0));
+      this.grow = {
+        w: this.grow.w + dw + dwWest,
+        h: this.grow.h + dh + dhNorth,
+      };
+      // Before the re-flow below, not after: `compose` reads `shell` to decide
+      // where the building stands, so a shift applied afterwards would lay the
+      // world out around the OLD shop and then move the shop out of it.
+      this.growWorld(dwWest, dhNorth);
       // ...and that is the whole of it now. `grow` is the WORLD's size — see
       // `compose` in server/layout.js.
       //
@@ -12241,6 +13511,95 @@ export class Game {
    *   isn't one any more — see `reflow`, which is the one caller in the game,
    *   and the verify sweeps, which need a shop of a stated shape to drive.
    */
+  /**
+   * Grow the world at the TOP or the LEFT, which is one shift of everything.
+   *
+   * Land bought to the east or the south is free: `x0` and `z0` do not move, so
+   * every absolute coordinate in the save still means what it meant, and all
+   * `compose` needs is a bigger number. North and west are the same purchase and
+   * a completely different job, because row 0 IS the top — there is no room
+   * above it to add, so the only way to put land there is to slide the entire
+   * world down and call the new rows the back.
+   *
+   * Which makes this the one operation in the game that rewrites every absolute
+   * position at once, and therefore the one where a MISSED FIELD is the whole
+   * risk. It fails the way `shell.z` failed in `buyUpgrade`: shift the shop and
+   * forget its ground, and the yard you painted stays where it was while the
+   * building walks off it — no error, no log, and the first thing you notice is
+   * a delivery landing outside. Every list below is here because it holds a
+   * position somebody drew; the rule for adding to it is that anything with an
+   * `x` and a `z` that OUTLIVES a re-flow belongs in it.
+   *
+   * Paths are cleared rather than shifted, deliberately. A route is a decision
+   * about a world that has just stopped existing, and `pathTo` re-plans from
+   * wherever somebody is standing — so the cheap correct answer is to let
+   * everybody re-think, which is what a re-flow already asks of them. The van
+   * and the cars are not touched for the same reason one step further on: a
+   * re-flow already sends the van home and re-parks a car on its claimed cell.
+   */
+  growWorld(dx = 0, dz = 0) {
+    const ddx = Math.max(0, Math.trunc(dx));
+    const ddz = Math.max(0, Math.trunc(dz));
+    if (!ddx && !ddz) return;
+
+    const move = (o) => { if (o && typeof o === 'object') { o.x += ddx; o.z += ddz; } return o; };
+
+    // What the shop IS, and where the player drew it.
+    if (this.shell) move(this.shell);
+    for (const p of this.placements) move(p);
+    for (const e of this.edits) move(e);          // walls, on the lattice line
+    for (const g of this.ground) move(g);         // floor, road, the pads
+
+    // Paint is keyed rather than listed — `o:x:z:±1` — so it is the one that
+    // cannot be nudged in place. Rebuilt whole, and through `faceKey` rather
+    // than by pasting a string together, or the two spellings drift apart the
+    // day a face grows a fifth field.
+    if (this.paint && typeof this.paint === 'object') {
+      const next = {};
+      for (const [key, v] of Object.entries(this.paint)) {
+        const [o, x, z, s] = key.split(':');
+        next[faceKey({ o, x: Number(x) + ddx, z: Number(z) + ddz, s: Number(s) })] = v;
+      }
+      this.paint = next;
+    }
+
+    // Goods and money standing on the ground, which own their position outright
+    // — a crate owes nothing to a fixture and would otherwise be left behind.
+    for (const c of this.deliveries) move(c);
+    for (const c of this.cashDrops) move(c);
+
+    // Everybody in the building, and everybody the save is holding a spot for.
+    for (const p of Object.values(this.players)) {
+      move(p);
+      p.path = null;
+      if (p.errand) p.errand = null;              // named a tile that has moved
+    }
+    for (const cu of Object.values(this.customers)) {
+      move(cu);
+      cu.path = null;
+      if (cu.parkedAt) move(cu.parkedAt);
+      if (cu.parkedMid) move(cu.parkedMid);
+    }
+    for (const rec of Object.values(this.away ?? {})) move(rec);
+
+    // The footfall map, which `sizeTraffic` copies by absolute cell on a resize
+    // — so left alone it would hand the new rows the old rows' readings and
+    // score the shop on where people walked before the wall moved.
+    if (this.traffic && this.trafficW > 0) {
+      const w = this.trafficW;
+      const h = this.trafficH;
+      const next = new Float64Array(w * h);
+      for (let z = 0; z < h; z++) {
+        for (let x = 0; x < w; x++) {
+          const nx = x + ddx;
+          const nz = z + ddz;
+          if (nx < w && nz < h) next[nz * w + nx] = this.traffic[z * w + x];
+        }
+      }
+      this.traffic = next;
+    }
+  }
+
   regenerateLayout(newSeed, alias = {}, { compensate = true, want: asked = null } = {}) {
     // A batch is holding them (`holdReflow`). Remember what this one would have
     // carried and let the batch do it once, at the end.
@@ -12274,6 +13633,9 @@ export class Game {
       freezers: want.freezer,
       warmers: want.warmer ?? 0,
       bins: want.bin ?? 0,
+      belts: want.belt ?? 0,
+      arms: want.arm ?? 0,
+      sorters: want.sorter ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       stations: want.stations,
@@ -12414,6 +13776,28 @@ export class Game {
     this._spotMean = null;
     this.walk = buildWalkGrid(layout);
     this.layQueueLanes();
+
+    // A crate whose belt has just been demolished is set down where it stood.
+    //
+    // This is `parkNow`'s argument said about goods: a re-flow fires on every
+    // wall segment of a drag, so anything holding a reference to a fixture has
+    // to survive that fixture going away mid-motion. A crate that kept a dead
+    // belt id would never be stepped again and never be swept up — `stepBelts`
+    // only walks belts that exist — so it would stand in the aisle for the rest
+    // of the save, counted by `homeSupply` as supply the shop can never reach.
+    // The `TIRED_PACE` pin arriving through one more door.
+    //
+    // It becomes an ordinary floor crate rather than being moved or binned,
+    // which is what every other "the thing under you went away" case in here
+    // does: the goods were paid for and somebody can walk over and pick them up.
+    if (this.deliveries.some((d) => d.belt)) {
+      const live = new Set((layout.belts ?? []).map((b) => b.id));
+      for (const d of this.deliveries) if (d.belt && !live.has(d.belt)) d.belt = null;
+    }
+    // Rebuilt against the new building on the next tick rather than carried
+    // over: both are keyed by fixture id, and a re-flow re-mints them.
+    this.beltClock = null;
+    this.armClock = null;
 
     // Everyone mid-path is now walking to somewhere that may not exist.
     for (const cu of Object.values(this.customers)) {
@@ -13149,6 +14533,13 @@ export class Game {
       // being a mood event.
       mood: this.moodBase(),
       storming: false,
+      // Set once, at the fork in `goToTill`, and never cleared — a thief is
+      // still a thief after they are caught, which is what stops a released one
+      // being re-rolled into an honest shopper on the way out.
+      stole: false,
+      // ...and whether somebody already stopped them, which is what `stole`
+      // cannot say on its own. See `fleeSpeed`.
+      caught: false,
       visited: [],
       targetShelf: null,
       till: null,
@@ -13770,7 +15161,12 @@ export class Game {
           break;
 
         case 'LEAVE':
-          if (followPath(cust, CUSTOMER_SPEED * (cust.storming ? STORM_SPEED : 1), dt)) {
+          // A thief legs it, and the number is a promise to step 3 rather than
+          // a flourish: it has to sit ABOVE a walk and BELOW a sprint, or there
+          // is no chase to build — matched pace is nobody to catch, and faster
+          // than a sprint is a chase not worth starting. `storming` wins a tie
+          // only in the sense that nothing can be both.
+          if (followPath(cust, CUSTOMER_SPEED * this.fleeSpeed(cust), dt)) {
             // At the door, or at their car. `driveOff` answers both — a walker
             // and a driver with nowhere to drive are the same despawn.
             this.driveOff(cust);
@@ -14133,6 +15529,27 @@ export class Game {
   goToTill(cust, arch = null) {
     if (cust.basket.length === 0) return this.leaveShop(cust);
 
+    /**
+     * ...or they simply do not pay, which is decided HERE and nowhere earlier.
+     *
+     * This tick is the only honest place for the roll: they have shopped, they
+     * have a basket worth something, and the very next thing that happens is
+     * picking a queue. Rolled at spawn instead, the shop would be flagging
+     * somebody as a thief before they had done anything — which is a shop that
+     * has read their mind, and it throws away the one decision the player gets
+     * to make (is this one worth following).
+     *
+     * Guarded on the chance being set at all, so a town where nobody steals
+     * takes no draw and every balance figure ever recorded stays comparable.
+     */
+    const steal = (arch?.steal_chance ?? 0) * this.guardDeterrence();
+    if (steal > 0 && this.rng.next() < steal) return this.stealAway(cust);
+
+    // A shop with sensors in it lays no lines at all — there is no queue to join
+    // and no counter to walk to, so the trip simply ends. Asked shop-wide rather
+    // than of a till, because a walk-out shop has nothing to assign anybody TO.
+    if (this.walkoutCovers() > 0) return this.walkOut(cust, arch);
+
     // Join the shortest queue.
     const tills = this.layout.checkouts;
     if (tills.length === 0) return this.leaveShop(cust);
@@ -14149,6 +15566,177 @@ export class Game {
     if (!this.pathTo(cust, goal)) return this.leaveShop(cust);
 
     this.impulseBuy(cust, arch, till, ahead);
+  }
+
+  /**
+   * Every way OUT of the shop a shopper could actually use.
+   *
+   * The guard's posts (docs/security.md step 4), and it has to be derived
+   * rather than `layout.door`: that field is the one opening the *generator*
+   * cut, and a player can knock as many more as they like through any wall. A
+   * guard stood at the front door of a shop with a side entrance is watching
+   * the wrong hole — which reads as the hire not working, because they are
+   * standing exactly where you would expect a guard to stand.
+   *
+   * Asked of `shopperCanCross` outward rather than of a set of edge kinds, for
+   * `verify:doors`' reason: an exit-only door and a plain gap are the same hole
+   * to somebody leaving, a staff door is not a hole at all to a shopper, and
+   * only that function knows the difference. It is the same test the thief's own
+   * route is planned with, so a post can never be somewhere nobody would run.
+   *
+   * The cell recorded is the INDOOR side — that is where somebody stands to
+   * block it, and it is the tile A* can actually route a hire to.
+   *
+   * Cached against `layoutVersion` because it walks the whole indoor mask, and
+   * this is asked by every guard on every tick. A re-flow is the only thing that
+   * can move a wall, so the version is the honest key.
+   */
+  shopExits() {
+    const L = this.layout;
+    if (this._exitsAt === this.layoutVersion && this._exits) return this._exits;
+    const out = [];
+    const { w, h, indoor } = L;
+    if (indoor) {
+      for (let z = 0; z < h; z++) {
+        for (let x = 0; x < w; x++) {
+          if (!indoor[z * w + x]) continue;
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = x + dx;
+            const nz = z + dz;
+            if (nx < 0 || nz < 0 || nx >= w || nz >= h) continue;
+            if (indoor[nz * w + nx]) continue;          // still inside
+            if (!shopperCanCross(L, x, z, nx, nz)) continue;
+            out.push({ x, z, id: `${x},${z}` });
+            break;
+          }
+        }
+      }
+    }
+    // A shop with no enclosure at all has no boundary to stand on — which is a
+    // real state (see `computeIndoor`, where taking enough wall out returns
+    // ZERO indoor cells) and not one a guard should read as "nowhere to go".
+    // The generated door is the honest fallback, exactly as it was before this
+    // function existed.
+    this._exits = out.length ? out : (L.door ? [{ ...L.door, id: 'door' }] : []);
+    this._exitsAt = this.layoutVersion;
+    return this._exits;
+  }
+
+  /**
+   * What a shoplifter's odds are multiplied by, for having security on — see
+   * docs/security.md step 4.
+   *
+   * The FIRST half of what a guard is worth, and the half that needs no job to
+   * run: a security guard is mostly somebody standing there, and a deterrent
+   * that only worked while the chase code was executing would mean hiring one
+   * did nothing until you had already been robbed.
+   *
+   * Saturating rather than linear, for `charmReach`'s reason: linear, the
+   * cheapest strategy in the game is a wall of guards and theft stops being a
+   * mechanic. Each one is worth less than the last and it never reaches zero,
+   * so there is always a reason to be watching.
+   *
+   * Counted off the ROSTER rather than off who is currently stood on the shop
+   * floor. Two reasons, and the second is the real one: a guard on their break
+   * is still somebody the town knows you employ, and reading positions would
+   * make the odds flicker tick to tick — which is a balance number that moves
+   * because somebody walked behind a shelf.
+   */
+  guardDeterrence() {
+    const guards = this.roster.reduce(
+      (n, w) => n + ((w.jobs ?? []).some((j) => j.job === 'guard' && j.weight > 0) ? 1 : 0), 0,
+    );
+    if (guards <= 0) return 1;
+    return 1 / (1 + GUARD_DETER * guards);
+  }
+
+  /**
+   * How fast somebody on their way out is moving, as a multiple of a walk.
+   *
+   * One function rather than a nested ternary at the call site, because there
+   * are two reasons to hurry now and there will be a third: a caught thief who
+   * has been let go, a robber, a guard escorting somebody. A `?:` chain is where
+   * the third one gets appended in the wrong order and the fastest reason stops
+   * winning.
+   */
+  fleeSpeed(cust) {
+    // Caught first, because `stole` is never cleared — somebody who has been
+    // stopped and emptied is still a thief, and reading the flag alone would
+    // have them jog out of the shop with nothing, which looks like the tazer
+    // having failed.
+    if (cust.caught) return 1;
+    if (cust.stole) return THIEF_SPEED;
+    if (cust.storming) return STORM_SPEED;
+    return 1;
+  }
+
+  /**
+   * They keep the basket and head for the door — see docs/security.md step 1.
+   *
+   * A `stole` flag on an ordinary `LEAVE` rather than a state of its own, which
+   * is `storming`'s shape exactly and chosen for the same reason. Everything in
+   * this file that asks "is this person on their way out" — `stepMood`,
+   * `measureOccupancy`, the snapshot, `driveOff`, the re-flow's rule about not
+   * restarting somebody who has finished — is right about a thief already, and
+   * a new state would mean teaching every one of them a second spelling. That
+   * is the `inACar` trap, and it fails in whichever loop somebody forgets.
+   *
+   * The goods go to `bought` the way a paid trip's do, deliberately: they are
+   * still ON them until they are off the map, which is what makes catching them
+   * possible at all (step 3). Destroying the stock here would make the chase
+   * unbuildable without undoing this function first.
+   *
+   * No money moves, and no reputation moves. The first is obvious; the second
+   * is the same argument that keeps spoilage out of `REP_CAUSES` — nobody who
+   * walked in today saw it. A robbery is witnessed and does move it, which is
+   * why that is step 5 and not this.
+   */
+  stealAway(cust) {
+    const items = content().byId.items;
+    for (const line of cust.basket) {
+      this.stats.stolen++;
+      this.stats.stolenValue = round2(this.stats.stolenValue + line.price);
+      this.stats.stolenItems[line.item_id] = (this.stats.stolenItems[line.item_id] ?? 0) + 1;
+    }
+    cust.stole = true;
+    cust.bought = cust.basket;
+    cust.basket = [];
+    // Said as it happens rather than banked for the day roll, which is the one
+    // place this differs from walk-out shrinkage and the entire point of the
+    // feature: a sensor misreading a crowd is something you read about
+    // afterwards, and a person walking out with your bread is something you can
+    // still do something about. The line is the placeholder for step 2's alert.
+    const said = cust.bought
+      .map((l) => items[l.item_id]?.name ?? l.item_id)
+      .slice(0, 3).join(', ');
+    this.pushLog(`${cust.name ?? 'Someone'} walked out without paying — ${said}.`);
+    this.leaveShop(cust);
+  }
+
+  /**
+   * Done shopping in a shop with sensors: billed where they stand, and out.
+   *
+   * No `TO_TILL`, no slot, no `stepQueue` — which is the whole purchase, and
+   * also why every number that hangs off waiting in a line goes quiet at once. A
+   * walk-out shop cannot lose anybody's patience at a counter, so `R.STORMED`
+   * and `R.GRUMPY` stop being ways to lose the town's regard. That is not a side
+   * effect, it is what the rung sells.
+   *
+   * The endcap survives, at its weakest setting. There are still sweets by the
+   * door and standing them there is still worth money — what it loses is the
+   * `dwell`, because nobody is stood in a line looking at them, and that is the
+   * honest version of what a shop gives up along with its queue. Measured from
+   * the nearest sensor, since that is where the way out is.
+   */
+  walkOut(cust, arch = null) {
+    const near = (t) => Math.hypot(t.x - cust.x, t.z - cust.z);
+    let gate = null;
+    for (const t of this.layout.checkouts) {
+      if (this.fixtureStats(t).covers <= 0) continue;
+      if (!gate || near(t) < near(gate)) gate = t;
+    }
+    if (gate) this.impulseBuy(cust, arch, gate, 0);
+    return this.completeSale(cust, true);
   }
 
   /**
@@ -14230,6 +15818,57 @@ export class Game {
     return ACTION_TIMES.serve / ((speed || 1) * unattended);
   }
 
+  /**
+   * How many shoppers the shop can bill without a counter — summed over every
+   * checkout in it.
+   *
+   * Shop-wide rather than per-till, and that is the feature rather than a
+   * shortcut: a sensor does not have a queue to be at the front of, so there is
+   * nothing for a shopper to be assigned TO. Zero is every shop that has ever
+   * existed, and it is the only control there is — nothing below reads a
+   * different code path until somebody buys the rung.
+   */
+  walkoutCovers() {
+    return this.layout.checkouts.reduce((n, t) => n + this.fixtureStats(t).covers, 0);
+  }
+
+  /**
+   * The chance any one line of a basket walks out unbilled, right now.
+   *
+   * The load is everybody in the shop rather than everybody leaving it, because
+   * what the sensors are doing is telling people APART — a shop with forty
+   * browsers and one person at the door is a hard shop to read, and the person
+   * at the door is not the reason. Which is also why the answer moves under the
+   * player rather than sitting on the fixture: this is the one number in the
+   * game that gets worse because business is good.
+   */
+  walkoutMiss() {
+    const covered = this.walkoutCovers();
+    if (covered <= 0) return 0;
+    return Math.min(WALKOUT_MISS_MAX, WALKOUT_MISS * (this.customersInside() / covered));
+  }
+
+  /**
+   * Yesterday's shrinkage, in a sentence — see the day roll.
+   *
+   * The advice is gated on the loss being worth acting on rather than said every
+   * time, because a shop comfortably inside its cover still misses the odd thing
+   * and telling it to buy hardware over one dropped apple is how a readout stops
+   * being read. `WALKOUT_NAG` is a share of the day's takings deliberately, not
+   * a unit count: ten missed apples and ten missed joints of beef are the same
+   * tally and nothing like the same morning.
+   */
+  saidUnbilled(stats) {
+    const items = content().byId.items;
+    const [id, qty] = Object.entries(stats.unbilledItems)
+      .reduce((a, b) => (b[1] > a[1] ? b : a), ['', 0]);
+    const worst = id ? ` Mostly ${qty}x ${items[id]?.name ?? id}.` : '';
+    const bad = stats.unbilledValue > WALKOUT_NAG * Math.max(1, stats.revenue);
+    const fix = bad ? ' Another sensor would spread the load.' : '';
+    return `$${stats.unbilledValue.toFixed(2)} walked out unbilled — ${stats.unbilled} `
+      + `unit${stats.unbilled === 1 ? '' : 's'} the sensors did not read.${worst}${fix}`;
+  }
+
   stepQueue(cust, dt) {
     // Still counted, and only for the log and the HUD. Patience itself is spent
     // in `stepMood`, which also charges for the walk up the line.
@@ -14290,19 +15929,57 @@ export class Game {
     return ok({ served: cust.id, total });
   }
 
-  completeSale(cust) {
-    const total = cust.basket.reduce((s, b) => s + b.price, 0);
-    // The money lands on the counter as a physical thing someone has to pick
-    // up. Headless balance runs bank it straight away — a drop nobody collects
-    // would read as a broken economy rather than an uncollected till.
-    if (this.autoServe) {
+  completeSale(cust, walkout = false) {
+    /**
+     * What the sensors failed to read, line by line — see `walkoutMiss`.
+     *
+     * Drawn from `this.rng` rather than hashed, unlike a shopper's bag: this is
+     * a balance mechanic and belongs in the measured stream. It costs no
+     * existing save a thing, because a shop with no `covers` never reaches this
+     * branch and therefore never takes a draw — the same way the control works
+     * everywhere else in here.
+     */
+    const billed = [];
+    const missed = [];
+    if (walkout) {
+      const miss = this.walkoutMiss();
+      for (const line of cust.basket) (this.rng.next() < miss ? missed : billed).push(line);
+      for (const line of missed) {
+        this.stats.unbilled++;
+        this.stats.unbilledValue = round2(this.stats.unbilledValue + line.price);
+        this.stats.unbilledItems[line.item_id] = (this.stats.unbilledItems[line.item_id] ?? 0) + 1;
+      }
+    } else {
+      billed.push(...cust.basket);
+    }
+
+    const total = billed.reduce((s, b) => s + b.price, 0);
+    /**
+     * The money lands on the counter as a physical thing someone has to pick
+     * up. Headless balance runs bank it straight away — a drop nobody collects
+     * would read as a broken economy rather than an uncollected till.
+     *
+     * ...and a walk-out banks straight away for a reason that is not a
+     * convenience: there is no counter for it to land on. The charge goes to a
+     * card somewhere off the map, so a shop that has torn its tills out has no
+     * cash to sweep and nothing to leave lying about overnight. That is the
+     * third thing the rung sells, after the queue and the clerk, and it is the
+     * only one of the three that costs nothing to give.
+     */
+    if (this.autoServe || walkout) {
       this.cash += total;
       this.stats.revenue += total;
     } else {
       this.dropCash(cust, total);
     }
-    this.stats.sold += cust.basket.length;
+    this.stats.sold += billed.length;
     const items = content().byId.items;
+    // The WHOLE basket, deliberately including anything the sensors missed.
+    // These two are the demand meter, and demand is a fact about the shop floor
+    // rather than about the takings: a pizza that walked out unbilled is still a
+    // pizza this shop moved and still evidence it should stock more of them.
+    // Narrowing them to `billed` would have a shop losing 8% of its readings on
+    // the exact days it is busiest, and tell it to order less as a result.
     for (const line of cust.basket) {
       this.stats.byItem[line.item_id] = (this.stats.byItem[line.item_id] ?? 0) + 1;
       // ...and again by department, which is not the same tally read a second
@@ -14770,6 +16447,25 @@ function freshStats() {
   return {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
     spoiled: 0, spoiledValue: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, foundShut: 0, byItem: {},
+    // What walked out of a sensor shop without being billed for — see
+    // `walkoutMiss`. Priced at RETAIL rather than wholesale, which is the one
+    // place this differs from `spoiledValue` and the difference is real: rot is
+    // money you had already spent, and this is money you had already earned and
+    // then did not collect. `unbilledItems` is what to be annoyed about, because
+    // a percentage is not something anybody can picture.
+    unbilled: 0, unbilledValue: 0, unbilledItems: {},
+    // ...and what somebody walked out with on purpose, which is deliberately a
+    // separate set of books from the sensors' misreadings above. They are the
+    // same units and the same money and nothing like the same problem: one is
+    // answered by buying hardware and the other by standing nearer the door.
+    // Netted into one "shrinkage" figure they would prescribe each other's fix.
+    stolen: 0, stolenValue: 0, stolenItems: {},
+    // ...and what you got back off them, which is deliberately NOT just
+    // subtracted out of sight above. `stolen` is netted down by a catch so the
+    // day's loss is honest, and this is the other half of the same event: a
+    // shop that lost nothing because it caught everybody and a shop nobody
+    // tried to rob are the same zero, and only one of them is worth knowing.
+    recovered: 0,
     // What moved reputation today, by cause, signed. Not a second copy of the
     // counts above: `abandoned` says three people stormed out and this says what
     // that cost, which is the only form the question is ever asked in — a shop

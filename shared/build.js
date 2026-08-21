@@ -129,6 +129,110 @@ export const FIXTURES = {
    */
   bin: { label: 'Bin', blocks: true, where: 'any', rotates: true, anchor: 'useAt' },
   /**
+   * The conveyor — the first thing in the shop that moves goods without anybody
+   * walking, and the first fixture since the plot that IS the ground.
+   *
+   * `blocks: false` with a `ground` is the plot's shape and it is load-bearing
+   * twice. A belt run is twenty cells; owning them would draw a wall through
+   * your own aisle and fire `canPlace`'s stranding warning on every cell of the
+   * drag. And because a non-blocking fixture is invisible to `blocked`, the
+   * tile stamp is the ONLY thing refusing a second belt on the same square —
+   * `T.BELT` is not in `BUILDABLE_INDOOR`, exactly as `T.PLOT` is not in
+   * `BUILDABLE_OUTDOOR`, which is how two beds have always refused to share.
+   *
+   * `anchor: null` because there is no side you work a belt from. A crate is
+   * lifted off it the way a crate is lifted off anything — by pointing at the
+   * crate — and the belt itself is only ever aimed at in build mode.
+   *
+   * `rotates` is the whole feature. A belt hands its crate to whatever it
+   * FACES, so a belt pointing east feeding one pointing north is a corner: no
+   * corner piece, no turn logic, and bends, tees and loops all fall out of one
+   * field that already existed.
+   */
+  belt: {
+    label: 'Belt', blocks: false, ground: T.BELT, where: 'indoor', rotates: true, anchor: null,
+    // Which cells it moves goods BETWEEN, as quarter turns off `rot`. Its own
+    // field rather than `anchor`, and the split is the whole point: `anchor` is
+    // a tile the GENERATOR RESERVES, so saying it here would keep clear the very
+    // square the next belt has to stand on. This one reserves nothing and is
+    // read by the ghost only.
+    //
+    // It exists because without it these two kinds had no side markers at all —
+    // `workSpots` is keyed off `anchor`, so a belt previewed as a bare tile and
+    // the one thing a belt IS about, which way it runs, was the one thing the
+    // preview could not tell you.
+    flow: { out: 0 },
+  },
+  /**
+   * The arm — a pair of hands bolted to the floor.
+   *
+   * It takes from the cell BEHIND it and gives to the cell in FRONT, which is
+   * one rule covering every pairing an inserter has ever had. Blocking, because
+   * it is a machine and should cost you the square.
+   *
+   * `anchor: null`, which is the plot's answer and is a correction rather than
+   * an omission. An `anchor` is a tile the generator RESERVES, and the only two
+   * tiles an arm cares about are the ones it works between — so an arm with a
+   * `useAt` would reserve the very square the belt or the shelf it feeds has to
+   * stand on, and the shop would keep its own conveyor from being finished. It
+   * holds nothing between ticks, so there is also nothing to empty by hand.
+   *
+   * What it is NOT is a hire. It never chooses a shelf — you aimed it — so it
+   * asks none of the shop's judgement rules except the one that exists for
+   * unattended loops. See docs/belts.md step 2.
+   */
+  /**
+   * The loader — a belt cell that also talks to what is beside it.
+   *
+   * It stands IN the run rather than next to it, which is the whole design and
+   * a correction to two versions that did not. A machine on its own cell means
+   * two parallel rows to stock one row of shelving — a lane of belt and a lane
+   * of arms — which is twice the floor, twice the money, and a geometry puzzle
+   * at every unit. Inline, a run is one row: crates flow along it and each
+   * loader drops off whatever the shelf beside it will take.
+   *
+   * So it is a belt in every structural respect — non-blocking, stamps `T.BELT`,
+   * has a facing, hands on to whatever it faces — and does one extra thing per
+   * swing. `works` is what the placement warning reads: a loader with no
+   * shelving beside it is an expensive belt.
+   */
+  arm: {
+    label: 'Loader', blocks: false, ground: T.BELT, where: 'indoor', rotates: true, anchor: null,
+    flow: { out: 0 },
+    works: true,
+  },
+  /**
+   * The sorter — the first conveyor cell with TWO ways out.
+   *
+   * Structurally a belt again: non-blocking, `T.BELT`, in the run rather than
+   * beside it, straight-on derived exactly as a loader's is. What it adds is a
+   * BRANCH, and `rot` is that branch — the same inversion `arm` made and for the
+   * same reason. A sorter's straight-on is the boring half and derives fine from
+   * the run it is standing in; the side you want it to divert down is the half
+   * you actually have an opinion about, so that is the one the R key sets.
+   *
+   * It sorts by DESTINATION rather than by a filter, which is the decision worth
+   * arguing. docs/belts.md step 3 proposed a tag on the fixture — `frozen` down
+   * one branch, `produce` down the other — and that is authorable, predictable
+   * and a thing you have to maintain: every item you add is a filter you have to
+   * remember to widen, and a filter that has fallen behind your catalogue is a
+   * line that quietly stops carrying half your stock. The run already knows what
+   * is down it (`conveyorServes`), the shop already has one rule for whether a
+   * unit will take something (`shelfAccepts`), and asking those two is a sorter
+   * that is right about an item authored this afternoon.
+   *
+   * With no answer it SPLITS — alternate ways out, which is the same piece doing
+   * the other job people want from a junction, and what `auto: false` pins it
+   * to. A mixed crate splits too, for the reason step 3 gives: a box of carrots
+   * and eggs pointed at a rule about carrots has no correct direction, and
+   * answering for the biggest pile is the chevron bug wearing a filter.
+   */
+  sorter: {
+    label: 'Sorter', blocks: false, ground: T.BELT, where: 'indoor', rotates: true, anchor: null,
+    flow: { out: 0 },
+    works: true,
+  },
+  /**
    * Decorations. Both stand in a cell and neither blocks it.
    *
    * Deliberately NOT the authored-`blocks` kind the design doc describes. A
@@ -1514,6 +1618,452 @@ const groundIsBusy = (ground) => {
   return 'you can only lay ground over bare grass';
 };
 
+/**
+ * Every conveyor cell in a layout — belts and loaders alike.
+ *
+ * One list, because a loader IS a belt as far as anything that moves goods is
+ * concerned. Two lists would mean every hand-off asking two questions, and the
+ * day somebody forgot the second one a crate would stop dead at every loader.
+ */
+export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter'];
+
+/**
+ * How many cells one drag of conveyor may lay.
+ *
+ * The same argument `GROUND_STROKE_MAX` makes and the same 4KB inbound cap
+ * behind it: the wire carries two ends and the server re-runs the generator, so
+ * this is a bound on the WORK rather than on the message. Sixty-four is about
+ * two laps of a shop, which is more than anybody draws in one gesture.
+ */
+export const BELT_RUN_MAX = 64;
+
+/**
+ * The cells one drag of conveyor lays, in the order a crate would travel them.
+ *
+ * An L rather than a straight line — the long axis first, then the short — which
+ * is the shape you are actually drawing when you take a belt round a shop, and
+ * it means a loop is four drags instead of eight. The corner falls out of the
+ * facings and needs no piece, exactly as it does when you lay them one at a
+ * time.
+ *
+ * Each cell FACES THE NEXT ONE, which is the whole reason a belt wants a drag:
+ * the direction of the gesture is the direction of the run, unambiguously, and
+ * it is the one place in this game where that is true. The last cell keeps the
+ * facing it arrived with, or a run would end pointing at whatever rot 0 is.
+ *
+ * The far end is the POINTER's, never the tail of this list — CLAUDE.md's scar
+ * about `edgeRun` — so the caller sends what it aimed at and the server runs
+ * this same function against it.
+ */
+export function beltRunCells(from, to, max = BELT_RUN_MAX) {
+  if (!from) return [];
+  const end = to ?? from;
+  const dx = end.x - from.x;
+  const dz = end.z - from.z;
+  const cells = [{ x: from.x, z: from.z }];
+  const step = (n, ax) => {
+    const sign = Math.sign(n);
+    for (let i = 0; i < Math.abs(n) && cells.length < max; i++) {
+      const last = cells[cells.length - 1];
+      cells.push({ x: last.x + (ax === 'x' ? sign : 0), z: last.z + (ax === 'z' ? sign : 0) });
+    }
+  };
+  if (Math.abs(dx) >= Math.abs(dz)) { step(dx, 'x'); step(dz, 'z'); }
+  else { step(dz, 'z'); step(dx, 'x'); }
+
+  const dirs = [0, 1, 2, 3].map((r) => {
+    const a = anchorTile(0, 0, r);
+    return { r, x: a.x, z: a.z };
+  });
+  let last = 0;
+  return cells.map((c, i) => {
+    const nxt = cells[i + 1];
+    if (nxt) {
+      const d = dirs.find((v) => v.x === Math.sign(nxt.x - c.x) && v.z === Math.sign(nxt.z - c.z));
+      if (d) last = d.r;
+    }
+    return { x: c.x, z: c.z, rot: last };
+  });
+}
+
+/** A cell whose pass-through is DERIVED rather than being its own `rot`. */
+export const derivedFlow = (kind) => kind === 'arm' || kind === 'sorter';
+
+export function conveyorsOf(L) {
+  return [...(L?.belts ?? []), ...(L?.arms ?? []), ...(L?.sorters ?? [])];
+}
+
+/** The conveyor cell standing on this tile, if any. */
+export function conveyorAt(L, x, z) {
+  const cx = Math.round(x);
+  const cz = Math.round(z);
+  return conveyorsOf(L).find((c) => c.x === cx && c.z === cz) ?? null;
+}
+
+/**
+ * Which way the goods go, for every conveyor cell in a layout, resolved once.
+ *
+ * A belt points where it points. A LOADER does not, and that inversion is what
+ * makes one usable: a loader carries a belt's deck, so the first thing anybody
+ * does is aim it at the shelf they want stocked — and if that were its
+ * pass-through, aiming it at the shelf would break the run. Everybody did it.
+ *
+ * So `rot` on a loader means WHICH SIDE IT UNLOADS INTO, and where the crate
+ * goes next is derived. The derivation cannot be done cell by cell, and that is
+ * the thing worth knowing before touching this: a loader's neighbours may be
+ * loaders, whose answers are also derived, so asking them is circular. Refusing
+ * to ask was the first shape and it is right for a loader with a belt on either
+ * side and wrong for every run MADE of loaders — which is what an aisle becomes
+ * once each cell is stocking a shelf. Nobody in a row of four has a feeder,
+ * nobody carries straight on, and the run bends wherever rotation order points.
+ * Asking recursively was the second, and it is worse: a guard set that answers
+ * "unknown" reads as "open", so the far end of a straight run resolves BACKWARDS
+ * and the two halves meet in the middle.
+ *
+ * The answer is that flow has a source. Every plain belt knows its own
+ * direction, so the resolution is a walk FORWARD from the belts: each cell hands
+ * to the next, and a loader reached that way has a feeder — which is all it
+ * needed to know. Straight on if it can, else a plain belt over another loader
+ * (a belt carries information; somebody aimed it), else rotation order.
+ *
+ * Loaders with no belt anywhere upstream — a ring made entirely of them — fall
+ * back to the old cell-by-cell guess. That shop is degenerate by construction
+ * and the flow marks are what say so.
+ *
+ * Computed once per layout object and cached against the two arrays it is made
+ * of, because it is walked twenty times a second by `stepBelts` and again by the
+ * renderer. A re-flow builds a new layout, which is what invalidates it.
+ *
+ * In `shared/` because two things have to agree about it exactly — the sim that
+ * moves the crate and the renderer that draws the path through the cell — and a
+ * renderer with its own idea of where a belt goes is a picture of a shop that
+ * works differently from the one you are playing.
+ */
+const FLOW = new WeakMap();
+
+function conveyorFlow(L) {
+  const belts = L?.belts ?? [];
+  // Loaders and sorters together: both derive their pass-through, and the only
+  // difference is that a sorter also keeps one side back for its branch.
+  const arms = [...(L?.arms ?? []), ...(L?.sorters ?? [])];
+  const had = FLOW.get(L);
+  if (had && had.belts === belts && had.arms === arms.length
+    && had.armsRef === (L?.arms ?? []) && had.sortRef === (L?.sorters ?? [])) return had.map;
+
+  const cells = [...belts, ...arms];
+  const at = new Map(cells.map((c) => [`${c.x},${c.z}`, c]));
+  const map = new Map();
+
+  /** This cell's conveyor neighbours, with which quarter turn each lies on. */
+  const around = (c) => {
+    const out = [];
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(c.x, c.z, r);
+      const other = at.get(`${n.x},${n.z}`);
+      if (other) out.push({ x: n.x, z: n.z, r, arm: other.kind === 'arm', cell: other });
+    }
+    return out;
+  };
+  /** Is this neighbour known to hand TO us? Then it is not somewhere to hand on. */
+  const feedsUs = (o, c) => {
+    const to = map.get(o.cell.id);
+    return !!to && to.x === c.x && to.z === c.z;
+  };
+  /**
+   * Is this option a straight continuation — the cell opposite it also being a
+   * conveyor? That is what tells a run apart from a spur, and it is the only
+   * handle a chain made ENTIRELY of loaders has.
+   */
+  const throughR = (c, r) => {
+    const b = anchorTile(c.x, c.z, rot4(r + 2));
+    return at.has(`${b.x},${b.z}`);
+  };
+  const choose = (c, backR) => {
+    // A sorter's `rot` side is its BRANCH, never its straight-on. Without this
+    // the derivation would happily pick the branch as the pass-through and the
+    // piece would have one output that it used twice.
+    const branch = c.kind === 'sorter' ? anchorTile(c.x, c.z, c.rot ?? 0) : null;
+    const open = around(c).filter((o) => !feedsUs(o, c)
+      && !(branch && o.x === branch.x && o.z === branch.z));
+    if (!open.length) return null;
+    if (backR !== null) {
+      const straight = open.find((o) => o.r === backR);
+      if (straight) return { x: straight.x, z: straight.z };
+    }
+    // Carry the LINE on before preferring a belt. A column of loaders with no
+    // plain belt anywhere in it has nothing to seed the walk, and "hand to the
+    // belt beside you" is then the answer every cell of it gives independently —
+    // which is a whole run deciding, one cell at a time, to empty itself
+    // sideways into the line next door. Deleting one belt out of a column did
+    // exactly that.
+    const pick = open.find((o) => throughR(c, o.r))
+      ?? open.find((o) => !o.arm)
+      ?? open[0];
+    return { x: pick.x, z: pick.z };
+  };
+
+  // Seed: every plain belt answers for itself.
+  const queue = [];
+  for (const b of belts) {
+    map.set(b.id, anchorTile(b.x, b.z, b.rot));
+    queue.push(b);
+  }
+
+  // ...and a loader AIMED AT A CONVEYOR answers for itself too.
+  //
+  // `rot` on a loader means the side its output goes to, and until now that only
+  // ever meant a shelf (stock it first) or bare ground (set the box down there)
+  // — the pass-through was always derived, which is right for a cell sitting IN
+  // a run and leaves you no way at all to say "this one feeds that line". A
+  // loader taking off a stocker's shelf and injecting into a loop beside it is
+  // an ordinary thing to build and there was no rotation that would do it.
+  //
+  // Never onto its own feeder, though: a belt already resolved as pointing at
+  // this loader would make the pair a two-cell tug of war, which is a run that
+  // dead-ends in the middle of itself and draws exactly like a working one.
+  for (const a of arms) {
+    // Loaders only. A sorter's `rot` is the branch, so reading it as the output
+    // here would make every sorter in the shop a belt pointing sideways.
+    if (a.kind === 'sorter') continue;
+    const f = anchorTile(a.x, a.z, a.rot ?? 0);
+    const other = at.get(`${f.x},${f.z}`);
+    if (!other) continue;
+    const back = map.get(other.id);
+    if (back && back.x === a.x && back.z === a.z) continue;
+    map.set(a.id, { x: f.x, z: f.z });
+    queue.push(a);
+  }
+
+  // ...and walk forward. A loader reached from something that hands to it is a
+  // loader with a feeder, which is the one fact the derivation was missing.
+  while (queue.length) {
+    const c = queue.shift();
+    // BOTH ways out of a junction. A sorter that only propagated its straight-on
+    // would leave everything down its branch unseeded — and the cells that then
+    // fall back to the per-cell guess are a whole line of loaders that quietly
+    // decide, one by one, to hand sideways into the run next door.
+    const ways = [map.get(c.id)];
+    const br = c.kind === 'sorter' ? anchorTile(c.x, c.z, c.rot ?? 0) : null;
+    if (br && at.has(`${br.x},${br.z}`)) ways.push(br);
+    for (const to of ways) {
+      if (!to) continue;
+      const next = at.get(`${to.x},${to.z}`);
+      if (!next || !derivedFlow(next.kind) || map.has(next.id)) continue;
+      const fromR = [0, 1, 2, 3].find((r) => {
+        const a = anchorTile(next.x, next.z, r);
+        return a.x === c.x && a.z === c.z;
+      });
+      map.set(next.id, choose(next, fromR === undefined ? null : rot4(fromR + 2)));
+      queue.push(next);
+    }
+  }
+
+  // Anything the walk never reached has no belt upstream of it at all. Resolve
+  // one, then PROPAGATE from it the same way — otherwise every cell of a
+  // beltless chain answers independently and they disagree with each other.
+  for (const c of arms) {
+    if (map.has(c.id)) continue;
+    map.set(c.id, choose(c, null));
+    queue.push(c);
+    while (queue.length) {
+      const q = queue.shift();
+      const ways = [map.get(q.id)];
+      const b2 = q.kind === 'sorter' ? anchorTile(q.x, q.z, q.rot ?? 0) : null;
+      if (b2 && at.has(`${b2.x},${b2.z}`)) ways.push(b2);
+      for (const to of ways) {
+        if (!to) continue;
+        const next = at.get(`${to.x},${to.z}`);
+        if (!next || !derivedFlow(next.kind) || map.has(next.id)) continue;
+        const fromR = [0, 1, 2, 3].find((r) => {
+          const a = anchorTile(next.x, next.z, r);
+          return a.x === q.x && a.z === q.z;
+        });
+        map.set(next.id, choose(next, fromR === undefined ? null : rot4(fromR + 2)));
+        queue.push(next);
+      }
+    }
+  }
+
+  FLOW.set(L, {
+    belts, arms: arms.length, armsRef: L?.arms ?? [], sortRef: L?.sorters ?? [], map,
+  });
+  return map;
+}
+
+/** Which cell this conveyor hands its crate to — see `conveyorFlow`. */
+export function conveyorNext(L, cell) {
+  if (!cell) return null;
+  if (!derivedFlow(cell.kind)) return anchorTile(cell.x, cell.z, cell.rot);
+  return conveyorFlow(L).get(cell.id) ?? null;
+}
+
+/**
+ * A sorter's other way out — the side its `rot` names.
+ *
+ * Null for everything else, and null for a sorter whose branch has nothing on
+ * it, because a branch that leads nowhere is not a decision: the piece is a belt
+ * that cost more, and `stepBelts` should carry straight on rather than jamming
+ * against a wall it was pointed at.
+ */
+export function conveyorBranch(L, cell) {
+  if (!cell || cell.kind !== 'sorter') return null;
+  const b = anchorTile(cell.x, cell.z, cell.rot ?? 0);
+  return conveyorAt(L, b.x, b.z) ? b : null;
+}
+
+/**
+ * ...and every other way out it has, which is what makes it a four-way.
+ *
+ * A junction with exactly two ways out is a junction that only helps when the
+ * shape you wanted was a T. Standing one where four lines meet — which is the
+ * ordinary thing to draw and the first thing anybody tries — it would ignore two
+ * of them, and the two it ignored would look connected: they are conveyor cells
+ * touching a conveyor cell, with a green mark on the join.
+ *
+ * So every neighbouring cell that is not its straight-on and is not feeding it
+ * is a way out. `rot` stays FIRST, which is what keeps it meaningful: it is the
+ * side the blade is drawn across and the side a tie goes to.
+ *
+ * Never back onto a feeder. That would be a two-cell tug of war, and at a
+ * junction it is the likely one — four neighbours, and half of them are usually
+ * pointing in.
+ */
+export function conveyorBranches(L, cell) {
+  if (!cell || cell.kind !== 'sorter') return [];
+  const straight = conveyorNext(L, cell);
+  const named = anchorTile(cell.x, cell.z, cell.rot ?? 0);
+  const out = [];
+  for (const r of [0, 1, 2, 3]) {
+    const n = anchorTile(cell.x, cell.z, r);
+    const other = conveyorAt(L, n.x, n.z);
+    if (!other) continue;
+    if (straight && n.x === straight.x && n.z === straight.z) continue;
+    const to = conveyorNext(L, other);
+    if (to && to.x === cell.x && to.z === cell.z) continue;
+    out.push({ x: n.x, z: n.z });
+  }
+  // The side `rot` names goes first — a tie is settled by what you aimed it at.
+  out.sort((a, b) => (a.x === named.x && a.z === named.z ? -1 : 0)
+    + (b.x === named.x && b.z === named.z ? 1 : 0));
+  return out;
+}
+
+/**
+ * Every cell a crate put on this one would visit, in order, ending wherever the
+ * run ends.
+ *
+ * Cycle-guarded rather than depth-capped, because a ring of belt is a legal and
+ * ordinary thing to build — `beltOrder` already says so — and a walk that ran
+ * off the end of one would hang the tick loop rather than draw a wrong picture.
+ *
+ * This is the function that lets anything ask *what is down there* without
+ * knowing about belts: which units a box would be offered to, whether the line
+ * goes anywhere at all. One walk, in `shared/`, for the same reason
+ * `conveyorNext` is here — the sim routes a crate down it and the renderer draws
+ * the same line, and two answers would be a picture of a different shop.
+ */
+export function conveyorRun(L, cell) {
+  const out = [];
+  const seen = new Set();
+  // A queue rather than a walk, because a sorter has TWO ways out and "what is
+  // down there" has to mean both of them. Asked of one branch only, a run that
+  // splits would report half of what it serves — and the half it dropped is the
+  // half somebody built the sorter for.
+  const queue = cell ? [cell] : [];
+  while (queue.length) {
+    const at = queue.shift();
+    if (!at || seen.has(at.id)) continue;
+    seen.add(at.id);
+    out.push(at);
+    for (const to of [conveyorNext(L, at), ...conveyorBranches(L, at)]) {
+      if (!to) continue;
+      const on = conveyorAt(L, to.x, to.z);
+      if (on && !seen.has(on.id)) queue.push(on);
+    }
+  }
+  return out;
+}
+
+/**
+ * The units a crate put on this cell could still be unloaded into.
+ *
+ * Every loader from here DOWNSTREAM, and all four of its sides — because a
+ * loader pours into whatever is beside it rather than into the one thing it
+ * faces, and `rot` is only the side it tries first.
+ *
+ * Downstream and not the whole run, which is the half that makes this worth
+ * having: a box put on the last cell before a wall is served by nothing, and a
+ * hire who read the run as a set rather than as a direction would walk one to
+ * the end of the line and stand there.
+ */
+/**
+ * Everything a crate put on this cell could still be delivered INTO.
+ *
+ * Shelving, appliance hoppers and the skip, all from the same forward walk. A
+ * loader that could only ever pour into a shelf is a loader that cannot automate
+ * the half of the shop that is not shelves — five machines and a bin, in a shop
+ * with eighteen units — and the walk that knows what is down there does not care
+ * which of the three it finds.
+ */
+export function conveyorMeets(L, cell) {
+  const out = { shelves: [], stations: [], bins: [] };
+  const seen = new Set();
+  const take = (list, from, key) => {
+    for (const u of from ?? []) {
+      if (u.x !== key.x || u.z !== key.z || seen.has(u.id)) continue;
+      seen.add(u.id);
+      list.push(u);
+    }
+  };
+  for (const c of conveyorRun(L, cell)) {
+    if (c.kind !== 'arm') continue;
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(c.x, c.z, r);
+      take(out.shelves, L?.shelves, n);
+      take(out.stations, L?.stations, n);
+      take(out.bins, L?.bins, n);
+    }
+  }
+  return out;
+}
+
+export function conveyorServes(L, cell) {
+  const units = L?.shelves ?? [];
+  const out = [];
+  const seen = new Set();
+  for (const c of conveyorRun(L, cell)) {
+    if (c.kind !== 'arm') continue;
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(c.x, c.z, r);
+      const u = units.find((sh) => sh.x === n.x && sh.z === n.z);
+      if (u && !seen.has(u.id)) { seen.add(u.id); out.push(u); }
+    }
+  }
+  return out;
+}
+
+/**
+ * The cells a fixture moves goods between, for the preview to draw.
+ *
+ * Deliberately NOT part of `workSpots`. That function answers "where does a
+ * PERSON stand", and three callers act on it: the generator reserves those
+ * tiles, `canPlace` warns when none is reachable, and `verify:layout` asserts
+ * every fixture has one. A belt's output is none of those things — it is where
+ * the next belt goes — so folding it in would make the shop keep clear exactly
+ * the square you are trying to build on.
+ *
+ * `out` and `in` are quarter turns off the fixture's own `rot`, so the whole
+ * table is two small integers and the geometry is `anchorTile`'s.
+ */
+export function flowSpots(kind, x, z, rot) {
+  const flow = FIXTURES[kind]?.flow;
+  if (!flow) return [];
+  const out = [];
+  if (flow.out != null) out.push({ ...anchorTile(x, z, rot + flow.out), role: 'out' });
+  if (flow.in != null) out.push({ ...anchorTile(x, z, rot + flow.in), role: 'in' });
+  return out;
+}
+
 /** Every fixture currently in the layout, as uniform placement specs. */
 export function fixturesOf(L) {
   const out = [];
@@ -1521,6 +2071,16 @@ export function fixturesOf(L) {
   for (const c of L.checkouts ?? []) out.push({ kind: 'checkout', ...c });
   for (const s of L.stations ?? []) out.push({ kind: 'station', ...s });
   for (const p of L.plots ?? []) out.push({ kind: 'plot', ...p });
+  // `bins`, `belts` and `arms` were each missing from this list at some point,
+  // and the failure is the same every time and is not an error: `freezeShell`
+  // walks this to turn a generated shop into placements, and `whatThisBlocks`
+  // walks it to decide whose working spot you are about to build over — so a
+  // list that is absent here is a fixture that does not survive being stamped
+  // and that nothing warns you about stranding.
+  for (const b of L.bins ?? []) out.push({ kind: 'bin', ...b });
+  for (const b of L.belts ?? []) out.push({ kind: 'belt', ...b });
+  for (const a of L.arms ?? []) out.push({ kind: 'arm', ...a });
+  for (const s of L.sorters ?? []) out.push({ kind: 'sorter', ...s });
   // Props carry their own kind, because there is more than one and they are not
   // told apart by which list they came out of.
   for (const p of L.props ?? []) out.push({ ...p });
@@ -1586,6 +2146,20 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
     if (!keeping && !insideStore(L, x, z)) return no('that has to go inside the shop');
     if (taken) return no('something is already there');
     if (!BUILDABLE_INDOOR.has(ground)) {
+      // ...except one conveyor for the other, in place. You lay a run first and
+      // then decide which cells stock a shelf, so "delete the belt, then place a
+      // loader on the hole" is two presses for one idea — and the hole is a gap
+      // in a line you were looking at, which is the worst moment to be asked to
+      // re-derive where you were.
+      //
+      // Only between the two conveyor kinds, and never for the same kind: a
+      // belt over a belt is a press that takes money and changes nothing.
+      if (def.flow && ground === T.BELT && !keeping) {
+        const here = conveyorAt(L, x, z);
+        if (here && here.kind !== spec.kind) {
+          return { ok: true, warn: `replaces the ${FIXTURES[here.kind]?.label?.toLowerCase() ?? 'belt'} that is there` };
+        }
+      }
       return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
   } else if (def.where === 'any') {
@@ -1722,6 +2296,47 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
     if (!insideStore(L, a.x, a.z)) return 'it faces out of the shop — nobody will use it';
   } else if (!FACING.some((f) => open(x + f.dx, z + f.dz))) {
     return 'nothing can get to it';
+  }
+
+  // ---- ...and does what it moves goods to and from actually exist? --------
+  //
+  // A warning rather than a refusal, on the house rule: a dead-ended belt is a
+  // legitimate thing to build — you lay a run one cell at a time, so every belt
+  // is a dead end for the moment between placing it and placing the next. What
+  // it must not be is SILENT, because a broken junction and a working one are
+  // the same dark rectangle, and the shop just quietly does nothing.
+  if (def.flow) {
+    const isBelt = (tx, tz) => (L.belts ?? []).some((b) => b.x === tx && b.z === tz)
+      || (tx === x && tz === z);
+    const holds = (tx, tz) => (L.shelves ?? []).some((sh) => sh.x === tx && sh.z === tz)
+      || (L.stations ?? []).some((st) => st.x === tx && st.z === tz)
+      || (L.bins ?? []).some((bn) => bn.x === tx && bn.z === tz);
+
+    if (def.flow.out != null) {
+      const o = anchorTile(x, z, (spec.rot ?? 0) + def.flow.out);
+      if (!isBelt(o.x, o.z) && !holds(o.x, o.z)) {
+        return spec.kind === 'belt'
+          ? 'it runs into nothing — the next belt goes on the square it points at'
+          : 'nothing in front of it to put goods into';
+      }
+    }
+    if (def.flow.in != null) {
+      const i = anchorTile(x, z, (spec.rot ?? 0) + def.flow.in);
+      if (!isBelt(i.x, i.z)) return 'nothing behind it to take goods from';
+    }
+  }
+
+  // An arm asks the same question of all four sides at once, because it works
+  // between any two of them. Two warnings rather than one, since "it has
+  // nothing to take from" and "it has nowhere to put things" are different
+  // mistakes and telling somebody the wrong one sends them to the wrong side.
+  // A loader sits in the run and unloads sideways, so what it needs beside it is
+  // SHELVING. Without any it is a belt that cost four times as much — which is
+  // a thing you may build (it still carries crates) and must be told about.
+  if (def.works) {
+    const around = FACING.map((f) => ({ x: x + f.dx, z: z + f.dz }));
+    const unitish = (c) => (L.shelves ?? []).some((sh) => sh.x === c.x && sh.z === c.z);
+    if (!around.some(unitish)) return 'no shelving beside it — it will just carry crates past';
   }
 
   // ---- ...and can anyone stand behind it and work it? ---------------------

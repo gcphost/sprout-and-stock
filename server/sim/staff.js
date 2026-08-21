@@ -1604,6 +1604,102 @@ function serve(game, s) {
 }
 
 /**
+ * Stand about looking official, and go after anybody who runs — docs/security.md
+ * step 4.
+ *
+ * The job is deliberately the SECOND half of what a guard is worth. Presence is
+ * the first (`Game.guardDeterrence`, read at the fork in `goToTill`), and that
+ * half needs no job to run at all — which is right, because a security guard is
+ * mostly somebody standing there, and a shop where the deterrent only worked
+ * while the chase code was executing would be a shop where hiring one did
+ * nothing until somebody already stole from you.
+ *
+ * **They cannot win a foot race, and that is the design.** A hire walks at
+ * `speedOf` — around 2.6 — against a thief's 4.62, so a guard who spots
+ * somebody already running has essentially no chance of closing. What they can
+ * do is be in the way. Which turns "where do I put my guard" into the whole
+ * decision, and it is a decision the shop answers honestly: post them by the
+ * door and they intercept; post them at the back and they are decoration.
+ *
+ * A guard who caught everybody would retire the tazer you were given in step 3,
+ * and a shop that plays itself is the failure mode every job in this file is
+ * written against.
+ */
+function guard(game, s) {
+  if (s.carry || s.haul) return false;
+
+  // Only somebody who still has the goods. A thief already emptied — by you, or
+  // by another guard — is an ordinary shopper walking out, and chasing them is
+  // a hire crossing the shop for nothing while looking exactly like a hire
+  // doing their job.
+  const thieves = Object.values(game.customers)
+    .filter((c) => c.stole && !c.caught && (c.bought?.length ?? 0) > 0);
+
+  if (thieves.length) {
+    const near = (c) => Math.hypot(c.x - s.x, c.z - s.z);
+    const mark = thieves.reduce((a, b) => (near(b) < near(a) ? b : a));
+    // Close enough to grab. `game.taze` is not reused: it is the PLAYER's verb,
+    // it charges a cooldown against a player record and it refuses out of a
+    // player's range — three things a hire has no version of. What is shared is
+    // the outcome, which is `catchThief`.
+    if (near(mark) <= GUARD_REACH) {
+      game.catchThief(mark, s);
+      s.cooldown = paceOf(s);
+      return true;
+    }
+    // Otherwise walk at them. Routed every tick rather than once, because the
+    // target is running: a route planned to where somebody WAS is a guard
+    // jogging to an empty tile, which reads as broken pathing.
+    goTo(game, s, { x: mark.x, z: mark.z }, GUARD_REACH);
+    return true;
+  }
+
+  /**
+   * Nothing to chase, so go and be visible — at a way OUT.
+   *
+   * Every exit rather than `layout.door`, because that field is only the hole
+   * the generator cut and a player can knock as many more as they like: a guard
+   * stood at the front of a shop with a side entrance is watching the wrong one,
+   * and it reads as the hire not working because they are standing exactly where
+   * you would expect a guard to stand. `shopExits` derives them from the walls
+   * with the same test the thief's own route is planned with.
+   *
+   * One guard per exit, claimed the way `serve` claims a till — which is what
+   * makes hiring a second one mean something in a shop with two ways out, and
+   * is the same shape the rest of this file already uses for "don't both do the
+   * one job". Nearest unclaimed, so a guard already stood at the back door stays
+   * there: a post chosen by anything that drifts would have them wander between
+   * doors all day, which is `spotScore`'s churn rule said about people.
+   *
+   * Returning false once posted is deliberate: a guard who held the tick while
+   * standing still would starve every other directive on their list, and one
+   * given `guard` plus `shelve` is supposed to shelve between incidents.
+   */
+  const busy = claimed(game, s);
+  const free = game.shopExits().filter((e) => !busy.has(key('exit', e.id)));
+  const posts = free.length ? free : game.shopExits();
+  if (!posts.length) return false;
+
+  const post = posts.reduce((a, b) => (
+    Math.hypot(b.x - s.x, b.z - s.z) < Math.hypot(a.x - s.x, a.z - s.z) ? b : a));
+  claim(s, 'exit', post.id);
+  if (Math.hypot(s.x - post.x, s.z - post.z) <= GUARD_POST) return false;
+  return goTo(game, s, post, GUARD_POST) ? false : true;
+}
+
+/** How near a way out counts as standing at it. */
+const GUARD_POST = 1.4;
+
+/**
+ * How close a guard has to be to lay hands on somebody.
+ *
+ * Wider than the player's `TAZE_RANGE` on purpose, and it is the only advantage
+ * they get: they are half the speed of what they are chasing, so a reach as
+ * tight as yours would make the job unwinnable rather than hard.
+ */
+const GUARD_REACH = 1.5;
+
+/**
  * Order wholesale for whichever shelf wants it most.
  *
  * Refuses while there is a pallet at the bay it could be unloading instead —
@@ -1665,7 +1761,7 @@ function serve(game, s) {
  * deciding whether to create any. One writer of `orders.dropped`, or the mark
  * means something different depending on who asked.
  */
-const givenUp = (game, id) => game.droppedItem(id) && !game.keptFor(id);
+export const givenUp = (game, id) => game.droppedItem(id) && !game.keptFor(id);
 
 function restock(game, s) {
   if (s.carry) return false;
@@ -1879,6 +1975,42 @@ function unload(game, s) {
     // box. Ranked on the biggest pile, because that is the one the trip is
     // mostly about and the ranking has to pick a single order.
     const taken = claimed(game, s);
+
+    /**
+     * A conveyor first, and this is the line that makes belts worth owning.
+     *
+     * The whole pitch of docs/belts.md is that the WALK is the product, so a box
+     * a run will deliver is a box nobody should be carrying to a shelf — and
+     * without this the crew go on doing exactly what they did before, because a
+     * shelf at the far end of the shop is a perfectly good answer and they have
+     * no idea the belt is there. What you would watch is a working conveyor
+     * standing idle beside a stocker walking past it with a crate, which reads
+     * as the belt being broken.
+     *
+     * It goes ahead of the shelf search rather than beside it: a hire who
+     * weighed the two would take whichever was nearer, and the point is not that
+     * the belt is a shorter walk, it is that the rest of the journey costs
+     * nothing at all.
+     *
+     * `beltFor` insists the run actually SERVES some of what is in the box, so
+     * a line that goes nowhere is not an answer and the hire falls straight
+     * through to the shelf below. That fall-through is the same guarantee
+     * `ferry`'s haul branch gives: a run torn out, jammed, or re-aimed while
+     * somebody walked must never leave a crate welded to a shoulder.
+     */
+    const belt = game.beltFor(s.haul, { from: s });
+    if (belt && !taken.has(key('belt', belt.id))) {
+      claim(s, 'belt', belt.id);
+      if (!goTo(game, s, belt, 1.4)) return true;
+      const put = game.beltPut(s.haul, belt);
+      if (put.ok) s.haul = null;
+      s.cooldown = put.ok ? paceOf(s) : 1;
+      // A refusal is not work — see the note at the bottom of this branch. The
+      // cell filling between the decision and the arrival is the ordinary case
+      // on a busy run, and saying it was work is a hire who never rests again.
+      return put.ok;
+    }
+
     const piles = lotStacks(s.haul).sort((a, b) => b.qty - a.qty);
     const shelf = piles.flatMap((pile) => shelvesFor(game, pile.item_id, c, spoken)
       .filter((sh) => !taken.has(key('shelf', sh.id))
@@ -2065,7 +2197,7 @@ function unload(game, s) {
   // balance change rather than an efficiency upgrade.
   let ties = [];
   let fallbackTies = [];
-  for (const d of game.stockCrates()) {
+  for (const d of game.floorCrates()) {
     // No "same item only" filter any more, and it is not needed: `fit` already
     // scores a box your hands have no room for at zero, whether that is out of
     // units or out of kinds. The filter was the single-kind spelling of a
@@ -2129,7 +2261,7 @@ function unload(game, s) {
   // room for none of it. A crate cannot satisfy both, so a box can never be
   // carried out and back.
   if (!pallet && !s.carry) {
-    const home = game.stockCrates().find((d) => !onAPad(game, d)
+    const home = game.floorCrates().find((d) => !onAPad(game, d)
       && !busy.has(key('crate', d.id))
       && game.crateOnTop(d));
     if (home && game.dropPad()) {
@@ -2197,8 +2329,29 @@ function unload(game, s) {
    * test that was already here.
    */
   const bar = packTo > 0 ? best : hands;
+
+  /**
+   * ...unless a conveyor will take it, in which case the size tests are asking
+   * the wrong question entirely.
+   *
+   * Every one of them is a comparison between two JOURNEYS — is the box worth
+   * more than the armful this bay can assemble — and a box put on a belt makes
+   * no journey at all past the first cell. A four-unit crate against six-unit
+   * hands is "pure ceremony" when both ends of it are a walk across the shop;
+   * with a run in between it is the difference between one short trip to the
+   * belt and three long ones to the shelf.
+   *
+   * Without this the branch below is unreachable for exactly the shop that laid
+   * a belt to fix it — a bay of part-crates, which is the case `packs` exists
+   * for — so the crew would go on making armful trips down an aisle with a
+   * conveyor running along it.
+   *
+   * `onAPad` and `crateOnTop` still apply, and the first is what keeps it
+   * terminating: haulage runs one way, out of the yard.
+   */
+  const beltTakes = !s.carry && !!game.beltFor(pallet, { from: s });
   const wholeCrate = !s.carry
-    && lotTotal(pallet) + fill > bar
+    && (beltTakes || lotTotal(pallet) + fill > bar)
     // The shop must want MORE than one armful of it. Under that, carrying the
     // box is strictly worse than carrying the goods: same journey, and you
     // arrive with your hands full of crate and a remainder to walk home. The
@@ -2216,7 +2369,8 @@ function unload(game, s) {
     // box of four things the shop wants three of each of would never be lifted
     // — twelve units of wanted stock making twelve one-armful trips, which is
     // the shape mixing was meant to end.
-    && lotStacks(pallet).reduce((n, k) => n + Math.min(k.qty, roomFor(k.item_id).room), 0) + fill > bar
+    && (beltTakes
+      || lotStacks(pallet).reduce((n, k) => n + Math.min(k.qty, roomFor(k.item_id).room), 0) + fill > bar)
     && onAPad(game, pallet)
     // ...and it has to be the one on TOP. `liftCrate` refuses a buried crate,
     // and a refusal here is not a no-op: the hire keeps choosing the same crate
@@ -2295,7 +2449,7 @@ function fillHands(game, s, from) {
     if (!room.has(id)) room.set(id, roomAcross(game, id, c, spoken).room);
     return room.get(id);
   };
-  for (const d of game.stockCrates()) {
+  for (const d of game.floorCrates()) {
     if (d.id === from.id) continue;
     if (lotTotal(s.carry) >= hands) return;
     // Only more of what is ALREADY in these hands, which is what keeps this a
@@ -2343,7 +2497,7 @@ function fillCrate(game, s, from, packTo) {
     if (!room.has(id)) room.set(id, roomAcross(game, id, c, spoken).room);
     return room.get(id);
   };
-  for (const d of game.stockCrates()) {
+  for (const d of game.floorCrates()) {
     if (d.id === from.id) continue;
     if (busy.has(key('crate', d.id))) continue;
     // Out of the yard only — see `packFill`. Without it, packing is a way for
@@ -3032,7 +3186,7 @@ function craft(game, s) {
       // put them away, and preferring it would have a chef intercepting the
       // delivery every stocker is trying to unload.
       if (!from) {
-        const crate = game.stockCrates().find((d) => lotQty(d, input.item_id) > 0
+        const crate = game.floorCrates().find((d) => lotQty(d, input.item_id) > 0
           && !busy.has(key('crate', d.id)));
         if (!crate) continue;
         if ((st.contents[input.item_id] ?? 0) >= game.stationHopperCap(st, input.item_id)) continue;
@@ -3246,7 +3400,7 @@ function ferry(game, s) {
 }
 
 const JOBS = {
-  serve, restock, unload, shelve, tidy, merchandise, farm, craft, ferry,
+  serve, restock, unload, shelve, tidy, merchandise, farm, craft, ferry, guard,
 };
 
 const total = (contents) => Object.values(contents ?? {}).reduce((a, b) => a + b, 0);

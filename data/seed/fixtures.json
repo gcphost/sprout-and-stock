@@ -308,6 +308,244 @@
     "signal": null
   },
   {
+    "id": "arm",
+    "name": "Loader",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#2f333a",
+          "pos": [
+            0,
+            0.055,
+            0
+          ],
+          "scale": [
+            1,
+            0.09,
+            0.66
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5b6472",
+          "pos": [
+            -0.45,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": {
+            "kind": "scroll",
+            "hz": 1.1,
+            "amount": 0.26,
+            "turns": 1,
+            "pivot": null
+          },
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5b6472",
+          "pos": [
+            -0.19,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": {
+            "kind": "scroll",
+            "hz": 1.1,
+            "amount": 0.26,
+            "turns": 1,
+            "pivot": null
+          },
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5b6472",
+          "pos": [
+            0.07,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": {
+            "kind": "scroll",
+            "hz": 1.1,
+            "amount": 0.26,
+            "turns": 1,
+            "pivot": null
+          },
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5b6472",
+          "pos": [
+            0.33,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": {
+            "kind": "scroll",
+            "hz": 1.1,
+            "amount": 0.26,
+            "turns": 1,
+            "pivot": null
+          },
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#4b5563",
+          "pos": [
+            0,
+            0.17,
+            -0.4
+          ],
+          "scale": [
+            0.92,
+            0.22,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#6b7280",
+          "pos": [
+            0,
+            0.29,
+            -0.4
+          ],
+          "scale": [
+            0.72,
+            0.03,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Loader",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Quick Loader",
+        "cost": 90,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1.9,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Twin Loader",
+        "cost": 210,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 3.2,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      }
+    ],
+    "variants": [],
+    "kind": "arm",
+    "cost": 90,
+    "emits": null,
+    "tags": [
+      "logistics"
+    ],
+    "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false,
+    "sfx": null,
+    "signal": null
+  },
+  {
     "id": "asphalt",
     "name": "Asphalt",
     "model": null,
@@ -1196,6 +1434,786 @@
     "surface": null,
     "yields": null,
     "charm": 2.5,
+    "work": null,
+    "open": false,
+    "sfx": null,
+    "signal": null
+  },
+  {
+    "id": "belt",
+    "name": "Conveyor",
+    "model": {
+      "stages": [
+        {
+          "name": "Belt",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#2f333a",
+              "pos": [
+                0,
+                0.055,
+                0
+              ],
+              "scale": [
+                1,
+                0.09,
+                0.66
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#5b6472",
+              "pos": [
+                -0.45,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.26,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#5b6472",
+              "pos": [
+                -0.19,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.26,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#5b6472",
+              "pos": [
+                0.07,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.26,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#5b6472",
+              "pos": [
+                0.33,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.26,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#8d97a5",
+              "pos": [
+                0.16,
+                0.107,
+                -0.055
+              ],
+              "scale": [
+                0.17,
+                0.012,
+                0.035
+              ],
+              "rot": -30,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#8d97a5",
+              "pos": [
+                0.16,
+                0.107,
+                0.055
+              ],
+              "scale": [
+                0.17,
+                0.012,
+                0.035
+              ],
+              "rot": 30,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Quick",
+          "at": 0.34,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#2b3038",
+              "pos": [
+                0,
+                0.055,
+                0
+              ],
+              "scale": [
+                1,
+                0.09,
+                0.66
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7c8798",
+              "pos": [
+                -0.45,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.17,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7c8798",
+              "pos": [
+                -0.28,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.17,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7c8798",
+              "pos": [
+                -0.10999999999999999,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.17,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7c8798",
+              "pos": [
+                0.06,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.17,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7c8798",
+              "pos": [
+                0.23000000000000004,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.17,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7c8798",
+              "pos": [
+                0.4000000000000001,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.17,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#aab4c2",
+              "pos": [
+                0.16,
+                0.107,
+                -0.055
+              ],
+              "scale": [
+                0.17,
+                0.012,
+                0.035
+              ],
+              "rot": -30,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#aab4c2",
+              "pos": [
+                0.16,
+                0.107,
+                0.055
+              ],
+              "scale": [
+                0.17,
+                0.012,
+                0.035
+              ],
+              "rot": 30,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Express",
+          "at": 0.67,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#242a33",
+              "pos": [
+                0,
+                0.055,
+                0
+              ],
+              "scale": [
+                1,
+                0.09,
+                0.66
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c98b3a",
+              "pos": [
+                -0.45,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.13,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c98b3a",
+              "pos": [
+                -0.32,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.13,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c98b3a",
+              "pos": [
+                -0.19,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.13,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c98b3a",
+              "pos": [
+                -0.06,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.13,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c98b3a",
+              "pos": [
+                0.07,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.13,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c98b3a",
+              "pos": [
+                0.2,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.13,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c98b3a",
+              "pos": [
+                0.33,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.13,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c98b3a",
+              "pos": [
+                0.46,
+                0.115,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.03,
+                0.56
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": {
+                "kind": "scroll",
+                "hz": 1.1,
+                "amount": 0.13,
+                "turns": 1,
+                "pivot": null
+              },
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#e8d9a8",
+              "pos": [
+                0.16,
+                0.107,
+                -0.055
+              ],
+              "scale": [
+                0.17,
+                0.012,
+                0.035
+              ],
+              "rot": -30,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#e8d9a8",
+              "pos": [
+                0.16,
+                0.107,
+                0.055
+              ],
+              "scale": [
+                0.17,
+                0.012,
+                0.035
+              ],
+              "rot": 30,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Belt",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Quick Belt",
+        "cost": 40,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1.8,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Express Belt",
+        "cost": 110,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 3,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      }
+    ],
+    "variants": [],
+    "kind": "belt",
+    "cost": 25,
+    "emits": null,
+    "tags": [
+      "logistics"
+    ],
+    "surface": null,
+    "yields": null,
+    "charm": 0,
     "work": null,
     "open": false,
     "sfx": null,
@@ -2637,6 +3655,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2658,6 +3677,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2679,6 +3699,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2700,6 +3721,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2721,6 +3743,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2748,6 +3771,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2769,6 +3793,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2790,6 +3815,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2811,6 +3837,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2832,6 +3859,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2853,6 +3881,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2874,6 +3903,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2901,6 +3931,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2922,6 +3953,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2943,6 +3975,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2964,6 +3997,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -2985,6 +4019,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3006,6 +4041,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3027,6 +4063,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3048,6 +4085,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3075,6 +4113,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3096,6 +4135,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3117,6 +4157,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3138,6 +4179,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3159,6 +4201,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3180,6 +4223,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3201,6 +4245,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3222,6 +4267,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3237,7 +4283,11 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1,
-        "unattended": 0
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
       },
       {
         "name": "Barcode Scanner",
@@ -3245,7 +4295,11 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1.4,
-        "unattended": 0
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
       },
       {
         "name": "Belted Checkout",
@@ -3253,7 +4307,11 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1.9,
-        "unattended": 0
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
       },
       {
         "name": "Self-Checkout",
@@ -3261,7 +4319,23 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1.5,
-        "unattended": 0.5
+        "unattended": 0.5,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Walk-Out Sensors",
+        "cost": 2400,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 8,
+        "emits": null,
+        "open": null
       }
     ],
     "variants": [
@@ -3287,6 +4361,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3308,6 +4383,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3329,6 +4405,7 @@
               "surface": false,
               "seam": false,
               "alpha": 0.9,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3350,6 +4427,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3371,6 +4449,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3401,6 +4480,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3422,6 +4502,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3443,6 +4524,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3464,6 +4546,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3485,6 +4568,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -3506,6 +4590,7 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "shadow": false,
               "drift": false,
               "motion": null,
               "tint": null
@@ -21856,6 +22941,196 @@
       "density": null,
       "blade": null
     },
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false,
+    "sfx": null,
+    "signal": null
+  },
+  {
+    "id": "sorter",
+    "name": "Sorter",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#2f333a",
+          "pos": [
+            0,
+            0.055,
+            0
+          ],
+          "scale": [
+            1,
+            0.09,
+            0.66
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5b6472",
+          "pos": [
+            -0.45,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": {
+            "kind": "scroll",
+            "hz": 1.1,
+            "amount": 0.26,
+            "turns": 1,
+            "pivot": null
+          },
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5b6472",
+          "pos": [
+            -0.19,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": {
+            "kind": "scroll",
+            "hz": 1.1,
+            "amount": 0.26,
+            "turns": 1,
+            "pivot": null
+          },
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5b6472",
+          "pos": [
+            0.07,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": {
+            "kind": "scroll",
+            "hz": 1.1,
+            "amount": 0.26,
+            "turns": 1,
+            "pivot": null
+          },
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#5b6472",
+          "pos": [
+            0.33,
+            0.115,
+            0
+          ],
+          "scale": [
+            0.07,
+            0.03,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": {
+            "kind": "scroll",
+            "hz": 1.1,
+            "amount": 0.26,
+            "turns": 1,
+            "pivot": null
+          },
+          "tint": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#4b5563",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.1,
+            0.34
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Standard",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      }
+    ],
+    "variants": [],
+    "kind": "sorter",
+    "cost": 140,
+    "emits": null,
+    "tags": [],
+    "surface": null,
     "yields": null,
     "charm": 0,
     "work": null,

@@ -295,7 +295,24 @@ export const ShopRoom = (Base) => class extends Base {
 
   registerMessages() {
     this.onMessage('input', (client, m) => {
-      this.game.setInput(client.sessionId, Number(m?.dx) || 0, Number(m?.dz) || 0);
+      // Sprint rides here rather than on a message of its own — see `setInput`.
+      this.game.setInput(client.sessionId, Number(m?.dx) || 0, Number(m?.dz) || 0, !!m?.sprint);
+    });
+
+    // Stop a shoplifter. Named rather than proximity, like every other verb
+    // that moves goods, because the end of a chase is the most crowded two
+    // tiles in the shop — see `Game.taze`.
+    this.onMessage('taze', (client, m) => {
+      // Guarded like `walk-to`: a chase is legs across ticks, so a stopped
+      // clock has nowhere to put it, and tazing somebody in a frozen shop would
+      // be reaching into a world that is not running.
+      if (this.frozen(client)) return;
+      const res = this.game.taze(client.sessionId, String(m?.id ?? ''));
+      // Spoken on refusal, unlike `walk-to`: a tazer that did nothing and said
+      // nothing is indistinguishable from a dropped message, and the answer is
+      // usually something the player can act on in the next second ("too far
+      // away", "still charging").
+      client.send('action-result', res?.error ? { ok: false, error: res.error } : { ok: true, ...res });
     });
 
     // The button. Nothing in the shop fires without it — see `stepActions`.
@@ -563,6 +580,19 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
 
+    // Whether the crew choose which way a sorter sends things. Build mode only,
+    // unlike `shelf-hands`: a sorter is plumbing rather than shopkeeping, and
+    // every other verb that changes what a conveyor DOES is a build verb.
+    this.onMessage('sorter-auto', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setSorterAuto(client.sessionId, id, m?.on),
+        (n) => (m?.on === false
+          ? `${n} sorters split everything evenly now.`
+          : `${n} sorters left to the crew.`),
+      ));
+    });
+
     // What the shop does without being asked, and what that may cost per day.
     // Each field is optional — the supplier sends the one row you pressed, for
     // the same reason `assign` carries `on`: a message that re-sent the other
@@ -680,6 +710,15 @@ export const ShopRoom = (Base) => class extends Base {
       const res = this.game.paintFaces(client.sessionId, m ?? {});
       client.send('action-result', res);
       if (res.ok && !res.unchanged) this.broadcast('paint', this.game.paint);
+    });
+
+    // A run of conveyor, laid in one drag. Two ends and a piece, never the list —
+    // the inbound cap is 4KB and the server re-runs `beltRunCells` against the
+    // same far end, so the two cannot disagree about which way it went.
+    this.onMessage('build-run', (client, m) => {
+      const res = this.game.buildRun(client.sessionId, m ?? {});
+      client.send('action-result', res);
+      if (res.ok) this.sendLayout();
     });
 
     this.onMessage('build-ground', (client, m) => {

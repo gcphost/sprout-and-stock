@@ -1728,6 +1728,27 @@
        off the right-hand edge. A column stops growing sideways however mixed
        an armful is, and lines the counts up under each other so a glance
        reads how much rather than parsing a list. */
+    /* bottom-centre: the chase bar. Only ever on screen while it is not full,
+       which is what keeps it out of the way of a game that is mostly not a
+       chase — see `syncStamina`. Centred rather than tucked in a corner
+       because it is read while sprinting, when your eyes are on the person you
+       are running after and a corner is somewhere you are not looking. */
+    #stam {
+      left: 50%; transform: translateX(-50%); bottom: 76px;
+      width: 132px; height: 6px; border-radius: 3px;
+      background: rgba(58,49,40,.22); overflow: hidden;
+      pointer-events: none; opacity: 0; transition: opacity .18s;
+    }
+    #stam.show { opacity: 1; }
+    #stam i {
+      display: block; height: 100%; width: 100%; border-radius: 3px;
+      background: var(--good); transform-origin: left center;
+      transition: transform .08s linear;
+    }
+    /* Run yourself flat and the bar says so rather than just sitting empty:
+       `winded` is a state you are IN, and an empty bar alone reads as a bar
+       that has stopped working. */
+    #stam.spent i { background: var(--accent); }
     #carry {
       right: 12px; background: var(--panel); font-size: 11.5px;
       border-radius: 11px; padding: 6px 9px 7px;
@@ -4992,6 +5013,7 @@
   <div id="rail" class="hud"></div>
   <div id="log" class="hud"></div>
   <div id="carry" class="hud"></div>
+  <div id="stam" class="hud"><i></i></div>
   <button id="rotbtn" class="hud" type="button" aria-label="Turn it"></button>
   <button id="closebtn" class="hud" type="button" aria-label="Done building"></button>
   <div id="prompt" class="hud"></div>

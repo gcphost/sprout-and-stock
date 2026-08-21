@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-87 pieces across 18 kinds.
+89 pieces across 20 kinds.
 
 ## Fixtures
 
@@ -159,6 +159,7 @@ Shapes: Standard, Express Kiosk, Corner Counter — looks only, same price and s
 2. **Barcode Scanner** — $180, speed ×1.4
 3. **Belted Checkout** — $420, speed ×1.9
 4. **Self-Checkout** — $900, speed ×1.5, serves itself at ×0.5 speed
+5. **Walk-Out Sensors** — $2400, bills 8 at once, no queue
 
 ### `station`
 
@@ -187,6 +188,7 @@ Shapes: Standard, Barista, Blender, Toaster, Press, Juicer, Soft-Serve, Fryer, O
 
 1. **Domestic** — free, as built
 2. **Commercial** — $340, speed ×2
+3. **Twin** — $420, speed ×2, makes 2 at a time
 
 ### `plot`
 
@@ -213,6 +215,34 @@ Indoors or out, owns its cell (people walk around it), worked from the side it f
 `bin` · kind `bin` · $90 to build
 
 6 parts · no `surface` boards — goods pile on its roof
+
+### `belt`
+
+Indoors only, blocks nobody, nobody stands at it, rotates.
+
+#### Conveyor
+
+`belt` · kind `belt` · $25 to build
+
+11 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 8 parts move always
+
+1. **Belt** — free, as built
+2. **Quick Belt** — $40, speed ×1.8
+3. **Express Belt** — $110, speed ×3
+
+### `arm`
+
+Indoors only, blocks nobody, nobody stands at it, rotates.
+
+#### Loader
+
+`arm` · kind `arm` · $90 to build
+
+7 parts · no `surface` boards — goods pile on its roof · 4 parts move always
+
+1. **Loader** — free, as built
+2. **Quick Loader** — $90, speed ×1.9
+3. **Twin Loader** — $210, speed ×3.2
 
 ## Decorations
 

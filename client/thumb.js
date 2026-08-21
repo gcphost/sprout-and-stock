@@ -545,8 +545,13 @@ function edgeRun(style, x, w) {
     // a flush window with a thicker frame, and the projection is the whole point
     // of the button. The wall either side stays on the line, so the button shows
     // the step out rather than a fatter wall.
-    pos: [x, (b.y0 + b.y1) / 2, (b.out ?? 0) / 2],
-    scale: [w, Math.max(0.02, b.y1 - b.y0), style.t + (b.out ?? 0)],
+    // ...and it may cover only part of its cell, which is a curtain: six strips
+    // with the gaps between them. Scaled by `w` so a stub gets a fraction of a
+    // stub — the button is the only place a cell is not one unit wide, and a
+    // strip laid out at full-cell offsets inside a 0.55 stub hangs off the end
+    // of it.
+    pos: [x + (b.off ?? 0) * w, (b.y0 + b.y1) / 2, (b.out ?? 0) / 2],
+    scale: [w * (b.len ?? 1), Math.max(0.02, b.y1 - b.y0), style.t + (b.out ?? 0)],
   }));
 }
 
@@ -556,7 +561,12 @@ function edgeParts(style) {
   // are actually buying to a third of it.
   const STUB = 0.55;
   const at = (1 + STUB) / 2;
-  const plain = { ...style, opening: false, glass: false };
+  // Every flag that makes a cell something other than solid wall has to come off
+  // the stubs, or the piece is drawn three times and the button stops saying
+  // "this, set in a wall". A new one missed here fails quietly and only on 38px.
+  const plain = {
+    ...style, opening: false, glass: false, curtain: false, shutter: false, mark: null,
+  };
   const parts = [
     ...edgeRun(plain, -at, STUB),
     ...edgeRun(style, 0, 1),

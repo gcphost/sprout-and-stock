@@ -28,7 +28,8 @@
     "staple_tags": [
       "dairy"
     ],
-    "tags": []
+    "tags": [],
+    "steal_chance": 0
   },
   {
     "id": "bulk-shopper",
@@ -53,7 +54,31 @@
     "spawn_weight": 1,
     "color": "#d98a5a",
     "staple_tags": [],
-    "tags": []
+    "tags": [],
+    "steal_chance": 0
+  },
+  {
+    "id": "chancer",
+    "name": "Chancer",
+    "affinities": {
+      "cheap": 1.4,
+      "snack": 1.6,
+      "sweet": 1.2,
+      "produce": 0.6
+    },
+    "price_sensitivity": 0.9,
+    "patience": 35,
+    "budget_min": 4,
+    "budget_max": 14,
+    "basket_min": 1,
+    "basket_max": 3,
+    "spawn_weight": 0.6,
+    "color": "#7a6f8c",
+    "staple_tags": [],
+    "tags": [
+      "thief"
+    ],
+    "steal_chance": 0.45
   },
   {
     "id": "family-cook",
@@ -81,7 +106,8 @@
     "spawn_weight": 1.5,
     "color": "#c98a5a",
     "staple_tags": [],
-    "tags": []
+    "tags": [],
+    "steal_chance": 0
   },
   {
     "id": "foodie",
@@ -107,7 +133,8 @@
     "spawn_weight": 1.2,
     "color": "#c98ad9",
     "staple_tags": [],
-    "tags": []
+    "tags": [],
+    "steal_chance": 0
   },
   {
     "id": "gift-hunter",
@@ -132,7 +159,8 @@
     "staple_tags": [
       "gift"
     ],
-    "tags": []
+    "tags": [],
+    "steal_chance": 0
   },
   {
     "id": "health-nut",
@@ -157,7 +185,8 @@
     "staple_tags": [
       "produce"
     ],
-    "tags": []
+    "tags": [],
+    "steal_chance": 0
   },
   {
     "id": "morning-regular",
@@ -188,7 +217,8 @@
     "staple_tags": [
       "breakfast"
     ],
-    "tags": []
+    "tags": [],
+    "steal_chance": 0
   },
   {
     "id": "snack-kid",
@@ -214,6 +244,7 @@
     "staple_tags": [
       "kids"
     ],
-    "tags": []
+    "tags": [],
+    "steal_chance": 0
   }
 ]

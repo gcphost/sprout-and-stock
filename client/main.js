@@ -4,8 +4,8 @@
 
 import {
   canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun, faceKey,
-  groundStroke, strokeThick, GROUND_STROKE_MAX,
-  faceAlong, isProp, isWalkableTile, workSpotOf, REACH,
+  groundStroke, strokeThick, GROUND_STROKE_MAX, beltRunCells, BELT_RUN_MAX, CONVEYOR_KINDS, canPlace,
+  faceAlong, isProp, isWalkableTile, workSpotOf, REACH, conveyorAt,
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
 import { Scene } from './render/scene.js';
@@ -349,7 +349,15 @@ net.on('state', (m) => {
   tutor.update(m);
   // Every sound in the game comes off this diff — see client/audio/events.js
   // for why it is a diff and not the log.
-  events.update(m, net.myId);
+  // ...and the one sound that also moves the camera. The alert says something
+  // happened; the cut says WHERE, which in a shop four screens wide is most of
+  // the information. Handed in as a callback rather than watched for separately
+  // here, so the two cannot disagree about which frame the theft landed on —
+  // and so there is exactly one place that decides somebody is newly a thief.
+  events.update(m, net.myId, (c) => {
+    ui.toast(`${c.name ?? 'Someone'} is walking out without paying!`, true);
+    scene.cutTo(c.id);
+  });
   // A stopped world is a stopped soundtrack. The renderer already has to be
   // told the same thing (`scene.paused`) for the same reason: both run on the
   // page's clock rather than the shop's.
@@ -388,7 +396,7 @@ net.on('host-gone', () => { import('./coop.js').then((m) => m.showHostGone()); }
 // ---------------------------------------------------------------------------
 
 const keys = new Set();
-let lastInput = { dx: 0, dz: 0 };
+let lastInput = { dx: 0, dz: 0, sprint: false };
 
 addEventListener('keydown', (e) => {
   // Typing in the panel's search box is not walking. Without this, searching
@@ -615,6 +623,31 @@ function aimPerson(cx, cy) {
   if (!who?.hire) return null;
   if (drag.touch || pillDrives()) return who;
   return who.hire === settledWho ? who : null;
+}
+
+/**
+ * The thief a press here would fire the tazer at, or null.
+ *
+ * Narrowed at the PICK rather than after it, which is what keeps the wrong
+ * person from being ringed in a crowd: the end of a chase is the busiest two
+ * tiles in the shop — your staff, whoever was in the way, and the one you are
+ * actually after — and only the last of those should be findable.
+ *
+ * `settledWho` is deliberately NOT consulted, unlike `aimPerson`. That rule
+ * exists because a hire walking under a still pointer must not steal a press
+ * meant for the shelf behind them, and it is exactly wrong here: the thing you
+ * are aiming at is *running*, so "the pointer arrived on them" is a state that
+ * lasts a frame. Insisting on it would make the tazer miss whenever it was
+ * working, which is the one gesture in the game where the world moving under
+ * the pointer is the point rather than the hazard.
+ *
+ * One function for the marker and the press, for `boardTakes`' reason: a ring
+ * drawn by a rule the press does not share is the green-ghost bug wearing a
+ * person.
+ */
+function aimThief(cx, cy) {
+  if (!pointer.onCanvas) return null;
+  return scene.pickShopper(cx, cy, { only: (c) => c.stole && (c.basket?.length ?? 0) > 0 });
 }
 
 // ---------------------------------------------------------------------------
@@ -885,6 +918,12 @@ function refreshGhost(force = false) {
   // brush and the wall tools need the palette, the bulldozer is its own veto — so
   // the guard cannot strand a ghost in a build tool's hands.
   if (!dropping()) scene.setFloorGhost(null, null);
+
+  // Dead-end marks on every belt in the shop, while the palette is up. Driven
+  // from here rather than from `toggleBuild` because it also has to appear when
+  // a belt is BUILT — `setFlowMarks` keys off `layoutVersion`, so it re-cuts
+  // itself as the run grows and costs nothing on the frames in between.
+  scene.setFlowMarks(ui.paletteArmed);
 
   const kind = aiming ? ui.ghostKindForTool() : null;
   if (!kind) {
@@ -1592,7 +1631,22 @@ function canDropAt(tile) {
   if (!isWalkableTile(L, tile.x, tile.z)) return false;
   const me = ui.me();
   if (!me) return false;
-  return !SOLID.has(edgeBetween(L, Math.round(me.x), Math.round(me.z), tile.x, tile.z));
+  if (SOLID.has(edgeBetween(L, Math.round(me.x), Math.round(me.z), tile.x, tile.z))) return false;
+
+  // ...and the one square where "already has a crate on it" IS a refusal.
+  //
+  // A conveyor cell holds exactly one box — that is backpressure, and it is the
+  // whole texture of a run — so `beltPut` says no where `dropGoods` would have
+  // topped up or stacked. Ruled out here as well, or the ghost is green over a
+  // press the server turns down, which is the one thing this function exists to
+  // stop. `d.belt` rides in the snapshot as a bare boolean rather than the cell
+  // id, so the test is where the box IS: a crate on a belt stands in the middle
+  // of its own cell, and a part-way one is between two cells that are both busy.
+  if (conveyorAt(L, tile.x, tile.z)) {
+    return !(ui.state?.deliveries ?? []).some((d) => d.belt
+      && Math.round(d.x) === tile.x && Math.round(d.z) === tile.z);
+  }
+  return true;
 }
 
 /**
@@ -2297,6 +2351,39 @@ function razeEdge(at) {
 // they would have to differ is the one place a shared implementation would keep
 // getting it wrong.
 // ---------------------------------------------------------------------------
+let beltDrag = null;
+
+/**
+ * The preview for laying a run of conveyor in one drag.
+ *
+ * Squares rather than ghost fixtures, deliberately: `setBuildGhost` answers
+ * about ONE spec, and a sixty-cell run of real ghosts is sixty models built per
+ * pointer move. The green square is the same language the floor brush already
+ * speaks and it says the two things that matter — where it will go, and whether
+ * it can.
+ *
+ * A cell that is already taken shows AMBER rather than red, because the run
+ * skips it and lays the rest: a drag across a shop will clip a shelf, and
+ * refusing the whole gesture for one square would make the tool useless in the
+ * shop it exists for.
+ */
+function showBeltDrag(cx, cy) {
+  if (!beltDrag) return null;
+  const to = scene.pickTile(cx, cy);
+  const cells = beltRunCells(beltDrag.start, to, BELT_RUN_MAX);
+  if (!cells.length) { scene.setFloorGhost(null, null); return null; }
+  const L = scene.storeLayout;
+  const ok = cells.filter((c) => canPlace(L, {
+    kind: beltDrag.kind, x: c.x, z: c.z, rot: c.rot,
+  }).ok);
+  scene.setFloorGhost(cells, ok.length === cells.length ? 'ok' : (ok.length ? 'warn' : 'no'));
+  ui.setBuildVerdict(ok.length
+    ? { ok: true, warn: ok.length < cells.length ? `${cells.length - ok.length} squares are taken` : null }
+    : { ok: false, reason: 'nothing can go along there' });
+  // The POINTER's far end, never the tail of the list — see `beltRunCells`.
+  return { cells, ok: ok.length, to };
+}
+
 let floorDrag = null;
 
 function showFloorDrag(cx, cy) {
@@ -2334,6 +2421,11 @@ function showFloorDrag(cx, cy) {
 // ---------------------------------------------------------------------------
 
 canvas.addEventListener('pointerdown', (e) => {
+  // Any press at all hands the theft cut back, whether or not it turns out to
+  // be the tazer. Same rule as the first step of a walk: a cut is announcing
+  // somebody to act on, so acting has to outrank watching. Cheap enough to sit
+  // above every branch below — it no-ops when there is no cut running.
+  scene.releaseCut();
   if (e.button === 2) {
     // Mid-run, the right button takes back the run rather than turning the
     // camera. You are four tiles into a wall you have changed your mind about,
@@ -2483,6 +2575,19 @@ canvas.addEventListener('pointerdown', (e) => {
   // ...and a brush takes it the same way, over an area rather than a line. It
   // aims with `pickTile` because it is painting the ground itself — using
   // `pickFixture` here would let you tile the roof of a shelf.
+  // A conveyor lays as a RUN. Ahead of the ground brush for no reason other than
+  // that a belt is a fixture and the brush test would never have matched it.
+  const armed = ui.armedTool?.() ?? null;
+  if (armed && CONVEYOR_KINDS.includes(armed.kind)) {
+    const start = scene.pickTile(e.clientX, e.clientY);
+    if (start) {
+      beltDrag = { start, kind: armed.kind, piece: armed.piece ?? null, id: e.pointerId };
+      canvas.setPointerCapture(e.pointerId);
+      showBeltDrag(e.clientX, e.clientY);
+      return;
+    }
+  }
+
   const brush = ui.groundForTool();
   if (brush !== undefined) {
     const start = scene.pickTile(e.clientX, e.clientY);
@@ -2747,6 +2852,10 @@ canvas.addEventListener('pointermove', (e) => {
     showEdgeDrag(e.clientX, e.clientY);
     return;
   }
+  if (beltDrag && e.pointerId === beltDrag.id) {
+    showBeltDrag(e.clientX, e.clientY);
+    return;
+  }
   if (floorDrag && e.pointerId === floorDrag.id) {
     showFloorDrag(e.clientX, e.clientY);
     return;
@@ -2886,6 +2995,19 @@ function endPress(e) {
       net.send('paint-face', {
         o: start.o, x: start.x, z: start.z, s: start.s, piece, to: drawn.to,
       });
+    }
+    return;
+  }
+  if (beltDrag && (!e || e.pointerId === beltDrag.id)) {
+    const drawn = e ? showBeltDrag(e.clientX, e.clientY) : null;
+    const { start, kind, piece } = beltDrag;
+    beltDrag = null;
+    scene.setFloorGhost(null, null);
+    ui.setBuildVerdict(null);
+    if (drawn) {
+      if (!drawn.ok) { ui.toast('nothing can go along there', true); return; }
+      const to = drawn.to ? { x: drawn.to.x, z: drawn.to.z } : null;
+      net.send('build-run', { kind, piece, x: start.x, z: start.z, to });
     }
     return;
   }
@@ -4560,6 +4682,25 @@ function tapAtPointer(cx, cy) {
       ? null : aimPerson(cx, cy);
     if (who?.hire) { showWorker(ui, who.hire); return; }
 
+    // ...and the fifth, which outranks all of them and is the only press in the
+    // game aimed at somebody who does not work here: a thief you have caught up
+    // with. Above the hire branch's `return` rather than below it because they
+    // cannot collide — `aimThief` only ever answers somebody marked `stole` —
+    // and *before* `setFollow(null)` below, because tazing is not "clicking off"
+    // a menu and should not put one away.
+    //
+    // A tap rather than a hold, deliberately, and it is the one action in the
+    // game shaped that way. Half a second stood still at the end of a sprint is
+    // a thief two tiles further off, so a ring would lose every chase it was
+    // used in — the cooldown on the far side is what stops it being spam. See
+    // `Game.taze`.
+    const thief = ui.paletteArmed ? null : aimThief(cx, cy);
+    if (thief) {
+      scene.ripple(thief.x, thief.z);
+      net.send('taze', { id: thief.id });
+      return;
+    }
+
     // Past the people, so this press is on something that is not one: the
     // floor, a shelf, a crate, or a menu being dismissed. All of them are
     // "clicking off them", and following ends here rather than only on the
@@ -4977,7 +5118,7 @@ function pollInput(dt) {
     // as it stayed down — the release is what sends a zero, and the release now
     // goes to the camera.
     if (lastInput.dx || lastInput.dz) {
-      lastInput = { dx: 0, dz: 0 };
+      lastInput = { dx: 0, dz: 0, sprint: false };
       net.send('input', lastInput);
     }
     scene.flyBy(dx, dz, dt);
@@ -4990,11 +5131,30 @@ function pollInput(dt) {
   // somebody else is that with the parking spot walking away as well.
   if (dx || dz) {
     ui.setFollow(null);
+    // ...including a theft cut, and this is the half that makes the cut safe to
+    // have at all: it is announcing somebody you are meant to run after, so the
+    // first step you take has to be worth more than the rest of the shot.
+    scene.releaseCut();
     if (scene.panned) scene.recentre();
   }
 
-  if (dx !== lastInput.dx || dz !== lastInput.dz) {
-    lastInput = { dx, dz };
+  /**
+   * Shift runs — see docs/security.md step 3.
+   *
+   * It shares the key with the kin preview and that is not a clash: the preview
+   * no-ops unless a fixture is selected (`setKinPreview`), and the one gesture
+   * this could collide with — shift-click to select kin — is a press rather
+   * than a walk. Holding Shift while running a thief down shows a preview
+   * nobody is looking at, which costs nothing.
+   *
+   * Sent as a field on `input` rather than as its own message, for the reason in
+   * `Game.setInput`: the key going up has to arrive in the same breath as the
+   * direction, or letting go of both leaves you sprinting on the last vector
+   * until the next frame.
+   */
+  const sprint = shiftDown && !ui.paletteArmed;
+  if (dx !== lastInput.dx || dz !== lastInput.dz || sprint !== lastInput.sprint) {
+    lastInput = { dx, dz, sprint };
     net.send('input', lastInput);
   }
 }

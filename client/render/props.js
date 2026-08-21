@@ -572,6 +572,16 @@ const CRATE_DECK = 0.05;
 export const CRATE_STEP = CRATE_DECK + CRATE_H;
 
 /**
+ * How high a crate rides when it is on a conveyor.
+ *
+ * Matches `FIXTURE_LOOK.belt.h`, and it is a constant rather than that lookup
+ * because a belt with authored art is drawn from its own model and this is the
+ * height goods sit at either way — the deck a belt has, not the height a
+ * particular belt happens to be.
+ */
+export const BELT_DECK = 0.12;
+
+/**
  * A delivered pallet waiting at the bay: a crate, a sample of what's inside,
  * and how many are left to shift.
  *
@@ -1001,6 +1011,30 @@ export function buildWorkSpot(role, at, colour = 0xffd66b) {
     post.position.y = 0.34;
     post.renderOrder = 12;
     g.add(post);
+  }
+
+  // Goods, rather than people. An arrow, because the question a conveyor asks
+  // is not "may somebody stand here" but "which way does this go" — and a ring
+  // cannot say that however it is shaped. Same colour as everything else here,
+  // for `buildWorkSpot`'s stated reason: the colour is spoken for by the
+  // verdict, so the meaning has to be carried by the shape.
+  //
+  // The direction comes out of the offset itself rather than being passed in:
+  // the spot already sits one cell away along the flow, so `out` points away
+  // from the fixture and `in` points back at it. Nothing to keep in step.
+  if (role === 'out' || role === 'in') {
+    const away = Math.atan2(at.x, at.z);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.3, 4), mat);
+    head.rotation.x = Math.PI / 2;
+    head.position.y = 0.22;
+    head.renderOrder = 13;
+    const spin = new THREE.Group();
+    spin.add(head);
+    // `in` is the same arrow turned round: an arrow pointing at the machine is
+    // "this is where it takes from", which is the half a player has to get right
+    // to feed one at all.
+    spin.rotation.y = role === 'out' ? away : away + Math.PI;
+    g.add(spin);
   }
 
   g.position.set(at.x, 0, at.z);

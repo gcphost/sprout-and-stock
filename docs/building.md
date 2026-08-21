@@ -1281,6 +1281,126 @@ turn the view, back out of a tool, put a thing down, walk, and the two razes —
 one of which was the only destructive press in the mode, so the same reflex that
 closes a picker took a wall down.
 
+### The curtain, which is a way through you do not open
+
+**Built** — step 20, and it is step 15 pointed at a room whose partition wants to
+let goods past while it stops people.
+
+Everything the shell could put between two indoor cells was a decision about
+*whether* there is a hole. A wall is no hole; a doorway is a hole; a staff
+doorway is a hole with a sign on it. None of the three is the thing a warehouse
+actually hangs between the shop floor and the back: strips of PVC that end a hand
+above the deck, so a crate on a conveyor rides straight under and a person pushes
+through with their shoulder. That is not a fourth kind of wall. It is the second
+answer to the question `WAYS` already asks, and the reason it needed no new
+machinery at all is that "who may cross" was already a property of an opening
+rather than of a wall.
+
+So it is two rows in `WAYS` and one style, and the interesting parts are the
+three places where a curtain is the first member of its category.
+
+**`roofs` is a column now, and it used to be the word "door".** `ENCLOSING` was
+built as `WAYS` filtered by `base === 'door'`, which is the exact shape CLAUDE.md
+names twice: a predicate written against the only member of a category, which
+silently excludes the second one in whichever file adds it. A curtain roofs and a
+gate does not, and neither of those is derivable from either name. Getting it
+wrong here is not a smaller shop, because enclosure is all-or-nothing — a curtain
+that did not roof would take the roof off the *whole building* the moment you hung
+one across an aisle, every shelf in the shop would be refused, and the refusal
+reads "something is already there". `verify:doors` asserts the enclosure
+byte-for-byte against the wall the curtain replaced, in an interior line and in
+the front one.
+
+**Its palette button lays the SIGNED kind**, which is the one place `WAY_RULES` is
+an order rather than a set (`wayDefault`). Step 15 argued that staff-only is a
+property you *find* rather than a button, because you do not know a door should be
+staff-only when you draw it. That argument is about a doorway and it inverts here:
+the entire reason to buy a curtain is that shoppers cannot use it, so one that
+arrived open would be a tool doing the opposite of the thing on its own label
+until you went back and tapped every segment of the run you had just dragged. The
+menu is still there for the other way round, and it is the same menu — a curtain
+is a family like the other two, so tapping one offers who it is for and charges a
+refit rather than a purchase.
+
+**There is no one-way curtain**, and unlike the gate's absence this one is not
+about enclosure. A gate has no in and out because a fence never makes a room; a
+curtain has none because strips you push through both ways have no direction in
+them, so the rule would be real and there would be no picture of it. Two families
+now refuse one way for two different reasons, which is why the menu's explanation
+moved onto the family row (`FAMILY.noWay`) — as a ternary on `family === 'gate'`
+with the doorway's answer as the else, a curtain would have been told it has the
+same on both sides, about an edge with a shop one side and a stockroom the other.
+
+**The height is not a feel number.** `CURTAIN_DROP` is the tallest thing that has
+to pass under one: a crate riding a conveyor sits on `BELT_DECK` and stands
+`CRATE_STEP`, so 0.43 is the clearance and the strips stop a hand's width over it.
+Every centimetre above that is a window into the stockroom. And the strips are
+*geometry* — six per cell with a gap between them, using the `off`/`len` a brick
+course already had — for the reason `stripes` and `tufts` are: what survives of a
+flat pattern at 45° across a room is its colour, and the thing that makes strips
+read as strips is the gap.
+
+The pairing with belts is the point of the piece, and `verify:belts` guards it as
+a pair rather than as two claims: that the crate crosses is only interesting
+because a shopper on those same two cells cannot, and that the shopper is refused
+is only interesting because the run goes on working. Note what that sweep passes
+*for* today — nothing in `stepBelts` consults an edge at all, so the crate crosses
+because nobody asked. That is worth pinning precisely because making a run respect
+the walls it passes through is a reasonable thing to want later, and the curtain
+has to be the exception when somebody does.
+
+### The roller door, which is a way through that has to LOOK like one
+
+**Built** — step 21, and it is the smallest step in this document: four rows in
+`WAYS`, one style, one palette button. Everything it needed already existed,
+which is the interesting part rather than a boast — a fourth family cost nothing
+because the third one paid for the machinery.
+
+It is a **base and not a look**, and that is the one decision in here. A shutter
+that is up is passable, encloses, signs, queues and paths exactly as a doorway
+does — so the temptation is to call it a doorway with a different picture, which
+would mean a `look` axis on `WAYS` the way `GLAZING` has one. The line between
+those two tables is what settles it: a family is *the set of things that swap for
+a refit*, because within one you keep the door and you keep the wall. A glazing
+swap is free precisely because a look must never move a number. A roller door
+costs $46 against a doorway's $34 — it is a bigger hole with gear over it —
+so swapping one for the other is a purchase, not a change of mind about one,
+and putting them in one family would either make the shutter free or make
+reglazing cost money.
+
+**There is no shut one, deliberately.** A shutter that is down is not a way
+through at all; it is a wall with slats on it. Authored into `WAYS` it would be
+a kind the table calls passable and the picture calls solid, which is the
+disagreement every green-ghost bug in this codebase is made of, arriving here as
+a shopper walking through a closed garage door. If a shut one is ever wanted it
+is a *wall* look — `GLAZING`'s side of the fence, not this one.
+
+**Its button lays the open kind**, where the curtain's lays the signed one, and
+the two arguments do not conflict: a curtain is bought *because* shoppers cannot
+use it, and a roller door is bought because it is a big hole — it is the front of
+a workshop as often as it is the back of a stockroom. So which side of it the
+town is on is something you find out after it is up, which is step 15's argument
+about a doorway, unchanged.
+
+**The picture is the whole feature, which is not true of anything else in
+`WAYS`.** An open roller door and a doorway are the same hole in the same wall to
+every rule in the game; the difference is the coil and the tracks, and if those
+do not read at a glance then what you have bought is a doorway at a mark-up.
+Hence three numbers rather than one grey slab under the lintel: `SHUTTER_COIL` is
+headroom (a roll hanging past halfway reads as a shutter *stuck* halfway, which
+is the one state this piece is not in), `SHUTTER_RIBS` is the banding that makes
+a coil a coil — the fourth time in this codebase that a flat pattern has had to
+become geometry, after `stripes`, `tufts` and the curtain's own strips — and
+`SHUTTER_TRACK` is a guide down each jamb, drawn inside the cell so a two-cell
+bay reads as a pair of doors. That last one is honest rather than a compromise:
+each cell really is separately a way through, and each is separately something
+you can sign.
+
+The tracks are also the first band in `edgeBands` that runs **up** a cell rather
+than across it, and they needed no new machinery — `off`/`len` place a band
+along the wall, so a vertical member is a short band that happens to be tall, the
+same way the curtain's strips ride a brick course's.
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:

@@ -160,10 +160,23 @@ const PART = z.object({
    * what it owes an answer to.
    */
   motion: z.object({
-    kind: z.enum(['spin', 'bob', 'shake', 'pulse', 'sweep']),
+    /**
+     * `scroll` is a belt's answer, and it is here rather than being faked with
+     * `shake` for the reason `verify:motion` already records about the blender:
+     * spinning a roller is invisible, because a cylinder is rotationally
+     * symmetric and a perfectly correct animation nobody can see is the same
+     * picture as no animation. What reads as a running conveyor is the SLATS
+     * travelling along it and wrapping — which is a translation, and none of
+     * the four kinds above is one.
+     */
+    kind: z.enum(['spin', 'bob', 'shake', 'pulse', 'sweep', 'scroll']),
     /** Cycles a second — turns a second for `spin`. Ignored by `sweep`, which has no clock. */
     hz: z.number().min(0.05).max(12).default(1.5),
-    /** How big the movement is: tiles for `bob`/`shake`, a share of its own size for `pulse`. */
+    /**
+     * How big the movement is: tiles for `bob`/`shake`, a share of its own size
+     * for `pulse`, and for `scroll` the distance travelled before it wraps —
+     * which for a belt slat is the gap to the next one.
+     */
     amount: z.number().min(0).max(1).default(0.05),
     /**
      * `sweep` only: how many whole turns the part makes over one run of the
@@ -342,6 +355,22 @@ export const ArchetypeSchema = z.object({
   price_sensitivity: z.number().min(0).max(1).default(0.5),
   /** Seconds they'll wait in a queue before abandoning their basket. */
   patience: z.number().min(5).max(600).default(60),
+  /**
+   * The chance this shopper walks out with their basket instead of paying for
+   * it. See docs/security.md.
+   *
+   * 0 — the default, and every archetype ever authored — is a town where
+   * nobody steals, which is the game as it has always been: the roll is not
+   * taken at all, so no existing save's RNG stream moves and no balance figure
+   * in this repo is invalidated by this column existing.
+   *
+   * It is a property of the KIND of person rather than of the shop, which is
+   * the whole reason it lives here: a shoplifter is content, so a new one is
+   * one `create_archetype` call and no code, exactly as a new customer type has
+   * always been. What the SHOP can do about it belongs on the guard (step 4),
+   * not here.
+   */
+  steal_chance: z.number().min(0).max(1).default(0),
   budget_min: z.number().min(0).default(10),
   budget_max: z.number().min(0).default(50),
   basket_min: z.number().int().min(1).max(30).default(1),
@@ -628,6 +657,31 @@ export const FixtureSchema = z.object({
      */
     lines: z.number().int().min(1).max(4).default(1),
     /**
+     * How many shoppers this rung bills WITHOUT a queue at all. Checkouts.
+     *
+     * 0 — the default, and every rung there has ever been — is a till: goods go
+     * past a counter somebody or something is stood at, and the line is the
+     * whole texture. Above 0 it is a walk-out sensor, and it is the end of the
+     * ladder rather than another step up it: `unattended` sells not needing a
+     * clerk and this sells not needing the QUEUE, which is the thing the ladder
+     * was a ladder of. A shop that owns one stops laying lines.
+     *
+     * The number is how many it tracks *cleanly* at once, and it is a count
+     * rather than a flag because the price of the rung is paid in shrinkage:
+     * `walkoutMiss` is the shop's load over the covers it owns, so one unit in a
+     * quiet shop is near enough perfect and the same unit in a packed one
+     * bleeds. Which is what makes owning several a decision instead of a
+     * formality — the answer to "do I need more than one" is "only once you are
+     * busy", and the shop tells you by losing things.
+     *
+     * A flag could not say any of that: it would be one purchase, one permanent
+     * tax, and nothing to do about it ever again. It is also the sixth knob the
+     * sim reads, so `scripts/document-fixtures.js` has to know about it or the
+     * generated reference files a walk-out rung under "tiers that change no
+     * number" — the warning that exists to catch the opposite mistake.
+     */
+    covers: z.number().int().min(0).max(64).default(0),
+    /**
      * A light this rung switches on. Null on every rung is a fitting that never
      * glows, which is every fixture in the game except the lamps.
      *
@@ -886,6 +940,10 @@ export const JOBS = [
   // stockrooms. ONE directive because it is one loop — a hire told only to fill
   // rooms builds a pile in a room. See `ferry` in server/sim/staff.js.
   'ferry',
+  // Stand where people can see you, and go after anybody who runs. Most of what
+  // this is worth needs no tick at all — see `Game.guardDeterrence` — which is
+  // why it is the one job whose weight matters more off the clock than on it.
+  'guard',
 ];
 
 /**

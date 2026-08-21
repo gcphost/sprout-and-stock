@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS archetypes (
   basket_min        INTEGER NOT NULL DEFAULT 1,
   basket_max        INTEGER NOT NULL DEFAULT 4,
   spawn_weight      REAL NOT NULL DEFAULT 1,
+  steal_chance      REAL NOT NULL DEFAULT 0,
   color             TEXT NOT NULL DEFAULT '#d98cb3',
   created_by        TEXT NOT NULL DEFAULT 'seed',
   created_at        INTEGER NOT NULL
@@ -391,6 +392,11 @@ const ADDED_COLUMNS = [
   // kit today. Empty is every archetype written before kits existed, and a kit
   // with no tags of its own still goes to them, so no shopper changes.
   ['archetypes', 'tags', "TEXT NOT NULL DEFAULT '[]'"],
+  // Nobody written before docs/security.md steals, which is the same claim the
+  // schema default makes and has to be made twice: the column decides what an
+  // existing row reads back as, and the schema decides what a new row that
+  // omits it is. Disagree and the two halves of one control drift apart.
+  ['archetypes', 'steal_chance', 'REAL NOT NULL DEFAULT 0'],
 ];
 
 function addLateColumns(handle) {

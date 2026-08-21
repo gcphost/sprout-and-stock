@@ -984,6 +984,348 @@
     "color": "#7a9e4b"
   },
   {
+    "id": "guard",
+    "name": "Security Unit",
+    "tags": [
+      "guard"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "New behind the counter",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#2b3550",
+              "pos": [
+                0,
+                0.08,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.16,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "trim"
+            },
+            {
+              "shape": "box",
+              "color": "#8f9bb0",
+              "pos": [
+                0,
+                0.42,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#8f9bb0",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#ffb43a",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "glow"
+            },
+            {
+              "shape": "box",
+              "color": "#7a4f12",
+              "pos": [
+                0,
+                0.5,
+                0.205
+              ],
+              "scale": [
+                0.19,
+                0.15,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Knows the regulars",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#2b3550",
+              "pos": [
+                0,
+                0.08,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.16,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "trim"
+            },
+            {
+              "shape": "box",
+              "color": "#8f9bb0",
+              "pos": [
+                0,
+                0.42,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.52,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#8f9bb0",
+              "pos": [
+                0,
+                0.78,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.2,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "chassis"
+            },
+            {
+              "shape": "box",
+              "color": "#ffb43a",
+              "pos": [
+                0,
+                0.79,
+                0.125
+              ],
+              "scale": [
+                0.2,
+                0.07,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "glow"
+            },
+            {
+              "shape": "box",
+              "color": "#7a4f12",
+              "pos": [
+                0,
+                0.5,
+                0.205
+              ],
+              "scale": [
+                0.19,
+                0.15,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#2b3550",
+              "pos": [
+                0,
+                0.95,
+                0
+              ],
+              "scale": [
+                0.03,
+                0.14,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "trim"
+            },
+            {
+              "shape": "sphere",
+              "color": "#ffb43a",
+              "pos": [
+                0,
+                1.04,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "motion": null,
+              "tint": "glow"
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "On patrol",
+        "cost": 0,
+        "speed_mult": 1,
+        "pace_mult": 1,
+        "carry_mult": 1,
+        "packs": 0,
+        "arranges": 0,
+        "routes": 0,
+        "wage_mult": 1
+      },
+      {
+        "name": "Knows the faces",
+        "cost": 240,
+        "speed_mult": 1,
+        "pace_mult": 1.35,
+        "carry_mult": 1,
+        "packs": 0,
+        "arranges": 0,
+        "routes": 0,
+        "wage_mult": 1.5
+      },
+      {
+        "name": "Head of security",
+        "cost": 480,
+        "speed_mult": 1,
+        "pace_mult": 1.7,
+        "carry_mult": 1,
+        "packs": 0,
+        "arranges": 0,
+        "routes": 1,
+        "wage_mult": 2
+      }
+    ],
+    "jobs": [
+      {
+        "job": "guard",
+        "weight": 12
+      },
+      {
+        "job": "tidy",
+        "weight": 2
+      },
+      {
+        "job": "shelve",
+        "weight": 2
+      }
+    ],
+    "cost": 100,
+    "wage": 9,
+    "speed": 2.6,
+    "pace": 0.5,
+    "carry": 6,
+    "color": "#7a9e4b"
+  },
+  {
     "id": "janitor",
     "name": "Janitor",
     "tags": [

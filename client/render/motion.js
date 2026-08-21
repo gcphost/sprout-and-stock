@@ -194,6 +194,38 @@ export function animateMotion(moving, t, running, signal = null) {
     } else if (kind === 'pulse') {
       const k = 1 + beat * amount * amp;
       m.mesh.scale.set(m.scale.x * k, m.scale.y * k, m.scale.z * k);
+    } else if (kind === 'scroll') {
+      // A conveyor slat: travels along the belt's own +x and wraps.
+      //
+      // It ACCUMULATES for `spin`'s reason, which is sharper here rather than
+      // weaker: read off the clock and eased down, a stopping belt slides its
+      // slats backwards, and a conveyor that reverses as it halts is a thing
+      // you look at for a while before believing.
+      //
+      // `span` is a distance rather than an angle, so the wrap is a modulo and
+      // not a full turn — and it must never be zero, or every slat welds itself
+      // to the spot it was drawn on and the belt is a still photograph of a
+      // belt.
+      const span = amount || 0.25;
+      m.travel = ((m.travel ?? 0) + dt * hz * amp * span) % span;
+      if (m.arc) {
+        // A slat going round a bend. It travels the same distance per second as
+        // one on a straight — the wrap is still `span` — but the distance is arc
+        // length, so the angle it turns through is that over the radius. Without
+        // this a corner cell either holds still while the run either side of it
+        // moves, or slides its bars sideways off the curve they are drawn on.
+        const a = m.baseA + m.arc.dir * (m.travel / m.arc.r);
+        m.mesh.position.set(
+          m.arc.cx + Math.cos(a) * m.arc.r, m.pos.y, m.arc.cz + Math.sin(a) * m.arc.r,
+        );
+        m.mesh.rotation.y = -a;
+      } else if (m.dir) {
+        // These live at world coordinates in `staticRoot` rather than inside a
+        // model that has been turned for them, so the direction has to be said.
+        m.mesh.position.set(m.pos.x + m.dir.x * m.travel, m.pos.y, m.pos.z + m.dir.z * m.travel);
+      } else {
+        m.mesh.position.x = m.pos.x + m.travel;
+      }
     }
   }
 }

@@ -12,7 +12,7 @@ about a **square**.
 Step 15 of docs/building.md gave a doorway a sign on it: `WAYS`
 ([shared/edges.js:86](shared/edges.js#L86)) makes an opening staff-only, in-only
 or out-only, and `shopperCanCross`
-([shared/edges.js:263](shared/edges.js#L263)) is the first rule in the game whose
+([shared/edges.js:319](shared/edges.js#L319)) is the first rule in the game whose
 answer depends on who is asking. That is a genuinely powerful thing and it is
 sold one edge at a time, which means the only way to say *"my crew go round the
 back and the customers stay out of it"* is to **build a wall around it**.
@@ -27,7 +27,7 @@ tiles you were trying to walk down, which is the wall-ring problem step 2 solved
 for buildings and never solved for aisles.
 
 **The shop already has the *idea* per fixture and cannot say it per tile.**
-`boh` on a shelf ([server/sim/index.js:9874](server/sim/index.js#L9874)) says
+`boh` on a shelf ([server/sim/index.js:11415](server/sim/index.js#L11415)) says
 this unit is back-of-house: `chooseShelf` filters it out, so shoppers do not
 browse it and it backs up the floor instead. That is exactly the who-rule this
 document wants, already shipped, already understood by players — and it applies
@@ -35,7 +35,7 @@ to a *thing* rather than to the ground, so a shelf can be staff-only and the
 tile in front of it cannot.
 
 **And staff and shoppers walk the same floor, always.** `pathTo`
-([server/sim/index.js:11924](server/sim/index.js#L11924)) already knows which
+([server/sim/index.js:13509](server/sim/index.js#L13509)) already knows which
 sort of thing is walking — `archetype_id` is the field only a shopper has — and
 the only thing it does with that knowledge is doors and crates. A robot restocking
 the far aisle cuts straight through the queue, because the shortest route is the
@@ -86,16 +86,16 @@ Most of it, and that is the argument for doing it in this order.
 | Piece | Where | What it gives free |
 |---|---|---|
 | A step-level permission test | `canCross` in `findPath` ([server/sim/pathing.js:100](server/sim/pathing.js#L100)) | The seam. A one-way door is passable one way and a wall the other, so this is already *"may this person take this step"* rather than *"is this edge solid"*. A tile rule is the same signature and needs no A\* change. |
-| Who is walking | `pathTo` ([server/sim/index.js:11924](server/sim/index.js#L11924)) | The shopper/staff split, decided once, off the one field only a shopper has. |
+| Who is walking | `pathTo` ([server/sim/index.js:13509](server/sim/index.js#L13509)) | The shopper/staff split, decided once, off the one field only a shopper has. |
 | A per-cell surcharge in the hot loop | `stepCost` ([server/sim/pathing.js:77](server/sim/pathing.js#L77)) | Already takes a per-cell lookup (`clutter`), already applies it to one sort of walker only, and already documents why every cost must stay ≥ 1. |
 | A cost that reads as a wall and degrades as a cost | `CLUTTER` = 8 ([server/sim/pathing.js:75](server/sim/pathing.js#L75)) | The precedent for the central decision below, argued out in full: *"in a shop with any way round at all it reads exactly like a wall, and the degenerate case degrades instead of breaking."* |
 | A preference that is never a requirement | `PAVED` / `ROUGH` ([server/sim/pathing.js:44](server/sim/pathing.js#L44)), `ROAD_COST` | Two features whose whole design is "weigh it, never demand it", and the admissibility rule that goes with them. |
-| A brush that paints an area | `groundStroke` ([shared/build.js:1310](shared/build.js#L1310)), `canPaintGround` ([shared/build.js:1419](shared/build.js#L1419)) | The drag, the cap, the two-ends-on-the-wire rule, the border-ring refusal, the "you cannot take ground out from under something" refusal. |
-| A sparse overlay that never touches the arrays | `groundIndex` ([shared/build.js:1364](shared/build.js#L1364)), `PAINT` ([shared/build.js:369](shared/build.js#L369)) | The whole pattern: authored per cell or per face, sparse on the wire, and provably unable to move a tile. `verify:paint` is the sweep that says so. |
+| A brush that paints an area | `groundStroke` ([shared/build.js:1313](shared/build.js#L1313)), `canPaintGround` ([shared/build.js:1422](shared/build.js#L1422)) | The drag, the cap, the two-ends-on-the-wire rule, the border-ring refusal, the "you cannot take ground out from under something" refusal. |
+| A sparse overlay that never touches the arrays | `groundIndex` ([shared/build.js:1367](shared/build.js#L1367)), `PAINT` ([shared/build.js:371](shared/build.js#L371)) | The whole pattern: authored per cell or per face, sparse on the wire, and provably unable to move a tile. `verify:paint` is the sweep that says so. |
 | A rule the queue must not grow through | `queueLane` refusing `RULED` ([shared/build.js:903](shared/build.js#L903)) | The exact line a lane needs, with the reasoning already written down: a lane is grown outward and walked inward, so a directional test would answer whichever way the loop happened to ask. |
 | A dense mask compiled per re-flow | `layout.indoor`, `layout.blocked` | The shape the rule layer wants: sparse in the save, `z * w + x` in memory. |
 | Two sides of a fixture | `behind: 'tendAt'` ([shared/build.js:103](shared/build.js#L103)), `behindTile` ([shared/build.js:506](shared/build.js#L506)), `workSpots` ([shared/build.js:524](shared/build.js#L524)) | Step 3 in its entirety, minus a toggle. A till is already worked from the far side, the generator already reserves that tile, and `spotsOf` ([shared/build.js:649](shared/build.js#L649)) already derives the back of a unit when asked. |
-| Back-of-house as a concept players know | `setBackOfHouse` ([server/sim/index.js:9874](server/sim/index.js#L9874)) | A per-unit who-rule, in the fixture menu, already bulk-editable through `Game.bulkFixtures`. |
+| Back-of-house as a concept players know | `setBackOfHouse` ([server/sim/index.js:11415](server/sim/index.js#L11415)) | A per-unit who-rule, in the fixture menu, already bulk-editable through `Game.bulkFixtures`. |
 | Warn rather than refuse | `canPlace` ([shared/build.js:1562](shared/build.js#L1562)) | The house rule for "you may cause this, and here is what it costs you". |
 
 Genuinely new: **one overlay, one lookup in two functions, and one reverse
@@ -208,7 +208,7 @@ Painting is a stroke, so it is judged as a whole, and `canPaintGround` gains one
 consequence — never a refusal:
 
 - **the shopper flood.** `reachable` with `shopperCanCross`
-  ([shared/edges.js:349](shared/edges.js#L349)) already answers "can a customer
+  ([shared/edges.js:405](shared/edges.js#L405)) already answers "can a customer
   get from the door to here", and already does it with a *probe* layout via
   `withEdge`. The same flood over a probe overlay says whether this stroke cuts
   the shop off — and, like the signed-doorway warning, it is a warning, because
