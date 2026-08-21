@@ -77,6 +77,66 @@ export function litMaterial(mat) {
 }
 
 /**
+ * One material for every colour that shades the same way.
+ *
+ * `material()` is a cache keyed by COLOUR, which is what a hundred tomatoes
+ * sharing one is about — and it is also the ceiling on `weld`, because two
+ * meshes can only merge if they carry the same material. A shop is about a
+ * hundred colours, so a group of twenty parts came out as eight or nine draws
+ * however static it was, and `actorRoot` alone was 954 meshes on 166 materials.
+ *
+ * So the hue moves into the geometry. A vertex colour multiplies the material's
+ * own, so a white material plus a baked hue is the same picture, and everything
+ * that shades identically — same transparency, same side, same flat shading —
+ * can then merge into ONE mesh whatever colour it was authored in.
+ *
+ * Keyed on everything that is not the colour. A textured material is refused
+ * (there is one map per material and a merge has one), and so is anything whose
+ * geometry carries a different set of attributes, which `weld` folds in: merging
+ * a uv'd geometry with one that has none fails, and the failure is silent.
+ */
+const batchMaterials = new Map();
+export function batchMaterial(src) {
+  if (src.map || Array.isArray(src)) return null;
+  const key = `${src.type}|${src.transparent ? 1 : 0}|${src.opacity}|${src.side}`
+    + `|${src.depthWrite ? 1 : 0}|${src.flatShading ? 1 : 0}`;
+  let m = batchMaterials.get(key);
+  if (!m) {
+    m = src.clone();
+    // White, because the hue is now the vertex colour and three multiplies the
+    // two. Any other base would tint the whole shop.
+    m.color = new THREE.Color(1, 1, 1);
+    m.vertexColors = true;
+    batchMaterials.set(key, m);
+  }
+  return m;
+}
+
+/**
+ * One colour into a geometry's `color` attribute, making it if it is missing.
+ *
+ * Written straight from `Color.r/g/b`, which are already in the renderer's
+ * working space — three converts a material's colour on the way in and does NOT
+ * convert vertex colours, so anything else here would come out a different
+ * shade to the material it is replacing.
+ */
+function fillColor(geo, colour) {
+  const n = geo.attributes.position?.count ?? 0;
+  if (!n) return;
+  let attr = geo.attributes.color;
+  if (!attr || attr.count !== n) {
+    attr = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
+    geo.setAttribute('color', attr);
+  }
+  for (let i = 0; i < n; i++) {
+    attr.array[i * 3] = colour.r;
+    attr.array[i * 3 + 1] = colour.g;
+    attr.array[i * 3 + 2] = colour.b;
+  }
+  attr.needsUpdate = true;
+}
+
+/**
  * Paint one flat brightness through a whole group, as vertex colour.
  *
  * One value for the unit rather than per vertex: a fixture is about a tile
@@ -102,10 +162,24 @@ export function paintLit(group, r, g, b) {
       attr = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
       o.geometry.setAttribute('color', attr);
     }
-    for (let i = 0; i < n; i++) {
-      attr.array[i * 3] = r;
-      attr.array[i * 3 + 1] = g;
-      attr.array[i * 3 + 2] = b;
+    // A welded mesh is drawn in a WHITE material with its hue in this same
+    // attribute, so the brightness has to be multiplied through that hue rather
+    // than written over it — writing over it would repaint the whole shop grey.
+    // Everything else still holds its colour in its material, and for those the
+    // attribute is the brightness on its own, exactly as it always was.
+    const base = o.geometry.userData?.baseColor;
+    if (base && base.length === n * 3) {
+      for (let i = 0; i < n * 3; i += 3) {
+        attr.array[i] = base[i] * r;
+        attr.array[i + 1] = base[i + 1] * g;
+        attr.array[i + 2] = base[i + 2] * b;
+      }
+    } else {
+      for (let i = 0; i < n; i++) {
+        attr.array[i * 3] = r;
+        attr.array[i * 3 + 1] = g;
+        attr.array[i * 3 + 2] = b;
+      }
     }
     attr.needsUpdate = true;
     if (!o.material.vertexColors) o.material = litMaterial(o.material);
@@ -1824,18 +1898,31 @@ export function weld(group, keep = null) {
     // renderer that has.
     if (keep && o !== group && keep(o)) { loose.push(o); return; }
     if (o.isMesh && o.geometry) {
-      const rec = byMaterial.get(o.material);
       const g = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
-      // Shadow flags come off the source rather than being assumed. Everything
-      // grouped here shares a material, and a material is a colour and an
-      // alpha — so glass, which casts no shadow, is always in a group of its
-      // own and can never be welded into something that does.
-      // The one seam in that, since `shadow` made casting a per-part choice: two
-      // parts of the SAME colour and alpha that disagree about it weld together
-      // and take the first one's answer. Give one of them its own shade if that
-      // ever matters — a material is the only thing a merge can tell apart.
-      if (rec) rec.parts.push(g);
-      else byMaterial.set(o.material, { parts: [g], cast: o.castShadow, receive: o.receiveShadow });
+      // The hue goes INTO the geometry so that colour stops splitting the merge
+      // — see `batchMaterial`. The key is everything that is not the colour:
+      // how it shades, whether it casts, and which attributes it carries, since
+      // merging a geometry that has uvs with one that does not fails silently.
+      //
+      // Shadow flags come off the source rather than being assumed, and they are
+      // part of the key rather than the first one winning — which is what the
+      // old material-identity grouping could not say, because two parts of the
+      // same colour that disagreed about casting merged and took whichever came
+      // first.
+      const batch = batchMaterial(o.material);
+      const attrs = Object.keys(g.attributes).sort().join(',');
+      const key = batch
+        ? `b|${batch.uuid}|${o.castShadow ? 1 : 0}|${o.receiveShadow ? 1 : 0}|${attrs}`
+        : o.material;
+      let rec = byMaterial.get(key);
+      if (!rec) {
+        rec = {
+          parts: [], cast: o.castShadow, receive: o.receiveShadow, mat: batch ?? o.material, hues: batch ? [] : null,
+        };
+        byMaterial.set(key, rec);
+      }
+      rec.parts.push(g);
+      if (rec.hues) rec.hues.push(o.material.color);
     } else if (o.isSprite) {
       // A label is not geometry and has nothing to merge with. Rehung as-is.
       loose.push(o);
@@ -1851,7 +1938,11 @@ export function weld(group, keep = null) {
 
   const out = new THREE.Group();
   out.userData = group.userData;
-  for (const [mat, { parts, cast, receive }] of byMaterial) {
+  for (const [, { parts, cast, receive, mat, hues }] of byMaterial) {
+    // The hue, per vertex, before anything is merged — the material this is
+    // about to be drawn with is white, so without this every welded prop comes
+    // out the colour of paper.
+    if (hues) parts.forEach((g, i) => fillColor(g, hues[i]));
     const merged = parts.length === 1 ? parts[0] : mergeGeometries(parts, false);
     if (!merged) {
       // Give back the original rather than half a shelf. Everything cloned on
@@ -1863,6 +1954,13 @@ export function weld(group, keep = null) {
       return group;
     }
     if (merged !== parts[0]) parts.forEach((g) => g.dispose());
+    // What the hue WAS, kept beside the attribute that now holds it.
+    //
+    // `paintLit` multiplies a brightness through this same attribute, and it is
+    // re-callable — the shop re-bakes as the light moves. Multiplying in place
+    // would compound: dusk over dusk over dusk, until the shop is black. So the
+    // baked hue is remembered and every re-bake is hue × brightness from clean.
+    if (hues) merged.userData.baseColor = Float32Array.from(merged.attributes.color.array);
     const mesh = new THREE.Mesh(merged, mat);
     mesh.castShadow = cast;
     mesh.receiveShadow = receive;

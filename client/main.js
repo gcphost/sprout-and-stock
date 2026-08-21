@@ -29,6 +29,12 @@ import { events } from './audio/events.js';
 
 const canvas = document.getElementById('game');
 const scene = new Scene(canvas);
+// Hand the GPU context back when the page actually goes away — see
+// `Scene.destroy`. `persisted` is the bfcache case, where the page is being put
+// aside and may come straight back: tearing the renderer down there would
+// restore a shop with no context to draw into, which is `localnet.js`'s note
+// about `pagehide` said about the renderer instead of the save.
+addEventListener('pagehide', (e) => { if (!e.persisted) scene.destroy(); });
 const net = new Transport();
 /**
  * The front door lists and creates shops. In the server build that is HTTP; in
@@ -5378,8 +5384,55 @@ function saveView(now) {
   if (ui.worldId) writeJson(viewAtKey(ui.worldId), v.centre);
 }
 
+/**
+ * How often the shop is DRAWN, which is a different question from how often the
+ * browser offers to draw it.
+ *
+ * A frame costs three processes on a retina Mac and only one of them is this
+ * page: measured on a half-screen window, the tab was 31% of a core, the GPU
+ * process 29% and the window compositor 38%. Everything downstream of a draw
+ * scales with how many there are, so this is the one dial that moves all three
+ * at once — and it moves them together, which nothing else here does.
+ *
+ * 40 rather than 30, because the camera pans and eases and a shopper crossing an
+ * aisle is a thing you watch. 30 is visibly steppy on a diagonal pan; 40 is not,
+ * and it is a third off the whole bill. Nothing in the sim is tied to it — the
+ * world steps at 20Hz on the server and everything here interpolates against a
+ * real clock, so this only ever changes how often that interpolation is sampled.
+ *
+ * Deliberately a cap and not a `setTimeout` loop: `requestAnimationFrame` stays
+ * the heartbeat, so a hidden tab still stops dead and a 120Hz panel does not get
+ * a second, competing clock.
+ */
+const DRAW_HZ = 40;
+/**
+ * ...and while the shop is STOPPED, which is the only state in this game where
+ * the picture genuinely does not change.
+ *
+ * Skipping the draw outright is the obvious version and it does not work here:
+ * the grass wind is a shader clock that advances every unpaused frame, so
+ * "nothing moved" is never true outdoors, and a dirty-flag scheme would have to
+ * be told about every marker, ghost and hover in the game — one missed and the
+ * screen silently stops updating, which is the worst failure this renderer has.
+ *
+ * `paused` sidesteps all of it, because it already stops the wind and
+ * `animateStations` at the source. A low rate rather than none at all, so a
+ * camera drag or a menu opening over a stopped shop is still smooth enough to
+ * use and nothing can look frozen for more than a frame or two.
+ */
+const PAUSED_HZ = 10;
+let lastDraw = 0;
+
 function loop() {
   const now = performance.now();
+  const hz = scene.paused ? PAUSED_HZ : DRAW_HZ;
+  // Slack, or a 60Hz panel lands 16.7ms either side of a 25ms target and every
+  // other frame is skipped — which is 30fps wearing a 40fps constant.
+  if (now - lastDraw < (1000 / hz) - 4) {
+    requestAnimationFrame(loop);
+    return;
+  }
+  lastDraw = now;
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   stepPerf(now, now - lastFrame);
   stepTileRead();

@@ -332,13 +332,26 @@ function plantSpots(count, seed = 0) {
  * another pass over every fragment. The shop looks identical and walks like
  * treacle, which is exactly the report: fine still, chunky moving.
  *
- * So the budget is on the product. 5.0MP is a shade over 2560×1920 — a full 4K
- * window still gets dpr 1.08 rather than 1, and a small window on a retina
- * screen is untouched at 2. Nothing else in here has to know: `resize` folds it
- * into `setPixelRatio`, so the canvas is still exactly `innerWidth × innerHeight`
- * CSS pixels and every unproject, pick and readout is unchanged.
+ * So the budget is on the product. Nothing else in here has to know: `resize`
+ * folds it into `setPixelRatio`, so the canvas is still exactly
+ * `innerWidth × innerHeight` CSS pixels and every unproject, pick and readout is
+ * unchanged.
+ *
+ * 5.0MP was the first number and it was set by what the RENDERER could afford,
+ * which turns out to be the smaller half of the bill. On a retina panel the
+ * window compositor is a per-pixel cost too, and it is not in any profile the
+ * page can take of itself: measured on a half-screen window, WindowServer was
+ * 38% of a core and the GPU process 29%, against 31% for the tab doing the
+ * actual drawing. Nothing `performance.now()` can wrap sees either of those —
+ * `renderer.render` returns when the commands are SUBMITTED — so a pixel cost
+ * reads as free from inside the page and is most of the machine from outside it.
+ *
+ * 2.5MP is a shade over 1820×1370. A half-screen window on a retina panel lands
+ * near dpr 1.6 rather than 2, which is a third fewer pixels through every one of
+ * the passes above. This is the dial for that whole family of cost: raise it for
+ * sharpness, lower it if a machine is struggling.
  */
-const PIXEL_BUDGET = 5.0e6;
+const PIXEL_BUDGET = 2.5e6;
 
 /**
  * ...as a ratio, for a window this size.
@@ -367,7 +380,18 @@ const SUN_OFFSET = new THREE.Vector3(26, 40, 14);
  * on screen would say so beyond the shimmer it was meant to remove.
  */
 const SHADOW_SPAN = 30;
-const SHADOW_MAP = 2048;
+/**
+ * 1024 rather than 2048, which is a quarter of the depth pass and a quarter of
+ * the memory. What it costs is a texel twice as wide over the same 60-tile span,
+ * so a shadow edge is a little harder — and this scene is a low sun over boxy
+ * geometry at a fixed pitch, which is the case that hides it best.
+ *
+ * `SHADOW_TEXEL` and `SHADOW_SLIP` are derived from it rather than written down,
+ * so the snap grid and the redraw threshold follow it on their own. That is not
+ * tidiness: a snap rounding to a grid the map no longer has is the shimmer the
+ * snap exists to remove, and it would be invisible in this file.
+ */
+const SHADOW_MAP = 1024;
 const SHADOW_TEXEL = (SHADOW_SPAN * 2) / SHADOW_MAP;
 
 /**
@@ -934,11 +958,19 @@ export class Scene {
       // Required so the MCP screenshot tool can read the canvas back out.
       preserveDrawingBuffer: true,
     });
-    // Set properly by `resize`, which is the only place that knows how big the
-    // window is. Here so the very first frame is not drawn at dpr 1.
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // Refined by `resize` once the canvas has been laid out. Through the budget
+    // rather than the bare `min(dpr, 2)` it used to use: on a retina panel that
+    // drew the first frames — and every frame before a resize ever fires, which
+    // on a window nobody drags is all of them — at four times the pixels the
+    // budget allows.
+    this.renderer.setPixelRatio(pixelRatioFor(window.innerWidth, window.innerHeight));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCF rather than PCFSoft, which is a per-FRAGMENT cost and therefore one of
+    // the few things here that scales with the window rather than with the shop:
+    // soft takes a wide tap pattern per lit pixel, plain takes a small one. The
+    // difference is a slightly tighter penumbra on a scene whose shadows are
+    // mostly hard-edged boxes anyway.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     /**
      * The shadow pass is a SECOND full draw of the scene — every object walked,
      * culled and issued again into a 2048² depth map — and by default three.js
@@ -1933,9 +1965,40 @@ export class Scene {
     return (this._litWatchers ?? []).map((s) => Math.round((this.signals[s] ?? 1) * 12)).join(',');
   }
 
+  /**
+   * A welded mesh that spans the shop, lit vertex by vertex.
+   *
+   * `paintProp` is one flat tint for a whole group, which is right for a fixture
+   * — a tile across, so one number is the whole of what a lamp does to it — and
+   * useless for a conveyor: a run is thirty tiles long and welded into one mesh,
+   * so a single tint would light the far end by whatever is standing at the near
+   * one. The ground has the same problem and solves it per instance; this is the
+   * same answer per vertex, which is what a merge leaves you with.
+   *
+   * The hue comes off `userData.baseColor` — the clean colour `weld` put aside
+   * for exactly this — so re-baking never compounds.
+   */
+  bakeMesh(mesh) {
+    const geo = mesh.geometry;
+    const bare = geo.userData?.baseColor;
+    const pos = geo.attributes.position;
+    const col = geo.attributes.color;
+    if (!bare || !pos || !col) return;
+    const c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      c.setRGB(bare[i * 3], bare[i * 3 + 1], bare[i * 3 + 2]);
+      this.lights.bakeInto(c, pos.getX(i), pos.getY(i), pos.getZ(i));
+      col.array[i * 3] = c.r;
+      col.array[i * 3 + 1] = c.g;
+      col.array[i * 3 + 2] = c.b;
+    }
+    col.needsUpdate = true;
+  }
+
   rebakeGround() {
     const c = new THREE.Color();
     for (const { group, x, y, z } of this.bakedProps ?? []) this.paintProp(group, x, y, z);
+    for (const mesh of this.bakedMeshes ?? []) this.bakeMesh(mesh);
     for (const { mesh, bare, at } of this.bakedGround ?? []) {
       if (!mesh.instanceColor) continue;
       for (let i = 0; i < mesh.count; i++) {
@@ -2025,6 +2088,7 @@ export class Scene {
     // when nothing here needed to know where the light was.
     this.aimLights(L);
     this.bakedGround = [];
+    this.bakedMeshes = [];
 
     // The footfall sheet is the size of the world, so it is re-cut here — the
     // one thing outside `staticRoot` that a re-flow legitimately touches, since
@@ -2962,6 +3026,11 @@ export class Scene {
     this.syncPlots(state.plots);
     this.syncCashDrops(state.cashDrops ?? []);
     this.syncDeliveries(state.deliveries ?? [], this.crateCap);
+    // What each loader's last swing came to, which is what its lamp is coloured
+    // by. A map rather than a walk in `animateStations`, because that runs on
+    // the page's clock at 60Hz against a snapshot that arrives at 10.
+    this.armSaid = new Map((state.arms ?? [])
+      .filter((a) => a.did).map((a) => [a.id, a.did]));
     this.syncVehicles(state.van ?? null, state.cars ?? []);
     this.syncStations(state.stations ?? []);
     this.syncActionRings(state.players, myId);
@@ -5043,6 +5112,22 @@ export class Scene {
    * been rotated for them.
    */
   addConveyorSlats(L, geo) {
+    // Every slat in the shop, by colour, as ONE draw each.
+    //
+    // A slat is a bar a few triangles wide and a busy shop has a couple of
+    // hundred of them; measured, they were 242 draw calls for 0.67ms — the
+    // largest single block left once the static decoration was welded, and the
+    // one thing on a belt that cannot be welded because it is the thing that
+    // moves.
+    //
+    // The trick is that `motion.js` never learns about any of this. Each slat
+    // keeps an `Object3D` of its own that is NOT in the scene — a transform and
+    // nothing else — so the `scroll` branch goes on writing `mesh.position` and
+    // `mesh.rotation.y` exactly as it did for a real mesh. `flushSlats` copies
+    // those transforms into the instance buffer once a frame, which is 242
+    // matrix composes against 242 draw calls.
+    this.slatBatches = [];
+    const byColour = new Map();
     for (const c of conveyorsOf(L)) {
       const parts = this.conveyorSlatParts(c);
       if (!parts.length) continue;
@@ -5071,8 +5156,9 @@ export class Scene {
         const thin = p.scale?.[0] ?? 0.07;
         const high = p.scale?.[1] ?? 0.03;
         const long = p.scale?.[2] ?? 0.56;
-        const mesh = new THREE.Mesh(geo, material(p.color, 1));
-        mesh.raycast = NO_PICK;
+        // A transform and nothing else — see the note at the top of this
+        // function. It is never added to the scene; the instance buffer is.
+        const mesh = new THREE.Object3D();
         const entry = {
           mesh,
           motion: { kind: 'scroll', hz: p.motion?.hz ?? 1.1, amount: span },
@@ -5105,7 +5191,8 @@ export class Scene {
         }
         entry.pos = mesh.position.clone();
         entry.scale = mesh.scale.clone();
-        this.staticRoot.add(mesh);
+        if (!byColour.has(p.color)) byColour.set(p.color, []);
+        byColour.get(p.color).push(mesh);
         rec.moving.push(entry);
       }
 
@@ -5138,7 +5225,7 @@ export class Scene {
           const shiftZ = ez ? 0 : -uz * 0.21;
           rail.position.set(c.x + ex * 0.47 + shiftX, 0.12, c.z + ez * 0.47 + shiftZ);
           rail.raycast = NO_PICK;
-          this.staticRoot.add(rail);
+          this.beltRoot.add(rail);
         }
         // ...and the chamfer only when BOTH outer rails are there to be joined.
         //
@@ -5158,11 +5245,58 @@ export class Scene {
           chamfer.position.set(c.x + ux * 0.44, 0.12, c.z + uz * 0.44);
           chamfer.rotation.y = -(Math.atan2(uz, ux) + Math.PI / 2);
           chamfer.raycast = NO_PICK;
-          this.staticRoot.add(chamfer);
+          this.beltRoot.add(chamfer);
         }
       }
 
       if (rec.moving.length) this.movingFixtures.set(c.id, rec);
+    }
+
+    // One instanced mesh per colour, straight onto `staticRoot` and NOT into
+    // `beltRoot` — an `InstancedMesh` answers `isMesh`, so the weld at the foot
+    // of `addConveyorPaths` would happily merge it into a single frozen bar.
+    //
+    // Its own geometry rather than the shared `PATH_GEO`, because this one IS
+    // handed to `staticRoot` and `disposeGroup` frees geometry it does not
+    // recognise — a shared one would be disposed out from under every other
+    // conveyor mesh on the next re-flow.
+    // ONE mesh for every slat in the shop, whatever colour it was authored in.
+    //
+    // The colour rides in `instanceColor` against a WHITE material — three
+    // multiplies the two, so a coloured material here would square the hue —
+    // which means a second belt design costs nothing: no extra batch, no extra
+    // draw, and the same bake walks all of them.
+    const holders = [...byColour.values()].flat();
+    const hues = [...byColour.entries()].flatMap(([c, hs]) => hs.map(() => new THREE.Color(c)));
+    if (holders.length) {
+      const im = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(1, 1, 1), material('#ffffff', 1), holders.length,
+      );
+      im.raycast = NO_PICK;
+      im.castShadow = false;
+      im.receiveShadow = false;
+      // Baked per INSTANCE, the way the ground is — a slat is one small thing at
+      // one place, so `instanceColor` says everything a per-vertex bake would.
+      // `bare` is its unlit colour and `at` where it stands, which is the pair
+      // `rebakeGround` already knows how to walk.
+      const bare = new Float32Array(holders.length * 3);
+      const at = new Float32Array(holders.length * 3);
+      holders.forEach((h, i) => {
+        // Set once here so a paused shop and the very first frame both draw the
+        // slats where they were laid rather than stacked at the origin.
+        h.updateMatrix();
+        im.setMatrixAt(i, h.matrix);
+        const hue = hues[i];
+        bare[i * 3] = hue.r; bare[i * 3 + 1] = hue.g; bare[i * 3 + 2] = hue.b;
+        at[i * 3] = h.position.x; at[i * 3 + 1] = h.position.y; at[i * 3 + 2] = h.position.z;
+        im.setColorAt(i, this.lights.bakeInto(hue.clone(), at[i * 3], at[i * 3 + 1], at[i * 3 + 2]));
+      });
+      im.instanceMatrix.needsUpdate = true;
+      im.instanceColor.needsUpdate = true;
+      im.layers.set(BAKED_LAYER);
+      this.bakedGround.push({ mesh: im, bare, at });
+      this.staticRoot.add(im);
+      this.slatBatches.push({ im, holders });
     }
   }
 
@@ -5356,7 +5490,7 @@ export class Scene {
     dart.rotation.y = -Math.atan2(pz, px);
     dart.renderOrder = 3;
     dart.raycast = NO_PICK;
-    this.staticRoot.add(dart);
+    this.beltRoot.add(dart);
   }
 
   /**
@@ -5444,6 +5578,12 @@ export class Scene {
   addConveyorPaths(L) {
     const cells = conveyorsOf(L);
     if (!cells.length) return;
+    // Everything below goes into one group and comes out WELDED — see the weld
+    // at the foot of this function for why. `beltRoot` rather than adding
+    // straight to `staticRoot` because the merge has to happen after the last
+    // piece is laid, and `addConveyorSlats` and `addEdgeChevron` lay some of
+    // them; both are reached from here and nowhere else.
+    this.beltRoot = new THREE.Group();
     // Its own geometry rather than props.js's `GEO`, which is module-private
     // there — and a shared one rather than one per cell, because a long run is
     // a hundred of these. `staticRoot` is disposed wholesale on every re-flow
@@ -5527,7 +5667,7 @@ export class Scene {
         well.position.set(c.x + dx * 0.5, 0.128, c.z + dz * 0.5);
         well.renderOrder = 2;
         well.raycast = NO_PICK;
-        this.staticRoot.add(well);
+        this.beltRoot.add(well);
 
         const link = new THREE.Mesh(geo, linkMaterial());
         link.scale.set(0.1, 0.02, 0.1);
@@ -5537,7 +5677,7 @@ export class Scene {
         // this every tap on a belt hits a decoration with no fixture id on it
         // and selection silently answers nothing.
         link.raycast = NO_PICK;
-        this.staticRoot.add(link);
+        this.beltRoot.add(link);
       }
     }
 
@@ -5574,7 +5714,7 @@ export class Scene {
         pip.position.set(c.x + (tail ? 0.11 : -0.11), 0.134, c.z);
         pip.renderOrder = 3;
         pip.raycast = NO_PICK;
-        this.staticRoot.add(pip);
+        this.beltRoot.add(pip);
       }
     }
 
@@ -5640,14 +5780,14 @@ export class Scene {
       well.position.set(c.x + dx * 0.33, 0.128, c.z + dz * 0.33);
       well.renderOrder = 2;
       well.raycast = NO_PICK;
-      this.staticRoot.add(well);
+      this.beltRoot.add(well);
 
       const bar = new THREE.Mesh(geo, aimMaterial(kind));
       bar.scale.set(dz ? 0.26 : 0.06, 0.02, dz ? 0.06 : 0.26);
       bar.position.set(c.x + dx * 0.33, 0.132, c.z + dz * 0.33);
       bar.renderOrder = 3;
       bar.raycast = NO_PICK;
-      this.staticRoot.add(bar);
+      this.beltRoot.add(bar);
     }
 
     // The GAP a narrow deck leaves at a join, filled per edge.
@@ -5682,7 +5822,7 @@ export class Scene {
         pad.scale.set(1, deck.h, 1);
         pad.position.set(c.x, deck.y, c.z);
         pad.raycast = NO_PICK;
-        this.staticRoot.add(pad);
+        this.beltRoot.add(pad);
         continue;
       }
       for (const r of [0, 1, 2, 3]) {
@@ -5705,7 +5845,7 @@ export class Scene {
         const out = deck.cross + grow / 2;
         fill.position.set(c.x + dx * out, deck.y, c.z + dz * out);
         fill.raycast = NO_PICK;
-        this.staticRoot.add(fill);
+        this.beltRoot.add(fill);
       }
     }
 
@@ -5749,7 +5889,7 @@ export class Scene {
         rail.scale.set(dx ? 0.07 : 1.02, 0.1, dz ? 0.07 : 1.02);
         rail.position.set(c.x + dx * 0.47, 0.12, c.z + dz * 0.47);
         rail.raycast = NO_PICK;
-        this.staticRoot.add(rail);
+        this.beltRoot.add(rail);
       }
     }
 
@@ -5788,13 +5928,19 @@ export class Scene {
         // the crate meets a slope and is pushed off the line rather than stopped.
         blade.rotation.y = -(Math.atan2(dz, dx) + Math.PI / 4);
         blade.raycast = NO_PICK;
-        this.staticRoot.add(blade);
+        this.beltRoot.add(blade);
       }
     }
 
     for (const c of cells) {
       if (c.kind !== 'arm') continue;
-      const units = L.shelves ?? [];
+      // Shelving AND machines, which is the half this was missing. A loader
+      // feeds a hopper as readily as it fills a board (`armFeed`, beside
+      // `armPour`) — and drew nothing at all doing it, so an appliance being
+      // automatically fed looked exactly like an appliance standing next to a
+      // conveyor for no reason. The art has to cover everything the swing
+      // covers, or what it says is "this one is connected and that one is not".
+      const units = [...(L.shelves ?? []), ...(L.stations ?? [])];
       const facing = anchorTile(c.x, c.z, c.rot ?? 0);
       const sides = [facing, ...[0, 1, 2, 3]
         .map((r) => anchorTile(c.x, c.z, r))
@@ -5834,7 +5980,7 @@ export class Scene {
         const put = (mesh, up, across, y) => {
           mesh.position.set(c.x + dx * up + dz * across, y, c.z + dz * up + dx * across);
           mesh.raycast = NO_PICK;
-          this.staticRoot.add(mesh);
+          this.beltRoot.add(mesh);
         };
 
         // A little conveyor out of the housing — same vocabulary as the run it
@@ -5849,29 +5995,78 @@ export class Scene {
           put(slat, 0.33 + s, 0, 0.20);
         }
 
-        // ...and the spine, standing on the END of the unit rather than over it.
-        // A vertical is the one shape that can touch the floor and the top board
-        // at the same time, which is what makes the connection readable from
-        // across the shop without covering the goods it is delivering.
-        const spine = new THREE.Mesh(geo, material('#6b7280', 1));
-        spine.scale.set(dx ? 0.2 : wide, 0.8, dz ? 0.2 : wide);
-        put(spine, 0.5, 0, 0.4);
-        // The mouth, leaning in over the top board — the one part that says
-        // which side the goods come out.
-        const mouth = new THREE.Mesh(geo, material('#8d97a5', 1));
-        mouth.scale.set(dx ? 0.26 : wide + 0.04, 0.09, dz ? 0.26 : wide + 0.04);
-        put(mouth, 0.62, 0, 0.79);
+        // ...and the HOUSING, which is what the spine became.
+        //
+        // A bare vertical could say "these two are connected" and could not say
+        // which of them owned it: a grey pole standing on the line between a
+        // loader and a shelf reads as a post, a pipe, or part of the shelving,
+        // and the one thing it is — a machine bolted to that unit — is the
+        // reading it does not get. So it is a cabinet: deeper than it is wide,
+        // with a lid, a face and a collar reaching over onto the unit. The same
+        // vocabulary a machine in this shop already has.
+        //
+        // It stands INSIDE the loader's own cell rather than centred on the
+        // boundary, which is the wall clip: an edge is drawn on that line, so a
+        // 0.2-deep box centred there hangs a tenth of a tile through any wall
+        // you build against it. `0.5 - depth/2` is as close as a thing can get
+        // to an edge from its own side, and it is arithmetic rather than a
+        // nudged constant so it stays true if the cabinet ever gets deeper.
+        const depth = 0.26;
+        const body = new THREE.Mesh(geo, material('#6b7280', 1));
+        body.scale.set(dx ? depth : wide + 0.12, 0.74, dz ? depth : wide + 0.12);
+        put(body, 0.5 - depth / 2, 0, 0.37);
 
-        // ...and the lamp on top of it, which is the whole of the animation.
+        // The lid, which is what stops it reading as a pillar: a box wants a top
+        // that overhangs it, and the shadow line under the overhang is most of
+        // what says "cabinet" at this camera.
+        const lid = new THREE.Mesh(geo, material('#8d97a5', 1));
+        lid.scale.set(dx ? depth + 0.06 : wide + 0.18, 0.06, dz ? depth + 0.06 : wide + 0.18);
+        put(lid, 0.5 - depth / 2, 0, 0.77);
+
+        // The face — a darker inset panel on the side you look at it from, so
+        // the cabinet has a front. The lamp sits on this rather than floating
+        // above the mouth, which is the difference between a light that belongs
+        // to the machine and one hanging in the air over a shelf.
+        const face = new THREE.Mesh(geo, material('#3b424e', 1));
+        face.scale.set(dx ? 0.02 : wide - 0.02, 0.3, dz ? 0.02 : wide - 0.02);
+        put(face, 0.5 - depth - 0.005, 0, 0.5);
+
+        // The COLLAR, reaching over onto the unit and clamped round its end.
+        // This is the part that says hooked-up, and it says it by overlapping:
+        // a mouth that stopped at the edge is two objects standing next to each
+        // other, and the whole question a player is asking of a loader is which
+        // shelf it belongs to.
+        const collar = new THREE.Mesh(geo, material('#8d97a5', 1));
+        collar.scale.set(dx ? 0.3 : wide + 0.1, 0.1, dz ? 0.3 : wide + 0.1);
+        put(collar, 0.6, 0, 0.7);
+
+        // ...and the two straps down the unit's end, which is the same claim
+        // made where you can see it from the other side of the aisle. Short, so
+        // they read as brackets rather than as legs holding the shelf up.
+        for (const side of [-1, 1]) {
+          const strap = new THREE.Mesh(geo, material('#4b5563', 1));
+          strap.scale.set(dx ? 0.16 : 0.05, 0.055, dz ? 0.16 : 0.05);
+          put(strap, 0.62, side * (wide / 2 + 0.02), 0.62);
+        }
+
+        // ...and the lamp, which is the whole of the animation and now the whole
+        // of the readout as well.
         //
         // A spinning turntable was the first answer and it is too much movement
         // for a machine that spends most of its life waiting — it also hid the
         // box it was working on. A light says the same thing with nothing
-        // turning, and it says something the spin never could: it is off when
-        // the loader has nothing.
+        // turning, and it says two things the spin never could: it is off when
+        // the loader has nothing, and since `armSaid` it is a different COLOUR
+        // for a box taken and a box waved past.
+        //
+        // On the cabinet's face rather than floating over the mouth, which is
+        // where it used to sit. A light hanging in the air above a shelf belongs
+        // to nothing you can point at; one on the front of a box belongs to the
+        // box — and this is the readout for the machine, so it has to be read as
+        // the machine's.
         //
         // Registered onto the fixture's own `moving` list by hand, because this
-        // mesh is drawn HERE rather than authored on the piece — the spine is
+        // mesh is drawn HERE rather than authored on the piece — the cabinet is
         // derived from what is beside the loader, so it cannot be a part in the
         // model. `addConveyorPaths` runs after `addFixtureProps`, which is what
         // makes the record there to append to; a re-flow clears both together.
@@ -5883,8 +6078,8 @@ export class Scene {
         const lamp = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
           color: new THREE.Color(LAMP_IDLE), flatShading: true,
         }));
-        lamp.scale.set(0.13, 0.07, 0.13);
-        put(lamp, 0.62, 0, 0.88);
+        lamp.scale.set(dx ? 0.03 : 0.12, 0.12, dz ? 0.03 : 0.12);
+        put(lamp, 0.5 - depth - 0.02, 0, 0.6);
         const rec = this.movingFixtures.get(c.id)
           ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
         rec.conveyor = true;
@@ -5904,6 +6099,60 @@ export class Scene {
         });
         this.movingFixtures.set(c.id, rec);
       }
+    }
+
+    // One draw per COLOUR instead of one per bar.
+    //
+    // Everything above is ground decoration a few triangles wide — a dart, a
+    // join pip, a rail, a slat — and a shop with fifty conveyor cells was laying
+    // six hundred of them as separate objects. That is the whole cost: measured
+    // on a real save, `renderer.render` was 5.16ms of a 5.64ms frame, ~92% of
+    // the tab's CPU, at roughly 3.8us per draw call. The triangles are nothing —
+    // 682 meshes carrying 7,800 triangles between them — so this is not a
+    // geometry problem and no amount of simplifying the art would have touched
+    // it. They are on 15 materials, so welding is 682 draws down to 15.
+    //
+    // Affordable because it is paid on a re-flow rather than per frame, which is
+    // the same argument `weld` is called on stock and crops for.
+    //
+    // The two things that MOVE are held out by name, which is the failure this
+    // whole call has to get right: welded, a slat would be drawn in exactly the
+    // right place and never scroll again, and a loader's lamp would never pulse.
+    // Both read as a machine that has broken rather than as a renderer that has.
+    // Taken off `movingFixtures` rather than from a list built here, because
+    // `addConveyorSlats` registers the slats and the loop above registers the
+    // lamps — two places, one truth, and a third one added later would be
+    // silently welded solid.
+    const moving = new Set();
+    for (const rec of this.movingFixtures.values()) {
+      if (!rec.conveyor) continue;
+      for (const m of rec.moving ?? []) moving.add(m.mesh);
+    }
+    // `weld` re-hangs what it keeps by decomposing the world matrix into the
+    // group's own space, and `beltRoot` is an untransformed child of
+    // `staticRoot` — so a kept mesh comes out at the position it went in at, and
+    // the `pos`/`scale` clones the motion entries already took stay correct.
+    const welded = weld(this.beltRoot, moving.size ? (o) => moving.has(o) : null);
+    this.staticRoot.add(welded);
+    this.beltRoot = null;
+
+    // ...and into the BAKED system, which is the half a conveyor was never in.
+    //
+    // The shop has two lightings — eight real lamps for what moves, and a tint
+    // baked into the vertices for everything that does not, on a layer the real
+    // ones cannot reach so nothing is lit twice. Belts were in neither: they are
+    // static, but nothing ever registered them, so they sat on layer 0 being lit
+    // by the pool. What that looks like is a shop that goes dark at closing time
+    // with the conveyors still bright in it, which reads as the belts glowing.
+    //
+    // Per vertex rather than per group, because a run is not a fixture — see
+    // `bakeMesh`. The lamps are kept OUT of it: a loader's light is the one part
+    // of a conveyor that is supposed to be brighter than the room.
+    for (const m of welded.children) {
+      if (!m.isMesh || moving.has(m)) continue;
+      this.bakedMeshes.push(m);
+      this.bakeMesh(m);
+      m.layers.set(BAKED_LAYER);
     }
   }
 
@@ -7068,6 +7317,26 @@ export class Scene {
    * that silently does nothing on everything except an appliance, and a ceiling
    * fan would be a fixture you can author and never see turn.
    */
+  /**
+   * The slats' transforms into their instance buffers, once a frame.
+   *
+   * `animateMotion` has just written every one of them as if it were an
+   * ordinary mesh, which is the whole point of the holders — see
+   * `addConveyorSlats`. Uploaded per BATCH rather than per slat, because
+   * `needsUpdate` re-sends the whole buffer either way and setting it inside the
+   * loop would re-send it once per bar.
+   */
+  flushSlats() {
+    for (const b of this.slatBatches ?? []) {
+      for (let i = 0; i < b.holders.length; i++) {
+        const h = b.holders[i];
+        h.updateMatrix();
+        b.im.setMatrixAt(i, h.matrix);
+      }
+      b.im.instanceMatrix.needsUpdate = true;
+    }
+  }
+
   animateStations(now) {
     // Stopped time stops the machines. A return rather than passing `false` for
     // "working": false eases them down to a halt over the next second, which is
@@ -7080,12 +7349,22 @@ export class Scene {
       // busy while there is a box on it. Without this its lamp pulses all night
       // over an empty machine, which is a light that tells you nothing.
       const busy = this.beltBusy?.has(id);
-      // The colour half of the same fact. Set only when it changes, because a
-      // `Color.set` per lamp per frame is the cost this whole gating exists to
-      // avoid — and `material` here is the lamp's own, never the shared cache.
-      if (body.lamps && body.lit !== !!busy) {
-        body.lit = !!busy;
-        for (const lamp of body.lamps) lamp.material.color.set(busy ? LAMP_ON : LAMP_IDLE);
+      // What it last DID, which is a different question from whether it is
+      // holding something and is the one the colour answers. The shop says it —
+      // `armSaid`, server side — because the client can see a crate on a cell
+      // and can never see a pour that was refused.
+      //
+      // `busy` still drives the PULSE below: a machine with a box on it is
+      // working whatever came of it, and a light that stopped moving the moment
+      // a pour failed would read as the loader having died.
+      const said = this.armSaid?.get(id) ?? null;
+      const hue = said === 'load' ? LAMP_ON : said === 'pass' ? LAMP_PASS : LAMP_IDLE;
+      // Set only when it changes, because a `Color.set` per lamp per frame is
+      // the cost this whole gating exists to avoid — and `material` here is the
+      // lamp's own, never the shared cache.
+      if (body.lamps && body.lit !== hue) {
+        body.lit = hue;
+        for (const lamp of body.lamps) lamp.material.color.set(hue);
       }
       // ...and, for a `sweep`, the number it points at. Null for everything
       // else, which is every fixture in the game that is not a clock — a sweep
@@ -7096,6 +7375,7 @@ export class Scene {
         body.signal ? this.signals[body.signal] ?? null : null,
       );
     }
+    this.flushSlats();
     for (const rec of this.stationProps.values()) {
       for (const work of rec.work) {
         if (!work) continue;
@@ -7348,6 +7628,29 @@ export class Scene {
     this.renderer.render(this.scene, this.camera);
   }
 
+  /**
+   * Give the GPU everything back, for a page that is going away.
+   *
+   * Nothing did this, and a browser does not do it for you promptly: a WebGL
+   * context, its buffers and its compiled programs outlive the document that
+   * made them until the driver gets round to it. Reload the dev server twenty
+   * times and that is twenty shops still resident — which is the report exactly,
+   * memory climbing on every reload and only a tab close giving it back, because
+   * closing the tab is what finally drops the contexts.
+   *
+   * `forceContextLoss` is the part that matters. `renderer.dispose()` frees what
+   * three allocated and leaves the context itself alive; the extension is the
+   * only way to say now rather than eventually.
+   */
+  destroy() {
+    disposeGroup(this.staticRoot);
+    disposeGroup(this.actorRoot);
+    this.staticRoot.clear();
+    this.actorRoot.clear();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+  }
+
   /** Grab the current frame as a PNG data URL (used by the MCP screenshot tool). */
   screenshot() {
     this.render();
@@ -7404,6 +7707,23 @@ const PATH_GEO = new THREE.BoxGeometry(1, 1, 1);
  */
 const LAMP_IDLE = '#4a5160';
 const LAMP_ON = '#63d489';
+/**
+ * ...and the third state, which is what turned the lamp from decoration into a
+ * readout: the box went PAST.
+ *
+ * Green and dark could only ever say "there is a crate here", and a crate riding
+ * past a loader that wants nothing from it is the single most useful thing a run
+ * can tell you — it is what a loader aimed at the wrong shelf looks like, what a
+ * freezer line with no freezer on it looks like, and what a full shelf looks
+ * like. All three drew as a working machine.
+ *
+ * Amber rather than red, which is the same call `.fx-verb.on` makes about a
+ * toggle: red in this game is a refusal or something you cannot take back, and
+ * a crate carrying on down the line is neither. It is the ordinary way a run
+ * works — a box passes four loaders to reach the fifth — so a shop full of red
+ * lights would be a shop reporting a fault it does not have.
+ */
+const LAMP_PASS = '#d99b1f';
 
 /**
  * The mark on a join, and its well.

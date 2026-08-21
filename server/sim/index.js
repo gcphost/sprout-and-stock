@@ -2835,6 +2835,13 @@ export class Game {
       arms: (this.layout.arms ?? []).map((a) => ({
         id: a.id,
         mode: a.mode === 'load' || a.mode === 'unload' ? a.mode : 'both',
+        // What its last swing came to, for as long as a lamp should still be
+        // showing it. A window rather than a level, because the two states are
+        // not symmetrical: a loader that keeps failing re-stamps this every
+        // swing and stays lit, while one that succeeded is empty a tick later
+        // and has nothing left to report — so a flag with no expiry would leave
+        // the last green burning over an idle machine all night.
+        ...(this.armSaid(a.id) ? { did: this.armSaid(a.id) } : {}),
       })),
       sorters: (this.layout.sorters ?? []).map((s) => ({
         id: s.id,
@@ -9759,6 +9766,18 @@ export class Game {
   static ARM_SECONDS = 0.9;
 
   /**
+   * How long a loader's lamp goes on saying what its last swing came to.
+   *
+   * Longer than one swing on purpose. Equal to it, a success would be on screen
+   * for exactly as long as it took to be replaced by the next answer, and a run
+   * working perfectly would flicker; a good deal longer and two swings ago is
+   * still being reported, which is a light that lies about the box you are
+   * watching. A hair over one swing is "the last thing it did", which is the
+   * only tense a lamp has.
+   */
+  static ARM_SAY_SECONDS = 1.2;
+
+  /**
    * The conveyor cell standing here, belt or loader.
    *
    * One lookup for both, because a loader IS a belt as far as everything that
@@ -10579,11 +10598,75 @@ export class Game {
       const clock = (this.armClock.get(arm.id) ?? 0) + dt;
       if (clock < per) { this.armClock.set(arm.id, clock); continue; }
 
-      if (this.armSwing(arm)) this.armClock.set(arm.id, 0);
-      // A swing that found nothing to do keeps its charge, so a loader waiting
-      // on a crate acts the tick one arrives rather than a full swing later.
-      else this.armClock.set(arm.id, per);
+      /**
+       * Whether it was HOLDING something, asked before the swing — which is the
+       * whole of what makes the lamp mean anything.
+       *
+       * The lamp was wired to "is there a box on this cell", a fact about the
+       * conveyor rather than about the machine: a crate riding straight past a
+       * loader that wanted nothing from it lit the same green as one being
+       * poured into a shelf. So the two things worth telling apart — it took my
+       * goods, it passed them on — were one colour, and a run of loaders all
+       * aimed wrong looks exactly like a run that works.
+       *
+       * After the swing is too late to ask: a loader that emptied its box into
+       * a shelf has no box any more, so the one outcome the light exists to
+       * report is the one that would never be recorded.
+       */
+      const held = this.deliveries.some((d) => d.belt === arm.id);
+      const did = this.armSwing(arm);
+      if (did) this.armClock.set(arm.id, 0);
+      /**
+       * A swing that found nothing to do keeps its charge only while it is
+       * HOLDING something, and that split is the difference between a machine
+       * and a vacuum.
+       *
+       * Banking it either way was the first shape, so that a loader waiting on
+       * a crate acted the tick one arrived rather than a full swing later. That
+       * is right about the box already on the machine — the thing it is waiting
+       * for is a shelf selling down, which nobody is watching, and a pour that
+       * fires the instant a board frees is simply the loader being ready. It is
+       * exactly wrong about the floor beside it, because `stepOrders` runs
+       * before this in the same tick: a row of loaders on the dock all hold a
+       * full charge through a quiet morning, so the van's whole run is lifted
+       * off the pad in the very frame it lands. Not fast — *instant*, with the
+       * crates never drawn on the bay at all, which reads as a delivery
+       * teleporting onto the belt and as a bay that does nothing.
+       *
+       * An empty loader therefore swings on its own rhythm, and a crate landing
+       * beside one waits somewhere between nothing and a full swing to be
+       * picked up. Which also staggers a row of them, since each is at its own
+       * point in the cycle when the van arrives — so a delivery is lifted box
+       * by box rather than in one lump.
+       */
+      else this.armClock.set(arm.id, held ? per : 0);
+
+      // Only ever said about a swing with a box in it. An empty loader has done
+      // nothing rather than failed, and colouring that would be the photograph-
+      // of-a-clock trap said about a light: one that is never not on reports
+      // nothing. A pickup off the floor is deliberately not an answer either —
+      // it is the run being fed, not this machine deciding anything.
+      if (held) {
+        this.armDid ??= new Map();
+        this.armDid.set(arm.id, { what: did ? 'load' : 'pass', at: this.elapsed });
+      }
     }
+  }
+
+  /**
+   * What a loader's lamp should be saying, or null for "nothing lately".
+   *
+   * In memory and never persisted, which is what lets it be measured against
+   * `elapsed` at all — that clock restarts at zero on every load, so a saved
+   * stamp would sit in the future and the lamp would never come on again. The
+   * `at > elapsed` guard is the same insurance `yieldedAt` carries, for a stamp
+   * that survived a reload some way nobody predicted.
+   */
+  armSaid(id) {
+    const said = this.armDid?.get(id);
+    if (!said) return null;
+    if (said.at > this.elapsed) return null;
+    return this.elapsed - said.at <= Game.ARM_SAY_SECONDS ? said.what : null;
   }
 
   /** One swing. Returns whether anything actually moved. */
