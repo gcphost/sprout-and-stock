@@ -252,6 +252,34 @@ export const FIXTURES = {
     works: true,
   },
   /**
+   * The underground — two mouths and a span that belongs to NOBODY.
+   *
+   * Structurally a belt again, and deliberately so: non-blocking, `T.BELT`, a
+   * facing, hands on to what it faces. The one thing it adds is that what it
+   * faces may be four cells away instead of one.
+   *
+   * A bridge was the other shape and it is wrong here. A belt is `blocks:
+   * false`, so shoppers already walk over a run — a walkway would sell
+   * permission that was never withheld. What is actually scarce is the SQUARE,
+   * and this is the only piece that gives one back: the cells between two
+   * mouths stamp nothing, reserve nothing and take no walk grid, so you floor
+   * them, stand a shelf on them, and cross a second tunnel over them. A
+   * crossing is two spans overlapping and needs no code that knows what a
+   * crossing is, because a span is not a place.
+   *
+   * ENTRY AND EXIT ARE THE SAME PIECE, told apart by what is in front of them
+   * (`tunnelExit`). Both are laid facing the way the goods go, and the upstream
+   * one is whichever has the other one ahead of it. That is a derivation rather
+   * than a stored partner id on purpose: `repositionFixture` names every field
+   * it keeps, so a stored pair would be cleared by the one press most likely to
+   * follow laying one — **R** — and what you would watch is a tunnel that works
+   * until you straighten it.
+   */
+  under: {
+    label: 'Underground', blocks: false, ground: T.BELT, where: 'any', rotates: true, anchor: null,
+    flow: { out: 0 },
+  },
+  /**
    * Decorations. Both stand in a cell and neither blocks it.
    *
    * Deliberately NOT the authored-`blocks` kind the design doc describes. A
@@ -1682,7 +1710,18 @@ const groundIsBusy = (ground) => {
  * concerned. Two lists would mean every hand-off asking two questions, and the
  * day somebody forgot the second one a crate would stop dead at every loader.
  */
-export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter'];
+export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter', 'under'];
+
+/**
+ * The kinds a DRAG lays a line of.
+ *
+ * Not the same set, and the difference is the tunnel. A run is laid by dragging
+ * because a belt is one cell repeated; a tunnel is two mouths with a gap that
+ * has to stay empty, so dragging one lays a mouth on every square of the very
+ * span the piece exists to give back — which stamps `T.BELT` down the whole
+ * line, and the floor brush then refuses the ground you were promised.
+ */
+export const RUN_KINDS = ['belt', 'arm', 'sorter'];
 
 /**
  * How many cells one drag of conveyor may lay.
@@ -1758,7 +1797,44 @@ export function beltRunCells(from, to, max = BELT_RUN_MAX, rot = 0) {
 export const derivedFlow = (kind) => kind === 'arm' || kind === 'sorter';
 
 export function conveyorsOf(L) {
-  return [...(L?.belts ?? []), ...(L?.arms ?? []), ...(L?.sorters ?? [])];
+  return [...(L?.belts ?? []), ...(L?.arms ?? []), ...(L?.sorters ?? []), ...(L?.unders ?? [])];
+}
+
+/**
+ * How far a tunnel reaches, in cells between the two mouths.
+ *
+ * Short on purpose. Far enough to duck under an aisle, a wall, or a run's own
+ * outbound leg — which is the whole complaint it exists to answer — and nowhere
+ * near far enough to be a portal. Unlimited range makes every other piece in
+ * this document pointless: you would lay one mouth on the dock and the other at
+ * the shelf and never build a run again.
+ */
+export const TUNNEL_SPAN = 4;
+
+/**
+ * The far mouth this one hands to, or null if it is the far mouth itself.
+ *
+ * Both ends are laid facing the way the goods travel, so "am I an entry" is the
+ * same question as "is there another mouth ahead of me, pointing the same way".
+ * Nothing is stored and nothing is paired at build time — see `BUILD_KINDS.under`
+ * for why a partner id would not survive the R key.
+ *
+ * The NEAREST one wins, so three mouths in a line are two tunnels rather than
+ * one that skips the middle — otherwise laying a third would silently re-route
+ * the pair you already had.
+ */
+export function tunnelExit(L, cell) {
+  if (!cell || cell.kind !== 'under') return null;
+  const step = anchorTile(cell.x, cell.z, cell.rot ?? 0);
+  const dx = step.x - cell.x;
+  const dz = step.z - cell.z;
+  for (let i = 1; i <= TUNNEL_SPAN + 1; i++) {
+    const x = cell.x + dx * i;
+    const z = cell.z + dz * i;
+    const other = (L?.unders ?? []).find((u) => u.x === x && u.z === z);
+    if (other) return (other.rot ?? 0) === (cell.rot ?? 0) ? other : null;
+  }
+  return null;
 }
 
 /** The conveyor cell standing on this tile, if any. */
@@ -1814,11 +1890,13 @@ function conveyorFlow(L) {
   // Loaders and sorters together: both derive their pass-through, and the only
   // difference is that a sorter also keeps one side back for its branch.
   const arms = [...(L?.arms ?? []), ...(L?.sorters ?? [])];
+  const unders = L?.unders ?? [];
   const had = FLOW.get(L);
   if (had && had.belts === belts && had.arms === arms.length
-    && had.armsRef === (L?.arms ?? []) && had.sortRef === (L?.sorters ?? [])) return had.map;
+    && had.armsRef === (L?.arms ?? []) && had.sortRef === (L?.sorters ?? [])
+    && had.underRef === unders) return had.map;
 
-  const cells = [...belts, ...arms];
+  const cells = [...belts, ...arms, ...unders];
   const at = new Map(cells.map((c) => [`${c.x},${c.z}`, c]));
   const map = new Map();
 
@@ -1875,6 +1953,21 @@ function conveyorFlow(L) {
   for (const b of belts) {
     map.set(b.id, anchorTile(b.x, b.z, b.rot));
     queue.push(b);
+  }
+
+  // ...and so does a tunnel mouth, which is the whole of what makes one work.
+  //
+  // An entry hands to the far mouth rather than to the cell in front of it, and
+  // an exit is an ordinary belt pointing the way it was laid. Both answer for
+  // themselves, so the walk below reaches loaders on the far side exactly as it
+  // reaches them through a straight — without this an entry's `next` is null,
+  // which is the end of a run as far as every derived cell downstream is
+  // concerned: they keep their feeders, lose their flow, and draw as a working
+  // belt that never delivers.
+  for (const u of unders) {
+    const far = tunnelExit(L, u);
+    map.set(u.id, far ? { x: far.x, z: far.z } : anchorTile(u.x, u.z, u.rot ?? 0));
+    queue.push(u);
   }
 
   // ...and a loader AIMED AT A CONVEYOR answers for itself too.
@@ -1978,7 +2071,12 @@ function conveyorFlow(L) {
   }
 
   FLOW.set(L, {
-    belts, arms: arms.length, armsRef: L?.arms ?? [], sortRef: L?.sorters ?? [], map,
+    belts,
+    arms: arms.length,
+    armsRef: L?.arms ?? [],
+    sortRef: L?.sorters ?? [],
+    underRef: unders,
+    map,
   });
   return map;
 }
@@ -1986,6 +2084,16 @@ function conveyorFlow(L) {
 /** Which cell this conveyor hands its crate to — see `conveyorFlow`. */
 export function conveyorNext(L, cell) {
   if (!cell) return null;
+  // A mouth is the one kind that is neither: its answer is its own `rot`, and
+  // then it is a question about how FAR. Asked here rather than left to the
+  // flow map because a non-derived kind never consults that map at all — which
+  // is what an entry handing to the cell in front of it looks like, and it
+  // draws as a tunnel that is simply a short belt.
+  if (cell.kind === 'under') {
+    const far = tunnelExit(L, cell);
+    if (far) return { x: far.x, z: far.z };
+    return anchorTile(cell.x, cell.z, cell.rot);
+  }
   if (!derivedFlow(cell.kind)) return anchorTile(cell.x, cell.z, cell.rot);
   return conveyorFlow(L).get(cell.id) ?? null;
 }

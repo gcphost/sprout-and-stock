@@ -4,7 +4,7 @@
 
 import {
   canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun, faceKey,
-  groundStroke, strokeThick, GROUND_STROKE_MAX, beltRunCells, BELT_RUN_MAX, CONVEYOR_KINDS, canPlace,
+  groundStroke, strokeThick, GROUND_STROKE_MAX, beltRunCells, BELT_RUN_MAX, RUN_KINDS, CONVEYOR_KINDS, canPlace,
   faceAlong, isProp, isWalkableTile, workSpotOf, REACH, conveyorAt,
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
@@ -385,6 +385,20 @@ net.on('action', (res) => {
   ui.abortMove();
 });
 net.on('disconnected', () => ui.toast('Disconnected from the shop', true));
+// A drop the transport is going to try to undo. Said out loud, because the shop
+// is frozen while it tries and a shop that has stopped with nothing to say why
+// is the illegible failure `host-gone` below is also about — and said WITHOUT
+// the error flag, because this is not (yet) bad news.
+net.on('dropped', () => ui.toast('Lost the shop — reconnecting…'));
+net.on('rejoined', () => {
+  ui.toast('Back in the shop');
+  // The mode is per SOCKET on the server (`p.build.on`), and the rejoin is a
+  // new one — so a client that came back still believing it was building would
+  // have every build verb refused by a server that had never been told. It
+  // looks exactly like the mode having broken: the bar is up, the ghost is
+  // green, and nothing you press does anything.
+  ui.resendMode();
+});
 /**
  * The shop you were a guest in has gone.
  *
@@ -1764,6 +1778,24 @@ function armPut(cx, cy) {
     // the distance `unshelve` measures, and a press has to ask the question the
     // verb will.
     if (!nearFixture(hit.f)) return { kind: 'walk', f: hit.f, ring: false };
+
+    // A conveyor cell is a SQUARE, not a unit, and this is the third time a
+    // kind has had to say so — the skip and the appliance each fell through to
+    // `board` below and each read as a thing you simply could not put anything
+    // into. A belt is worse than either, because the answer is not a different
+    // fixture verb: `beltPut` takes a CELL, and the whole gesture the player
+    // has already learnt is the green square. Left to fall through, the press
+    // sent a shelf message at a belt, the server said no to a thing you were
+    // not pointing at, and what you watched was a right-click that did nothing
+    // at all.
+    if (CONVEYOR_KINDS.includes(hit.f.kind)) {
+      const on = { x: hit.f.x, z: hit.f.z };
+      // One box per cell, so an occupied one is a real refusal — and refusing
+      // here rather than after the send keeps the ghost and the press agreeing.
+      if (!canDropAt(on)) return { kind: 'ground', ring: false };
+      net.send('place', { x: on.x, z: on.z });
+      return { kind: 'ground', ring: true };
+    }
     net.send('place', { fixture: hit.f.id });
     // A skip has no boards, so there is no "this pile" to name and no one-unit
     // meaning for a tap: you are either getting rid of what you are carrying or
@@ -2641,7 +2673,7 @@ canvas.addEventListener('pointerdown', (e) => {
   // A conveyor lays as a RUN. Ahead of the ground brush for no reason other than
   // that a belt is a fixture and the brush test would never have matched it.
   const armed = ui.armedTool?.() ?? null;
-  if (armed && CONVEYOR_KINDS.includes(armed.kind)) {
+  if (armed && RUN_KINDS.includes(armed.kind)) {
     const start = scene.pickTile(e.clientX, e.clientY);
     if (start) {
       beltDrag = { start, kind: armed.kind, piece: armed.piece ?? null, id: e.pointerId };

@@ -133,13 +133,21 @@ const JOB_INFO = {
 const WEIGHT_MAX = 10;
 
 /**
- * How long "tap again to let them go" stays armed.
+ * How long "tap again" stays armed, anywhere in this UI that asks twice.
  *
  * Removing a shelf hands half the money back and you can build another one.
  * Letting someone go refunds nothing, so a mis-tap in a scrolling list costs a
- * whole hire — which is the one place in this UI worth asking twice.
+ * whole hire — which was the one place in this UI worth asking twice, and is now
+ * one of two: taking somebody ON is the same decision pointed the other way, and
+ * `UI.armHire` imports this rather than keeping its own 4000. It was two
+ * constants tied by a comment in each saying they must agree, which is the shape
+ * a number takes right before somebody tunes one of them.
+ *
+ * It is also a duration something is DRAWN from — the armed hire tile drains a
+ * line over exactly this long (`--arm` in `bar.js`) — so it is the window and
+ * the animation both, the way `.tool.holding` is `HOLD_MS` wearing a colour.
  */
-const FIRE_ARM_MS = 4000;
+export const ARM_MS = 4000;
 
 /**
  * How long one turn of the avatar takes.
@@ -745,7 +753,7 @@ function wireAvatar(ui, entry) {
 function armedToFire(ui, id) {
   const arm = ui._wkFire;
   if (!arm || arm.id !== id) return false;
-  if (performance.now() - arm.at > FIRE_ARM_MS) { ui._wkFire = null; return false; }
+  if (performance.now() - arm.at > ARM_MS) { ui._wkFire = null; return false; }
   return true;
 }
 

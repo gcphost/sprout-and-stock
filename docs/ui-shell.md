@@ -1507,21 +1507,61 @@ what they are doing right now, and **Hire** as the last tab. That makes "who is
 on the tills" a glance rather than a menu. Pressing a person opens their own
 menu in `#panel`, exactly the way pressing a shelf does — two clerks are two
 entries and which one you pressed is the only thing that tells them apart.
-**Holding** a kind on the Hire tab hires: the tile carries the name, the price
-and how many you already have, so there is nothing left for a menu to say — and
-it is a hold rather than a tap because this is the one press in the game that
-spends money with no menu in between and nothing to undo it. A tap says so
-instead of doing it, and the tile fills while you hold (`.tool.holding`), for
-the reason the world's press ring exists: a hold with nothing happening is a
-press that missed until the instant it isn't.
+A kind on the Hire tab **asks twice** — tap to arm, tap again within four
+seconds (`ARM_MS`, exported by the worker menu and imported here so the two ends
+of one irreversible decision wait the same) — and then hires: the tile carries
+the name, the price and how many you already have, so there is nothing left for
+a menu to say. It asks at all because this is the one press in the game that
+spends money with no menu in between and nothing to undo it. The arm clears on
+the timer, on pressing anything else in the bar, and on the bar going away — an
+arm that outlived the strip it was drawn on would fire on whatever tile came
+back in that slot.
 
-It asked twice for four steps — tap to arm, tap again within four seconds — and
-what that cost was a *mode*: a strip that had to redraw to say it was armed, a
-timer to expire it, and a list of places to clear it (pressing anything else,
-the bar going away, a rebuild landing the second tap on a fresh copy of the
-first tile). A hold is the same protection inside one press, with nothing left
-armed afterwards. It is also the gesture the palette already spends on a shape
-card, so `bar.js` took one callback rather than a mechanism.
+The armed tile is its **own state** (`.tool.armed`) rather than a flavour of the
+armed *tool*, and the split is what the two mean: `on` is a tool in your hand,
+which stays there until you put it down; `armed` is a question that runs out.
+Amber is therefore taken, and the colour this state settled on is **green**,
+which is the third it was asked to wear and the reason the argument is written
+into the stylesheet. Red was reasoned across from the worker menu's Let go, and
+it is wrong here for a reason those two tiles do not share: that press ends
+somebody and this one starts them. A tile washed in the colour the shop uses for
+a refusal, a shortfall and a thing that has broken says "something is wrong with
+this" about a robot you were about to hire. Green says the next press will
+land — the sentence the build ghost has always made in the same colour.
+
+It is a ring and a lit well rather than Let go's solid fill, because this tile is
+a picture of the bot you are about to lease and a block of colour behind it turns
+both to mud — the same call `.tool.on` makes about a wooden shelf. `Tap to hire`
+replaces the price, centred in the note box rather than sitting in the top half
+of it. **Two greens**, on the split CLAUDE.md's contrast note draws: `--good` for
+the ring and the drain, which are marks and clear 3:1 against the tint, and
+`#3d7238` — the same green stepped down — for the two lines of type, which at 10
+and 11px owe a reader 4.5:1 and would sit at 2.7 on the variable.
+
+Lifting it also turned up a clip that had always been there: `#build-tools`
+scrolls sideways, so it is `overflow-y: hidden`, and it carried **no top
+padding** — the 2px `translateY` that `:hover`, `.on` and `.armed` all use had
+nowhere to go, and a lifted tile lost its top edge, its ring and its corners. It
+went unnoticed while the only things lifting were a hover you move through and an
+amber ring on cream. The row has 3px along the top now.
+
+And it **drains**: a rule along the bottom edge, emptying from the right over
+`--arm`, which is `ARM_MS` handed to the element by `bar.js` so the line and the
+`setTimeout` that ends it cannot be two different numbers. An arm that expires
+with nothing saying so is a second tap that does nothing on the tile you just
+pressed — the same picture as a button that does not work. It is the claim
+`.tool.holding` makes about a hold, said about ten times as long a window, which
+is why this one is an edge rather than a sweep across the art.
+
+It was a **hold** for one step, and the trade is written down rather than made
+twice. A hold is the same protection inside one press with no mode to clear
+afterwards, which is exactly what an arm costs. What it costs in return is the
+gesture: on the one bar where every other tile is a tap that opens something,
+the hire tile's tap had to be taught to do nothing — which reads as a dead tile
+— and the wait is spent on every hire whether or not you meant it. Two taps are
+two ordinary presses. The hold stays where it earns its keep: one more question
+about a tile whose tap already means something else, which is the palette's
+shape card.
 
 Two rules the entries follow, and both are about a strip you read at a glance:
 

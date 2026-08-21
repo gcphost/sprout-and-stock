@@ -43,11 +43,31 @@ function whoAmI() {
   }
 }
 
+/**
+ * How long to wait before each attempt at getting back in, in ms.
+ *
+ * Front-loaded, because the overwhelmingly common drop is a dev-server restart
+ * (`node --watch` on `server/` and `shared/`) and that is back inside a second
+ * — so the first retry should land while you are still looking at the shop
+ * rather than after a pause long enough to reach for the reload. The tail is
+ * for a laptop lid or a tunnel blipping, where nothing is going to help for a
+ * few seconds anyway. Roughly sixteen seconds all in.
+ */
+const REJOIN_WAITS = [300, 700, 1500, 3000, 5000, 5000];
+
+const sleep = (ms) => new Promise((done) => { setTimeout(done, ms); });
+
 export class Net {
   constructor() {
     this.room = null;
     this.myId = null;
     this.handlers = {};
+    // A page on its way out closes the socket like any other drop, and trying
+    // to rejoin from a document that is unloading either fails noisily or —
+    // worse, on a reload — races the fresh page for the same `who`, whose
+    // record `addPlayer` CONSUMES. Two claimants for one armful.
+    this.closing = false;
+    addEventListener('pagehide', () => { this.closing = true; });
   }
 
   on(event, fn) {
@@ -69,6 +89,10 @@ export class Net {
   async connect(name, worldId) {
     if (!worldId) throw new Error('no world chosen');
     this.worldId = worldId;
+    // Kept so a rejoin can be made without asking anybody. `who` is already
+    // stable across sockets (see `whoAmI`), so these two are the whole of what
+    // it takes to walk back in as the same person.
+    this.name = name;
 
     // Same host as the page, so this works unchanged behind a tunnel.
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -118,8 +142,48 @@ export class Net {
       }).catch((err) => console.error('[net] screenshot upload failed:', err));
     });
 
-    this.room.onLeave(() => this.emit('disconnected'));
+    this.room.onLeave(() => this.rejoin());
     return this.room;
+  }
+
+  /**
+   * The socket went away without being asked to. Walk back in.
+   *
+   * Every drop reaches here, because the client has no deliberate `leave` —
+   * going back to the front door is a page navigation, and `closing` covers
+   * that. So there is nothing to tell apart: a socket that closed while the
+   * page is still up is one nobody wanted closed.
+   *
+   * The reason this is worth having at all is the dev loop rather than the
+   * network. `dev:server` runs under `node --watch` over `server/` and
+   * `shared/`, so every edit to either restarts the process and drops everyone
+   * standing in the shop — and devMode restores the room, so the shop is
+   * genuinely still there half a second later. What you got was a toast telling
+   * you the game had gone, over a game that had not, and the only way back was
+   * a reload.
+   *
+   * `disconnected` is now the GIVING UP rather than the drop, which is why the
+   * toast that hangs off it did not have to move: it says the true thing in
+   * both worlds, and it says it a good deal less often.
+   */
+  async rejoin() {
+    if (this.closing || this.rejoining) return;
+    this.rejoining = true;
+    this.emit('dropped');
+    try {
+      for (const wait of REJOIN_WAITS) {
+        await sleep(wait);
+        if (this.closing) return;
+        try {
+          await this.connect(this.name, this.worldId);
+          this.emit('rejoined');
+          return;
+        } catch { /* the server is still coming up; try the next one */ }
+      }
+      this.emit('disconnected');
+    } finally {
+      this.rejoining = false;
+    }
   }
 
   /** Set by main.js — returns a PNG data URL of the current frame. */

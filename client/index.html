@@ -3658,9 +3658,21 @@
       position: relative; margin: 0 -6px -6px;
       border-radius: 0 0 16px 16px; overflow: hidden;
     }
+    /* THE 3px ALONG THE TOP IS WHERE A LIFTED TILE GOES. This row scrolls
+       sideways, so it is `overflow-y: hidden` — and it opened with no top
+       padding at all, which means the 2px `translateY` that `:hover`, `.on` and
+       `.armed` all use had nowhere to go: the tile rose two pixels into a
+       boundary and had its top edge, its ring and its rounded corners sliced
+       off. Invisible for as long as the only things lifting were a hover you are
+       moving through and an amber ring on cream; a green ring that stays up for
+       four seconds is the same clip with somebody looking at it.
+       Three rather than two, so the ring has a hair of ground under it instead
+       of sitting exactly on the line. The bar measures its own height
+       (`--build-h`) and the HUD is stacked off that, so growing it is a number
+       the layout re-reads rather than one anything has to be told. */
     #build-tools {
       display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
-      padding: 0 6px 6px; scroll-padding-inline: 22px;
+      padding: 3px 6px 6px; scroll-padding-inline: 22px;
       scrollbar-width: none;
       /* A drag scrolls it; a touch still flicks it natively, which is why the
          pointer handler ignores anything that isn't a mouse. */
@@ -3753,12 +3765,12 @@
     }
     html.can-hover .tool:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1px rgba(58,49,40,.14), 0 4px 10px rgba(58,49,40,.16); }
     .tool:active { transform: translateY(0); }
-    /* A HOLD, filling up. Two tiles ask for one (`bar.js`): a shape card, and
-       taking somebody on — and the second is why this is drawn rather than
-       merely allowed, since a hold with nothing happening is indistinguishable
-       from a press that missed right up until the moment it spends your money.
-       It is the same claim `setHoldProgress` makes about the world's own ring,
-       and it is the same 400ms: the animation is the timer, wearing a colour.
+    /* A HOLD, filling up. One tile asks for one (`bar.js`): the shape card on
+       anything that comes in several shapes. Drawn rather than merely allowed,
+       since a hold with nothing happening is indistinguishable from a press
+       that missed right up until the moment it fires — the same claim
+       `setHoldProgress` makes about the world's own ring, at the same 400ms:
+       the animation is the timer, wearing a colour.
 
        A sweep UNDER the art rather than a tint over it, for the reason `.tool.on`
        gives about the ring — a solid block behind a bot turns both to mud — and
@@ -3779,6 +3791,73 @@
       box-shadow: inset 0 0 0 1.5px #d99b1f, 0 4px 12px rgba(217,155,31,.34);
       transform: translateY(-2px);
     }
+    /* ASKING TWICE, AND THE ONLY STATE ON THIS STRIP THAT RUNS OUT.
+       The armed hire tile (`UI.armHire`): one press from a machine on lease, and
+       nothing hands the money back.
+
+       GREEN, AND IT IS THE THIRD COLOUR THIS STATE HAS BEEN ASKED TO WEAR, so
+       the argument is written down rather than had again. Amber is taken: `on`
+       is a tool in your hand, a state you leave when you are done with it, and
+       an armed hire is a question that runs out — two different things must not
+       share a colour on one strip. Red was the first answer and it was reasoned
+       from the worker menu, where Let go goes red because the next press ENDS
+       somebody. It is wrong here for a reason the two tiles do not share: this
+       press starts one. A whole tile washed in the colour the shop uses for a
+       refusal, a shortfall and a thing that has broken says "something is wrong
+       with this" about a robot you were about to hire. Green is the sentence the
+       state actually makes — the next press will land — which is the one the
+       build ghost has always made in the same colour.
+
+       A RING AND A TINT, not the solid fill Let go uses. That is a 15px glyph in
+       a square and this is a picture of the bot you are about to lease standing
+       in a lit well — the same call `.tool.on` makes about a wooden shelf, since
+       a block of colour behind either turns both to mud. The well is lit rather
+       than left alone so the colour reaches the middle of the tile instead of
+       only going round the outside of it.
+
+       TWO GREENS, and the split is the one CLAUDE.md's contrast note draws: a
+       ring and a 2px rule are MARKS, which `--good` clears against this ground
+       at 3.4:1, and the two lines of type are FIGURES at 10 and 11px, which it
+       does not — `--good` on the tint is 2.7:1. `#3d7238` is that same green
+       stepped down until it clears 4.5, and the trap is the later tidy-up that
+       "unifies" the two back onto the variable. */
+    .tool.armed {
+      background: linear-gradient(#f4faf1, #ddefd8);
+      box-shadow: inset 0 0 0 1.5px var(--good), 0 4px 12px rgba(90,163,86,.3);
+      transform: translateY(-2px);
+    }
+    /* Hover would otherwise take the ring off — `html.can-hover .tool:hover` is
+       the more specific selector, which is why `.tool.on.poor` has a twin of
+       this rule two blocks down and for exactly this reason. */
+    html.can-hover .tool.armed:hover {
+      box-shadow: inset 0 0 0 1.5px var(--good), 0 4px 12px rgba(90,163,86,.3);
+      transform: translateY(-2px);
+    }
+    .tool.armed .ico { background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.94), rgba(90,163,86,.16)); }
+    .tool.armed .nm { color: #3d7238; }
+    /* The question, where the price was. Loud on purpose: it is the one line on
+       the tile that says what the NEXT press does, and the price it replaced is
+       no longer the thing you are deciding. */
+    .tool.armed .cost { color: #3d7238; opacity: 1; font-weight: 800; }
+    /* FOUR SECONDS, DRAINING. An arm that expires with nothing saying so is a
+       second tap that does nothing on the tile you just pressed, which is the
+       same picture as a button that does not work — and it is worse than the
+       hold this replaced, because at least a hold that let go early left the
+       tile plainly untouched. The window comes off `--arm` (`bar.js`) so the
+       line and the `setTimeout` that ends it are one number.
+
+       A rule along the bottom edge rather than a sweep across the tile, unlike
+       `.tool.holding`: that one fills over 400ms and is gone, and this one is on
+       screen for ten times as long, over art you are meant to be reading. It
+       drains from the right, so what is left of it is what is left of your
+       window. */
+    .tool.armed::after {
+      content: ''; position: absolute; left: 5px; right: 5px; bottom: 3px; height: 2px;
+      border-radius: 99px; background: #4a8c45;
+      transform-origin: right center; animation: toolarm var(--arm, 4000ms) linear forwards;
+      pointer-events: none;
+    }
+    @keyframes toolarm { from { transform: scaleX(1); } to { transform: scaleX(0); } }
     /* The key it answers to, as a key. */
     .tool .key {
       position: absolute; top: 3px; left: 4px; z-index: 1;
@@ -3836,6 +3915,14 @@
        art must not be greyed back to nothing against it. */
     html.can-hover .tool.on.poor:hover, html.can-hover .tool.on.poor {
       box-shadow: inset 0 0 0 1.5px #d99b1f, 0 4px 12px rgba(217,155,31,.34);
+      transform: translateY(-2px);
+    }
+    /* ...and the same for a hire you armed and then could not afford, which is a
+       state you reach by standing still: a van is paid for while the tile waits.
+       The ring stays for the four seconds it has left — the question is still
+       open, and the answer to it is now no. */
+    html.can-hover .tool.armed.poor:hover, html.can-hover .tool.armed.poor {
+      box-shadow: inset 0 0 0 1.5px var(--good), 0 4px 12px rgba(90,163,86,.3);
       transform: translateY(-2px);
     }
 
@@ -3986,6 +4073,14 @@
       display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
     }
+    /* ...and the armed hire's one line sits in the MIDDLE of those two, rather
+       than in the top half with a gap under it. The height above is a floor for
+       the strip and not a shape for this sentence — a two-line box holding one
+       loud line reads as a line that has lost the one under it, which on the one
+       tile you are being asked to look at is the wrong thing to draw the eye.
+       Spelled with the `#build` on the front because that is what it takes to
+       out-rank the rule above; without it this loses and does nothing. */
+    #build.browse .tool.armed .cost { display: grid; place-items: center; }
 
     /* The last tier, and the only one that is not part of the bar.
 

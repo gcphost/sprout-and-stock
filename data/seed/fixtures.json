@@ -29297,6 +29297,226 @@
     "signal": null
   },
   {
+    "id": "under",
+    "name": "Underground",
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#2f333a",
+          "pos": [
+            0,
+            0.055,
+            0
+          ],
+          "scale": [
+            1,
+            0.09,
+            0.66
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#1b1e23",
+          "pos": [
+            0.22,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.02,
+            0.56
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#4b5563",
+          "pos": [
+            -0.34,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.26,
+            0.66
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#6b7280",
+          "pos": [
+            -0.34,
+            0.31,
+            0
+          ],
+          "scale": [
+            0.26,
+            0.04,
+            0.72
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#4b5563",
+          "pos": [
+            0.05,
+            0.15,
+            0.31
+          ],
+          "scale": [
+            0.86,
+            0.14,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#4b5563",
+          "pos": [
+            0.05,
+            0.15,
+            -0.31
+          ],
+          "scale": [
+            0.86,
+            0.14,
+            0.06
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f2b23a",
+          "pos": [
+            -0.2,
+            0.31,
+            0.28
+          ],
+          "scale": [
+            0.1,
+            0.02,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
+        },
+        {
+          "shape": "box",
+          "color": "#f2b23a",
+          "pos": [
+            -0.2,
+            0.31,
+            -0.28
+          ],
+          "scale": [
+            0.1,
+            0.02,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Underground",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      }
+    ],
+    "variants": [],
+    "kind": "under",
+    "cost": 60,
+    "emits": null,
+    "tags": [
+      "logistics"
+    ],
+    "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false,
+    "sfx": null,
+    "signal": null
+  },
+  {
     "id": "window-box",
     "name": "Window Box",
     "model": {

@@ -748,6 +748,70 @@ this ships **with** the feature, the way `verify:doors`, `verify:park`,
 
 ---
 
+## Step 7 — the underground, and the tile it does NOT own
+
+Proposed. It came out of play rather than out of this document: a return leg
+costs as much floor as the leg it returns from, a run cannot cross its own
+outbound line at all, and a conveyor laid through the shop reads as back-of-
+house in a room full of customers.
+
+**The bridge is the wrong answer and is worth saying once.** A belt is
+`blocks: false` — that is step 1's rule and the reason a run is not a wall
+through your own shop — so shoppers already walk over one. A walkway would buy
+permission that has never been withheld. What is actually scarce is the SQUARE:
+two runs cannot share it, and the one they are fighting over is the one the
+shop floor wants back.
+
+### The shape
+
+One kind, `belt-under`, laid twice: the first press is the mouth going down,
+the second within range is the mouth coming up, and the pair is matched the way
+a run is — by facing and distance, not by a stored id. Each end is an ordinary
+conveyor cell: it stamps `T.BELT`, blocks nobody, turns with **R**, and costs
+what its catalog row says. Nothing new about either of them.
+
+**The cells between belong to nobody, and that is the whole feature.** They
+stamp no tile, take no walk grid, reserve no working spot — so you floor them,
+walk them, stand a shelf on them, and run a second tunnel across them. A
+crossing is then two pairs whose spans overlap and whose ends do not, which
+needs no code that knows what a crossing is: the span is not a place.
+
+### The four traps, none of which are visible
+
+**`conveyorNext` has to answer across it.** Flow is derived — `conveyorFlow`
+([shared/build.js:1812](shared/build.js#L1812)) walks FORWARD from the plain
+belts — so an entry whose `next` is null is the end of a run as far as every
+loader downstream is concerned. They would keep their feeders and lose their
+flow, which draws as a working belt that never delivers.
+
+**One crate in flight, and no more.** A tunnel that queues is a buffer with a
+capacity nobody chose, and backpressure is the entire texture of step 1: the
+run above ground stops, the tunnel quietly swallows four boxes, and the jam
+appears somewhere else a few seconds later. One box makes it a cell with a long
+travel, which is a thing the sim already has.
+
+**The pair is DERIVED, never stored.** `repositionFixture` names every field it
+keeps, so a stored partner id is a field that resets when you turn one end —
+and the press is **R**. What you would watch is a tunnel that works until you
+straighten it.
+
+**The crate must not be drawn at the mouth.** `d.belt` names the entry for the
+whole trip, so `syncPallet` would park the box on the ramp for the length of
+the span and then teleport it. The drawn position has to travel the span with
+the crate hidden, which is `stepBelts`' tween over a longer gap.
+
+### What `verify:belts` would have to claim
+
+That a shop with no tunnel in it is the old game **to the cent** — the control
+that decides whether this is opt-in. That a span cell stays walkable, buildable
+and floorable, asserted as values rather than by eye. That two spans may cross
+and two ends may not. That the exit backing up stops the entry, and that a
+tunnel holds exactly one box while it does. And conservation, because a tunnel
+is a new place goods move between, and every one of those in this game has been
+a hole.
+
+---
+
 ## Steps 4–6 — written down, not built
 
 **Step 4 — machine feeds machine.** Recipes already exist; an arm on each end of

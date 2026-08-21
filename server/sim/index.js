@@ -42,7 +42,7 @@ import { stepStaff, syncStaff, breakProgress, carryOf, givenUp } from './staff.j
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
-  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, beltRunCells, BELT_RUN_MAX, CONVEYOR_KINDS,
+  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, tunnelExit, beltRunCells, BELT_RUN_MAX, RUN_KINDS,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
@@ -1729,6 +1729,7 @@ export class Game {
       belts: want.belt ?? 0,
       arms: want.arm ?? 0,
       sorters: want.sorter ?? 0,
+      unders: want.under ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       stations: want.stations,
@@ -2883,6 +2884,11 @@ export class Game {
         // when a box is drawn between two of them and neither rounding is a lie
         // you would want a light blinking on.
         ...(d.belt ? { belt: d.belt } : {}),
+        // ...and whether it is between the two mouths of a tunnel right now, in
+        // which case there is nothing to draw. Derived here rather than stored
+        // on the crate: `deliveries` is saved raw, and a transient flag in the
+        // save is a box that comes back from a reload invisible for ever.
+        ...(this.beltHidden(d) ? { hidden: true } : {}),
       })),
       /**
        * How many a crate holds, so the renderer can draw one as full when it
@@ -10305,6 +10311,20 @@ export class Game {
   }
 
   /** How long one cell takes this belt, at its tier. */
+  /**
+   * Is this crate underground — inside a span, with nothing to draw?
+   *
+   * True only while the hand-off is actually running: a box sitting ON a mouth
+   * waiting for the far end to clear is above ground and must stay visible, or
+   * a jammed tunnel is a crate that has vanished.
+   */
+  beltHidden(d) {
+    if (!d?.belt) return false;
+    const cell = conveyorsOf(this.layout).find((c) => c.id === d.belt);
+    if (cell?.kind !== 'under' || !tunnelExit(this.layout, cell)) return false;
+    return (this.beltClock?.get(cell.id) ?? 0) > 0;
+  }
+
   beltSeconds(belt) {
     const mult = this.fixtureStats(belt).speed_mult || 1;
     return Game.BELT_SECONDS / mult;
@@ -10405,6 +10425,11 @@ export class Game {
         return !!a && !taken(a.id, belt.id);
       });
       const ahead = to ? this.beltAt(to.x, to.z) : null;
+      // How many cells this hand-off crosses. One everywhere except a tunnel,
+      // and the time is charged per cell — a four-cell span covered in one
+      // cell-time is a teleport with a ramp on each end, which is the thing an
+      // underground must not be.
+      const span = ahead ? Math.abs(ahead.x - belt.x) + Math.abs(ahead.z - belt.z) : 1;
       // A terminus, or a full cell. Sit the box squarely on its own cell — a
       // jammed crate frozen four fifths of the way onto the next one reads as
       // the belt having broken mid-step — and DROP the charge rather than
@@ -10435,10 +10460,15 @@ export class Game {
       // and everything that asks a question about where a box is rounds — but
       // its drawn position travels, or a conveyor is a thing that teleports a
       // tile at a time.
-      if (clock < per) {
+      if (clock < span * per) {
         this.beltClock.set(belt.id, clock);
         this.beltAim.set(belt.id, ahead.id);
         aimed.set(ahead.id, belt.id);
+        // Underground, the box is not anywhere you can see, so it does not
+        // travel a drawn line between the two mouths — it would slide across
+        // the floor, the shelves and the aisle the tunnel exists to duck under.
+        // It sits on the entry and `snapshot` leaves it out; see `beltHidden`.
+        if (span > 1) continue;
         const k = clock / per;
         crate.x = r2(belt.x + (ahead.x - belt.x) * k);
         crate.z = r2(belt.z + (ahead.z - belt.z) * k);
@@ -10507,7 +10537,7 @@ export class Game {
   buildRun(playerId, { kind, piece = null, variant = '', x, z, to = null, rot = 0 } = {}) {
     const p = this.players[playerId];
     if (!p?.build?.on) return err('not in build mode');
-    if (!CONVEYOR_KINDS.includes(kind)) return err('that is not a conveyor');
+    if (!RUN_KINDS.includes(kind)) return err('that is not laid as a run');
 
     // `rot` is an input to the generator, not a decoration on the message: it is
     // what a cell faces when the drag did not say, which is every cell of a
@@ -12040,6 +12070,7 @@ export class Game {
       ...(this.layout.belts ?? []).map((b) => ({ ...b, kind: 'belt', ref: b })),
       ...(this.layout.arms ?? []).map((a) => ({ ...a, kind: 'arm', ref: a })),
       ...(this.layout.sorters ?? []).map((s) => ({ ...s, kind: 'sorter', ref: s })),
+      ...(this.layout.unders ?? []).map((u) => ({ ...u, kind: 'under', ref: u })),
     ];
   }
 
@@ -14193,6 +14224,7 @@ export class Game {
       belts: want.belt ?? 0,
       arms: want.arm ?? 0,
       sorters: want.sorter ?? 0,
+      unders: want.under ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       stations: want.stations,

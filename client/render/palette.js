@@ -175,6 +175,13 @@ export const FIXTURE_LOOK = {
   arm: { color: PALETTE.station, h: 0.18 },
   // ...and the same again for a junction, for the same reason.
   sorter: { color: PALETTE.station, h: 0.18 },
+  // ...and for a tunnel mouth. Missing, this is `undefined`, `plainBlock`
+  // answers null and the fixture is never added to the scene AT ALL — no mesh
+  // to raycast, so it cannot be pointed at, turned, bulldozed or shift-deleted,
+  // and what stands in the shop is the rail loop with bare ground inside it.
+  // `fixtureHeight` reads this to aim, which is what makes it the difference
+  // between a piece you can get rid of and one you cannot.
+  under: { color: PALETTE.station, h: 0.3 },
   'prop-floor': { color: PALETTE.floor, h: 0.3 },
   'prop-ceiling': { color: PALETTE.floor, h: 0.3 },
 };

@@ -12,7 +12,7 @@ import { wayDefault } from '../shared/edges.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { variantsOf } from '../shared/model.js';
 import { artForModel, artForTool, artForWorker } from './thumb.js';
-import { doingNow, bodyOf, kindSummary } from './worker-menu.js';
+import { doingNow, bodyOf, kindSummary, ARM_MS } from './worker-menu.js';
 // What is on a van. Shared with the shelf menu, which asks the same two
 // questions of it — see client/orders.js.
 import { comingByItem, comingWhy, nextVan } from './orders.js';
@@ -364,6 +364,11 @@ export const KIND_TOOLS = {
     icon: ICONS.supplier,
     group: 'logistics',
     blurb: 'A junction. R sets the branch; the crew pick which box goes down it.',
+  },
+  under: {
+    icon: ICONS.move,
+    group: 'logistics',
+    blurb: 'Two mouths, up to four cells apart, both facing the way goods go. The squares between stay yours.',
   },
   plot: {
     icon: ICONS.plot,
@@ -964,13 +969,33 @@ export function staffGroups(ui) {
     name: w.name,
     note: money(w.cost),
     badge: roster.filter((e) => e.kind === w.id).length || null,
-    // The gesture is in the tip, because it is the one tile on any bar where a
-    // tap does not do the thing — see `UI.holdBarEntry`. A tap says it too, but
-    // a line you only meet by getting it wrong is not where a control should be
-    // explained.
-    title: `${w.name} — ${kindSummary(w)} · hold to hire${
+    title: `${w.name} — ${kindSummary(w)}${
       w.cost > cash ? ` · ${money(w.cost)} and you have ${money(cash)}` : ''}`,
-  }));
+  })).map((t) => (ui.hireArm === t.kind ? {
+    // Armed: the tile says what the next press does, and says it where the
+    // price was. Same shape the worker menu's Let go uses (`ARM_MS`) and for the
+    // same reason said the other way round — a hire refunds nothing, so the
+    // mis-tap that TAKES somebody on costs a day's wage every day until you
+    // notice, and this is the one bar where a press acts with no menu in
+    // between. It has to be the note rather than a chip beside it: the tile is
+    // 76px and the press lands on all of it, so anything that is not the tile
+    // is a target you can miss on the way to confirming.
+    //
+    // `armed` carries the WINDOW rather than a boolean, and that is the whole of
+    // what the state was missing. Every other state on this strip is permanent
+    // until you change it — armed, unaffordable, already yours — and this one
+    // expires four seconds after you made it, with nothing on screen saying so:
+    // what a lapsed arm reads as is a second tap that did nothing, on the tile
+    // you just pressed, which is the same picture as a broken button. The number
+    // goes to the tile so the line drawn from it cannot disagree with the
+    // `setTimeout` that ends it (`--arm`, `bar.js`).
+    //
+    // It is NOT `warn`. That was borrowed for the colour and says something
+    // else entirely on this bar — a hire the sim cannot place, whose kind was
+    // deleted out from under them — so the two would have shared a look while
+    // meaning "one press from spending money" and "this one is broken".
+    ...t, note: 'Tap to hire', armed: ARM_MS,
+  } : t));
 
   const seen = [...new Set(roster.map((e) => e.kind))];
 

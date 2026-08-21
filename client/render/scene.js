@@ -25,7 +25,7 @@ import {
 import { Heat } from './heat.js';
 import { T } from '../../shared/tiles.js';
 import {
-  FIXTURES, workSpots, flowSpots, conveyorNext, conveyorAt, conveyorsOf, conveyorBranches, CONVEYOR_KINDS, derivedFlow, anchorTile, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind, GOODS_PADS, isPadAt, isWalkableTile,
+  FIXTURES, workSpots, flowSpots, conveyorNext, conveyorAt, conveyorsOf, conveyorBranches, tunnelExit, CONVEYOR_KINDS, derivedFlow, anchorTile, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind, GOODS_PADS, isPadAt, isWalkableTile,
   faceKey,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
@@ -2684,7 +2684,16 @@ export class Scene {
       // grass showing between them, which is the opposite of the one thing a
       // conveyor has to look like. The sideways half is the shaft's job, and the
       // shaft is drawn separately.
-      const flowRot = derivedFlow(f.kind) ? this.conveyorFacing(L, f) : (f.rot ?? 0);
+      // ...and an EXIT is the entry's art turned round.
+      //
+      // Both mouths are laid facing the way the goods go, which is what makes
+      // the pair derivable at all — but the art is not symmetrical: the hood is
+      // the end goods dive INTO, so drawn at the same angle the far mouth is a
+      // second entry, with its hood facing downstream and its open end at the
+      // tunnel. Which looks exactly like one of the two was placed backwards.
+      const flowRot = derivedFlow(f.kind) ? this.conveyorFacing(L, f)
+        : (f.kind === 'under' && !tunnelExit(L, f)
+          ? rot4((f.rot ?? 0) + 2) : (f.rot ?? 0));
       prop.rotation.y = -flowRot * (Math.PI / 2);
       // ...and the housing goes on a side nothing is attached to, which is a
       // question about the shop rather than about the model. See
@@ -3596,6 +3605,31 @@ export class Scene {
     // blinking over an empty machine all night is the "photograph of a clock"
     // trap said about a light.
     this.beltBusy = new Set(deliveries.filter((d) => d.belt).map((d) => d.belt));
+    // ...and which of those cannot hand on, which is a different question and
+    // the one the ANIMATION should be asking. A belt runs while it has a box on
+    // it, so a jammed run went on scrolling under a crate that was not going
+    // anywhere — the shop knew, the picture did not, and a stopped line is the
+    // only signal a jam has ever had.
+    //
+    // Derived here rather than sent: the client has the run and the boxes, and
+    // "is the cell ahead taken" is the same test `stepBelts` makes. A junction
+    // is stuck only when EVERY way out is, which is the whole reason a sorter
+    // is worth building.
+    const L = this.storeLayout;
+    const onCell = new Map();
+    for (const d of deliveries) if (d.belt) onCell.set(d.belt, d);
+    this.beltStuck = new Set();
+    if (L) {
+      for (const c of conveyorsOf(L)) {
+        if (!onCell.has(c.id)) continue;
+        const ways = [conveyorNext(L, c), ...conveyorBranches(L, c)].filter(Boolean);
+        const open = ways.some((w) => {
+          const n = conveyorAt(L, w.x, w.z);
+          return !!n && !onCell.has(n.id);
+        });
+        if (!open) this.beltStuck.add(c.id);
+      }
+    }
     for (const d of deliveries) {
       // A crate riding a conveyor is not part of whatever pile happens to share
       // its square. It is never stacked on and never stacked under — one cell of
@@ -3616,6 +3650,11 @@ export class Scene {
     }
 
     for (const d of deliveries) {
+      // Underground. Not `seen`, so whatever mesh it had is disposed on the way
+      // out and rebuilt at the far mouth — a box between two ends is nowhere at
+      // all, and leaving it drawn parks it on the entry ramp for the length of
+      // the span and then teleports it.
+      if (d.hidden) continue;
       seen.add(d.id);
       const at = level.get(d.id) ?? 0;
       const covered = at < (height.get(d.id) ?? 1) - 1;
@@ -5302,6 +5341,36 @@ export class Scene {
    * and the two must agree about radius and about which way round they go, or a
    * spur meets the run it is joining at a visible kink.
    */
+  /**
+   * Do goods actually cross the line between these two cells?
+   *
+   * The rail rule was "is there a conveyor across this edge", which is a PROXY
+   * for this and an exact one for as long as every neighbour was a neighbour in
+   * the run. A tunnel breaks it in both directions at once: the main line it
+   * ducks under is adjacent to both mouths and connected to neither, so the
+   * mouth opened onto a belt it has nothing to do with and the main line lost
+   * its own kerb where the tunnel passed. Which reads as the rails having been
+   * put on the wrong sides — and they had, because nobody was asking the right
+   * question.
+   *
+   * Either direction counts: a rail is about the edge, and goods crossing it
+   * one way is enough to make it the middle of a belt rather than the outside.
+   */
+  static conveyorJoined(L, c, other) {
+    if (!other) return false;
+    // Adjacency is still the answer for everything that has no tunnel in it —
+    // two ordinary cells side by side read as one belt, and asking flow here
+    // would put a kerb between two parallel runs that have always been drawn
+    // as one wide deck.
+    if (c.kind !== 'under' && other.kind !== 'under') return true;
+    const hands = (from, to) => {
+      const n = conveyorNext(L, from);
+      if (n && n.x === to.x && n.z === to.z) return true;
+      return conveyorBranches(L, from).some((b) => b.x === to.x && b.z === to.z);
+    };
+    return hands(c, other) || hands(other, c);
+  }
+
   static conveyorArc(c, from, to) {
     const cx = c.x + (-from.x + to.x) * 0.5;
     const cz = c.z + (-from.z + to.z) * 0.5;
@@ -5477,7 +5546,7 @@ export class Scene {
         const pours = this.conveyorPours(L, c);
         const outer = [path.in, { x: -path.out.x, z: -path.out.z }]
           .filter(({ x: ex, z: ez }) => !pours.some((p) => p.x === c.x + ex && p.z === c.z + ez))
-          .filter(({ x: ex, z: ez }) => !conveyorAt(L, c.x + ex, c.z + ez));
+          .filter(({ x: ex, z: ez }) => !Scene.conveyorJoined(L, c, conveyorAt(L, c.x + ex, c.z + ez)));
         for (const { x: ex, z: ez } of outer) {
           const rail = new THREE.Mesh(geo, material('#4b5563', 1));
           rail.scale.set(ex ? 0.07 : 0.62, 0.1, ez ? 0.07 : 0.62);
@@ -6132,7 +6201,7 @@ export class Scene {
       if (this.conveyorPath(L, c)?.corner) continue;
       for (const r of [0, 1, 2, 3]) {
         const n = anchorTile(c.x, c.z, r);
-        if (conveyorAt(L, n.x, n.z)) continue;
+        if (Scene.conveyorJoined(L, c, conveyorAt(L, n.x, n.z))) continue;
         // ...and neither does an edge the loader POURS across. A rail is the
         // outside of a run, and goods physically leave here, so a wall is wrong
         // on the art alone. It was also swallowing the mark whole: the rail
@@ -7618,7 +7687,7 @@ export class Scene {
       // A loader is the second kind of fixture that knows what busy means: it is
       // busy while there is a box on it. Without this its lamp pulses all night
       // over an empty machine, which is a light that tells you nothing.
-      const busy = this.beltBusy?.has(id);
+      const busy = this.beltBusy?.has(id) && !this.beltStuck?.has(id);
       // What it last DID, which is a different question from whether it is
       // holding something and is the one the colour answers. The shop says it —
       // `armSaid`, server side — because the client can see a crate on a cell
@@ -8157,5 +8226,6 @@ function fixturesIn(L) {
     ...(L.belts ?? []).map((b) => ({ ...b, kind: 'belt' })),
     ...(L.arms ?? []).map((a) => ({ ...a, kind: 'arm' })),
     ...(L.sorters ?? []).map((s) => ({ ...s, kind: 'sorter' })),
+    ...(L.unders ?? []).map((u) => ({ ...u, kind: 'under' })),
   ];
 }

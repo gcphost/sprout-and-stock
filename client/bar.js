@@ -105,7 +105,7 @@ export const groupAt = (groups, id) => groups.find((g) => g.id === id) ?? groups
  * choice that resolved to something other than what it asked for.
  */
 export function renderBar(el, {
-  groups, at, atSub, picked, choice, onTab, onSubTab, onPick, onShapes, onHold,
+  groups, at, atSub, picked, choice, onTab, onSubTab, onPick, onShapes,
 }) {
   const open = groupAt(groups, at);
   const subs = open?.subs ?? null;
@@ -153,11 +153,18 @@ export function renderBar(el, {
   // events in some browsers, and the tip explaining WHY it cannot be pressed is
   // a hover away — so the one state that most needs its explanation would be the
   // one state with no way to ask for it. The press is refused below instead.
+  // `armed` is a state of its own rather than a flavour of `on`, and the reason
+  // is what the two mean: `on` is a tool in your hand, which stays there until
+  // you put it down, and `armed` is a question that expires. So it carries the
+  // window it expires after — `--arm`, straight onto the element, because the
+  // line that drains over it is drawn from that number and a duration typed into
+  // the stylesheet is a second copy of a timer nothing would ever check.
   setHtml(el.items, items.map((it, i) => `
     ${it.head ? `<span class="run" aria-hidden="true"><i>${esc(it.head)}</i></span>` : ''}
     <button class="tool${it.id === picked ? ' on' : ''}${it.warn ? ' warn' : ''}${
-  it.poor ? ' poor' : ''}"
+  it.armed ? ' armed' : ''}${it.poor ? ' poor' : ''}"
       data-slot="${i}" data-entry="${esc(it.id)}" title="${esc(it.title ?? it.name)}"
+      ${it.armed ? `style="--arm:${Number(it.armed)}ms"` : ''}
       ${it.poor ? 'aria-disabled="true"' : ''}>
       ${i < KEYED ? `<span class="key">${i + 1}</span>` : ''}
       ${it.badge ? `<span class="have">${esc(it.badge)}</span>` : ''}
@@ -209,12 +216,14 @@ export function renderBar(el, {
     let from = null;
     const stop = () => { clearTimeout(timer); timer = null; b.classList.remove('holding'); };
     // What a HOLD on this tile means, or null for a tile where it means nothing.
-    // Two answers now: the shape card on anything that comes in several shapes,
-    // and — on the roster's Hire tiles — taking somebody on. They are the same
-    // gesture pointed at the two different things a tile can be hiding: one more
-    // question, or one press you should not be able to make by accident.
-    const onLong = (it.shapes && onShapes) ? () => onShapes(it)
-      : (onHold ? () => onHold(it) : null);
+    // One answer: the shape card, on anything that comes in several shapes.
+    //
+    // Hiring was briefly the second, and is a double tap again (`UI.armHire`) —
+    // worth knowing before the next irreversible press reaches for this. A hold
+    // is the right gesture for one MORE question about a tile; it is the wrong
+    // one for a tile whose tap already means something, because the tap then has
+    // to be taught to do nothing.
+    const onLong = (it.shapes && onShapes) ? () => onShapes(it) : null;
     b.onpointerdown = (e) => {
       // A hold ARMS the tile on its way to the shape card (`onShapes`), so it is
       // the same press as a tap as far as affording it goes.
@@ -222,9 +231,8 @@ export function renderBar(el, {
       held = false;
       from = { x: e.clientX, y: e.clientY };
       // The tile fills while you hold it. A hold with no progress on it is
-      // indistinguishable from a press that missed until the moment it fires —
-      // which is what `setHoldProgress` says about the world's own ring, and it
-      // matters more here because this one spends money at the end.
+      // indistinguishable from a press that missed until the moment it fires,
+      // which is what `setHoldProgress` says about the world's own ring.
       b.classList.add('holding');
       timer = setTimeout(() => { held = true; b.classList.remove('holding'); onLong(); }, HOLD_MS);
     };

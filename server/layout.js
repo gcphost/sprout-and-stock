@@ -212,6 +212,7 @@ export function generateLayout({
   belts = 0,
   arms = 0,
   sorters = 0,
+  unders = 0,
   checkouts = 1,
   plots = 4,
   stations = [],
@@ -223,7 +224,7 @@ export function generateLayout({
   shell = null,
 } = {}) {
   const req = {
-    seed, shelves, freezers, warmers, bins, belts, arms, sorters, checkouts, plots, stations,
+    seed, shelves, freezers, warmers, bins, belts, arms, sorters, unders, checkouts, plots, stations,
     placements: placements ?? [],
     // Walls, windows and doorways the player drew. An overlay for the same
     // reason `placements` is one: the generator rebuilds the shell from scratch
@@ -651,12 +652,14 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const beltsOut = [];
   const armsOut = [];
   const sortersOut = [];
+  const undersOut = [];
   const layoutSoFar = () => ({
     w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ },
     bay, drop, break: breakRoom,
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
     props: propsOut, bins: binsOut, belts: beltsOut, arms: armsOut, sorters: sortersOut,
+    unders: undersOut,
     ground: groundOut,
     blocked,
   });
@@ -687,6 +690,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     belt: req.belts,
     arm: req.arms,
     sorter: req.sorters,
+    under: req.unders,
     checkout: req.checkouts,
     plot: req.plots,
   });
@@ -850,6 +854,17 @@ function compose(req, storeW, storeH, allowDrops = true) {
       beltsOut.push(belt);
       // Nothing reserved. A belt has no working spot, so there is no tile the
       // generator has to keep clear for it.
+    } else if (p.kind === 'under') {
+      // A mouth IS a belt cell — same stamp, same non-blocking, same reason.
+      // What it does NOT do is stamp anything on the cells it reaches over:
+      // those belong to nobody, which is the entire feature. See
+      // `FIXTURES.under`.
+      set(p.x, p.z, T.BELT);
+      const under = makeUnder(p.id, p.x, p.z, p.rot ?? 0);
+      under.tier = p.tier ?? 1;
+      under.variant = p.variant ?? '';
+      under.piece = p.piece ?? null;
+      undersOut.push(under);
     } else if (p.kind === 'arm') {
       // A loader IS a belt cell — same stamp, same non-blocking, same reason.
       // See `FIXTURES.arm`.
@@ -1154,6 +1169,13 @@ function compose(req, storeW, storeH, allowDrops = true) {
        */
       sorters: sortersOut,
       /**
+       * ...and the tunnel mouths. A fourth list for the third time and the same
+       * reason: `conveyorsOf` is the one place that knows a run is made of more
+       * than one kind, and everything downstream asks that rather than each list
+       * by name.
+       */
+      unders: undersOut,
+      /**
        * Which design of floor is painted on each cell that has one.
        *
        * Sparse, and separate from `tiles` on purpose: `tiles` says what may
@@ -1357,6 +1379,25 @@ function makeBin(id, x, z, rot) {
  * on `piece` AND `kind`, so forgetting it resolves to no catalog row and every
  * speed tier you sold silently does nothing.
  */
+/**
+ * One mouth of an underground run.
+ *
+ * Exactly a belt with a different kind on it: the span it reaches is derived
+ * from where the other mouth is standing (`tunnelExit`), so there is no partner,
+ * no length and no direction to keep here. See `FIXTURES.under`.
+ */
+function makeUnder(id, x, z, rot) {
+  return {
+    tier: 1,
+    variant: '',
+    id,
+    kind: 'under',
+    x,
+    z,
+    rot,
+  };
+}
+
 function makeBelt(id, x, z, rot) {
   return {
     tier: 1,
