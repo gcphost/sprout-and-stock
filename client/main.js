@@ -1043,7 +1043,8 @@ function refreshGhost(force = false) {
     // thing until you tap another one. No clocks, no dwell, no second opinion.
     const aim = pillDrives()
       ? tappedAim()
-      : (pointer.onCanvas && !ui.holding ? scene.pickAim(pointer.x, pointer.y, aimable) : null);
+      : (pointer.onCanvas && !ui.holding
+        ? scene.pickAim(pointer.x, pointer.y, aimable, crateTakes()) : null);
     // One pile of goods, when that is what is under the pointer — a cage round
     // the bread rather than a frame under the shelf. It is the promise half of
     // board aiming: the tap on it takes THAT board, so it has to be visible
@@ -1831,8 +1832,20 @@ function armPut(cx, cy) {
  * a stack of boxes is not a wall you were aiming at, whether or not those boxes
  * are something you could pick up right now.
  */
+/**
+ * Is a box on the floor something the pointer may name at all right now?
+ *
+ * `boardTakes`' three exclusions, and the one spelling of them: the hover has
+ * to ask exactly what the press asks, or a ring lights on a crate that no
+ * gesture can act on — which is the green-ghost bug wearing a box. It is its
+ * own function because there are two readers in two files' worth of call path:
+ * `aimCrate` here, and `Scene.pickAim`, which reaches `pickPallet` directly and
+ * cannot see `ui` to ask for itself.
+ */
+const crateTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed();
+
 function aimCrate(cx, cy) {
-  if (ui.paletteArmed || ui.holding || ui.demolishArmed()) return null;
+  if (!crateTakes()) return null;
   const hit = scene.pickPallet(cx, cy);
   if (!hit) return null;
   const x = Math.round(hit.x);
@@ -2400,7 +2413,24 @@ let beltDrag = null;
  */
 function showBeltDrag(cx, cy) {
   if (!beltDrag) return null;
-  const to = scene.pickTile(cx, cy);
+  // The last tile this drag actually REACHED, not wherever the event that ended
+  // it happened to land.
+  //
+  // `pickTile` answers null off the end of the map, and a run committed with a
+  // null far end is `beltRunCells(start, start)` — one cell. So a drag that
+  // previewed twelve cells the whole way lays exactly one, on release, with no
+  // refusal and nothing in the log. It reads as the drag not being implemented.
+  //
+  // It is a phone bug in practice and not by nature: the viewport is small, the
+  // shop fills it, and the natural end of a swipe is at the edge of the glass —
+  // which is off the map more often than not. On a desktop the same gesture has
+  // a few hundred pixels of grass to stop on, so it essentially never happens.
+  //
+  // Keeping the last good answer is also what `beltRunCells`' own header asks
+  // for: the far end is the POINTER's, and the pointer's far end is the last
+  // place it was, not a coordinate read out of a `pointerup`.
+  const to = scene.pickTile(cx, cy) ?? beltDrag.to ?? null;
+  if (to) beltDrag.to = to;
   // Same four arguments the server re-runs this with, `rot` included, or the
   // ghost is a preview of a different run from the one the release lays.
   const cells = beltRunCells(beltDrag.start, to, BELT_RUN_MAX, ui.buildRot);
@@ -4998,7 +5028,31 @@ function tapAtPointer(cx, cy) {
     if (ui.fixtureRef) ui.setFixtureRef(null);
 
     const tile = scene.pickTile(cx, cy);
-    if (tile) { scene.ripple(tile.x, tile.z); walkTo({ x: tile.x, z: tile.z }); }
+    if (!tile) return;
+    // Building does no player stuff. A tap on the floor with nothing armed is
+    // "go there" while you are shopkeeping and nothing at all in the mode — the
+    // whole reason the view came off its leash is that you are working on parts
+    // of the shop nobody can stand in, so a press that walks your body there is
+    // answering a question you stopped asking when you opened the mode. It also
+    // fights the camera it shares a button with: the drag flies the view, and
+    // the tap at the end of a drag that fell short of the slop line would send
+    // you across the shop, which reads as the view snapping back.
+    //
+    // What it does instead is take the VIEW there, which is the same sentence
+    // the tap has always made — "that place, please" — pointed at the thing the
+    // mode actually steers. So the drag is not the only way to cross a shop you
+    // are building in: point at the far corner and go, exactly as you would
+    // walk there when you are not.
+    //
+    // Amber and not pale, because it is a positive act rather than a swallowed
+    // press.
+    if (building()) {
+      scene.focusOn(tile.x, tile.z);
+      scene.ripple(tile.x, tile.z);
+      return;
+    }
+    scene.ripple(tile.x, tile.z);
+    walkTo({ x: tile.x, z: tile.z });
     return;
   }
 

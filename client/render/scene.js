@@ -1367,6 +1367,27 @@ export class Scene {
     this.aimCamera();
   }
 
+  /**
+   * Put the view on a tile, because somebody pointed at it.
+   *
+   * Build mode's answer to a tap on bare floor. There is no easing here and it
+   * is not missing: `render` lerps `camLook` toward `camTarget + camPan`, so
+   * moving the pan in one step IS the glide — and doing it as a step rather
+   * than as an animation means nothing has to be ticked, cancelled when you
+   * drag, or reconciled with the drag that is moving the same field.
+   *
+   * A pending restore is dropped on the way through. Somebody aiming the camera
+   * by hand has said where they want to be looking more recently than a record
+   * written last session, and letting the restore land afterwards would slide
+   * the view off the thing they just pointed at.
+   */
+  focusOn(x, z) {
+    this._wantCentre = null;
+    this.camPan.x = x - this.camTarget.x;
+    this.camPan.z = z - this.camTarget.z;
+    return this.clampPan();
+  }
+
   /** Re-seat the pan so the view sits on `_wantCentre`, against the target as it is NOW. */
   takeCentre() {
     const c = this._wantCentre;
@@ -1466,6 +1487,12 @@ export class Scene {
   setFreeRoam(on) {
     if (this.freeRoam === !!on) return;
     this.freeRoam = !!on;
+    // ...and a cut already running is handed back on the way in, or the two
+    // seconds a theft borrowed span the moment you start building and drag the
+    // view off the shelf you were reaching for. `cutTo` refuses while free, so
+    // this is the other half of the same rule: the guard at the door and the
+    // guard for whoever is already inside.
+    if (this.freeRoam) this.releaseCut();
     this.clampPan();
   }
 
@@ -1539,6 +1566,17 @@ export class Scene {
    */
   cutTo(id, seconds = 1.8) {
     if (!id) return;
+    // Never while the view is off its leash, which is the same sentence
+    // `toggleBuild` says when it drops the follow: building is you taking the
+    // wheel, and a camera that yanks itself across the shop mid-drag is the
+    // thing the wheel was taken to stop. The cut's own argument does not apply
+    // here either — it exists to say WHERE something happened in a shop too big
+    // to see at once, and somebody flying the view is already looking wherever
+    // they chose to look.
+    //
+    // It is dropped rather than deferred: the thief is running, so a cut queued
+    // until you stop building frames an empty aisle. The alert is still heard.
+    if (this.freeRoam) return;
     this.cutOn = id;
     this.cutUntil = performance.now() + seconds * 1000;
   }
@@ -3171,8 +3209,24 @@ export class Scene {
       || (this.watching && state.players.find((p) => p.hire === this.watching))
       || me;
     if (eye) {
+      // Off the leash, the view stays where it was PUT — the body underneath it
+      // stops being what it is aimed at.
+      //
+      // `camPan` is an offset off `camTarget` and `camTarget` is whoever the
+      // camera rides, so a constant pan means the view is dragged along by
+      // anything that moves them: a route still finishing when you opened the
+      // mode, a shove, a rejoin. You are lining a shelf up against a wall four
+      // rooms away and the whole shop slides. Absorbing the delta into the pan
+      // holds the world centre still, which is what "free roam" was always
+      // supposed to mean — and it costs nothing when the two are the same
+      // number, which is every frame you are standing still.
+      if (this.freeRoam) {
+        this.camPan.x += this.camTarget.x - eye.x;
+        this.camPan.z += this.camTarget.z - eye.z;
+      }
       this.camTarget.set(eye.x, EYE_Y, eye.z);
       this.camFollowing = true;
+      if (this.freeRoam) this.clampPan();
       // ...and a restored view takes its offset from HERE, once. This is the
       // first moment the target is the thing it will be for the rest of the
       // session, and it is the same reference the pose was saved against — so
@@ -4756,8 +4810,13 @@ export class Scene {
    * that names what a BUILD verb would act on and there is no build verb that
    * takes a crate.
    */
-  pickAim(clientX, clientY, keep = null) {
-    const crate = this.pickPallet(clientX, clientY);
+  pickAim(clientX, clientY, keep = null, crates = true) {
+    // `crates` is the caller's veto, and it is a veto rather than a filter on
+    // the answer for `keep`'s reason turned round: a crate the pointer may not
+    // name must not shadow the FIXTURE behind it either. A box standing on a
+    // belt is exactly that case — in build mode the belt is the thing you are
+    // pointing at, and a crate riding it is scenery.
+    const crate = crates ? this.pickPallet(clientX, clientY) : null;
     const hit = this.pickFixtureHit(clientX, clientY, keep);
     if (crate && (!hit || crate.dist <= hit.dist)) return { crate, fixture: null, board: null };
     // The board rides along with the fixture and never on its own: it is the

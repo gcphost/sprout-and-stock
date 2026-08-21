@@ -10040,6 +10040,45 @@ export class Game {
      * unchanged when there is nothing to choose between and the crate simply
      * waits where it is.
      */
+    // The side rejects go down, if the player named one. A stored quarter turn
+    // rather than a cell, because a cell is a fact about the shop as it was the
+    // day you pressed the button — move the run and the sorter would be aimed
+    // at a square with nothing on it, silently.
+    const reject = Number.isInteger(cell.reject)
+      ? anchorTile(cell.x, cell.z, cell.reject) : null;
+
+    // Who could actually put this box away, asked of the WHOLE junction rather
+    // than of the ways that happen to be clear this tick. The reject line is
+    // never keen — see below.
+    const wants = (side) => this.sorterWants(side, crate);
+    const keen = cell.auto !== false && crate
+      ? ways.filter((w) => (!reject || w.x !== reject.x || w.z !== reject.z) && wants(w))
+      : [];
+    const keenAny = keen.length > 0;
+
+    // ONE line can put this box away, so the box waits for that line.
+    //
+    // Backpressure is asked after keenness rather than before it, and the order
+    // is the whole rule. Filtered first, a jam on the only line that wants the
+    // goods takes that line out of the running before anybody asks what it was
+    // for — so the junction quietly re-sorts the box onto whatever else is
+    // clear, and a crate of frozen chips goes down the ambient spur because the
+    // freezer aisle was busy for a second and a half. It arrives somewhere it
+    // cannot be put away, rides to the end and stops, and what you watch is a
+    // sorter routing goods perfectly and then throwing one down the wrong line
+    // every so often, which cannot be told from it guessing.
+    //
+    // A stopped line is not a deadlock here the way it is below: there is no
+    // choice to make, so waiting is what every other cell on a run does with a
+    // full cell in front of it, and `stepBelts` already holds the crate on its
+    // own square. What the alternatives buy is nothing — every one of them ends
+    // with the box somewhere it does not belong.
+    this.sortChoice ??= new Map();
+    if (keen.length === 1) {
+      if (crate) this.sortChoice.set(crate.id, { cell: cell.id, to: keen[0] });
+      return keen[0];
+    }
+
     const clear = free ? ways.filter((w) => free(w)) : ways;
     const open = clear.length ? clear : ways;
 
@@ -10072,53 +10111,40 @@ export class Game {
     // junction for a box nothing wants and for a sorter you have switched the
     // thinking off on.
     let pool = open;
-    let keenAny = false;
 
-    // The side rejects go down, if the player named one. A stored quarter turn
-    // rather than a cell, because a cell is a fact about the shop as it was the
-    // day you pressed the button — move the run and the sorter would be aimed
-    // at a square with nothing on it, silently.
-    const reject = Number.isInteger(cell.reject)
-      ? anchorTile(cell.x, cell.z, cell.reject) : null;
-
-    if (cell.auto !== false && crate) {
-      const wants = (side) => this.sorterWants(side, crate);
-      // The one line that can actually put this box away. Exactly one, or it is
-      // not an answer: two lines that would both take it is a choice with no
-      // right side, and none is a box nothing wants — both of those split.
-      // The reject line is never a candidate for wanting something. It is
-      // where goods go when nothing wants them, and a spur that happens to run
-      // past a shelf would otherwise become an ordinary destination and take
-      // its share of the sorting — which is the one thing the player has just
-      // said it is not for.
-      const keen = open.filter((w) => (!reject || w.x !== reject.x || w.z !== reject.z) && wants(w));
-      keenAny = keen.length > 0;
-      if (keen.length === 1) return pick(keen[0]);
-      // ...but a split is between the lines that WANT it, not across the
-      // junction at large.
-      //
-      // "Two lines would both take it" is a choice with no right side and
-      // balancing them is the right answer. Falling through to every way out is
-      // a different sentence, and it is the one that was being said: a junction
-      // in a real shop has an exit that serves nothing — a spur to the yard, a
-      // line still being built, a column of belt with no loader on it yet — and
-      // that exit is never keen, so it can never win the test above and used to
-      // collect its full share of everything anyway.
-      //
-      // What that looks like is a sorter that does not sort. A shop with three
-      // ways out of one junction, two of them reaching the freezers and the
-      // third reaching nothing, sent a third of its frozen goods down the dead
-      // line — where they rode to the end and stopped. Every box that DID
-      // arrive was correct, so the piece reads as working intermittently, which
-      // is indistinguishable from it being random. And it gets worse the more
-      // of your shop you automate, because every line you add is another
-      // alternation slot for goods that have somewhere better to be.
-      //
-      // Nothing keen still splits across everything, which is the case the
-      // paragraph above is about and is unchanged: a box no line wants has no
-      // better claim on one exit than another.
-      if (keen.length) pool = keen;
-    }
+    // ...but a split is between the lines that WANT it, not across the
+    // junction at large.
+    //
+    // "Two lines would both take it" is a choice with no right side and
+    // balancing them is the right answer. Falling through to every way out is
+    // a different sentence, and it is the one that was being said: a junction
+    // in a real shop has an exit that serves nothing — a spur to the yard, a
+    // line still being built, a column of belt with no loader on it yet — and
+    // that exit is never keen, so it can never win the test above and used to
+    // collect its full share of everything anyway.
+    //
+    // What that looks like is a sorter that does not sort. A shop with three
+    // ways out of one junction, two of them reaching the freezers and the
+    // third reaching nothing, sent a third of its frozen goods down the dead
+    // line — where they rode to the end and stopped. Every box that DID
+    // arrive was correct, so the piece reads as working intermittently, which
+    // is indistinguishable from it being random. And it gets worse the more
+    // of your shop you automate, because every line you add is another
+    // alternation slot for goods that have somewhere better to be.
+    //
+    // Nothing keen still splits across everything, which is the case the
+    // paragraph above is about and is unchanged: a box no line wants has no
+    // better claim on one exit than another.
+    //
+    // Clear keen lines first: with two ways that would both take the goods
+    // there IS a right answer when one of them has stopped, and it is the
+    // other one — which is the deadlock argument above, and it only applies
+    // once more than one line can do the job. Every keen line jammed falls
+    // back to the keen ones and the box waits, exactly as the single-keen
+    // case above does.
+    const keenClear = keen.filter((w) => open.some((o) => o.x === w.x && o.z === w.z));
+    if (keenClear.length) pool = keenClear;
+    else if (keen.length) pool = keen;
 
     // ...and with NOTHING keen, the reject line if there is one.
     //
@@ -10314,6 +10340,31 @@ export class Game {
     for (const d of this.deliveries) if (d.belt) onBelt.set(d.belt, d);
 
     this.beltClock ??= new Map();
+
+    /**
+     * The cell each in-flight hand-off is travelling INTO, claimed until it
+     * lands.
+     *
+     * A crate's travel is drawn across the gap between two cells, and the way
+     * out was re-decided every tick of it — so a box that set off toward a cell
+     * something else took in the meantime slid half a tile and snapped back to
+     * where it started. Nothing is wrong with the shop afterwards, which is why
+     * it reads as the box glitching rather than as a queue: it is the *drawn*
+     * half of a decision the sim then changed its mind about.
+     *
+     * So the target is reserved the moment the box starts moving. It was empty
+     * when the charge began and nothing else may enter it, so the journey can
+     * always be finished — a crate either waits squarely on its own cell or
+     * arrives, and there is no third picture.
+     */
+    this.beltAim ??= new Map();
+    const aimed = new Map();
+    for (const [from, target] of [...this.beltAim]) {
+      if (onBelt.has(from) && (this.beltClock.get(from) ?? 0) > 0) aimed.set(target, from);
+      else this.beltAim.delete(from);
+    }
+    const taken = (id, by) => onBelt.has(id) || (aimed.has(id) && aimed.get(id) !== by);
+
     for (const belt of this.beltOrder()) {
       const crate = onBelt.get(belt.id);
       if (!crate) {
@@ -10351,7 +10402,7 @@ export class Game {
 
       const to = this.sorterOut(belt, crate, (w) => {
         const a = this.beltAt(w.x, w.z);
-        return !!a && !onBelt.has(a.id);
+        return !!a && !taken(a.id, belt.id);
       });
       const ahead = to ? this.beltAt(to.x, to.z) : null;
       // A terminus, or a full cell. Sit the box squarely on its own cell — a
@@ -10372,8 +10423,9 @@ export class Game {
       //
       // A cleared jam costs one cell-time per box now. That is what a conveyor
       // draining looks like, and the animation is the thing being bought.
-      if (!ahead || onBelt.has(ahead.id)) {
+      if (!ahead || taken(ahead.id, belt.id)) {
         this.beltClock.set(belt.id, 0);
+        this.beltAim.delete(belt.id);
         crate.x = belt.x;
         crate.z = belt.z;
         continue;
@@ -10385,6 +10437,8 @@ export class Game {
       // tile at a time.
       if (clock < per) {
         this.beltClock.set(belt.id, clock);
+        this.beltAim.set(belt.id, ahead.id);
+        aimed.set(ahead.id, belt.id);
         const k = clock / per;
         crate.x = r2(belt.x + (ahead.x - belt.x) * k);
         crate.z = r2(belt.z + (ahead.z - belt.z) * k);
@@ -10393,6 +10447,8 @@ export class Game {
 
       onBelt.delete(belt.id);
       this.beltClock.delete(belt.id);
+      this.beltAim.delete(belt.id);
+      aimed.delete(ahead.id);
       this.sortChoice?.delete(crate.id);
       crate.belt = ahead.id;
       crate.x = ahead.x;
@@ -10415,6 +10471,10 @@ export class Game {
   loadBelt(belt, crate) {
     if (!belt || !crate) return false;
     if (this.deliveries.some((d) => d.belt === belt.id)) return false;
+    // ...and not one a box is already gliding into. The cell is empty for the
+    // length of that hand-off, and a crate posted into the gap would arrive
+    // under one that is committed — see `beltAim`.
+    if (this.beltAim && [...this.beltAim.values()].includes(belt.id)) return false;
     crate.belt = belt.id;
     crate.x = belt.x;
     crate.z = belt.z;
