@@ -4639,6 +4639,24 @@ export class Scene {
    * top of a wall answers about that wall rather than about the ground behind it.
    */
   pickFace(clientX, clientY, grip = 0) {
+    return this.pickFaceHit(clientX, clientY, grip)?.face ?? null;
+  }
+
+  /**
+   * The same answer with how far away it was — and, crucially, with *null* for
+   * the distance when the answer was a guess rather than a hit.
+   *
+   * `pickFixture`/`pickFixtureHit`'s split exactly, and it exists for the same
+   * question: a wall squeezed between two units is only reachable if something
+   * can weigh the wall against the thing beside it, and the honest weight is
+   * which surface the ray met first (see `pickAim`, which already settles a
+   * crate against a fixture this way).
+   *
+   * The fallback below has no distance and must not invent one. It is the
+   * lattice guess — every point in the shop has a nearest line — so a distance
+   * on it would let a wall you are not pointing at outrank a shelf you are.
+   */
+  pickFaceHit(clientX, clientY, grip = 0) {
     // The wall itself first, because a face is a thing you can SEE, and this is
     // the lesson `pickFixture` already learned about shelves: derive the answer
     // from a plane and you are answering about the ground somewhere behind what
@@ -4674,7 +4692,9 @@ export class Scene {
       const L = this.storeLayout;
       const maxX = face.o === 'v' ? L.w : L.w - 1;
       const maxZ = face.o === 'v' ? L.h - 1 : L.h;
-      if (face.x >= 0 && face.z >= 0 && face.x <= maxX && face.z <= maxZ) return face;
+      if (face.x >= 0 && face.z >= 0 && face.x <= maxX && face.z <= maxZ) {
+        return { face, dist: hit.distance };
+      }
     }
 
     // Nothing under the pointer: fall back to the lattice. A gap in a wall is
@@ -4689,7 +4709,7 @@ export class Scene {
     if (!seg) return null;
     const along = seg.o === 'v' ? this._hit.x : this._hit.z;
     const line = (seg.o === 'v' ? seg.x : seg.z) - 0.5;
-    return { ...seg, s: along < line ? -1 : 1 };
+    return { face: { ...seg, s: along < line ? -1 : 1 }, dist: null };
   }
 
   /**
@@ -5164,11 +5184,19 @@ export class Scene {
     // pointing at, and a crate riding it is scenery.
     const crate = crates ? this.pickPallet(clientX, clientY) : null;
     const hit = this.pickFixtureHit(clientX, clientY, keep);
-    if (crate && (!hit || crate.dist <= hit.dist)) return { crate, fixture: null, board: null };
+    if (crate && (!hit || crate.dist <= hit.dist)) {
+      return { crate, fixture: null, board: null, dist: crate.dist };
+    }
     // The board rides along with the fixture and never on its own: it is the
     // same target said more precisely, so anything that only knows about units
     // can go on reading `fixture` and ignore it.
-    return { crate: null, fixture: hit?.f ?? null, board: hit?.board ?? null };
+    // `dist` rides along for the caller that has a THIRD thing to weigh, which
+    // is the wall behind whatever this answered — see `wallInFront` in
+    // client/main.js. Null when nothing was hit at all, so a caller comparing
+    // against it is comparing against "there is nothing here".
+    return {
+      crate: null, fixture: hit?.f ?? null, board: hit?.board ?? null, dist: hit?.dist ?? null,
+    };
   }
 
   /**

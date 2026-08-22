@@ -818,7 +818,7 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, and taking a build press back | steps 1–9, 11, 13–22 built; 10 cancelled; 12 next |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, and one meaning each for the two modifiers | steps 1–9, 11, 13–23 built; 10 cancelled; 12 next; 24–27 are the four an editor is expected to have |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
 | [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit | steps 1–3, 2b and 3b built; 4–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
@@ -1198,26 +1198,40 @@ what the next step was meant to be.
   what pointing at the world *does* has to ask the bar rather than the flag.
   Carrying is asked first and separately: a Move errand borrows the mode the
   same way and must still be able to put the thing down.
-- **…and Shift is the third thing the bar decides, which is the one that
-  DESTROYS something.** Getting rid of a thing was four rules, each true of one
-  tool: the bulldozer took fixtures and walls but only while it was armed,
-  shift-right knocked a wall through but only with a wall tool up, the same
+- **…and a MODIFIER is the third thing that decides what a press does, which is
+  the one that DESTROYS something.** Getting rid of a thing was four rules, each
+  true of one tool: the bulldozer took fixtures and walls but only while it was
+  armed, shift-right knocked a wall through but only with a wall tool up, the same
   press scraped a cell but only with a brush up, and paint had no eraser at all.
   So the pointer's answer to "get rid of that" depended on a decision you made at
-  the far end of the bar. Holding Shift with the palette up now aims at what is
-  ALREADY THERE — `razeAim`, fixture → painted face → wall → painted ground,
-  most-specific-first — and the armed tool is not consulted at any rung, which is
-  the whole of what makes it one sentence instead of four. Four things about it.
-  It is **`paletteArmed` and not `buildOn`**, or a mode a fixture menu borrowed
-  turns Shift into a bulldozer with nothing on screen to say the mode is on. Both
+  the far end of the bar. Holding **Ctrl (Cmd)** with the palette up now aims at
+  what is ALREADY THERE — `razeAim`, fixture → painted face → wall → painted
+  ground, most-specific-first — and the armed tool is not consulted at any rung,
+  which is the whole of what makes it one sentence instead of four. It is
+  **`paletteArmed` and not `buildOn`**, or a mode a fixture menu borrowed turns
+  the key into a bulldozer with nothing on screen to say the mode is on. Both
   refusals live in the **aim** rather than at the press, so nothing lights up red
-  that a click would not remove. The key is a **flag** (`shiftDown`) because the
+  that a click would not remove. The key is a **flag** (`razeDown`) because the
   hover needs it — the frame has to appear under a pointer that is not moving —
-  and `pointermove` writes it too, since a Shift pressed while another window had
-  the keyboard never reaches the key handler. And a Shift press that finds
-  nothing is **consumed**, or it is the one Shift-click in the mode that builds
-  something. What it costs is that the multi-select of docs/building.md step 16
-  is the same key with the bar DOWN, and only there.
+  and `pointermove` writes it too, since a modifier pressed while another window
+  had the keyboard never reaches the key handler. And a press that finds nothing
+  is **consumed**, or it is the one Ctrl-click in the mode that builds something.
+- **…and it shipped on SHIFT for four steps, which is the part worth
+  remembering.** Shift meant two things told apart by whether the palette was up
+  — bulldozer with the bar up, multi-select without it — and the cost was named
+  at the time and chosen: you could not shift-pick a row of shelves while
+  building. It was the wrong trade. The split made the answer to "what does this
+  key do" a fact about a strip of UI at the bottom of the screen rather than
+  about the key, so the one place you most want to pick several shelves —
+  build mode, where you are rearranging the shop — was the one place the key
+  that picks them meant delete. The tell was in the argument for it: both
+  gestures are made by holding the modifier and clicking repeatedly, which is a
+  description of ONE gesture with two outcomes. Two keys, one meaning each, is
+  also what every other editor does. Two traps in the move: **Ctrl+click on a
+  Mac is the secondary click**, so it arrives as `button === 2` and never
+  reaches the bulldozer branch — which is why Cmd is read as well and is the
+  key people there already hold; and **Ctrl is asked first** in `pointerdown`,
+  so Ctrl+Shift is a demolition rather than an ambiguity.
 - **The camera is chained to your body, and build mode is where that is wrong.**
   `camPan` is an offset off the player with a 14-tile leash, which is right
   while you are shopkeeping — a view that can lose you is worse than one that

@@ -934,9 +934,10 @@ tap. The first pick is still an ordinary one (`fixtureRef`), and the extras are
 `ui.picked`; picking something new without shift clears them, which is the rule
 that keeps an ordinary tap safe.
 
-Since step 19 this is the press **with the palette down**. With the bar up the
-same key is the bulldozer — see "Shift is the bulldozer" below for why the two
-were not worth splitting onto different modifiers, and for what it costs.
+Step 19 took this key away with the palette up — the bulldozer had it — and
+step 23 gave it back. Shift is the selection with the bar up or down now, and
+Ctrl (Cmd) is the bulldozer. See "Ctrl is the bulldozer" below for the argument
+both ways round.
 
 **The menu narrows to what they share.** Not a second menu: a second list of rows
 about the same fixtures is two pictures of one thing, and this file's own gotcha
@@ -1180,8 +1181,9 @@ naming it something nobody would look under.
 
 #### And the right button scrapes
 
-> **This is history — see "Shift is the bulldozer" below.** Both presses moved
-> onto Shift + left click, and the right button went back to meaning one thing.
+> **This is history — see "Ctrl is the bulldozer" below.** Both presses moved
+> onto the modifier + left click, and the right button went back to meaning one
+> thing.
 > Kept because it is the argument for the gesture existing at all, which the
 > move did not change.
 
@@ -1201,9 +1203,10 @@ survive being abandoned mid-press. And it is **exempt on Bare Ground itself**,
 where the left button already scrapes over an area — one act with two gestures
 is exactly what that entry's own comment argues against.
 
-### Shift is the bulldozer
+### Ctrl is the bulldozer
 
-*Built (step 19).* Getting rid of something was four gestures wearing one idea.
+*Built (step 19; the key moved in step 23).* Getting rid of something was four
+gestures wearing one idea.
 The Demolish tool took fixtures out and knocked walls through, but only while it
 was the armed tool — so removing a shelf in the middle of laying a floor was a
 trip to the far end of the bar and back. Shift + right-click took a wall down,
@@ -1211,10 +1214,11 @@ but only with a wall tool up. The same press took a cell of ground up, but only
 with a ground brush up. And paint had no eraser at all beyond finding Bare Wall
 on the bar. Four rules, each true of one tool, none of them true of the pointer.
 
-**Hold Shift and the pointer stops asking what you would build.** It asks what
-is already there instead: whatever is under it goes red, and a left click gets
+**Hold Ctrl — Cmd on a Mac — and the pointer stops asking what you would
+build.** It asks what is already there instead: whatever is under it goes red,
+and a left click gets
 rid of it. The armed tool is not consulted at any rung — that is the whole of
-what makes it learnable, because "hold Shift and click to get rid of that" is one
+what makes it learnable, because "hold Ctrl and click to get rid of that" is one
 sentence where the four rules above are four.
 
 `razeAim` is the aim and it answers in one of four kinds, most-specific-first:
@@ -1256,25 +1260,40 @@ walls.
 
 Three things fell out of it.
 
-**Shift now means two things, and the bar says which.** With the palette up it is
-this; with the palette down it is the multi-select of step 16, untouched.
-`paletteArmed` and not `buildOn`, the same test every other "what does pointing at
-the world do" question asks — a mode a fixture menu borrowed for one press must
-not turn Shift into a bulldozer, because there is nothing on screen to say the
-mode is on. The cost is real and was chosen: you cannot shift-pick a row of
-shelves while the bar is up.
+**It shipped on Shift, and that is the part worth writing down.** For four
+steps Shift meant two things told apart by whether the palette was up — this
+with the bar up, the multi-select of step 16 without it — on `paletteArmed`
+rather than `buildOn`, so a mode a fixture menu borrowed could not turn the key
+into a bulldozer. The cost was named at the time and chosen: you could not
+shift-pick a row of shelves while the bar was up.
 
-**The key is held as a flag** (`shiftDown`), because the *hover* needs it — the
-red frame has to appear when the key goes down under a pointer that is not
-moving. Every way the key can change writes it, including `pointermove`, which
-is the repair for a Shift pressed or released while another window had the
-keyboard. The press reads `e.shiftKey` and pushes it in rather than trusting the
-flag: a press that demolished something the hover had not gone red on is the
-green-ghost bug with a bill attached.
+It was the wrong trade, and step 23 undid it. What the split really did was make
+the answer to "what does this key do" a fact about a strip of UI at the bottom
+of the screen rather than about the key — so the one place you most want to pick
+several shelves is *build mode*, which was the one place the key that picks them
+meant delete. The tell was in the sentence above: both gestures are made by
+holding the modifier and clicking repeatedly, which is a description of one
+gesture with two outcomes. Ctrl (Cmd) is the bulldozer now and Shift is the
+selection, everywhere. Two keys is also what every other editor does, which is
+worth more than saving a key: neither has to be taught.
 
-**A Shift press that finds nothing is consumed.** Falling through would make it
-the one Shift-click in the mode that *builds* something, which is the outcome a
-near miss must never have.
+Ctrl+click on a Mac is the *secondary* click, so it arrives as `button === 2`
+and never reaches the bulldozer branch — which is why Cmd is read as well. It is
+the Mac idiom anyway, so the key that works there is the one people already hold.
+
+**Each key is held as a flag** (`shiftDown`, `razeDown`), because the *hover*
+needs them — the red frame and the design highlight have to appear when a key
+goes down under a pointer that is not moving. Every way either can change writes
+it, including `pointermove`, which is the repair for a modifier pressed or
+released while another window had the keyboard. The press reads `e.ctrlKey` /
+`e.shiftKey` and pushes it in rather than trusting the flag: a press that
+demolished something the hover had not gone red on is the green-ghost bug with a
+bill attached. Ctrl is asked first, so Ctrl+Shift is a demolition rather than an
+ambiguity.
+
+**A modifier press that finds nothing is consumed.** Falling through would make
+it the one Ctrl-click — or the one shift-click — in the mode that *builds*
+something, which is the outcome a near miss must never have.
 
 And what is left on the right button is one meaning: back out. It was five —
 turn the view, back out of a tool, put a thing down, walk, and the two razes —
@@ -1484,6 +1503,108 @@ from under a thumb already on its way to it is worse than one that says no.
 
 See `verify:undo`.
 
+### Four things a factory game already taught everybody
+
+*Proposed — steps 24 to 27.* Undo made the point that build mode is the part of
+this game most like an editor, and that everything an editor is expected to do is
+worth checking against what is already here rather than designed from scratch.
+These four are that list, in the order of what they cost. Each is written as its
+own step because each is independently useful; none of them depends on another.
+
+Two things they have in common, and both are why they are cheap. The catalog is
+**data** — a placement is `{kind, piece, station, x, z, rot, tier, variant}` and
+nothing else, which is why undo could be a stack of them — and the pointer
+already answers **which thing** (`pickFixture`, `pickAim`, `pickWay`) rather than
+guessing from proximity. Most of what follows is a new sentence made out of verbs
+that exist.
+
+#### 24. Q is the pipette
+
+Point at anything in the shop and press Q: the palette arms *that* piece, that
+variant, that rotation. Nothing new on the wire and nothing new on the server —
+`Scene.pickFixture` already names the fixture, `pieceFor` already resolves its
+row, and `selectBuildTool` / `ui.buildVariant` / `ui.buildRot` are the three
+fields the ghost reads. It is the smallest of the four by a wide margin.
+
+What makes it worth doing is not the saving. The palette is a catalogue of
+*designs*, and the thing you usually want to build next is one you can see — so
+"which of the eleven rows was that shelf" is a question the shop is already
+answering, in the aisle, and the bar is where you go to re-ask it. The same key
+should pick up a *ground* design under the pointer and a wall *finish*, because
+those are the two places the catalogue is longest and the tile smallest.
+
+The one decision: it must arm the tool without opening the bar over the shop, or
+a key for "that one" costs you the view of the thing you pointed at. That is
+`commitBuildMode`'s quiet mode, which exists.
+
+#### 25. Any fixture drags out in a row
+
+The conveyor run drag is written (`beltRunCells`, `showBeltDrag`, `build-run`),
+and there is nothing about it that is about belts. An aisle is six shelves on one
+line and it is six presses; a fence is the same sentence about `fence`. The rule
+that stops it being a free-for-all is already stated in `beltRunCells`: a run
+follows the line it started on, and turning a corner is a second drag.
+
+Two things this has to decide, and neither is hard. **What a corner means for
+something with a facing** — a belt turns to follow the run because a belt's
+rotation *is* its direction, and a shelf's is which side you browse it from, so a
+dragged shelf should keep the armed rotation for every cell rather than turning.
+That is one flag on the kind, not a branch at the call site. And **running out of
+money halfway** builds what you could afford, which is what a wall drag and a
+floor stroke both already do and for the reason they both give.
+
+`build-run` is deliberately named for the gesture rather than for conveyors, so
+this is a widened guard rather than a second message.
+
+#### 26. Copy and paste a selection
+
+The multi-select is built and holds a list of fixture ids; a placement is plain
+data; `placeFixture` takes one and mints it. So Ctrl+C over a selection is a list
+of placements made *relative* to one anchor cell, and Ctrl+V is that list
+re-anchored under the pointer and laid through the existing verb, inside one
+`undoStep` so the whole stamp is one Ctrl+Z. That last clause is the reason this
+step comes after undo rather than before it: a paste you cannot take back in one
+press is a paste nobody dares use.
+
+Three decisions, and the third is the one that will be got wrong:
+
+- **A blueprint is fixtures, ground, walls and paint, or it is a disappointment.**
+  A copied aisle whose floor and finishes do not come with it pastes as shelving
+  on grass. All four are already the four arrays undo diffs, so the shape of the
+  clipboard is the shape of an undo step — which is a strong hint they should be
+  the same structure.
+- **It stamps what it can and says what it could not**, rather than refusing the
+  lot. This is `canPlace`'s warn-don't-refuse rule and the wall drag's
+  ran-out-of-money rule, said about a region.
+- **Rotating a stamp is not rotating each fixture.** A block turned 90° has to
+  rotate the *offsets* and then the facings, and doing only the second is the
+  bug: it looks completely correct on a single shelf and shears every aisle.
+
+Where it stops: no library, no saved blueprints, no sharing. One clipboard, in
+memory, per session — the same call `undo` makes about persistence, for the same
+reason.
+
+#### 27. The overlay key
+
+Hold Alt and every unit says what it holds — the item's own icon over the shelf,
+the recipe over an appliance, the crop over a bed. Factorio's version of this is
+the single most-used key in the game and it is *read-only*, which is what makes
+it cheap: nothing here is a verb.
+
+The argument for it is a shop that has got big. `homeShelves` gives every item
+one home, and the whole point of that rule is that you can learn where things
+live — but there is nowhere in the game that shows you the answer except by
+walking the aisles and reading the goods, which stops working the moment a unit
+is behind another one or is a freezer with a lid. The nearest thing today is the
+Stock panel, which is a list, and a list is exactly the wrong shape for "where".
+
+Two things it needs and one it does not. It needs to be a **hold**, not a toggle,
+for the reason the design highlight is one: a mode that stays on is a mode you
+forget you are in, and this one draws over the shop. It needs to answer for
+`boh` units too, since a stockroom is the place you are most likely to be asking.
+And it does **not** need new state on the wire: `stacks`, `recipe` and `crop_id`
+are all in the snapshot already.
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:
@@ -1645,14 +1766,15 @@ the number.
     right-button scrape, which is `armEdgeRaze` said about an area — retired by
     step 19. See above for the unit rule a blade is measured in, which is the
     part that cost a round of play-testing.
-19. **Shift is the bulldozer.** *Built.* One modifier that means "get rid of
+19. **A modifier is the bulldozer.** *Built.* One modifier that means "get rid of
     what is under the pointer" whatever tool is armed — a fixture, a finish, a
     wall or a cell of ground — replacing the Demolish tool's monopoly on the
     first two and the two right-button razes on the last two. The right button
     goes back to meaning one thing in build mode: back out. Client-only: no new
     message, no server change, four existing ones sent from one aim
-    (`razeAim`). It takes Shift off the multi-select while the bar is up, which
-    is the one thing it costs. See above.
+    (`razeAim`). It shipped on Shift, which took the multi-select off that key
+    while the bar was up; step 23 moved it to Ctrl/Cmd and handed Shift back.
+    See above.
 20. **The curtain, which is a way through you do not open.** *Built.* See above.
 21. **The roller door.** *Built.* See above.
 22. **Taking it back.** *Built.* Ctrl+Z and Ctrl+Y over every build verb there
@@ -1664,6 +1786,24 @@ the number.
     what keeps the generator, the balance bot, MCP and every sweep out of it.
     Additive: no new column, no new tile, nothing on the save. See above, and
     `verify:undo`.
+23. **One meaning each for the two modifiers.** *Built.* Ctrl (Cmd) is the
+    bulldozer and Shift is back to the multi-select with the bar up as well as
+    down, undoing the one thing step 19 charged for. Client-only: no message, no
+    server change, one flag split into two. See above for why the split by
+    palette state was the wrong trade, and for the Mac secondary-click trap.
+24. **Q is the pipette.** Point at anything and arm that exact piece, variant and
+    facing. The smallest of the four below by a wide margin — nothing on the wire
+    and nothing on the server. See above.
+25. **Any fixture drags out in a row.** The conveyor run drag widened to every
+    kind, which is a guard rather than a second message. Needs one flag saying
+    whether a corner turns the thing or keeps the armed facing. See above.
+26. **Copy and paste a selection.** Ctrl+C over the multi-select, Ctrl+V under
+    the pointer, the whole stamp inside one `undoStep`. Depends on 22 in
+    practice rather than in code: a paste you cannot take back in one press is a
+    paste nobody uses. Fixtures, ground, walls *and* paint, or it stamps
+    shelving onto grass. See above.
+27. **The overlay key.** Hold Alt and every unit says what it holds. Read-only,
+    no new state on the wire, and a hold rather than a toggle. See above.
 
 ---
 

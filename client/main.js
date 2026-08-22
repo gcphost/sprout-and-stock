@@ -457,11 +457,12 @@ addEventListener('keydown', (e) => {
 
   keys.add(k);
 
-  // Shift is the demolish modifier with the bar up, and the multi-select
-  // modifier without it — see `setShift`. Not `preventDefault`ed and not
-  // returned on: Shift is a modifier, and every other binding in here reads it
-  // (Tab cycles the palette backwards with it) rather than being replaced by it.
+  // The two build modifiers — see `setShift`. Neither is `preventDefault`ed and
+  // neither is returned on: they are modifiers, and every other binding in here
+  // reads them (Tab cycles the palette backwards with Shift, Ctrl+Z undoes)
+  // rather than being replaced by them.
   if (k === 'shift') setShift(true);
+  if (k === 'control' || k === 'meta') setRaze(true);
 
   /**
    * Taking a build press back, and putting it forward again.
@@ -572,7 +573,9 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => {
   keys.delete(e.key.toLowerCase());
-  if (e.key.toLowerCase() === 'shift') setShift(false);
+  const up = e.key.toLowerCase();
+  if (up === 'shift') setShift(false);
+  if (up === 'control' || up === 'meta') setRaze(false);
 });
 
 // ...and a key held while the window loses focus never comes up. `keys` has
@@ -581,33 +584,52 @@ addEventListener('keyup', (e) => {
 // with no key down to explain them, which reads as the marker being broken.
 // A stuck demolish aim is the same picture with a red frame on it, which is
 // worse: it says the next click tears something out.
-addEventListener('blur', () => setShift(false));
+addEventListener('blur', () => { setShift(false); setRaze(false); });
 
 /**
- * SHIFT MEANS TWO THINGS, AND THE BAR SAYS WHICH.
+ * TWO MODIFIERS, ONE MEANING EACH.
  *
- * With the palette up it is the bulldozer, whatever tool is armed — hold it and
- * the thing under the pointer goes red, click and it is gone (`razeAim`). With
- * the palette down it is the multi-select, exactly as it was: hold it and
- * everything of the same design lights up, shift-click adds to the selection.
+ * **Shift is the multi-select**, with the bar up or down: hold it and
+ * everything of the same design lights up, shift-click adds to the selection or
+ * drops it. **Ctrl (Cmd on a Mac) is the bulldozer**, whatever tool is armed:
+ * hold it and the thing under the pointer goes red, click and it is gone
+ * (`razeAim`).
  *
- * `paletteArmed` and not `buildOn`, the same test every other "what does
- * pointing at the world do" question in here asks — a mode a fixture menu
- * borrowed for one press must not turn Shift into a bulldozer, because there is
- * nothing on screen to say the mode is on.
+ * For a while Shift was BOTH, told apart by whether the palette was up, and it
+ * is worth writing down why that came apart rather than being tuned. It made
+ * the answer to "what does this key do" a fact about a strip of UI at the
+ * bottom of the screen rather than about the key — so the one place you most
+ * want to pick several shelves (the mode where you are rearranging the shop)
+ * was the one place the key that picks them meant *delete*, and the tell was
+ * that both gestures are made by holding the modifier and clicking repeatedly.
+ * Two keys is also what every other editor does, which is worth more here than
+ * saving a key: nobody has to be taught either one.
  *
- * Held as a flag rather than read off each event because the *hover* needs it:
- * the red frame has to appear when the key goes down under a pointer that is
- * not moving, and go away when it comes up. Every way the key can change is a
- * caller — the two key handlers, the blur that catches a key held through a
- * tab switch, and `pointermove`, which is the one that repairs a Shift pressed
- * or released while this window was not the one listening.
+ * Both are held as flags rather than read off each event, because the *hover*
+ * needs them: the red frame and the design highlight have to appear when the key
+ * goes down under a pointer that is not moving, and go away when it comes up.
+ * Every way either key can change is a caller — the two key handlers, the blur
+ * that catches one held through a tab switch, and `pointermove`, which is the
+ * one that repairs a modifier pressed or released while this window was not the
+ * one listening.
+ *
+ * Ctrl+click on a Mac is the SECONDARY click, so it arrives as `button === 2`
+ * and never reaches the bulldozer branch. That is why Cmd is read as well —
+ * it is the Mac idiom anyway, and the key that works there is the one people
+ * already hold.
  */
 let shiftDown = false;
 function setShift(on) {
   if (shiftDown === !!on) return;
   shiftDown = !!on;
-  ui.setKinPreview(shiftDown && !ui.paletteArmed);
+  ui.setKinPreview(shiftDown);
+  refreshGhost(true);
+}
+
+let razeDown = false;
+function setRaze(on) {
+  if (razeDown === !!on) return;
+  razeDown = !!on;
   refreshGhost(true);
 }
 
@@ -653,6 +675,7 @@ addEventListener('pointermove', (e) => {
   // move of the mouse is where the flag catches up. `setShift` no-ops when it
   // already agrees, so the ordinary move costs a compare.
   setShift(e.shiftKey);
+  setRaze(e.ctrlKey || e.metaKey);
   // Who you have moved onto, at the moment you moved. See `settledWho`. Asked
   // here rather than in the frame loop on purpose: the loop runs with the
   // pointer standing still, which is the case this exists to answer.
@@ -842,11 +865,11 @@ function refreshGhost(force = false) {
   // outlive it under a wall tool, which clears only the edge. Letting go of
   // Shift puts all three away in one place instead.
 
-  // Which of Shift's two meanings is live can change with the key already down —
-  // press G with it held and the bar comes up underneath it — so the other one
-  // is re-answered here rather than only at the keypress. `setKinPreview` no-ops
-  // when it already agrees.
-  ui.setKinPreview(shiftDown && !ui.paletteArmed);
+  // Re-answered here rather than only at the keypress, because what the design
+  // highlight is ABOUT can change with the key already held — a selection made,
+  // a fixture torn out from under it. `setKinPreview` no-ops when it already
+  // agrees.
+  ui.setKinPreview(shiftDown);
   const raze = aiming ? razeAim(pointer.x, pointer.y) : null;
   ui.setRazeAim(raze ? razeSay(raze) : null);
   if (raze) {
@@ -1215,8 +1238,13 @@ function refreshGhost(force = false) {
     // so a bar lighting along the wall under the last tap is a highlight for a
     // press nobody is about to make. The hold that would open it is switched off
     // anyway (`HOLD_OPENS`), so nothing is lost by not advertising it.
+    // ...and what blocks it is a thing the ray met FIRST rather than a thing it
+    // met at all — see `wallInFront`. A crate is unconditional (a box is drawn
+    // over the line it stands on and the door behind it is not what you aimed
+    // at); a fixture only wins where its own art is in front of the wall.
     const way = pointer.onCanvas && !pillDrives()
-      ? pickWay(pointer.x, pointer.y, !!(aim?.fixture || aim?.crate)) : null;
+      ? pickWay(pointer.x, pointer.y, !!aim?.crate || blockedByFixture(aim, pointer.x, pointer.y))
+      : null;
     scene.setEdgeGhost(way ? [way] : null, way ? 'aim' : null);
     if (way) canvas.style.cursor = 'pointer';
 
@@ -2342,12 +2370,56 @@ function showEdgeDrag(cx, cy) {
 const RAZE_GRIP = 0.24;
 
 /**
+ * How much nearer the WALL has to be to beat the thing standing against it.
+ *
+ * A shelf pushed up against a wall puts two surfaces within a hair of each
+ * other, and at that range which one the ray reaches first is a rounding: the
+ * highlight would swap between the shelf and the wall behind it as the camera
+ * drifted, over a pointer nobody had moved. So the tie goes to the fixture,
+ * which is the answer the older rule gave for every case — this only ever takes
+ * a press away from a unit when the wall is *visibly* in front of it.
+ */
+const WALL_BIAS = 0.05;
+
+/**
+ * IS THE WALL IN FRONT OF THE THING? — the one tie-break behind "I cannot pick
+ * that wall".
+ *
+ * "Things beat gaps" is right about a doorway under an awning and wrong about a
+ * wall with a unit either side of it: the fixture wins by being *hit at all*, so
+ * a wall between an appliance and a shelf has no camera angle that reaches it,
+ * and it is unstrippable, unknockable and unable to become a doorway for ever.
+ * The honest question is which surface the pointer is actually on, which is the
+ * same tie-break `pickAim` makes between a crate and a fixture.
+ *
+ * `wall` null is the lattice guess rather than a hit (see `pickFaceHit`), and it
+ * loses on purpose — otherwise every point in the shop is half a wall and the
+ * nearest line would start outranking the shelf you are pointing at.
+ */
+function wallInFront(wall, thing) {
+  return wall != null && thing != null && wall < thing - WALL_BIAS;
+}
+
+/**
+ * ...and the same question asked of an aim that has already been taken.
+ *
+ * `pickAim` carries the distance of whatever it answered with, so this costs one
+ * more raycast against the wall meshes and nothing else. A fixture with no
+ * distance on it (a phone's remembered tap, which is an id rather than a hit)
+ * blocks as it always did — there is no ray to compare against.
+ */
+function blockedByFixture(aim, cx, cy) {
+  if (!aim?.fixture) return false;
+  return !wallInFront(scene.pickFaceHit(cx, cy)?.dist ?? null, aim.dist ?? null);
+}
+
+/**
  * WHAT SHIFT IS POINTING AT — the one aim behind the whole demolish gesture.
  *
- * Hold Shift with the bar up and the pointer stops asking what the armed tool
+ * Hold Ctrl (Cmd) with the bar up and the pointer stops asking what the armed tool
  * would build and starts asking what is already there: a fixture, a finish, a
  * wall, a cell of ground. The tool is not consulted at ANY rung of it, and that
- * is the whole of what makes the gesture learnable — "hold Shift and click to
+ * is the whole of what makes the gesture learnable — "hold Ctrl and click to
  * get rid of that" is one sentence, where the two presses this replaces were a
  * different modifier on a different button for each of two tools, each doing
  * nothing at all under the other one.
@@ -2356,7 +2428,7 @@ const RAZE_GRIP = 0.24;
  * two more rungs on it. A fixture covers the line behind it on screen and is
  * never not what you meant. Paint comes before the wall it is on because it is
  * the smaller of the two answers, and because the bigger one is still one press
- * away: strip the finish, and the same Shift-click on the now-bare wall knocks
+ * away: strip the finish, and the same Ctrl-click on the now-bare wall knocks
  * it through. Ground is last because every cell in the world is one, so it is
  * the rung that would otherwise swallow the other three — and it is also why
  * the two wall rungs need `RAZE_GRIP`, since without it every cell in the shop
@@ -2376,19 +2448,31 @@ function razeAim(cx, cy) {
   // names a target by pointing. Not while you are carrying a fixture: then the
   // pointer is looking for somewhere to put that down, and Shift has no second
   // meaning to offer.
-  if (!shiftDown || !ui.paletteArmed || ui.holding) return null;
-  const f = scene.pickFixture(cx, cy);
-  if (f) return { kind: 'fixture', f };
+  if (!razeDown || !ui.paletteArmed || ui.holding) return null;
+  const hit = scene.pickFixtureHit(cx, cy);
   // ONE question about the line, answered twice — which is what keeps the two
-  // wall rungs from disagreeing about which wall they are on. `pickFace` hits
+  // wall rungs from disagreeing about which wall they are on. `pickFaceHit` hits
   // the edge meshes first, so pointing at a wall is exact and picks its side;
   // the guess it falls back to is what `RAZE_GRIP` is for.
-  const face = scene.pickFace(cx, cy, RAZE_GRIP);
+  const on = scene.pickFaceHit(cx, cy, RAZE_GRIP);
+  const face = on?.face ?? null;
+  let wall = null;
   if (face) {
-    if ((scene.storeLayout?.paint ?? {})[faceKey(face)]) return { kind: 'face', face };
-    const seg = { o: face.o, x: face.x, z: face.z };
-    if (kindAt(scene.storeLayout, seg) !== E.NONE) return { kind: 'edge', seg };
+    if ((scene.storeLayout?.paint ?? {})[faceKey(face)]) wall = { kind: 'face', face };
+    else {
+      const seg = { o: face.o, x: face.x, z: face.z };
+      if (kindAt(scene.storeLayout, seg) !== E.NONE) wall = { kind: 'edge', seg };
+    }
   }
+  // ...and the fixture rung is the one above them, EXCEPT where the ray met the
+  // wall first — see `wallInFront`. Without that exception a wall with a unit
+  // either side of it can never be named: both of them are under the pointer
+  // somewhere along the line, so the top rung takes every press and there is no
+  // camera angle that helps, because the fixture wins by being hit at all rather
+  // than by being in front. That is a wall you can neither strip, knock through
+  // nor turn into a doorway, in the mode whose whole job is rearranging.
+  if (hit?.f && !(wall && wallInFront(on.dist, hit.dist))) return { kind: 'fixture', f: hit.f };
+  if (wall) return wall;
   // `pickTile` and never `pickFixture`, which is the ground brush's own rule:
   // the second would scrape the roof of a shelf. Nothing above this line can be
   // a fixture anyway — the first rung took those — so this is belt and braces
@@ -2607,8 +2691,9 @@ canvas.addEventListener('pointerdown', (e) => {
     // Nothing else is armed here any more. The right button used to carry two
     // demolitions of its own — Shift + right knocked a wall through with a wall
     // tool up, and took a cell of ground back up with a brush up — and both have
-    // moved onto Shift + LEFT, where they are the same press as tearing out a
-    // shelf (`razeAim`). What that leaves is a button that means one thing in
+    // moved onto Ctrl + LEFT, where they are the same press as tearing out a
+    // shelf (`razeAim`) — Shift while that was being written, Ctrl since the
+    // two modifiers were given one meaning each. What that leaves is a button that means one thing in
     // build mode: back out. It was five things, one of them the only destructive
     // press in the mode, and the tell was that the same reflex which closes a
     // picker also took a wall down.
@@ -2658,42 +2743,53 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-  // Shift takes the press before ANY of the four drags below, and hands it to
-  // one of its two meanings — demolish with the bar up, the selection without
-  // it. See `setShift`.
+  // The two modifiers take the press before ANY of the four drags below — Ctrl
+  // (Cmd) to get rid of what is under the pointer, Shift to add it to the
+  // selection. See `setShift`.
   //
-  // First, because every one of them is a verb and neither of these is that
-  // verb: a wall tool would have laid a segment, the brush a cell, the palette a
-  // fixture, and the bare press turned the camera. Both gestures are made by
-  // holding a key and clicking several times, and each of those clicks has to be
-  // *only* the gesture — one that also built something would make it unusable in
-  // exactly the mode you use it in.
+  // First, because every one of those drags is a verb and neither of these is
+  // that verb: a wall tool would have laid a segment, the brush a cell, the
+  // palette a fixture, and the bare press turned the camera. Both gestures are
+  // made by holding a key and clicking several times, and each of those clicks
+  // has to be *only* the gesture — one that also built something would make it
+  // unusable in exactly the mode you use it in.
+  //
+  // Ctrl is asked FIRST, so Ctrl+Shift together is a demolition rather than an
+  // ambiguity. That ordering is also what keeps the pair from having to know
+  // about each other anywhere else.
   //
   // Consumed whole (no capture, no `drag`, no hold timer) so the release is not
   // also a tap: `tapAtPointer` would walk you to the last shelf you picked.
   //
-  // The key is read off the EVENT and pushed into the flag, not the other way
-  // round: a Shift pressed while another window had the keyboard never reached
-  // the key handler, and a press that demolished something the hover had not
-  // gone red on is the green-ghost bug with a bill attached.
-  if (e.shiftKey && !ui.holding) {
-    setShift(true);
+  // Each key is read off the EVENT and pushed into its flag, not the other way
+  // round: a modifier pressed while another window had the keyboard never
+  // reached the key handler, and a press that demolished something the hover had
+  // not gone red on is the green-ghost bug with a bill attached.
+  if ((e.ctrlKey || e.metaKey) && !ui.holding) {
+    setRaze(true);
     const aim = razeAim(e.clientX, e.clientY);
     if (aim) { doRaze(aim); return; }
     // Nothing to get rid of, and the bar is up: the press is spent. Falling
-    // through would be the one Shift-click in the mode that BUILDS something,
+    // through would be the one Ctrl-click in the mode that BUILDS something,
     // which is the outcome a near miss must never have.
     if (ui.paletteArmed) return;
-    // ...and with the bar down it is the selection, exactly as it was. Missing
-    // the fixtures entirely does nothing at all — it is not "deselect", because
-    // the ordinary press already means that and this one is meant to be safe to
-    // repeat.
+  }
+  if (e.shiftKey && !ui.holding) {
+    setShift(true);
+    // The selection, with the bar up or down — which is the half that changed
+    // when the bulldozer moved off this key. Missing the fixtures entirely does
+    // nothing at all: it is not "deselect", because the ordinary press already
+    // means that and this one is meant to be safe to repeat.
     const pick = pickTarget(e.clientX, e.clientY);
     if (pick) {
       ui.togglePicked(pick);
       scene.ripple(pick.x, pick.z, 'miss');
       return;
     }
+    // ...and a miss with the palette up is still spent, for the reason above
+    // said about the other key: a shift-click that quietly bought a shelf is
+    // the worst possible answer to "I meant to add that one to the selection".
+    if (ui.paletteArmed) return;
   }
 
   // A wall tool takes the drag before the camera sees it — unless the
@@ -3753,7 +3849,14 @@ function pickWay(cx, cy, blocked = false) {
   // this function runs. Asking it here would offer a doorway through a stack of
   // crates on every press.
   if (scene.pickPallet(cx, cy)) return null;
-  const seg = scene.pickEdge(cx, cy);
+  // The wall's own surface where the ray met one, and the lattice guess where it
+  // did not — `pickFaceHit`'s split, and it matters here for the reason it
+  // matters to the paint brush: a wall pointed at in ELEVATION puts `pickEdge`'s
+  // ground hit a line or more behind it, so a menu opened off the guess is the
+  // menu for the wall next door. The side comes back with it and is dropped —
+  // an opening has one menu, whichever face you were looking at.
+  const face = scene.pickFaceHit(cx, cy)?.face ?? null;
+  const seg = face ? { o: face.o, x: face.x, z: face.z } : null;
   return seg && hasEdgeMenu(scene.storeLayout, seg) ? seg : null;
 }
 
@@ -4896,8 +4999,18 @@ function openAtPointer(cx, cy) {
     ? null : aimPerson(cx, cy);
   if (who?.hire) { showWorker(ui, who.hire); return true; }
 
-  const over = pickTarget(cx, cy);
-  if (over && !ui.demolishArmed()) {
+  const hit = pickAimed(cx, cy);
+  const over = hit?.f ?? null;
+  // A WALL THE RAY MET IN FRONT OF THE UNIT BESIDE IT wins the press — see
+  // `wallInFront`, and the hover draws its bar under exactly this rule. It only
+  // stands the fixture down, and the way branch below is what opens it; and only
+  // where the wall has a menu at all, which is the half that keeps this cheap. A
+  // bare wall in front of a shelf leaves the shelf openable, so this can never do
+  // more than hand a press to a wall you could see and could not otherwise reach.
+  const frontWall = over
+    && wallInFront(scene.pickFaceHit(cx, cy)?.dist ?? null, hit.dist ?? null)
+    ? pickWay(cx, cy) : null;
+  if (over && !frontWall && !ui.demolishArmed()) {
     // Selected as well as opened, or the hold is a *worse* way in than the two
     // taps it exists to replace: R and M act on the selection, so a menu opened
     // without one would leave the keys pointing at whatever you last tapped.
@@ -5094,7 +5207,21 @@ function tapAtPointer(cx, cy) {
     // you". A press that opens a panel must not flash the going colour.
     const hit = pickAimed(cx, cy);
     const over = hit?.f ?? null;
-    if (over) {
+    // ...and the wall in front of it, which HAS to be asked here as well as in
+    // the hold: the amber bar the hover draws is a promise about this press, and
+    // it is drawn under `wallInFront` now (see `blockedByFixture`), so a tap that
+    // still gave the unit behind the wall the press would be the two of them
+    // disagreeing about the same pixel.
+    //
+    // It STANDS THE FIXTURE DOWN rather than acting, and the way branch further
+    // down does the rest — that branch owns the ripple and the shut-it-again
+    // toggle, and a second copy of them here would be a doorway you could open
+    // and not close. Only where the wall produced a menu, so a bare wall in front
+    // of a shelf leaves the shelf tappable.
+    const frontWall = over
+      && wallInFront(scene.pickFaceHit(cx, cy)?.dist ?? null, hit.dist ?? null)
+      ? pickWay(cx, cy) : null;
+    if (over && !frontWall) {
       // With an armful of stock, pointing at a shelf is an errand and not a
       // question — so it goes, the same as pointing at the floor does. This is
       // the one branch where "a prop opens, the floor takes you somewhere"

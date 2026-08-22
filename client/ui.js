@@ -248,7 +248,7 @@ export class UI {
     this.picked = [];
     /** Is Shift down over a selection? Then the shop shows what else is like it. */
     this.kinOn = false;
-    /** ...and with the bar up, what Shift is about to demolish — see `setRazeAim`. */
+    /** ...and with the bar up, what Ctrl is about to demolish — see `setRazeAim`. */
     this.razeAim = null;
     this.buildOn = false;
     this.buildTool = 'shelf';
@@ -1821,7 +1821,7 @@ export class UI {
       // the red frame you only see once you are already holding the key — so the
       // only place it can be learned is a line you read before pressing anything.
       return {
-        text: 'Nothing armed — pick something below to build it · hold Shift to demolish',
+        text: 'Nothing armed — pick something below to build it · hold Ctrl to demolish, Shift to select',
         linger: true,
       };
     }
