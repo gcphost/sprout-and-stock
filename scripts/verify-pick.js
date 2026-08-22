@@ -72,7 +72,7 @@ const SHOP = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
  * `fresh()`'s usual list plus `shell`, for the reason CLAUDE.md gives: a sweep
  * that leaves a shell behind asks a 10×9 shop to hold a 10×11 shop's shelving.
  */
-function fresh() {
+function fresh(want = SHOP) {
   const g = Game.create({ worldId: 'verify-pick', seed: 'pick', ephemeral: true });
   g.placements = [];
   g.grow = { w: 0, h: 0 };
@@ -80,7 +80,7 @@ function fresh() {
   g.edits = [];
   g.shell = null;
   g.ownedUpgrades = [];
-  g.regenerateLayout(null, {}, { want: SHOP });
+  g.regenerateLayout(null, {}, { want });
   g.cash = 20000;
   g.freezeShell();
   g.addPlayer('me', 'Tester');
@@ -273,6 +273,134 @@ const shelvesOf = (g) => g.layout.shelves.filter((s) => s.kind === 'shelf');
   check(threw, 'a hold does not swallow what was thrown inside it');
   eq((g.layoutVersion ?? 0) - before, 1, 'and the re-flow it was holding still happens');
   eq(g.reflowHold, null, 'and the hold is let go of');
+}
+
+// ---------------------------------------------------------------------------
+// 7. A selection torn out, and the guard that reads the SHOP rather than the
+//    unit.
+//
+// Removal is the one bulk verb that destroys something, and it is the one whose
+// refusal is a fact about the whole building: "you need at least one till".
+// Every other verb in here moves no tile, which is what makes `holdReflow` safe
+// — each one looks its own fixture up against a layout that is still true. A
+// removal makes it stale by construction: the tills this batch has already torn
+// out are still standing in `layout.checkouts`, so three picked in a shop with
+// three passes the guard three times and leaves a shop that cannot take money.
+//
+// Nothing about that is visible. The tills are gone, which is what you asked
+// for; what you find out later is that shoppers queue at nothing. Its pair is
+// that the batch does not simply refuse instead — two of the three must go, or
+// the guard is a shop you can never rearrange the front of.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const shelves = shelvesOf(g).slice(0, 3).map((s) => s.id);
+  const control = shelvesOf(g)[3].id;
+  const cash = g.cash;
+  const before = g.layoutVersion ?? 0;
+
+  g.log = [];
+  let back = 0;
+  const res = g.bulkFixtures(shelves, (id) => {
+    const r = g.removeFixture('me', id);
+    if (r?.ok) back += r.refund ?? 0;
+    return r;
+  }, (n) => `Removed ${n} fixtures.`);
+  check(res.ok, 'a bulk removal is accepted', res.error ?? '');
+  eq(res.done, 3, 'and tears out every one of them');
+  eq(fixturesOf(g.layout).filter((f) => shelves.includes(f.id)).length, 0,
+    'none of the three is standing afterwards');
+  check(!!g.findFixture(control), 'and the one nobody picked still is');
+  eq((g.layoutVersion ?? 0) - before, 1, 'three removed, ONE re-flow');
+  eq(g.log.length, 1, 'and one line in the feed');
+  // The money is the half of a removal you cannot see afterwards, so it is the
+  // half worth asserting: three refunds, arrived at from the cash rather than
+  // from the sum that reported them.
+  check(back > 0 && Math.abs((g.cash - cash) - back) < 0.005,
+    'the refunds all landed', `${back} vs ${g.cash - cash}`);
+}
+
+{
+  // Three tills, all picked. Two go, one is refused, and the refusal is the
+  // batch's rather than the shop's: `bulkFixtures` reports a partial run as an
+  // `ok` that says what it could not do.
+  const g = fresh({ ...SHOP, checkout: 3 });
+  const tills = g.layout.checkouts.map((c) => c.id);
+  eq(tills.length, 3, 'the test shop has three tills');
+
+  g.log = [];
+  const res = g.bulkFixtures(tills, (id) => g.removeFixture('me', id),
+    (n) => `Removed ${n} fixtures.`);
+  check(res.ok, 'a batch that can only partly run still runs', res.error ?? '');
+  eq(res.done, 2, 'two of the three tills go');
+  eq(g.layout.checkouts.length, 1, 'and the shop is left with one to take money at');
+  check(/till/.test(res.error ?? ''), 'and the reason the third stayed is on the result',
+    res.error ?? '');
+
+  // ...and the last one alone is the old refusal exactly, which is the control
+  // that says this is a batch rule rather than a new one.
+  const lone = g.removeFixture('me', g.layout.checkouts[0].id);
+  check(!lone.ok, 'the last till on its own is still refused', JSON.stringify(lone));
+  eq(g.layout.checkouts.length, 1, 'and is still standing');
+}
+
+// ---------------------------------------------------------------------------
+// 8. The ladder, both ways, over a selection — and each unit on its OWN rung.
+//
+// A rung is priced per piece and per tier, so six units standing at three
+// different tiers is six different prices. The failure this is written against
+// is the one that looks right: a batch that charged the FIRST unit's price six
+// times, or that stepped every one of them to the same tier, comes back with
+// six upgraded fixtures and a shop that is quietly poorer or richer than it
+// should be — and there is nothing on screen to compare it against.
+//
+// So the assertion is arithmetic on what each rung says it costs, gathered
+// before the batch runs, and the control is the round trip: up and back down
+// must always LOSE money, or a selection is a way to print it two keys at a
+// time.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const picked = shelvesOf(g).slice(0, 3).map((s) => s.id);
+  // Only the ones that have somewhere to climb — an authored ladder is content,
+  // and a sweep that assumed one would pass or fail on the catalogue.
+  const climbers = picked.filter((id) => g.nextTier(g.findFixture(id)));
+  if (climbers.length < 2) {
+    console.log('   (no shelf tier authored — the ladder batch is not measurable here)');
+  } else {
+    const owed = climbers.reduce((n, id) => n + (g.nextTier(g.findFixture(id)).cost ?? 0), 0);
+    const cash = g.cash;
+    const before = g.layoutVersion ?? 0;
+
+    g.log = [];
+    const res = g.bulkFixtures(climbers, (id) => g.upgradeFixture('me', id),
+      (n) => `Upgraded ${n} fixtures.`);
+    check(res.ok, 'a bulk upgrade is accepted', res.error ?? '');
+    eq(res.done, climbers.length, 'and climbs every one of them');
+    // Each at its own price. Summed from the rungs rather than from the result,
+    // or the assertion is the batch agreeing with itself.
+    check(Math.abs((cash - g.cash) - owed) < 0.005,
+      'and charges each one its own rung', `${cash - g.cash} vs ${owed}`);
+    eq((g.layoutVersion ?? 0) - before, 1, 'three upgraded, ONE re-flow');
+    eq(g.log.length, 1, 'and one line in the feed');
+
+    // ...and back down. The ids were re-minted by the re-flow, which is the
+    // whole reason a client cannot do this by sending N messages — so they are
+    // read off the layout again rather than reused.
+    const up = fixturesOf(g.layout).filter((x) => x.kind === 'shelf' && g.prevTier(x));
+    check(up.length >= climbers.length, 'the upgraded units are standing on a rung',
+      `${up.length}`);
+    const mid = g.cash;
+    const down = g.bulkFixtures(up.slice(0, climbers.length).map((x) => x.id),
+      (id) => g.downgradeFixture('me', id), (n) => `Stepped ${n} back.`);
+    check(down.ok, 'a bulk downgrade is accepted', down.error ?? '');
+    eq(down.done, climbers.length, 'and steps every one of them back');
+    check(g.cash > mid, 'the refunds landed', `${mid} → ${g.cash}`);
+    // The control, and the one claim here that is about money rather than about
+    // rungs: a circuit up and back must never come out ahead.
+    check(g.cash < cash, 'and a round trip up and back always loses money',
+      `${cash} → ${g.cash}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

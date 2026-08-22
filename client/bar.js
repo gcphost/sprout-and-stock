@@ -207,8 +207,15 @@ export function renderBar(el, {
     if (razer) {
       el.raze.className = `tool raze${razer.id === picked ? ' on' : ''}`;
       el.raze.title = razer.title ?? razer.name;
-      setHtml(el.raze, `<span class="ico">${razer.icon}</span>`
-        + `<span class="nm">${esc(razer.name)}</span>`);
+      // The glyph alone. Every other tile is a picture of a thing you have never
+      // seen before and needs its name under it; this is one verb that is always
+      // in the same place, so the word was costing the width of a tile to say
+      // something you learn once — and what that width bought was an overlap
+      // with the last entry of the run. The name is still on the button, as its
+      // `title` and its label, so it is a hover away and a screen reader reads
+      // it: what went is the pixels, not the word.
+      el.raze.setAttribute('aria-label', razer.name);
+      setHtml(el.raze, `<span class="ico">${razer.icon}</span>`);
       el.raze.onclick = () => onPick(razer);
     }
   }

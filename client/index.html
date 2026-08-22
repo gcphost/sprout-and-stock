@@ -1946,6 +1946,90 @@
     #boardtip .bt-sub .full { color: var(--warn); opacity: 1; }
     #boardtip .bt-sub .bt-dot { opacity: .4; }
 
+    /* ---- the held-Alt overlay ---------------------------------------------
+       The same card as `#boardtip`, said about every unit at once instead of
+       about the one under the pointer — which is the whole design of it. The
+       hover card already answers "what is this heap, how much of it, what does
+       it cost", and that is exactly the question the overlay asks of the shop:
+       building a second readout would be a second thing to keep in step with
+       the item art, and a worse one, because this one has already been read.
+
+       The first version drew the item's own MODEL in a thought bubble in the
+       world, and it was the right instinct and the wrong readout: three loaves,
+       three bottles and three jars are three pale shapes half a tile across at
+       this camera, and the bubble round each of them is the same white sphere.
+       You could see there was something over every unit and not what.
+
+       ONE CARD PER UNIT, its boards as rows. It was a full-size card per BOARD
+       for a while, on the argument that a shelf holding three things is the
+       case the overlay is for and one card would answer "which of them" with
+       whichever the snapshot listed first. That argument is right and the
+       answer was wrong: three cards spread sideways are wider than the unit
+       they name, so on a three-tile aisle pitch they overlap each other and
+       then the units either side, and a furnished shop is a hundred cards in a
+       heap — which loses the one thing the key is for, which is reading the
+       SHOP.
+
+       A board is the item's ART and how much of it, and nothing else. The hover
+       card's name and price are the right answer for one heap under a pointer
+       and noise thirty times over: the name is what the art already says, and
+       the price is a question you ask of one shelf you have decided to look at
+       rather than of a whole shop at a glance. There is no unit name either,
+       because the unit is directly beneath it.
+
+       Which is what lets the boards run ACROSS the card rather than down it. A
+       pair of cells is narrow, so three of them side by side are still narrower
+       than one of the cards this replaced — and a wide, one-line card is the
+       shape that fits over a unit at this camera, where a tall one stands up
+       into the aisle behind and reads as belonging to whatever is up there. The
+       hairline is what keeps three boards from reading as one long number.
+
+       Three differences from the hover card and all of them fall out of there
+       being many. Everything is a size or two down, because there can be one of
+       these over every unit in the building at once. They are **centred on the
+       unit** rather than offset from a cursor (`translate(-50%,-100%)`), since
+       there is no pointer to avoid. And they do not transition: thirty cards
+       easing in as a key goes down is a shop that shimmers, where one card
+       easing in under a pointer is the point — and `declutterPeek` moves a card
+       on the frame something in front of it changes size, which a transition
+       would turn into a drift with nothing causing it on screen. */
+    #peek { pointer-events: none; z-index: 11; }
+    #peek .pk-card {
+      position: fixed; left: 0; top: 0; will-change: transform;
+      transform: translate(-50%, -100%);
+      background: rgba(58,49,40,.9); color: #fff;
+      border-radius: 8px; padding: 3px 6px;
+      box-shadow: 0 5px 14px rgba(58,49,40,.26);
+      white-space: nowrap; line-height: 1.2;
+      display: flex; align-items: center; gap: 6px;
+    }
+    /* One board: its art and its count, side by side. */
+    #peek .pk-row { display: flex; align-items: center; gap: 4px; }
+    /* A hairline between boards rather than more space, because space is the
+       thing the card is short of and two boards a gap apart read as two cards
+       once they are over a shelf rather than on a panel. */
+    #peek .pk-row + .pk-row {
+      padding-left: 6px; border-left: 1px solid rgba(255,252,245,.18);
+    }
+    #peek .bt-ico {
+      flex: none; width: 17px; height: 17px; padding: 2px;
+      border-radius: 5px; background: rgba(255,252,245,.16);
+    }
+    #peek .bt-ico > svg { width: 100%; height: 100%; display: block; }
+    /* An item with no art keeps its SLOT and loses its plaque, so the boards
+       either side of it do not close up over a gap that means something. */
+    #peek .bt-ico:empty { background: none; }
+    #peek .bt-sub { font-size: 10px; font-weight: 700; opacity: .72; }
+    /* Full boards say so, because "8/8" is why the van's crate is still on the
+       pad. `--warn` rather than the alarm colour: a full shelf is a good
+       problem. */
+    #peek .bt-sub.full { color: var(--warn); opacity: 1; }
+    /* A board that is reserved and EMPTY is the hardest thing in the shop to
+       find out about, and it is the case this key exists for — so it says so in
+       words rather than showing "0/8" and leaving you to work out that the zero
+       is a plan rather than a problem. */
+    #peek .pk-row.pk-want .bt-sub { color: var(--warn); opacity: .95; }
+
     /* toast */
     /* Just below #hq's single strip. */
     #toast {
@@ -3044,13 +3128,22 @@
       max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       font-size: 9.5px; font-weight: 700; letter-spacing: -.01em;
     }
-    html.can-hover .fx-verb:hover { opacity: 1; background: rgba(58,49,40,.07); }
-    html.can-hover .fx-verb.danger:hover { background: rgba(190,60,45,.12); color: var(--accent); }
+    /* `:not(.off)` on both, which is the whole of what makes the grey mean
+       anything. The hover sets `opacity: 1` and outranks `.fx-verb.off`'s .25 on
+       specificity, so a refused square LIT UP under the pointer — brighter than
+       its neighbours, wearing the same lift every live verb wears, over a press
+       `disabled` then swallows. A button that looks pressable and is not is the
+       green-ghost rule wearing a hover. */
+    html.can-hover .fx-verb:not(.off):hover { opacity: 1; background: rgba(58,49,40,.07); }
+    html.can-hover .fx-verb.danger:not(.off):hover {
+      background: rgba(190,60,45,.12); color: var(--accent);
+    }
     /* Refused, not missing. It keeps its place in the row so the four you can
        press never shuffle sideways under your thumb, and `disabled` is what
-       stops the press — greying without it is a button that lies. */
+       stops the press — greying without it is a button that lies. The `title` is
+       deliberately still there: the pointer gets no feedback from the square, so
+       the tooltip is the only thing that says WHY. */
     .fx-verb.off { opacity: .25; cursor: default; }
-    html.can-hover .fx-verb.off:hover { background: transparent; }
     /* A verb that is a TOGGLE, and currently on. Amber rather than the accent
        `armed` uses: red is "one press from something you cannot undo", and a
        camera that is following somebody is neither a warning nor a decision —
@@ -3767,25 +3860,62 @@
 
        Armed, it wears `.tool.on` like any other entry: it IS an entry, drawn
        from the same row, and a bulldozer that looked different armed would be
-       two vocabularies for one state. */
-    #build-raze {
-      position: absolute; right: 4px; bottom: 6px; z-index: 3;
-      width: 52px; min-width: 52px; max-width: 52px;
-      box-shadow: 0 2px 10px rgba(58,49,40,.28), inset 0 0 0 1px rgba(58,49,40,.10);
+       two vocabularies for one state.
+
+       IT IS PINNED TO THE ROW, NOT TO THE CORNER, and that is the whole of what
+       "it feels out of place" turned out to be. Bottom-anchored and sized by its
+       own contents, it agreed with the tiles on exactly one edge: a tile that
+       carries a price is three lines tall and this is two, so the shorter button
+       hung 22px below their tops with its label sitting under theirs — near
+       enough to read as a mistake rather than as a decision, which is the worst
+       distance for two things to be apart. Both edges now (`top` AND `bottom`),
+       so the strip's own height is what sizes it and the well takes up the
+       slack: whatever tab you are on, the run and the button start and stop on
+       the same two lines.
+
+       WHAT CAME OFF IT WAS WIDTH, NOT HEIGHT. It is the GLYPH ALONE (see
+       `bar.js`), so there is no name to leave room for and nothing under the bin
+       — one verb in one place that you learn once, against tiles that are each a
+       picture of a thing you may never have seen plus what it costs.
+
+       It is still a BUTTON — same ground, same ring, same shadow as any tile,
+       and it wears `.tool.on` armed like one. Only the width moved.
+
+       IT HAS TO OUTRANK `#build:not(.browse) .tool`, and that is the whole
+       reason this took five goes. That rule sizes every tile in the build bar
+       (66px square, 4px padding, a 38px well) and it is an id PLUS two classes,
+       so it beats a bare `#build-raze` on every property they share — width,
+       padding and the well's height among them. What that looks like from the
+       outside is a stylesheet that ignores you: the numbers here change, the
+       button does not, and nothing anywhere errors. Anything this button needs
+       to differ from a tile on has to be written against the same prefix. */
+    #build:not(.browse) #build-raze {
+      position: absolute; right: 5px; top: 3px; bottom: 6px; z-index: 3;
+      width: 38px; min-width: 38px; max-width: 38px; padding: 5px 0;
+      box-shadow: 0 2px 8px rgba(58,49,40,.2), inset 0 0 0 1px rgba(58,49,40,.10);
+    }
+    /* The well fills whatever height the row is, since there is no name under it
+       to leave room for — and `.tool .ico`'s fixed 38px comes from that same
+       higher-specificity block, so this has to be written the same way. */
+    #build:not(.browse) #build-raze .ico {
+      flex: 1; width: 100%; height: auto; border-radius: 9px;
+      font-size: 17px; color: var(--accent);
     }
     #build-raze[hidden] { display: none; }
     /* ...and the right-hand nudge steps aside for it, or the two share a corner
        and the arrow that says "more this way" is drawn on top of the button that
        is not part of the run. Only where there is a bulldozer: a browse bar has
        none and keeps its arrow in the corner. */
-    #build:not(.browse) #build-on { right: 62px; }
-    #build-raze .nm { color: var(--accent); }
-    #build-raze .ico { height: 30px; font-size: 16px; }
+    #build:not(.browse) #build-on { right: 48px; }
+    /* The colour moved onto the glyph when the word went. Something in here has
+       to say this press destroys — it is the one entry on the strip that takes
+       a thing away rather than putting one down, and a grey bin among cream
+       tiles is a tidy-up. */
     /* ...and the room it takes out of the run. `padding-right` rather than a
        margin on the last tile: the strip is a scroller, so what has to grow is
        the scrollable box, or the end of the run simply sits under the button
        with no way to bring it out. */
-    #build:not(.browse) #build-tools { padding-right: 62px; }
+    #build:not(.browse) #build-tools { padding-right: 48px; }
     /* An entry, and it is a slot rather than a line of text: the thing itself in
        a recessed well, its name under it, what it costs under that. Sized by a
        floor and a ceiling rather than its contents — a person's note is
@@ -4317,7 +4447,29 @@
        than hidden, because a Redo that disappears the moment you build something
        new is a control that moves under the thumb already on its way to it,
        which is the same complaint the comment above settles for `#rotbtn`. */
-    #undobtn, #redobtn {
+    /* ---- ...and picking several, which has no key at all ------------------
+       Undo at least HAS a desktop spelling that a thumb is missing. Shift does
+       not: there is no Shift on a phone, so picking more than one thing was not
+       a control that was awkward to reach, it was a feature that did not exist
+       on the device — and with it went the whole of bulk Remove, which is the
+       press a selection is for.
+
+       So `#pickbtn` is a latch rather than a modifier, because that is what a
+       modifier becomes when there is no second hand to hold it: press it and
+       taps add and drop fixtures, press it again and they open menus. Which is
+       why it is the one button in this stack with an ON look — a latch you
+       cannot see the state of is a mode, and a mode nothing announces is the
+       complaint `paletteArmed` settles for the palette.
+
+       `#delbtn` under it, and directly above nothing by accident: Undo is two
+       buttons up. Tearing out six shelves is the most expensive press on this
+       screen and the way back from it is under the same thumb.
+
+       Same 38px and the same 46px pitch as undo/redo, continuing the one
+       column rather than starting a second — four round buttons down an edge is
+       already a toolbar, and a fifth in a new place would read as a different
+       kind of thing. */
+    #undobtn, #redobtn, #pickbtn, #delbtn {
       width: 38px; height: 38px; border-radius: 50%; border: 0;
       background: var(--panel-solid); color: var(--ink);
       box-shadow: 0 4px 14px rgba(58,49,40,.3);
@@ -4327,10 +4479,55 @@
     }
     #undobtn { top: calc(50% + 33px); }
     #redobtn { top: calc(50% + 79px); }
-    #undobtn.show, #redobtn.show { display: flex; }
-    #undobtn svg, #redobtn svg { width: 20px; height: 20px; }
-    #undobtn.off, #redobtn.off { opacity: .38; pointer-events: none; }
-    #undobtn:active, #redobtn:active { transform: scale(.94); background: #ffd66b; }
+    #pickbtn { top: calc(50% + 125px); }
+    #delbtn { top: calc(50% + 171px); }
+    #undobtn.show, #redobtn.show, #pickbtn.show, #delbtn.show { display: flex; }
+    #undobtn svg, #redobtn svg, #pickbtn svg, #delbtn svg { width: 20px; height: 20px; }
+    #undobtn.off, #redobtn.off, #pickbtn.off, #delbtn.off { opacity: .38; pointer-events: none; }
+    #undobtn:active, #redobtn:active, #pickbtn:active, #delbtn:active {
+      transform: scale(.94); background: #ffd66b;
+    }
+    /* The same lit yellow `.sec-row.picked` and the build bar's armed slot wear,
+       so "this one is on" means one thing everywhere in the game. */
+    #pickbtn.on { background: #ffd66b; box-shadow: 0 0 0 2px #e0a92b, 0 4px 14px rgba(58,49,40,.3); }
+    /* Destructive, and it is the only button on this screen that cannot be
+       taken back by pressing it again — so it says so before it is pressed
+       rather than after. The same red the fixture menu's own Remove square
+       uses. */
+    #delbtn { color: #a8442f; }
+
+    /* ---- the camera, for a thumb ------------------------------------------
+       Turning the view is `,` and `.`, and putting it back is walking anywhere
+       (`recentre`). A phone has neither: the twist is a two-finger gesture on a
+       surface where one thumb is doing everything, and "walk somewhere to get
+       your camera back" is not a thing anybody works out. So the two controls
+       that are only a convenience on a desktop are the whole of how you look
+       around here.
+
+       Under `#rotbtn` and mirroring undo/redo exactly — same 38px, same 33/79
+       offsets, same edge-inset arithmetic (12 + (46 - 38) / 2) so all three
+       columns line up on their own centre line. The right edge because turning
+       the view and turning a fixture are the same *kind* of press and belong
+       under one thumb, and because the left column is already three deep.
+
+       Shown wherever the pill drives and NOT only in build mode, which is the
+       one way these differ from every other button in this stack: looking round
+       the shop is not a mode. The gap above them while `#rotbtn` is hidden is
+       deliberate — a button that slid up the screen when you left build mode
+       would be the moving control `#rotbtn`'s own comment is written against. */
+    #viewbtn, #homebtn {
+      width: 38px; height: 38px; border-radius: 50%; border: 0;
+      background: var(--panel-solid); color: var(--ink);
+      box-shadow: 0 4px 14px rgba(58,49,40,.3);
+      display: none; align-items: center; justify-content: center;
+      pointer-events: auto; cursor: pointer; padding: 0; right: 16px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #viewbtn { top: calc(50% + 33px); }
+    #homebtn { top: calc(50% + 79px); }
+    #viewbtn.show, #homebtn.show { display: flex; }
+    #viewbtn svg, #homebtn svg { width: 20px; height: 20px; }
+    #viewbtn:active, #homebtn:active { transform: scale(.94); background: #ffd66b; }
 
     /* ---- the award card ---------------------------------------------------
        The one thing on screen that is allowed to look like a game rather than
@@ -5252,8 +5449,46 @@
       <path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>
     </svg>
   </button>
+  <!-- Picking several, and getting rid of them. The marquee corners with a tick
+       is a shape people know from every editor; the bin is `ICONS.remove`, set
+       from `ui.js` so this button and the fixture menu's own Remove square are
+       one glyph rather than two drawings of a bin. -->
+  <button id="pickbtn" class="hud" type="button" aria-pressed="false"
+          aria-label="Pick several">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 8.5V5.6A1.6 1.6 0 0 1 5.6 4h2.9M15.5 4h2.9A1.6 1.6 0 0 1 20 5.6v2.9"/>
+      <path d="M20 15.5v2.9a1.6 1.6 0 0 1-1.6 1.6h-2.9M8.5 20H5.6A1.6 1.6 0 0 1 4 18.4v-2.9"/>
+      <path d="m8.8 12.2 2.4 2.4 4.6-5"/>
+    </svg>
+  </button>
+  <button id="delbtn" class="hud" type="button" aria-label="Remove what is picked"></button>
+  <!-- The camera, on the thumb that is not building. Same reason the two above
+       are inline: neither glyph is in the fetched set, and both are three path
+       commands. The crosshair is `locate` rather than a house on purpose — the
+       button puts the camera back on YOU, and a house is where a home button
+       usually goes, which is nowhere in this shop. -->
+  <button id="viewbtn" class="hud" type="button" aria-label="Turn the view">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>
+    </svg>
+  </button>
+  <button id="homebtn" class="hud" type="button" aria-label="Centre the view on you">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.6"/>
+      <path d="M12 2.5v3.2M12 18.3v3.2M2.5 12h3.2M18.3 12h3.2"/>
+    </svg>
+  </button>
   <div id="prompt" class="hud"></div>
   <div id="boardtip" class="hud"></div>
+  <!-- Every unit's card at once, while Alt is held. Its own layer rather than
+       cards parented to anything, because they are pinned to the WORLD: each is
+       positioned every frame from `scene.worldToScreen`, and a layer that
+       scrolled or transformed underneath them would move them off the shelves
+       they name. -->
+  <div id="peek" class="hud"></div>
   <div id="toast" class="hud"></div>
 
   <div id="build" class="hud">

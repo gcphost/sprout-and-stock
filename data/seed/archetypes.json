@@ -15,7 +15,9 @@
       "household": 0.6,
       "condiment": 0.3,
       "pantry": 0.6,
-      "meat": 0.4
+      "meat": 0.4,
+      "nostalgic": 0.4,
+      "vegetarian": 0.2
     },
     "price_sensitivity": 0.9,
     "patience": 70,
@@ -63,8 +65,8 @@
     "affinities": {
       "cheap": 1.4,
       "snack": 1.6,
-      "sweet": 1.2,
-      "produce": 0.6
+      "produce": 0.6,
+      "candy": 1.2
     },
     "price_sensitivity": 0.9,
     "patience": 35,
@@ -95,7 +97,9 @@
       "junk": -0.2,
       "prepared": 0.5,
       "household": 0.5,
-      "condiment": 0.5
+      "condiment": 0.5,
+      "lunch": 0.4,
+      "party": 0.4
     },
     "price_sensitivity": 0.55,
     "patience": 85,
@@ -122,7 +126,9 @@
       "generic": -0.7,
       "junk": -0.5,
       "prepared": 0.4,
-      "meat": 0.4
+      "meat": 0.4,
+      "viral": 0.5,
+      "lunch": 0.3
     },
     "price_sensitivity": 0.1,
     "patience": 120,
@@ -146,7 +152,8 @@
       "artisanal": 0.5,
       "holiday": 0.7,
       "junk": -0.6,
-      "bulky": -0.4
+      "bulky": -0.4,
+      "party": 0.5
     },
     "price_sensitivity": 0.2,
     "patience": 80,
@@ -172,7 +179,8 @@
       "vegan": 0.6,
       "gluten-free": 0.4,
       "junk": -1,
-      "frozen": -0.3
+      "frozen": -0.3,
+      "vegetarian": 0.7
     },
     "price_sensitivity": 0.25,
     "patience": 90,
@@ -204,7 +212,9 @@
       "luxury": -0.4,
       "prepared": 0.5,
       "pantry": 0.4,
-      "meat": 0.3
+      "meat": 0.3,
+      "nostalgic": 0.5,
+      "lunch": 0.4
     },
     "price_sensitivity": 0.5,
     "patience": 70,
@@ -231,7 +241,9 @@
       "beverage": 0.6,
       "produce": -0.5,
       "household": -0.2,
-      "healthy": -0.6
+      "healthy": -0.6,
+      "party": 0.6,
+      "viral": 0.7
     },
     "price_sensitivity": 0.7,
     "patience": 30,

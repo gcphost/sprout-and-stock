@@ -73,7 +73,7 @@ import { Game } from '../server/sim/index.js';
 import { writeContent, refresh, content } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
-import { canPlace, anchorTile, isWalkableTile, edgeAt, beltRunCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, tunnelExit, TUNNEL_SPAN } from '../shared/build.js';
+import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, tunnelExit, TUNNEL_SPAN } from '../shared/build.js';
 import { E, canStep, shopperCanCross } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 import { lotQty, lotTotal, lotStacks } from '../shared/lot.js';
@@ -314,7 +314,7 @@ function crateOn(g, belt, item = GOODS, qty = 4) {
 // ---------------------------------------------------------------------------
 // 1b. A drag says which way; R says the rest — and for a drag of ONE it says all.
 //
-// `beltRunCells` is pure and this is the one claim in the file that is about a
+// `runCells` is pure and this is the one claim in the file that is about a
 // gesture rather than about goods, which is why it is worth pinning here: a
 // press that never travelled has no direction in it, so the seed IS the answer,
 // and seeded at a literal 0 the one fixture whose entire point is which way it
@@ -326,7 +326,7 @@ function crateOn(g, belt, item = GOODS, qty = 4) {
 {
   const from = { x: 5, z: 5 };
   for (const rot of [0, 1, 2, 3]) {
-    const one = beltRunCells(from, from, BELT_RUN_MAX, rot);
+    const one = runCells(from, from, BELT_RUN_MAX, rot);
     eq(one.length, 1, `a press that never travelled lays one cell (rot ${rot})`);
     eq(one[0].rot, rot, `...facing the way R left it (rot ${rot})`);
   }
@@ -334,7 +334,7 @@ function crateOn(g, belt, item = GOODS, qty = 4) {
   // ...and the drag still wins wherever it has something to say. Every cell but
   // the last faces the next one whatever was armed, or turning the ghost before
   // a drag would lay a run that does not join up.
-  const east = beltRunCells(from, { x: from.x + 3, z: from.z }, BELT_RUN_MAX, 2);
+  const east = runCells(from, { x: from.x + 3, z: from.z }, BELT_RUN_MAX, 2);
   eq(east.length, 4, 'a drag of three lays four cells');
   const heads = new Set(east.slice(0, 3).map((c) => c.rot));
   eq(heads.size, 1, 'every cell but the last faces the same way');
@@ -2310,11 +2310,11 @@ function smooth(g, label, crates, ticks, at = {}) {
 {
   // An L, which is what makes a loop four drags instead of eight — and the cap,
   // which is the 4KB argument said about work rather than about bytes.
-  const bend = beltRunCells({ x: 2, z: 2 }, { x: 6, z: 4 });
+  const bend = runCells({ x: 2, z: 2 }, { x: 6, z: 4 });
   eq(bend.length, 7, 'a diagonal drag lays an L');
   check(bend.every((c, i) => i === 0 || c.x === bend[i - 1].x || c.z === bend[i - 1].z),
     '...one axis at a time');
-  eq(beltRunCells({ x: 0, z: 0 }, { x: 900, z: 0 }).length, BELT_RUN_MAX,
+  eq(runCells({ x: 0, z: 0 }, { x: 900, z: 0 }).length, BELT_RUN_MAX,
     'and a drag across the world is capped');
 }
 

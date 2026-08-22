@@ -1,5 +1,466 @@
 [
   {
+    "id": "apple-trees",
+    "name": "Apple Trees",
+    "item_id": "apple",
+    "grow_minutes": 2,
+    "yield_min": 6,
+    "yield_max": 10,
+    "seed_cost": 2,
+    "seasons": [
+      "summer",
+      "autumn"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sapling",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cylinder",
+              "color": "#6b4a2c",
+              "pos": [
+                0,
+                0.14,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.28,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Leafing",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#6b4a2c",
+              "pos": [
+                0,
+                0.22,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.44,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#4d8a44",
+              "pos": [
+                0,
+                0.5,
+                0
+              ],
+              "scale": [
+                0.34,
+                0.26,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#6b4a2c",
+              "pos": [
+                0,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.08,
+                0.52,
+                0.08
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#4d8a44",
+              "pos": [
+                0,
+                0.62,
+                0
+              ],
+              "scale": [
+                0.44,
+                0.34,
+                0.44
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#c4342e",
+              "pos": [
+                0.16,
+                0.56,
+                0.08
+              ],
+              "scale": [
+                0.11,
+                0.11,
+                0.11
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#c4342e",
+              "pos": [
+                -0.14,
+                0.6,
+                -0.1
+              ],
+              "scale": [
+                0.1,
+                0.1,
+                0.1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "berry-canes",
+    "name": "Berry Canes",
+    "item_id": "berries",
+    "grow_minutes": 1.3,
+    "yield_min": 4,
+    "yield_max": 7,
+    "seed_cost": 1.2,
+    "seasons": [
+      "summer",
+      "autumn"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Caning",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cylinder",
+              "color": "#6b8f4a",
+              "pos": [
+                0,
+                0.2,
+                0
+              ],
+              "scale": [
+                0.04,
+                0.4,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#5f9e51",
+              "pos": [
+                0.07,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.12,
+                0.05,
+                0.1
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#6b8f4a",
+              "pos": [
+                0,
+                0.26,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.52,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#5f9e51",
+              "pos": [
+                0.1,
+                0.38,
+                0.03
+              ],
+              "scale": [
+                0.15,
+                0.05,
+                0.12
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#5f9e51",
+              "pos": [
+                -0.1,
+                0.3,
+                -0.03
+              ],
+              "scale": [
+                0.14,
+                0.05,
+                0.11
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#8e3a6b",
+              "pos": [
+                0.09,
+                0.29,
+                0.02
+              ],
+              "scale": [
+                0.09,
+                0.09,
+                0.09
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#6f2c56",
+              "pos": [
+                -0.08,
+                0.22,
+                0.04
+              ],
+              "scale": [
+                0.08,
+                0.08,
+                0.08
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
     "id": "carrot-row",
     "name": "Carrot Row",
     "item_id": "carrot",
@@ -217,32 +678,34 @@
     }
   },
   {
-    "id": "chicken-coop",
-    "name": "Chicken Coop",
-    "item_id": "egg",
-    "grow_minutes": 1.4,
-    "yield_min": 5,
-    "yield_max": 9,
-    "seed_cost": 6,
-    "seasons": [],
+    "id": "chilli-row",
+    "name": "Chilli Row",
+    "item_id": "chilli",
+    "grow_minutes": 1,
+    "yield_min": 3,
+    "yield_max": 6,
+    "seed_cost": 0.7,
+    "seasons": [
+      "summer"
+    ],
     "model": {
       "stages": [
         {
-          "name": "Empty nest",
+          "name": "Sown",
           "at": 0,
           "parts": [
             {
-              "shape": "cylinder",
-              "color": "#c9a86a",
+              "shape": "sphere",
+              "color": "#8d6540",
               "pos": [
                 0,
-                0.04,
+                0.035,
                 0
               ],
               "scale": [
-                0.4,
-                0.08,
-                0.4
+                0.38,
+                0.12,
+                0.38
               ],
               "rot": 0,
               "surface": false,
@@ -250,27 +713,28 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
           ]
         },
         {
-          "name": "Hen settles",
-          "at": 0.3,
+          "name": "Bushing",
+          "at": 0.35,
           "parts": [
             {
-              "shape": "cylinder",
-              "color": "#c9a86a",
+              "shape": "sphere",
+              "color": "#8d6540",
               "pos": [
                 0,
-                0.04,
+                0.035,
                 0
               ],
               "scale": [
-                0.4,
-                0.08,
-                0.4
+                0.38,
+                0.12,
+                0.38
               ],
               "rot": 0,
               "surface": false,
@@ -278,21 +742,22 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
             {
               "shape": "sphere",
-              "color": "#f4f0e4",
+              "color": "#4d9147",
               "pos": [
                 0,
-                0.16,
+                0.15,
                 0
               ],
               "scale": [
-                0.3,
-                0.24,
-                0.34
+                0.22,
+                0.2,
+                0.22
               ],
               "rot": 0,
               "surface": false,
@@ -300,27 +765,28 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
           ]
         },
         {
-          "name": "Brooding",
-          "at": 0.65,
+          "name": "Ready",
+          "at": 1,
           "parts": [
             {
-              "shape": "cylinder",
-              "color": "#c9a86a",
+              "shape": "sphere",
+              "color": "#8d6540",
               "pos": [
                 0,
-                0.04,
+                0.035,
                 0
               ],
               "scale": [
-                0.4,
-                0.08,
-                0.4
+                0.38,
+                0.12,
+                0.38
               ],
               "rot": 0,
               "surface": false,
@@ -328,21 +794,22 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
             {
               "shape": "sphere",
-              "color": "#f4f0e4",
+              "color": "#4d9147",
               "pos": [
                 0,
-                0.18,
+                0.19,
                 0
               ],
               "scale": [
-                0.32,
                 0.28,
-                0.36
+                0.26,
+                0.28
               ],
               "rot": 0,
               "surface": false,
@@ -350,28 +817,30 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
             {
-              "shape": "sphere",
-              "color": "#f4f0e4",
+              "shape": "cone",
+              "color": "#cf2f26",
               "pos": [
-                0,
-                0.32,
-                0.12
+                0.13,
+                0.16,
+                0.06
               ],
               "scale": [
-                0.16,
-                0.16,
-                0.16
+                0.05,
+                0.2,
+                0.05
               ],
-              "rot": 0,
+              "rot": 20,
               "surface": false,
               "seam": false,
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -379,14 +848,60 @@
               "shape": "cone",
               "color": "#e2564a",
               "pos": [
-                0,
-                0.4,
-                0.12
+                -0.12,
+                0.15,
+                -0.05
               ],
               "scale": [
-                0.08,
-                0.08,
-                0.08
+                0.05,
+                0.18,
+                0.05
+              ],
+              "rot": -22,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "flower-bed",
+    "name": "Flower Bed",
+    "item_id": "flowers",
+    "grow_minutes": 1.1,
+    "yield_min": 4,
+    "yield_max": 7,
+    "seed_cost": 1.4,
+    "seasons": [
+      "spring",
+      "summer"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
               ],
               "rot": 0,
               "surface": false,
@@ -394,158 +909,148 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
-              "motion": null,
-              "tint": null
-            },
-            {
-              "shape": "cone",
-              "color": "#e8a03a",
-              "pos": [
-                0,
-                0.31,
-                0.21
-              ],
-              "scale": [
-                0.05,
-                0.07,
-                0.05
-              ],
-              "rot": 90,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "shadow": false,
-              "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
           ]
         },
         {
-          "name": "Eggs laid",
+          "name": "Budding",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cylinder",
+              "color": "#5f9e51",
+              "pos": [
+                0,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.03,
+                0.32,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#7cc46a",
+              "pos": [
+                0,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.07,
+                0.07,
+                0.07
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
           "at": 1,
           "parts": [
             {
               "shape": "cylinder",
-              "color": "#c9a86a",
+              "color": "#5f9e51",
               "pos": [
-                0,
-                0.04,
-                0
+                0.08,
+                0.2,
+                0.04
               ],
               "scale": [
+                0.03,
+                0.4,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cylinder",
+              "color": "#5f9e51",
+              "pos": [
+                -0.07,
+                0.17,
+                -0.05
+              ],
+              "scale": [
+                0.03,
+                0.34,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#e2568a",
+              "pos": [
+                0.08,
                 0.42,
-                0.08,
-                0.42
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "shadow": false,
-              "drift": false,
-              "motion": null,
-              "tint": null
-            },
-            {
-              "shape": "sphere",
-              "color": "#f4f0e4",
-              "pos": [
-                -0.05,
-                0.19,
-                -0.02
-              ],
-              "scale": [
-                0.32,
-                0.28,
-                0.36
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "shadow": false,
-              "drift": false,
-              "motion": null,
-              "tint": null
-            },
-            {
-              "shape": "sphere",
-              "color": "#f4f0e4",
-              "pos": [
-                -0.05,
-                0.33,
-                0.1
-              ],
-              "scale": [
-                0.16,
-                0.16,
-                0.16
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "shadow": false,
-              "drift": false,
-              "motion": null,
-              "tint": null
-            },
-            {
-              "shape": "cone",
-              "color": "#e2564a",
-              "pos": [
-                -0.05,
-                0.41,
-                0.1
-              ],
-              "scale": [
-                0.08,
-                0.08,
-                0.08
-              ],
-              "rot": 0,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "shadow": false,
-              "drift": false,
-              "motion": null,
-              "tint": null
-            },
-            {
-              "shape": "cone",
-              "color": "#e8a03a",
-              "pos": [
-                -0.05,
-                0.32,
-                0.19
-              ],
-              "scale": [
-                0.05,
-                0.07,
-                0.05
-              ],
-              "rot": 90,
-              "surface": false,
-              "seam": false,
-              "alpha": 1,
-              "shadow": false,
-              "drift": false,
-              "motion": null,
-              "tint": null
-            },
-            {
-              "shape": "sphere",
-              "color": "#fdfbf2",
-              "pos": [
-                0.22,
-                0.1,
-                0.06
+                0.04
               ],
               "scale": [
                 0.13,
-                0.15,
+                0.1,
                 0.13
               ],
               "rot": 0,
@@ -554,6 +1059,226 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8a03a",
+              "pos": [
+                -0.07,
+                0.36,
+                -0.05
+              ],
+              "scale": [
+                0.12,
+                0.09,
+                0.12
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "groundnut-row",
+    "name": "Groundnut Row",
+    "item_id": "groundnuts",
+    "grow_minutes": 1.2,
+    "yield_min": 4,
+    "yield_max": 8,
+    "seed_cost": 0.6,
+    "seasons": [
+      "summer",
+      "autumn"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Bushing",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#6fb75e",
+              "pos": [
+                0,
+                0.14,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.18,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.05,
+                0
+              ],
+              "scale": [
+                0.4,
+                0.16,
+                0.4
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#6fb75e",
+              "pos": [
+                0,
+                0.22,
+                0
+              ],
+              "scale": [
+                0.3,
+                0.22,
+                0.3
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "capsule",
+              "color": "#d3b183",
+              "pos": [
+                0.16,
+                0.08,
+                0.08
+              ],
+              "scale": [
+                0.06,
+                0.14,
+                0.06
+              ],
+              "rot": 70,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "capsule",
+              "color": "#c19d6d",
+              "pos": [
+                -0.15,
+                0.07,
+                -0.07
+              ],
+              "scale": [
+                0.05,
+                0.13,
+                0.05
+              ],
+              "rot": 110,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -1005,6 +1730,719 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "mustard-row",
+    "name": "Mustard Row",
+    "item_id": "mustard-seed",
+    "grow_minutes": 0.9,
+    "yield_min": 4,
+    "yield_max": 7,
+    "seed_cost": 0.5,
+    "seasons": [
+      "summer"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Stalks",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cylinder",
+              "color": "#7cb45e",
+              "pos": [
+                0,
+                0.16,
+                0
+              ],
+              "scale": [
+                0.04,
+                0.32,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#7cb45e",
+              "pos": [
+                0,
+                0.22,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.44,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#e8d45c",
+              "pos": [
+                0,
+                0.48,
+                0
+              ],
+              "scale": [
+                0.2,
+                0.12,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#d8bb5c",
+              "pos": [
+                0.1,
+                0.42,
+                0.05
+              ],
+              "scale": [
+                0.11,
+                0.08,
+                0.11
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "pea-row",
+    "name": "Pea Row",
+    "item_id": "peas",
+    "grow_minutes": 0.7,
+    "yield_min": 4,
+    "yield_max": 7,
+    "seed_cost": 0.5,
+    "seasons": [
+      "spring",
+      "summer"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Climbing",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cylinder",
+              "color": "#6fb75e",
+              "pos": [
+                0,
+                0.18,
+                0
+              ],
+              "scale": [
+                0.035,
+                0.36,
+                0.035
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "cylinder",
+              "color": "#6fb75e",
+              "pos": [
+                0,
+                0.24,
+                0
+              ],
+              "scale": [
+                0.04,
+                0.48,
+                0.04
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "capsule",
+              "color": "#8ed071",
+              "pos": [
+                0.09,
+                0.3,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.18,
+                0.05
+              ],
+              "rot": 70,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "capsule",
+              "color": "#8ed071",
+              "pos": [
+                -0.08,
+                0.22,
+                0.03
+              ],
+              "scale": [
+                0.05,
+                0.16,
+                0.05
+              ],
+              "rot": 110,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "potato-patch",
+    "name": "Potato Patch",
+    "item_id": "potato",
+    "grow_minutes": 1,
+    "yield_min": 5,
+    "yield_max": 9,
+    "seed_cost": 0.5,
+    "seasons": [
+      "spring",
+      "autumn"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Haulm",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#5f9e51",
+              "pos": [
+                0,
+                0.13,
+                0
+              ],
+              "scale": [
+                0.26,
+                0.18,
+                0.26
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.05,
+                0
+              ],
+              "scale": [
+                0.4,
+                0.16,
+                0.4
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#5f9e51",
+              "pos": [
+                0,
+                0.22,
+                0
+              ],
+              "scale": [
+                0.32,
+                0.24,
+                0.32
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#c9a172",
+              "pos": [
+                0.17,
+                0.08,
+                0.1
+              ],
+              "scale": [
+                0.13,
+                0.1,
+                0.15
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#b8906a",
+              "pos": [
+                -0.15,
+                0.07,
+                -0.09
+              ],
+              "scale": [
+                0.11,
+                0.09,
+                0.13
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "sugar-beet-row",
+    "name": "Sugar Beet Row",
+    "item_id": "sugar-beet",
+    "grow_minutes": 1.1,
+    "yield_min": 5,
+    "yield_max": 8,
+    "seed_cost": 0.5,
+    "seasons": [
+      "autumn"
+    ],
+    "model": {
+      "stages": [
+        {
+          "name": "Sown",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Leafing",
+          "at": 0.35,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cone",
+              "color": "#5f9e51",
+              "pos": [
+                0,
+                0.14,
+                0
+              ],
+              "scale": [
+                0.18,
+                0.24,
+                0.18
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "sphere",
+              "color": "#8d6540",
+              "pos": [
+                0,
+                0.035,
+                0
+              ],
+              "scale": [
+                0.38,
+                0.12,
+                0.38
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "sphere",
+              "color": "#e4dcc4",
+              "pos": [
+                0,
+                0.12,
+                0
+              ],
+              "scale": [
+                0.24,
+                0.22,
+                0.24
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "cone",
+              "color": "#5f9e51",
+              "pos": [
+                0.02,
+                0.34,
+                0
+              ],
+              "scale": [
+                0.16,
+                0.3,
+                0.16
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "shadow": false,
+              "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }

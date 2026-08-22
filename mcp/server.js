@@ -346,7 +346,7 @@ server.registerTool('create_fixture', {
     + STAGE_HELP,
   inputSchema: {
     id: z.string().describe('Slug, yours to choose, e.g. "terracotta-planter" or "chiller-shelf". Reuse one to update it.'),
-    kind: z.enum(['shelf', 'freezer', 'checkout', 'station', 'plot', 'prop-floor', 'prop-ceiling', 'floor', 'road', 'path', 'bay', 'drop', 'break', 'park', 'paint'])
+    kind: z.enum(['shelf', 'freezer', 'warmer', 'checkout', 'station', 'plot', 'pen', 'bin', 'prop-floor', 'prop-ceiling', 'floor', 'road', 'path', 'bay', 'drop', 'break', 'park', 'paint'])
       .describe('Which build rules it plays by. Closed set — this is not a way to invent kinds.'),
     name: z.string().describe('Display name, e.g. "Shelving". This is what the build palette calls it.'),
     model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except GROUND (floor, road, bay, drop, break, park), which has no model. ' + STAGE_HELP),
@@ -363,6 +363,11 @@ server.registerTool('create_fixture', {
       cash: z.number().min(0).max(500).describe('How much money one payout is.'),
       every: z.number().min(1).max(1440).default(60).describe('In-game MINUTES between payouts. A day is 24x60 of these.'),
     }).optional().describe('Makes this piece EARN. It pays into a pile of cash on the floor that somebody has to walk over and collect \u2014 the same entity a till drops, so it renders, is picked up and is tidied away by code that already exists. Money you have to fetch is a decision; money that appears in the bank is a trickle nobody sees. Run `simulate` after authoring one: this is the only field on a fixture that prints money.'),
+    produces: z.object({
+      item_id: z.string().describe('Which existing item one batch is made of. Create the item first.'),
+      qty: z.number().int().min(1).max(64).default(1).describe('How much one batch is.'),
+      every: z.number().min(1).max(1440).default(60).describe('In-game MINUTES a batch takes. A day is 24x60 of these.'),
+    }).optional().describe('PENS ONLY, and required for one — a pen with no `produces` is a hutch with nothing in it. Makes this piece produce GOODS on its own clock, with no sowing and no seed: what you pay is the price of the pen. They stand in the pen until somebody collects them from its gate. The tier ladder is what makes a rung worth buying: `speed_mult` shortens the wait and `capacity_mult` is how many batches it will stockpile before it stalls, so tier 1 holds exactly one batch and then stops. Nothing else reads this field.'),
     charm: z.number().min(0).max(20).optional()
       .describe('How much nicer this makes the shop look, which is how far word of it travels. It raises CATCHMENT \u2014 how much of the town is within reach at all \u2014 rather than reputation, because reputation is what the people who already came in think of you. Saturating: about half the maximum at 10 total charm across the whole shop, so a room full of pot plants is worth about as much as one nice centrepiece. 1 is a pleasant pot plant, 5 is a centrepiece.'),
     open: z.boolean().optional()

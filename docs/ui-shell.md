@@ -1621,13 +1621,23 @@ with it.
 
 ## Icons
 
-game-icons.net (CC BY 3.0) for anything that is a thing in the world, Remix Icon
-(Apache 2.0) for interface chrome. Emoji rendered differently on every machine
-and looked like placeholder art, which they were.
+Phosphor (MIT) for anything that is a thing in the world, Remix Icon (Apache
+2.0) for interface chrome. Emoji rendered differently on every machine and
+looked like placeholder art, which they were.
+
+**Always the `-fill` weight, and that is a rule rather than a taste.** The world
+half was game-icons.net until the swap, and what was wrong with it is only
+visible in a ROW: it is a fantasy set, hand-drawn and wildly uneven in weight, so
+a bookshelf that is a cloud of thin lines sat next to a factory that is a solid
+block and the tab strip read as a set of stickers somebody had collected rather
+than as one control. Phosphor is one hand, and it ships six weights that are
+freely mixable — mixing them rebuilds the same bug, and worse, a `-regular` glyph
+beside a `-fill` one reads as *disabled* beside enabled, which is a state this
+interface actually uses.
 
 `scripts/build-icons.js` lifts only the icons named in its `WANTED` map out of
-`@iconify-json/*` and writes `client/icons.js`. The full set is 4134 icons and
-several megabytes — shipping that to a browser to use twenty of them would be
+`@iconify-json/*` and writes `client/icons.js`. A set is thousands of icons and
+several megabytes — shipping that to a browser to use forty of them would be
 absurd, and a CDN breaks the moment the game is played over a tunnel.
 
 To add one: put it in `WANTED`, run `npm run icons`, commit the generated file.

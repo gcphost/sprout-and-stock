@@ -126,6 +126,7 @@ const KIT = [
   { kind: 'freezer', one: 'freezer', many: 'freezers' },
   { kind: 'checkout', one: 'till', many: 'tills' },
   { kind: 'plot', one: 'bed', many: 'beds' },
+  { kind: 'pen', one: 'pen', many: 'pens' },
 ];
 
 /**

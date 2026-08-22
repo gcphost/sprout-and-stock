@@ -19,6 +19,13 @@ data/game.db-shm
 # Page snapshots the Playwright MCP browser drops as it drives the game.
 .playwright-mcp/
 
+# Scratch databases. `SNS_DB` points a headless run at a throwaway copy, and a
+# before/after pair dropped in the repo root is a measurement rather than a
+# thing anybody else needs. The live one is already covered above.
+/*.db
+/*.db-wal
+/*.db-shm
+
 # Screenshots taken while looking at something. The `screenshot` tool hands the
 # PNG straight back to whoever asked, so one landing in the repo root is scratch
 # by definition — worth keeping locally, never worth committing.

@@ -203,7 +203,20 @@ function vanArrives(g) {
 }
 
 const cellsOf = (pad) => (pad ? pad.cells.map((c) => `${c.x},${c.z}`).sort().join(' ') : '');
-const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.id);
+/**
+ * What the supplier will actually sell you.
+ *
+ * This read `stack > 0` and called itself orderable, which was true for as long
+ * as almost nothing had a recipe. `buyStock` refuses anything a recipe produces
+ * — "has to be made in an appliance, not ordered" — so once docs/production.md
+ * gave fifty items a recipe the helper was handing back bread and the sweep was
+ * failing on an assertion about the YARD. `isCrafted` is the same test
+ * `buyStock` runs, asked here rather than guessed at.
+ */
+const orderable = () => {
+  const crafted = new Set(content().recipes.map((r) => r.output_id));
+  return content().items.filter((i) => i.stack > 0 && !crafted.has(i.id)).map((i) => i.id);
+};
 
 // ---------------------------------------------------------------------------
 // 1. Stamped once, and once means once.

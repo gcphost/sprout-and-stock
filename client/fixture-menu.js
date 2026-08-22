@@ -226,6 +226,14 @@ export function showFixture(ui, f) {
   // What every one of them agrees about, since a tick that is true of four of
   // six is a menu lying about two units you cannot see from here.
   const lives = many.map((g) => liveFixture(ui, g));
+  // ...and what the verbs that act on all of them actually walk. Over `many`
+  // when there is one and over this unit alone when there is not:
+  // `pickedFixtures` answers with nothing while your hands are full (a selection
+  // is a thing R and M act on, and neither can act on what you are carrying),
+  // and the menu is still open on a fixture that can perfectly well be upgraded
+  // or sold back.
+  const upFor = many.length ? many : [f];
+  const upLives = many.length ? lives : [live];
 
   // Three regions, the same shape a hire's menu settled on and for the same
   // reason. What this thing IS stays pinned at the top; what you can DO about
@@ -448,17 +456,23 @@ export function showFixture(ui, f) {
   // See `actIcon` for what deliberately does NOT move: the price and the count.
   const foot = [];
 
-  // Every verb in the foot is one at a time, and with several picked they say so
+  // Move and Rotate are one at a time, and with several picked they say so
   // rather than disappearing.
   //
   // Which of the two is not a style question. A hole cannot answer "where is the
-  // Remove button" — the same argument the disabled order button on a board row
+  // Move button" — the same argument the disabled order button on a board row
   // makes — and this row is the most familiar thing on the menu, so a selection
   // that quietly shortened it would read as the menu having broken. And each of
-  // them is genuinely a different sentence about six things than about one: Move
-  // fills your hands with one fixture, Rotate turns each into its own corner,
-  // and Upgrade and Remove spend or refund real money six times over. They are
-  // one press away — shift-click the one you want, or press Escape.
+  // the two is genuinely a different sentence about six things than about one:
+  // Move fills your hands with one fixture, and Rotate turns each into its own
+  // corner. They are one press away — shift-click the one you want, or Escape.
+  //
+  // The ladder and Remove are not among them, and the line between the two
+  // halves is worth saying: a verb belongs here when six of it would be six
+  // DIFFERENT things, and belongs to the selection when six of it is one thing
+  // said once. "Get rid of that aisle" and "make my freezers better" are both
+  // the second — they are the presses a selection is *for*. See their own
+  // squares below.
   const alone = bulk ? ONE_AT_A_TIME : null;
   const only = alone ? { off: true } : {};
 
@@ -494,30 +508,65 @@ export function showFixture(ui, f) {
   // was avoiding is real and is the cheaper of the two: it appears only on
   // something that can be climbed at all, next to the verb it is the other half
   // of, and it never moves.
+  //
+  // Both rungs act on the WHOLE selection, and each unit climbs its own ladder:
+  // a rung is priced per piece, so six units standing at three different tiers
+  // is six different prices and one press. That is the whole argument for it
+  // being bulk — "make my freezers better" is one decision about the shop, and
+  // the version where it is six is six opens of six menus. Whichever of them is
+  // already at the end of its ladder is simply not in the batch, exactly as an
+  // unemptied shelf is not in a bulk Remove.
   const next = nextTier(ui, f);
   const back = prevTier(ui, f);
-  if (next || back) {
-    const afford = next && (ui.state?.cash ?? 0) >= next.cost;
+  const ups = upFor.map((g) => nextTier(ui, g)).filter(Boolean);
+  const downs = upFor.map((g) => prevTier(ui, g)).filter(Boolean);
+  const upCost = ups.reduce((n, t) => n + (t.cost ?? 0), 0);
+  const downBack = downs.reduce((n, t) => n + (t.refund ?? 0), 0);
+  if (ups.length || downs.length) {
+    // Against the CHEAPEST rung rather than the total, which is the same call
+    // `bulkFixtures` makes about a refusal: the server upgrades what the cash
+    // covers and reports the rest, so a button greyed on the total would be
+    // dead over a press that would have worked. The tooltip says the total is
+    // out of reach; the square still does what it can.
+    const each = ups.map((t) => t.cost ?? 0);
+    const afford = ups.length && (ui.state?.cash ?? 0) >= Math.min(...each);
+    const short = ups.length && (ui.state?.cash ?? 0) < upCost;
     // The tier name is authored content and can be any length, so it goes in the
     // wrapping description rather than the one-line title — `Upgrade to With a
     // register` was both clipped and barely a sentence. The title is the verb,
     // which is fixed and short; the row below it says what you actually get.
     const blurb = next ? `${next.name} — ${tierBlurb(next)}` : '';
-    foot.push(actIcon('upgrade', ICONS.tierup, 'Upgrade',
-      alone ?? (next
-        ? (afford ? blurb : `${blurb} You cannot afford it yet.`)
-        : 'Already the best there is.'), 'Upgrade',
+    const stuckUp = upFor.length - ups.length;
+    foot.push(actIcon('upgrade', ICONS.tierup, bulk ? `Upgrade ${ups.length}` : 'Upgrade',
+      bulk
+        ? (ups.length
+          ? `Each goes up one rung, at its own price.${
+            stuckUp ? ` ${stuckUp} are already the best there is.` : ''}${
+            short ? ' You cannot afford all of them — it will do what it can.' : ''}`
+          : 'All of them are already the best there is.')
+        : (next
+          ? (afford ? blurb : `${blurb} You cannot afford it yet.`)
+          : 'Already the best there is.'), 'Upgrade',
       // A tier that is purely cosmetic still costs nothing, and `$0` in the
       // price column reads as a broken number rather than as good news.
-      { off: !afford || bulk, right: next && next.cost > 0 ? money(next.cost) : next ? 'free' : '' }));
+      {
+        off: !afford,
+        right: ups.length ? (upCost > 0 ? money(upCost) : 'free') : '',
+      }));
 
     // Straight under Upgrade, because it is the same ladder and the pair reads
     // as one control.
-    foot.push(actIcon('downgrade', ICONS.tierdown, 'Downgrade',
-      alone ?? (back
-        ? `Back to ${back.name} — ${tierBlurb(back)} Half of that rung back, and it keeps its stock.`
-        : 'Already on the first rung.'),
-      'Downgrade', { off: !back, right: back && back.refund > 0 ? signed(back.refund) : '', ...only }));
+    const stuckDown = upFor.length - downs.length;
+    foot.push(actIcon('downgrade', ICONS.tierdown, bulk ? `Downgrade ${downs.length}` : 'Downgrade',
+      bulk
+        ? (downs.length
+          ? `Each drops one rung and keeps its stock.${
+            stuckDown ? ` ${stuckDown} are already as plain as they get.` : ''}`
+          : 'All of them are already on the first rung.')
+        : (back
+          ? `Back to ${back.name} — ${tierBlurb(back)} Half of that rung back, and it keeps its stock.`
+          : 'Already on the first rung.'),
+      'Downgrade', { off: !downs.length, right: downBack > 0 ? signed(downBack) : '' }));
   }
 
   // ...and the same rule as the ladder pair above, one square along, where what
@@ -528,7 +577,7 @@ export function showFixture(ui, f) {
   // always keeps the square and greys it when there is nothing left in it; a
   // kind that can never hold anything still shows none.
   const holds = contentsOf(ui, f, live);
-  const emptiable = holdsGoods(kind) || kind === 'station' || kind === 'plot';
+  const emptiable = holdsGoods(kind) || kind === 'station' || kind === 'plot' || kind === 'pen';
   if (holds.n > 0) {
     foot.push(actIcon('empty', ICONS.empty, 'Empty it', alone ?? holds.blurb, 'Empty',
       { right: `${holds.n}`, ...only }));
@@ -547,16 +596,55 @@ export function showFixture(ui, f) {
       'Unlabel', { ...only }));
   } else if (emptiable) {
     foot.push(actIcon('empty', ICONS.empty, 'Empty it',
-      alone ?? (kind === 'plot' ? 'Nothing growing in it.' : 'Nothing in it.'),
+      alone ?? (kind === 'plot' ? 'Nothing growing in it.'
+        : kind === 'pen' ? 'Nothing ready in it yet.' : 'Nothing in it.'),
       'Empty', { off: true }));
   }
 
   // A greyed square says nothing about why, and this is the one verb people
   // press and get refused — so the reason IS the tooltip when there is one.
-  foot.push(actIcon('remove', ICONS.remove, kind === 'station' ? 'Sell it back' : 'Remove it',
-    alone ?? blocked ?? 'Half of what it cost back.',
+  //
+  // ...and it acts on the WHOLE selection, like the ladder above it. Clearing
+  // an aisle was six opens and six presses, which is the shift-click doing half
+  // a job — see the note above `alone` for the line between these and the two
+  // verbs that stay single.
+  //
+  // What it needs that a single press does not is an honest count, because
+  // `bulkFixtures` refuses only a batch that changed NOTHING: a selection with
+  // one full shelf in it tears the rest out and says so in the feed. So the
+  // square is dead only when every one of them is blocked, and the price column
+  // adds up the ones that can actually go.
+  //
+  // A till is counted against the SELECTION rather than per fixture, the same
+  // way the server counts it: three tills picked in a shop with three is two
+  // removals and a refusal, and a square offering three refunds would be
+  // over-promising by half a till — the green-ghost rule, wearing a price.
+  let tillsSpare = (ui.state?.queues?.length ?? 0) - 1;
+  const goes = upFor.filter((g, i) => {
+    if (contentsOf(ui, g, upLives[i]).n > 0) return false;
+    if (g.kind === 'checkout') return tillsSpare-- > 0;
+    return true;
+  });
+  const paidBack = goes.reduce((n, g) => n + refundFor(ui, g), 0);
+  const stuck = upFor.length - goes.length;
+  foot.push(actIcon('remove', ICONS.remove,
+    bulk ? (kind === 'station' ? `Sell ${goes.length} back` : `Remove ${goes.length}`)
+      : (kind === 'station' ? 'Sell it back' : 'Remove it'),
+    bulk
+      ? (goes.length
+        ? `Half of what they cost back.${stuck ? ` ${stuck} of them cannot go yet.` : ''}`
+        : 'None of these can go yet.')
+      : blocked ?? 'Half of what it cost back.',
     kind === 'station' ? 'Sell' : 'Remove',
-    { danger: true, off: !!blocked || bulk, right: blocked ? '' : signed(refund) }));
+    {
+      danger: true,
+      off: !goes.length,
+      right: goes.length ? signed(bulk ? paidBack : refund) : '',
+      // On the button for the same reason M and R are on theirs. The cap sits
+      // top-left and the refund top-right, so this is the one square in the row
+      // wearing both and they do not meet.
+      key: 'Del',
+    }));
 
   parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
 
@@ -1295,6 +1383,13 @@ function tickFixture(ui) {
   // no longer in the document and the list snaps back to the snapshot's order.
   // One sale on the shelf you are tidying would do it.
   if (ui.boardDragging) return;
+  // ...and the pointer merely being ON the menu is the same claim one step
+  // weaker: a drag is a press you would lose, a hover is a press you are about
+  // to make. Both are a rebuild under the hand using it. Flushed on
+  // `pointerleave`, where this same function is called again — see the panel
+  // listeners in ui.js for why a shelf menu redraws three times a second while
+  // the shop is trading, and why none of it is about this fixture.
+  if (ui._overPanel) return;
   const f = ui.scene?.fixtureAt(ui.fixtureRef.x, ui.fixtureRef.z) ?? null;
   if (!f) { ui.closePanel(); return; }
   if (fixtureSignature(ui, f, liveFixture(ui, f)) !== ui._fxMenuKey) showFixture(ui, f);
@@ -1359,6 +1454,7 @@ export function liveFixture(ui, f) {
   if (!s) return null;
   if (holdsGoods(f.kind)) return s.shelves?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'plot') return s.plots?.find((x) => x.id === f.id) ?? null;
+  if (f.kind === 'pen') return s.pens?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'station') return s.stations?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'checkout') return s.queues?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'sorter') return s.sorters?.find((x) => x.id === f.id) ?? null;
@@ -1790,11 +1886,17 @@ function wireFixtureMenu(ui, f, live) {
       } else if (what === 'empty') {
         send('build-empty', { id: f.id });
       } else if (what === 'upgrade') {
-        send('build-upgrade', { id: f.id });
+        send('build-upgrade', { id: f.id, ids: ui.pickedIds() });
       } else if (what === 'downgrade') {
-        send('build-downgrade', { id: f.id });
+        send('build-downgrade', { id: f.id, ids: ui.pickedIds() });
       } else if (what === 'remove') {
-        send('build-remove', { id: f.id });
+        // `ids` is the whole selection and `id` is the one this menu is named
+        // after — both, because `targets` prefers the list and a client that has
+        // not reloaded still sends only the singular. Unfiltered on purpose: the
+        // server folds the refusals and says how many would not go, and a client
+        // that pruned the list would be a second opinion about a rule the server
+        // already owns.
+        send('build-remove', { id: f.id, ids: ui.pickedIds() });
         ui.closePanel();
       }
     });
@@ -2063,6 +2165,13 @@ function contentsOf(ui, f, live) {
   if (f.kind === 'plot') {
     const n = live?.crop_id ? 1 : 0;
     return { n, blurb: 'Pulls the crop and leaves the bed rough. A half-grown crop is lost.' };
+  }
+  if (f.kind === 'pen') {
+    // Whatever is standing in the gateway, and never the animal — the piece IS
+    // the animal, so selling the pen is what happens to it. Nobody is asked to
+    // rehome a cow before tearing the fence down.
+    const n = live?.qty ?? 0;
+    return { n, blurb: `${n}× ${ui.itemName(live?.item_id)} into a crate at the gate.` };
   }
   return { n: 0, blurb: '' };
 }

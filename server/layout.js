@@ -27,6 +27,7 @@ import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
   FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
+  footprint, sizeOf,
 } from '../shared/build.js';
 
 export { T };
@@ -177,6 +178,7 @@ const PLOT_PITCH = 1;
  * @param {number} opts.freezers    how many freezer units to place
  * @param {number} opts.checkouts   how many tills
  * @param {number} opts.plots       how many farm plots
+ * @param {number} opts.pens        how many animal pens (placed only)
  * @param {string[]} opts.stations  appliance kinds, in purchase order
  * @param {object[]} opts.placements player-positioned fixtures, honoured first
  * @param {object} opts.grow        bought floor area, {w, h} extra tiles
@@ -215,6 +217,10 @@ export function generateLayout({
   unders = 0,
   checkouts = 1,
   plots = 4,
+  // Placed only, for `bins`' reason: nothing procedural puts an animal in a
+  // shop, so this is always whatever `budgetOf` counted and 0 for every shop
+  // that has never bought one.
+  pens = 0,
   stations = [],
   placements = [],
   grow = { w: 0, h: 0 },
@@ -224,7 +230,7 @@ export function generateLayout({
   shell = null,
 } = {}) {
   const req = {
-    seed, shelves, freezers, warmers, bins, belts, arms, sorters, unders, checkouts, plots, stations,
+    seed, shelves, freezers, warmers, bins, belts, arms, sorters, unders, checkouts, plots, pens, stations,
     placements: placements ?? [],
     // Walls, windows and doorways the player drew. An overlay for the same
     // reason `placements` is one: the generator rebuilds the shell from scratch
@@ -647,6 +653,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const checkoutsOut = [];
   const stationsOut = [];
   const plotsOut = [];
+  const pensOut = [];
   const propsOut = [];
   const binsOut = [];
   const beltsOut = [];
@@ -658,6 +665,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     bay, drop, break: breakRoom,
     spawn, approaches: approachList(),
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
+    pens: pensOut,
     props: propsOut, bins: binsOut, belts: beltsOut, arms: armsOut, sorters: sortersOut,
     unders: undersOut,
     ground: groundOut,
@@ -693,6 +701,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     under: req.unders,
     checkout: req.checkouts,
     plot: req.plots,
+    pen: req.pens,
   });
   const stationQueue = [...req.stations];
   const dropped = [];
@@ -828,6 +837,23 @@ function compose(req, storeW, storeH, allowDrops = true) {
       plotsOut.push(Object.assign(makePlot(p.id, p.x, p.z), {
         tier: p.tier ?? 1, variant: p.variant ?? '', piece: p.piece ?? null,
       }));
+    } else if (p.kind === 'pen') {
+      // A hutch stands ON its cell rather than being it, so this is the till's
+      // and the skip's shape rather than the bed's: occupy, and reserve the gate
+      // you collect from. What it holds and how far through the current batch it
+      // is are NOT here — those live on the layout record and ride a re-flow
+      // through `carryOver`, exactly as a bed's crop and clock do.
+      // EVERY cell it covers. `canKeep` above has already agreed all four are
+      // free — this is the half that makes them stop being free, and a block
+      // that only stamped its corner is a fixture three quarters of which
+      // shoppers walk straight through.
+      for (const c of footprint('pen', p.x, p.z)) occupy(c.x, c.z);
+      const pen = makePen(p.id, p.x, p.z, p.rot ?? 2);
+      pen.tier = p.tier ?? 1;
+      pen.variant = p.variant ?? '';
+      pen.piece = p.piece ?? null;
+      pensOut.push(pen);
+      reserve(pen.useAt);
     } else if (p.kind === 'bin') {
       // Its own branch, and the `else` below is why it needs one: everything
       // that is not a plot, a till or an appliance falls through to
@@ -1153,6 +1179,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
       checkouts: checkoutsOut,
       stations: stationsOut,
       plots: plotsOut,
+      /** Animals. Placed only — nothing procedural ever puts one down. */
+      pens: pensOut,
       /** Decorations. Placed only, never generated. */
       props: propsOut,
       /**
@@ -1365,6 +1393,47 @@ function makeStation(id, station, x, z, rot) {
  * `pieceFor` matches on `piece` AND `kind`, so a constructor that forgets it
  * resolves to no catalog row and `fixtureStats` quietly answers 1/1/1.
  */
+/**
+ * One pen, with an animal in it and nothing collected yet.
+ *
+ * `qty` and `filledAt` are the two halves of "what is in there": how much is
+ * standing ready, and when the batch now filling started. Both are on the RECORD
+ * rather than on the placement, which is the bed's arrangement and not the
+ * loader's — a plot keeps `crop_id` and `plantedAt` here and `carryOver` walks
+ * them across a re-flow. That is what keeps `repositionFixture` out of it: the R
+ * key rebuilds a placement and would reset anything stored there, and a pen
+ * emptied by being turned round looks exactly like the button not working.
+ *
+ * `kind`, for the reason every constructor in here carries one — `pieceFor`
+ * matches on `piece` AND `kind`, so forgetting it resolves to no catalog row,
+ * `fixtureStats` answers 1/1/1, and every rung of the ladder you sold silently
+ * changes nothing.
+ */
+function makePen(id, x, z, rot) {
+  return {
+    tier: 1,
+    variant: '',
+    id,
+    kind: 'pen',
+    x,
+    z,
+    rot,
+    /** The gate — the one side you collect from. */
+    useAt: anchorTile(x, z, rot, sizeOf('pen')),
+    /** How much is standing ready to be collected. */
+    qty: 0,
+    /**
+     * When the batch now filling started, against `elapsed`.
+     *
+     * Saved as how long it HAS filled and never as this stamp — `elapsed`
+     * restarts at zero on every load, so a raw stamp would put every pen's batch
+     * in the future and freeze the whole farm. Same write-around `plantedAt`
+     * has.
+     */
+    filledAt: 0,
+  };
+}
+
 function makeBin(id, x, z, rot) {
   return {
     tier: 1,

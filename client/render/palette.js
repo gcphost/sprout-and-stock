@@ -182,6 +182,10 @@ export const FIXTURE_LOOK = {
   // A plot is the ground, so its own tile is the whole look and a block on top
   // would bury the soil. Zero height, and `syncPlots` draws the bed.
   plot: { color: PALETTE.soilRough, h: 0 },
+  // Only ever seen by a shop whose pen nobody has drawn. Waist-high and
+  // blocking, so an undrawn one is a thing you can see you would walk into —
+  // `warmer`'s lesson, which cost the hot counter an invisible fixture.
+  pen: { color: PALETTE.shelf, h: 0.6 },
   // Only ever seen by a shop whose skip nobody has drawn — the shipped row has
   // art. Waist-high and blocking, so an undrawn one is still a thing you can
   // see you would walk into.

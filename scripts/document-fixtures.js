@@ -34,7 +34,9 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { content } from '../server/content.js';
-import { FIXTURES, GROUND, PAINT, isGround, isPaint, isSurface, isProp, blocksCell } from '../shared/build.js';
+import {
+  FIXTURES, GROUND, PAINT, isGround, isPaint, isSurface, isProp, blocksCell, sizeOf,
+} from '../shared/build.js';
 import { kindOf, piecesOf } from '../shared/pieces.js';
 import {
   surfacesAt, partsAt, variantsOf, variantWork, isStaged, drawableBoards, shownOn, tierProgress,
@@ -71,7 +73,15 @@ function rulesFor(kind) {
   if (!f) return 'Unknown kind — nothing in the game knows how to treat this.';
   const where = { indoor: 'Indoors only', outdoor: 'Outdoors only', any: 'Indoors or out' }[f.where] ?? f.where;
   const bits = [where];
-  bits.push(blocksCell(kind) ? 'owns its cell (people walk around it)' : 'blocks nobody');
+  // How much floor it takes, said only when it is more than one — every other
+  // kind in the game is a tile, and "1x1" on all of them is noise. Left out, the
+  // generated reference describes a cattle pen as owning a square when it owns
+  // four of them, which is the one fact somebody planning a farm needs.
+  const span = sizeOf(kind);
+  if (span > 1) bits.push(`**${span}x${span} tiles**`);
+  bits.push(blocksCell(kind)
+    ? `owns its cell${span > 1 ? 's' : ''} (people walk around it)`
+    : 'blocks nobody');
   if (f.anchor) {
     bits.push(`worked from the side it faces (\`${f.anchor}\`)`);
     // The anchor is the one tile the generator reserves and a walk routes to;

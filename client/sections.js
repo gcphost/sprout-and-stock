@@ -107,7 +107,7 @@ export const DECOR_SUBS = [
   {
     id: 'lighting',
     name: 'Lighting',
-    icon: ICONS.ambient,
+    icon: ICONS.lamp,
     tags: ['lamp'],
     blurb: 'What the shop looks like once the light comes off something you chose.',
   },
@@ -126,7 +126,7 @@ export const DECOR_SUBS = [
   {
     id: 'furniture',
     name: 'Furniture',
-    icon: ICONS.town,
+    icon: ICONS.furniture,
     tags: ['furniture'],
     blurb: 'Somewhere to sit, lean or leave a bike. Indoors or out front.',
   },
@@ -215,7 +215,7 @@ export const BUILD_GROUPS = [
   {
     id: 'outdoors',
     name: 'Outdoors',
-    icon: ICONS.town,
+    icon: ICONS.outdoors,
     blurb: 'The ground the shop stands in. All of it is painted over an area, and none of it is a thing you place.',
     // Outward, in rings: what the ground already is, then the ways in — and
     // where the people who arrive on them leave the car is part of the second.
@@ -361,6 +361,13 @@ export const KIND_TOOLS = {
     group: 'farm',
     blurb: 'Earth, outside. Turn it over before it takes a seed.',
   },
+  // Reusing `plot` rather than baking a glyph: `ICONS` throws on a name nobody
+  // added, and adding one is a build step (`scripts/build-icons.js`).
+  pen: {
+    icon: ICONS.plot,
+    group: 'farm',
+    blurb: 'An animal, outside. Fills up on its own — collect it from the gate, and never sow it.',
+  },
   bin: {
     icon: ICONS.close,
     // Shop rather than Building, and it is a judgement rather than a fact about
@@ -375,7 +382,7 @@ export const KIND_TOOLS = {
     blurb: 'Stands on the floor, indoors or out.',
   },
   'prop-ceiling': {
-    icon: ICONS.ambient,
+    icon: ICONS.lamp,
     group: 'decor',
     blurb: 'Hangs from the ceiling, so it needs a room to hang in.',
   },
@@ -809,7 +816,16 @@ export function buildTools(ui) {
       id: `station:${u.payload.station}`,
       kind: 'station',
       station: u.payload.station,
-      group: 'appliance',
+      /**
+       * Which tab it lands on, off the row rather than fixed here.
+       *
+       * Every machine was an Appliance while every machine was a kitchen
+       * appliance. The primary-processing six from docs/production.md are not:
+       * a mill, a churn and a butcher's block work what the FARM produced, and
+       * a player looking for them opens Farm. Defaulted, so the eleven that
+       * came before say nothing and do not move.
+       */
+      group: u.payload.group ?? 'appliance',
       icon: ICONS.station,
       // An appliance IS a variant, so it draws the way every other shape does.
       art: artForTool({ kind: 'station' }, machine, u.payload.station),
@@ -2472,6 +2488,10 @@ export const SECTIONS = [
       { name: 'Put down what is armed', sub: 'the lit button again, or back out once', right: 'R-click', plain: true },
       { name: 'Turn the view instead', sub: 'a left drag moves things in here', right: 'R-drag', plain: true },
       { name: 'Turn a fixture', sub: 'a quarter turn', right: 'R', plain: true },
+      // The pair, listed together because neither is much use without the
+      // other: picking several is what makes Delete worth a row of its own.
+      { name: 'Pick several', sub: 'click them in turn — again to drop one', right: 'Shift', plain: true },
+      { name: 'Remove what is picked', sub: 'half of what they cost back', right: 'Del', plain: true },
       { name: 'Bottom bar', sub: 'the open tab — nothing with the bar down', right: '1–9', plain: true },
       { name: 'Next tab', sub: 'every tab in turn, and every part of a split one', right: 'Tab', plain: true },
 
@@ -2667,8 +2687,8 @@ function soundTab(ui) {
     {
       icon: ICONS.help,
       name: 'Icons',
-      sub: 'game-icons.net (CC BY 3.0) and Remix Icon (Apache 2.0)',
-      right: 'CC BY',
+      sub: 'Phosphor (MIT) and Remix Icon (Apache 2.0)',
+      right: 'MIT',
     },
   ];
 }

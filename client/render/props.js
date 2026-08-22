@@ -907,7 +907,27 @@ export function buildPallet(piles, {
   // what a crate on a conveyor is FOR is where it is going, and where it is
   // going is drawn by the belt under it. Standing still it says its name again,
   // because `d.belt` is in the delivery prop's cache key.
-  if (!label) return g;
+  /**
+   * ...and the whole box goes down to a mesh per colour — see `weld`.
+   *
+   * A crate is fourteen little boxes before anything is in it (a foot, a base,
+   * four walls, four posts, four lip sections) and up to six more for the
+   * goods, and NOTHING in it moves on its own. That is the same sentence
+   * `buildShelfGoods` and the armful already make about themselves, and the
+   * crate was the one that never got it — which stopped being an oversight and
+   * started being the biggest object count in the game the day belts arrived,
+   * because a conveyor puts a crate on every cell of every run. Measured on a
+   * day-390 shop: 675 of 1,451 meshes in the scene were crates, out of 1,726
+   * draw calls a frame. Nothing about that is visible — a box is a box — which
+   * is exactly why it went unnoticed while the shop grew around it.
+   *
+   * The label rides along untouched: `weld` re-hangs a sprite rather than
+   * trying to merge it, which is what `syncCashLabels` and the armful rely on
+   * too. And `pickPallet` is unaffected, because it walks UP from whatever the
+   * ray met to `userData.delivery` — that field is on the group, and welding
+   * replaces a group's children rather than the group.
+   */
+  if (!label) return weld(g);
   const said = piles.some((p) => p.name)
     ? piles.map((p) => `${p.qty}x ${p.name || '?'}`).join('\n')
     : `x${qty}`;
@@ -923,7 +943,7 @@ export function buildPallet(piles, {
   tag.position.y = covered ? CRATE_DECK + CRATE_H / 2 : CRATE_STEP + 0.47;
   g.add(tag);
 
-  return g;
+  return weld(g);
 }
 
 /**
@@ -1296,7 +1316,7 @@ const GHOST_ALPHA = 0.45;
  * cell (`setFloorGhost`) is already saying "here, and this is whether it can",
  * so the model is left to say the one thing only it can.
  */
-export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spots, cage = true }) {
+export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spots, cage = true, span = 1 }) {
   // `true`/`false` still mean what they always did, so nothing that only knows
   // about two answers has to be found and changed.
   const key = verdict === true ? 'ok' : (verdict === false ? 'no' : (verdict ?? 'ok'));
@@ -1321,7 +1341,7 @@ export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spot
     // coloured slab, which is still the right answer for a kind nobody has
     // drawn: an invisible ghost is worse than a generic one.
     const body = new THREE.Mesh(GEO.box, GHOST_MATS[key]);
-    body.scale.set(0.94, h, 0.94);
+    body.scale.set(span - 0.06, h, span - 0.06);
     body.position.y = h / 2;
     g.add(body);
   }
@@ -1329,7 +1349,7 @@ export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spot
   // A wireframe cage so the ghost doesn't dissolve into a pale shelf behind it.
   if (cage) {
     const box = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(0.98, h, 0.98)),
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(span - 0.02, h, span - 0.02)),
       new THREE.LineBasicMaterial({ color: c.cage, depthTest: false }),
     );
     box.position.y = h / 2;

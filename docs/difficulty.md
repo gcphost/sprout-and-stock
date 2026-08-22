@@ -325,14 +325,50 @@ before it could only ever fail to be penalised.
 | 0.13 | 0.532 | 0.554 |
 | 0.00 | 0.510 | 0.510 |
 
-Measured, 60 days, three seeds, on `shop-3` (day 365, `normal`, 14 staff):
-profit 5.1k–6.6k, rep **0.66 / 0.72 / 0.73**, 3–9 storm-outs. That save had sat
-at **0.148 after 365 real days** of play. Read it as a sanity check rather than
-a balance measurement — all three changes move the rng stream, so these are not
-comparable seed-for-seed with anything above. What it does say is that the loop
-does not run away: mood feeds the visit gain and the gain feeds reputation and
-reputation feeds mood, and no seed pinned at 1.0. The failure mode this replaced
-was a bar that never moved; the one to watch for next is a bar that only goes up.
+**...and the gain had to stop being buyable with charm**, which is the mistake
+the first three fixes above made together and is worth writing down because it
+looked *right* in every unit test. Scaling the gain by `cust.mood` reads as
+"were they happy" and is mostly a fact about the ROOM: `moodBase()` is the
+town's expectation closed toward 1 by charm, so a decorated shop hands everybody
+a near-perfect budget before serving them at all. Measured on the day-385 save:
+`charm` 36.9, `room` **0.985**, every customer in the building standing at a
+flat mood of **1.0**, every visit banking the full ceiling, and the shop pinned
+at rep 0.999 while its owner watched people walk out of it. Charm is already
+paid twice — `charmReach` widens the town, `moodBase` buys patience — and paying
+it a third time as reputation is a loop with no top.
+
+So a gain is `kept`, the share of the goodwill they arrived with that survived
+the trip, and it is charm-blind and reputation-blind by construction. A small new
+shop that walks somebody in at 0.68 and gets them to the till at 0.62 has served
+them as well as a palace that walks them in at 1.0 and gets them out at 0.91, and
+earns the same. A loss stays on the absolute `MOOD_ANNOYED` line, because leaving
+visibly cross is what the town *sees* and nobody watching knows what mood that
+person started on. Paid for how you treated them; charged for how they look on
+the way out.
+
+| a visit | net |
+|---|---|
+| new shop, served well, got everything | +0.0055 |
+| new shop, three of four things | +0.0021 |
+| mature shop, untouched, got everything | +0.0060 |
+| mature shop, queued hard, got everything | +0.0036 |
+| mature shop, queued hard, half the list | **−0.0022** |
+| left visibly cross | −0.0006 |
+| left empty-handed | −0.015 |
+| stormed out | −0.030 |
+
+Measured, 60 days, `shop-3-2` (day 129, 10 staff, unplayed so it holds still):
+profit 6.8k–9.1k, 5–8 storm-outs, **638–784** empty-handed leaves — and rep
+**0.28 / 0.33**. That is the shape that was wanted: a shop with a real range
+problem is told so by the bar, where the same shop pinned at 0.999 a change ago.
+Read all of it as a sanity check rather than a measurement — every change here
+moves the rng stream, so none of these rows is comparable seed-for-seed with any
+other.
+
+⚠️ Unrelated, found while running these: `computeIndoor` throws
+`RangeError: Invalid array length` (shared/edges.js:439) when the balance bot is
+given enough cash to grow a large shop. Nothing in this doc touches enclosure —
+it reproduces on `shop-1` at `startCash: 20000` and wants its own look.
 
 ### What it does not fix
 

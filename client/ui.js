@@ -360,6 +360,11 @@ export class UI {
       leave: document.getElementById('closebtn'),
       undo: document.getElementById('undobtn'),
       redo: document.getElementById('redobtn'),
+      view: document.getElementById('viewbtn'),
+      home: document.getElementById('homebtn'),
+      pick: document.getElementById('pickbtn'),
+      del: document.getElementById('delbtn'),
+      peek: document.getElementById('peek'),
       prompt: document.getElementById('prompt'),
       rail: document.getElementById('rail'),
       search: document.getElementById('panel-search'),
@@ -404,6 +409,41 @@ export class UI {
     // nothing here for a button to name and nothing for it to get wrong.
     if (this.el.undo) this.el.undo.onclick = () => this.net.send('undo');
     if (this.el.redo) this.el.redo.onclick = () => this.net.send('redo');
+    // Shift and Del, for a hand that has neither. The latch is the interesting
+    // half — see `togglePickLatch` — and the bin is deliberately the same call
+    // the key makes rather than its own message, so the two spellings of "get
+    // rid of what is picked" cannot end up meaning different things.
+    // Letting the latch go is "I have finished picking", which on a phone is
+    // the only safe moment to put the menu up: the panel is the whole screen
+    // there, so the desktop rule (the second shift-click opens it, see
+    // `togglePicked`) would cover the aisle you are still picking from. Here on
+    // the press rather than inside `togglePickLatch`, because that is also what
+    // leaving build mode calls and a mode change must not open a menu.
+    if (this.el.pick) {
+      this.el.pick.onclick = () => {
+        const was = this.pickLatch;
+        this.togglePickLatch();
+        if (was && this.manyPicked) showFixture(this, this.fixtureRef);
+      };
+    }
+    if (this.el.del) {
+      this.el.del.innerHTML = ICONS.remove;
+      this.el.del.onclick = () => this.removeSelected();
+    }
+    // The camera, which is the one pair in this stack that sends nothing: where
+    // the view is pointing is a fact about the person looking, not about the
+    // shop, so it never leaves the tab. One direction only — four presses is all
+    // the way round, and a second button for the other way would be a control
+    // whose whole value is saving two taps of the first.
+    if (this.el.view) this.el.view.onclick = () => this.scene?.rotateView(1);
+    // ...and back to you. `setFollow(null)` first, because watching a hire is
+    // the other way the camera can be somewhere you did not put it, and a Home
+    // that left you riding a stocker would put the view back and take it away
+    // again on their next step. It recentres by itself (`watch`), and the second
+    // call is what handles the ordinary case of a pan with nobody followed.
+    if (this.el.home) {
+      this.el.home.onclick = () => { this.setFollow(null); this.scene?.recentre(); };
+    }
     // ...and the way back out, on the other thumb. `toggleBuild(false)` and not
     // `showBar(null)`, which is the same distinction the bar's own close button
     // makes in the other direction: putting the strip away leaves you building
@@ -426,6 +466,42 @@ export class UI {
     const close = document.getElementById('panel-close');
     close.innerHTML = ICONS.close;
     close.onclick = () => this.closePanel();
+    /**
+     * A MENU MUST NOT REBUILD ITSELF UNDER THE POINTER THAT IS USING IT.
+     *
+     * `panelTick` redraws a live menu only when its signature moves, which is
+     * the right rule and is not the same as "rarely": a fixture menu's key
+     * includes the shop's own cash and the total stock on its shelves, because
+     * every row prints both — and in a trading shop those move on 11% and 34%
+     * of ticks respectively. So a shelf menu left open genuinely rebuilds about
+     * three times a second, from `innerHTML`, over a hundred rows of item art.
+     *
+     * Nothing about the words is wrong. What breaks is everything the DOM was
+     * carrying: `:hover` drops and comes back, `:active` dies mid-press, and
+     * the row under your cursor is a different element by the time you click
+     * it. `tip.js` already documents this from the other end and pays for a
+     * 260ms orphan grace to keep one card up through it.
+     *
+     * So the repaint waits for you to look away. Exactly the rule the pill
+     * already keeps (`_overPill` in `setPressHints`) and the one `tickFixture`
+     * keeps for a board being dragged, said about the panel: a control cannot
+     * be rebuilt out from under the hand that is reaching for it.
+     *
+     * `pointerover`/`pointerleave` rather than `mouseenter`/`pointerout` — a pen
+     * and a finger count, and `pointerout` fires crossing between children,
+     * which on a menu of rows is every row you cross.
+     *
+     * The flush on the way out is the half that keeps it honest: the menu is a
+     * live window, so a signature that moved while you were in there has to
+     * land the moment you leave rather than waiting for the next tick that
+     * happens to differ. It goes through `panelTick` like any other repaint, so
+     * a menu whose key did NOT move is still not rebuilt.
+     */
+    this.el.panel.addEventListener('pointerover', () => { this._overPanel = true; });
+    this.el.panel.addEventListener('pointerleave', () => {
+      this._overPanel = false;
+      this.panelTick?.(this);
+    });
     // Grab it by its header. Filed under whichever menu is open when you let
     // go, so each one remembers its own spot — see client/panel-drag.js.
     wireDrag(this.el.panel, this.el.panel.querySelector('header'), () => this.panelPosKey());
@@ -567,6 +643,11 @@ export class UI {
       if (this.bar === 'build' || (on && this.bar)) this.bar = null;
     }
     this.rail.setBar(this.bar);
+    // A latch that outlived its mode is a shop where tapping a shelf next time
+    // mysteriously does not open it, with the button that explains why off
+    // screen. Let go of on the way in as well as out: the mode a fixture menu
+    // borrows and hands back is a state you can leave this holding.
+    this.togglePickLatch(false);
     this.markBuilding();
     // A way's menu goes with the fixture's: both are rows of build verbs, and a
     // doorway can only be *pointed at* in the mode (see `pickWay`), so one left
@@ -764,6 +845,11 @@ export class UI {
     // worked while the only compound id was `station:blender` and stopped the
     // moment a piece id was free-form — a planter called `plot-marker` would
     // have been read as a plot.
+    // Arming a tool is what puts a copied stamp down. Both are "the thing that
+    // goes down when you press", and two of them under one pointer would be two
+    // promises about one press — so this is the pair to `copySelection`'s own
+    // `disarmTool`, said from the other end.
+    this.dropStamp?.();
     this.buildTool = t.kind ?? t.id;
     this.buildPiece = t.piece ?? '';
     this.buildStation = t.station ?? '';
@@ -889,6 +975,33 @@ export class UI {
     if (this._toolId) return this._toolId;
     if (this.buildStation) return `station:${this.buildStation}`;
     return this.buildPiece || this.buildTool;
+  }
+
+  /**
+   * The three questions the pipette asks of the palette.
+   *
+   * All of them are `buildTools(this)` lookups and none of them is new state,
+   * which is the whole reason Q is cheap: the bar is already a list of every
+   * design in the game, keyed by exactly the ids a placement carries. They live
+   * here rather than in `main.js` because `buildTools` is the palette's own
+   * catalogue and a second reader of it in another file is two answers to "what
+   * can be armed" — the disagreement being a key that arms something the bar
+   * cannot show you it armed.
+   *
+   * `buildToolByEdge` is the one that is not an id lookup: a wall is not a
+   * piece, so the only thing an edge tool and a standing wall have in common is
+   * the kind number. Which is exact — the four signed doorways and the four
+   * glazings are separate entries — so pointing at a staff door arms a staff
+   * door rather than a doorway.
+   */
+  hasBuildTool(id) { return !!buildTools(this).find((x) => x.id === id); }
+
+  buildToolName(id) {
+    return (buildTools(this).find((x) => x.id === id)?.name ?? 'it').toLowerCase();
+  }
+
+  buildToolByEdge(kind) {
+    return buildTools(this).find((x) => x.edge === kind)?.id ?? null;
   }
 
   /** Is a palette entry armed — that is, would a tap on bare ground build? */
@@ -1169,6 +1282,32 @@ export class UI {
   }
 
   /**
+   * Tear the selection out — Delete, which is the Remove button's key.
+   *
+   * The one selection verb that is NOT one at a time, for the reason its own
+   * square gives: a shift-click over six shelves is a press people make in
+   * order to clear an aisle. So unlike `rotateSelected` this sends the whole
+   * list, and the server folds it into one undo step, one re-flow and one line.
+   *
+   * `withBuildMode` like every other fixture verb, and it closes the panel
+   * because what that panel is about is on its way out. Answers whether it took
+   * the key: with nothing selected Delete belongs to whatever comes next rather
+   * than tearing out whatever the pointer happens to be over, which is the
+   * proximity bug the bulldozer already answers properly.
+   */
+  removeSelected() {
+    const f = this.selectedFixture();
+    if (!f) return false;
+    // Read before anything else runs: `closePanel` below drops the selection
+    // (`setFixtureRef(null)`), and so would anything that decided to close the
+    // menu on the way into build mode.
+    const ids = this.pickedIds();
+    this.withBuildMode(() => this.net.send('build-remove', { id: f.id, ids }));
+    this.closePanel();
+    return true;
+  }
+
+  /**
    * The fixture that is SELECTED, live off the layout.
    *
    * Deliberately no longer "the one this menu is open on". Selection and the
@@ -1305,6 +1444,16 @@ export class UI {
       el.classList.toggle('show', on);
     }
     this.syncSteps();
+    // ...and the camera pair, which hangs off the same chain and off none of the
+    // same state. Called from here rather than from `syncSteps`, whose early
+    // return would make this depend on the undo stack having moved — true today
+    // only because `pillDrives` happens to be in that key.
+    this.syncView();
+    // ...and beside it rather than inside it, for exactly that reason said one
+    // link further along: `syncView` returns early on its own one boolean, so a
+    // call from in there would only ever fire on the frame the screen changed
+    // width.
+    this.syncSelect();
   }
 
   /**
@@ -1339,6 +1488,57 @@ export class UI {
       el.classList.toggle('show', on);
       el.classList.toggle('off', !n);
     }
+  }
+
+  /**
+   * The camera pair, which is the one thing in this stack that is not a mode.
+   *
+   * `pillDrives` and nothing else: turning the view and putting it back are how
+   * you look round a shop, not how you build one, and a phone has no `,`, no `.`
+   * and no comfortable two-finger twist while a thumb is holding something. They
+   * are hidden on a desktop for `#rotbtn`'s reason — a button standing in for
+   * keys you already have is clutter over the shop.
+   *
+   * Neither is ever dimmed. Home with the camera already on you does nothing
+   * visible, which is true and is also the wrong thing to say with a control:
+   * the whole point of it is that you press it without first working out whether
+   * the view has drifted, and a Home that greyed itself out would be asking you
+   * to make that judgement before every press.
+   */
+  syncView() {
+    const on = pillDrives();
+    if (on === this._viewOn) return;
+    this._viewOn = on;
+    this.el.view?.classList.toggle('show', on);
+    this.el.home?.classList.toggle('show', on);
+  }
+
+  /**
+   * Pick-several and Remove, which are the two this stack was missing.
+   *
+   * `syncSteps`' test rather than `syncRotate`'s, and for the same reason: these
+   * are about the fixtures already standing in the shop, not about the ghost
+   * under your finger — a wall tool and a paint brush are both modes you want to
+   * pick a shelf out of.
+   *
+   * Remove is dimmed rather than hidden when nothing is picked, which is
+   * undo/redo's call and made here for a sharper version of the same argument:
+   * it is the button a selection is FOR, so a Remove that appeared only once you
+   * had picked something would be the thing that tells you the latch worked
+   * arriving after you needed to know. Dimmed, it is what the latch is pointing
+   * at the whole time.
+   *
+   * Behind a key like its neighbours: this runs off the snapshot at 10Hz and
+   * the answer moves a handful of times a session.
+   */
+  syncSelect() {
+    const on = pillDrives() && (this.paletteArmed || !!this.holding);
+    const key = `${on}:${!!this.pickLatch}:${!!this.selectedFixture()}`;
+    if (key === this._selKey) return;
+    this._selKey = key;
+    this.el.pick?.classList.toggle('show', on);
+    this.el.del?.classList.toggle('show', on);
+    this.el.del?.classList.toggle('off', !this.selectedFixture());
   }
 
   /**
@@ -2054,7 +2254,27 @@ export class UI {
     if (at >= 0) this.picked.splice(at, 1);
     else this.picked.push({ id: f.id, x: f.x, z: f.z, kind: f.kind });
     this.syncPickMarkers();
-    this.repaintFixtureMenu();
+    // ...and the SECOND one opens the menu, which is the half that was missing.
+    //
+    // The bulk verbs live nowhere else — Remove, the ladder, what a unit is kept
+    // for — and there was no press that reached them: shift-click is consumed
+    // whole (`pointerdown` returns before the tap), and the ordinary two-press
+    // route to a menu goes through `selectFixture`, which clears the selection
+    // on its way. So six shelves picked was six shelves you could look at and
+    // not act on, and what that reads as is the popover refusing to open.
+    //
+    // At two rather than at one, and the line is the existing rule rather than a
+    // preference: with one picked this is an ordinary fixture selection and "the
+    // first press picks, the second opens" still holds. With two the menu stops
+    // being about a shelf and starts being the only place the selection can be
+    // used, so waiting for a press that cannot be made is waiting for nothing.
+    // ...and NOT on a phone, where the panel is the whole screen: opening it on
+    // the second pick would cover the aisle you are still picking from, so the
+    // moment there is one is when you let the latch go — see the pick button's
+    // own press in `wire`.
+    if (!pillDrives() && this.manyPicked && this.openPanel !== 'fixture') {
+      showFixture(this, this.fixtureRef);
+    } else this.repaintFixtureMenu();
   }
 
   /**
@@ -2139,7 +2359,47 @@ export class UI {
    * reacts to the shift.
    */
   setKinPreview(on) {
-    const want = !!on && !!this.fixtureRef;
+    this.shiftPeek = !!on;
+    this.syncKin();
+  }
+
+  /**
+   * The same thing said by a button, because a phone has no Shift.
+   *
+   * A LATCH rather than a modifier, which is not a compromise — it is what a
+   * modifier has to become when there is no second hand free to hold one. While
+   * it is down a tap adds or drops a fixture instead of opening it, which is
+   * `pointerdown`'s shift branch reading `ui.pickLatch` beside `e.shiftKey`.
+   *
+   * Two things follow from it being a latch. It has to be VISIBLE — `#pickbtn`
+   * is the one button in that stack with an on look, because a latch you cannot
+   * see the state of is a mode, and a mode nothing announces is the complaint
+   * `paletteArmed` exists to settle for the palette. And it has to be let go of
+   * by leaving build mode, or the shop next time you open the bar is one where
+   * tapping a shelf mysteriously does not open it.
+   *
+   * The kin preview comes with it for the same reason it comes with Shift: the
+   * gesture is invisible until something on screen reacts to it.
+   */
+  togglePickLatch(on = !this.pickLatch) {
+    if (!!this.pickLatch === !!on) return;
+    this.pickLatch = !!on;
+    this.el.pick?.classList.toggle('on', this.pickLatch);
+    this.el.pick?.setAttribute('aria-pressed', String(this.pickLatch));
+    this.syncKin();
+    this.syncSelect();
+  }
+
+  /**
+   * ...and the one answer both of them feed, because either can be true alone.
+   *
+   * Written as a recompute rather than as two setters for the reason
+   * `clampPan` is one function: two writers of one field fight, and what that
+   * looks like here is the preview going out the moment you let go of a Shift
+   * you were not holding.
+   */
+  syncKin() {
+    const want = (!!this.shiftPeek || !!this.pickLatch) && !!this.fixtureRef;
     if (this.kinOn === want) return;
     this.kinOn = want;
     this.syncPickMarkers();
@@ -2189,6 +2449,11 @@ export class UI {
     this.scene.setMarkedSet('kin', this.kinOn
       ? this.kinOfSelection().filter((f) => !taken.has(f.id)).map((f) => ({ f, mode: 'kin' }))
       : []);
+    // ...and the thumb button that acts on this selection, here rather than only
+    // on the snapshot: every caller of this is a press, and a Remove that stayed
+    // dim for a tenth of a second after you picked something reads as the tap
+    // having missed. It keys on its own answer, so this costs a compare.
+    this.syncSelect();
   }
 
   /** Redraw the fixture menu if one is open — the selection changed under it. */
@@ -4375,6 +4640,199 @@ export class UI {
    * right or bottom edge — a tooltip that pushes the window's scrollbars out is
    * the one bug every hand-rolled tooltip ships with.
    */
+  /**
+   * EVERY UNIT'S CARD AT ONCE — the held-Alt overlay.
+   *
+   * `setBoardTip` said about the whole shop instead of about the one heap under
+   * the pointer, and that reuse is the design rather than a saving. The hover
+   * card already answers "what is this, how much of it, what does it cost",
+   * which is exactly what the overlay asks of every unit — so a second readout
+   * would be a second thing to keep in step with the item art, and a worse one,
+   * because this one has already been read.
+   *
+   * The first version drew each item's own MODEL in a thought bubble out in the
+   * world. Right instinct, wrong readout: three loaves, three bottles and three
+   * jars are three pale shapes half a tile across at this camera, inside the
+   * same white sphere — you could see there was something over every unit and
+   * not what.
+   *
+   * `cards` arrive already projected to screen pixels, because only the renderer
+   * knows where the camera is and this is the file that owns the DOM. Called
+   * every frame while the key is down: the camera rides the player, so a card
+   * placed once would slide off the unit it names the moment anybody walked.
+   *
+   * Which is why the two halves are split by a KEY. Rebuilding thirty cards a
+   * frame is thirty `innerHTML` parses of item art sixty times a second; what
+   * actually changes per frame is two numbers of `transform`. So the content is
+   * written only when a card's own signature moves, and the position always —
+   * the same split `setBoardTip` makes one card at a time, for the same reason.
+   *
+   * ONE CARD PER UNIT, and its boards sit ACROSS it. The hover card is about one
+   * heap and the overlay is about a shop, and the difference only shows up once
+   * a unit holds more than one thing: a full-size card per board is three cards
+   * where the unit is one, so they overlap each other and then the units either
+   * side, and the answer to "where does the shop keep this" is buried under the
+   * answer for the shelf next door.
+   *
+   * Which is also why a board is the item's ART and how much of it, and nothing
+   * else. The hover card's four fields are the right answer for one heap under
+   * a pointer and three of them are noise thirty times over — the name is what
+   * the art already says, and the price is a question you ask of one shelf you
+   * have decided to look at rather than of a whole shop at a glance. A pair of
+   * cells is small enough that three of them side by side are still narrower
+   * than one of the old cards.
+   *
+   * The key is now the fixture id alone, and the signature covers every board —
+   * so a delivery landing on board two rewrites that card and no other. Boards
+   * are reconciled rather than rebuilt for the same reason the card is: a unit
+   * grows and loses boards (a tier, a reservation being ticked), and that is
+   * rare, where the frame is not.
+   *
+   * ...and the same key is what makes DECLUTTERING affordable. Cards land where
+   * their units are, and units are three tiles apart on an aisle while a card is
+   * wider than that, so grouping cuts how many collide without ending them. A
+   * card that is nudged has to be measured first, and `offsetWidth` is a forced
+   * layout read — thirty of those a frame is exactly the stutter the key split
+   * exists to avoid. So a card's box is measured on the frame its content is
+   * written and cached beside it, and the frame's own work is arithmetic on
+   * numbers we already have.
+   */
+  setPeek(cards) {
+    const el = this.el.peek;
+    if (!el) return;
+    this._peek ??= new Map();
+    const live = new Set();
+    // Every card that is on screen this frame, in the order they arrived. The
+    // position is settled over the whole set before any of it is written, or
+    // the first card would be placed against boxes that are about to move.
+    const order = [];
+
+    for (const c of cards ?? []) {
+      live.add(c.key);
+      let rec = this._peek.get(c.key);
+      if (!rec) {
+        const node = document.createElement('div');
+        node.className = 'pk-card';
+        el.append(node);
+        rec = { node, rows: [], sig: null };
+        this._peek.set(c.key, rec);
+      }
+      const rows = c.rows ?? [];
+      const sig = rows
+        .map((r) => `${r.itemId}:${r.qty}:${r.cap}:${r.want ? 1 : 0}`)
+        .join('|');
+      if (rec.sig !== sig) {
+        rec.sig = sig;
+        while (rec.rows.length > rows.length) rec.rows.pop().row.remove();
+        while (rec.rows.length < rows.length) rec.rows.push(this.peekRow(rec.node));
+        rows.forEach((r, i) => {
+          const line = rec.rows[i];
+          // The one line in here that parses HTML, which is why it is behind
+          // the key and not merely tidied into it.
+          line.ico.innerHTML = artForModel(this.itemById(r.itemId)?.model) ?? '';
+          // A board that is reserved and EMPTY is what the key is most for, and
+          // "0/8" says the wrong thing about it — a zero that is a plan reads as
+          // a zero that is a problem. So it says which it is, in words.
+          line.count.textContent = r.want ? 'kept for' : (r.cap > 0 ? `${r.qty}/${r.cap}` : `${r.qty}`);
+          line.count.classList.toggle('full', !r.want && r.cap > 0 && r.qty >= r.cap);
+          line.row.classList.toggle('pk-want', !!r.want);
+        });
+        // Measured HERE and nowhere else — see the header. A card's size is a
+        // fact about its content, so the frame that writes the content is the
+        // one frame that has to pay for a layout read.
+        rec.w = rec.node.offsetWidth;
+        rec.h = rec.node.offsetHeight;
+      }
+      rec.x = c.x;
+      rec.y = c.y;
+      order.push(rec);
+    }
+
+    this.declutterPeek(order);
+    for (const rec of order) {
+      rec.node.style.transform =
+        `translate(${Math.round(rec.x)}px, ${Math.round(rec.y)}px) translate(-50%, -100%)`;
+    }
+
+    for (const [key, rec] of this._peek) {
+      if (live.has(key)) continue;
+      rec.node.remove();
+      this._peek.delete(key);
+    }
+  }
+
+  /**
+   * Move cards off each other, and only ever UP.
+   *
+   * Grouping a unit's boards into one card is most of the answer — it is what
+   * takes a furnished shop from a hundred cards to a dozen — but a card is still
+   * wider than the three-tile pitch an aisle stands its units on, so two units
+   * side on to the camera still collide. What that costs is not tidiness: a card
+   * half under another one reads as belonging to whichever unit is nearest it,
+   * which is a readout that is confidently wrong about where the shop keeps
+   * something. That is the one thing the key exists to answer.
+   *
+   * Three rules, and each is doing a job.
+   *
+   * **Nearest first.** Front-to-back, so the units closest to the camera — the
+   * ones you are looking at — keep their exact spot and everything behind them
+   * gives way. Sorted the other way the front of the shop is what moves, and
+   * what you are reading is the part that drifted.
+   *
+   * **Up and never sideways.** A card keeps its unit's own screen x, so it stays
+   * in the unit's column and the association survives the move; slid sideways it
+   * would be a card sitting over its neighbour, which is the bug. Up is also
+   * where the room is, since a card is anchored at a unit's top and everything
+   * above that is sky.
+   *
+   * **A settle rather than a solve.** It re-tests against everything already
+   * placed after each nudge, because clearing card A can push you into card B,
+   * and it gives up after a bounded number of passes: a stack deep enough to
+   * spend forty moves is a shop where no arrangement reads anyway, and an
+   * unbounded loop here is a frozen tab. It runs on the cached boxes only, so
+   * the cost is arithmetic over a dozen cards.
+   */
+  declutterPeek(list) {
+    const GAP = 4;
+    list.sort((a, b) => b.y - a.y);
+    const placed = [];
+    for (const e of list) {
+      if (!(e.w > 0) || !(e.h > 0)) { placed.push(e); continue; }
+      for (let pass = 0; pass < 40; pass++) {
+        let moved = false;
+        for (const p of placed) {
+          if (!(p.w > 0) || !(p.h > 0)) continue;
+          if (Math.abs(e.x - p.x) >= (e.w + p.w) / 2 + GAP) continue;
+          if (e.y - e.h >= p.y || p.y - p.h >= e.y) continue;
+          e.y = p.y - p.h - GAP;
+          moved = true;
+        }
+        if (!moved) break;
+      }
+      placed.push(e);
+    }
+  }
+
+  /**
+   * One board inside a peek card: the item's art, and how much of it.
+   *
+   * A cell of its own rather than two loose spans in the card, because it is
+   * what a board is removed BY when a unit loses one, and because "this board is
+   * a promise" is a fact about the pair rather than about either half — and it
+   * is what the hairline between boards hangs on.
+   */
+  peekRow(node) {
+    const row = document.createElement('div');
+    row.className = 'pk-row';
+    const ico = document.createElement('span');
+    ico.className = 'bt-ico';
+    const count = document.createElement('span');
+    count.className = 'bt-sub';
+    row.append(ico, count);
+    node.append(row);
+    return { row, ico, count };
+  }
+
   setBoardTip(shelf, itemId, px = 0, py = 0) {
     const el = this.el.boardtip;
     if (!el) return;
@@ -4559,12 +5017,25 @@ export class UI {
     // is one pile on a unit, so backing out of it should not also give up the
     // unit. `main.js` registers it; nothing here knows what a board is.
     if (this.dropBoardPick?.(dry)) return true;
+    // ...and a copied stamp, which is the same shape and one rung sooner: it is
+    // something in your hands rather than something you selected, so it comes
+    // off before anything you merely pointed at. `main.js` registers it, the way
+    // it registers the board pick, and nothing in here knows what a blueprint is.
+    if (this.dropStamp?.(dry)) return true;
     // A selection with no menu over it is its own rung, and it has to be one:
     // it is the only thing on screen at this point, and a teal ring nothing can
     // dismiss is a ring that follows you round the shop. Below the panel rung
     // rather than beside it, because `closePanel` already clears the ref — with
     // a fixture menu up these two are one press, which is what it looks like.
     if (this.fixtureRef) return yes(() => this.setFixtureRef(null));
+    // ...and a hire picked out the same way, which needs this rung more than a
+    // shelf does: their ring rides on the body (`setPersonSelected`), so one
+    // left behind does not merely sit there, it walks off round the shop with
+    // somebody. Beside the fixture rather than above it because the two are the
+    // same kind of thing, and only one of them is ever set — build mode is the
+    // only place a fixture is picked without a menu, and `aimPerson` answers
+    // nobody there.
+    if (this.workerRef) return yes(() => this.setWorkerRef(null));
     // A browse bar is a rung of its own. It arms nothing and owns no world
     // state, so it comes off before anything that does — and it is the only
     // thing on screen at this point, which is what makes it the next thing out.

@@ -998,9 +998,121 @@ test against the art rather than the tile. Everything above it is already in
 place — the set of rings, the narrowed menu, `ids` on the wire — so it is a
 gesture rather than a feature.
 
-Nor is it bulk Upgrade or bulk Remove. Both spend or refund real money once per
-fixture, and the row that would do it is one press from a selection you picked for
-a different reason. They are the two verbs worth being asked about twice.
+#### …and the three verbs that came back
+
+*Built (step 27b).* Remove, Upgrade and Downgrade were all in that paragraph on
+the grounds that they spend or refund real money once per fixture, and the
+argument was wrong about all three in a way it is not wrong about the other two.
+The line it should have drawn is this: **a verb stays single when six of it
+would be six different things, and belongs to the selection when six of it is
+one thing said once.** Move fills your hands with one fixture and Rotate turns
+each into its own corner — those really are six decisions. "Get rid of that
+aisle" and "make my freezers better" are one decision each, and refusing them
+left the shift-click doing half a job.
+
+The ladder is the sharper of the two, because a rung is priced per piece and per
+tier: six units standing at three different tiers is six different prices, and
+each climbs its **own** ladder rather than all of them landing on one number.
+Whichever is already at the end of its ladder is simply not in the batch, the
+way an unemptied shelf is not in a bulk Remove. Affordability stays inside
+`upgradeFixture` against the running cash, so a batch that outspends the shop
+upgrades what it can and reports the rest — the alternative is pricing it up
+front and refusing the lot over the last unit. The button greys on the
+**cheapest** rung for the same reason, or it is dead over a press that would
+have worked.
+
+`verify:pick` §8 pins the money, which is the half nothing on screen can show: a
+batch that charged the first unit's price six times comes back with six upgraded
+fixtures and a shop that is quietly poorer, with nothing to compare it against.
+Its control is the round trip — up and back down must always lose money, or a
+selection is a way to print it two keys at a time.
+
+**And the second shift-click opens the menu**, which is the half that made all
+of the above reachable. Every bulk verb lives in the fixture menu and there was
+no press that got to it with a selection intact: shift-click is consumed whole
+(`pointerdown` returns before the tap, or the release would walk you to the last
+shelf you picked), and the ordinary two-press route runs through
+`selectFixture`, which clears the selection on its way. So six shelves picked
+was six shelves you could look at and not act on, and what that reads as is the
+popover refusing to open.
+
+At **two** rather than at one, and the line is the existing rule rather than a
+preference: with one picked this is an ordinary selection and "the first press
+picks, the second opens" still holds; with two, the menu stops being about a
+shelf and becomes the only place the selection can be used, so waiting for a
+press that cannot be made is waiting for nothing. On a phone it is the opposite
+call for a reason that is about pixels rather than about gestures — the panel is
+the whole screen there, so opening it on the second pick would cover the aisle
+you are still picking from. The moment there is **letting the latch go**, which
+is the same sentence said by the device that has one.
+
+#### Remove, and the guard that reads the shop
+
+*Built (step 27b).* Remove was in that paragraph too, on the same argument, and
+the argument was wrong about it in a way the other four are not. Rotate turns
+each fixture into its own corner and Move fills your hands with one thing, so
+each of those genuinely means something different about six units than about
+one. Remove means exactly the same thing six times — and it is the press a
+selection is *for*: you shift-click an aisle because you want the aisle gone.
+Refusing it left the gesture doing half a job, six opens and six presses, with
+no way to say the thing you had just finished saying with the pointer.
+
+So `build-remove` is the second bulk verb that re-flows, and the shape is
+`build-style`'s exactly: `targets` for who, `bulkFixtures` for the loop, one
+`undoStep` around the batch, one `sendLayout` at the end. The money is what the
+fold's line reports rather than the count, because the money is the half of a
+removal nobody can see afterwards — the fixtures are gone either way, and "six
+back" says nothing about whether that was $30 or $900.
+
+**The trap is a guard that reads the SHOP rather than the unit**, and there is
+exactly one: you may not tear out your last till. What makes `holdReflow` safe
+for every other bulk verb is that none of them moves a tile, so each looks its
+own fixture up against a layout that is still true — and a removal makes that
+layout stale by construction. Three tills picked in a shop with three each see
+three still standing, all three pass, and you are left with a shop that cannot
+take money. Nothing about it is visible: the tills are gone, which is what you
+asked for, and what you find out later is that shoppers queue at nothing. So the
+hold carries `gone` — what the deferred re-flow has not caught up with — and the
+guard counts against it. Its pair is that the batch does not simply refuse
+either: two of the three must go, or the guard is a shop front you can never
+rearrange. `verify:pick` §7 pins both, plus the control that a lone last till is
+refused exactly as it always was.
+
+The menu square says the same thing the server will do rather than a nicer
+version of it — the green-ghost rule, wearing a price. It counts the tills
+against the *selection* the way the server does, greys only when every one of
+them is blocked, and the figure on it adds up the ones that can actually go.
+`Del` is on the button beside `M` and `R`, for the reason every key in this game
+is on its button.
+
+**And a phone has no Shift**, which is the half worth writing down. Undo at
+least had a desktop spelling a thumb was merely missing; picking several was a
+feature that did not exist on the device at all, and bulk Remove went with it —
+so the whole of the above would have shipped unreachable on the one screen where
+every build press is a fingertip. `#pickbtn` is the answer and it is a **latch**
+rather than a modifier, because that is what a modifier becomes when there is no
+second hand free to hold one: while it is down a tap adds or drops a fixture
+instead of opening it, which is `pointerdown`'s Shift branch reading
+`ui.pickLatch` beside `e.shiftKey`.
+
+Three things fall out of it being a latch rather than a key. It is written
+**beside** `shiftDown` and never into it — that flag is also the sprint key and
+is overwritten by the next `pointermove` off the event, so a latch stored there
+would be both a run and a flag that cleared itself the moment your finger slid.
+It has to be **visible**, so it is the one button in that stack with an on look:
+a latch you cannot see the state of is a mode, and a mode nothing announces is
+the complaint `paletteArmed` settles for the palette. And it is **let go of by
+leaving build mode**, or the shop next time you open the bar is one where
+tapping a shelf mysteriously does not open it, with the button that explains why
+off screen.
+
+`#delbtn` sits under it, and what is two buttons above it is Undo — deliberately,
+since tearing out six shelves is the most expensive press on that screen and the
+way back from it belongs under the same thumb. It is dimmed rather than hidden
+with nothing picked, which is undo/redo's call made for a sharper reason: it is
+the button a selection is *for*, so one that appeared only once you had picked
+something would be the thing that tells you the latch worked arriving after you
+needed to know.
 
 ### Painting the walls, one side at a time
 
@@ -1505,7 +1617,7 @@ See `verify:undo`.
 
 ### Four things a factory game already taught everybody
 
-*Proposed — steps 24 to 27.* Undo made the point that build mode is the part of
+*Built — steps 24 to 27, except the one thing named as out of scope under 26.* Undo made the point that build mode is the part of
 this game most like an editor, and that everything an editor is expected to do is
 worth checking against what is already here rather than designed from scratch.
 These four are that list, in the order of what they cost. Each is written as its
@@ -1520,7 +1632,7 @@ that exist.
 
 #### 24. Q is the pipette
 
-Point at anything in the shop and press Q: the palette arms *that* piece, that
+*Built.* Point at anything in the shop and press Q: the palette arms *that* piece, that
 variant, that rotation. Nothing new on the wire and nothing new on the server —
 `Scene.pickFixture` already names the fixture, `pieceFor` already resolves its
 row, and `selectBuildTool` / `ui.buildVariant` / `ui.buildRot` are the three
@@ -1537,9 +1649,25 @@ The one decision: it must arm the tool without opening the bar over the shop, or
 a key for "that one" costs you the view of the thing you pointed at. That is
 `commitBuildMode`'s quiet mode, which exists.
 
+What it cost is not what the plan said. The ladder had to be **shared with the
+bulldozer** — `whatsThere`, split out of `razeAim` — because "what is that" and
+"get rid of that" are one question and two verbs, and two ladders would be two
+answers to it: Q copying the wall while Ctrl demolishes the shelf in front of it
+is not a bug anybody would find by reading either function. The one place they
+differ is the ground rung, and the difference is real rather than an accident:
+the pipette wants a bare floor cell named, and the bulldozer wants to know
+whether there is anything on it worth taking up. So `canPaintGround` is asked by
+`razeAim` and not by the shared ladder.
+
+The other cost was the facing. `selectBuildTool` resets the angle and restores
+whichever shape you last used for that piece — both correct for a design picked
+off a list, and both exactly wrong for a decision you are pointing at — so the
+facing is written after the select and **pinned**, or `faceAlong` re-derives it
+on the next frame and Q reads as copying everything but the rotation.
+
 #### 25. Any fixture drags out in a row
 
-The conveyor run drag is written (`beltRunCells`, `showBeltDrag`, `build-run`),
+*Built.* The conveyor run drag is written (`beltRunCells`, `showBeltDrag`, `build-run`),
 and there is nothing about it that is about belts. An aisle is six shelves on one
 line and it is six presses; a fence is the same sentence about `fence`. The rule
 that stops it being a free-for-all is already stated in `beltRunCells`: a run
@@ -1554,11 +1682,21 @@ money halfway** builds what you could afford, which is what a wall drag and a
 floor stroke both already do and for the reason they both give.
 
 `build-run` is deliberately named for the gesture rather than for conveyors, so
-this is a widened guard rather than a second message.
+this is a widened guard rather than a second message. `beltRunCells` was not,
+and is `runCells` now: the name was the last thing in the layer still claiming
+this was about belts.
+
+One thing was decided in the building that the plan did not name, and it is what
+keeps drag-to-move alive. A conveyor claims the press **wherever it lands**,
+because starting a drag on a run you already own is how you extend one (see the
+tail-aiming in `Game.buildRun`). Everything else claims it **only over bare
+ground**, because `drag.lift` is a press that landed on an existing fixture — so
+a shelf tool that swallowed those would mean arming any tool at all silently
+disables dragging things about, in the mode whose whole job is rearranging.
 
 #### 26. Copy and paste a selection
 
-The multi-select is built and holds a list of fixture ids; a placement is plain
+*Built, without rotation.* The multi-select is built and holds a list of fixture ids; a placement is plain
 data; `placeFixture` takes one and mints it. So Ctrl+C over a selection is a list
 of placements made *relative* to one anchor cell, and Ctrl+V is that list
 re-anchored under the pointer and laid through the existing verb, inside one
@@ -1582,11 +1720,38 @@ Three decisions, and the third is the one that will be got wrong:
 
 Where it stops: no library, no saved blueprints, no sharing. One clipboard, in
 memory, per session — the same call `undo` makes about persistence, for the same
-reason.
+reason. **And no rotation**, which was decision three above and is deliberately
+left undone rather than half-done: turning a stamp means rotating the offsets
+*and then* the facings, and an `h` wall becomes a `v` one, which is the part that
+cannot be checked by eye at all. It is step 28.
+
+Two things landed differently from the plan, and one of them is a bug the sweep
+caught the day it was written.
+
+The clipboard lives on the **shop** rather than on the client, and the reason is
+the 4KB inbound cap: a blueprint is four layers, which for a stockroom is
+comfortably past it. So `build-copy` sends the ids you had picked, `build-paste`
+sends the cell you pointed at, and the thing itself is derived server-side from
+state it already holds — `build-edge`'s rule (send the ends, re-run the
+generator) said about a region. The client keeps a *second*, fixtures-only copy
+for one purpose, the ghost, and that copy decides nothing: a paste with no
+preview is a stamp you aim by faith.
+
+And **`holdReflow` may not wrap the whole paste**, which is the opposite of what
+every other multi-fixture verb in this file does. That hold is safe "because
+nothing between the verbs reads the layout", and for a run of belts it is true —
+each cell is the same question about a different square. A paste is the one
+caller where it is flatly false: every layer is a precondition of the next, and
+`canPlace`, `canPlaceEdges` and `canPaintFaces` all read a layout the hold leaves
+as it was before the first cell went down. Held around the lot, a stamp of an
+aisle onto bare grass refuses every shelf in it — the floor is still pending —
+and reports "none of that would go there" over ground it laid a moment earlier.
+So the **layer** is the boundary: four re-flows for a stamp of twenty things
+rather than twenty, without the part that makes the ordering a lie.
 
 #### 27. The overlay key
 
-Hold Alt and every unit says what it holds — the item's own icon over the shelf,
+*Built.* Hold Alt and every unit says what it holds — the item's own art over the shelf,
 the recipe over an appliance, the crop over a bed. Factorio's version of this is
 the single most-used key in the game and it is *read-only*, which is what makes
 it cheap: nothing here is a verb.
@@ -1604,6 +1769,96 @@ forget you are in, and this one draws over the shop. It needs to answer for
 `boh` units too, since a stockroom is the place you are most likely to be asking.
 And it does **not** need new state on the wire: `stacks`, `recipe` and `crop_id`
 are all in the snapshot already.
+
+**It was built twice, and the first one is the useful half of the story.** The
+obvious readout is the item's own model in `buildBubble` — the thought bubble a
+shopper already thinks in, already billboarded, already drawn from the same art
+the heap on the shelf is. Right instinct, wrong readout: three loaves, three
+bottles and three jars are three pale shapes half a tile across at this camera,
+inside the same white sphere. You could see there was *something* over every unit
+and not what, which is a readout that answers the question the key does not ask.
+
+What it is instead is `setBoardTip` — the hover card, said about the whole shop
+at once. That card already answers "what is this heap, how much of it, what does
+it cost", which is exactly what the overlay asks of every unit, and it has the
+one thing the bubble could not have: a **name**. The cards share `#boardtip`'s
+own rules, so a change to the hover card cannot leave the two looking like
+different kinds of thing.
+
+Being DOM rather than world, it is pinned by `scene.worldToScreen` **every
+frame**, because the camera rides the player and a card placed once slides off
+the unit it names the moment anybody walks. That is the one cost, and it is paid
+by a key: what changes per frame is two numbers of `transform`, so the content —
+which includes an `innerHTML` of the item art — is written only when a card's own
+signature moves. Thirty cards re-parsed sixty times a second is the version of
+this that reads as the shop stuttering when you hold a key.
+
+**The card is per UNIT, and it was per BOARD first — which is the second useful
+half of the story.** The argument for a card per board is sound and is still the
+reason the grouped card has rows at all: a shelf holding three things is the case
+the whole overlay is for, and one card naming one item would answer "which of
+them" with whichever the snapshot listed first — wrong two thirds of the time and
+looking right. What that argument does not decide is the *size* of the answer.
+Drawn as three full-size cards spread sideways to clear each other, one unit's
+readout is several times wider than the unit, so on the three-tile aisle pitch a
+generated shop uses they overlap their own neighbours and then the units either
+side — and a card sitting over the shelf next door does not read as ambiguous, it
+reads as that shelf's. A furnished building is a hundred cards in a heap, which
+loses the one thing the key is for. So the unit gets one card and its boards are
+cells in it.
+
+**A board is the item's art and how much of it, and nothing else** — which is
+where the reuse of `setBoardTip` stops. Its four fields are the right answer for
+one heap under a pointer and three of them are noise thirty times over: the name
+is what the art already says, and the price is a question you ask of one shelf
+you have decided to look at rather than of a whole shop at a glance. There is no
+unit name on the card either, for the same reason: the unit is directly
+underneath it.
+
+That is what lets the boards run **across** the card rather than down it. A pair
+of cells is narrow, so three of them side by side are still narrower than one of
+the cards this replaced, and a wide one-line card is the shape that fits over a
+unit at this camera — a tall one stands up into the aisle behind it and reads as
+belonging to whatever is up there, which is the overlap bug arriving by the other
+axis. A hairline between boards is what stops three of them reading as one long
+number. And **the art is the only thing naming the goods**, so it has to be
+`artForModel`, the hover card's own call: a generic glyph would make every board
+of every card identical, which is the thought-bubble failure above in miniature.
+
+**Grouping is most of the answer to overlap and not all of it**, and the rest is
+`declutterPeek`. A card is still wider than three tiles, so two units side on to
+the camera collide however narrow the card gets — and what that costs is not
+tidiness: a card half under another one reads as belonging to whichever unit is
+nearest it, which is a readout that is confidently *wrong* about where the shop
+keeps something, the one question the key exists to answer. So cards are settled
+front-to-back, and a card that has to move moves **up**: it keeps its unit's own
+screen x, so it stays in that unit's column and the association survives, where a
+card slid sideways is the bug itself. It is bounded rather than solved — a stack
+deep enough to need forty nudges is a shop that will not read anyway, and an
+unbounded relaxation loop on the frame is a frozen tab.
+
+The measuring is where that could have gone wrong. A card can only be nudged off
+another if something knows how big it is, and `offsetWidth` is a forced layout
+read — thirty of them a frame is precisely the stutter the content/position split
+above exists to prevent. A card's size is a fact about its *content*, though, so
+it is measured on the one frame that content is written and cached beside it, and
+the per-frame work is arithmetic on numbers already in hand.
+
+How many rows is the **shelf's own** number, off `boards` on the wire — the same
+figure `boardsOf` answers for the sim, read at this fixture's tier. Three is what
+the widest unit in the game draws today and writing that down in the client is a
+second copy of it, which a tier that grew a fourth board would make silently
+wrong. A bed and an ordinary appliance are one row; a twin-headed machine is the
+one appliance with two things to say, and the grouped card is the shape that lets
+it say them.
+
+Two decisions on top of the plan. A board that is **reserved but empty** says
+*kept for* in words rather than showing `0/8`, since that is the hardest thing in
+the shop to find out about and a zero that is a plan reads as a zero that is a
+problem. And the key `preventDefault`s: a bare Alt
+focuses the browser's menu bar on Windows and Linux, which takes the keyboard
+away from the page — so the *keyup* never arrives and the overlay sticks over a
+shop nobody can walk in.
 
 ### Appliances are the one thing left, and that is step 12
 
@@ -1791,19 +2046,40 @@ the number.
     down, undoing the one thing step 19 charged for. Client-only: no message, no
     server change, one flag split into two. See above for why the split by
     palette state was the wrong trade, and for the Mac secondary-click trap.
-24. **Q is the pipette.** Point at anything and arm that exact piece, variant and
-    facing. The smallest of the four below by a wide margin — nothing on the wire
-    and nothing on the server. See above.
-25. **Any fixture drags out in a row.** The conveyor run drag widened to every
-    kind, which is a guard rather than a second message. Needs one flag saying
-    whether a corner turns the thing or keeps the armed facing. See above.
-26. **Copy and paste a selection.** Ctrl+C over the multi-select, Ctrl+V under
-    the pointer, the whole stamp inside one `undoStep`. Depends on 22 in
-    practice rather than in code: a paste you cannot take back in one press is a
-    paste nobody uses. Fixtures, ground, walls *and* paint, or it stamps
-    shelving onto grass. See above.
-27. **The overlay key.** Hold Alt and every unit says what it holds. Read-only,
-    no new state on the wire, and a hold rather than a toggle. See above.
+24. **Q is the pipette.** *Built.* Point at anything and arm that exact piece,
+    variant and facing. Client-only. Its ladder is the bulldozer's
+    (`whatsThere`), because "what is that" and "get rid of that" are one
+    question. See above.
+25. **Any fixture drags out in a row.** *Built.* The conveyor run drag widened to
+    every kind — a guard rather than a second message — plus one flag
+    (`runFollows`) saying whether a corner turns the thing or keeps the armed
+    facing. `beltRunCells` is `runCells`. See above, and `verify:stamp`.
+26. **Copy and paste a selection, without rotation.** *Built.* Ctrl+C over the
+    multi-select, Ctrl+V (or a click) under the pointer, the whole stamp inside
+    one `undoStep`. Fixtures, ground, walls and paint, in that order, with one
+    re-flow per layer rather than one for the lot — see above for why that is
+    the opposite of what every other multi-fixture verb here does. See above,
+    and `verify:stamp`.
+27. **The overlay key.** *Built.* Hold Alt and every unit says what it holds, as
+    the hover card (`setBoardTip`) said about the whole shop at once. Read-only,
+    no new state on the wire, and a hold rather than a toggle. Built once as
+    thought bubbles in the world first — see above for why a bubble could not
+    say the one thing the card can, which is the name.
+27b. **Removing and re-tiering what is picked.** *Built.* Remove, Upgrade and
+    Downgrade joined `build-style` as bulk verbs — one message each, one
+    `undoStep`, one re-flow, one line saying what the money did. `Del` is
+    Remove's key. All three were deliberately left out of step 16 and that call
+    was wrong: the line is whether six of a verb is six different things or one
+    thing said once. The traps are the last-till guard, which is the only
+    fixture rule that reads the shop rather than the unit and therefore the only
+    one a held re-flow can make stale, and the per-piece pricing of a rung. On a
+    phone it is two more buttons in the left thumb stack, because Shift is not a
+    key that exists there — the latch is the interesting one. See above, and
+    `verify:pick` §7–8.
+28. **Turning a stamp.** Rotating a blueprint means rotating the offsets *and*
+    the facings, and an `h` wall becomes a `v` one. Left out of 26 deliberately:
+    doing only the second looks completely correct on a single shelf and shears
+    every aisle, and the wall half cannot be checked by eye at all.
 
 ---
 

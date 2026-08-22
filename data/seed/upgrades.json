@@ -336,6 +336,17 @@
     "requires": []
   },
   {
+    "id": "station-blast-freezer",
+    "name": "Blast Freezer",
+    "description": "Freezes anything you put in it, hard and fast. Peas, berries, chips, lollies, fish fingers — and a pizza you baked this morning, which is the only two-machine chain in the shop.",
+    "cost": 340,
+    "kind": "station",
+    "payload": {
+      "station": "blast-freezer"
+    },
+    "requires": []
+  },
+  {
     "id": "station-blender",
     "name": "Blender",
     "description": "Turns produce into salsa and smoothies.",
@@ -343,6 +354,41 @@
     "kind": "station",
     "payload": {
       "station": "blender"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-butcher",
+    "name": "Butcher's Block",
+    "description": "A block, a saw and a mincer. Whole birds become portions, beef becomes mince, pork becomes the bacon and sausages every breakfast roll in the shop is built on.",
+    "cost": 260,
+    "kind": "station",
+    "payload": {
+      "station": "butcher",
+      "group": "farm"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-candy-kettle",
+    "name": "Candy Kettle",
+    "description": "A copper kettle for boiling sugar. Gummies, liquorice and chocolate slabs — the whole candy aisle, which the town asks for more than almost anything and no shop could make until now.",
+    "cost": 280,
+    "kind": "station",
+    "payload": {
+      "station": "candy-kettle"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-churn",
+    "name": "Churn",
+    "description": "Separates and works milk into cream, butter and curds. The curds are the interesting part: give them twenty minutes in a preserving pot and you have a cheese wheel worth eight times the milk.",
+    "cost": 240,
+    "kind": "station",
+    "payload": {
+      "station": "churn",
+      "group": "farm"
     },
     "requires": []
   },
@@ -387,6 +433,29 @@
     "kind": "station",
     "payload": {
       "station": "juicer"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-mill",
+    "name": "Mill",
+    "description": "Stone rollers that turn your own wheat into flour and your own beet into sugar. Nothing else in the shop makes an ingredient out of a crop, which is why almost every chain in the kitchen starts here.",
+    "cost": 180,
+    "kind": "station",
+    "payload": {
+      "station": "mill",
+      "group": "farm"
+    },
+    "requires": []
+  },
+  {
+    "id": "station-mixer",
+    "name": "Mixer",
+    "description": "A dough hook and a bowl. Flour and eggs go in; dough, pastry, batter and fresh pasta come out — the middle step every baked thing in the shop now wants.",
+    "cost": 200,
+    "kind": "station",
+    "payload": {
+      "station": "mixer"
     },
     "requires": []
   },

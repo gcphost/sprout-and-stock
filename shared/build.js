@@ -107,6 +107,64 @@ export const FIXTURES = {
   station: { label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt', ends: true },
   plot: { label: 'Plot', blocks: false, ground: T.PLOT, where: 'outdoor', rotates: false, anchor: null },
   /**
+   * The pen — an animal, and the first thing in the game that produces goods
+   * without anybody asking it to.
+   *
+   * Animals were CROPS until this existed, on the precedent that `chicken-coop`
+   * had always been one, and every number about that worked. What did not work
+   * is the sentence it made you say: you put down a raised bed, opened its seed
+   * picker, and *sowed a cow* — then sowed the same cow again every time you
+   * collected the milk. A bed is soil you turn over, and turning soil over is
+   * the whole rhythm the plot exists for; an animal is a thing you buy once and
+   * then look after, and the two only looked alike because a crop was the one
+   * shape the game had for "wait, then collect".
+   *
+   * So a pen is a FIXTURE and there is exactly one kind of it. The seven
+   * animals are seven `fixtures` rows — kinds are code, pieces are content —
+   * which is what makes an eighth a row somebody authors rather than a branch
+   * somebody adds. What differs between a beehive and a cattle pen is its art,
+   * its price, what it makes and how fast, and not one of those is a rule.
+   *
+   * `blocks: true`, unlike the bed it replaces, and that is the honest answer
+   * rather than the convenient one: a hutch is a thing standing on the ground,
+   * where a bed IS the ground. It also keeps it out of `verify:catalog`'s
+   * "either occupy your cell or be what the cell is made of" — a walk-over kind
+   * with no `ground` stamp can be stacked on itself without limit.
+   *
+   * `where: 'outdoor'`, which is the plot's rule and is about the same thing:
+   * livestock live outside, and a pen indoors would be a room full of pigs on
+   * the shop floor. It is also the half that keeps `whatThisUnroofs` honest —
+   * see `stepPens`, which holds a roofed pen's clock exactly as `stepCrops`
+   * holds a roofed crop's.
+   *
+   * `anchor: 'useAt'` because you collect from ONE side, like an appliance's
+   * tray, and deliberately not the bed's any-side rule. A bed has no side
+   * because it is ground you stand on; a pen has a gate.
+   */
+  pen: {
+    label: 'Pen', blocks: true, where: 'outdoor', rotates: true, anchor: 'useAt',
+    /**
+     * TWO CELLS ON A SIDE, and the first fixture in the game to take more than
+     * one. A pen is a building rather than a shelf, and at one tile it read as
+     * one — a cattle pen the same size as a jar of jam.
+     *
+     * On the KIND rather than on the piece, and that is forced rather than
+     * chosen: `canPlace` lives here, is pure, and has never seen the catalog, so
+     * a footprint that came off a `fixtures` row would mean the one function
+     * that decides whether a thing fits having to resolve a placement to a
+     * content row to find out. It is also the right shelf to put it on — how
+     * much floor a thing takes is behaviour, in exactly the sense `blocks` and
+     * `where` are, and a variant may never move a number.
+     *
+     * The consequence to remember when adding the next sized kind: the tile
+     * `x, z` is the MIN CORNER and not the middle, because everything that
+     * indexes a cell is integer. `footprint` is the cells, `footprintMid` is
+     * where the art stands, and `anchorTile` takes the size so the gate lands
+     * clear of the block instead of inside it.
+     */
+    size: 2,
+  },
+  /**
    * The bin — the first thing in the game that takes goods OUT of it.
    *
    * Until now stock had exactly two exits: somebody bought it, or it rotted.
@@ -651,9 +709,77 @@ const FACING = [
 export const rot4 = (rot) => ((Math.round(rot) % 4) + 4) % 4;
 
 /** The tile a worker or shopper stands on to use a fixture placed like this. */
-export function anchorTile(x, z, rot) {
+/**
+ * How many cells on a side a kind of thing takes. One for all but a pen.
+ *
+ * A function rather than a field everyone reads, because the answer for an
+ * unknown kind has to be 1: `size` is absent from every row in `FIXTURES` but
+ * one, and `undefined` cells is a footprint of nothing.
+ */
+export const sizeOf = (kind) => FIXTURES[kind]?.size ?? 1;
+
+/**
+ * Every cell a thing of this kind, put down here, would cover — origin first.
+ *
+ * The origin is the MIN CORNER, so the block runs +x and +z from the tile you
+ * named. It does not turn with `rot`, and for a square it need not: the day a
+ * kind wants 1x3 this is the one function that has to learn about facing, which
+ * is the whole reason every caller goes through it rather than adding 1 to
+ * something.
+ */
+export function footprint(kind, x, z) {
+  const s = sizeOf(kind);
+  if (s <= 1) return [{ x, z }];
+  const out = [];
+  for (let dz = 0; dz < s; dz++) for (let dx = 0; dx < s; dx++) out.push({ x: x + dx, z: z + dz });
+  return out;
+}
+
+/**
+ * ...and where the middle of that block is, in world units.
+ *
+ * Whole numbers for everything one cell wide, so nothing that was drawn at
+ * `f.x, f.z` moves on the day this exists. Half tiles for a 2x2, which is what
+ * the renderer stands the art on — a pen drawn at its min corner sits a whole
+ * tile up-screen of the ground it covers.
+ */
+/**
+ * Does a placed fixture stand on this cell?
+ *
+ * `f.x, f.z` is the MIN CORNER of anything bigger than a tile, so the equality
+ * test every caller used to write answers "is this its corner" — which for a
+ * 2x2 is right about one cell in four, and what that reads as is a pen you can
+ * only point at from one end of it. In `shared/` because both `fixtureAt`s ask
+ * it, and two spellings of "which fixture is this" is how a menu ends up acting
+ * on something nobody pointed at.
+ */
+export function covers(f, x, z) {
+  const s = sizeOf(f?.kind);
+  if (s <= 1) return f.x === x && f.z === z;
+  return x >= f.x && x < f.x + s && z >= f.z && z < f.z + s;
+}
+
+export function footprintMid(kind, x, z) {
+  const s = sizeOf(kind);
+  return { x: x + (s - 1) / 2, z: z + (s - 1) / 2 };
+}
+
+/**
+ * @param {number} size how many cells on a side the thing is. One cell is the
+ *   old behaviour to the tile, which is what every caller that omits it wants.
+ */
+export function anchorTile(x, z, rot, size = 1) {
   const f = FACING[rot4(rot)];
-  return { x: x + f.dx, z: z + f.dz };
+  if (size <= 1) return { x: x + f.dx, z: z + f.dz };
+  // One cell clear of the FACE it is turned toward, rather than one cell off
+  // the origin — which for anything bigger than a tile is a spot INSIDE the
+  // thing. Centred along that face, so a person stands at the middle of the
+  // gate rather than at whichever corner the origin happened to be.
+  const lead = Math.floor((size - 1) / 2);
+  return {
+    x: x + (f.dx > 0 ? size : (f.dx < 0 ? -1 : lead)),
+    z: z + (f.dz > 0 ? size : (f.dz < 0 ? -1 : lead)),
+  };
 }
 
 /**
@@ -665,8 +791,8 @@ export function anchorTile(x, z, rot) {
  * always opposite, so there is nothing to author and nothing that can drift out
  * of step with the facing.
  */
-export function behindTile(x, z, rot) {
-  return anchorTile(x, z, rot + 2);
+export function behindTile(x, z, rot, size = 1) {
+  return anchorTile(x, z, rot + 2, size);
 }
 
 /**
@@ -687,8 +813,9 @@ export function workSpots(kind, x, z, rot = 0) {
   const def = FIXTURES[kind];
   if (!def) return [];
   const out = [];
-  if (def.anchor) out.push({ ...anchorTile(x, z, rot), role: 'use', field: def.anchor });
-  if (def.behind) out.push({ ...behindTile(x, z, rot), role: 'tend', field: def.behind });
+  const s = sizeOf(kind);
+  if (def.anchor) out.push({ ...anchorTile(x, z, rot, s), role: 'use', field: def.anchor });
+  if (def.behind) out.push({ ...behindTile(x, z, rot, s), role: 'tend', field: def.behind });
   return out;
 }
 
@@ -917,7 +1044,13 @@ export function blockedAt(L, x, z, ignoreId = null) {
   if (!L.blocked?.[z * L.w + x]) return false;
   if (!ignoreId) return true;
   const moving = fixturesOf(L).find((f) => f.id === ignoreId);
-  return !(moving && Math.round(moving.x) === x && Math.round(moving.z) === z);
+  if (!moving) return true;
+  // Every cell it is standing on, not just its origin. A 2x2 shuffled one
+  // square along overlaps three of its own cells, and with only the origin
+  // forgiven it would be refused for standing where it already is — which reads
+  // as a pen that cannot be moved at all.
+  return !footprint(moving.kind, Math.round(moving.x), Math.round(moving.z))
+    .some((c) => c.x === x && c.z === z);
 }
 
 /**
@@ -1780,7 +1913,7 @@ export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter', 'under'];
 export const RUN_KINDS = ['belt', 'arm', 'sorter'];
 
 /**
- * How many cells one drag of conveyor may lay.
+ * How many cells one drag may lay — of conveyor, or of anything else.
  *
  * The same argument `GROUND_STROKE_MAX` makes and the same 4KB inbound cap
  * behind it: the wire carries two ends and the server re-runs the generator, so
@@ -1809,7 +1942,7 @@ export const SPUR_UNIT_REACH = 0.66;
 export const SPUR_OPEN_REACH = 1;
 
 /**
- * The cells one drag of conveyor lays, in the order a crate would travel them.
+ * The cells one drag lays, in the order a crate would travel them.
  *
  * An L rather than a straight line — the long axis first, then the short — which
  * is the shape you are actually drawing when you take a belt round a shop, and
@@ -1817,10 +1950,21 @@ export const SPUR_OPEN_REACH = 1;
  * facings and needs no piece, exactly as it does when you lay them one at a
  * time.
  *
- * Each cell FACES THE NEXT ONE, which is the whole reason a belt wants a drag:
- * the direction of the gesture is the direction of the run, unambiguously, and
- * it is the one place in this game where that is true. The last cell keeps the
- * facing it arrived with, or a run would end pointing at whatever rot 0 is.
+ * Each cell FACES THE NEXT ONE **when `follow` is on**, which is the whole
+ * reason a belt wants a drag: the direction of the gesture is the direction of
+ * the run, unambiguously, and it is the one place in this game where that is
+ * true. The last cell keeps the facing it arrived with, or a run would end
+ * pointing at whatever rot 0 is.
+ *
+ * `follow` is off for everything else, and that is the one thing that had to be
+ * decided when the drag stopped being conveyor-only. A belt's rotation IS its
+ * direction, so a corner turns it; a shelf's is which side you browse it from,
+ * and a row of shelving that swung round at the bend would be an aisle you
+ * cannot walk. Off, every cell takes the armed facing — which is also the
+ * facing the ghost was showing when the drag started, since `faceAlong` had
+ * already assisted it onto the tile you pressed. The flag is a property of the
+ * KIND (`RUN_KINDS`) rather than of the gesture, so no caller has to remember
+ * which it is asking about.
  *
  * `rot` is what a cell faces when the gesture has not said — which is the seed
  * of the walk, and therefore the answer for a drag of ONE. That case is not an
@@ -1837,7 +1981,7 @@ export const SPUR_OPEN_REACH = 1;
  * reason: it is an input to this generator, so a server that defaulted it would
  * lay a different run from the one the ghost drew.
  */
-export function beltRunCells(from, to, max = BELT_RUN_MAX, rot = 0) {
+export function runCells(from, to, max = BELT_RUN_MAX, rot = 0, follow = true) {
   if (!from) return [];
   const end = to ?? from;
   const dx = end.x - from.x;
@@ -1858,6 +2002,7 @@ export function beltRunCells(from, to, max = BELT_RUN_MAX, rot = 0) {
     return { r, x: a.x, z: a.z };
   });
   let last = rot4(rot);
+  if (!follow) return cells.map((c) => ({ x: c.x, z: c.z, rot: last }));
   return cells.map((c, i) => {
     const nxt = cells[i + 1];
     if (nxt) {
@@ -1867,6 +2012,9 @@ export function beltRunCells(from, to, max = BELT_RUN_MAX, rot = 0) {
     return { x: c.x, z: c.z, rot: last };
   });
 }
+
+/** Does a drag of this kind turn each cell to follow the gesture? See above. */
+export const runFollows = (kind) => RUN_KINDS.includes(kind);
 
 /** A cell whose pass-through is DERIVED rather than being its own `rot`. */
 export const derivedFlow = (kind) => kind === 'arm' || kind === 'sorter';
@@ -2621,6 +2769,7 @@ export function fixturesOf(L) {
   for (const c of L.checkouts ?? []) out.push({ kind: 'checkout', ...c });
   for (const s of L.stations ?? []) out.push({ kind: 'station', ...s });
   for (const p of L.plots ?? []) out.push({ kind: 'plot', ...p });
+  for (const p of L.pens ?? []) out.push({ kind: 'pen', ...p });
   // `bins`, `belts` and `arms` were each missing from this list at some point,
   // and the failure is the same every time and is not an error: `freezeShell`
   // walks this to turn a generated shop into placements, and `whatThisBlocks`
@@ -2720,16 +2869,45 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
 
   const x = Math.round(spec.x);
   const z = Math.round(spec.z);
-  if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return no('off the edge of the world');
 
-  if (isProp(spec.kind)) return canPlaceProp(L, def, x, z, ignoreId, keeping);
+  if (isProp(spec.kind)) {
+    if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return no('off the edge of the world');
+    return canPlaceProp(L, def, x, z, ignoreId, keeping);
+  }
+
+  /**
+   * EVERY cell it would cover, which for all but a pen is the one you named.
+   *
+   * The three tests below were written against a tile because a fixture was a
+   * tile, and each of them is silently wrong about a block: a 2x2 whose far
+   * corner is off the map, or on a belt, or under a shelf, would be accepted on
+   * the strength of its origin being clear — and then `occupy` would stamp the
+   * cells anyway, which is a fixture built through another one.
+   */
+  const cells = footprint(spec.kind, x, z);
+  for (const c of cells) {
+    if (c.x < 1 || c.z < 1 || c.x >= L.w - 1 || c.z >= L.h - 1) {
+      return no('off the edge of the world');
+    }
+  }
 
   // Two questions where there used to be one, because a tile used to answer
   // both. What the ground is made of is `tiles`; whether something already
   // stands on it is `blocked`. A plot digs the ground, so it asks about grass;
   // everything else stands on the floor.
-  const ground = tileAt(L, x, z);
-  const taken = blockedAt(L, x, z, ignoreId);
+  //
+  // Asked of the WORST cell rather than of the origin: a block is only as
+  // placeable as the least placeable square under it, so `ground` is any cell
+  // that fails and `taken` is any cell that is occupied. For a one-cell kind
+  // both reduce to exactly what they were.
+  const ok = (g) => (def.where === 'indoor' ? BUILDABLE_INDOOR.has(g)
+    : (def.where === 'any' ? (BUILDABLE_INDOOR.has(g) || BUILDABLE_OUTDOOR.has(g))
+      : BUILDABLE_OUTDOOR.has(g)));
+  const bad = cells.find((c) => !ok(tileAt(L, c.x, c.z))) ?? cells[0];
+  const ground = tileAt(L, bad.x, bad.z);
+  const taken = cells.some((c) => blockedAt(L, c.x, c.z, ignoreId));
+  const anyIn = cells.some((c) => insideStore(L, c.x, c.z));
+  const allIn = cells.every((c) => insideStore(L, c.x, c.z));
 
   /**
    * One conveyor for another, asked ONCE and asked FIRST.
@@ -2756,7 +2934,7 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
   // standing it is not a fact about the fixture at all — it is a fact about the
   // walls around it, and those move. See `canKeep`.
   if (def.where === 'indoor') {
-    if (!keeping && !insideStore(L, x, z)) return no('that has to go inside the shop');
+    if (!keeping && !allIn) return no('that has to go inside the shop');
     if (swap) return swap;
     if (taken) return no('something is already there');
     if (!BUILDABLE_INDOOR.has(ground)) {
@@ -2776,7 +2954,7 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
       return no(ground === T.DOOR ? 'not in the doorway' : 'something is already there');
     }
   } else {
-    if (!keeping && insideStore(L, x, z)) return no('plots go outside, on the grass');
+    if (!keeping && anyIn) return no('plots go outside, on the grass');
     if (taken) return no('something is already there');
     if (!BUILDABLE_OUTDOOR.has(ground)) return no('you can only dig into bare grass');
   }
@@ -2884,11 +3062,15 @@ const no = (reason) => ({ ok: false, reason });
  */
 function whatThisCosts(L, spec, def, { ignoreId }) {
   const { x, z } = spec;
+  const size = sizeOf(spec.kind);
+  // Every cell the thing being placed would stand on, as a set, so "treated as
+  // already there" covers the whole of a block rather than its corner.
+  const mine = new Set(footprint(spec.kind, x, z).map((c) => `${c.x},${c.z}`));
   // Where a person could stand, with the thing being moved treated as already
   // gone and the thing being placed treated as already there.
   const open = (tx, tz) => WALKABLE.has(tileAt(L, tx, tz))
     && !blockedAt(L, tx, tz, ignoreId)
-    && !(tx === x && tz === z && def.blocks);
+    && !(def.blocks && mine.has(`${tx},${tz}`));
 
   // ---- can anything use it, facing that way? -----------------------------
   //
@@ -2906,7 +3088,7 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
   // one placement the kind exists for, and a warning that fires on the correct
   // answer is a warning nobody reads on the placement that is genuinely wrong.
   if (def.anchor) {
-    const a = anchorTile(x, z, spec.rot ?? 0);
+    const a = anchorTile(x, z, spec.rot ?? 0, size);
     if (!open(a.x, a.z)) return 'nothing can use it facing that way';
     if (def.where === 'indoor' && !insideStore(L, a.x, a.z)) {
       return 'it faces out of the shop — nobody will use it';
@@ -2914,6 +3096,7 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
   } else if (!FACING.some((f) => open(x + f.dx, z + f.dz))) {
     return 'nothing can get to it';
   }
+
 
   // ---- ...and does what it moves goods to and from actually exist? --------
   //
@@ -3043,13 +3226,20 @@ function whatThisBlocks(L, spec, def, ignoreId) {
   const before = Uint8Array.from(L.blocked ?? new Uint8Array(L.w * L.h));
   if (ignoreId) {
     for (const f of fixturesOf(L)) {
-      if (f.id === ignoreId) before[f.z * L.w + f.x] = 0;
+      // Every cell it stands on. Corner-only, a 2x2 being moved leaves three
+      // quarters of itself in the mask, so the flood answers about a shop with
+      // a hole in it and the warning fires on the placement that is fine.
+      if (f.id === ignoreId) {
+        for (const c of footprint(f.kind, f.x, f.z)) before[c.z * L.w + c.x] = 0;
+      }
     }
   }
   // Which is also the baseline: what the shop is like with this thing lifted
   // and not yet put down, which is exactly what the player is looking at.
   const after = def.blocks ? Uint8Array.from(before) : before;
-  if (def.blocks) after[spec.z * L.w + spec.x] = 1;
+  if (def.blocks) {
+    for (const c of footprint(spec.kind, spec.x, spec.z)) after[c.z * L.w + c.x] = 1;
+  }
 
   const flood = (blocked) => {
     const probe = { ...L, blocked };

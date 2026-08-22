@@ -11,7 +11,18 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-91 pieces across 22 kinds.
+98 pieces across 23 kinds.
+
+> ⚠️ **Boards you cannot see into.** Goods fill a unit from the TOP board
+> down, because on a 45° camera each board covers the one below it. So a
+> piece with a canopy over its top board puts the first thing you stock in
+> the one place the camera never reaches: the unit holds a full load and
+> draws as empty, which reads as stock that never arrived rather than as art.
+> Raise the lid — and whatever carries it — until the board has the same
+> headroom the others have:
+>
+> - `station` · Butcher's Block tier 3 — 1 of 2 boards (**1 under a lid**)
+> - `station` · Candy Kettle tier 3 — 1 of 2 boards (**1 under a lid**)
 
 ## Fixtures
 
@@ -183,8 +194,18 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 - ⚙️ **Grill** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
 - ⚙️ **Preserver** while running — 3 stages across a batch · steams · the machine itself shakes
 - ⚙️ **Stockpot** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
+- ⚙️ **Mill** while running — one look throughout · steams · 1 moving part · the machine itself spins
+- ⚙️ **Mixer** while running — one look throughout · 1 moving part · the machine itself spins
+- ⚙️ **Churn** while running — one look throughout · 1 moving part · the machine itself spins
+- ⚙️ **Butcher's Block** while running — one look throughout · 1 moving part · the machine itself shakes
+- ⚙️ **Blast Freezer** while running — one look throughout · steams · the machine itself spins
+- ⚙️ **Candy Kettle** while running — one look throughout · steams · 1 moving part · the machine itself pulses
 
-Shapes: Standard, Barista, Blender, Toaster, Press, Juicer, Soft-Serve, Fryer, Oven, Grill, Preserver, Stockpot — looks only, same price and same ladder.
+⚠️ Covered — Butcher's Block tier 3: 1 of 2 boards (**1 under a lid**). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+⚠️ Covered — Candy Kettle tier 3: 1 of 2 boards (**1 under a lid**). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+Shapes: Standard, Barista, Blender, Toaster, Press, Juicer, Soft-Serve, Fryer, Oven, Grill, Preserver, Stockpot, Mill, Mixer, Churn, Butcher's Block, Blast Freezer, Candy Kettle — looks only, same price and same ladder.
 
 1. **Domestic** — free, as built
 2. **Commercial** — $340, speed ×2
@@ -205,6 +226,73 @@ Shapes: Standard, Timber Trough, Cold Frame — looks only, same price and same 
 1. **Bare earth** — free, as built
 2. **Raised bed** — $90, speed ×1.6
 3. **Greenhouse** — $260, speed ×2.3
+
+### `pen`
+
+Outdoors only, **2x2 tiles**, owns its cells (people walk around it), worked from the side it faces (`useAt`), rotates.
+
+#### Hen House
+
+`hen-house` · kind `pen` · $120 to build
+
+29 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+
+1. **Hen house** — free, as built
+2. **Deep-litter house** — $190, holds ×2.5, speed ×1.5
+
+#### Dairy Shed
+
+`dairy-shed` · kind `pen` · $160 to build
+
+30 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+
+1. **Dairy shed** — free, as built
+2. **Milking parlour** — $250, holds ×2.5, speed ×1.5
+
+#### Poultry Run
+
+`poultry-run` · kind `pen` · $140 to build
+
+19 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
+
+1. **Poultry ark** — free, as built
+2. **Covered run** — $220, holds ×2.5, speed ×1.5
+
+#### Pig Pen
+
+`pig-pen` · kind `pen` · $200 to build
+
+36 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+
+1. **Pig pen** — free, as built
+2. **Sty and hardstanding** — $320, holds ×2.5, speed ×1.5
+
+#### Turkey Pen
+
+`turkey-pen` · kind `pen` · $280 to build
+
+35 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+
+1. **Turkey pen** — free, as built
+2. **Barn and yard** — $420, holds ×2.5, speed ×1.5
+
+#### Cattle Pen
+
+`cattle-pen` · kind `pen` · $320 to build
+
+36 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+
+1. **Cattle pen** — free, as built
+2. **Yard and crush** — $480, holds ×2.5, speed ×1.5
+
+#### Beehive
+
+`beehive` · kind `pen` · $120 to build
+
+23 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+
+1. **Beehive** — free, as built
+2. **Apiary** — $190, holds ×2.5, speed ×1.5
 
 ### `bin`
 

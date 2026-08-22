@@ -28,7 +28,7 @@ import { T } from '../../shared/tiles.js';
 import {
   FIXTURES, workSpots, flowSpots, conveyorNext, conveyorAt, conveyorsOf, conveyorBranches, tunnelExit, CONVEYOR_KINDS, derivedFlow, anchorTile, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind, GOODS_PADS, isPadAt, isWalkableTile,
   SPUR_UNIT_REACH, SPUR_OPEN_REACH,
-  faceKey,
+  faceKey, covers, footprintMid, sizeOf,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { hash01 } from '../../shared/hash.js';
@@ -1153,6 +1153,9 @@ export class Scene {
     // the scene it describes, so a piece redrawn live is re-read.
     this.profiles = new Map();
     this.plotProps = new Map();
+    // A pen's bar, bubble and working prop. Its own map with its own sweep for
+    // the reason `stationProps` has one — see `syncPens`.
+    this.penProps = new Map();
     this.cashProps = new Map();
     // One label per TILE of money rather than one per pile — see
     // `syncCashLabels`. Keyed by tile for the same reason: the piles under it
@@ -2926,7 +2929,12 @@ export class Scene {
       // `artSetback`. Its stock is moved by the SAME call in `syncShelves`, or
       // the goods stay where the shelf used to be drawn.
       const off = this.artSetback(L, f);
-      prop.position.set(f.x + (off?.dx ?? 0), this.fixtureBaseY(f), f.z + (off?.dz ?? 0));
+      // The MIDDLE of what it covers, which is its own tile for everything one
+      // cell wide and a half-tile diagonal for a pen. `f.x, f.z` is the min
+      // corner of a block, so art stood on it would sit a whole tile up-screen
+      // of the ground the thing is standing on.
+      const mid = footprintMid(f.kind, f.x, f.z);
+      prop.position.set(mid.x + (off?.dx ?? 0), this.fixtureBaseY(f), mid.z + (off?.dz ?? 0));
       // One thing you can point at, whatever it is made of. `pickFixture`
       // raycasts these and walks back up to whichever group wears the flag.
       prop.userData.pick = true;
@@ -3404,6 +3412,7 @@ export class Scene {
     this.heat.adopt(state.traffic);
     this.syncShelves(state.shelves);
     this.syncPlots(state.plots);
+    this.syncPens(state.pens ?? []);
     this.syncCashDrops(state.cashDrops ?? []);
     // What each loader's last swing came to, which is what its lamp is coloured
     // by, and the transfer itself, which is what the crate travels. Maps rather
@@ -5236,7 +5245,7 @@ export class Scene {
    * I pointing at", which is `pickFixtureHit`'s job and goes by id.
    */
   fixtureAt(x, z) {
-    return this.allFixtures().find((f) => f.x === x && f.z === z) ?? null;
+    return this.allFixtures().find((f) => covers(f, x, z)) ?? null;
   }
 
   /** ...and by id, for a pointer that has already hit the thing itself. */
@@ -7372,12 +7381,17 @@ export class Scene {
     // Every side somebody has to stand on, not just the one rotation points at.
     // Asked in fixture-local coordinates (0,0) because the ghost group is what
     // gets positioned — see below.
+    // In the ghost group's own frame, which is centred on the block — so the
+    // working spots, which `workSpots` gives in tiles off the min corner, have
+    // to come back the other way by the same half-tile the group was moved.
+    const span = sizeOf(spec.kind);
+    const back = (span - 1) / 2;
     const spots = [
-      ...workSpots(spec.kind, 0, 0, spec.rot ?? 0),
+      ...workSpots(spec.kind, -back, -back, spec.rot ?? 0),
       // ...and, for the two kinds that move goods rather than serve people,
       // which way they move them. A belt previewed without this is a tile: the
       // one fact it exists to express is the one the preview could not say.
-      ...flowSpots(spec.kind, 0, 0, spec.rot ?? 0),
+      ...flowSpots(spec.kind, -back, -back, spec.rot ?? 0),
     ].map((s) => ({ dx: s.x, dz: s.z, role: s.role }));
     // The actual model of the actual piece, resolved exactly the way the
     // standing fixture is (`fixtureModel`) — one resolver, so the ghost and the
@@ -7406,11 +7420,16 @@ export class Scene {
       height: Math.max(model ? modelHeight(partsAt(model, t)) : look.h, 0.12),
       verdict: state,
       spots,
+      // How many cells the cage has to cover. A 2x2 previewed as one tile is a
+      // ghost that promises a square and takes four — and the three it does not
+      // draw are exactly the ones a refusal would be about.
+      span,
     });
     // Hung things preview where they will hang. A ghost on the floor under a
     // pendant answers the wrong question — the floor is not what you are aiming
     // at, and every cell in the room looks equally available from down there.
-    g.position.set(spec.x, def.at === 'ceiling' ? CEILING_Y : 0, spec.z);
+    const gm = footprintMid(spec.kind, spec.x, spec.z);
+    g.position.set(gm.x, def.at === 'ceiling' ? CEILING_Y : 0, gm.z);
     this.actorRoot.add(g);
     this.buildGhost = g;
     return verdict;
@@ -7781,7 +7800,7 @@ export class Scene {
    * of real ghosts is sixty models built per pointer move", and that is the
    * thing this must not do. It is keyed by the CALLER, on the arguments the run
    * is derived from rather than on the cells it came out as: a pointer inside
-   * one tile re-runs `beltRunCells` sixty times a second and gets the same
+   * one tile re-runs `runCells` sixty times a second and gets the same
    * answer every time, so the models are built when you cross a tile boundary
    * and not otherwise. No cap and no thinning, unlike the lawn: `BELT_RUN_MAX`
    * is 64, a belt is a handful of boxes, and a run whose last few cells were
@@ -7790,7 +7809,7 @@ export class Scene {
    * No cage per cell and no work spots — see `buildFixtureGhost`. The squares
    * underneath are still doing that half of the job.
    */
-  setRunGhost(key, cells, spec) {
+  setRunGhost(key, cells, spec = null) {
     if (key === this.runGhostKey) return;
     this.runGhostKey = key;
 
@@ -7805,8 +7824,13 @@ export class Scene {
     for (const c of cells) {
       // Resolved per cell through the same `fixtureModel` a standing fixture
       // uses, and with the cell's OWN rot — which is the whole feature, since
-      // `beltRunCells` is where a corner decides which way it faces.
-      const at = { ...spec, x: c.x, z: c.z, rot: c.rot };
+      // `runCells` is where a corner decides which way it faces.
+      //
+      // The cell may also carry its own kind, piece and variant, and `spec` is
+      // then only the default. A run is one design repeated and needs neither;
+      // a pasted blueprint is a shelf, a freezer and a till in one preview, and
+      // a single spec would draw all three as whichever came first.
+      const at = { ...spec, ...c, x: c.x, z: c.z, rot: c.rot };
       const model = this.fixtureModel(at);
       if (!model) continue;
       const g = buildFixtureGhost({
@@ -8490,23 +8514,41 @@ export class Scene {
    * into a cluttered one.
    */
   syncPlotOverlay(rec, p, crop, grown) {
-    const growing = !!crop && !p.ready;
+    this.syncFillOverlay(rec, {
+      filling: !!crop && !p.ready,
+      fill: grown,
+      itemId: p.ready && crop ? crop.item_id : null,
+    });
+  }
 
-    if (growing && !rec.bar) {
+  /**
+   * "How far off is it" and "here it is", for anything that fills up.
+   *
+   * Two shapes, one vocabulary: a bar while something is on its way and the
+   * thing itself in a thought-bubble once it is there — the same bubble a
+   * shopper uses to say what they came in for, rather than a second symbol
+   * meaning the same thing.
+   *
+   * Shared by beds and pens because they are the same sentence, and writing it
+   * twice is how a field of animals ends up reading differently from a field of
+   * carrots standing next to it. A bed never shows both — a crop is ripe or it
+   * is growing — and a pen routinely does, since it goes on filling while
+   * yesterday's eggs are still in it. That falls out rather than being a case:
+   * the two states are two arguments, not two branches.
+   */
+  syncFillOverlay(rec, { filling, fill, itemId, barY = 0.95, bubbleY = 1.02 }) {
+    if (filling && !rec.bar) {
       rec.bar = buildGrowthBar();
       this.readoutsDirty = true;
-      rec.bar.position.y = 0.95;
+      rec.bar.position.y = barY;
       rec.overlay.add(rec.bar);
     }
     if (rec.bar) {
-      rec.bar.visible = growing;
-      if (growing) setGrowthBar(rec.bar, grown);
+      rec.bar.visible = filling;
+      if (filling) setGrowthBar(rec.bar, fill);
     }
 
-    // Ready: the produce itself, in the same thought-bubble a shopper uses to
-    // say what they came in for. One vocabulary for "this is about <item>",
-    // rather than teaching a second symbol that means the same thing.
-    const item = p.ready && crop ? this.catalog.items[crop.item_id] : null;
+    const item = itemId ? this.catalog.items[itemId] : null;
     const key = item?.id ?? null;
     if (rec.bubbleKey === key) return;
     rec.bubbleKey = key;
@@ -8524,11 +8566,116 @@ export class Scene {
     icon.scale.setScalar(0.42);
     icon.position.y = -0.14;
     bubble.add(icon);
-    bubble.position.y = 1.02;
-    // Offset the bob per plot so a field going ripe doesn't pulse in lockstep.
+    bubble.position.y = bubbleY;
+    // Offset the bob per fixture so a field going ripe doesn't pulse in lockstep.
     bubble.userData.phase = (rec.overlay.position.x + rec.overlay.position.z) * 0.7;
     rec.overlay.add(bubble);
     rec.bubble = bubble;
+  }
+
+  /**
+   * Every pen: how full it is, and what is standing in it.
+   *
+   * Three readouts and each answers a different question, which is why a pen
+   * carries one more than a bed does. The BAR is the next batch, the BUBBLE is
+   * what is there to collect, and the `work` MODEL is what that looks like from
+   * across the field — eggs in the nest box, churns by the gate — because the
+   * first two are readouts floating over the thing and the third is the thing.
+   * A pen you can see is occupied is the whole reason `work` is authorable here.
+   *
+   * `work` rather than more stages on `model` for the reason an appliance has
+   * two: one resolver takes ONE number, and a pen has two — which rung it is on
+   * and how full it is. Spending the tier's number on fullness would mean a pen
+   * that stops showing you which one you bought.
+   *
+   * Its own map with its own sweep, the way `stationProps` has one, rather than
+   * a line in `refreshFixtureProps`: everything in here lives in `actorRoot`,
+   * which a re-flow does not dispose, and a pen that has gone has to take its
+   * bubble with it.
+   */
+  syncPens(pens) {
+    if (!this.storeLayout) return;
+    const seen = new Set();
+
+    for (const pn of pens) {
+      const def = (this.storeLayout.pens ?? []).find((x) => x.id === pn.id);
+      if (!def) continue;
+      seen.add(pn.id);
+
+      let rec = this.penProps.get(pn.id);
+      if (!rec) {
+        rec = { overlay: new THREE.Group(), bar: null, bubble: null, bubbleKey: null, work: null, workKey: null };
+        this.actorRoot.add(rec.overlay);
+        this.penProps.set(pn.id, rec);
+      }
+      // Every sync rather than at creation, or a pen you pick up and carry
+      // across the farm leaves its readouts standing in the old field.
+      const mid = footprintMid('pen', def.x, def.z);
+      rec.overlay.position.set(mid.x, 0, mid.z);
+
+      const top = this.penTopY(def);
+      this.syncFillOverlay(rec, {
+        filling: (pn.qty ?? 0) < (pn.cap ?? 0),
+        fill: pn.fill ?? 0,
+        itemId: (pn.qty ?? 0) > 0 ? pn.item_id : null,
+        barY: top + 0.2,
+        bubbleY: top + 0.27,
+      });
+      this.syncPenWork(def, rec, pn);
+    }
+
+    for (const [id, rec] of this.penProps) {
+      if (seen.has(id)) continue;
+      this.actorRoot.remove(rec.overlay);
+      disposeGroup(rec.overlay);
+      if (rec.work) {
+        this.actorRoot.remove(rec.work);
+        disposeGroup(rec.work);
+      }
+      this.penProps.delete(id);
+    }
+  }
+
+  /**
+   * What is standing in the pen, drawn over it and staged by how full it is.
+   *
+   * Rebuilt only when it crosses into the next STAGE, which is `syncStationWork`'s
+   * cache and matters more here: `fill` moves ten times a second and the picture
+   * changes four times a batch.
+   *
+   * In `actorRoot` rather than parented to the pen, for the reason an appliance's
+   * does: the fixture belongs to `staticRoot`, which a re-flow disposes wholesale,
+   * and build mode re-flows on every wall segment.
+   */
+  syncPenWork(def, rec, pn) {
+    const model = (pn.qty ?? 0) > 0 ? variantWork(this.pieceOf(def), def.variant) : null;
+    const t = model && pn.cap > 0 ? Math.min(1, (pn.qty ?? 0) / pn.cap) : 0;
+    const key = model ? `${def.piece}:${def.variant}:${stageIndexAt(model, t)}` : '';
+
+    if (key !== rec.workKey) {
+      if (rec.work) {
+        this.actorRoot.remove(rec.work);
+        disposeGroup(rec.work);
+        rec.work = null;
+      }
+      if (model) {
+        rec.work = buildLoopingProp(partsAt(model, t), { castShadow: true });
+        this.actorRoot.add(rec.work);
+      }
+      rec.workKey = key;
+    }
+    if (!rec.work) return;
+    // Turned with the pen, or the churn stands behind the gate — and stood at
+    // the middle of the block, the same place `addFixtureProps` stands the pen.
+    const mid = footprintMid('pen', def.x, def.z);
+    rec.work.position.set(mid.x, this.fixtureBaseY(def), mid.z);
+    rec.work.rotation.y = -(def.rot ?? 0) * (Math.PI / 2);
+  }
+
+  /** Just clear of this pen's own art, measured off it the way a station's is. */
+  penTopY(def) {
+    const model = this.fixtureModel(def);
+    return model ? modelHeight(partsAt(model, this.fixtureT(def))) : 0.7;
   }
 
   /** Bob every ready-marker, so a ripe plot catches the eye from across the farm. */
@@ -9425,6 +9572,7 @@ function fixturesIn(L) {
     ...(L.checkouts ?? []).map((c) => ({ ...c, kind: 'checkout' })),
     ...(L.stations ?? []).map((s) => ({ ...s, kind: 'station' })),
     ...(L.plots ?? []).map((p) => ({ ...p, kind: 'plot' })),
+    ...(L.pens ?? []).map((p) => ({ ...p, kind: 'pen' })),
     // Decorations carry their own kind, because there is more than one of them
     // and which list they came out of no longer says which.
     ...(L.props ?? []),

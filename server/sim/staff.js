@@ -3167,7 +3167,38 @@ function deliver(game, s) {
  * hire holding a target they are not walking to.
  */
 function farm(game, s) {
-  return harvest(game, s) || sow(game, s) || till(game, s);
+  return collect(game, s) || harvest(game, s) || sow(game, s) || till(game, s);
+}
+
+/**
+ * Empty the pens.
+ *
+ * First in the fold, above picking, and the order is the same argument the fold
+ * itself makes about `harvest` over `sow` over `till`: a full pen has STOPPED —
+ * `stepPens` accrues nothing while it is at capacity — where a ripe bed simply
+ * sits there. So collecting is the one farm job that puts something back into
+ * production, and doing it after the picking means a shop with a big field never
+ * gets to the animals at all.
+ *
+ * `hasSomewhere` and not `hasHome`, for `harvest`'s reason exactly: this is a
+ * job that produces goods the shop did not pay for, so the drop-off is the
+ * buffer and the pen is the overflow behind it. A pen left full costs the shop
+ * nothing but the pen.
+ */
+function collect(game, s) {
+  if (s.carry) return false;
+  const c = content();
+  const spoken = inbound(game, s);
+  const busy = claimed(game, s);
+  const full = pickNearest(s, game.layout.pens ?? [], (pn) => (pn.qty ?? 0) > 0
+    && !busy.has(key('pen', pn.id))
+    && hasSomewhere(game, game.penMakes(pn)?.item_id, c, spoken));
+  if (!full) return false;
+  claim(s, 'pen', full.id);
+  if (!goTo(game, s, full.useAt ?? full)) return true;
+  game.collectPen(s.id, full.id);
+  s.cooldown = paceOf(s);
+  return true;
 }
 
 /**

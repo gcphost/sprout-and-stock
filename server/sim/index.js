@@ -45,11 +45,12 @@ import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import { undoStep, recordUndo, undoLast, redoLast, specOf } from './undo.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
-  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, conveyorLines, alongPath, tunnelExit, derivedFlow, beltRunCells, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
+  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, conveyorLines, alongPath, tunnelExit, derivedFlow, runCells, runFollows, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
-  shelfKind, holdsGoods, isPaint, faceKey, faceRun, canPaintFaces,
+  shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces,
+  covers, footprintMid,
 } from '../../shared/build.js';
 import {
   pieceFor, kindOf, defaultPiece, countKey, boardsOf, openOf, fixtureLabel,
@@ -544,7 +545,40 @@ const REP_MISSED_STAPLE = 0.008;
  * shop that half fills them holds station, and a shop that sends people home
  * empty still slides.
  */
-const REP_VISIT = 0.02;
+const REP_VISIT = 0.006;
+
+/**
+ * WHY THE GAIN IS MEASURED AGAINST WHAT THEY WALKED IN WITH.
+ *
+ * The first go at this scaled the gain by `cust.mood` absolutely, which is the
+ * obvious reading of "were they happy" and is wrong for one reason: **`mood` is
+ * mostly a fact about the ROOM, not about the service.** `moodBase()` is the
+ * town's expectation closed toward 1 by charm, so a decorated shop hands
+ * everybody a near-perfect budget before it has done a thing for them — a real
+ * day-385 save measured `charm` 36.9, `room` **0.985**, and every customer in
+ * the building standing at a flat mood of 1.0.
+ *
+ * At that point reputation stopped being about shopkeeping. Every visit banked
+ * the full ceiling whatever happened to them, so a shop could queue people out
+ * of the door, run out of half its range and still climb — and did: the save
+ * sat pinned at 0.999 while its owner watched people walk out. Charm is already
+ * paid twice (`charmReach` widens the town, `moodBase` buys patience); paying it
+ * a third time *as reputation* is the loop that has no top.
+ *
+ * So a gain is `kept` — the share of the goodwill they arrived with that
+ * survived the trip. It is charm-blind and reputation-blind by construction: a
+ * shop that walks somebody in at 0.68 and gets them to the till at 0.62 has done
+ * as well by them as one that walks them in at 1.0 and gets them out at 0.91,
+ * and it earns the same. Which is the sentence that was wanted all along — a
+ * small new shop that serves people well should build a name as fast as a
+ * palace that serves them well.
+ *
+ * A LOSS stays on the absolute line, and the asymmetry is deliberate. Leaving
+ * *visibly cross* is what the town sees, and `MOOD_ANNOYED` is where the sim and
+ * the mood bar already agree that starts — nobody watching can tell whether the
+ * person scowling on the way out began the trip cheerful. So: you are paid for
+ * how well you treated them, and charged for how they look on the way out.
+ */
 
 /**
  * WHERE A BAD WEEK STOPS — the level the town's memory of you decays back to,
@@ -1674,6 +1708,11 @@ export class Game {
     this.undoStack = [];
     this.redoStack = [];
     this.undoOpen = null;
+    /**
+     * What was copied, ready to stamp. One per SHOP, not per player — see
+     * `copyFixtures`. Absent from the save for the undo stack's reason.
+     */
+    this.clipboard = null;
     this.grow = state.grow ?? { w: 0, h: 0 };
     this.doorShift = state.doorShift ?? 0;
     // Walls, windows and doorways the player drew, as an overlay on the shell.
@@ -1882,6 +1921,10 @@ export class Game {
       unders: want.under ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
+      // Both call sites, or the shop accepts a pen, charges for it, and drops
+      // and refunds it on the re-flow the purchase itself triggers. See the
+      // budget map in `server/layout.js`.
+      pens: want.pen ?? 0,
       stations: want.stations,
       placements,
       grow,
@@ -2065,7 +2108,7 @@ export class Game {
     // After the stamp, not before: `freezeShell` can re-flow the layout, and
     // restoring onto shelves that are about to be replaced puts the stock back
     // on objects nobody keeps.
-    game.restoreContents(w.stock, w.crops, w.hoppers);
+    game.restoreContents(w.stock, w.crops, w.hoppers, w.pens);
     // ...and the people who work here, back where they were standing. After the
     // layout for the same reason the stock is: they are put down at coordinates,
     // and a re-flow can move the shop out from under them.
@@ -2391,6 +2434,21 @@ export class Game {
       hoppers: (this.layout.stations ?? [])
         .map((s) => ({ id: s.id, recipes: this.stationSlots(s).map((k) => k.recipe ?? null) }))
         .filter((row) => row.recipes.some(Boolean)),
+      // What is standing in each pen, and how long the batch under way has been
+      // filling. `filled` and never `filledAt`, for `grown`'s reason two lines
+      // down: `elapsed` restarts at zero on every load, so the stamp saved raw
+      // would put every batch in the future and the whole farm would stop.
+      //
+      // An empty pen with a fresh clock is every pen the moment it is built, so
+      // those are left out — the filter is what keeps a shop full of animals from
+      // writing a row per pen per save for no news.
+      pens: (this.layout.pens ?? [])
+        .filter((pn) => (pn.qty ?? 0) > 0 || (pn.filledAt ?? 0) !== 0)
+        .map((pn) => ({
+          id: pn.id,
+          qty: pn.qty ?? 0,
+          filled: round2(Math.max(0, this.elapsed - (pn.filledAt ?? 0))),
+        })),
       crops: this.layout.plots
         .filter((p) => p.crop_id || p.soil !== 'untilled')
         .map((p) => ({
@@ -2413,7 +2471,7 @@ export class Game {
    * longer there is dropped on the floor rather than restored onto nothing —
    * a shelf you sold between sessions should not resurrect with its stock.
    */
-  restoreContents(stock, crops, hoppers) {
+  restoreContents(stock, crops, hoppers, pens) {
     for (const row of stock ?? []) {
       const shelf = this.layout.shelves.find((s) => s.id === row.id);
       if (!shelf) continue;
@@ -2446,6 +2504,12 @@ export class Game {
       plot.ready = row.ready;
       if (row.yield != null) plot.yield = row.yield;
       plot.plantedAt = -(row.grown ?? 0);
+    }
+    for (const row of pens ?? []) {
+      const pen = (this.layout.pens ?? []).find((x) => x.id === row.id);
+      if (!pen) continue;
+      pen.qty = row.qty ?? 0;
+      pen.filledAt = -(row.filled ?? 0);
     }
     for (const row of hoppers ?? []) {
       const st = (this.layout.stations ?? []).find((s) => s.id === row.id);
@@ -2999,6 +3063,18 @@ export class Game {
         // what harvesting will hand over.
         yield: p.yield ?? 0,
       })),
+      // What is standing in each pen and how far through the next batch it is —
+      // the crop's two numbers said about an animal, and drawn by the same bar
+      // and the same thought-bubble. `item_id` rides along because the client has
+      // no way to resolve a piece's `produces` off the catalog row it holds.
+      // Empty on every shop that has never bought one.
+      pens: (this.layout.pens ?? []).map((pn) => ({
+        id: pn.id,
+        item_id: this.penMakes(pn)?.item_id ?? null,
+        qty: pn.qty ?? 0,
+        cap: this.penCap(pn),
+        fill: r2(this.penFill(pn)),
+      })),
       queues: this.layout.checkouts.map((c) => ({ id: c.id, queue: c.queue?.length ?? 0 })),
       // Which way each junction is sending things, and it is here for exactly
       // the reason `managed` is: `sortRows` reads `live.auto`, so with nothing
@@ -3497,6 +3573,10 @@ export class Game {
     // moving `plantedAt` along with `elapsed`, and `elapsed` runs on the scaled
     // night clock. Handed `dt` it would drift forward every night.
     this.stepCrops(world);
+    // The world's delta again, and for the same reason: an animal fills on the
+    // shop's clock rather than on a stopwatch, so the compressed night has to
+    // count. It is the pair to `stepCrops` in every respect — see `stepPens`.
+    this.stepPens(world);
     // Once per tick, before the two things that read it. Both the crowd
     // everyone inside is fed up with and the queue an arrival balks at have to
     // be the *same* number, or the shop turns people away over a crush its own
@@ -4294,6 +4374,42 @@ export class Game {
       this.orders.pending = this.orders.pending.filter((o) => !gone(o.item_id));
     }
 
+    /**
+     * ...and a BED sown with a crop nobody can look up, which is the same rule
+     * one table along and is the more stranding of the two.
+     *
+     * An item nobody can find is goods that cannot be shelved; a CROP nobody
+     * can find is a bed that cannot be finished. `plotGrowth` answers 0 with no
+     * row, so `stepCrops` never rings the bell, `harvest` refuses out loud, and
+     * the farmhand's `hasSomewhere` reads `undefined` and walks past — which
+     * adds up to a bed you own, cannot pick, cannot sow, and can only get back
+     * by noticing it is dead and pressing Empty. Nothing anywhere says so, and a
+     * frozen bed and a slow one are the same picture of the same soil.
+     *
+     * It is the ROLL rather than the delete for `binOrphans`' own reason: an
+     * unknown crop is forgiven everywhere else (a re-flow keeps the bed exactly
+     * as it keeps an unknown item's stock), and a day is the grace in which
+     * somebody can put the row back.
+     *
+     * The standing crop is LOST rather than crated, and that is honest rather
+     * than lazy: what a ripe bed is holding is `crop.item_id`, and the row that
+     * says so is precisely the row that has gone. There is nothing left to name.
+     * `clearPlot` hands the soil back turned, so it is one press from producing.
+     */
+    const crops = content().byId.crops;
+    let beds = 0;
+    for (const plot of this.layout.plots) {
+      if (!plot.crop_id || crops[plot.crop_id]) continue;
+      names.add(plot.crop_id);
+      beds++;
+      // Turned rather than rough, which is `droppedPlacements`' argument about
+      // a refund at full price: you did not choose this, the catalogue did.
+      this.clearPlot(plot, { soil: 'tilled' });
+    }
+    if (beds) {
+      this.pushLog(`Cleared ${beds} bed(s) — what was growing in them is not in the catalogue any more.`);
+    }
+
     if (!binned) return;
     // The ids, because there is no name left to print — the row that held it
     // is exactly what has gone. Three of them and a count, the way the van's
@@ -4891,6 +5007,16 @@ export class Game {
         return { kind: 'bin', target: f.id, label: 'Throw away', at, run: () => this.binGoods(p.id, f.id) };
       }
       return null;
+    }
+
+    // A pen offers one job and only while there is something in it, which is the
+    // bin's shape rather than the appliance's: nothing ever goes IN, so there is
+    // no second opening and therefore no direction to say.
+    if (f.kind === 'pen') {
+      if (!((f.qty ?? 0) > 0)) return null;
+      return {
+        kind: 'collect', target: f.id, label: 'Collect', at, run: () => this.collectPen(p.id, f.id),
+      };
     }
 
     if (f.kind === 'plot') {
@@ -7599,6 +7725,128 @@ export class Game {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Pens
+  // -------------------------------------------------------------------------
+  //
+  // An animal is a crop that never has to be sown. Everything below is the crop
+  // loop with the two farming verbs taken out of it — there is no soil to turn
+  // and no seed to buy, because what you bought was the pen.
+
+  /** What this pen makes, off its own catalog row, or null if nobody drew one. */
+  penMakes(pen) {
+    return this.fixtureContent(pen)?.produces ?? null;
+  }
+
+  /**
+   * How much is standing ready, and how much it will hold before it stalls.
+   *
+   * `capacity_mult` is a stockpile rather than a bigger batch, which is the
+   * distinction that makes the ladder mean two things instead of one: `speed_mult`
+   * is how OFTEN you have to come, and this is how long you may leave it. At
+   * tier 1 they are the same number, so a basic pen holds exactly one batch and
+   * then waits — which is the honest answer to "what does the first rung do".
+   */
+  penCap(pen) {
+    const made = this.penMakes(pen);
+    if (!made) return 0;
+    return Math.max(made.qty, Math.round(made.qty * this.fixtureStats(pen).capacity_mult));
+  }
+
+  /**
+   * 0..1 through the batch now filling — the same number a crop's growth is,
+   * and drawn by the same bar.
+   *
+   * Full is 0, deliberately and not as a special case: a pen with nowhere to put
+   * the next batch is not 99% of the way to anything, and a bar sitting at the
+   * end over a pen that has stopped is the one readout that would lie about the
+   * only thing you need to know.
+   */
+  penFill(pen) {
+    const made = this.penMakes(pen);
+    if (!made || pen.qty >= this.penCap(pen)) return 0;
+    const mins = ((this.elapsed - (pen.filledAt ?? 0)) / 60) * this.fixtureStats(pen).speed_mult;
+    return clamp(mins / made.every, 0, 1);
+  }
+
+  /**
+   * Every pen fills, unless somebody has built a roof over it.
+   *
+   * The indoor clause is `stepCrops`'s, said about livestock, and it is HELD
+   * rather than reset for the reason given there at length: a wall drawn near
+   * the farm must not destroy the batch that was nearly ready. `where: 'outdoor'`
+   * already refuses a pen placed indoors, so this is only ever about a building
+   * that grew around one.
+   *
+   * A finished batch is added and the clock RESTARTS from now rather than from
+   * when the batch was due. That is the difference between a pen and a hopper:
+   * an animal that has stood full all night has not been quietly banking
+   * batches, it has been standing there — so leaving one full costs you the
+   * production, which is what makes `capacity_mult` worth paying for.
+   */
+  stepPens(world = 0) {
+    for (const pen of this.layout.pens ?? []) {
+      const made = this.penMakes(pen);
+      if (!made) continue;
+      if (insideStore(this.layout, pen.x, pen.z)) {
+        pen.filledAt = (pen.filledAt ?? 0) + world;
+        continue;
+      }
+      const cap = this.penCap(pen);
+      if (pen.qty >= cap) {
+        // Nothing accrues while it is full, and the clock is pinned to now so
+        // that collecting starts a fresh batch instead of finishing one that
+        // has been notionally running since Tuesday.
+        pen.filledAt = this.elapsed;
+        continue;
+      }
+      if (this.penFill(pen) < 1) continue;
+      pen.qty = Math.min(cap, (pen.qty ?? 0) + made.qty);
+      pen.filledAt = this.elapsed;
+    }
+  }
+
+  /**
+   * Take what is standing in a pen.
+   *
+   * `handOver` rather than `collectStation`'s hands-only loop, and that is the
+   * one decision in here worth arguing. A pen is out in the field beside the
+   * beds, worked the way the beds are worked — you walk a row of them — so the
+   * shoulder-then-hands-then-ground rule that makes a row of beds one journey is
+   * exactly the rule this wants. An appliance's tray is indoors next to a belt
+   * and a loader, where a crate on the shoulder is somebody else's job.
+   *
+   * No refusal for full hands, for `harvest`'s reason: what will not fit lands
+   * in a box at your feet, and nothing this shop produces is ever destroyed for
+   * want of somewhere to put it.
+   */
+  collectPen(playerId, penId) {
+    const p = this.players[playerId];
+    const pen = (this.layout.pens ?? []).find((x) => x.id === penId);
+    if (!p || !pen) return err('no such pen');
+    // The gate, or the block itself — measured to its MIDDLE, since `pen.x` is
+    // the min corner and the far side of a 2x2 is a tile and a half from it.
+    const mid = footprintMid('pen', pen.x, pen.z);
+    if (!near(p, pen.useAt ?? mid, REACH) && !near(p, mid, REACH)) return err('too far from it');
+    if (!(pen.qty > 0)) return err('nothing ready yet');
+    const made = this.penMakes(pen);
+    // Content is edited live, so the row that named what this makes can be
+    // deleted out from under a pen with six of it standing in the gateway. The
+    // goods are real either way — `binOrphans` is what eventually collects them.
+    const itemId = made?.item_id;
+    if (!itemId) return err('nothing in there any more');
+
+    const qty = pen.qty;
+    pen.qty = 0;
+    // A pen that was full has not been filling; this is where its next batch
+    // starts. `stepPens` pins the same stamp every tick it stands full, so the
+    // two agree without either having to know about the other.
+    pen.filledAt = this.elapsed;
+    const { crated, taken, spare } = this.handOver(p, itemId, qty);
+    this.stats.harvested += qty;
+    return ok({ item_id: itemId, qty: crated + taken, hauled: crated, spare });
+  }
+
   /**
    * Turn the soil so it will take a seed.
    *
@@ -7946,6 +8194,56 @@ export class Game {
     return ok({ worker: workerId, skin: entry.skin });
   }
 
+  /**
+   * Hand somebody everything a farm job just produced, and lose none of it.
+   *
+   * The shoulder, then the hands, then the ground — in that order, and the
+   * order is the whole of it. Two verbs share this (`harvest` and `collectPen`)
+   * and a third would too; writing it twice is how the two halves of the farm
+   * end up disagreeing about what a full pair of hands means.
+   *
+   * **The crate first, because that is the trip halved.** Hands are six units
+   * and a crate is `CRATE_UNITS`, so a row of beds or a row of pens is one
+   * journey instead of one per unit — and it ends better than a full armful
+   * does, since `stockFromCrate` pours a box straight onto a board where an
+   * armful is an unload-and-lift dance. Three conditions on it, each a rule that
+   * already existed: empty hands, because nobody shoulders a box while holding
+   * loose goods (`liftCrate`, `crateBoard`); not a hire, because `stepStaff` is
+   * built around hands and a staff haul only ever runs OUT OF THE YARD, which is
+   * what makes their loop terminate; and room in the box, via `lotRoom`, so a
+   * third kind finds no free board and falls through rather than being lost.
+   *
+   * **Then the hands**, which is why an armful of tomatoes no longer stops you
+   * picking the carrots next to it.
+   *
+   * **And what will not fit goes in a crate at your feet rather than NOWHERE**,
+   * which is what it used to do. A bed gives two to seven against six-unit
+   * hands, so the surplus was clipped and silently ceased to exist — the one
+   * place in this game goods were destroyed, with nothing logged and nothing on
+   * the floor to say so. It is also why neither caller has a refusal in it: full
+   * hands are not a reason to leave a ripe crop in the ground, they are a reason
+   * for it to be in a box. `dropGoods` merges within a couple of tiles, so a
+   * block of six leaves one readable pile.
+   *
+   * The box lands on the tile under YOU rather than on the thing it came from: a
+   * crate parked on the seedlings you just put back reads as the harvest having
+   * failed, and a crate in the gateway of a pen reads as the pen being blocked.
+   */
+  handOver(p, itemId, qty) {
+    const crated = (!p.staff && !p.carry)
+      ? Math.min(qty, lotRoom(p.haul ?? null, itemId, this.crateLot()))
+      : 0;
+    if (crated > 0) p.haul = lotAdd(p.haul ?? null, itemId, crated, this.crateLot()).lot;
+
+    const taken = Math.min(qty - crated, lotRoom(p.carry, itemId, this.carryLot(p)));
+    if (taken > 0) p.carry = lotAdd(p.carry, itemId, taken, this.carryLot(p)).lot;
+
+    const spare = qty - crated - taken;
+    if (spare > 0) this.dropGoods(itemId, spare, { x: Math.round(p.x), z: Math.round(p.z) });
+
+    return { crated, taken, spare };
+  }
+
   harvest(playerId, plotId) {
     const p = this.players[playerId];
     const plot = this.layout.plots.find((x) => x.id === plotId);
@@ -7961,62 +8259,7 @@ export class Game {
     // showed. A plot from before yields were stored has none, so roll one.
     const yieldQty = plot.yield || this.rng.int(crop.yield_min, crop.yield_max);
 
-    // Picking fills a CRATE on your shoulder, not your hands, and that is the
-    // whole trip halved.
-    //
-    // Hands are six units and a crate is `CRATE_UNITS` — the difference is the
-    // point of hauling, and the farm is where it pays most: a bed gives four to
-    // ten now, so an armful was one bed and a walk. Shouldering the box first
-    // makes a row of beds one journey, and it ends in the same place a full
-    // armful does but better — `stockFromCrate` pours a box straight onto a
-    // board, so the walk back is one tap rather than an unload-and-lift dance.
-    //
-    // Three conditions, and each is a rule that already existed rather than one
-    // invented here. Empty hands, because you cannot shoulder a box while
-    // holding loose goods (`liftCrate`, `crateBoard`) — so an armful you are
-    // already carrying keeps the old behaviour below and is not silently
-    // rearranged. Not a hire, because `stepStaff` is built around hands and
-    // their haul only ever runs OUT OF THE YARD, which is what makes their loop
-    // terminate; handing a stocker a crate in a field is a job the farm loop
-    // never measured. And room in the box, which is `lotRoom` doing what it does
-    // for hands: both caps at once, so a third crop finds no free board and
-    // falls through to the ground rather than being lost.
-    const crated = (!p.staff && !p.carry)
-      ? Math.min(yieldQty, lotRoom(p.haul ?? null, crop.item_id, this.crateLot()))
-      : 0;
-    if (crated > 0) p.haul = lotAdd(p.haul ?? null, crop.item_id, crated, this.crateLot()).lot;
-
-    // An armful of tomatoes no longer stops you picking the carrots next to it,
-    // which is most of what mixed hands are worth on the farm: a row of four
-    // beds used to be four walks to the yard, and the walk was the crop.
-    const taken = Math.min(yieldQty - crated, lotRoom(p.carry, crop.item_id, this.carryLot(p)));
-
-    // ...and what will not fit goes in a crate at your feet rather than
-    // NOWHERE, which is what it used to do.
-    //
-    // Hands hold six and a bed gives two to seven, so picking a row was one
-    // bed and a walk: the second bed's yield was clipped to whatever room was
-    // left and the rest of it silently ceased to exist — a bed drawing four
-    // plants handed over one and binned three, with nothing in the log and
-    // nothing on the floor to say so. That is the one thing this game does not
-    // do anywhere else (see `dropGoods`: an armful you let go of, a stripped
-    // shelf, a hire who logs out — all of it becomes a crate), and it is why
-    // the farm felt like it could only be worked one bed at a time.
-    //
-    // So there is no refusal here any more, and the two noes it used to give
-    // are gone with it. A full pair of hands is not a reason to leave a ripe
-    // crop in the ground — it is a reason for the crop to be in a box instead,
-    // which is a box you can come back for, shoulder whole, or empty into the
-    // bay. `dropGoods` merges within a couple of tiles, so picking six beds in
-    // a block leaves one readable pile beside them rather than six pallets.
-    //
-    // The crate lands on the tile under YOU, not on the bed: a plot is the
-    // ground rather than a thing standing on it, and a box parked on the
-    // seedlings you just put back reads as the harvest having failed.
-    const spare = yieldQty - crated - taken;
-    if (spare > 0) this.dropGoods(crop.item_id, spare, { x: Math.round(p.x), z: Math.round(p.z) });
-
-    if (taken > 0) p.carry = lotAdd(p.carry, crop.item_id, taken, this.carryLot(p)).lot;
+    const { crated, taken, spare } = this.handOver(p, crop.item_id, yieldQty);
     // Everything the bed grew, because everything the bed grew still exists.
     // It counted only what reached your hands while the surplus was being
     // destroyed, which was honest then and would under-report the farm now.
@@ -11053,14 +11296,19 @@ export class Game {
   buildRun(playerId, { kind, piece = null, variant = '', x, z, to = null, rot = 0 } = {}) {
     const p = this.players[playerId];
     if (!p?.build?.on) return err('not in build mode');
-    if (!RUN_KINDS.includes(kind)) return err('that is not laid as a run');
+    // Any fixture lays as a run — see the client's own note at the drag. What
+    // used to be `RUN_KINDS` here was never a rule about conveyors, it was the
+    // list of kinds the gesture had been written for; `runFollows` is the one
+    // thing that really does differ by kind, and it lives in the generator.
+    if (!FIXTURES[kind]) return err('you cannot build that');
 
     // `rot` is an input to the generator, not a decoration on the message: it is
     // what a cell faces when the drag did not say, which is every cell of a
     // one-cell run. Defaulting it here rather than carrying it over the wire
     // would lay a run facing north out of a ghost the player had turned.
-    const cells = beltRunCells({ x: Math.round(x), z: Math.round(z) },
-      to ? { x: Math.round(to.x), z: Math.round(to.z) } : null, BELT_RUN_MAX, rot);
+    const cells = runCells({ x: Math.round(x), z: Math.round(z) },
+      to ? { x: Math.round(to.x), z: Math.round(to.z) } : null, BELT_RUN_MAX, rot,
+      runFollows(kind));
     if (!cells.length) return err('nothing to lay');
 
     let laid = 0;
@@ -11095,7 +11343,7 @@ export class Game {
     // and never back at its own feeder, which is the two-cell tug of war
     // `conveyorFlow` warns about.
     // Asked of every cell the drag laid rather than of `last`, which is not the
-    // end you dragged to: `beltRunCells` emits lowest-index-first whichever way
+    // end you dragged to: `runCells` emits lowest-index-first whichever way
     // the gesture went, so `last` is the FAR end for half of all drags. Only a
     // terminus can qualify anyway — every other cell is already aimed at its
     // neighbour — so sweeping the run costs nothing and cannot pick the wrong
@@ -11109,13 +11357,19 @@ export class Game {
     // run it just spawned. Same rule guards it as the tail: only if it aims at
     // NOTHING, so a cell already handing on is untouched and a junction keeps
     // every way out it has.
-    const ends = [
+    // ...and none of it applies to a row of shelving, which is the one thing
+    // that had to be said out loud when the drag stopped being conveyor-only.
+    // The loop below would fall through on its own — a shelf has no `ref` and
+    // `conveyorAt` finds nothing beside it — so this guard buys no behaviour
+    // today and states the claim: everything under this line is about flow, and
+    // a kind that does not follow the drag has no flow to fix.
+    const ends = runFollows(kind) ? [
       conveyorAt(this.layout, Math.round(x), Math.round(z)),
       to ? conveyorAt(this.layout, Math.round(to.x), Math.round(to.z)) : null,
-    ].filter(Boolean).map((c) => c.id);
+    ].filter(Boolean).map((c) => c.id) : [];
 
     let turned = false;
-    for (const id of [...mine, ...ends]) {
+    for (const id of (runFollows(kind) ? [...mine, ...ends] : [])) {
       const tail = id ? this.findFixture(id)?.ref : null;
       if (!tail || derivedFlow(tail.kind) || tail.kind === 'under') continue;
       const ahead = anchorTile(tail.x, tail.z, tail.rot ?? 0);
@@ -11137,7 +11391,11 @@ export class Game {
     if (turned) this.regenerateLayout();
     // One line in the feed. `placeFixture` writes one per cell, which for a
     // sixty-cell drag is a log with nothing else in it.
-    this.pushLog(`Laid ${laid} ${FIXTURES[kind]?.label?.toLowerCase() ?? 'belt'} cells.`);
+    const what = (this.fixtureContent({ kind, piece, station: null })?.name
+      ?? FIXTURES[kind]?.label ?? kind).toLowerCase();
+    this.pushLog(laid === 1
+      ? `Built a ${what}.`
+      : `Laid ${laid} ${what} in a row.`);
     return ok({ laid, placed: last });
   }
 
@@ -13071,6 +13329,7 @@ export class Game {
       ...this.layout.checkouts.map((c) => ({ ...c, kind: 'checkout', ref: c })),
       ...(this.layout.stations ?? []).map((s) => ({ ...s, kind: 'station', ref: s })),
       ...this.layout.plots.map((pl) => ({ ...pl, kind: 'plot', ref: pl })),
+      ...(this.layout.pens ?? []).map((pn) => ({ ...pn, kind: 'pen', ref: pn })),
       // Decorations are fixtures to everything in build mode — you aim at one,
       // open its menu, turn it, move it, sell it back — so they belong in the
       // one list rather than growing a parallel set of verbs that do the same
@@ -13410,7 +13669,7 @@ export class Game {
   fixtureAt(x, z) {
     const tx = Math.round(x);
     const tz = Math.round(z);
-    return this.allFixtures().find((f) => f.x === tx && f.z === tz) ?? null;
+    return this.allFixtures().find((f) => covers(f, tx, tz)) ?? null;
   }
 
   /**
@@ -13504,7 +13763,13 @@ export class Game {
    */
   holdReflow(fn) {
     if (this.reflowHold) return fn();
-    this.reflowHold = { want: false, seed: null, alias: {} };
+    // `gone` is what the deferred re-flow has not caught up with yet. A verb
+    // that reads the LAYOUT to decide whether it is allowed is reading the shop
+    // as it stood before the batch — which is exactly what makes the hold safe
+    // for everything that moves no tile, and exactly what makes it unsafe for
+    // removal: three tills picked in a shop with three would each see three
+    // still standing. See `removeFixture`.
+    this.reflowHold = { want: false, seed: null, alias: {}, gone: new Set() };
     try {
       return fn();
     } finally {
@@ -13539,6 +13804,11 @@ export class Game {
       return Object.values(f.contents ?? {}).reduce((a, b) => a + b, 0) + trays;
     }
     if (f.kind === 'plot') return f.crop_id ? 1 : 0;
+    // Whatever is standing in the gateway. The ANIMAL is not contents — you are
+    // not asked to rehome a cow before selling the pen, any more than a bed asks
+    // you to unplant it: the piece is the animal, and selling the piece is what
+    // happens to it.
+    if (f.kind === 'pen') return f.qty ?? 0;
     if (f.kind === 'checkout') return 0;
     // A belt holds nothing itself — the crate on it is an ordinary crate that
     // happens to name this belt, and it is picked up the way any crate is. So
@@ -13570,6 +13840,21 @@ export class Game {
       return itemId ? this.clearBoard(playerId, id, itemId) : this.stripShelf(playerId, id);
     }
     if (f.kind === 'station') return this.dumpStation(playerId, id);
+    if (f.kind === 'pen') {
+      const pen = f.ref;
+      if (!(pen.qty > 0)) return err('nothing in there to collect');
+      const itemId = this.penMakes(pen)?.item_id;
+      if (!itemId) return err('nothing in there any more');
+      const qty = pen.qty;
+      pen.qty = 0;
+      pen.filledAt = this.elapsed;
+      // A crate at the gate, which is what every other "tip it out" in the game
+      // does — never into your hands, because emptying is a build-mode verb and
+      // your arms may be full of something else entirely.
+      this.dropGoods(itemId, qty, pen.useAt ?? pen);
+      this.pushLog(`Cleared ${qty}x ${this.itemSaid(itemId)} out of the ${this.fixtureSaid(pen)}.`);
+      return ok({ cleared: pen.id, item_id: itemId, qty });
+    }
     if (f.kind === 'plot') {
       const plot = f.ref;
       if (!plot.crop_id) return err('nothing growing there');
@@ -14361,6 +14646,184 @@ export class Game {
     return ok({ id: placement.id });
   }
 
+  /**
+   * COPY A SELECTION — the shop's own clipboard.
+   *
+   * It lives on the `Game` rather than on the client, and the reason is the 4KB
+   * inbound cap. A blueprint is fixtures *and* the ground under them *and* the
+   * walls round them *and* the paint on those walls, which for a stockroom is
+   * comfortably past it — so what goes over the wire is a list of ids one way
+   * and an anchor the other, and the thing itself is derived here from state the
+   * server already holds. That is `build-edge`'s rule (send the ends, re-run the
+   * generator) said about a region.
+   *
+   * Everything is stored **relative to the top-left of the selection's bounding
+   * box**, so a paste is an addition and never a coordinate. The four layers are
+   * gathered from the same box, which is what makes "the floor comes with it"
+   * fall out rather than being a second decision per layer.
+   *
+   * The three things it does NOT copy are worth naming, because each looks like
+   * an omission and each is the point. **Stock**: a blueprint is a shape, and a
+   * paste that conjured six loaves would be printing money. **Ids**: a pasted
+   * fixture is a new fixture, bought at today's price. And **the shell's own
+   * walls**: `edits` is what somebody drew, so stamping a room copies the walls
+   * you put up and never the four the generator gave you — which is right, since
+   * those are where the building is rather than what is in it.
+   *
+   * One clipboard per shop, not per player. Two people building one shop is the
+   * case co-op is for, and "copy that aisle, I'll stamp it down the other side"
+   * is a sentence that only works if the clipboard is shared. It is not saved,
+   * for `server/sim/undo.js`'s reason: it names a shop you last saw a week ago.
+   */
+  copyFixtures(playerId, ids) {
+    const p = this.players[playerId];
+    if (!p?.build?.on) return err('not in build mode');
+    const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String);
+    const picks = list
+      .map((id) => this.placements.find((pl) => pl.id === id))
+      .filter(Boolean);
+    if (!picks.length) return err('nothing selected');
+
+    const x0 = Math.min(...picks.map((q) => q.x));
+    const z0 = Math.min(...picks.map((q) => q.z));
+    const x1 = Math.max(...picks.map((q) => q.x));
+    const z1 = Math.max(...picks.map((q) => q.z));
+    const inBox = (x, z) => x >= x0 && x <= x1 && z >= z0 && z <= z1;
+
+    // A lattice line belongs to the box when BOTH its ends do, which is one more
+    // column and one more row than the cells: the wall along the north side of
+    // the top row is at `z0`, and the one along the south side of the bottom row
+    // is at `z1 + 1`. Read the other way it would drop exactly the walls that
+    // enclose the thing you selected, so a copied stockroom pastes as three
+    // walls and a gap.
+    const edgeIn = (e) => (e.o === 'h'
+      ? e.x >= x0 && e.x <= x1 && e.z >= z0 && e.z <= z1 + 1
+      : e.x >= x0 && e.x <= x1 + 1 && e.z >= z0 && e.z <= z1);
+
+    this.clipboard = {
+      w: x1 - x0 + 1,
+      h: z1 - z0 + 1,
+      // `specOf` and not a hand-written field list, or the clipboard is the
+      // fourth place in this file that has to be told about a new placement
+      // field — and the one where forgetting is silent, because a pasted
+      // sorter with its `auto` reset looks exactly like a pasted sorter.
+      fixtures: picks.map((q) => ({ dx: q.x - x0, dz: q.z - z0, spec: specOf(q) })),
+      ground: this.ground.filter((g) => inBox(g.x, g.z))
+        .map((g) => ({ dx: g.x - x0, dz: g.z - z0, k: g.k, p: g.p })),
+      edits: this.edits.filter(edgeIn)
+        .map((e) => ({ o: e.o, dx: e.x - x0, dz: e.z - z0, k: e.k })),
+      paint: Object.entries(this.paint)
+        .map(([key, piece]) => ({ f: faceOf(key), piece }))
+        .filter(({ f }) => edgeIn(f))
+        .map(({ f, piece }) => ({ o: f.o, dx: f.x - x0, dz: f.z - z0, s: f.s, piece })),
+    };
+    const c = this.clipboard;
+    this.pushLog(`Copied ${c.fixtures.length} ${c.fixtures.length === 1 ? 'thing' : 'things'}.`);
+    return ok({
+      fixtures: c.fixtures.length,
+      ground: c.ground.length,
+      edits: c.edits.length,
+      paint: c.paint.length,
+      w: c.w,
+      h: c.h,
+    });
+  }
+
+  /**
+   * ...and stamp it down, anchored on the cell you named.
+   *
+   * Every fixture goes through `placeFixture` and every cell of ground, wall and
+   * paint through the overlay the ordinary brush writes — so a paste is charged
+   * at today's prices, refused where it cannot go, and recorded by the same six
+   * `recordUndo` sites every other build press uses. The caller wraps it in one
+   * `undoStep`, which is why this step comes after undo rather than before it: a
+   * stamp of twenty things you cannot take back in one press is a stamp nobody
+   * dares use.
+   *
+   * `holdReflow` around the lot, or a twenty-fixture paste is twenty full re-runs
+   * of the generator and twenty teardowns of the client's scene — `buildRun`'s
+   * argument, said about an area instead of a line.
+   *
+   * **It stamps what it can and says what it could not**, rather than refusing
+   * the lot. That is `canPlace`'s warn-don't-refuse rule and the wall drag's
+   * ran-out-of-money rule said about a region: a blueprint dropped over a shop
+   * that has grown since will clip something, and losing the whole gesture to one
+   * square is exactly what makes a tool not worth reaching for.
+   *
+   * **There is no rotation yet**, and that is a scope line rather than an
+   * oversight — see docs/building.md. Turning a stamp means rotating the offsets
+   * *and then* the facings, and doing only the second looks completely correct on
+   * a single shelf while shearing every aisle; an 'h' wall also becomes a 'v'
+   * one, which is the part that cannot be checked by eye at all.
+   */
+  pasteClipboard(playerId, { x, z } = {}) {
+    const p = this.players[playerId];
+    if (!p?.build?.on) return err('not in build mode');
+    const c = this.clipboard;
+    if (!c) return err('nothing copied');
+    const ax = Math.round(Number(x));
+    const az = Math.round(Number(z));
+    if (!Number.isFinite(ax) || !Number.isFinite(az)) return err('nowhere to put that');
+
+    let laid = 0;
+    let missed = 0;
+    /**
+     * ONE HOLD PER LAYER, and never one around the lot.
+     *
+     * `holdReflow` is safe "because nothing between the verbs reads the layout",
+     * and for a run of belts that is true — each cell is the same question about
+     * a different square. A paste is the one caller where it is flatly false:
+     * every layer is a precondition of the next, and `canPlace`, `canPlaceEdges`
+     * and `canPaintFaces` all read `this.layout`, which a hold leaves as it was
+     * before the first cell went down.
+     *
+     * Held around the whole thing, a stamp of an aisle onto bare grass refuses
+     * every shelf in it — `BUILDABLE_INDOOR` is floor and the floor is still
+     * pending — and then reports "none of that would go there" over ground it
+     * laid a moment earlier. The paint is the same bug one layer along: a face
+     * with no wall behind it is refused, and the wall it needs is one this very
+     * paste drew.
+     *
+     * So the layers are the boundary. Four re-flows for a stamp of twenty
+     * things rather than twenty, which is the saving `holdReflow` exists for,
+     * without the part that makes the ordering a lie.
+     */
+    // Ground first: it is what makes a walled annex a room, and every fixture
+    // below is standing on it.
+    this.holdReflow(() => {
+      for (const g of c.ground) {
+        const res = this.buildGround(playerId, { x: ax + g.dx, z: az + g.dz, piece: g.p ?? '' });
+        if (!res.ok) missed++;
+      }
+    });
+    this.holdReflow(() => {
+      for (const e of c.edits) {
+        const res = this.buildEdge(playerId, { o: e.o, x: ax + e.dx, z: az + e.dz, kind: e.k });
+        if (!res.ok) missed++;
+      }
+    });
+    this.holdReflow(() => {
+      for (const f of c.fixtures) {
+        const res = this.placeFixture(playerId, { ...f.spec, x: ax + f.dx, z: az + f.dz });
+        if (res.ok) laid++; else missed++;
+      }
+    });
+    // Paint last, and it needs no hold of its own: `paintFaces` deliberately
+    // never re-flows at all.
+    for (const f of c.paint) {
+      const res = this.paintFaces(playerId, {
+        o: f.o, x: ax + f.dx, z: az + f.dz, s: f.s, piece: f.piece ?? '',
+      });
+      if (!res.ok) missed++;
+    }
+
+    if (!laid && missed) return err('none of that would go there');
+    this.pushLog(missed
+      ? `Stamped ${laid} ${laid === 1 ? 'thing' : 'things'} — ${missed} would not fit.`
+      : `Stamped ${laid} ${laid === 1 ? 'thing' : 'things'}.`);
+    return ok({ laid, missed });
+  }
+
   cancelBuildHold(playerId) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
@@ -14382,7 +14845,15 @@ export class Game {
     const { p, f, error } = this.buildTarget(playerId, id);
     if (error) return err(error);
     if (this.fixtureContents(f) > 0) return err('empty it first');
-    if (f.kind === 'checkout' && this.layout.checkouts.length <= 1) {
+    // Counted against the batch as well as against the layout. A removal is the
+    // one bulk verb whose guard is a fact about the SHOP rather than about the
+    // unit, and `holdReflow` defers the re-flow — so `layout.checkouts` still
+    // lists every till this batch has already torn out. Unguarded, a selection
+    // of all three passes three times and leaves a shop that cannot take money,
+    // with nothing anywhere to say so.
+    const gone = this.reflowHold?.gone;
+    if (f.kind === 'checkout'
+      && this.layout.checkouts.filter((c) => !gone?.has(c.id)).length <= 1) {
       return err('you need at least one till to take money');
     }
 
@@ -14398,6 +14869,7 @@ export class Game {
     // back is what it built it FROM.
     const was = specOf(this.placements.find((pl) => pl.id === id));
     this.placements = this.placements.filter((pl) => pl.id !== id);
+    gone?.add(id);
     if (was) recordUndo(this, { t: 'fixture', id: null, from: was, to: null });
     this.cash += refund;
     for (const pl of Object.values(this.players)) {
@@ -15316,6 +15788,7 @@ export class Game {
     const oldShelves = this.layout.shelves;
     const oldPlots = this.layout.plots;
     const oldStations = this.layout.stations ?? [];
+    const oldPens = this.layout.pens ?? [];
     const c = content();
 
     // What to furnish with. A stamped shop asks for exactly what is standing in
@@ -15337,6 +15810,10 @@ export class Game {
       unders: want.under ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
+      // Both call sites, or the shop accepts a pen, charges for it, and drops
+      // and refunds it on the re-flow the purchase itself triggers. See the
+      // budget map in `server/layout.js`.
+      pens: want.pen ?? 0,
       stations: want.stations,
       placements: this.placements,
       grow: this.grow,
@@ -15459,6 +15936,11 @@ export class Game {
     // `yield` rides along or a re-flow would hand the bed a different harvest
     // than the one it has been drawing.
     carryOver(layout.plots, oldPlots, alias, ['soil', 'crop_id', 'plantedAt', 'ready', 'yield']);
+
+    // ...and the same pair for a pen, for exactly the same reason. Build mode
+    // re-flows on every wall segment of a drag, so a pen that lost its batch to
+    // one would empty itself while you built a fence round it.
+    carryOver(layout.pens, oldPens, alias, ['qty', 'filledAt']);
 
     if (newSeed) this.seed = String(newSeed);
     this.layout = layout;
@@ -17830,8 +18312,13 @@ export class Game {
     // left annoyed, and softening that because the shop also failed to stock
     // what they wanted would pay a shop back for the second failure — the same
     // trap `stopShopping`'s comment names about not softening the blow.
-    let mood = REP_VISIT * (cust.mood - MOOD_ANNOYED);
-    if (mood > 0) mood *= this.visitFill(cust);
+    // Paid on `kept`, charged on the absolute line — see `REP_VISIT`. The two
+    // axes are the point: a gain must not be buyable with charm, and a loss is
+    // about how they look to everybody else on the way out.
+    const kept = clamp(cust.mood / (cust.mood0 || 1), 0, 1);
+    const mood = cust.mood < MOOD_ANNOYED
+      ? REP_VISIT * (cust.mood - MOOD_ANNOYED) / (1 - MOOD_ANNOYED)
+      : REP_VISIT * kept * this.visitFill(cust);
     this.moveRep(mood, mood < 0 ? R.GRUMPY : R.SERVED);
     // Out of the basket and into their arms — the shop no longer owns it, but
     // they still have it until they are off the map.
@@ -18129,6 +18616,10 @@ export class Game {
       if (p.haul) return this.loadStation(playerId, station.id, { from: 'haul' });
       if (heads.some((slot) => slot.making)) return err(`${station.station} is still going`);
     }
+
+    // 3b. A pen with something standing in it.
+    const pen = this.nearest(this.layout.pens ?? [], p, REACH, (o) => o.useAt);
+    if (pen && (pen.qty ?? 0) > 0) return this.collectPen(playerId, pen.id);
 
     // 4. Holding stock next to a shelf -> stock it.
     const shelf = this.nearest(this.layout.shelves, p, REACH, (s) => s.browseAt);

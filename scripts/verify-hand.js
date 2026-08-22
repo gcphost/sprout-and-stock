@@ -89,7 +89,31 @@ process.on('exit', () => { try { remove('workers', TEST_WORKER.id); } catch { /*
 
 /** Two ordinary ambient items — nothing that needs a freezer. */
 const c = content();
-const AMBIENT = c.items.filter((it) => !it.tags.includes('frozen') && !it.tags.includes('needs-freezer'));
+/**
+ * Ambient, and something the SUPPLIER will sell.
+ *
+ * `buyStock` refuses anything a recipe produces, and half this file is about
+ * restocking — so a crafted item picked here is a board the shop can never
+ * order for, and every restock assertion fails with "restocking never fired at
+ * all", which reads as the ordering being broken rather than as the sweep
+ * having picked bread. It only held while almost nothing had a recipe; see
+ * docs/production.md.
+ */
+const crafted = new Set(c.recipes.map((r) => r.output_id));
+/**
+ * ...and ordered by who WANTS it, because section 2 spawns a single shopper and
+ * waits for them to take one off the board. In catalog order this was `bread`,
+ * which every archetype has some pull toward; the next ambient row along is a
+ * seasonal vegetable, and one customer who happens not to want produce is an
+ * assertion that fails for a reason unconnected to boards going stale. The
+ * score is the same affinity table `desireFor` reads, so it tracks whatever the
+ * archetypes become rather than naming a row that was dependable once.
+ */
+const pull = (it) => c.archetypes.reduce((sum, a) => sum
+  + it.tags.reduce((s, t) => s + Math.max(0, a.affinities?.[t] ?? 0), 0), 0);
+const AMBIENT = c.items.filter((it) => !it.tags.includes('frozen')
+  && !it.tags.includes('needs-freezer') && !crafted.has(it.id))
+  .sort((a, b) => pull(b) - pull(a));
 check(AMBIENT.length >= 2, 'the catalog has two ambient items to shelve', `${AMBIENT.length}`);
 const [ITEM_A, ITEM_B] = AMBIENT;
 /**
@@ -106,7 +130,15 @@ const [ITEM_A, ITEM_B] = AMBIENT;
  */
 const bySpan = AMBIENT.slice().sort((a, b) => (b.shelf_life_days ?? 0) - (a.shelf_life_days ?? 0));
 const KEEPER = bySpan[0];
-const PERISHABLE = bySpan[bySpan.length - 1];
+/**
+ * ...and the short end has to be something that ACTUALLY rots, which the span
+ * alone does not say: `spoilRate` ignores `shelf_life_days` on a `shelf-stable`
+ * row, so the shortest span in the catalog is a pantry item that keeps for ever
+ * and the `> 0` assertion below passes on it while nothing ever spoils. It only
+ * ever picked a real perishable because no shipped row had set 0.
+ */
+const ROTS = bySpan.filter((it) => !it.tags.includes('shelf-stable') && (it.shelf_life_days ?? 0) > 0);
+const PERISHABLE = ROTS[ROTS.length - 1];
 check((KEEPER?.shelf_life_days ?? 0) > 12,
   'the catalog has something that keeps long enough to outlive a stale clock',
   `${KEEPER?.id} keeps ${KEEPER?.shelf_life_days}`);

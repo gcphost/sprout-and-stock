@@ -740,7 +740,7 @@ export const ShopRoom = (Base) => class extends Base {
     });
 
     // A run of conveyor, laid in one drag. Two ends and a piece, never the list —
-    // the inbound cap is 4KB and the server re-runs `beltRunCells` against the
+    // the inbound cap is 4KB and the server re-runs `runCells` against the
     // same far end, so the two cannot disagree about which way it went.
     this.onMessage('build-run', (client, m) => {
       const res = this.game.undoStep('that run of conveyor',
@@ -791,16 +791,45 @@ export const ShopRoom = (Base) => class extends Base {
       if (res.ok) this.sendLayout();
     });
 
+    // The ladder, both ways, over a whole selection — six freezers is one
+    // decision about the shop rather than six about six units. Same shape as
+    // `build-style` and `build-remove`: one hold, one undo step, one line.
+    //
+    // The money is the report, as it is for a removal, and here it is the whole
+    // of the question: a rung is priced per PIECE, so six units at three
+    // different tiers is six different prices and "upgraded 6" says nothing
+    // about what just left the bank.
+    //
+    // Affordability stays where it is — inside `upgradeFixture`, against the
+    // running cash. So a batch that outspends the shop upgrades what it can and
+    // reports the rest as refused, which is the honest answer: the alternative
+    // is pricing the batch up front and refusing the lot over the last unit.
     this.onMessage('build-upgrade', (client, m) => {
-      const res = this.game.undoStep('that upgrade',
-        () => this.game.upgradeFixture(client.sessionId, m?.id));
+      let spent = 0;
+      const res = this.game.undoStep('that upgrade', () => this.game.bulkFixtures(
+        targets(m),
+        (id) => {
+          const r = this.game.upgradeFixture(client.sessionId, id);
+          if (r?.ok) spent += r.cost ?? 0;
+          return r;
+        },
+        (n) => `Upgraded ${n} fixtures for $${spent.toFixed(2)}.`,
+      ));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
 
     this.onMessage('build-downgrade', (client, m) => {
-      const res = this.game.undoStep('that downgrade',
-        () => this.game.downgradeFixture(client.sessionId, m?.id));
+      let back = 0;
+      const res = this.game.undoStep('that downgrade', () => this.game.bulkFixtures(
+        targets(m),
+        (id) => {
+          const r = this.game.downgradeFixture(client.sessionId, id);
+          if (r?.ok) back += r.refund ?? 0;
+          return r;
+        },
+        (n) => `Stepped ${n} fixtures back a rung — $${back.toFixed(2)} back.`,
+      ));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
@@ -819,9 +848,30 @@ export const ShopRoom = (Base) => class extends Base {
       if (res.ok) this.sendLayout();
     });
 
+    // The second bulk verb that re-flows, and the only destructive one — the
+    // other four in the fixture menu's foot are deliberately one at a time (see
+    // the note above `alone` in `client/fixture-menu.js`). Remove is the
+    // exception because it is the verb people pick six things in order to do:
+    // clearing an aisle out was six opens, six presses and six teardowns of the
+    // client's whole scene, for one decision.
+    //
+    // One `undoStep` around the batch rather than one per fixture, which is
+    // `buildRun`'s rule said about a selection: the player who wants an aisle
+    // back wants all of it back in one press of Ctrl+Z.
+    //
+    // The money is what `say` reports, because it is the one thing about a
+    // removal nobody can see afterwards — the fixtures are gone, and "six back"
+    // says nothing about whether that was $30 or $900. Summed in the runner
+    // rather than read off `bulkFixtures`, which keeps only the count.
     this.onMessage('build-remove', (client, m) => {
-      const res = this.game.undoStep('removing that',
-        () => this.game.removeFixture(client.sessionId, m?.id));
+      const ids = targets(m);
+      let back = 0;
+      const res = this.game.undoStep(ids.length > 1 ? 'removing those' : 'removing that',
+        () => this.game.bulkFixtures(ids, (id) => {
+          const r = this.game.removeFixture(client.sessionId, id);
+          if (r?.ok) back += r.refund ?? 0;
+          return r;
+        }, (n) => `Removed ${n} fixtures — $${back.toFixed(2)} back.`));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
@@ -850,6 +900,35 @@ export const ShopRoom = (Base) => class extends Base {
       if (res.layout) this.sendLayout();
       if (res.paint) this.broadcast('paint', this.game.paint);
     };
+    /**
+     * Ctrl+C and Ctrl+V.
+     *
+     * The clipboard itself never crosses the wire in either direction — see
+     * `Game.copyFixtures`. Copy sends the ids the player had picked; paste sends
+     * the cell they pointed at. Both are well inside the 4KB inbound cap where
+     * the thing they are about is not.
+     *
+     * The paste is one `undoStep`, which is the whole reason this is safe to
+     * press: a stamp of twenty things is one Ctrl+Z, not twenty.
+     */
+    this.onMessage('build-copy', (client, m) => {
+      client.send('action-result', this.game.copyFixtures(client.sessionId, targets(m)));
+    });
+
+    this.onMessage('build-paste', (client, m) => {
+      const res = this.game.undoStep('that paste',
+        () => this.game.pasteClipboard(client.sessionId, m ?? {}));
+      client.send('action-result', res);
+      if (res.ok) {
+        this.sendLayout();
+        // Paint rides its own message, exactly as it does everywhere else: a
+        // stamp can carry a finish, and `paintFaces` deliberately never
+        // re-flows, so the overlay would otherwise arrive only on the next
+        // thing that did.
+        this.broadcast('paint', this.game.paint);
+      }
+    });
+
     this.onMessage('undo', (client) => stepBack(client, this.game.undo()));
     this.onMessage('redo', (client) => stepBack(client, this.game.redo()));
 

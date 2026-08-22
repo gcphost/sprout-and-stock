@@ -1,8 +1,8 @@
 # Belts — the trip nobody walks
 
-Status: **steps 1, 2, 2b, 3 and 3b built.** Steps 4–6 proposed.
+Status: **steps 1, 2, 2b, 3, 3b and 4 built.** Steps 5–7 proposed.
 
-Steps 1–3 are the build. Steps 4–6 are written down so the shape is argued now
+Steps 1–3 are the build. Steps 5–7 are written down so the shape is argued now
 rather than discovered later, and should not be started.
 
 What shipped: the `belt`, `arm` and `sorter` kinds, the tile they stamp, the
@@ -881,6 +881,91 @@ queued boxes sit squarely on two different cells exactly one pitch apart.
 
 ---
 
+## Step 4 — machine feeds machine
+
+**Built.** A loader beside an appliance puts ingredients into its hopper and
+lifts finished batches off its tray, so a chain of appliances runs with nobody
+walking. It is two verbs on the swing that already existed, and neither is a new
+rule — which is why it cost so little and why it was three quarters done for two
+steps without anybody noticing the last quarter was missing.
+
+### The two halves, and the one that was missing
+
+`armFeed` has filled hoppers since step 2: `armLand` offers the box to shelving
+first (`armPour`) and to a machine second, so a loader touching both stocks the
+shelf and tops up the hopper with what is left. That half was never the problem.
+
+Nothing could take the product **out**. Every chain therefore stopped at the
+first appliance and waited for a person — and it reads as the kitchen not being
+automatable, when it was three quarters of the way there. `armTake`
+([server/sim/index.js:11981](server/sim/index.js#L11981)) is the other half: one
+tray, one swing, straight onto the run.
+
+### Where it sits in the swing, and why that is not arbitrary
+
+`armTake` is swing **step 3**, ahead of the stockroom pull. A full tray *stops
+its machine* — `stationTrayRoom` is zero while something is sitting in it, so the
+next batch cannot start — where a stockroom is perfectly content holding stock.
+So this is the swing that **unblocks** something and that one is the swing that
+tidies, and a loader that did them the other way round would leave an oven cold
+while it filed boxes in a back room.
+
+### It takes no destination test, and that is the difference from `armPull`
+
+`armPull` refuses to lift a board nothing downstream wants, or a loader shuffles
+boxes round your shop for ever. `armTake` deliberately does not ask, and the
+asymmetry is the tray/stockroom one again: **a tray is not storage.** Emptying it
+is the entire point, and a box nothing wants is what the off-ramp
+(`armDrop`, `ARM_DROP_STACK`) is already for. Give this one a destination test
+and a machine with no taker downstream simply stops, which is a jam nobody drew.
+
+### The four things that are not obvious
+
+**One slot per swing.** A twin machine's two heads finish at their own times, so
+each tray is a separate lift rather than one sweep — the mirror of
+`collectStation` taking both, and for the opposite reason: a hire has two hands
+and a loader has one box.
+
+**The stamp rides** (`day: out.day ?? this.day`). `verify:pack`'s centrepiece
+pointed at a kitchen: a batch arriving with no spoilage stamp is read as fresh
+for ever, and cooking would become the way to beat rot. A crate of laundered
+bread looks exactly like a crate of bread.
+
+**A deleted item is skipped**, not lifted — `c.byId.items[out.item_id]`, the same
+forgiveness every stock loop in the game shows and the reason `binOrphans`
+exists. Content is edited live and a recipe's output can stop existing while a
+tray holds four of it.
+
+**The probe is `armTakes`, and it is arithmetic rather than a fourth opinion.**
+The hopper's version of `shelfAccepts` is `stationHopperRoom > 0` against the
+union of the slots' inputs, read without moving anything, because the spur is
+chosen before the journey and the goods change hands at the end of it. Same
+probe-pure/commit-through-the-funnel pairing step 2 argues for, said about a
+machine.
+
+### What falls out for free, and what does not
+
+**Ratios.** Two mixers per oven, because the batch times say so, with no new
+mechanic at all. That was the whole pitch and it holds.
+
+**And nothing exercises it.** This is worth writing down, because the mechanism
+being finished is not the feature being playable. Intersect every recipe's
+outputs with every recipe's inputs and the answer is **the empty set** — all 24
+recipes are one hop, raw goods in, finished product out, and not one of them eats
+another's output. So there has never been a reason to lay a belt between two
+machines, and this step is a spine with nothing on it. Eighteen of the
+twenty-four distinct inputs are van-only besides, so *making your own goods* is
+not merely undone, it is unreachable.
+
+The fix is content and not code — one three-deep chain authored through
+`create_item` / `create_recipe` is enough to find out whether a belt between two
+machines is fun. Until somebody authors one, **step 4 is unplayed rather than
+untested**, and `simulate` cannot help: the balance bot never runs an appliance,
+so a kitchen economy measures as no change over ten seeds. That is the instrument
+being blind, not the change being free.
+
+---
+
 ## Step 7 — the underground, and the tile it does NOT own
 
 Proposed. It came out of play rather than out of this document: a return leg
@@ -945,13 +1030,7 @@ a hole.
 
 ---
 
-## Steps 4–6 — written down, not built
-
-**Step 4 — machine feeds machine.** Recipes already exist; an arm on each end of
-a belt closes the loop between a tray and the next hopper. What falls out for
-free is **ratios**: two mixers per oven, because the batch times say so, with no
-new mechanic at all. This is the highest value-per-line item in the document and
-it is step 4 rather than step 1 because it is entirely a consequence of steps 1–3.
+## Steps 5–6 — written down, not built
 
 **Step 5 — a throughput overlay.** Factorio players live in the production
 graphs. [client/report.js](client/report.js) is already "the one menu that is a

@@ -642,6 +642,12 @@ export const FixtureSchema = z.object({
    * a typo rather than as a design ceiling. Raising it is safe in the way the
    * comment above says: a variant carries a model and no numbers, so nothing
    * added here can move the balance.
+   *
+   * 16 → 24 for docs/production.md: the eleven appliances that exist are all
+   * FINISHING machines, and the six that graph needs are the primary processing
+   * verbs nothing in the shop has ever had — a mill, a mixer, a churn, a
+   * butcher's block, a blast freezer and a candy kettle. Eleven plus six is
+   * seventeen, so the ceiling was the first thing in the way.
    */
   variants: z.array(z.object({
     id: slug,
@@ -658,7 +664,7 @@ export const FixtureSchema = z.object({
      * the way it always did.
      */
     sfx: sfxShape.nullable().default(null),
-  })).max(16).default([]),
+  })).max(24).default([]),
   /**
    * Tier 1 is what a new one is, so it costs nothing and is listed first.
    * Every later tier is something you pay to step up to, in order.
@@ -818,6 +824,31 @@ export const FixtureSchema = z.object({
    */
   yields: z.object({
     cash: z.number().min(0).max(500),
+    every: z.number().min(1).max(1440).default(60),
+  }).nullable().default(null),
+  /**
+   * ...and the same sentence about GOODS, which is what a pen is.
+   *
+   * Its own field rather than a third key on `yields`, and the split is the one
+   * `yields` already argues for itself: cash goes straight onto the floor as a
+   * pile anybody walks over, and goods go into the pen and wait to be collected
+   * from its gate. Two destinations, two readers, two ways of running out — a
+   * pen fills up and stops, a money tree never does. One field answering both
+   * would be a nullable pair of branches inside every caller.
+   *
+   * `qty` is one batch and `every` is in-game MINUTES, exactly as `yields.every`
+   * is. Neither is the whole story on a placed pen: the tier ladder multiplies
+   * them (`speed_mult` shortens the wait, `capacity_mult` is how many batches it
+   * will stockpile before it stalls), which is what keeps a rung from being a
+   * button that takes money and moves no number.
+   *
+   * Nothing but `pen` reads it, and nothing enforces that — the same bargain
+   * `signal` strikes. A shelf with a `produces` would author perfectly and do
+   * nothing at all.
+   */
+  produces: z.object({
+    item_id: slug,
+    qty: z.number().int().min(1).max(64).default(1),
     every: z.number().min(1).max(1440).default(60),
   }).nullable().default(null),
   /**

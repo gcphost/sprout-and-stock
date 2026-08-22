@@ -4,8 +4,8 @@
 
 import {
   canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun, faceKey,
-  groundStroke, strokeThick, GROUND_STROKE_MAX, beltRunCells, BELT_RUN_MAX, RUN_KINDS, CONVEYOR_KINDS, canPlace,
-  faceAlong, isProp, isWalkableTile, workSpotOf, REACH, conveyorAt,
+  groundStroke, strokeThick, GROUND_STROKE_MAX, runCells, runFollows, BELT_RUN_MAX, RUN_KINDS, CONVEYOR_KINDS, canPlace, FIXTURES,
+  faceAlong, isProp, isWalkableTile, workSpotOf, REACH, conveyorAt, groundIndex, rot4,
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
 import { lotStacks, lotMain, lotRoom, lotTotal } from '../shared/lot.js';
@@ -463,6 +463,19 @@ addEventListener('keydown', (e) => {
   // rather than being replaced by them.
   if (k === 'shift') setShift(true);
   if (k === 'control' || k === 'meta') setRaze(true);
+  /**
+   * ...and Alt is the third, which is the only one that is not about a press.
+   *
+   * `preventDefault` because a bare Alt focuses the browser's menu bar on
+   * Windows and Linux — which takes the keyboard away from the page, so the
+   * *keyup* never arrives and the overlay stays up over a shop nobody can walk
+   * in until you click back into the canvas.
+   *
+   * Not gated on build mode, unlike the other two: "where does the shop keep
+   * this" is a shopkeeping question, and the moment you most want it is while
+   * you are stocking rather than while you are building.
+   */
+  if (k === 'alt') { e.preventDefault(); peekOn = true; }
 
   /**
    * Taking a build press back, and putting it forward again.
@@ -482,6 +495,27 @@ addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
     e.preventDefault();
     net.send(k === 'y' || e.shiftKey ? 'redo' : 'undo');
+    return;
+  }
+
+  /**
+   * ...and the clipboard, on the same two keys everybody already knows.
+   *
+   * Neither carries the thing being copied: the shop holds it (see
+   * `Game.copyFixtures`), because a blueprint is four layers and the inbound
+   * cap is 4KB. Copy sends the ids you had picked; paste sends the cell under
+   * the pointer.
+   *
+   * The COPY names a selection and so needs one — the toast is not a nicety,
+   * because a Ctrl+C over nothing is otherwise indistinguishable from a Ctrl+C
+   * that worked, and you find out one paste later. The PASTE needs build mode
+   * and a tile, and it needs the local clipboard too: that is what draws the
+   * ghost, and a paste with no preview is a stamp you aim by faith.
+   */
+  if ((e.ctrlKey || e.metaKey) && (k === 'c' || k === 'v')) {
+    e.preventDefault();
+    if (k === 'c') copySelection();
+    else pasteAtPointer();
     return;
   }
 
@@ -554,6 +588,11 @@ addEventListener('keydown', (e) => {
     ui.rotateBuild();
     refreshGhost();
   }
+  // Q arms whatever the pointer is on. Gated on `buildOn` rather than on the
+  // palette, unlike Ctrl: a mode a fixture menu borrowed is still a mode you
+  // meant to be in, and copying a design out of it is exactly the press that
+  // makes you want the bar — which this puts up for you (`commitBuildMode`).
+  if (k === 'q') pipette();
   // ...and M picks the selected one up, which is the Move button's key. Its own
   // binding rather than a rung on R's, because it has nothing to fall through
   // to: with nothing selected there is nothing to move, and a key that quietly
@@ -566,6 +605,13 @@ addEventListener('keydown', (e) => {
     if (f && ui.manyPicked) ui.toast(ONE_AT_A_TIME);
     else if (f) liftAimed(f, { reopen: false });
   }
+  // ...and Delete tears the selection out, which is the Remove button's key and
+  // the editor key everybody already has their hand on. Its own binding like M
+  // and for the same reason — nothing selected is nothing to delete, and
+  // pointing at a thing and razing it is what Ctrl already does.
+  //
+  // Backspace as well: on a laptop keyboard it is the key labelled delete.
+  if (k === 'delete' || k === 'backspace') ui.removeSelected();
   // Escape backs out one layer at a time. UI owns the whole ladder — an open
   // menu, then whatever you're carrying, then build mode — because two
   // listeners racing over one key means Escape closes a panel and quits build
@@ -576,6 +622,7 @@ addEventListener('keyup', (e) => {
   const up = e.key.toLowerCase();
   if (up === 'shift') setShift(false);
   if (up === 'control' || up === 'meta') setRaze(false);
+  if (up === 'alt') { peekOn = false; ui.setPeek(null); }
 });
 
 // ...and a key held while the window loses focus never comes up. `keys` has
@@ -584,7 +631,9 @@ addEventListener('keyup', (e) => {
 // with no key down to explain them, which reads as the marker being broken.
 // A stuck demolish aim is the same picture with a red frame on it, which is
 // worse: it says the next click tears something out.
-addEventListener('blur', () => { setShift(false); setRaze(false); });
+// ...and Alt with them, which is the one that most needs it: Alt+Tab is how
+// people leave a window, and it is also how the overlay gets stuck on.
+addEventListener('blur', () => { setShift(false); setRaze(false); peekOn = false; ui.setPeek(null); });
 
 /**
  * TWO MODIFIERS, ONE MEANING EACH.
@@ -618,6 +667,122 @@ addEventListener('blur', () => { setShift(false); setRaze(false); });
  * it is the Mac idiom anyway, and the key that works there is the one people
  * already hold.
  */
+/**
+ * HOLD ALT AND EVERY UNIT SAYS WHAT IT IS FOR.
+ *
+ * `homeShelves` gives every item one home, and the whole point of that rule is
+ * that you can learn where things live — and there is nowhere in the game that
+ * shows you the answer except by walking the aisles and reading the goods, which
+ * stops working the moment a unit is behind another one, is a chest freezer with
+ * a lid, or is empty. The nearest thing is the Stock panel, which is a list, and
+ * a list is exactly the wrong shape for *where*.
+ *
+ * Read-only, and that is what makes it cheap: nothing here is a verb, and every
+ * field it draws has been on the wire since before it existed.
+ *
+ * A **hold** rather than a toggle, for the reason the design highlight is one: a
+ * mode that stays on is a mode you forget you are in, and this one draws over
+ * the shop. Not gated on build mode either, unlike Shift and Ctrl — "where does
+ * the shop keep this" is a shopkeeping question, and the moment you most want it
+ * is while you are stocking rather than while you are building.
+ *
+ * The cards themselves are `ui.setPeek`; this is the half that knows where the
+ * shop is.
+ *
+ * ONE CARD PER UNIT, its boards laid across it as art and a count. It emitted a
+ * full-size card per BOARD for a while, spread sideways so three of them
+ * cleared each other — which is right about one shelf and unreadable about a
+ * shop: a unit holding three things was three cards several times wider than
+ * the unit itself, so on a three-tile aisle pitch every card overlapped its
+ * neighbours' and a furnished building was a hundred cards in a heap. What you
+ * could no longer do is the one thing the key is for, which is read the shop.
+ * What is left of the spread is `declutterPeek`, which moves the cards that
+ * still collide instead of spreading the ones that would not have.
+ *
+ * How many rows a unit can show is the SHELF's own number and never a constant
+ * here: `boards` rides the snapshot (it comes off the model at this fixture's
+ * tier, so the client would need the whole ladder to work it out) and that is
+ * the same figure `boardsOf` answers for the sim. Three is what the widest unit
+ * in the game happens to draw today, and writing that down here is a second
+ * copy of it that a tier with a fourth board would silently make wrong.
+ */
+let peekOn = false;
+
+function peekCards() {
+  const st = ui.state;
+  if (!st) return [];
+  const out = [];
+  /**
+   * `id` and not the snapshot record, because the snapshot does not carry
+   * WHERE. A shelf on the wire is stock and settings; the position lives on the
+   * renderer's own fixture list, which is also the only thing that knows how
+   * tall the art came out. `syncWants` resolves it the same way and for the same
+   * reason — and it is what makes a unit that has just been carried across the
+   * shop draw its card in the right place on the very next frame.
+   */
+  const push = (id, rows) => {
+    const list = rows.filter((r) => r.itemId);
+    if (!list.length) return;
+    const f = scene.fixtureById(id);
+    if (!f) return;
+    const p = scene.worldToScreen(f.x, f.z, scene.fixtureHeight(f) + 0.3);
+    // Off the back of the camera comes back null, and a card at NaN is a card
+    // stuck in the corner of the screen naming a shelf you cannot see.
+    if (!p) return;
+    out.push({ key: id, rows: list, x: p.x, y: p.y });
+  };
+
+  for (const s of st.shelves ?? []) {
+    const rows = [];
+    // A board that is reserved and EMPTY first, which is `syncWants`' order and
+    // is here for the same reason: you asked for that board, so it is the
+    // strongest form of the sentence even with nothing on it — and it is the
+    // single hardest thing in the shop to find out about any other way.
+    for (const w of s.waiting ?? []) rows.push({ itemId: w.item_id, want: true });
+    for (const k of s.stacks ?? []) {
+      if (rows.some((r) => r.itemId === k.item_id)) continue;
+      rows.push({ itemId: k.item_id, qty: k.qty ?? 0, cap: k.cap ?? 0 });
+    }
+    // Bounded by what the unit actually draws rather than by a number typed in
+    // here — see the header. `waiting` and `stacks` cannot between them outrun
+    // the boards today, so this is a guard rather than a truncation, and the
+    // fallback is the list itself: a wire with no `boards` on it must show what
+    // it has rather than nothing.
+    push(s.id, rows.slice(0, Math.max(1, s.boards ?? rows.length)));
+  }
+  // A bed says what is growing in it, which is the one unit whose contents you
+  // genuinely cannot read across a shop — a seedling is a seedling. One row,
+  // because a bed grows one crop; the grouped card costs it nothing.
+  for (const p of st.plots ?? []) {
+    if (p.crop_id) push(p.id, [{ itemId: cropYield(p.crop_id), want: true }]);
+  }
+  // ...and a machine says what it is MAKING, which is `station-recipe` made
+  // visible. Through `scene.stationLines`, where the twin-headed machine's slots
+  // and the single-headed one's `recipe` are already made into one list — asking
+  // the snapshot directly here would be the second reader that drifts. One row
+  // for an ordinary machine; a twin head is the one appliance that has two
+  // things to say, and the grouped card is exactly the shape that lets it.
+  for (const st2 of st.stations ?? []) {
+    push(st2.id, scene.stationLines(st2)
+      .map((line) => line.recipe?.output_item)
+      .filter(Boolean)
+      .map((itemId) => ({ itemId, want: true })));
+  }
+  return out;
+}
+
+/**
+ * What a bed of this crop turns into, so the card names goods rather than seed.
+ *
+ * `item_id` is the crop row's own field and there is no fallback to the crop id:
+ * a bed whose crop row has been deleted out from under it draws no card, which
+ * is `binOrphans`' problem rather than this one's — and a card naming a row that
+ * does not exist would render as an empty plate with a slug on it.
+ */
+function cropYield(cropId) {
+  return (ui.catalog?.crops ?? []).find((c) => c.id === cropId)?.item_id ?? null;
+}
+
 let shiftDown = false;
 function setShift(on) {
   if (shiftDown === !!on) return;
@@ -1005,6 +1170,43 @@ function refreshGhost(force = false) {
   // brush and the wall tools need the palette, the bulldozer is its own veto — so
   // the guard cannot strand a ghost in a build tool's hands.
   if (!dropping()) scene.setFloorGhost(null, null);
+
+  /**
+   * A COPIED STAMP IS SOMETHING IN YOUR HANDS, and it owns the ghost.
+   *
+   * Ctrl+C disarms the palette (`copySelection`) and what you are holding from
+   * then on is the blueprint — which is the model every factory game uses, and
+   * it is the one that makes the preview honest: there is no second ghost to
+   * fight with, the footprint is under the pointer where you are about to press,
+   * and a left click stamps it. Escape puts it down.
+   *
+   * Above `ghostKindForTool` rather than beside it, because the two are
+   * mutually exclusive by construction — arming a tool clears the clipboard —
+   * and a branch that tested both would be describing a state that cannot
+   * happen.
+   */
+  if (aiming && clipboard) {
+    if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
+    const tile = scene.pickTile(pointer.x, pointer.y);
+    const cells = pasteCells(tile);
+    const fits = cells.filter((c) => c.state === 'ok').length;
+    // Keyed on the anchor and nothing else: the clipboard cannot change while
+    // one is held (copying again replaces it, which re-keys through `stampSeq`)
+    // and every cell of it is derived from that one tile.
+    scene.setFloorGhost(cells.length ? cells : null,
+      fits === cells.length ? 'ok' : (fits ? 'warn' : 'no'));
+    scene.setRunGhost(cells.length ? `stamp${stampSeq}:${tile.x},${tile.z}` : null, cells);
+    ui.setBuildVerdict(cells.length
+      ? { ok: !!fits, warn: fits < cells.length ? `${cells.length - fits} would not fit` : null,
+        reason: 'none of that would go there' }
+      : null);
+    scene.setAimTarget(null);
+    scene.setPersonAim(null);
+    ui.setAim(null);
+    ui.setBoardTip(null, null);
+    ui.setPressHints([]);
+    return;
+  }
 
   const kind = aiming ? ui.ghostKindForTool() : null;
   if (!kind) {
@@ -2446,9 +2648,33 @@ function blockedByFixture(aim, cx, cy) {
 function razeAim(cx, cy) {
   // The palette is the consent, the same way it is for every other verb that
   // names a target by pointing. Not while you are carrying a fixture: then the
-  // pointer is looking for somewhere to put that down, and Shift has no second
+  // pointer is looking for somewhere to put that down, and Ctrl has no second
   // meaning to offer.
   if (!razeDown || !ui.paletteArmed || ui.holding) return null;
+  const aim = whatsThere(cx, cy);
+  if (aim?.kind !== 'ground') return aim;
+  // `canPaintGround` is the authority, exactly as `canPlaceEdges` is for a wall
+  // — and it is asked HERE rather than inside `whatsThere` because it is a
+  // question about scraping rather than about aiming. The pipette wants a bare
+  // floor cell named; the bulldozer wants to know whether there is anything on
+  // it worth taking up, which is not the same question and answers differently
+  // on every unpainted tile in the shop.
+  const verdict = canPaintGround(scene.storeLayout, [aim.cell], null, null);
+  return (!verdict.ok || verdict.unchanged) ? null : aim;
+}
+
+/**
+ * WHAT IS UNDER THE POINTER, most-specific-first: a fixture, a finish, a wall,
+ * the ground.
+ *
+ * Split out of `razeAim` when the pipette arrived, because "what is that" and
+ * "get rid of that" are one question and two verbs — and a second ladder would
+ * be two answers to it. Q copying the wall while Ctrl demolishes the shelf in
+ * front of it is not a bug anybody would find by reading either function.
+ *
+ * It takes no modifier and no mode: the callers own the consent.
+ */
+function whatsThere(cx, cy) {
   const hit = scene.pickFixtureHit(cx, cy);
   // ONE question about the line, answered twice — which is what keeps the two
   // wall rungs from disagreeing about which wall they are on. `pickFaceHit` hits
@@ -2478,11 +2704,180 @@ function razeAim(cx, cy) {
   // a fixture anyway — the first rung took those — so this is belt and braces
   // for the day something else grows a top face.
   const cell = scene.pickTile(cx, cy);
-  if (!cell) return null;
-  // `canPaintGround` is the authority, exactly as `canPlaceEdges` is for a wall.
-  const verdict = canPaintGround(scene.storeLayout, [cell], null, null);
-  if (!verdict.ok || verdict.unchanged) return null;
-  return { kind: 'ground', cell };
+  return cell ? { kind: 'ground', cell } : null;
+}
+
+/**
+ * THE CLIPBOARD, CLIENT SIDE — which is a GHOST and nothing else.
+ *
+ * The blueprint itself lives on the shop (`Game.copyFixtures`) and is never
+ * sent either way. What is kept here is the same selection re-read off the
+ * layout the client already has, and it exists for exactly one reason: to draw
+ * the preview. A paste with no preview is a stamp you aim by faith, over a shop
+ * you are about to spend money on.
+ *
+ * Two copies of one thing is normally the disagreement this codebase spends
+ * most of its comments avoiding, and the shape here is the one that makes it
+ * safe: the client's copy decides **nothing**. It draws a ghost; the server
+ * decides what lands, refuses what cannot, and charges. The failure mode of a
+ * drift is a ghost that promised a shelf the shop then refuses — which is the
+ * green-ghost bug, and which the ghost's own per-cell `canPlace` catches,
+ * because it runs the same function against the same layout.
+ *
+ * Fixtures only in the preview, deliberately. Ground, walls and paint travel
+ * with the stamp and none of them is visible from this camera as a *ghost* —
+ * a flat slab under a shelf ghost is under the shelf. The footprint squares say
+ * where it all lands.
+ */
+let clipboard = null;
+/**
+ * Bumped on every copy, and it is the ghost's cache key rather than a counter
+ * anybody reads. The stamp preview is keyed on the anchor tile — because that
+ * is the only thing that moves while one is held — so copying a *different*
+ * selection without moving the pointer would otherwise leave the old blueprint
+ * drawn under it, which reads as Ctrl+C not having taken.
+ */
+let stampSeq = 0;
+// Registered on `ui` for the reason `dropBoardPick` is: the ladder that owns
+// Escape is `ui.escape`, and one listener owning the key is the rule this file's
+// keydown handler is written around.
+ui.dropStamp = (dry = false) => dropStamp(dry);
+
+function dropStamp(dry = false) {
+  if (!clipboard) return false;
+  // `dry` is `ui.escape`'s question rather than its press, exactly as
+  // `dropBoardPick` takes it: asking whether the key is spoken for must not
+  // drop the thing the asker was about to describe.
+  if (dry) return true;
+  clipboard = null;
+  scene.setRunGhost(null, null);
+  scene.setFloorGhost(null, null);
+  ui.setBuildVerdict(null);
+  refreshGhost(true);
+  return true;
+}
+
+function copySelection() {
+  const picks = ui.pickedFixtures();
+  if (!picks.length) { ui.toast('Nothing picked — hold Shift and click to select', true); return; }
+  const x0 = Math.min(...picks.map((f) => f.x));
+  const z0 = Math.min(...picks.map((f) => f.z));
+  clipboard = picks.map((f) => ({
+    dx: f.x - x0,
+    dz: f.z - z0,
+    kind: f.kind,
+    piece: f.piece ?? null,
+    variant: f.variant ?? '',
+    rot: f.rot ?? 0,
+  }));
+  stampSeq++;
+  // Holding the blueprint means holding nothing else. Arming a tool is what
+  // puts it down (`ui.onArm`), and this is the other half of that pair — a
+  // shelf ghost and a stamp footprint under one pointer would be two promises
+  // about one press.
+  ui.disarmTool();
+  net.send('build-copy', { ids: ui.pickedIds() });
+  ui.toast(`Copied ${picks.length} ${picks.length === 1 ? 'thing' : 'things'} — click to stamp, Escape to drop`);
+}
+
+/** Where the stamp would land — the ghost's cells, and the paste's own anchor. */
+function pasteCells(tile) {
+  if (!clipboard || !tile) return [];
+  return clipboard.map((c) => ({
+    x: tile.x + c.dx,
+    z: tile.z + c.dz,
+    rot: c.rot,
+    kind: c.kind,
+    piece: c.piece,
+    variant: c.variant,
+    state: canPlace(scene.storeLayout, {
+      kind: c.kind, x: tile.x + c.dx, z: tile.z + c.dz, rot: c.rot,
+    }).ok ? 'ok' : 'warn',
+  }));
+}
+
+function pasteAtPointer(tile = scene.pickTile(pointer.x, pointer.y)) {
+  if (!ui.buildOn) { ui.toast('Building only', true); return; }
+  if (!clipboard) { ui.toast('Nothing copied', true); return; }
+  if (!tile) { ui.toast('Point at somewhere to put it', true); return; }
+  // Committing to the mode, exactly as buying a fixture does: a paste is a
+  // purchase, so a menu still open on some other unit must not drop you out of
+  // build mode halfway through one.
+  ui.commitBuildMode();
+  net.send('build-paste', { x: tile.x, z: tile.z });
+}
+
+/**
+ * Q — ARM WHAT YOU ARE POINTING AT.
+ *
+ * The palette is a catalogue of *designs* and the thing you usually want to
+ * build next is one you can already see, so "which of the eleven rows was that
+ * shelf" is a question the shop is answering in the aisle while the bar is
+ * where you have to go to re-ask it. This is that answer taken directly. It is
+ * the pointer's own ladder (`whatsThere`), so it copies the four things Ctrl
+ * gets rid of and in the same order — a finish before the wall under it, a wall
+ * before the ground it stands on.
+ *
+ * Three things about it.
+ *
+ * It carries the **variant and the facing** as well as the piece, which is most
+ * of the point: `selectBuildTool` deliberately resets the angle (a new tool has
+ * made no placement decision) and restores whichever shape you last used for
+ * that piece, and both of those are exactly wrong here — you are not picking a
+ * design off a list, you are pointing at a finished decision somebody made. So
+ * the facing is written after the select and **pinned** (`rotPinned`), or
+ * `faceAlong` re-derives it on the very next frame and the key reads as copying
+ * everything but the rotation.
+ *
+ * It does **not** open the bar** (`commitBuildMode`, quietly), because a key
+ * that means "that one" must not cost you the sight of the thing you pointed
+ * at — the palette is the biggest thing on screen and it comes up over the
+ * aisle you are working in.
+ *
+ * And a **miss says so**. Every other way to arm a tool is a press on a button
+ * that is visibly a button; this one is aimed, so a Q that quietly changed
+ * nothing would be indistinguishable from a Q that is not bound.
+ */
+function pipette() {
+  if (!ui.buildOn || ui.holding) return;
+  const aim = whatsThere(pointer.x, pointer.y);
+  const L = scene.storeLayout;
+  let id = null;
+  let variant = '';
+  let rot = null;
+
+  if (aim?.kind === 'fixture') {
+    const f = aim.f;
+    // A station is the one kind whose tool id is not its piece: one row sells
+    // one machine, so the palette lists appliances by the machine.
+    id = f.station ? `station:${f.station}` : (f.piece ?? f.kind);
+    variant = f.variant ?? '';
+    rot = f.rot ?? 0;
+  } else if (aim?.kind === 'face') {
+    id = (L?.paint ?? {})[faceKey(aim.face)] ?? null;
+  } else if (aim?.kind === 'edge') {
+    // By what the line IS rather than by a name: an edge tool carries its own
+    // kind (`edge`), and the four signed doorways and the four glazings are
+    // separate entries, so this picks the exact one that is standing there.
+    const k = kindAt(L, aim.seg);
+    id = ui.buildToolByEdge?.(k) ?? null;
+  } else if (aim?.kind === 'ground') {
+    // The overlay and not the tile, which is the distinction `groundKindOfTile`
+    // costs you: the tile says what a cell became, and what a brush lays is a
+    // ROW. A cell the shell stamped has no row and nothing to copy.
+    id = groundIndex(L).get(`${aim.cell.x},${aim.cell.z}`) ?? null;
+  }
+
+  if (!id || !ui.hasBuildTool(id)) {
+    ui.toast(aim ? 'Nothing on the palette matches that' : 'Nothing there to copy');
+    return;
+  }
+  ui.commitBuildMode();
+  ui.selectBuildTool(id);
+  if (variant) ui.selectBuildVariant(variant);
+  if (rot != null) { ui.buildRot = rot4(rot); ui.rotPinned = true; }
+  ui.toast(`Armed ${ui.buildToolName(id)}`);
+  refreshGhost(true);
 }
 
 /** Get rid of whatever `razeAim` named. One press, four kinds of target. */
@@ -2567,7 +2962,7 @@ function showBeltDrag(cx, cy) {
   // it happened to land.
   //
   // `pickTile` answers null off the end of the map, and a run committed with a
-  // null far end is `beltRunCells(start, start)` — one cell. So a drag that
+  // null far end is `runCells(start, start)` — one cell. So a drag that
   // previewed twelve cells the whole way lays exactly one, on release, with no
   // refusal and nothing in the log. It reads as the drag not being implemented.
   //
@@ -2576,14 +2971,14 @@ function showBeltDrag(cx, cy) {
   // which is off the map more often than not. On a desktop the same gesture has
   // a few hundred pixels of grass to stop on, so it essentially never happens.
   //
-  // Keeping the last good answer is also what `beltRunCells`' own header asks
+  // Keeping the last good answer is also what `runCells`' own header asks
   // for: the far end is the POINTER's, and the pointer's far end is the last
   // place it was, not a coordinate read out of a `pointerup`.
   const to = scene.pickTile(cx, cy) ?? beltDrag.to ?? null;
   if (to) beltDrag.to = to;
   // Same four arguments the server re-runs this with, `rot` included, or the
   // ghost is a preview of a different run from the one the release lays.
-  const cells = beltRunCells(beltDrag.start, to, BELT_RUN_MAX, ui.buildRot);
+  const cells = runCells(beltDrag.start, to, BELT_RUN_MAX, ui.buildRot, runFollows(beltDrag.kind));
   if (!cells.length) {
     scene.setFloorGhost(null, null);
     scene.setRunGhost(null, null, null);
@@ -2604,7 +2999,7 @@ function showBeltDrag(cx, cy) {
    *
    * The key is built HERE rather than in the renderer, off the four things the
    * run is derived from, because that is the cheap question: the pointer moves
-   * sixty times a second inside one tile and `beltRunCells` answers the same
+   * sixty times a second inside one tile and `runCells` answers the same
    * thing every time, so keying on the cells would mean rebuilding the string
    * (and comparing 64 cells of it) for every one of those frames. Crossing a
    * tile is what changes any of these four.
@@ -2618,7 +3013,7 @@ function showBeltDrag(cx, cy) {
   ui.setBuildVerdict(ok.length
     ? { ok: true, warn: ok.length < cells.length ? `${cells.length - ok.length} squares are taken` : null }
     : { ok: false, reason: 'nothing can go along there' });
-  // The POINTER's far end, never the tail of the list — see `beltRunCells`.
+  // The POINTER's far end, never the tail of the list — see `runCells`.
   return { cells, ok: ok.length, to };
 }
 
@@ -2774,8 +3169,13 @@ canvas.addEventListener('pointerdown', (e) => {
     // which is the outcome a near miss must never have.
     if (ui.paletteArmed) return;
   }
-  if (e.shiftKey && !ui.holding) {
-    setShift(true);
+  // ...or the latch, which is the same branch reached without a keyboard — see
+  // `togglePickLatch`. `setShift` is deliberately left alone for it: `shiftDown`
+  // is also the sprint key and is overwritten by the next `pointermove` off the
+  // event, so a latch written into it would be both a run and a flag that
+  // cleared itself the moment your finger slid.
+  if ((e.shiftKey || ui.pickLatch) && !ui.holding) {
+    if (e.shiftKey) setShift(true);
     // The selection, with the bar up or down — which is the half that changed
     // when the bulldozer moved off this key. Missing the fixtures entirely does
     // nothing at all: it is not "deselect", because the ordinary press already
@@ -2825,10 +3225,30 @@ canvas.addEventListener('pointerdown', (e) => {
   // ...and a brush takes it the same way, over an area rather than a line. It
   // aims with `pickTile` because it is painting the ground itself — using
   // `pickFixture` here would let you tile the roof of a shelf.
-  // A conveyor lays as a RUN. Ahead of the ground brush for no reason other than
-  // that a belt is a fixture and the brush test would never have matched it.
+  /**
+   * A FIXTURE LAYS AS A RUN. Ahead of the ground brush for no reason other than
+   * that a fixture is not a brush and the test below would never have matched
+   * one.
+   *
+   * This was conveyors only for the whole life of the drag, and there was never
+   * anything about it that was about belts: an aisle is six shelves on one line
+   * and it was six presses, a fence is the same sentence about `fence`. What a
+   * corner MEANS differs by kind and that is `runFollows`, one flag, decided in
+   * `shared/build.js` where both ends read it.
+   *
+   * The two conditions are not one condition, and the difference is what keeps
+   * drag-to-move alive. A conveyor claims the press wherever it lands, because
+   * starting a drag ON a run you already own is how you extend one — see the
+   * tail-aiming in `Game.buildRun`. Everything else claims it only over bare
+   * ground, because `drag.lift` is a press that landed on an existing fixture,
+   * and a shelf tool that swallowed those would mean arming any tool at all
+   * silently disables dragging things about — in the mode whose whole job is
+   * rearranging.
+   */
   const armed = ui.armedTool?.() ?? null;
-  if (armed && RUN_KINDS.includes(armed.kind)) {
+  const runnable = armed && FIXTURES[armed.kind]
+    && (RUN_KINDS.includes(armed.kind) || !pickTarget(e.clientX, e.clientY));
+  if (runnable) {
     const start = scene.pickTile(e.clientX, e.clientY);
     if (start) {
       // `variant` rides along with the piece now that the preview draws the
@@ -3276,7 +3696,7 @@ function endPress(e) {
     if (drawn) {
       if (!drawn.ok) { ui.toast('nothing can go along there', true); return; }
       const to = drawn.to ? { x: drawn.to.x, z: drawn.to.z } : null;
-      // The armed rotation goes with it — see `beltRunCells`. A drag says which
+      // The armed rotation goes with it — see `runCells`. A drag says which
       // way every cell but the last one faces; R says the rest, and for a press
       // that never travelled it says all of it.
       // `variant` goes too, and never did until the preview started drawing the
@@ -3716,6 +4136,7 @@ const boardQty = (f, board) => (f && board
  */
 function readyToTake(f) {
   if (f.kind === 'plot') return !!latestState?.plots?.find((p) => p.id === f.id)?.ready;
+  if (f.kind === 'pen') return (latestState?.pens?.find((p) => p.id === f.id)?.qty ?? 0) > 0;
   if (f.kind === 'station') return !!latestState?.stations?.find((s) => s.id === f.id)?.output;
   return false;
 }
@@ -4697,6 +5118,14 @@ function pressHints({ aim, board, onPile, drop }) {
       stepOver();
       return out;
     }
+    // A pen offers one job and nothing ever goes in, so there is no right press
+    // and no direction to say — the bin's shape rather than the appliance's.
+    if (f.kind === 'pen') {
+      if (readyToTake(f)) add('l', null, 'Collect it', () => walkTo({ fixture: f.id }));
+      else select();
+      stepOver();
+      return out;
+    }
     // A board the pointer has settled on. `boardTakes` is the same test the
     // press asks, so the cage round the pile, the tap and this line agree.
     // ...and there has to be something ON it. A board keeps its row at zero —
@@ -4922,6 +5351,49 @@ function openInTwo(f, { walk = false, open = false } = {}) {
 }
 
 /**
+ * ...and the same ladder said about a PERSON, which needed it more than a shelf
+ * did.
+ *
+ * A tap on a hire *was* a tap on their whole rota — a panel over the shop, every
+ * time, for the question you usually have about somebody walking past, which is
+ * "who is that and what are they up to". The teal ring and the lit tile on the
+ * staff bar answer that on their own, and both already exist (`setWorkerRef`);
+ * there was simply no way to ask for them without the menu.
+ *
+ * Worse than the shelf version in one way that is specific to people: a hire is
+ * the smallest thing in the shop you can point at and the only one that MOVES,
+ * so the accidental press is not rare. You aim at a shelf, a stocker crosses it,
+ * and the rota lands on top of the aisle you were working on. `aimPerson`
+ * narrows *who* you can hit; this narrows what hitting them costs.
+ *
+ * No clock in it, unlike `openInTwo`: the third meaning there is a double press
+ * that WALKS, and there is nowhere to walk to on a person — you cannot stand
+ * where they are standing. So it is the plain two-press ladder, and the third
+ * press shuts it (`closePanel` clears the ref, so that also drops the ring).
+ *
+ * The HOLD is untouched and still opens on one press (`openAtPointer`), which is
+ * the same split the fixture ladder keeps: a tap is how you ask which one, a
+ * hold is how you say you meant it.
+ */
+function openWorkerInTwo(who) {
+  const hire = who?.hire;
+  if (!hire) return;
+  scene.ripple(who.x, who.z, 'miss');
+  if (ui.workerRef !== hire) {
+    // Read before the swap for `openInTwo`'s reason — `setWorkerRef` is what
+    // repaints, and with a rota already up, pointing at somebody else means
+    // "them instead" rather than costing a press to say what the panel is
+    // already there to answer.
+    const swapping = ui.openPanel === 'worker';
+    ui.setWorkerRef(hire);
+    if (swapping) showWorker(ui, hire);
+    return;
+  }
+  if (ui.openPanel === 'worker') ui.closePanel();
+  else showWorker(ui, hire);
+}
+
+/**
  * Hold a thing in build mode and you pick it up.
  *
  * The same errand the fixture menu's Move button starts, on the gesture that
@@ -5103,7 +5575,8 @@ function tapAtPointer(cx, cy) {
     // highlight and the tap cannot disagree about who you meant.
     const who = ui.demolishArmed() || ui.paletteArmed || handsFull()
       ? null : aimPerson(cx, cy);
-    if (who?.hire) { showWorker(ui, who.hire); return; }
+    // Picked, then opened — see `openWorkerInTwo`. The hold is still one press.
+    if (who?.hire) { openWorkerInTwo(who); return; }
 
     // ...and the fifth, which outranks all of them and is the only press in the
     // game aimed at somebody who does not work here: a thief you have caught up
@@ -5395,6 +5868,23 @@ function tapAtPointer(cx, cy) {
 
     const tile = scene.pickTile(cx, cy);
     if (!tile) return;
+    /**
+     * A copied stamp is something in your hands, so a press puts it down.
+     *
+     * Above the build-mode camera rung and not below it, because that rung is
+     * the fallback for "nothing is armed" — and while a blueprint is held,
+     * something is. Without this the press would fly the view to the very tile
+     * you were aiming the stamp at, which reads as the paste being ignored.
+     *
+     * It does NOT return the clipboard: stamping the same aisle four times down
+     * a wall is the gesture, and a paste that emptied your hands would make the
+     * second one a trip back to the selection. Escape puts it down.
+     */
+    if (clipboard && ui.buildOn) {
+      pasteAtPointer(tile);
+      scene.ripple(tile.x, tile.z);
+      return;
+    }
     // Building does no player stuff. A tap on the floor with nothing armed is
     // "go there" while you are shopkeeping and nothing at all in the mode — the
     // whole reason the view came off its leash is that you are working on parts
@@ -5890,6 +6380,9 @@ function loop() {
   restoreView();
   pollInput(dt);
   if (ui.buildOn) refreshGhost();
+  // Every frame while the key is down, because the camera rides the player: a
+  // card pinned once slides off the unit it names the moment anybody walks.
+  if (peekOn) ui.setPeek(peekCards());
   // How far through a held press we are, recomputed per frame rather than
   // stepped by the timer that fires it: the timer knows when the press is over
   // and nothing else, and a progress bar driven by a single timeout can only

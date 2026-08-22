@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   sfx        TEXT NOT NULL DEFAULT 'null',-- JSON {loop, use, done} or null
   surface    TEXT NOT NULL DEFAULT 'null',-- JSON {color, accent, pattern}: floors only
   yields     TEXT NOT NULL DEFAULT 'null',-- JSON {cash, every} or null: it earns
+  produces   TEXT NOT NULL DEFAULT 'null',-- JSON {item_id, qty, every} or null: pens
   charm      REAL NOT NULL DEFAULT 0,     -- how far word of the shop travels
   open       INTEGER NOT NULL DEFAULT 0,  -- 1 = workable from the back too
   signal     TEXT,                        -- which world quantity drives the art
@@ -363,6 +364,9 @@ const ADDED_COLUMNS = [
   // put stock. 'null' and 0 are "this one just sits there", which is what every
   // row written before them does.
   ['fixtures', 'yields', "TEXT NOT NULL DEFAULT 'null'"],
+  // ...and the same sentence about goods, which is what a pen is. 'null' is
+  // every row that is not one.
+  ['fixtures', 'produces', "TEXT NOT NULL DEFAULT 'null'"],
   ['fixtures', 'charm', 'REAL NOT NULL DEFAULT 0'],
   // What it looks like while it is working. 'null' is "it looks the same busy
   // as it does idle", which is every piece written before appliances could show
@@ -466,7 +470,7 @@ const JSON_FIELDS = {
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
-  fixtures: ['model', 'work', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'tags'],
+  fixtures: ['model', 'work', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'produces', 'tags'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
   skins: ['slots', 'extras', 'tags'],

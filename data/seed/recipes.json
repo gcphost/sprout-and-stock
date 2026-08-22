@@ -1,11 +1,87 @@
 [
   {
+    "id": "bacon-recipe",
+    "name": "Bacon Rashers",
+    "station": "butcher",
+    "inputs": [
+      {
+        "item_id": "pork",
+        "qty": 2
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "bacon",
+    "output_qty": 3,
+    "minutes": 12
+  },
+  {
+    "id": "bagel-recipe",
+    "name": "Rainbow Bagel",
+    "station": "oven",
+    "inputs": [
+      {
+        "item_id": "dough",
+        "qty": 2
+      },
+      {
+        "item_id": "berries",
+        "qty": 1
+      }
+    ],
+    "output_id": "rainbow-bagel",
+    "output_qty": 3,
+    "minutes": 12
+  },
+  {
+    "id": "batter-recipe",
+    "name": "Batter",
+    "station": "mixer",
+    "inputs": [
+      {
+        "item_id": "flour",
+        "qty": 1
+      },
+      {
+        "item_id": "egg",
+        "qty": 1
+      },
+      {
+        "item_id": "milk",
+        "qty": 1
+      }
+    ],
+    "output_id": "batter",
+    "output_qty": 5,
+    "minutes": 5
+  },
+  {
+    "id": "beans-recipe",
+    "name": "Tinned Beans",
+    "station": "preserving-pot",
+    "inputs": [
+      {
+        "item_id": "peas",
+        "qty": 2
+      },
+      {
+        "item_id": "tomato",
+        "qty": 1
+      }
+    ],
+    "output_id": "tinned-beans",
+    "output_qty": 5,
+    "minutes": 14
+  },
+  {
     "id": "berry-swirl-recipe",
     "name": "Berry Swirl",
     "station": "soft-serve",
     "inputs": [
       {
-        "item_id": "milk",
+        "item_id": "cream",
         "qty": 1
       },
       {
@@ -16,6 +92,164 @@
     "output_id": "berry-swirl",
     "output_qty": 3,
     "minutes": 9
+  },
+  {
+    "id": "bread-recipe",
+    "name": "Bread",
+    "station": "oven",
+    "inputs": [
+      {
+        "item_id": "dough",
+        "qty": 2
+      }
+    ],
+    "output_id": "bread",
+    "output_qty": 4,
+    "minutes": 10
+  },
+  {
+    "id": "butter-recipe",
+    "name": "Churned Butter",
+    "station": "churn",
+    "inputs": [
+      {
+        "item_id": "cream",
+        "qty": 2
+      }
+    ],
+    "output_id": "butter",
+    "output_qty": 3,
+    "minutes": 10
+  },
+  {
+    "id": "cereal-recipe",
+    "name": "Breakfast Cereal",
+    "station": "oven",
+    "inputs": [
+      {
+        "item_id": "wheat",
+        "qty": 2
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      },
+      {
+        "item_id": "honey",
+        "qty": 1
+      }
+    ],
+    "output_id": "cereal-box",
+    "output_qty": 4,
+    "minutes": 14
+  },
+  {
+    "id": "cheese-recipe",
+    "name": "Aged Cheese",
+    "station": "preserving-pot",
+    "inputs": [
+      {
+        "item_id": "curd",
+        "qty": 3
+      }
+    ],
+    "output_id": "cheese",
+    "output_qty": 2,
+    "minutes": 20
+  },
+  {
+    "id": "chocolate-box-recipe",
+    "name": "Box of Chocolates",
+    "station": "candy-kettle",
+    "inputs": [
+      {
+        "item_id": "chocolate",
+        "qty": 2
+      },
+      {
+        "item_id": "berries",
+        "qty": 1
+      }
+    ],
+    "output_id": "chocolate-box",
+    "output_qty": 2,
+    "minutes": 14
+  },
+  {
+    "id": "chocolate-recipe",
+    "name": "Chocolate Slab",
+    "station": "candy-kettle",
+    "inputs": [
+      {
+        "item_id": "cocoa-powder",
+        "qty": 2
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      },
+      {
+        "item_id": "milk",
+        "qty": 1
+      }
+    ],
+    "output_id": "chocolate",
+    "output_qty": 3,
+    "minutes": 12
+  },
+  {
+    "id": "cider-recipe",
+    "name": "Mulled Cider",
+    "station": "preserving-pot",
+    "inputs": [
+      {
+        "item_id": "apple",
+        "qty": 3
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      }
+    ],
+    "output_id": "mulled-cider",
+    "output_qty": 2,
+    "minutes": 18
+  },
+  {
+    "id": "cream-recipe",
+    "name": "Double Cream",
+    "station": "churn",
+    "inputs": [
+      {
+        "item_id": "milk",
+        "qty": 2
+      }
+    ],
+    "output_id": "cream",
+    "output_qty": 3,
+    "minutes": 8
+  },
+  {
+    "id": "crisps-recipe",
+    "name": "Crisps",
+    "station": "deep-fryer",
+    "inputs": [
+      {
+        "item_id": "potato",
+        "qty": 2
+      },
+      {
+        "item_id": "cooking-oil",
+        "qty": 1
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "chips",
+    "output_qty": 5,
+    "minutes": 8
   },
   {
     "id": "cup-of-soup-recipe",
@@ -36,12 +270,30 @@
     "minutes": 12
   },
   {
-    "id": "doughnuts-recipe",
-    "name": "Iced Doughnut",
-    "station": "deep-fryer",
+    "id": "curd-recipe",
+    "name": "Curds",
+    "station": "churn",
     "inputs": [
       {
-        "item_id": "wheat",
+        "item_id": "milk",
+        "qty": 2
+      },
+      {
+        "item_id": "vinegar",
+        "qty": 1
+      }
+    ],
+    "output_id": "curd",
+    "output_qty": 4,
+    "minutes": 9
+  },
+  {
+    "id": "dough-recipe",
+    "name": "Bread Dough",
+    "station": "mixer",
+    "inputs": [
+      {
+        "item_id": "flour",
         "qty": 2
       },
       {
@@ -49,9 +301,101 @@
         "qty": 1
       }
     ],
+    "output_id": "dough",
+    "output_qty": 4,
+    "minutes": 6
+  },
+  {
+    "id": "doughnuts-recipe",
+    "name": "Iced Doughnut",
+    "station": "deep-fryer",
+    "inputs": [
+      {
+        "item_id": "dough",
+        "qty": 2
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      }
+    ],
     "output_id": "doughnuts",
+    "output_qty": 5,
+    "minutes": 8
+  },
+  {
+    "id": "fish-fingers-recipe",
+    "name": "Fish Fingers",
+    "station": "blast-freezer",
+    "inputs": [
+      {
+        "item_id": "white-fish",
+        "qty": 1
+      },
+      {
+        "item_id": "batter",
+        "qty": 1
+      }
+    ],
+    "output_id": "fish-fingers",
+    "output_qty": 5,
+    "minutes": 10
+  },
+  {
+    "id": "flour-recipe",
+    "name": "Stoneground Flour",
+    "station": "mill",
+    "inputs": [
+      {
+        "item_id": "wheat",
+        "qty": 2
+      }
+    ],
+    "output_id": "flour",
     "output_qty": 3,
-    "minutes": 7
+    "minutes": 8
+  },
+  {
+    "id": "frozen-berries-recipe",
+    "name": "Frozen Berries",
+    "station": "blast-freezer",
+    "inputs": [
+      {
+        "item_id": "berries",
+        "qty": 2
+      }
+    ],
+    "output_id": "frozen-berries",
+    "output_qty": 3,
+    "minutes": 6
+  },
+  {
+    "id": "frozen-peas-recipe",
+    "name": "Frozen Peas",
+    "station": "blast-freezer",
+    "inputs": [
+      {
+        "item_id": "peas",
+        "qty": 2
+      }
+    ],
+    "output_id": "frozen-peas",
+    "output_qty": 3,
+    "minutes": 6
+  },
+  {
+    "id": "frozen-pizza-recipe",
+    "name": "Frozen Pizza",
+    "station": "blast-freezer",
+    "inputs": [
+      {
+        "item_id": "pizza",
+        "qty": 2
+      }
+    ],
+    "output_id": "frozen-pizza",
+    "output_qty": 4,
+    "minutes": 8
   },
   {
     "id": "fruit-lolly-recipe",
@@ -59,17 +403,57 @@
     "station": "soft-serve",
     "inputs": [
       {
-        "item_id": "jam",
+        "item_id": "berries",
         "qty": 1
       },
       {
-        "item_id": "milk",
+        "item_id": "sugar",
         "qty": 1
       }
     ],
     "output_id": "fruit-lolly",
-    "output_qty": 3,
+    "output_qty": 4,
     "minutes": 8
+  },
+  {
+    "id": "gelato-recipe",
+    "name": "Pistachio Gelato",
+    "station": "soft-serve",
+    "inputs": [
+      {
+        "item_id": "cream",
+        "qty": 2
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      },
+      {
+        "item_id": "groundnuts",
+        "qty": 1
+      }
+    ],
+    "output_id": "gelato",
+    "output_qty": 2,
+    "minutes": 14
+  },
+  {
+    "id": "gummy-recipe",
+    "name": "Gummy Bears",
+    "station": "candy-kettle",
+    "inputs": [
+      {
+        "item_id": "sugar",
+        "qty": 2
+      },
+      {
+        "item_id": "berries",
+        "qty": 1
+      }
+    ],
+    "output_id": "gummy-bears",
+    "output_qty": 5,
+    "minutes": 10
   },
   {
     "id": "hot-chips-recipe",
@@ -86,12 +470,88 @@
     "minutes": 6
   },
   {
+    "id": "hot-sauce-recipe",
+    "name": "Hot Sauce",
+    "station": "preserving-pot",
+    "inputs": [
+      {
+        "item_id": "chilli",
+        "qty": 2
+      },
+      {
+        "item_id": "vinegar",
+        "qty": 1
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "hot-sauce",
+    "output_qty": 3,
+    "minutes": 14
+  },
+  {
+    "id": "ice-cream-recipe",
+    "name": "Ice Cream",
+    "station": "soft-serve",
+    "inputs": [
+      {
+        "item_id": "cream",
+        "qty": 2
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      }
+    ],
+    "output_id": "ice-cream",
+    "output_qty": 3,
+    "minutes": 10
+  },
+  {
+    "id": "ice-lolly-recipe",
+    "name": "Ice Lolly",
+    "station": "blast-freezer",
+    "inputs": [
+      {
+        "item_id": "berries",
+        "qty": 1
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      }
+    ],
+    "output_id": "ice-lolly",
+    "output_qty": 5,
+    "minutes": 8
+  },
+  {
+    "id": "jam-recipe",
+    "name": "Berry Jam",
+    "station": "preserving-pot",
+    "inputs": [
+      {
+        "item_id": "berries",
+        "qty": 3
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      }
+    ],
+    "output_id": "jam",
+    "output_qty": 4,
+    "minutes": 16
+  },
+  {
     "id": "jam-tart-recipe",
     "name": "Jam Tart",
     "station": "oven",
     "inputs": [
       {
-        "item_id": "wheat",
+        "item_id": "pastry",
         "qty": 2
       },
       {
@@ -100,22 +560,30 @@
       }
     ],
     "output_id": "jam-tart",
-    "output_qty": 3,
+    "output_qty": 5,
     "minutes": 12
   },
   {
     "id": "ketchup-recipe",
     "name": "Tomato Ketchup",
-    "station": "juicer",
+    "station": "preserving-pot",
     "inputs": [
       {
         "item_id": "tomato",
         "qty": 3
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      },
+      {
+        "item_id": "vinegar",
+        "qty": 1
       }
     ],
     "output_id": "ketchup",
-    "output_qty": 2,
-    "minutes": 10
+    "output_qty": 4,
+    "minutes": 14
   },
   {
     "id": "latte-recipe",
@@ -132,8 +600,48 @@
       }
     ],
     "output_id": "latte",
-    "output_qty": 2,
+    "output_qty": 3,
     "minutes": 6
+  },
+  {
+    "id": "liquorice-recipe",
+    "name": "Liquorice Twists",
+    "station": "candy-kettle",
+    "inputs": [
+      {
+        "item_id": "sugar",
+        "qty": 2
+      },
+      {
+        "item_id": "honey",
+        "qty": 1
+      }
+    ],
+    "output_id": "liquorice",
+    "output_qty": 5,
+    "minutes": 12
+  },
+  {
+    "id": "mayo-recipe",
+    "name": "Mayonnaise",
+    "station": "mixer",
+    "inputs": [
+      {
+        "item_id": "egg",
+        "qty": 2
+      },
+      {
+        "item_id": "cooking-oil",
+        "qty": 1
+      },
+      {
+        "item_id": "vinegar",
+        "qty": 1
+      }
+    ],
+    "output_id": "mayo",
+    "output_qty": 5,
+    "minutes": 8
   },
   {
     "id": "mince-pies-recipe",
@@ -141,7 +649,7 @@
     "station": "oven",
     "inputs": [
       {
-        "item_id": "wheat",
+        "item_id": "pastry",
         "qty": 2
       },
       {
@@ -149,13 +657,63 @@
         "qty": 1
       },
       {
-        "item_id": "frozen-berries",
+        "item_id": "berries",
         "qty": 1
       }
     ],
     "output_id": "mince-pies",
-    "output_qty": 3,
+    "output_qty": 5,
     "minutes": 14
+  },
+  {
+    "id": "mince-recipe",
+    "name": "Beef Mince",
+    "station": "butcher",
+    "inputs": [
+      {
+        "item_id": "beef",
+        "qty": 2
+      }
+    ],
+    "output_id": "mince",
+    "output_qty": 3,
+    "minutes": 8
+  },
+  {
+    "id": "mustard-recipe",
+    "name": "Mustard",
+    "station": "mixer",
+    "inputs": [
+      {
+        "item_id": "mustard-seed",
+        "qty": 2
+      },
+      {
+        "item_id": "vinegar",
+        "qty": 1
+      }
+    ],
+    "output_id": "mustard",
+    "output_qty": 3,
+    "minutes": 9
+  },
+  {
+    "id": "oven-chips-recipe",
+    "name": "Oven Chips",
+    "station": "blast-freezer",
+    "inputs": [
+      {
+        "item_id": "potato",
+        "qty": 2
+      },
+      {
+        "item_id": "cooking-oil",
+        "qty": 1
+      }
+    ],
+    "output_id": "oven-chips",
+    "output_qty": 4,
+    "minutes": 8
   },
   {
     "id": "pasta-bake-recipe",
@@ -176,8 +734,62 @@
       }
     ],
     "output_id": "pasta-bake",
-    "output_qty": 3,
+    "output_qty": 4,
     "minutes": 18
+  },
+  {
+    "id": "pasta-recipe",
+    "name": "Dried Pasta",
+    "station": "mixer",
+    "inputs": [
+      {
+        "item_id": "flour",
+        "qty": 2
+      },
+      {
+        "item_id": "egg",
+        "qty": 1
+      }
+    ],
+    "output_id": "dried-pasta",
+    "output_qty": 4,
+    "minutes": 12
+  },
+  {
+    "id": "pastry-recipe",
+    "name": "Shortcrust Pastry",
+    "station": "mixer",
+    "inputs": [
+      {
+        "item_id": "flour",
+        "qty": 2
+      },
+      {
+        "item_id": "butter",
+        "qty": 1
+      }
+    ],
+    "output_id": "pastry",
+    "output_qty": 4,
+    "minutes": 7
+  },
+  {
+    "id": "peanuts-recipe",
+    "name": "Salted Peanuts",
+    "station": "oven",
+    "inputs": [
+      {
+        "item_id": "groundnuts",
+        "qty": 2
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "peanuts",
+    "output_qty": 3,
+    "minutes": 8
   },
   {
     "id": "pickles-recipe",
@@ -191,11 +803,91 @@
       {
         "item_id": "tomato",
         "qty": 1
+      },
+      {
+        "item_id": "vinegar",
+        "qty": 1
       }
     ],
     "output_id": "pickles",
     "output_qty": 3,
     "minutes": 18
+  },
+  {
+    "id": "pizza-recipe",
+    "name": "Fresh Pizza",
+    "station": "oven",
+    "inputs": [
+      {
+        "item_id": "dough",
+        "qty": 2
+      },
+      {
+        "item_id": "cheese",
+        "qty": 1
+      },
+      {
+        "item_id": "tomato",
+        "qty": 1
+      }
+    ],
+    "output_id": "pizza",
+    "output_qty": 5,
+    "minutes": 12
+  },
+  {
+    "id": "portions-recipe",
+    "name": "Chicken Portions",
+    "station": "butcher",
+    "inputs": [
+      {
+        "item_id": "poultry",
+        "qty": 1
+      }
+    ],
+    "output_id": "chicken",
+    "output_qty": 3,
+    "minutes": 7
+  },
+  {
+    "id": "protein-bar-recipe",
+    "name": "Protein Bar",
+    "station": "mixer",
+    "inputs": [
+      {
+        "item_id": "groundnuts",
+        "qty": 1
+      },
+      {
+        "item_id": "honey",
+        "qty": 1
+      },
+      {
+        "item_id": "flour",
+        "qty": 1
+      }
+    ],
+    "output_id": "protein-bar",
+    "output_qty": 4,
+    "minutes": 10
+  },
+  {
+    "id": "rice-cakes-recipe",
+    "name": "Rice Cakes",
+    "station": "stock-pot",
+    "inputs": [
+      {
+        "item_id": "rice",
+        "qty": 2
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "rice-cakes",
+    "output_qty": 4,
+    "minutes": 10
   },
   {
     "id": "roast-chicken-recipe",
@@ -218,15 +910,19 @@
     "inputs": [
       {
         "item_id": "tomato",
-        "qty": 3
+        "qty": 2
       },
       {
         "item_id": "lettuce",
         "qty": 1
+      },
+      {
+        "item_id": "chilli",
+        "qty": 1
       }
     ],
     "output_id": "salsa",
-    "output_qty": 2,
+    "output_qty": 3,
     "minutes": 20
   },
   {
@@ -248,8 +944,26 @@
       }
     ],
     "output_id": "hot-dog",
-    "output_qty": 3,
+    "output_qty": 5,
     "minutes": 8
+  },
+  {
+    "id": "sausages-recipe",
+    "name": "Sausages",
+    "station": "butcher",
+    "inputs": [
+      {
+        "item_id": "pork",
+        "qty": 2
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "sausages",
+    "output_qty": 4,
+    "minutes": 10
   },
   {
     "id": "smoked-bacon-roll-recipe",
@@ -270,7 +984,7 @@
       }
     ],
     "output_id": "bacon-roll",
-    "output_qty": 3,
+    "output_qty": 5,
     "minutes": 8
   },
   {
@@ -279,7 +993,7 @@
     "station": "blender",
     "inputs": [
       {
-        "item_id": "jam",
+        "item_id": "berries",
         "qty": 1
       },
       {
@@ -288,8 +1002,26 @@
       }
     ],
     "output_id": "smoothie",
-    "output_qty": 2,
+    "output_qty": 3,
     "minutes": 12
+  },
+  {
+    "id": "soda-recipe",
+    "name": "Fizzy Soda",
+    "station": "juicer",
+    "inputs": [
+      {
+        "item_id": "apple",
+        "qty": 2
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      }
+    ],
+    "output_id": "soda",
+    "output_qty": 5,
+    "minutes": 8
   },
   {
     "id": "sourdough-recipe",
@@ -297,13 +1029,13 @@
     "station": "oven",
     "inputs": [
       {
-        "item_id": "wheat",
+        "item_id": "dough",
         "qty": 3
       }
     ],
     "output_id": "sourdough",
-    "output_qty": 2,
-    "minutes": 14
+    "output_qty": 3,
+    "minutes": 16
   },
   {
     "id": "spiced-chutney-recipe",
@@ -311,15 +1043,15 @@
     "station": "preserving-pot",
     "inputs": [
       {
-        "item_id": "tomato",
+        "item_id": "apple",
         "qty": 2
       },
       {
-        "item_id": "kale",
+        "item_id": "tomato",
         "qty": 1
       },
       {
-        "item_id": "hot-sauce",
+        "item_id": "sugar",
         "qty": 1
       }
     ],
@@ -333,7 +1065,7 @@
     "station": "coffee-machine",
     "inputs": [
       {
-        "item_id": "cocoa-powder",
+        "item_id": "chocolate",
         "qty": 1
       },
       {
@@ -342,8 +1074,62 @@
       }
     ],
     "output_id": "hot-chocolate",
-    "output_qty": 2,
+    "output_qty": 4,
     "minutes": 6
+  },
+  {
+    "id": "stock-recipe",
+    "name": "Stock",
+    "station": "stock-pot",
+    "inputs": [
+      {
+        "item_id": "poultry",
+        "qty": 1
+      },
+      {
+        "item_id": "carrot",
+        "qty": 1
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "stock",
+    "output_qty": 5,
+    "minutes": 12
+  },
+  {
+    "id": "sugar-recipe",
+    "name": "Refined Sugar",
+    "station": "mill",
+    "inputs": [
+      {
+        "item_id": "sugar-beet",
+        "qty": 2
+      }
+    ],
+    "output_id": "sugar",
+    "output_qty": 3,
+    "minutes": 10
+  },
+  {
+    "id": "tinned-soup-recipe",
+    "name": "Tinned Soup",
+    "station": "preserving-pot",
+    "inputs": [
+      {
+        "item_id": "stock",
+        "qty": 2
+      },
+      {
+        "item_id": "kale",
+        "qty": 1
+      }
+    ],
+    "output_id": "tinned-soup",
+    "output_qty": 5,
+    "minutes": 14
   },
   {
     "id": "toast-recipe",
@@ -360,7 +1146,7 @@
       }
     ],
     "output_id": "toast",
-    "output_qty": 2,
+    "output_qty": 3,
     "minutes": 8
   },
   {
@@ -378,7 +1164,7 @@
       }
     ],
     "output_id": "toastie",
-    "output_qty": 2,
+    "output_qty": 4,
     "minutes": 7
   },
   {
@@ -398,6 +1184,20 @@
     "output_id": "carved-turkey",
     "output_qty": 3,
     "minutes": 22
+  },
+  {
+    "id": "turkey-crown-recipe",
+    "name": "Turkey Crown",
+    "station": "butcher",
+    "inputs": [
+      {
+        "item_id": "turkey",
+        "qty": 1
+      }
+    ],
+    "output_id": "turkey-crown",
+    "output_qty": 2,
+    "minutes": 14
   },
   {
     "id": "veg-juice-recipe",
