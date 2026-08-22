@@ -27,6 +27,7 @@ import { Heat } from './heat.js';
 import { T } from '../../shared/tiles.js';
 import {
   FIXTURES, workSpots, flowSpots, conveyorNext, conveyorAt, conveyorsOf, conveyorBranches, tunnelExit, CONVEYOR_KINDS, derivedFlow, anchorTile, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind, GOODS_PADS, isPadAt, isWalkableTile,
+  SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   faceKey,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
@@ -5782,7 +5783,7 @@ export class Scene {
         // Up to the PAD, not to the end — the last stretch is where the goods
         // leave, and carriers drawn under it say the opposite. See the pad in
         // `addConveyorPaths`.
-        const len = Math.max(spurSpan, (sp.to - SPUR_PAD) - sp.from);
+        const len = Math.max(spurSpan, (sp.onUnit ? sp.to : sp.to - SPUR_PAD) - sp.from);
         const n = Math.max(2, Math.round(len / spurSpan));
         const step = len / n;
         for (let i = 0; i < n; i++) {
@@ -6318,10 +6319,26 @@ export class Scene {
         // because a shelf's own mesh fills that square and track drawn under it
         // is track nobody will ever see.
         to: onUnit(s) ? SPUR_UNIT : SPUR_OPEN,
+        onUnit: onUnit(s),
       });
     };
     for (const s of this.conveyorPours(L, c)) add(s, 1);
     for (const s of this.conveyorIntake(L, c)) add(s, -1);
+    // ...and a SORTER'S OFF-RAMP, which is a spur by every test that matters:
+    // goods cross that edge, they take a spur-length of time to do it, and the
+    // sim walks the crate along it exactly as it walks one out of a loader.
+    //
+    // It is the one side of a junction that leaves the network, so without track
+    // under it the box rides out over bare floor — the same "crate floating
+    // beside the rails" the shared `SPUR_*_REACH` exists to prevent, arriving
+    // through the one machine nobody thought of as having a spur.
+    if (c.kind === 'sorter' && Number.isInteger(c.reject)) {
+      const s = anchorTile(c.x, c.z, c.reject);
+      if (!conveyorAt(L, s.x, s.z)
+        && (GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z)) || isWalkableTile(L, s.x, s.z))) {
+        add(s, 1);
+      }
+    }
     return [...seen.values()];
   }
 
@@ -6977,7 +6994,10 @@ export class Scene {
         for (const sp of spurs) {
           const near = deck.cross;
           const wide = deck.cross * 2;
-          const railTo = Math.max(sp.from, sp.to - SPUR_PAD);
+          // Track stops where the landing square starts. Into a UNIT there is no
+          // square — the goods go inside the thing, so the rails run to the end
+          // and are swallowed by it, which is the picture that wants no marking.
+          const railTo = sp.onUnit ? sp.to : Math.max(sp.from, sp.to - SPUR_PAD);
           const len = railTo - near;
           if (len > 0.01) {
             const mid = near + len / 2;
@@ -6987,20 +7007,30 @@ export class Scene {
             bed.raycast = NO_PICK;
             this.beltRoot.add(bed);
           }
-          const padLen = sp.to - railTo;
-          if (!(padLen > 0.01)) continue;
-          const padMid = railTo + padLen / 2;
-          // DARK, against a pale deck — not lighter, which was the first go and
-          // is invisible: `conveyorDeck` reads its colour off the authored model
-          // and that colour IS `CONVEYOR.deck`, so a pale pad butted onto a pale
-          // bed is one plank of one colour, and what you see is a spur that runs
-          // twice as far as it does. Wider and a touch taller as well, so it
-          // reads as a lip the goods go over rather than as a patch on the belt.
-          const pad = new THREE.Mesh(geo, material(CONVEYOR.track, 1));
-          pad.scale.set(sp.dx ? padLen : wide * 1.18, deck.h * 1.7, sp.dz ? padLen : wide * 1.18);
-          pad.position.set(c.x + sp.dx * padMid, deck.y + deck.h * 0.35, c.z + sp.dz * padMid);
-          pad.raycast = NO_PICK;
-          this.beltRoot.add(pad);
+          if (sp.onUnit) continue;
+
+          // THE LANDING SQUARE, drawn as a BORDER and not a plate.
+          //
+          // Four bars round the tile centre with the shop's own floor inside
+          // them, so what you see is a crate standing on the ground with the
+          // square marked round it. A solid plate was the first go and it is the
+          // thing to avoid: a slab under a box reads as one more length of belt
+          // the box has stopped on, which says the opposite of what this is for.
+          // It is the same argument `addPadMarks` makes about the yard — a pad
+          // is paint on the floor, not furniture.
+          const cx = c.x + sp.dx * sp.to;
+          const cz = c.z + sp.dz * sp.to;
+          for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const bar = new THREE.Mesh(geo, material(CONVEYOR.track, 1));
+            bar.scale.set(
+              ox ? SPUR_PAD_BAR : SPUR_PAD * 2 + SPUR_PAD_BAR,
+              deck.h,
+              oz ? SPUR_PAD_BAR : SPUR_PAD * 2 + SPUR_PAD_BAR,
+            );
+            bar.position.set(cx + ox * SPUR_PAD, deck.y, cz + oz * SPUR_PAD);
+            bar.raycast = NO_PICK;
+            this.beltRoot.add(bar);
+          }
         }
       }
 
@@ -8345,11 +8375,18 @@ export class Scene {
         const span = m.span || 0.25;
         let u = ((m.travel ?? 0) - (h.userData.wave ?? 0)) % span;
         if (u < 0) u += span;
-        // A band rather than a sine: a smooth swell over the whole run reads as
-        // the lights breathing together, where a short bright stretch reads as
-        // something passing. Cubed so the falloff is quick at the trailing edge.
+        // A FLOOR PLUS A BAND, and the floor is what makes it visible at all.
+        //
+        // It was the band alone, cubed, and that is a beautiful curve nobody
+        // ever saw: a cell is only `working` while a box is actually on it,
+        // which is about four tenths of a second, and `amp` eases in over most
+        // of that — so the one carrier at the crest of a cubed wave got bright
+        // for a couple of frames on a cell you were probably not looking at.
+        // What you want to read is "this cell is live", with the band as the
+        // texture on top of it, so most of the lift is flat across the cell and
+        // the wave rides the rest.
         const f = 1 - u / span;
-        const k = 1 + SLAT_LIT * (f * f * f) * (m.amp ?? 0);
+        const k = 1 + SLAT_LIT * (0.45 + 0.55 * f * f) * (m.amp ?? 0);
         b.im.setColorAt(i, SLAT_RGB.setRGB(
           Math.min(1, b.lit[i * 3] * k),
           Math.min(1, b.lit[i * 3 + 1] * k),
@@ -8850,7 +8887,7 @@ const MOUTH_DARK = '#1e232b';
  * the same fact the old sliding carriers carried, and the reason they went is
  * that a busy shop should not have forty things twitching in it.
  */
-const SLAT_LIT = 0.55;
+const SLAT_LIT = 1.1;
 
 /** Scratch for that, so a frame with hundreds of carriers allocates nothing. */
 const SLAT_RGB = new THREE.Color();
@@ -8909,17 +8946,22 @@ const BELT_SECONDS = 0.6;
  * through `conveyorSpurs` and nowhere else — see there.
  */
 const SPUR_FROM = 0.16;
-const SPUR_UNIT = 0.66;
-const SPUR_OPEN = 1.34;
+const SPUR_UNIT = SPUR_UNIT_REACH;
+const SPUR_OPEN = SPUR_OPEN_REACH;
 
 /**
- * How much of a spur's far end is the drop pad rather than track.
+ * Half the drop pad, which is a BORDER rather than a plate.
  *
- * A crate is 0.442 across, so this is a shade under a box: the goods land ON the
- * pad and overhang it slightly, which is what makes it read as somewhere they
- * are being handed over rather than as one more tile of belt.
+ * A crate is 0.442 across, so this is drawn a hair wider than a box: four thin
+ * bars marking out the square the goods land on, with the shop's own floor
+ * inside them. It was a solid slab first and that is the thing to avoid — a
+ * plate under a crate reads as one more piece of belt the box has stopped on,
+ * where the whole sentence here is *the track ends and the goods are set down*.
+ * With only a border, what you see is a crate sitting on the floor with the
+ * landing square painted round it.
  */
-const SPUR_PAD = 0.34;
+const SPUR_PAD = 0.26;
+const SPUR_PAD_BAR = 0.05;
 
 const LINK_GLOW = '#5f9e78';
 // Retired, along with the recess itself — see the note where `CONVEYOR.well`

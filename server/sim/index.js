@@ -42,7 +42,7 @@ import { stepStaff, syncStaff, breakProgress, carryOf, givenUp } from './staff.j
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
-  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, tunnelExit, derivedFlow, beltRunCells, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
+  conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, conveyorLines, alongPath, tunnelExit, derivedFlow, beltRunCells, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
@@ -3296,8 +3296,20 @@ export class Game {
     // the reason the note above gives about deliveries: a crate has to be where
     // it actually IS before a stocker looks for one, or every hire in the shop
     // spends the tick walking to a box that has already moved on.
-    this.stepBelts(dt);
+    // ARMS BEFORE BELTS, and the order is load-bearing.
+    //
+    // Run the other way, `stepBelts` starts the hand-off out of a loader before
+    // the loader has been asked whether it wants the crate — so a box could be
+    // part way onto the next cell when a swing fired, and `armSend` would pull
+    // it back to the machine's centre to start down a spur. A crate jumping
+    // backwards a fraction of a tile and setting off sideways is exactly the
+    // "crates vanish and shit" a busy junction shows, and it only ever happens
+    // on a cell that is both a machine and a length of belt.
+    //
+    // A loader gets first refusal on whatever is standing on it; if it does not
+    // send the box anywhere, the run moves it on in the same tick as before.
     this.stepArms(dt);
+    this.stepBelts(dt);
 
     this.stepPlayers(dt);
     // The *world's* delta, not the tick's: a roofed bed holds its clock still by
@@ -9792,6 +9804,27 @@ export class Game {
    */
   static BELT_SECONDS = 0.6;
 
+  /**
+   * How close two crates stand on a line, centre to centre.
+   *
+   * THIS IS BACKPRESSURE, and since the rewrite it is the whole of it. A crate
+   * has one piece of state — how far along its line it has got — and each one is
+   * clamped to at least this far behind the box in front. A jam is therefore not
+   * a thing anything decides: it is what the clamp draws when the head of the
+   * line has nowhere to go, and it clears from the front the moment the head
+   * moves, at exactly the speed of the belt.
+   *
+   * A WHOLE CELL rather than a box-width, and that is a capacity rule rather
+   * than a look. One cell holds one crate — it is what a run's length means in
+   * boxes and what everything from `bayRoom` to a player counting a jam reads —
+   * and the clamp is now the only thing enforcing it, so packing them tighter
+   * would silently double what every conveyor in the game carries. The three
+   * things this used to be traded against are gone with the per-cell shape: a
+   * jammed run and a moving one are told apart by the run being STOPPED, which
+   * the renderer already reads off `beltStuck`.
+   */
+  static CRATE_PITCH = 1;
+
   static ARM_SECONDS = 0.9;
 
   /**
@@ -9822,101 +9855,92 @@ export class Game {
     return conveyorAt(this.layout, bx, bz);
   }
 
+  /** The shop's conveyors cut into lines — see `conveyorLines`. */
+  beltLines() {
+    return conveyorLines(this.layout);
+  }
+
   /**
-   * Every belt, ordered so that a belt is stepped AFTER whatever it feeds.
+   * Where a crate is on the network: which line, which cell of it, and HOW FAR
+   * ALONG THE LINE — which is the one number the whole thing turns on.
    *
-   * This is the whole reason the pass is not just a loop over the list, and the
-   * bug it exists to prevent is not subtle once you see it. If a belt moves
-   * before the one downstream of it, its crate lands on a cell that is about to
-   * be vacated *and is then moved again by that cell's own turn* — so a crate
-   * crosses the entire shop in a single tick and a belt is a teleporter with an
-   * animation on it. Order it the other way and a run advances one cell per
-   * tick as a LINE, which is what a conveyor looks like.
-   *
-   * The alternative — snapshot the occupancy first and move everything against
-   * the old picture — is correct and drains a run like a slinky: one crate
-   * moves per gap per tick, so a twenty-cell belt takes twenty ticks to close
-   * up behind each box. It reads as belts being broken.
-   *
-   * A cycle has no such order by definition, and the leftovers are appended in
-   * list order rather than dropped. What that means in play is that a closed
-   * loop with every cell full stays jammed, which is the honest answer: a ring
-   * nothing comes off is a ring nothing comes off.
-   *
-   * Cached against `layoutVersion`, because it can only change when the
-   * building does, and it is walked twenty times a second.
+   * The storage is `d.belt` (a cell id) plus `d.off` (how far past that cell's
+   * centre it has travelled), and that split is deliberate rather than a
+   * leftover. A distance stored against the line would go stale the moment a
+   * re-flow re-cut the lines — extend a run upstream and every box on it is
+   * suddenly measured from somewhere else — where a cell id is a fact about the
+   * shop that survives, is already saved, is already what the renderer files a
+   * box by, and is already swept when the cell is demolished. So the line is the
+   * MODEL and the cell is the ADDRESS, and this is the one place the two meet.
    */
-  beltOrder() {
-    const belts = conveyorsOf(this.layout);
-    if (this._beltOrderAt === this.layoutVersion && this._beltOrder) return this._beltOrder;
+  beltSpot(d) {
+    if (!d?.belt) return null;
+    const loc = this.beltLines().byCell.get(d.belt);
+    if (!loc) return null;
+    return { line: loc.line, i: loc.i, at: loc.line.dist[loc.i] + (d.off ?? 0) };
+  }
 
-    const cell = new Map();
-    for (const b of belts) cell.set(`${b.x},${b.z}`, b);
-
-    // Who feeds whom. `next` is what this belt hands to; `feeders` is the
-    // reverse, which is what the walk below consumes.
-    const next = new Map();
-    const feeders = new Map();
-    for (const b of belts) {
-      const to = this.beltNext(b);
-      const n = to ? (cell.get(`${to.x},${to.z}`) ?? null) : null;
-      next.set(b.id, n);
-      if (n) {
-        if (!feeders.has(n.id)) feeders.set(n.id, []);
-        feeders.get(n.id).push(b);
-      }
+  /**
+   * Where this line hands a crate on, as a distance rather than as a cell.
+   *
+   * `total` is how far a crate travels before it belongs to the next line, which
+   * is the line's own length PLUS the hop into the first cell of that one — so
+   * the hand-off happens at a point both lines agree on and the box does not
+   * move a millimetre when it changes hands. That overlap is what a seam used to
+   * be: two cells with two clocks, a reservation between them, and a crate
+   * redrawn by whichever of them ran last.
+   *
+   * At a junction the way out is the crate's, not the line's, and it is asked of
+   * `sorterOut` exactly as it always was. Once a crate has left the junction's
+   * own square it is COMMITTED — the remembered choice is used rather than
+   * re-asked — or a box half way down one branch could be re-sorted onto
+   * another and would have to travel there sideways.
+   */
+  beltExit(line, crate, free = null) {
+    const last = line.cells[line.cells.length - 1];
+    let w = null;
+    if (line.junction) {
+      const committed = (crate?.off ?? 0) > 0 ? this.sortChoice?.get(crate?.id) : null;
+      w = committed?.cell === last.id ? committed.to : this.sorterOut(last, crate, free);
+    } else {
+      w = line.outs[0] ?? null;
     }
+    if (!w) return null;
+    const cell = this.beltAt(w.x, w.z);
+    if (!cell) return null;
+    const loc = this.beltLines().byCell.get(cell.id);
+    if (!loc) return null;
+    const hop = Math.abs(cell.x - last.x) + Math.abs(cell.z - last.z);
+    return { cell, line: loc.line, at: loc.line.dist[loc.i], total: line.len + hop };
+  }
 
-    // Kahn's algorithm over the reversed graph: a terminus has nothing
-    // downstream of it, so it goes first, and each belt is released once
-    // everything it feeds has already been placed.
-    const out = [];
-    const seen = new Set();
-    const queue = belts.filter((b) => !next.get(b.id));
-    while (queue.length) {
-      const b = queue.shift();
-      if (seen.has(b.id)) continue;
-      seen.add(b.id);
-      out.push(b);
-      for (const f of feeders.get(b.id) ?? []) {
-        if (!seen.has(f.id)) queue.push(f);
-      }
+  /**
+   * The cells a crate is standing on or already moving into.
+   *
+   * One crate per cell is a consequence of `CRATE_PITCH` rather than a rule
+   * anybody enforces, so this is a reading of where the boxes are rather than a
+   * ledger beside them: a crate occupies the cell it is filed on, and the next
+   * one along as well while it is crossing the gap.
+   */
+  beltBusy() {
+    const busy = new Map();
+    for (const d of this.deliveries) {
+      if (!d.belt) continue;
+      busy.set(d.belt, d);
+      if (!(d.off > 0)) continue;
+      const spot = this.beltSpot(d);
+      if (!spot) continue;
+      const ahead = spot.line.cells[spot.i + 1]
+        ?? this.beltExit(spot.line, d)?.cell ?? null;
+      if (ahead) busy.set(ahead.id, d);
     }
-    // Whatever is left is in a loop, and a loop has no terminus to start from by
-    // definition. It is NOT dropped — a belt that stopped being stepped because
-    // you joined it into a ring would be a run that silently died the moment you
-    // closed it — and it is not left in list order either, which is what it was
-    // for the whole of steps 1 and 2.
-    //
-    // List order is the teleporter bug, wearing a ring. A crate on a cell that
-    // is stepped before the cell in front of it lands somewhere that is about to
-    // move again in the same tick, so it crosses the whole loop in one frame and
-    // the belt is an animation over an instant hand-off. Nobody would build a
-    // ring during step 1 (it takes a corner and a return leg), which is exactly
-    // why this sat here looking harmless.
-    //
-    // So: cut each remaining ring at one arbitrary cell and walk its feeders
-    // backwards from there, which is Kahn's algorithm given a terminus by hand.
-    // Every hand-off in the ring is then downstream-first except the ONE at the
-    // cut, and that one costs a single extra tick per lap rather than a crate
-    // skating a lap per tick.
-    for (const start of belts) {
-      if (seen.has(start.id)) continue;
-      const queue = [start];
-      while (queue.length) {
-        const b = queue.shift();
-        if (seen.has(b.id)) continue;
-        seen.add(b.id);
-        out.push(b);
-        for (const f of feeders.get(b.id) ?? []) {
-          if (!seen.has(f.id)) queue.push(f);
-        }
-      }
-    }
+    return busy;
+  }
 
-    this._beltOrder = out;
-    this._beltOrderAt = this.layoutVersion;
-    return out;
+  /** Is there room to put a box on this cell — see `beltBusy`. */
+  beltCellFree(cell) {
+    if (!cell) return false;
+    return !this.beltBusy().has(cell.id);
   }
 
   /** The cell this conveyor hands its crate to — see `conveyorNext`. */
@@ -10323,10 +10347,11 @@ export class Game {
    * a jammed tunnel is a crate that has vanished.
    */
   beltHidden(d) {
-    if (!d?.belt) return false;
-    const cell = conveyorsOf(this.layout).find((c) => c.id === d.belt);
+    if (!d?.belt || !(d.off > 0)) return false;
+    const spot = this.beltSpot(d);
+    const cell = spot?.line.cells[spot.i];
     if (cell?.kind !== 'under' || !tunnelExit(this.layout, cell)) return false;
-    return (this.beltClock?.get(cell.id) ?? 0) > 0;
+    return true;
   }
 
   beltSeconds(belt) {
@@ -10335,191 +10360,248 @@ export class Game {
   }
 
   /**
-   * Advance every crate that is riding a belt.
+   * Advance every crate on the network, one LINE at a time.
    *
-   * A crate on a belt is an ORDINARY crate that names one — `d.belt` is a
-   * fixture id and nothing else — which is the decision the whole feature rests
-   * on: `deliveries` is already swept for spoilage, counted by `homeSupply`,
-   * binned by `binOrphans` and saved raw, so a belt invents no seventh place
-   * for goods to live and every one of those loops goes on being right without
-   * being told anything.
+   * A crate on a conveyor is an ORDINARY crate — `deliveries` is already swept
+   * for spoilage, counted by `homeSupply`, binned by `binOrphans` and saved raw,
+   * so a belt invents no seventh place for goods to live and every one of those
+   * loops goes on being right without being told anything.
    *
-   * A belt that cannot hand on simply does not, and the belt behind it then
-   * cannot either. That is backpressure and it is the entire texture of the
-   * thing: a jammed line is a row of boxes not moving, which is a picture you
-   * can read and act on. Nothing ever spills onto the floor at the end of a
-   * run — a belt pointed at a wall backs up. Spilling would bury the shop in
-   * boxes while looking like it was working, and it would throw away the one
-   * signal the player needs.
+   * WHAT IT HAS IS ONE NUMBER: how far along its line it has got. Everything
+   * else about it is derived here — the cell it counts as standing on, whether
+   * it is round the bend, whether it is underground, and where on the floor it
+   * is drawn. The rule is three lines long:
+   *
+   *   the crate at the HEAD of a line advances if the line's exit will take it,
+   *   and otherwise stops on the last cell of its own line;
+   *
+   *   every crate behind it is clamped to at least `CRATE_PITCH` behind the one
+   *   in front — which IS backpressure, IS the compaction a jam draws, and is
+   *   also the one-crate-per-cell rule, since the pitch is a cell;
+   *
+   *   and the position falls out of `alongPath`, which knows nothing about
+   *   belts.
+   *
+   * There is nothing here about corners, nothing about junctions being
+   * different when their exits are full, and no clock, reservation or creep on
+   * any cell. That is the point of the shape rather than a happy result of it:
+   * the old pass gave every cell its own crate, its own clock and its own
+   * opinion about where that crate went next, so the code between two cells was
+   * a SEAM, and the seams disagreed at exactly the places a player looks. Crates
+   * skipped at a T, would not tween through a bend, appeared at the end of a
+   * segment and snapped back to the start of a cell when a jam cleared. Every
+   * one of those was fixed on its own and every fix exposed the next.
+   *
+   * Nothing ever falls off the end. A line pointed at a wall backs up, which is
+   * a picture the player can read and act on; spilling would bury the shop in
+   * boxes while looking like it was working.
    */
   stepBelts(dt) {
-    // BOTH lists, or a shop that laid a row of loaders and no plain belt never
-    // steps one of them — which is not an odd thing to build, it is what an
-    // aisle looks like once every cell is stocking a shelf. `beltAt` and
-    // `beltOrder` have always answered for both; this was the one place that
-    // asked about half of it.
-    if (!conveyorsOf(this.layout).length) return;
-
-    const onBelt = new Map();
-    for (const d of this.deliveries) if (d.belt) onBelt.set(d.belt, d);
-
-    this.beltClock ??= new Map();
+    const net = this.beltLines();
+    if (!net.lines.length) return;
 
     /**
-     * The cell each in-flight hand-off is travelling INTO, claimed until it
-     * lands.
+     * Where every box is, in the coordinates of the line it is on.
      *
-     * A crate's travel is drawn across the gap between two cells, and the way
-     * out was re-decided every tick of it — so a box that set off toward a cell
-     * something else took in the meantime slid half a tile and snapped back to
-     * where it started. Nothing is wrong with the shop afterwards, which is why
-     * it reads as the box glitching rather than as a queue: it is the *drawn*
-     * half of a decision the sim then changed its mind about.
-     *
-     * So the target is reserved the moment the box starts moving. It was empty
-     * when the charge began and nothing else may enter it, so the journey can
-     * always be finished — a crate either waits squarely on its own cell or
-     * arrives, and there is no third picture.
+     * Read out of `deliveries` each tick rather than kept beside it. A second
+     * copy of where the goods are is precisely what this rewrite deleted, and
+     * the cost of not having one is a walk over a list the sim already owns.
      */
-    this.beltAim ??= new Map();
-    const aimed = new Map();
-    for (const [from, target] of [...this.beltAim]) {
-      if (onBelt.has(from) && (this.beltClock.get(from) ?? 0) > 0) aimed.set(target, from);
-      else this.beltAim.delete(from);
+    const pos = new Map();
+    const on = new Map(net.lines.map((l) => [l.id, []]));
+    for (const d of this.deliveries) {
+      if (!d.belt) continue;
+      // A field from the per-cell shape. Harmless and confusing, so it goes the
+      // first time a saved crate is stepped.
+      if (d.trav !== undefined) delete d.trav;
+      const spot = this.beltSpot(d);
+      if (!spot) continue;
+      pos.set(d.id, spot.at);
+      on.get(spot.line.id).push(d);
     }
-    const taken = (id, by) => onBelt.has(id) || (aimed.has(id) && aimed.get(id) !== by);
+    for (const list of on.values()) list.sort((a, b) => pos.get(b.id) - pos.get(a.id));
 
-    for (const belt of this.beltOrder()) {
-      const crate = onBelt.get(belt.id);
-      // A crate part way along a loader's spur is off the line for the moment —
-      // `stepArms` owns it until it arrives. Its cell stays occupied (it is
-      // still `d.belt`), so the run behind it backs up exactly as it would
-      // behind any other box that is not moving on, which is the honest picture:
-      // the machine is busy.
-      if (crate?.spur) { this.beltClock.set(belt.id, 0); continue; }
-      if (!crate) {
-        // An empty belt holds no charge. Without this a run that has stood idle
-        // all morning flings the next crate along the instant it lands.
-        this.beltClock.delete(belt.id);
-        continue;
+    /**
+     * How close anything is to the START of a line, in that line's coordinates.
+     *
+     * This is the whole of what one line needs to know about the next, and it is
+     * the reservation the per-cell pass kept in a map: a crate that has left its
+     * own line's last cell but not yet arrived is counted at a NEGATIVE distance
+     * along the line it is heading for, so a second line feeding the same one
+     * sees it coming and holds back. Nothing is stored, so nothing can be left
+     * standing when a crate is eaten by a shelf half way through a hand-off.
+     */
+    const barrier = (line, self) => {
+      let near = Infinity;
+      // Never the box that is asking. On a RING a line feeds itself, so a crate
+      // part way round the join would count its own committed hand-off as
+      // something in its way and stop dead on the seam — for ever, since the
+      // thing it is waiting for is itself.
+      for (const d of on.get(line.id) ?? []) {
+        if (d !== self) near = Math.min(near, pos.get(d.id));
       }
-      const clock = (this.beltClock.get(belt.id) ?? 0) + dt;
-      const per = this.beltSeconds(belt);
+      for (const from of net.feeds.get(line.id) ?? []) {
+        for (const d of on.get(from.id) ?? []) {
+          if (d === self) continue;
+          const at = pos.get(d.id);
+          if (!(at > from.len)) continue;
+          const ex = this.beltExit(from, d);
+          if (ex?.line === line) near = Math.min(near, at - ex.total);
+        }
+      }
+      return near;
+    };
+    const roomAt = (line, self) => barrier(line, self) >= Game.CRATE_PITCH - 1e-9;
 
-      // A sorter whose reject side is GROUND takes the box off the run instead
-      // of handing it on. Charged the same cell-time as a hand-off, or an
-      // ejected box vanishes the tick it lands while every other box on the run
-      // glides — which is the jam-at-the-brim bug wearing an off-ramp.
-      const eject = this.sorterEject(belt, crate);
-      if (eject) {
-        if (clock < per) {
-          this.beltClock.set(belt.id, clock);
-          crate.x = belt.x;
-          crate.z = belt.z;
+    /**
+     * A HOP LONGER THAN A CELL IS ALL OR NOTHING, which is the tunnel.
+     *
+     * The span between two mouths is a single leg of the path, so a crate could
+     * otherwise be clamped to a stop half way along it — where it is invisible
+     * by construction (`beltHidden`), which is a box that has vanished rather
+     * than a jam you can read. Held at the mouth instead, a tunnel carries
+     * exactly one crate at a time and the queue for it stands where it can be
+     * seen. A box already inside is never held back: its cap is untouched, so it
+     * always comes out the far end.
+     */
+    const wholeLegs = (line, from, cap, tail) => {
+      let out = cap;
+      for (let i = 1; i < line.dist.length; i++) {
+        const a = line.dist[i - 1];
+        const b = line.dist[i];
+        if (b - a > 1 && out > a && out < b && from <= a) out = a;
+      }
+      if (tail > 1 && out > line.len && out < line.len + tail && from <= line.len) out = line.len;
+      return out;
+    };
+
+    for (const line of net.order) {
+      const crates = on.get(line.id) ?? [];
+      if (!crates.length) continue;
+
+      // The box in front, while it is still on this line. A crate that has just
+      // been handed on is no longer something to queue behind — the one after it
+      // becomes the head, and the exit test below is what holds it back.
+      let ahead = null;
+
+      for (const crate of crates) {
+        const loc = net.byCell.get(crate.belt);
+        if (!loc) continue;
+        const cell = line.cells[loc.i];
+        const at = pos.get(crate.id);
+
+        /**
+         * A box off down a SPUR is not on the line's clock — but it is still in
+         * the line's way, which is the honest picture: the machine is busy.
+         *
+         * A spur is a line too. It has a path (out, and back if nothing took the
+         * goods), a length, and one number saying how far along it the box has
+         * got, and it is walked by the same `alongPath` the run is. What it is
+         * not is a special case in here.
+         */
+        if (crate.spur) {
+          this.stepSpur(cell, crate, dt);
+          ahead = crate;
           continue;
         }
-        if (this.armDrop(belt, eject, crate)) {
-          onBelt.delete(belt.id);
-          this.beltClock.delete(belt.id);
+
+        /**
+         * A junction whose reject side is GROUND takes the box off the run.
+         *
+         * On arrival rather than after a cell-time's wait: the travel down the
+         * spur is the time, and charging for the square as well made an ejected
+         * box sit still and then set off, which is the one exit a sorter has
+         * that you cannot watch it use.
+         */
+        if (line.junction && !(at > line.len)) {
+          const eject = this.sorterEject(cell, crate);
+          if (eject && this.armDrop(cell, eject, crate, { dry: true })) {
+            this.armSend(cell, eject, 1, { eject: true });
+            this.sortChoice?.delete(crate.id);
+            ahead = crate;
+            continue;
+          }
+          // The pad is full, or that square stopped being somewhere a box may
+          // go. Carry on down the line rather than jamming the junction, which
+          // is the same call the reject LINE makes about a spur that has backed
+          // up: a stray with nowhere to be is still better on the run.
+        }
+
+        // Which way out, which is only ever a question at a junction — and there
+        // it is `sorterOut`'s, asked with the same "has that line got room"
+        // predicate the movement below uses, so the piece cannot choose a line
+        // by one rule and be held back by another.
+        const ex = this.beltExit(line, crate, (w) => {
+          const a = this.beltAt(w.x, w.z);
+          const l = a ? net.byCell.get(a.id) : null;
+          return !!l && roomAt(l.line, crate);
+        });
+        const total = ex ? ex.total : line.len;
+
+        let cap = ahead ? pos.get(ahead.id) - Game.CRATE_PITCH
+          : (ex && roomAt(ex.line, crate) ? total : line.len);
+        cap = Math.min(cap, total);
+        cap = wholeLegs(line, at, cap, ex ? total - line.len : 0);
+        // Never backwards. A crate that has committed to a hand-off keeps it,
+        // whatever else arrives on the line it is crossing into — which is what
+        // `barrier` counting it as already there is for.
+        cap = Math.max(cap, at);
+
+        const speed = 1 / Math.max(0.01, this.beltSeconds(cell));
+        const to = Math.min(cap, at + speed * dt);
+
+        // THE ONE PLACE A CRATE ON THE NETWORK IS GIVEN A POSITION.
+        const pts = ex ? [...line.pts, { x: ex.cell.x, z: ex.cell.z }] : line.pts;
+        const p = alongPath(pts, to);
+        crate.x = r2(p.x);
+        crate.z = r2(p.z);
+
+        if (ex && to >= total - 1e-9) {
+          // Handed on, and the box has not moved: the point it arrives at is the
+          // point it left from, because a line's path runs to the first cell of
+          // the next one. That overlap is what a seam used to be.
+          crate.belt = ex.cell.id;
+          crate.off = 0;
+          pos.set(crate.id, ex.at);
           this.sortChoice?.delete(crate.id);
+          on.get(ex.line.id)?.push(crate);
+          ahead = null;
           continue;
         }
-        // The pad is full, or that square stopped being somewhere a box may go.
-        // Carry on down the line rather than jamming, which is the same call the
-        // reject LINE makes about a spur that has backed up: a stray with
-        // nowhere to be is still better on the run than stopping the junction.
-      }
 
-      const to = this.sorterOut(belt, crate, (w) => {
-        const a = this.beltAt(w.x, w.z);
-        return !!a && !taken(a.id, belt.id);
-      });
-      const ahead = to ? this.beltAt(to.x, to.z) : null;
-      // How many cells this hand-off crosses. One everywhere except a tunnel,
-      // and the time is charged per cell — a four-cell span covered in one
-      // cell-time is a teleport with a ramp on each end, which is the thing an
-      // underground must not be.
-      const span = ahead ? Math.abs(ahead.x - belt.x) + Math.abs(ahead.z - belt.z) : 1;
-      // A terminus, or a full cell. Sit the box squarely on its own cell — a
-      // jammed crate frozen four fifths of the way onto the next one reads as
-      // the belt having broken mid-step — and DROP the charge rather than
-      // holding it at the brim.
-      //
-      // Holding it was the first shape and the reasoning was that a crate which
-      // has already waited should move the tick the way clears rather than
-      // starting its journey again. What it actually buys is a hand-off with no
-      // travel in it: the transfer itself is instant and the tween happens on
-      // the cell you land on, so a crate that arrives already at `per` moves
-      // again immediately, and a crate queued behind another is blocked every
-      // single time it lands. It therefore jumps cell to cell for ever while the
-      // one in front of it glides — which is exactly what a run of three boxes
-      // looked like, and it reads as two of them being drawn wrong rather than
-      // as a queue.
-      //
-      // A cleared jam costs one cell-time per box now. That is what a conveyor
-      // draining looks like, and the animation is the thing being bought.
-      if (!ahead || taken(ahead.id, belt.id)) {
-        this.beltClock.set(belt.id, 0);
-        this.beltAim.delete(belt.id);
-        crate.x = belt.x;
-        crate.z = belt.z;
-        continue;
+        // Filed against the cell it is standing on, or the one it has last left
+        // while it crosses the gap — which is what `d.belt` has always meant and
+        // what the renderer, the loaders and every sweep in `verify:belts` read.
+        let i = loc.i;
+        while (i + 1 < line.cells.length && to >= line.dist[i + 1] - 1e-9) i += 1;
+        crate.belt = line.cells[i].id;
+        crate.off = to - line.dist[i];
+        pos.set(crate.id, to);
+        ahead = crate;
       }
-
-      // Part way. The crate's cell is still THIS belt — `d.belt` is the truth
-      // and everything that asks a question about where a box is rounds — but
-      // its drawn position travels, or a conveyor is a thing that teleports a
-      // tile at a time.
-      if (clock < span * per) {
-        this.beltClock.set(belt.id, clock);
-        this.beltAim.set(belt.id, ahead.id);
-        aimed.set(ahead.id, belt.id);
-        // Underground, the box is not anywhere you can see, so it does not
-        // travel a drawn line between the two mouths — it would slide across
-        // the floor, the shelves and the aisle the tunnel exists to duck under.
-        // It sits on the entry and `snapshot` leaves it out; see `beltHidden`.
-        if (span > 1) continue;
-        const k = clock / per;
-        crate.x = r2(belt.x + (ahead.x - belt.x) * k);
-        crate.z = r2(belt.z + (ahead.z - belt.z) * k);
-        continue;
-      }
-
-      onBelt.delete(belt.id);
-      this.beltClock.delete(belt.id);
-      this.beltAim.delete(belt.id);
-      aimed.delete(ahead.id);
-      this.sortChoice?.delete(crate.id);
-      crate.belt = ahead.id;
-      crate.x = ahead.x;
-      crate.z = ahead.z;
-      onBelt.set(ahead.id, crate);
-      this.beltClock.set(ahead.id, 0);
     }
   }
 
   /**
-   * Put a crate onto a belt, or refuse.
+   * Put a crate onto a conveyor cell, or refuse.
    *
    * One cell holds one crate, and this is the only thing that ever sets
-   * `d.belt`. Deliberately NOT routed through `dropGoods`: that function merges
-   * with a crate of the same kind within a couple of tiles and stacks a new box
-   * on the cell when it cannot, and both are exactly wrong on a conveyor. A run
-   * of belt is a QUEUE, and a queue whose members merge is a queue that
-   * silently loses its own count.
+   * `d.belt` from outside the pass. Deliberately NOT routed through `dropGoods`:
+   * that function merges with a crate of the same kind within a couple of tiles
+   * and stacks a new box on the cell when it cannot, and both are exactly wrong
+   * on a conveyor. A run is a QUEUE, and a queue whose members merge is a queue
+   * that silently loses its own count.
    */
   loadBelt(belt, crate) {
     if (!belt || !crate) return false;
-    if (this.deliveries.some((d) => d.belt === belt.id)) return false;
-    // ...and not one a box is already gliding into. The cell is empty for the
-    // length of that hand-off, and a crate posted into the gap would arrive
-    // under one that is committed — see `beltAim`.
-    if (this.beltAim && [...this.beltAim.values()].includes(belt.id)) return false;
+    // Empty, and not one a box is already gliding into — see `beltBusy`. The
+    // cell is nobody's for the length of a hand-off, and a crate posted into the
+    // gap would arrive under one that is already committed.
+    if (!this.beltCellFree(belt)) return false;
     crate.belt = belt.id;
+    crate.off = 0;
     crate.x = belt.x;
     crate.z = belt.z;
-    this.beltClock ??= new Map();
-    this.beltClock.set(belt.id, 0);
     return true;
   }
 
@@ -10664,7 +10746,7 @@ export class Game {
     if (!cell) return err('that is not a conveyor');
     const piles = lotStacks(lot);
     if (!piles.length) return err('nothing to put down');
-    if (this.deliveries.some((d) => d.belt === cell.id)) {
+    if (!this.beltCellFree(cell)) {
       return err('there is already a crate on that belt');
     }
 
@@ -10674,10 +10756,9 @@ export class Game {
       x: cell.x,
       z: cell.z,
       belt: cell.id,
+      off: 0,
     };
     this.deliveries.push(del);
-    this.beltClock ??= new Map();
-    this.beltClock.set(cell.id, 0);
     return ok({ crate: del.id, belt: cell.id, qty: lotTotal(del) });
   }
 
@@ -10708,7 +10789,7 @@ export class Game {
     if (!cells.length) return null;
     const piles = lotStacks(lot).filter((p) => p.qty > 0 && !givenUp(this, p.item_id));
     if (!piles.length) return null;
-    const busy = new Set(this.deliveries.filter((d) => d.belt).map((d) => d.belt));
+    const busy = this.beltBusy();
 
     let best = null;
     let bestD = Infinity;
@@ -10787,8 +10868,11 @@ export class Game {
       // speed, and the transfer happens when it ARRIVES. There is exactly one
       // answer to where a box is — `d.x`/`d.z`, the same field a crate on any
       // other cell uses — and the renderer draws it and nothing else.
-      const riding = this.deliveries.find((d) => d.belt === arm.id);
-      if (riding?.spur) { this.stepSpur(arm, riding, dt); continue; }
+      // Advanced by `stepBelts`, which walks every conveyor cell rather than
+      // only the arms — see the note there. Skipped rather than stepped, or the
+      // travel is advanced twice a tick and a spur runs at double track speed.
+      const riding = this.armHolds(arm);
+      if (riding?.spur) continue;
 
       const mult = this.fixtureStats(arm).speed_mult || 1;
       const per = Game.ARM_SECONDS / mult;
@@ -10810,7 +10894,7 @@ export class Game {
        * a shelf has no box any more, so the one outcome the light exists to
        * report is the one that would never be recorded.
        */
-      const held = this.deliveries.some((d) => d.belt === arm.id);
+      const held = !!this.armHolds(arm);
       const did = this.armSwing(arm);
       if (did) this.armClock.set(arm.id, 0);
       /**
@@ -10906,19 +10990,52 @@ export class Game {
   }
 
   /**
+   * A SPUR IS A LINE, and this is its path.
+   *
+   * The one thing that makes it worth saying so: an out-and-back is a path that
+   * visits three points, so a box crossing to a shelf and a box coming home
+   * again are one journey with one number on it rather than two legs that have
+   * to be flipped between. There is no direction to get wrong at the turn and
+   * nothing to re-place when it happens.
+   *
+   * A lift is the one-way half of the same thing — it starts where the box the
+   * player was looking at actually is and rides in — so it is the same path
+   * with the near end dropped.
+   */
+  static spurPath(arm, sp) {
+    const home = { x: arm.x, z: arm.z };
+    const far = { x: arm.x + sp.dx * sp.reach, z: arm.z + sp.dz * sp.reach };
+    return sp.act === 'lift' ? [far, home] : [home, far, home];
+  }
+
+  /**
    * Send a crate off along one of a loader's spurs.
    *
    * `out` is which way it crosses: 1 for a pour, which travels from the machine
    * to the unit and does the transfer on arrival, and 0 for a lift, which starts
-   * at the far end — where the box the player was looking at actually is — and
-   * rides in to join the run.
+   * at the far end and rides in to join the run.
    */
-  armSend(arm, at, out) {
-    const crate = this.deliveries.find((d) => d.belt === arm.id);
+  armSend(arm, at, out, { eject = false } = {}) {
+    // `armHolds` and not "whichever crate names this cell", which are the same
+    // question for a machine standing still and different ones for a box that
+    // has begun to leave. Asked the loose way, a loader that thought it was
+    // empty would grab the crate half way onto the next square and fling it
+    // down a spur — a box teleporting back a tile and setting off sideways.
+    const crate = this.armHolds(arm);
     if (!crate) return null;
     const dx = Math.sign(at.x - arm.x);
     const dz = Math.sign(at.z - arm.z);
-    crate.spur = { dx, dz, out: out ? 1 : 0, k: 0, reach: this.spurReach(at) };
+    const reach = this.spurReach(at);
+    // `eject` is a sorter's off-ramp, which sets goods DOWN and never stocks
+    // anything — see `armLand`. A junction has no opinion about shelves; if it
+    // had, it would be a loader.
+    const act = out ? (eject ? 'eject' : 'pour') : 'lift';
+    crate.spur = { dx, dz, reach, act, at: 0, len: act === 'lift' ? reach : reach * 2 };
+    // Squarely on the machine's own square for the length of the trip: the box
+    // is off the line's clock but still in the line's way, and the crate behind
+    // it queues against the cell rather than against wherever the spur has
+    // carried this one to.
+    crate.off = 0;
     this.stepSpur(arm, crate, 0);
     return Game.armSide(arm, at, out ? 1 : 0);
   }
@@ -10926,62 +11043,65 @@ export class Game {
   /**
    * Advance a crate along the spur it is on, and act when it gets there.
    *
-   * At TRACK SPEED — `beltSeconds` times the length of the spur — because a spur
-   * is a length of the same run and a box on it has no reason to move at a
-   * different rate from a box one tile back. A `speed_mult` on the machine's own
-   * tier therefore moves this with it, which is what stops a fast loader having a
-   * slow throat.
+   * At TRACK SPEED, the same tiles per second a box one tile back is doing,
+   * because a spur is a length of the same run. A `speed_mult` on the machine's
+   * own tier therefore moves this with it, which is what stops a fast loader
+   * having a slow throat.
+   *
+   * The goods change hands at the FAR POINT — half way along an out-and-back —
+   * and never on the way out. That is the property the whole spur exists for:
+   * a pour used to be instant, so the renderer was handed a box that had ceased
+   * to exist at the machine's centre and asked to invent the journey afterwards.
+   * Two things owned where the crate was, at 10Hz and 60Hz, and every stutter
+   * and snap-back came out of that one disagreement.
    */
   stepSpur(arm, crate, dt) {
     const sp = crate.spur;
-    const per = Math.max(0.05, this.beltSeconds(arm) * sp.reach);
-    sp.k = Math.min(1, sp.k + dt / per);
-    // Out runs 0 → 1 and in runs 1 → 0, off the same number, so the two
-    // directions cannot drift apart the way two expressions of them did.
-    const along = (sp.out ? sp.k : 1 - sp.k) * sp.reach;
-    crate.x = r2(arm.x + sp.dx * along);
-    crate.z = r2(arm.z + sp.dz * along);
-    if (sp.k < 1) return;
+    const speed = 1 / Math.max(0.01, this.beltSeconds(arm));
+    sp.at = Math.min(sp.len, sp.at + speed * dt);
 
+    const p = alongPath(Game.spurPath(arm, sp), sp.at);
+    crate.x = r2(p.x);
+    crate.z = r2(p.z);
+
+    // The turn, which is where the goods actually move. Once only — `done` is
+    // what stops a box that is held at the far point re-pouring every tick.
+    if (sp.act !== 'lift' && !sp.done && sp.at >= sp.reach - 1e-9) {
+      sp.done = 1;
+      const at = { x: arm.x + sp.dx, z: arm.z + sp.dz };
+      const had = lotTotal(crate);
+      if (sp.act === 'eject') this.armDrop(arm, at, crate);
+      else this.armLand(arm, at, crate);
+
+      // A SIDE THAT TOOK NOTHING IS NOT ASKED AGAIN NEXT TIME, and without this
+      // the whole design has a shuttle in it.
+      //
+      // `armTakes` reads `shelfAccepts`, which answers whether the unit is the
+      // right KIND and unreserved — it is not a promise that a board has room
+      // this instant. So a full shelf can probe yes and pour nothing, and the
+      // crate rides out, comes back, and is sent to the same side on the next
+      // swing, for the rest of the save. Every part of that is a machine working
+      // correctly and what you watch is a box going back and forth for ever.
+      //
+      // On the CRATE rather than on the arm, because it is a fact about this box
+      // and that unit: another crate holding something else should still be
+      // offered the same side. Cleared the moment anything moves, so a shelf
+      // that sells down is tried again on the very next swing.
+      if (!this.deliveries.some((d) => d.id === crate.id)) return;
+      if (lotTotal(crate) < had) crate.armNo = null;
+      else crate.armNo = { dx: sp.dx, dz: sp.dz };
+    }
+
+    if (sp.at < sp.len) return;
+    // Home. It is an ordinary crate on an ordinary cell again and `stepBelts`
+    // takes it from here, with nothing to hand over. What is still in the box is
+    // whatever that side would not take — the shelf filled up while it was
+    // travelling, or it was a mixed box and only part of it belonged there — so
+    // it simply rides on to whatever will.
     crate.spur = null;
-    if (!sp.out) {
-      // Arrived on the machine. It is an ordinary crate on an ordinary cell
-      // again and `stepBelts` takes it from here, with nothing to hand over.
-      crate.x = arm.x;
-      crate.z = arm.z;
-      return;
-    }
-
-    const at = { x: arm.x + sp.dx, z: arm.z + sp.dz };
-    const had = lotTotal(crate);
-    this.armLand(arm, at, crate);
-
-    // A SIDE THAT TOOK NOTHING IS NOT ASKED AGAIN NEXT TIME, and without this
-    // the whole design has a shuttle in it.
-    //
-    // `armTakes` reads `shelfAccepts`, which answers whether the unit is the
-    // right KIND and unreserved — it is not a promise that a board has room
-    // this instant. So a full shelf can probe yes and pour nothing, and the
-    // crate rides out, comes back, and is sent to the same side on the next
-    // swing, for the rest of the save. Every part of that is a machine working
-    // correctly and what you watch is a box going back and forth for ever.
-    //
-    // On the CRATE rather than on the arm, because it is a fact about this box
-    // and that unit: another crate holding something else should still be
-    // offered the same side. Cleared the moment anything moves, so a shelf that
-    // sells down is tried again on the very next swing.
-    if (lotTotal(crate) < had) crate.armNo = null;
-    else crate.armNo = { dx: sp.dx, dz: sp.dz };
-
-    // Still here? Then it is holding something that side would not take — the
-    // shelf filled up while it was travelling, or it was a mixed box and only
-    // part of it belonged there — so it rides back onto the run rather than
-    // being left standing on a shelf. The box that gets emptied is simply gone
-    // by now, which is the one case that needs nothing at all.
-    if (this.deliveries.some((d) => d.id === crate.id)) {
-      crate.spur = { dx: sp.dx, dz: sp.dz, out: 0, k: 0, reach: sp.reach };
-      this.stepSpur(arm, crate, 0);
-    }
+    crate.off = 0;
+    crate.x = arm.x;
+    crate.z = arm.z;
   }
 
   /**
@@ -11084,9 +11204,24 @@ export class Game {
     return { x: s.x - arm.x, z: s.z - arm.z, out };
   }
 
+  /**
+   * The crate this machine is actually HOLDING, which is not the same question
+   * as which crate is filed on its square.
+   *
+   * A box keeps naming the cell it set off from for the whole of a hand-off, so
+   * a crate that has begun to leave is still `d.belt === arm.id` while its
+   * drawn position is most of the way onto the next square. A loader that
+   * grabbed one of those would pull it back to its own centre and set it off
+   * sideways — a box jumping backwards a fraction of a tile, which is what a
+   * busy junction used to look like.
+   */
+  armHolds(arm) {
+    return this.deliveries.find((d) => d.belt === arm.id && !(d.off > 0)) ?? null;
+  }
+
   armSwing(arm) {
     const sides = [0, 1, 2, 3].map((r) => anchorTile(arm.x, arm.z, r));
-    const riding = this.deliveries.find((d) => d.belt === arm.id);
+    const riding = this.armHolds(arm);
 
     // Which half of its job this one does. See `setArmMode`.
     const mode = arm.mode === 'load' || arm.mode === 'unload' ? arm.mode : 'both';
@@ -11158,6 +11293,16 @@ export class Game {
 
     // Nothing goes ON the line here. Everything below is a pickup.
     if (mode === 'unload') return null;
+
+    // ...and nothing goes on a square a box is still crossing OUT of.
+    //
+    // `armHolds` says the machine is empty the moment its crate has begun to
+    // leave, which is right about what it is holding and not about what its
+    // square can take: one cell holds one crate, and the box on its way out is
+    // still that one. `loadBelt` refuses correctly and `armTake`/`armPull`
+    // never asked, so the lift went ahead against a crate that was not there
+    // and the run put its box down on the floor instead.
+    if (!this.beltCellFree(arm)) return null;
 
     // 2. Empty: lift a crate off the floor beside it, which is how goods get out
     // of the yard and onto the run. Never off another conveyor cell — that is
@@ -14818,8 +14963,14 @@ export class Game {
       d.z = to.z;
     }
     // Rebuilt against the new building on the next tick rather than carried
-    // over: both are keyed by fixture id, and a re-flow re-mints them.
-    this.beltClock = null;
+    // over: keyed by fixture id, and a re-flow re-mints them.
+    //
+    // A crate needs no such treatment and that is the point of `d.belt` being
+    // the address: it holds a cell rather than a distance, so a re-flow that
+    // re-cuts every line in the shop leaves every box exactly where it was
+    // standing. A distance kept against a line would be measured from somewhere
+    // else the moment somebody extended a run — which is a purchase, and a
+    // purchase re-flows.
     this.armClock = null;
 
     // Everyone mid-path is now walking to somewhere that may not exist.

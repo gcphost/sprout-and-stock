@@ -458,10 +458,17 @@ Thirty sweeps, about a minute:
   never merge with the box in front of it, and un-jam the moment the head clears —
   a spill would bury the shop in crates while looking like it was working, and it
   would throw away the one signal the player has. Plus the ordering, which is why
-  `beltOrder` exists at all: stepped in list order a crate crosses the shop in a
-  single tick and a belt is a teleporter with an animation on it, while stepped
-  against a snapshot a run drains like a slinky — both read as belts being broken
-  and neither is a crash. And the arm, which is where the review effort belongs:
+  lines are stepped downstream-first at all: stepped the other way a crate crosses
+  the shop in a single tick and a belt is a teleporter with an animation on it,
+  while stepped against a snapshot a run drains like a slinky — both read as belts
+  being broken and neither is a crash. Since the line rewrite it also guards
+  CONTINUITY, which is the only claim in the file about the shape of the code
+  rather than about goods and is therefore written as a measurement taken every
+  tick: over a straight run, a bend and a junction, each with the jam that used to
+  break it, no crate ever goes backwards along its path and none ever steps
+  further than one tick of travel. It replaced a claim about `BELT_CREEP_MAX` —
+  which was a claim about the per-cell implementation, and that implementation is
+  what the four reports were. And the arm, which is where the review effort belongs:
   it obeys the placement rule (`shelfAccepts` to probe, `pourInto` to commit) and
   **exactly one** judgement rule, `givenUp` — asserted as a value each way, since
   "obeys everything a hire obeys" passes every other assertion in the file. One
@@ -756,7 +763,7 @@ what the next step was meant to be.
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, and the roller door that is a way through whose whole feature is the picture | steps 1–9, 11, 13–21 built; 10 cancelled; 12 next |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
-| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue | steps 1–3 and 2b built; 4–6 proposed |
+| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit | steps 1–3, 2b and 3b built; 4–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, and the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board | steps 1–9 built |
@@ -2281,14 +2288,38 @@ what the next step was meant to be.
   construction and falls back to a guess; and the result is cached against
   `L.belts`/`L.arms` by identity, so anything that *mutates* those arrays in
   place rather than re-flowing would hand out a stale map.
-- **…and a jammed crate must drop its charge, not hold it at the brim.** A
-  hand-off is instant — the travel is drawn on the cell you land ON — so a crate
-  that arrives with its clock already at `per` moves again on the very next tick.
-  A crate queued behind another is blocked *every* time it lands, so it jumps
-  cell to cell for ever while the box in front of it glides. Three boxes on a
-  loop, one of them smooth, and it reads as the other two being drawn wrong
-  rather than as a queue. A cleared jam costs one cell-time per box, which is
-  what a conveyor draining looks like and is the thing being bought.
+- **…and the unit is the LINE, never the tile — which is what four separate
+  crate bugs turned out to be.** Crates skipped at a T, would not tween through a
+  turn, appeared at the end of a segment, and reset to the start of a cell when a
+  jam cleared. Each was fixed on its own and each fix exposed the next, because
+  none of them was the bug: every cell owned a crate, a clock (`beltClock`), a
+  reservation of the cell in front (`beltAim`) and its own answer to where that
+  crate went next, so the code where two cells met was a **seam** — a creep to
+  bank, a corner to special-case, a junction that asked a different question when
+  its exits were full, and five different writers of `crate.x` that agreed
+  everywhere except at the joins. A junction is where a crate changes which of
+  those branches it is in, which is why a junction is where all four were
+  reported. `conveyorLines` (`shared/build.js`) is Factorio's answer and this
+  one: a line is a maximal chain with a path and a length, a crate on it has ONE
+  number, the head advances if the exit will take it, everything behind is
+  clamped `CRATE_PITCH` back, and `alongPath` derives the position. Four things
+  about it are not obvious. A **loader does not break a line** even though it is
+  a machine — it stands *in* the run, so breaking at machines turns a six-loader
+  aisle back into six one-cell lines, which is the per-cell shape with a new
+  spelling in exactly the shop belts exist for. The seam **overlaps**: a line's
+  path runs to the first cell of the NEXT line, so the hand-off point is one both
+  agree about and the box does not move when it changes hands — end it at its own
+  last cell and there is a one-tile jump at every join, which is the skip rebuilt.
+  The address is a **cell and not a distance** (`d.belt` + `d.off`), because a
+  distance kept against a line is measured from somewhere else the moment
+  somebody extends a run, and extending a run is a purchase, and a purchase
+  re-flows. And a crate **must not count itself**: a ring is a line that feeds
+  itself, so a box part way round the join sees its own committed hand-off as
+  something in its way and waits for itself for ever — the one place the obvious
+  code is silently a deadlock, and it draws as a conveyor that works until you
+  close the loop. `CRATE_PITCH` is a whole cell rather than a box-width for the
+  same reason: the clamp is now the only thing bounding what a run carries, so a
+  tighter pitch would silently double it.
 - **…and a crate riding a belt is a STRAY as far as `unload` is concerned, which
   is a 1e6 bonus.** `stockCrates()` is deliberately the whole list — `homeSupply`
   counts a box on a conveyor as supply the shop already owns, `binOrphans` sweeps

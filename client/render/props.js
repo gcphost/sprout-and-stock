@@ -705,8 +705,15 @@ export const CRATE_STEP = CRATE_DECK + CRATE_H;
  * because a belt with authored art is drawn from its own model and this is the
  * height goods sit at either way — the deck a belt has, not the height a
  * particular belt happens to be.
+ *
+ * It was 0.12, which was the top of the carriers back when a carrier was a
+ * half-tenth-tall block the box literally sat on. They are flat markings now —
+ * a light rather than a roller — so the surface a crate rests on is the deck
+ * itself plus the sliver of paint on it, and a box left at the old height would
+ * hover a fiftieth of a tile over its own belt. Small, and exactly the size of
+ * gap the eye reads as a thing not touching what it is standing on.
  */
-export const BELT_DECK = 0.12;
+export const BELT_DECK = 0.1;
 
 /**
  * A delivered pallet waiting at the bay: a crate, a sample of what's inside,

@@ -1,6 +1,6 @@
 # Belts — the trip nobody walks
 
-Status: **steps 1, 2, 2b and 3 built.** Steps 4–6 proposed.
+Status: **steps 1, 2, 2b, 3 and 3b built.** Steps 4–6 proposed.
 
 Steps 1–3 are the build. Steps 4–6 are written down so the shape is argued now
 rather than discovered later, and should not be started.
@@ -180,6 +180,12 @@ container CLAUDE.md forbids.
 A belt is furniture that happens to be flat.
 
 ### The tick
+
+> **Rewritten.** What follows is the shape steps 1–3 were built on and it is
+> kept because the *rules* it states are still the rules — one crate per cell,
+> backpressure, nothing off the end. How they are arrived at is completely
+> different, and the argument is in **Step 3b — the line** below. Read that
+> before touching `stepBelts`.
 
 One pass, in fixture order, **downstream first** — the last belt in a run moves
 before the one feeding it, or a crate skates the whole length of the belt in a
@@ -404,7 +410,9 @@ saying to a player: **belts on the corners, loaders down the straights.**
 means the box moves again the tick the way clears — and since the *travel* is
 drawn on the cell you land on, a crate blocked every time it lands never plays
 one. Three crates on a loop, one smooth. A cleared jam costs one cell-time per
-box now, which is what a conveyor draining looks like.
+box now, which is what a conveyor draining looks like. *(Retired by step 3b:
+there is no charge, and a jam clears from the front at the speed of the belt
+because the clamp lets go. The bug it names is the reason the rewrite happened.)*
 
 ### What `rot` means on a loader now: three answers, decided by what is there
 
@@ -745,6 +753,131 @@ this ships **with** the feature, the way `verify:doors`, `verify:park`,
   ordering being broken, days downstream of laying a belt.
 - **Ids do not collide.** `fx-N` against the generator's namespace, or a re-flow
   hands a belt somebody else's crate.
+
+---
+
+## Step 3b — the line, which is what the unit should have been all along
+
+**Built.** Nothing a player can measure changed: one crate per cell, the same
+backpressure, the same sorter rules, the same loaders, the same spurs, the same
+speeds. What changed is what the code is made of, and it is the only entry in
+this document written to a class of bug rather than to a feature.
+
+### The complaint
+
+Crates skipped at a T junction. Crates did not tween through a turn. Crates
+appeared at the end of a segment. A crate reset to the start of its cell when a
+jam cleared. Four reports, four fixes, and each fix exposed the next one.
+
+They were one bug. **The unit was the TILE.** Every conveyor cell owned at most
+one crate, its own clock (`beltClock`), its own reservation of the cell in front
+(`beltAim`) and its own answer to where that crate went next; the drawn position
+was a per-cell tween off that clock. So the code where two cells meet was a
+**seam**, and a seam is a place two correct rules have to agree:
+
+- a blocked crate had to creep forward to sit behind the box in front, bounded
+  by its own leading edge, and the creep had to be banked into the clock or the
+  crate was re-drawn at its own centre the tick the way cleared;
+- a corner had to be a special case, because the tween's direction came off the
+  pair of cells rather than off a path;
+- a junction asked a different question when its exits were full than when they
+  were free, and the answer had to be remembered or it flickered twenty times a
+  second;
+- and the position of a crate was assigned in five branches — moving, blocked,
+  arriving, on a spur, held at an eject — each right on its own.
+
+A junction is where a crate changes which of those branches it is in, which is
+why a junction is where every one of them was reported.
+
+### The shape
+
+[Factorio's](https://www.factorio.com/blog/post/fff-176), for its reason: **the
+unit is the transport line.**
+
+- A **line** (`conveyorLines`, [shared/build.js](shared/build.js)) is a maximal
+  chain of conveyor cells with an ordered path and a length in tiles. One
+  object.
+- A crate on a line has **one piece of state**: how far along it has got.
+- Each tick the crate at the **head** advances if the line's exit will take it,
+  and every crate behind is clamped to at least `CRATE_PITCH` behind the one in
+  front. That clamp **is** backpressure, **is** the compaction a jam draws, and
+  **is** the one-crate-per-cell rule, because the pitch is a cell.
+- Position is **derived** by walking the path (`alongPath`), in one function.
+
+Corners fall out because the path bends. There is no corner code, no creep, no
+per-cell clock, no reservation and no junction special case, and deleting all
+five is the test that the rewrite actually happened rather than being painted
+over.
+
+### Where a line ends — three answers, and one deliberate non-answer
+
+A **junction** is a line of its own. A sorter chooses between ways out, so it
+cannot be a link in a chain that has already decided where it goes: it breaks
+lines apart rather than participating in one.
+
+A **merge** starts one. Two lines feeding one cell need somebody told no, and
+the only place that can be said once is the cell they are both aiming at.
+
+A **terminus** ends one, which is a cell handing to nothing.
+
+**A loader is none of those, and that is the load-bearing call.** The obvious
+reading is that the machines are the endpoints — and it is wrong here, because
+this game's loaders stand *in* the run ("belts on the corners, loaders down the
+straights"). Break at them and an aisle stocked by six is six lines of one cell
+each, which is the per-cell shape back with a new spelling, in exactly the shop
+this whole feature exists for. What a loader does to a crate is hold it and send
+it sideways, and neither of those is a question about which way the line goes.
+
+### The four things that are not obvious
+
+**The seam has to OVERLAP.** A line's path runs to the *first cell of the next
+line*, not to its own last cell, so the point a crate is handed on at is a point
+both lines agree about and the box does not move a millimetre when it changes
+hands. Ending a line at its own last cell would put a one-tile jump at every
+join — which is the skip, rebuilt.
+
+**The address is a CELL and the model is a line.** A crate stores `d.belt` (the
+cell) and `d.off` (how far past its centre), and the distance along the line is
+computed from those. Storing the distance instead would be simpler and would go
+stale the first time anybody re-cut the lines: extend a run upstream and every
+box on it is suddenly measured from somewhere else. A cell id is a fact about
+the shop that survives a re-flow, is already saved, is already what the renderer
+files a box by, and is already swept when the cell is demolished.
+
+**The reservation is a NEGATIVE distance rather than a map.** `beltAim` existed
+so two cells could not both hand into a third. The line version is that a crate
+which has left its own line's last cell but not yet arrived is counted at a
+negative distance along the line it is heading for, so anything else feeding
+that line sees it coming. Nothing is stored, so nothing can be left standing
+when a crate is eaten by a shelf half way through a hand-off — which is the
+failure a stored reservation has and this one cannot.
+
+**...and a crate must not count ITSELF.** A ring is a line that feeds itself, so
+a box part way round the join would see its own committed hand-off as something
+in its way and stop dead on the seam for ever, waiting for itself. It is the one
+case in the whole thing where the obvious code is silently a deadlock, and it
+draws as a conveyor that works until you close the loop.
+
+### A spur is a line too
+
+A loader's spur was the last special case and it is folded in: the path is
+`[machine, unit, machine]` — out, and back if the unit would not take everything
+— with one number saying how far along it the box has got, walked by the same
+`alongPath` the run is. There is no direction to get wrong at the turn and
+nothing to re-place when it happens. A lift is the same path with the near end
+dropped. The goods still change hands **on arrival**, which is the property the
+spur was built for.
+
+### What `verify:belts` claims now
+
+Section 15 was a claim about `BELT_CREEP_MAX` — a blocked crate creeping up
+behind the box in front, bounded by its own leading edge — and that is a claim
+about an implementation that no longer exists. It is now the continuity claim,
+which is what a player was actually reporting: over a straight run, a bend and a
+junction, each with the jam that used to break it, **nothing goes backwards
+along the path and nothing steps further than one tick of travel**, asserted
+every tick. Plus the capacity half, which is the thing the pitch decides: two
+queued boxes sit squarely on two different cells exactly one pitch apart.
 
 ---
 

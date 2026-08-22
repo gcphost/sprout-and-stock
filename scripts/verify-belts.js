@@ -24,10 +24,17 @@
  *   which runs whatever it is handed through `shelfKind`, so a kind with no
  *   branch is not refused — it is silently BUILT AS SHELVING, keeps its id and
  *   its price, and takes bread.
- * - **A run advances as a LINE**, which is the whole of why `beltOrder` exists.
- *   Stepped in list order a crate crosses the shop in one tick; stepped against
- *   a snapshot a run drains like a slinky. Both read as belts being broken, and
- *   neither is a crash.
+ * - **A run IS a line**, which since the rewrite is literal: `conveyorLines`
+ *   cuts the shop's conveyors into objects with a path and a length, a crate on
+ *   one has a single number, and the stepping order is downstream-first over
+ *   those. Stepped the other way a crate crosses the shop in one tick; stepped
+ *   against a snapshot a run drains like a slinky. Both read as belts being
+ *   broken, and neither is a crash.
+ * - **…and it is continuous**, asserted every tick over a straight run, a bend
+ *   and a junction: nothing goes backwards along the path and nothing steps
+ *   further than one tick of travel. That is the claim the per-cell shape could
+ *   not make, because a cell owning a crate, a clock and a decision put a SEAM
+ *   between every pair of them.
  * - **Corners are free.** An east belt feeding a north belt IS a corner. If
  *   this ever needs a corner piece, the design was wrong.
  * - **Backpressure**, and it is the centrepiece of the step-1 half. A belt that
@@ -780,7 +787,14 @@ function armIntoShelf(g, { item = GOODS, prep = null, turn = 0, past = false, lo
         // ever have told the difference, and the thing they CAN tell is that the
         // box is visibly on its way somewhere.
         check(!!crate.spur, '...which is to send the crate down a spur, not to empty it');
-        for (let i = 0; i < 400 && !(on(warm) > 0 && on(cold) > 0); i++) g.stepArms(0.05);
+        // BOTH steps, because a spur is advanced by `stepBelts` rather than by
+        // `stepArms` — it is a length of the run, and `beltOrder` is what walks
+        // the run. Driving the arms alone dispatches a crate that then never
+        // moves, which is a sweep that hangs rather than one that fails.
+        for (let i = 0; i < 400 && !(on(warm) > 0 && on(cold) > 0); i++) {
+          g.stepBelts(0.05);
+          g.stepArms(0.05);
+        }
         check(on(warm) > 0 && on(cold) > 0,
           'both sides are stocked off one box', `shelf ${on(warm)}, freezer ${on(cold)}`);
         eq(units(g), total, '...and nothing was created or destroyed reaching two of them');
@@ -982,41 +996,229 @@ function beltRect(g) {
 }
 
 // ---------------------------------------------------------------------------
-// 15. A box that was held up still TRAVELS when the way clears.
+// 15. CONTINUITY: a box never jumps, and a jam is one crate per cell.
 //
-// The one claim in here about how a thing is drawn, and it is here because a
-// jammed queue is the state the whole feature is meant to make readable. A
-// hand-off is instant — the tween happens on the cell you land on — so a crate
-// whose charge was still at the brim when it arrived moves again on the very
-// next tick, and a crate queued behind another is blocked EVERY time it lands.
-// It therefore jumps cell to cell for ever while the box in front of it glides,
-// which reads as two of the three being drawn wrong rather than as a queue.
+// The centrepiece of the line rewrite, and the only claim in this file about
+// the SHAPE of the code rather than about goods — which is exactly why it is
+// written as a measurement taken every tick rather than as a value read at the
+// end. A crate that skipped a tile and a crate that travelled it are the same
+// box on the same shelf a second later, so nothing downstream of here can tell
+// them apart, and watching the game is the one way anybody ever could.
+//
+// It replaces a claim about `BELT_CREEP_MAX` — a blocked crate creeping up
+// behind the one in front, bounded by its own leading edge — which was a claim
+// about the per-cell implementation and not about anything a player can name.
+// A cell owned a crate, a clock and a decision, so the code between two cells
+// was a SEAM, and the seams disagreed: boxes skipped at a T, would not tween
+// through a bend, appeared at the end of a segment, and snapped back to the
+// start of a cell when a jam cleared. The unit is the LINE now, a crate on one
+// has a single number, and the two properties below are what that buys.
+//
+//   nothing ever goes BACKWARDS along the path — measured as distance along the
+//   line plus the length of every line already finished, so a hand-off is only
+//   continuous if both lines agree where the seam is;
+//
+//   and no step is bigger than ONE TICK OF TRAVEL, which is what a teleport, a
+//   skip and a snap-back all are.
+//
+// Asked of a straight run, a bend and a junction, each with the jam that used
+// to break it, because the old failures were at the seams and every one of
+// those three is a different seam.
 // ---------------------------------------------------------------------------
-{
-  const g = fresh();
-  const cells = beltRun(g, 3);
-  const belts = lay(g, cells);
-  // The lead box runs into the end of the line and stops there; the one behind
-  // it is held until that happens, which is the state being tested.
-  crateOn(g, belts[1], GOODS, 2);
-  const follow = crateOn(g, belts[0], COLD, 2);
 
-  let held = false;
-  let tweened = false;
-  for (let i = 0; i < 80; i++) {
+/** One tick of travel at tier 1, and what `r2` costs on the way to the wire. */
+const TRAVEL = 0.1 / Game.BELT_SECONDS;
+const ROUNDING = 0.02;
+
+/**
+ * Step `ticks` ticks, checking both properties of every crate on every one.
+ *
+ * `progress` is the crate's own distance along its line plus the total of the
+ * lines behind it, which is the number a disagreement between two lines would
+ * break. `jump` is ordinary distance across the floor, which is the number a
+ * teleport would break.
+ */
+function smooth(g, label, crates, ticks, at = {}) {
+  const state = new Map();
+  const seat = (d) => {
+    if (!state.has(d.id)) state.set(d.id, { base: 0, x: d.x, z: d.z, line: null });
+    return state.get(d.id);
+  };
+  let jumped = null;
+  let back = null;
+  let biggest = 0;
+  for (let i = 0; i < ticks; i++) {
+    at[i]?.();
     g.step(0.1);
-    if (follow.belt === belts[0].id && follow.x === belts[0].x && follow.z === belts[0].z) held = true;
-    // Still filed on its own cell, drawn somewhere between it and the next.
-    if (follow.belt === belts[0].id && (follow.x !== belts[0].x || follow.z !== belts[0].z)) {
-      tweened = true;
+    for (const d of crates) {
+      const s = seat(d);
+      const live = g.deliveries.find((q) => q.id === d.id);
+      if (!live) { s.gone = true; continue; }
+      if (s.gone) continue;
+      const jump = Math.hypot(live.x - s.x, live.z - s.z);
+      biggest = Math.max(biggest, jump);
+      if (jump > TRAVEL + ROUNDING) {
+        jumped ??= `${jump.toFixed(3)} tiles at t=${(i * 0.1).toFixed(1)}`;
+      }
+      s.x = live.x; s.z = live.z;
+      const spot = g.beltSpot(live);
+      if (!spot) { s.line = null; continue; }
+      // A line runs to the FIRST CELL of the next one, so what a crate finished
+      // when it changed hands is that overlap included.
+      if (s.line && spot.line !== s.line) s.base += s.finished ?? 0;
+      s.line = spot.line;
+      const ex = g.beltExit(spot.line, live);
+      s.finished = ex ? ex.total : spot.line.len;
+      const now = s.base + spot.at;
+      if (s.was != null && now < s.was - 1e-6) {
+        back ??= `${s.was.toFixed(3)} → ${now.toFixed(3)} at t=${(i * 0.1).toFixed(1)}`;
+      }
+      s.was = now;
     }
   }
-  check(held, 'the second box is held while the first is in the way');
-  check(tweened, '...and travels its cell rather than jumping when the way clears');
-  eq(follow.belt, belts[1].id, '...arriving one cell along');
+  check(!jumped, `${label}: no box ever jumps further than one tick of travel`,
+    jumped ? `${jumped}, against ${TRAVEL.toFixed(3)}` : '');
+  check(!back, `${label}: no box ever goes backwards along the path`, back ?? '');
+  check(biggest > 0.01, `${label}: ...and they did in fact move`);
 }
 
-// ---------------------------------------------------------------------------
+{
+  // A straight run of five into a dead end, three boxes on it, and the head
+  // taken away half way through — which is the moment a per-cell charge dropped
+  // to zero and re-drew a crept crate back at its own centre. That is the
+  // "resets to the start of a cell when a jam clears" report, and it fires
+  // exactly when a jam clears, which is why it read as the busy junction.
+  const g = fresh();
+  const cells = beltRun(g, 5);
+  check(!!cells, 'there is room for a run to queue along');
+  if (cells) {
+    const belts = lay(g, cells);
+    const head = crateOn(g, belts[4], GOODS, 2);
+    const mid = crateOn(g, belts[2], COLD, 2);
+    const tail = crateOn(g, belts[0], GOODS, 2);
+    smooth(g, 'straight run', [head, mid, tail], 120, {
+      60: () => { g.deliveries = g.deliveries.filter((d) => d.id !== head.id); },
+    });
+
+    // ...AND THE JAM IS ONE CRATE PER CELL, which is the capacity rule and the
+    // reason `CRATE_PITCH` is a whole cell rather than a box-width. The clamp
+    // is the only thing bounding what a run carries now, so a tighter pitch
+    // would silently double it — a shop could count twice the boxes on the same
+    // belt, which is a balance change wearing a look.
+    run(g, 120);
+    const settled = [mid, tail].map((d) => d.belt);
+    eq(new Set(settled).size, 2, 'two boxes queued behind the end hold two different cells');
+    for (const d of [mid, tail]) {
+      const spot = g.beltSpot(d);
+      eq(spot?.at, Math.round(spot?.at ?? -1),
+        'a box at rest in a queue sits squarely on a cell rather than part way along');
+    }
+    const gap = Math.abs(g.beltSpot(mid).at - g.beltSpot(tail).at);
+    eq(gap, Game.CRATE_PITCH, '...one pitch apart, which is one cell, which is the capacity');
+  }
+}
+
+{
+  // The bend. A corner used to be the place two cells with two clocks and two
+  // opinions met at a right angle, so a crate would arrive without having
+  // travelled — the picture the run of the belt is drawn to say.
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  if (cells) {
+    const [p, q] = cells;
+    lay(g, [p]);
+    g.placeFixture('me', { kind: 'belt', piece: BELT.id, x: q.x, z: q.z, rot: 3 });
+    const up = anchorTile(q.x, q.z, 3);
+    const on = g.placeFixture('me', { kind: 'belt', piece: BELT.id, x: up.x, z: up.z, rot: 3 });
+    if (on.ok) {
+      const head = crateOn(g, g.beltAt(up.x, up.z), GOODS, 2);
+      const round = crateOn(g, g.beltAt(p.x, p.z), GOODS, 2);
+      smooth(g, 'bend', [head, round], 120, {
+        50: () => { g.deliveries = g.deliveries.filter((d) => d.id !== head.id); },
+      });
+    }
+  }
+}
+
+{
+  // The junction, which is where every one of these bugs showed up first — a
+  // crate changing which way it was going is a crate changing which piece of
+  // code owned where it was.
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  if (cells) {
+    lay(g, [cells[0], cells[2]]);
+    let branch = null;
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(cells[1].x, cells[1].z, r);
+      if (g.beltAt(n.x, n.z)) continue;
+      if (!canPlace(g.layout, { kind: 'belt', x: n.x, z: n.z, rot: 0 }).ok) continue;
+      const away = { x: n.x + (n.x - cells[1].x), z: n.z + (n.z - cells[1].z) };
+      const put = g.placeFixture('me', { kind: 'belt', piece: BELT.id, x: n.x, z: n.z, rot: aim(n, away) });
+      if (!put.ok) continue;
+      branch = g.beltAt(n.x, n.z);
+      break;
+    }
+    const made = branch && g.placeFixture('me', {
+      kind: 'sorter', piece: 'sorter', x: cells[1].x, z: cells[1].z, rot: aim(cells[1], branch),
+    });
+    if (branch && made?.ok) {
+      // A stream of boxes onto the head, so the junction is asked over and over
+      // with traffic behind it and both of its ways out taken in turn.
+      const fed = [];
+      const feed = () => {
+        const cell = g.beltAt(cells[0].x, cells[0].z);
+        if (g.beltCellFree(cell)) fed.push(crateOn(g, cell, GOODS, 2));
+      };
+      feed();
+      const at = {};
+      for (let i = 8; i <= 100; i += 8) at[i] = feed;
+      smooth(g, 'junction', fed, 130, at);
+      check(fed.length >= 4, '...with real traffic through it', `${fed.length} boxes`);
+    }
+  }
+}
+
+{
+  // ...AND A MACHINE MUST NOT GRAB A BOX THAT IS ALREADY LEAVING IT.
+  //
+  // The one bug the line model introduced, found in a real shop and not by any
+  // assertion above it. A loader asks what it is HOLDING, and a crate that has
+  // begun to cross onto the next square is no longer that — which is right
+  // about the machine and wrong about the square, because one cell still holds
+  // one crate and the box on its way out is still it. So a loader with a crate
+  // half a tile gone read as empty, went to lift the box lying beside it, and
+  // `armSend` — which looked up "whichever crate names this cell" — put the
+  // DEPARTING one down the spur instead. What that draws is a crate jumping
+  // backwards a tile and setting off sideways, which is the exact report this
+  // whole rewrite was done for, arriving through a new door.
+  //
+  // Both halves are pinned: the machine may not lift while its square is
+  // crossing, and `armSend` may only ever move what `armHolds` names.
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  if (cells) {
+    lay(g, [cells[0], cells[2]]);
+    const made = g.placeFixture('me', {
+      kind: 'arm', piece: ARM.id, x: cells[1].x, z: cells[1].z, rot: aim(cells[1], cells[2]),
+    });
+    check(made.ok, 'a loader goes in the middle of the run', made.error ?? '');
+    const arm = g.beltAt(cells[1].x, cells[1].z);
+    const beside = [0, 1, 2, 3]
+      .map((r) => anchorTile(arm.x, arm.z, r))
+      .find((c) => !g.beltAt(c.x, c.z) && isWalkableTile(g.layout, c.x, c.z)
+        && (c.x !== cells[2].x || c.z !== cells[2].z));
+    check(!!beside, 'there is floor beside the loader to leave a box on');
+    if (beside) {
+      const leaving = crateOn(g, arm, GOODS, 2);
+      const loose = g.dropGoods(GOODS.id, 2, beside, { exact: true });
+      const total = units(g);
+      smooth(g, 'a loader whose box is leaving', [leaving, loose], 120);
+      eq(units(g), total, '...and nothing was created or destroyed doing it');
+    }
+  }
+}
+
 // 16. The off-ramp: a loader facing bare ground sets the box down.
 //
 // Without one a belt has exactly one exit — a board that will take the goods —

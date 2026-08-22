@@ -1789,12 +1789,14 @@ export const BELT_RUN_MAX = 64;
  * disagree, nothing errors and nothing logs, the crate simply floats.
  *
  * Two numbers because the split is what is standing there. Onto a pad or bare
- * floor the track runs most of the way across, so there is somewhere to set a
- * crate down; into a unit it stops just inside, because the unit's own mesh
- * fills that square and track drawn under it is track nobody will ever see.
+ * floor it ends on the CENTRE of that tile — a box is set down on a square, and
+ * a run that stopped anywhere else left the crate straddling a boundary with
+ * its track carrying on past it, which reads as a belt that overshot. Into a
+ * unit it stops just inside, because the unit's own mesh fills that square and
+ * track drawn under it is track nobody will ever see.
  */
 export const SPUR_UNIT_REACH = 0.66;
-export const SPUR_OPEN_REACH = 1.34;
+export const SPUR_OPEN_REACH = 1;
 
 /**
  * The cells one drag of conveyor lays, in the order a crate would travel them.
@@ -2262,6 +2264,224 @@ export function conveyorRun(L, cell) {
       if (on && !seen.has(on.id)) queue.push(on);
     }
   }
+  return out;
+}
+
+/**
+ * A point some distance along a polyline, and the leg it landed on.
+ *
+ * THE ONE PIECE OF GEOMETRY THE WHOLE CONVEYOR HAS. A crate's entire state is
+ * how far along its path it has got, and this is what turns that number into
+ * somewhere on the floor — for a run, for a bend in the middle of one, for the
+ * long hop between two tunnel mouths, and for the out-and-back a loader's spur
+ * is. Corners fall out of it because the path bends; nothing anywhere needs to
+ * know a corner exists.
+ *
+ * It replaced five writers of `crate.x`. Each was right on its own and they
+ * disagreed at the seams — which a junction shows first, because a junction is
+ * where a crate changes which of them it is in — and what that draws is a box
+ * skipping. Not a bug in any of the five: a bug in there being five.
+ */
+export function alongPath(pts, at) {
+  if (!pts?.length) return { x: 0, z: 0, leg: 0, k: 0 };
+  if (pts.length === 1) return { x: pts[0].x, z: pts[0].z, leg: 0, k: 0 };
+  let left = Math.max(0, at);
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const seg = Math.hypot(b.x - a.x, b.z - a.z);
+    if (seg <= 0) continue;
+    if (left <= seg || i === pts.length - 1) {
+      const k = Math.min(1, left / seg);
+      return { x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k, leg: i - 1, k };
+    }
+    left -= seg;
+  }
+  const last = pts[pts.length - 1];
+  return { x: last.x, z: last.z, leg: pts.length - 2, k: 1 };
+}
+
+/**
+ * Every conveyor in the shop, cut into LINES.
+ *
+ * THE UNIT IS THE LINE AND NOT THE TILE, which is the one decision this whole
+ * subsystem rests on — Factorio's, for Factorio's reason (fff-176). A cell that
+ * owns a crate, a clock and a decision is a cell that has to agree with the cell
+ * next to it about all three, and the code where two cells meet is a SEAM: a
+ * blocked box creeping forward, a corner special-cased, a junction asking a
+ * different question when its exits are full than when they are free. Every one
+ * of those was written honestly and they disagreed with each other at exactly
+ * the places a player looks. Crates skipped at a T, refused to tween round a
+ * bend, appeared at the end of a run and snapped back to the start of a cell
+ * when a jam cleared. Each was fixed on its own and each fix exposed the next,
+ * because the seams were not the bug — being made of seams was.
+ *
+ * A line is one object with an ordered path and a length in tiles. A crate on it
+ * has ONE piece of state: how far along it has got. Everything else — where the
+ * box is drawn, whether it is round the bend yet, which cell it counts as
+ * standing on, whether the run has backed up — is derived from that number.
+ *
+ * WHERE A LINE ENDS is the whole of the rest of it, and there are three answers:
+ *
+ *   a **junction** is a line of its very own. A sorter chooses between ways out,
+ *   so it cannot be a link in a chain that has already decided where it goes —
+ *   it breaks lines apart rather than participating in one;
+ *
+ *   a **merge** starts one. Two lines feeding one cell need somebody to be told
+ *   no, and the only place that can be said once is the cell they are both
+ *   aiming at;
+ *
+ *   and a **terminus** ends one, which is a cell handing to nothing.
+ *
+ * A LOADER IS NOT ANY OF THOSE, and that is deliberate against the obvious
+ * reading. It stands IN a run — "belts on the corners, loaders down the
+ * straights" — so an aisle stocked by six of them is one line and not six, and
+ * breaking at machines would put the seams straight back in the shape of shop
+ * this feature exists for. What a loader does to a crate is hold it and send it
+ * sideways down a spur, neither of which is a question about which way the line
+ * goes.
+ *
+ * A ring has no terminus by definition, so a chain nothing starts is cut at an
+ * arbitrary cell and joins itself: the line's exit is its own first cell, and a
+ * crate that runs off the end reappears at the beginning of the same object.
+ *
+ * Cached against the four arrays it is made of, exactly as `conveyorFlow` is and
+ * for the same reason — it is walked twenty times a second and can only change
+ * when the building does.
+ */
+const LINES = new WeakMap();
+
+export function conveyorLines(L) {
+  const belts = L?.belts ?? [];
+  const arms = L?.arms ?? [];
+  const sorters = L?.sorters ?? [];
+  const unders = L?.unders ?? [];
+  const had = LINES.get(L);
+  if (had && had.belts === belts && had.arms === arms
+    && had.sorters === sorters && had.unders === unders) return had.out;
+
+  const cells = [...belts, ...arms, ...sorters, ...unders];
+  const grid = new Map(cells.map((c) => [`${c.x},${c.z}`, c]));
+  const cellOf = (p) => (p ? grid.get(`${p.x},${p.z}`) ?? null : null);
+
+  // Every way out of every cell, which is one for all of them but a junction.
+  const ways = new Map();
+  for (const c of cells) {
+    const out = [];
+    const n = cellOf(conveyorNext(L, c));
+    if (n) out.push(n);
+    if (c.kind === 'sorter') {
+      for (const b of conveyorBranches(L, c)) {
+        const o = cellOf(b);
+        if (o && !out.some((w) => w.id === o.id)) out.push(o);
+      }
+    }
+    ways.set(c.id, out);
+  }
+  const feeders = new Map();
+  for (const c of cells) {
+    for (const w of ways.get(c.id) ?? []) {
+      if (!feeders.has(w.id)) feeders.set(w.id, []);
+      feeders.get(w.id).push(c);
+    }
+  }
+
+  /** Does a line have to BEGIN here — see the three answers above. */
+  const opens = (c) => {
+    if (c.kind === 'sorter') return true;
+    const f = feeders.get(c.id) ?? [];
+    if (f.length !== 1) return true;
+    return f[0].kind === 'sorter';
+  };
+
+  const taken = new Set();
+  const lines = [];
+  const byCell = new Map();
+
+  const cut = (start) => {
+    const path = [];
+    let c = start;
+    while (c && !taken.has(c.id)) {
+      taken.add(c.id);
+      path.push(c);
+      if (c.kind === 'sorter') break;
+      const out = ways.get(c.id) ?? [];
+      if (out.length !== 1) break;
+      const n = out[0];
+      if (opens(n)) break;
+      c = n;
+    }
+    if (!path.length) return;
+    const dist = [0];
+    for (let i = 1; i < path.length; i++) {
+      dist.push(dist[i - 1]
+        + Math.abs(path[i].x - path[i - 1].x) + Math.abs(path[i].z - path[i - 1].z));
+    }
+    const line = {
+      id: path[0].id,
+      cells: path,
+      dist,
+      len: dist[dist.length - 1],
+      pts: path.map((p) => ({ x: p.x, z: p.z })),
+      // Where it hands on. Per-crate at a junction, so the field is the list and
+      // `sorterOut` picks; everywhere else there is exactly one answer.
+      outs: ways.get(path[path.length - 1].id) ?? [],
+      junction: path[0].kind === 'sorter',
+    };
+    lines.push(line);
+    for (let i = 0; i < path.length; i++) byCell.set(path[i].id, { line, i });
+  };
+
+  for (const c of cells) if (opens(c) && !taken.has(c.id)) cut(c);
+  // Anything left is in a ring — no cell in it opens a line, because every one
+  // of them is fed by exactly one ordinary conveyor. Cut it anywhere: the walk
+  // then comes back to where it started, and the line's exit is its own head.
+  for (const c of cells) if (!taken.has(c.id)) cut(c);
+
+  /**
+   * ...and the order to step them in: DOWNSTREAM FIRST.
+   *
+   * The same argument the per-cell version made and the same bug it prevents,
+   * one size up. Stepped the other way a line asks whether the line in front has
+   * room before that one has moved, so a queue drains one gap per tick and a run
+   * of boxes closes up like a slinky. There are far fewer seams to order now —
+   * a straight aisle is one line however many cells it has — so this is a walk
+   * over junctions and merges rather than over every square of belt.
+   */
+  const to = new Map();
+  const from = new Map();
+  for (const line of lines) {
+    const outs = [];
+    for (const w of line.outs) {
+      const loc = byCell.get(w.id);
+      if (!loc || outs.includes(loc.line)) continue;
+      outs.push(loc.line);
+      if (!from.has(loc.line.id)) from.set(loc.line.id, []);
+      from.get(loc.line.id).push(line);
+    }
+    to.set(line.id, outs);
+  }
+  const order = [];
+  const seen = new Set();
+  const queue = lines.filter((l) => !(to.get(l.id) ?? []).length);
+  const drain = () => {
+    while (queue.length) {
+      const l = queue.shift();
+      if (seen.has(l.id)) continue;
+      seen.add(l.id);
+      order.push(l);
+      for (const f of from.get(l.id) ?? []) if (!seen.has(f.id)) queue.push(f);
+    }
+  };
+  drain();
+  for (const l of lines) {
+    if (seen.has(l.id)) continue;
+    queue.push(l);
+    drain();
+  }
+
+  const out = { lines, byCell, order, feeds: from };
+  LINES.set(L, { belts, arms, sorters, unders, out });
   return out;
 }
 
