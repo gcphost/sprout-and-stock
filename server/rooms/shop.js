@@ -692,13 +692,15 @@ export const ShopRoom = (Base) => class extends Base {
     });
 
     this.onMessage('build-place', (client, m) => {
-      const res = this.game.placeFixture(client.sessionId, m ?? {});
+      const res = this.game.undoStep('building that',
+        () => this.game.placeFixture(client.sessionId, m ?? {}));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
 
     this.onMessage('build-drop', (client, m) => {
-      const res = this.game.dropFixture(client.sessionId, m ?? {});
+      const res = this.game.undoStep('moving that',
+        () => this.game.dropFixture(client.sessionId, m ?? {}));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
@@ -710,7 +712,8 @@ export const ShopRoom = (Base) => class extends Base {
     // Drawing on the boundaries between cells rather than on a cell: walls,
     // windows, doorways. Re-flows the shell, so the layout goes back out.
     this.onMessage('build-edge', (client, m) => {
-      const res = this.game.buildEdge(client.sessionId, m ?? {});
+      const res = this.game.undoStep(m?.kind ? 'that wall' : 'knocking that through',
+        () => this.game.buildEdge(client.sessionId, m ?? {}));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
@@ -730,7 +733,8 @@ export const ShopRoom = (Base) => class extends Base {
     // the camera). So the overlay goes out by itself, to everybody, because the
     // other player is looking at the same wall.
     this.onMessage('paint-face', (client, m) => {
-      const res = this.game.paintFaces(client.sessionId, m ?? {});
+      const res = this.game.undoStep('that paint',
+        () => this.game.paintFaces(client.sessionId, m ?? {}));
       client.send('action-result', res);
       if (res.ok && !res.unchanged) this.broadcast('paint', this.game.paint);
     });
@@ -739,13 +743,15 @@ export const ShopRoom = (Base) => class extends Base {
     // the inbound cap is 4KB and the server re-runs `beltRunCells` against the
     // same far end, so the two cannot disagree about which way it went.
     this.onMessage('build-run', (client, m) => {
-      const res = this.game.buildRun(client.sessionId, m ?? {});
+      const res = this.game.undoStep('that run of conveyor',
+        () => this.game.buildRun(client.sessionId, m ?? {}));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
 
     this.onMessage('build-ground', (client, m) => {
-      const res = this.game.buildGround(client.sessionId, m ?? {});
+      const res = this.game.undoStep(m?.piece ? 'that ground' : 'taking that ground up',
+        () => this.game.buildGround(client.sessionId, m ?? {}));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
@@ -779,19 +785,22 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
     this.onMessage('build-rotate', (client, m) => {
-      const res = this.game.rotateFixture(client.sessionId, m?.id, m?.dir);
+      const res = this.game.undoStep('turning that',
+        () => this.game.rotateFixture(client.sessionId, m?.id, m?.dir));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
 
     this.onMessage('build-upgrade', (client, m) => {
-      const res = this.game.upgradeFixture(client.sessionId, m?.id);
+      const res = this.game.undoStep('that upgrade',
+        () => this.game.upgradeFixture(client.sessionId, m?.id));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
 
     this.onMessage('build-downgrade', (client, m) => {
-      const res = this.game.downgradeFixture(client.sessionId, m?.id);
+      const res = this.game.undoStep('that downgrade',
+        () => this.game.downgradeFixture(client.sessionId, m?.id));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
@@ -801,20 +810,48 @@ export const ShopRoom = (Base) => class extends Base {
     // the generator and eight teardowns of the client's scene, for a change that
     // moves no tile. One message, one re-flow, one `sendLayout`.
     this.onMessage('build-style', (client, m) => {
-      const res = this.game.bulkFixtures(
+      const res = this.game.undoStep('that restyle', () => this.game.bulkFixtures(
         targets(m),
         (id) => this.game.styleFixture(client.sessionId, id, m?.variant ?? ''),
         (n) => `Restyled ${n} fixtures.`,
-      );
+      ));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
 
     this.onMessage('build-remove', (client, m) => {
-      const res = this.game.removeFixture(client.sessionId, m?.id);
+      const res = this.game.undoStep('removing that',
+        () => this.game.removeFixture(client.sessionId, m?.id));
       client.send('action-result', res);
       if (res.ok) this.sendLayout();
     });
+
+    /**
+     * Ctrl+Z, and Ctrl+Y.
+     *
+     * One pair of messages for every build verb above, because an undo step is
+     * a *press* rather than a kind of change — see `server/sim/undo.js`. They
+     * carry no payload at all: which step comes back is a fact about the shop's
+     * own stack, and a client that named one could name a step the other player
+     * has already reversed.
+     *
+     * Not gated on build mode, unlike everything they take back. Pressing
+     * Ctrl+Z is not pointing at anything, so there is nothing for the mode to
+     * disambiguate — and the moment you most want it is straight after leaving
+     * the mode and seeing what you did.
+     *
+     * The answer says which half of the shop moved, because paint is the one
+     * build verb that never re-flows: a step made only of colour would
+     * otherwise come back with nothing on screen having changed at all.
+     */
+    const stepBack = (client, res) => {
+      client.send('action-result', res);
+      if (!res.ok) return;
+      if (res.layout) this.sendLayout();
+      if (res.paint) this.broadcast('paint', this.game.paint);
+    };
+    this.onMessage('undo', (client) => stepBack(client, this.game.undo()));
+    this.onMessage('redo', (client) => stepBack(client, this.game.redo()));
 
     this.onMessage('move-door', (client, m) => {
       const res = this.game.moveDoor(client.sessionId, m?.shift);

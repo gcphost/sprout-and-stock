@@ -12,7 +12,9 @@
  * tick, so content added via MCP appears mid-game without a restart.
  */
 
-import { content, world as loadWorld, saveWorld, freshEconomy } from '../content.js';
+import {
+  content, world as loadWorld, saveWorld, freshEconomy, DEFAULT_WORLD,
+} from '../content.js';
 import { JOBS } from '../../shared/schemas.js';
 import { jobBudget, jobsAffordable, foldJobs } from '../../shared/jobs.js';
 import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '../db.js';
@@ -40,6 +42,7 @@ import { cleanName } from '../../shared/names.js';
 import { makeNamer } from './names.js';
 import { stepStaff, syncStaff, breakProgress, carryOf, givenUp } from './staff.js';
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
+import { undoStep, recordUndo, undoLast, redoLast, specOf } from './undo.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
   conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, conveyorLines, alongPath, tunnelExit, derivedFlow, beltRunCells, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
@@ -999,6 +1002,39 @@ const MOOD_TAU = 90;
  * nicer being the answer to a bad name is the right sentence for a shop.
  */
 const MOOD_REP = 0.25;
+
+/**
+ * ...and the reputation this term PIVOTS on, which is the starting one.
+ *
+ * It used to run over 0..1, so the multiplier was `0.75 + 0.25 * rep` and only
+ * a *spotless* shop got the room it had actually built. A brand new shop starts
+ * at `DEFAULT_WORLD.reputation` — not because it is half bad but because nobody
+ * has an opinion yet — and was therefore charged half the penalty on its first
+ * morning: on `normal`, a `moodBase` of 0.68 arrived as **0.595**, against a
+ * `MOOD_ANNOYED` of 0.5.
+ *
+ * That is a margin of 0.095 where the difficulty table promises 0.18, and it
+ * breaks the rule `MOOD_BASE`'s own comment states and calls deliberate — "above
+ * `MOOD_ANNOYED` by a clear margin on purpose. Start it near that line and a new
+ * shop's customers arrive already looking cross, which reads as the town hating
+ * you rather than as a room nobody has decorated." The first customer through
+ * the door of a brand new shop was visibly cross, and there was nothing the
+ * player could have done differently.
+ *
+ * Pivoting here keeps BOTH directions, which is what a floor or a clamp at the
+ * settle level would have cost. Neutral reputation gets the room whole; a shop
+ * that has earned a bad name still walks people in near the line (rep 0.13 →
+ * 0.554, which is the intended "you can see it on their faces"); and a shop the
+ * town loves now pushes the room *up* toward a perfect 1 rather than merely
+ * failing to be penalised. That last half is the one this term was added for —
+ * see the note above about a shop on 42% and a shop on 100% playing identically
+ * — and it only existed on paper while the whole range sat below neutral.
+ *
+ * Read off `DEFAULT_WORLD` rather than written as 0.5, because "the reputation a
+ * shop starts on" is one fact and two spellings of it would drift the day
+ * anybody retunes the opening.
+ */
+const REP_NEUTRAL = DEFAULT_WORLD.reputation;
 /** Storming out is a stride, not a stroll. */
 const STORM_SPEED = 1.6;
 
@@ -1627,6 +1663,17 @@ export class Game {
      */
     this.placements = state.placements ?? [];
     this.nextFixtureId = state.nextFixtureId ?? 1;
+    /**
+     * What the last few build presses did, and what they would do again.
+     *
+     * Deliberately absent from `state` and from `saveState`: see the header of
+     * `server/sim/undo.js`. An undo stack that survived a restart would be
+     * offering to reverse a shop you last saw a week ago, and every fixture id
+     * in it has been re-minted by the reload anyway.
+     */
+    this.undoStack = [];
+    this.redoStack = [];
+    this.undoOpen = null;
     this.grow = state.grow ?? { w: 0, h: 0 };
     this.doorShift = state.doorShift ?? 0;
     // Walls, windows and doorways the player drew, as an overlay on the shell.
@@ -2581,6 +2628,22 @@ export class Game {
       // the picture says "boxes", not "this is costing you patience".
       mess: round2(this.mess ?? 0),
       turnAwayAt: TURN_AWAY_AT,
+      /**
+       * How far back the build stack goes, and how far forward.
+       *
+       * Two integers on the wire so the thumb buttons can be honest about
+       * whether they do anything — a greyed Redo is the only thing on a phone
+       * that says the future was thrown away when you built something new. A
+       * desktop has no button and does not read them; they cost two numbers a
+       * tick either way, which is less than one shopper's position.
+       *
+       * The stack is one per shop rather than one per player (see
+       * `server/sim/undo.js`), so this is the same pair for everybody, which is
+       * exactly right: the wall your mate just drew is the thing you most want
+       * to be able to take back.
+       */
+      undos: this.undoStack.length,
+      redos: this.redoStack.length,
       // The town, and what share of it you're getting. Sent as the two terms
       // rather than the product because they mean opposite things to a player:
       // catchment is what you buy, pull is what you earn.
@@ -2756,6 +2819,18 @@ export class Game {
         // carries the argument this line used to make for the other answer.
         takers: !p.staff && (p.carry ?? p.haul)
           ? this.stockTargets(lotStacks(p.carry ?? p.haul).map((s) => s.item_id)) : null,
+        // How much these hands hold, which is the one number a press about
+        // goods cannot be judged without. `pressHints` lists what a press would
+        // do and greys what it would not, and "would this fit" is `lotRoom`
+        // against a cap — so without this the pill can only offer Take one and
+        // let the shop answer "hands full" a moment later.
+        //
+        // Sent rather than hardcoded, for `crateCap`'s reason exactly: a
+        // `capacity` upgrade moves it, so a client with its own 6 in it goes
+        // wrong the day somebody buys a rucksack. Humans only — a hire's is
+        // their kind times their rung and nothing on screen asks it, and five
+        // of them recomputed ten times a second is bytes saying nothing.
+        ...(!p.staff ? { carryCap: this.carryCapacity(p) } : {}),
         // Which roster row this body belongs to, and which rung it is on. The
         // roster says who works here and this says what they are up to; without
         // a key the UI can only join them by reconstructing `staff-${id}`,
@@ -13439,6 +13514,24 @@ export class Game {
     }
   }
 
+  /**
+   * Run one build press as one undoable step. See `server/sim/undo.js`.
+   *
+   * `holdReflow`'s sibling in shape and in argument: a drag is one gesture
+   * however many verbs it runs, and the player who wants it back wants all of
+   * it back in one press. Nested calls join the open step rather than opening
+   * another, so `buildRun` and `bulkFixtures` need to know nothing about this.
+   *
+   * It lives on `Game` rather than in the room because the room is one of two
+   * (see `server/rooms/host.js`) and a step opened on only one of them would be
+   * an undo that works on the desktop build and not in a browser.
+   */
+  undoStep(label, fn) { return undoStep(this, label, fn); }
+
+  undo() { return undoLast(this); }
+
+  redo() { return redoLast(this); }
+
   /** How much stuff is inside a fixture — what "empty it first" is measuring. */
   fixtureContents(f) {
     if (f.kind === 'station') {
@@ -14013,6 +14106,11 @@ export class Game {
     this.stats.spent += cost;
     this.nextFixtureId++;
     this.placements.push(placement);
+    // Before the re-flow rather than after it, so what is recorded is the
+    // placement as it was pushed. A re-flow re-mints nothing here, but the
+    // three other recording sites all read state the re-flow can change, and
+    // one rule for all four is one rule to remember.
+    recordUndo(this, { t: 'fixture', id: placement.id, from: null, to: specOf(placement) });
     this.regenerateLayout();
     // An appliance is named after the machine, not after "appliance" — you
     // bought a blender and the log should say so. A piece is named after
@@ -14240,9 +14338,20 @@ export class Game {
     const check = canPlace(this.layout, placement, { ignoreId: id });
     if (!check.ok) return err(check.reason);
 
+    // The PLACEMENT rather than `from`, which is the layout record — they carry
+    // the same fields today and only one of them is what a rebuild reads. This
+    // is the one recording site that covers five presses: moving, turning,
+    // restyling and both rungs of the tier ladder all come through here.
+    const was = specOf(this.placements.find((pl) => pl.id === id));
+
     this.nextFixtureId++;
     this.placements = this.placements.filter((pl) => pl.id !== id);
     this.placements.push(placement);
+    if (was) {
+      recordUndo(this, {
+        t: 'fixture', id: placement.id, from: was, to: specOf(placement),
+      });
+    }
     // Anyone carrying this follows it to its new id, or they'd be holding a
     // fixture that no longer exists.
     for (const pl of Object.values(this.players)) {
@@ -14284,7 +14393,12 @@ export class Game {
     // fixture is standing there, which is the whole of "is there one to remove".
     const refund = round2(this.fixtureUnitCost(f.kind, f.station, f.piece) * FIXTURE_REFUND);
 
+    // Read before the filter, obviously, and off `placements` rather than off
+    // `f` — the layout record is what the generator built, and what has to come
+    // back is what it built it FROM.
+    const was = specOf(this.placements.find((pl) => pl.id === id));
     this.placements = this.placements.filter((pl) => pl.id !== id);
+    if (was) recordUndo(this, { t: 'fixture', id: null, from: was, to: null });
     this.cash += refund;
     for (const pl of Object.values(this.players)) {
       if (pl.holding?.id === id) pl.holding = null;
@@ -14337,6 +14451,11 @@ export class Game {
     let spent = 0;
     let placed = 0;
     let short = false;
+    // What each segment was, so Ctrl+Z can put it back. The OVERLAY entry and
+    // not the edge kind: a segment the shell drew has no entry at all, and
+    // recording its kind would restore it as something the player drew — which
+    // is identical until the shop grows and the generator wants its wall back.
+    const undoSegs = [];
     for (const s of segs) {
       const key = `${s.o}:${s.x},${s.z}`;
       const had = this.edits.find((e) => `${e.o}:${e.x},${e.z}` === key);
@@ -14368,7 +14487,9 @@ export class Game {
 
       spent = round2(spent + cost);
       this.edits = this.edits.filter((e) => `${e.o}:${e.x},${e.z}` !== key);
-      this.edits.push({ o: s.o, x: s.x, z: s.z, k: kind });
+      const now = { o: s.o, x: s.x, z: s.z, k: kind };
+      this.edits.push(now);
+      undoSegs.push({ o: s.o, x: s.x, z: s.z, was: had ? { ...had } : null, now });
       placed++;
     }
 
@@ -14378,6 +14499,7 @@ export class Game {
 
     this.cash = round2(this.cash - spent);
     if (spent > 0) this.stats.spent += spent;
+    recordUndo(this, { t: 'edges', segs: undoSegs });
     this.regenerateLayout();
 
     const what = EDGE_LABEL[kind] ?? 'a wall';
@@ -14455,6 +14577,10 @@ export class Game {
     let spent = 0;
     let laid = 0;
     let short = false;
+    // `buildEdge`'s note said about cells: the overlay entry, not the kind, so
+    // a cell nobody had painted goes back to having no entry rather than to an
+    // entry that says what the shell happened to stamp there.
+    const undoCells = [];
     for (const c of cells) {
       const key = `${c.x},${c.z}`;
       const had = painted.get(key) ?? null;
@@ -14487,7 +14613,10 @@ export class Game {
       if (cost > 0 && this.cash - spent < cost) { short = true; break; }
 
       spent = round2(spent + cost);
-      kept.set(key, { x: c.x, z: c.z, k: lay, p: piece?.id ?? null });
+      const was = kept.get(key) ?? null;
+      const entry = { x: c.x, z: c.z, k: lay, p: piece?.id ?? null };
+      kept.set(key, entry);
+      undoCells.push({ x: c.x, z: c.z, was: was ? { ...was } : null, now: entry });
       laid++;
     }
 
@@ -14498,6 +14627,7 @@ export class Game {
     this.ground = [...kept.values()];
     this.cash = round2(this.cash - spent);
     if (spent > 0) this.stats.spent += spent;
+    recordUndo(this, { t: 'ground', cells: undoCells });
     this.regenerateLayout();
 
     const what = piece ? piece.name.toLowerCase() : 'ground';
@@ -14601,6 +14731,7 @@ export class Game {
     let done = 0;
     let short = false;
     const next = { ...this.paint };
+    const undoFaces = [];
     for (const f of faces) {
       const key = faceKey(f);
       const had = next[key] ?? null;
@@ -14614,6 +14745,7 @@ export class Game {
       spent = round2(spent + cost);
       if (piece) next[key] = piece.id;
       else delete next[key];
+      undoFaces.push({ key, was: had, now: piece?.id ?? null });
       done++;
     }
 
@@ -14624,6 +14756,7 @@ export class Game {
     this.paint = next;
     this.cash = round2(this.cash - spent);
     if (spent > 0) this.stats.spent += spent;
+    recordUndo(this, { t: 'paint', faces: undoFaces });
     // No `regenerateLayout` — see the note above. The live layout carries the
     // overlay so a client that joins mid-session gets it, and it is the same
     // object the re-flow would have re-hung, so writing it here keeps the two
@@ -17860,7 +17993,15 @@ export class Game {
     // ...and what they had heard, which scales the room rather than adding to
     // it. See `MOOD_REP`: a shop with no name gets three quarters of whatever
     // the room was worth, and the room is still the way back.
-    return clamp(room * (1 - MOOD_REP + MOOD_REP * clamp(this.reputation, 0, 1)), 0, 1);
+    // ...and what they had heard, which scales the room rather than adding to
+    // it. See `MOOD_REP` and `REP_NEUTRAL`: the pivot is the reputation a shop
+    // STARTS on, so a new shop gets the room it built, a bad name takes it away
+    // and a good one pushes toward a perfect 1. The outer clamp is what makes
+    // the upper half safe — above neutral this goes over 1 by design, and the
+    // room is what it lands on.
+    const rep = clamp(this.reputation, 0, 1);
+    const heard = 1 + MOOD_REP * (rep - REP_NEUTRAL) / REP_NEUTRAL;
+    return clamp(room * heard, 0, 1);
   }
 
   /** Anyone standing close enough scoops up the till. */

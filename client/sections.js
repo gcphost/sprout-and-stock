@@ -1,6 +1,6 @@
 import { ICONS, icon } from './icons.js';
 import { compact, money } from './money.js';
-import { pinLast, KEYED } from './bar.js';
+import { pinLast, byRank, PALETTE_LEAD, KEYED } from './bar.js';
 // FIXTURE_REFUND is the shop's one sell-back rate — a constant with FIXTURE in
 // its name, imported here for an upgrade, the same way the worker menu imports
 // it for a grade. There is one rate and everything that goes down uses it.
@@ -204,20 +204,21 @@ export const BUILD_GROUPS = [
    * palette that offered a car park at the same level as the turf under it was
    * answering the second question before the first.
    *
-   * It is down to three, and the two that left are why the name is now exact
+   * It is down to two, and the three that left are why the name is now exact
    * rather than dominant-case. Yard and Crew went to Logistics — a `drop` pad
    * indoors is a stockroom and a break area is as often a corner of the shop
    * floor as it is out the back, so "is this outside" was a first question
-   * neither of them could answer. What is left genuinely is all outdoors: the
-   * ground itself, the ways in, and somewhere to leave the car.
+   * neither of them could answer. Customers went to Roads, holding one entry,
+   * for the reason under `park`. What is left genuinely is all outdoors: the
+   * ground itself, and the ways in — including where the car stops.
    */
   {
     id: 'outdoors',
     name: 'Outdoors',
     icon: ICONS.town,
     blurb: 'The ground the shop stands in. All of it is painted over an area, and none of it is a thing you place.',
-    // Outward, in rings: what the ground already is, then the ways in, then
-    // where the people who arrive on them leave the car.
+    // Outward, in rings: what the ground already is, then the ways in — and
+    // where the people who arrive on them leave the car is part of the second.
     subs: [
       // The ground that was already there, which is the one tab whose contents
       // you own before you buy anything.
@@ -251,17 +252,7 @@ export const BUILD_GROUPS = [
         id: 'roads',
         name: 'Roads',
         icon: ICONS.move,
-        blurb: 'How everybody gets here. Vehicles take the cheapest lane and feet take the paved way, so what you lay is the way in.',
-      },
-      // The last pad left out here, and the one that had the best claim to the
-      // tab all along: a car park is ground for the people who come to buy,
-      // which is the one job-carrying pad whose answer to "is this outside" is
-      // always yes. Yard and Crew stood beside it until they went to Logistics.
-      {
-        id: 'customers',
-        name: 'Customers',
-        icon: ICONS.walk,
-        blurb: 'Ground for the people who come to buy. Paint a car park and that is where they leave the car.',
+        blurb: 'How everybody gets here — the lane in, the paved way beside it, and where the car stops.',
       },
     ],
   },
@@ -454,12 +445,20 @@ export const KIND_TOOLS = {
     group: 'logistics',
     blurb: 'Drag out an area. Your crew dock and charge here instead of topping up wherever they finished, and come back fuller. One cell holds one unit.',
   },
-  // The fourth pad, on the one sub-tab where it is not filed under somebody
-  // else's job.
+  // The fourth pad, and it sits with the roads because it is the END of one.
+  //
+  // It had a Customers tab of its own for a while, filed by WHO the ground is
+  // for — which is a true sentence and the wrong question, because it was a tab
+  // holding exactly one entry: a row of chrome asking a question with one
+  // answer, which is the same call `splitGroup` makes about a lone sub-tab and
+  // the one nobody made here because the tab was authored rather than derived.
+  // Filed by what a player has in mind instead, the way Roads already is: the
+  // drive, the pavement beside it and the place the car stops are one afternoon
+  // and one sentence — how anybody gets here.
   park: {
     icon: ICONS.walk,
     group: 'outdoors',
-    sub: 'customers',
+    sub: 'roads',
     blurb: 'Drag out an area. Hardstanding out front for shoppers who drive here — one cell parks one, and they walk in from where they left it.',
   },
   // The ground the world came with, and the last cell in the game to become
@@ -715,6 +714,10 @@ export function buildTools(ui) {
         // piece rather than the kind, deliberately: a kind's tags would be the
         // same word on every entry in the tab, which sorts nothing.
         tags: p.tags ?? [],
+        // Where the row asked to sit on the bar. Off the piece, so a floor
+        // authored tomorrow lands where its author said rather than at the back
+        // of whatever `SELECT *` handed back — see `byRank`.
+        sort: p.sort ?? 0,
         name: p.name,
         blurb: KIND_TOOLS[kind]?.blurb ?? '',
       });
@@ -738,6 +741,7 @@ export function buildTools(ui) {
       paint: true,
       group: 'shell',
       sub: 'floors',
+      sort: PALETTE_LEAD,
       icon: ICONS.remove,
       // Grass, not a dustbin. It is the same question as the five swatches
       // beside it — what the ground looks like when you have finished — and
@@ -766,6 +770,7 @@ export function buildTools(ui) {
       paint: true,
       group: 'outdoors',
       sub: 'land',
+      sort: PALETTE_LEAD,
       icon: ICONS.remove,
       art: artForTool({ paint: true }, null),
       name: 'Bare Ground',
@@ -786,6 +791,7 @@ export function buildTools(ui) {
       face: true,
       group: 'shell',
       sub: 'paint',
+      sort: PALETTE_LEAD,
       icon: ICONS.remove,
       art: artForTool({ paint: true }, null),
       name: 'Bare Wall',
@@ -862,7 +868,10 @@ export function buildGroups(ui) {
   });
   return BUILD_GROUPS
     .map((g) => {
-      const items = pinLast(tools.filter((t) => inGroup(t, g.id)));
+      // Ranked first, then the bulldozer pinned over the top of it: `sort` says
+      // where a thing you BUILD sits, and Demolish is not one of those — a row
+      // authored at 99 must not be able to shove it off the end.
+      const items = pinLast(byRank(tools.filter((t) => inGroup(t, g.id))));
       return { ...g, items, subs: splitGroup(g, items) };
     })
     // A tab holding nothing but the bulldozer opens onto nothing you can build,

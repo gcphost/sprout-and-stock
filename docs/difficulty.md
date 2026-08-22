@@ -306,13 +306,33 @@ positive, barely, which is the intent.
 **`patience` had stopped meaning seconds.** See the ⚠️ under "no harder
 customers" below.
 
+**And a brand new shop's first customer was already cross**, which is the one
+that needed no play at all to hit. `MOOD_REP` ran over 0..1, so the multiplier
+was `0.75 + 0.25 * rep` and only a *spotless* shop got the room it had built. A
+new shop starts at `DEFAULT_WORLD.reputation` — 0.5, not because it is half bad
+but because nobody has an opinion yet — so it paid half the penalty on its first
+morning: `moodBase` 0.68 arrived as **0.595** against a `MOOD_ANNOYED` of 0.5.
+Nine and a half points of margin where the table promises eighteen, before the
+player has done anything. It pivots on the starting reputation now
+(`REP_NEUTRAL`), which restores the day-one margin exactly *and* finally pays
+the upper half of the term: a shop the town loves walks people in at 0.85, where
+before it could only ever fail to be penalised.
+
+| rep | walk-in, before | after |
+|---|---|---|
+| 1.00 | 0.680 | **0.850** |
+| 0.50 (new shop) | 0.595 | **0.680** |
+| 0.13 | 0.532 | 0.554 |
+| 0.00 | 0.510 | 0.510 |
+
 Measured, 60 days, three seeds, on `shop-3` (day 365, `normal`, 14 staff):
-rep **0.79 / 1.00 / 0.82**, 4–12 storm-outs, ~20k items sold. That save had sat
-at **0.148 after 365 real days** of play. So a mature shop can now reach the top
-of the scale, which is the half to watch: one seed pinned at 1.0, and nothing
-here has been tuned for a shop that is *already* well regarded. The failure mode
-this replaced was a bar that never moved; the one to check for next is a bar
-that only goes up.
+profit 5.1k–6.6k, rep **0.66 / 0.72 / 0.73**, 3–9 storm-outs. That save had sat
+at **0.148 after 365 real days** of play. Read it as a sanity check rather than
+a balance measurement — all three changes move the rng stream, so these are not
+comparable seed-for-seed with anything above. What it does say is that the loop
+does not run away: mood feeds the visit gain and the gain feeds reputation and
+reputation feeds mood, and no seed pinned at 1.0. The failure mode this replaced
+was a bar that never moved; the one to watch for next is a bar that only goes up.
 
 ### What it does not fix
 

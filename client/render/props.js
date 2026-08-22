@@ -1286,7 +1286,17 @@ const GHOST_ALPHA = 0.45;
  * model in real colours cannot be tinted red without becoming unreadable as the
  * model. That split is deliberate: the body says WHAT, the cage says WHETHER.
  */
-export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spots }) {
+/**
+ * `cage` is off for a RUN, and that is a legibility call rather than a saving.
+ *
+ * The wireframe box exists so one ghost does not dissolve into a pale shelf
+ * behind it. Twenty of them down an aisle is the opposite problem: the boxes
+ * are the only thing you can see, and what a run preview is *for* is the shape
+ * the belts make and which way each one faces. The coloured slab under every
+ * cell (`setFloorGhost`) is already saying "here, and this is whether it can",
+ * so the model is left to say the one thing only it can.
+ */
+export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spots, cage = true }) {
   // `true`/`false` still mean what they always did, so nothing that only knows
   // about two answers has to be found and changed.
   const key = verdict === true ? 'ok' : (verdict === false ? 'no' : (verdict ?? 'ok'));
@@ -1317,13 +1327,15 @@ export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spot
   }
 
   // A wireframe cage so the ghost doesn't dissolve into a pale shelf behind it.
-  const cage = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.BoxGeometry(0.98, h, 0.98)),
-    new THREE.LineBasicMaterial({ color: c.cage, depthTest: false }),
-  );
-  cage.position.y = h / 2;
-  cage.renderOrder = 11;
-  g.add(cage);
+  if (cage) {
+    const box = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(0.98, h, 0.98)),
+      new THREE.LineBasicMaterial({ color: c.cage, depthTest: false }),
+    );
+    box.position.y = h / 2;
+    box.renderOrder = 11;
+    g.add(box);
+  }
 
   // The tiles you'd work it from — this is what rotation actually changes.
   for (const s of spots ?? []) g.add(buildWorkSpot(s.role, { x: s.dx, z: s.dz }, c.pad));

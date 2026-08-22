@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   charm      REAL NOT NULL DEFAULT 0,     -- how far word of the shop travels
   open       INTEGER NOT NULL DEFAULT 0,  -- 1 = workable from the back too
   signal     TEXT,                        -- which world quantity drives the art
+  sort       REAL NOT NULL DEFAULT 0,     -- where it sits on the build bar; higher leads
   tags       TEXT NOT NULL DEFAULT '[]',  -- JSON array
   created_by TEXT NOT NULL DEFAULT 'seed',
   created_at INTEGER NOT NULL
@@ -397,6 +398,11 @@ const ADDED_COLUMNS = [
   // existing row reads back as, and the schema decides what a new row that
   // omits it is. Disagree and the two halves of one control drift apart.
   ['archetypes', 'steal_chance', 'REAL NOT NULL DEFAULT 0'],
+  // Where a piece sits on the build bar. 0 is "wherever the catalogue put you"
+  // and the sort is stable, so every row authored before this reads back as the
+  // palette it has always been — which is the same claim the schema default
+  // makes, and it has to be made in both places for the reason above.
+  ['fixtures', 'sort', 'REAL NOT NULL DEFAULT 0'],
 ];
 
 function addLateColumns(handle) {

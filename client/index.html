@@ -1830,6 +1830,17 @@
       outline: none;
     }
     #prompt .pr-say.pr-r { flex-direction: row-reverse; }
+    /* ...and a row the shop would refuse RIGHT NOW keeps its place and goes
+       dim. The list's older rule is "offer nothing you cannot do", which is
+       right about a press aimed somewhere else and wrong about one whose only
+       problem is your hands: dropping it makes four buttons two, the card
+       reflows under your thumb mid-press, and nothing left on screen says why.
+       Dim rather than gone, and it still answers the press with the reason —
+       see `off` in `pressHints` and the handler in client/ui.js.
+       Opacity alone, on purpose: the words, the tag and the mouse are all still
+       the right ones, and anything that recoloured them would be inventing a
+       second look for a state that is "the same row, not now". */
+    #prompt .pr-say.pr-off { opacity: .42; }
     /* A hairline rather than a dot or a gap: these are alternatives, and a
        middle dot reads as "and then", which is the opposite of what it means. */
     #prompt .pr-say + .pr-say {
@@ -3565,7 +3576,37 @@
       display: flex; align-items: center; gap: 6px;
       padding-bottom: 5px; border-bottom: 1px solid var(--line);
     }
-    #build-groups { display: flex; gap: 3px; }
+    /* The two tab rows, in one scroller. `min-width: 0` is the whole of what
+       makes it scroll rather than push: a flex item's floor is its content, so
+       without it the row simply grows past the bar and takes the close button
+       with it — which is what a phone was getting. `flex: 1` claims the space
+       the close button's `margin-left: auto` used to take off the end.
+
+       Dragged and wheeled by `wireScroll` (client/scroll.js), and the ends are
+       MASKED rather than faded with a `::before`: a scroll container's own
+       pseudo-element is part of its content and slides off the end it is
+       marking. Same 20px and the same reasoning as `.dtabs`, which is the same
+       shape of strip one panel over. */
+    #build-tabs {
+      display: flex; align-items: center; gap: 6px;
+      flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden;
+      scrollbar-width: none; scroll-padding-inline: 12px;
+      touch-action: pan-x;
+    }
+    #build-tabs::-webkit-scrollbar { display: none; }
+    #build-tabs.more-back {
+      mask-image: linear-gradient(90deg, transparent 0, #000 20px);
+      -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 20px);
+    }
+    #build-tabs.more-on {
+      mask-image: linear-gradient(270deg, transparent 0, #000 20px);
+      -webkit-mask-image: linear-gradient(270deg, transparent 0, #000 20px);
+    }
+    #build-tabs.more-back.more-on {
+      mask-image: linear-gradient(90deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
+      -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
+    }
+    #build-groups { display: flex; gap: 3px; flex: none; }
     /* `margin-left: auto` and not `flex: 1` on anything else: the tabs above are
        deliberately content-width, so the free space in this row is space — and an
        auto margin claims it without any other cell having to know this button
@@ -3612,7 +3653,7 @@
        these are the labels the tabs gave up. The divider is this row's own left
        border, so it is there exactly when there is something to its left of. */
     #build-subs {
-      display: flex; align-items: center; gap: 3px;
+      display: flex; align-items: center; gap: 3px; flex: none;
       padding-left: 8px; border-left: 1px solid var(--line);
     }
     #build-subs[hidden] { display: none; }
@@ -4252,6 +4293,45 @@
        property, and the second declaration is not an addition to the first. */
     #rotbtn:active, #closebtn:active { transform: translateY(-50%) scale(.94); background: #ffd66b; }
 
+    /* ---- taking it back, for a thumb --------------------------------------
+       Ctrl+Z is the whole of undo on a desktop and there is no Ctrl on a phone,
+       so on the one device where every build press is made with a fingertip —
+       the device where you are most likely to place a shelf you did not mean to
+       — the feature would have shipped unreachable.
+
+       Stacked UNDER the X rather than paired across the screen, and that is the
+       only real decision here. They are a pair you press repeatedly, often
+       several times in a row, so splitting them onto opposite thumbs would make
+       stepping back three presses a two-handed exercise. The X is the other
+       thing on that side you press once and are done with; these live beneath
+       it in the order you reach for them.
+
+       Smaller than the two above (38 against 46) because they are secondary and
+       because three round buttons of the same size down one edge reads as a
+       toolbar rather than as a mode's controls. No `translateY`: the offsets are
+       measured off the centre line the other two are pinned to, so the `:active`
+       press is a plain scale and cannot drop the button half its height down the
+       screen the way `#rotbtn`'s once did.
+
+       `.off` is a button that would do nothing — an empty stack. Dimmed rather
+       than hidden, because a Redo that disappears the moment you build something
+       new is a control that moves under the thumb already on its way to it,
+       which is the same complaint the comment above settles for `#rotbtn`. */
+    #undobtn, #redobtn {
+      width: 38px; height: 38px; border-radius: 50%; border: 0;
+      background: var(--panel-solid); color: var(--ink);
+      box-shadow: 0 4px 14px rgba(58,49,40,.3);
+      display: none; align-items: center; justify-content: center;
+      pointer-events: auto; cursor: pointer; padding: 0; left: 16px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #undobtn { top: calc(50% + 33px); }
+    #redobtn { top: calc(50% + 79px); }
+    #undobtn.show, #redobtn.show { display: flex; }
+    #undobtn svg, #redobtn svg { width: 20px; height: 20px; }
+    #undobtn.off, #redobtn.off { opacity: .38; pointer-events: none; }
+    #undobtn:active, #redobtn:active { transform: scale(.94); background: #ffd66b; }
+
     /* ---- the award card ---------------------------------------------------
        The one thing on screen that is allowed to look like a game rather than
        like a shop's paperwork. Everything else in this HUD is cream, rounded
@@ -4828,6 +4908,22 @@
       #prompt:has(.pr-say:nth-child(2)):not(:has(.pr-say:nth-child(3))) .pr-say {
         grid-column: auto;
       }
+      /* ...AND THE KEYED ROW PAIRS WITH THE ONE ABOVE IT, which is the one place
+         in this card where two rows are one sentence. Build mode's list is Open
+         it / Move it / Turn it, and the third is not a third thing to do to the
+         unit — R is a *modifier* on the one you have just picked up, the other
+         half of positioning it. Stacked, it read as three equal verbs and left
+         the card a column of three chips for a decision with two halves.
+         The pair lands on the SECOND line rather than the first, and that falls
+         out of the rule above it: the rows before it are still `1 / -1`, so
+         `dense` finds row 1 full and puts both halves on row 2 side by side.
+         Nothing to say for a mouse — a wide pill is one flex row and they are
+         already on one line, which is the whole reason this lives in here.
+         `:has(+ …)` is the previous-sibling selector the pairing needs: the row
+         before the key is whichever verb the key modifies, and naming it by
+         class would tie this to `Move it` for ever. */
+      #prompt:not(:has(.pr-say.pr-r)) .pr-say.pr-k { grid-column: 2; }
+      #prompt:not(:has(.pr-say.pr-r)) .pr-say:has(+ .pr-say.pr-k) { grid-column: 1; }
       /* THE TAG GETS A COLUMN. Stacked, the rows are four sentences that each
          start wherever the one before them ended — HOLD in front of two of
          them and not the other two — and a list whose left edge moves per row
@@ -4886,6 +4982,13 @@
         touch-action: none; user-select: none; -webkit-user-select: none;
       }
       #prompt .pr-say:active { background: rgba(58,49,40,.2); }
+      /* A dim chip does not press IN. It still takes the tap — that is how the
+         reason gets said — but the chip darkening under a finger is the picture
+         of a button working, and this one is not going to. `cursor: default`
+         for the narrow-desktop case, where there is a pointer to change. */
+      #prompt .pr-say.pr-off, #prompt .pr-say.pr-off:active {
+        background: rgba(58,49,40,.09); cursor: default;
+      }
       /* ---- the hold, drawn on the button ----------------------------------
          THE BUTTON IS THE RING. In the world a held press winds a ring on the
          thing you are pointing at, which is where you are already looking; on
@@ -5133,6 +5236,22 @@
   <div id="stam" class="hud"><i></i></div>
   <button id="rotbtn" class="hud" type="button" aria-label="Turn it"></button>
   <button id="closebtn" class="hud" type="button" aria-label="Done building"></button>
+  <!-- The glyphs are inline rather than from `ICONS`, because `client/icons.js`
+       is generated by `npm run icons` from a fetched set and these two are not
+       in it. A pair of stroked arrows is four path commands; adding a build step
+       and a network dependency to avoid writing them would be the larger change. -->
+  <button id="undobtn" class="hud" type="button" aria-label="Undo the last build">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>
+    </svg>
+  </button>
+  <button id="redobtn" class="hud" type="button" aria-label="Redo the last build">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>
+    </svg>
+  </button>
   <div id="prompt" class="hud"></div>
   <div id="boardtip" class="hud"></div>
   <div id="toast" class="hud"></div>
@@ -5141,8 +5260,16 @@
     <div id="build-hint" class="gone"></div>
     <div id="build-bar">
       <div id="build-nav">
-        <div id="build-groups"></div>
-        <div id="build-subs" hidden></div>
+        <!-- TIERS ONE AND TWO SCROLL TOGETHER, and the way out does not. The two
+             rows are content-width by design, so on a phone a tab with sub-tabs
+             on it ran off the side of the screen with nothing to drag: the last
+             chips were unreachable, and so was the ✕ beside them, which is the
+             one control that must never be. One scroller round both — `#build-close`
+             stays outside it, pinned. -->
+        <div id="build-tabs">
+          <div id="build-groups"></div>
+          <div id="build-subs" hidden></div>
+        </div>
         <!-- The way out. B and Escape are the way out on a desktop and neither
              is a key a phone has, which left the rail's own Build button as the
              only exit — a control on the far side of the screen from the bar you

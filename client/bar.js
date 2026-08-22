@@ -28,7 +28,9 @@
  * The strip is dragged rather than scrolled — see `wireStrip` — so a caller
  * hands over the strip's wrapper and its two arrows beside the four elements
  * that are drawn into. They are optional: a bar without them is the plain
- * scroller it was.
+ * scroller it was. `tabs` is the same arrangement one tier up: the wrapper the
+ * two tab rows scroll inside, so a nav row wider than a phone can be dragged
+ * rather than simply running off the side with the way out on the end of it.
  *
  * A caller supplies data and callbacks and never touches the DOM, which is what
  * lets the number keys, the tab cycling, the scroll-the-selection-into-view and
@@ -88,6 +90,29 @@ export const HOLD_MS = 400;
  */
 export const pinLast = (items) => [...items]
   .sort((a, b) => (a.last ? 1 : 0) - (b.last ? 1 : 0));
+
+/**
+ * Where the client's own entries sit against authored ones.
+ *
+ * The null entries — Bare Ground, Bare Wall — are minted in code rather than
+ * authored, so they have no row to carry a `sort` on and need a number written
+ * down somewhere. This is it, and it is above the 0 every unranked piece has so
+ * that the eraser leads a tab nobody has ordered: it is the entry you reach for
+ * when a press went wrong, which is the one press you should never have to
+ * scroll for. Anything meant to lead it is authored ABOVE it — which is the
+ * whole of what a designer has to know about this number.
+ */
+export const PALETTE_LEAD = 1;
+
+/**
+ * Entries in the order the catalogue asked for, highest `sort` first.
+ *
+ * Stable, and that is not a detail: 0 is the default on every row, so a
+ * catalogue where nobody has ranked anything comes out in exactly the order it
+ * came out in before this existed. Ranking is opt-in, one row at a time.
+ */
+export const byRank = (items) => [...items]
+  .sort((a, b) => (b.sort ?? 0) - (a.sort ?? 0));
 
 /**
  * The tab to draw, resolved against what exists.
@@ -268,6 +293,16 @@ export function renderBar(el, {
   // one you must be able to see — after a tab change, after something is picked
   // from off the bar, and after the list shifts under you.
   el.items.querySelector('.tool.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+  // ...and the same claim one tier up. The nav row is content-width, so on a
+  // narrow screen it is a scroller too — and the tab you are ON is the one entry
+  // that must never be the one off the side, which is exactly what cycling with
+  // Tab would otherwise do.
+  if (el.tabs) {
+    (el.subs?.querySelector('.subcat.on') ?? el.groups.querySelector('.cat.on'))
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    wireScroll(el.tabs, { axis: 'x' });
+  }
 
   // Last, because both halves of it are questions about the strip as drawn: how
   // far it can scroll, and where it is scrolled to *after* the line above.

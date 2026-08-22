@@ -943,6 +943,28 @@ export const FixtureSchema = z.object({
    * Nothing reads it yet — deliberately. Call `list_tags` before inventing any.
    */
   tags: z.array(slug).max(12).default([]),
+  /**
+   * Where this one sits in the build palette. Higher floats to the front.
+   *
+   * The palette had no ordering at all until this: entries came out in whatever
+   * order `SELECT * FROM fixtures` handed them back, which is the order somebody
+   * happened to author them in. That is fine for a tab of four and wrong the
+   * moment a tab scrolls — the plainest floor, the one nine presses in ten want,
+   * ends up past the fold behind six materials nobody has bought yet, and the
+   * number keys are spent on whatever was seeded first.
+   *
+   * It is a number on the ROW rather than a list in the client for the reason
+   * everything else about a piece is: a second floor design is a row somebody
+   * adds over MCP, and a palette order kept in code would be a second place to
+   * remember to edit — which nobody would, so the new design would land at the
+   * back for ever.
+   *
+   * 0 is the default and means "wherever you were", because the sort is stable:
+   * a catalogue where nobody has set this is exactly the catalogue it is today.
+   * The eraser entries the client mints for itself (Bare Ground, Bare Wall) sit
+   * at `PALETTE_LEAD`, so anything meant to lead them is authored above it.
+   */
+  sort: z.number().min(-99).max(99).default(0),
 }).refine((v) => (v.tiers?.[0]?.cost ?? 0) === 0, {
   message: 'tier 1 is what a new one already is, so it must cost 0',
   path: ['tiers'],

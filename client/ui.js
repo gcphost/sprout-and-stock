@@ -233,6 +233,10 @@ export class UI {
      */
     this.shopOpen = true;
     this.paused = false;
+    // How many build presses the shop can take back, and put forward. Mirrors
+    // of the snapshot, zero until the first one arrives — see `syncSteps`.
+    this.undos = 0;
+    this.redos = 0;
     /** Did WE stop the clock to open the Menu? See `holdForMenu`. */
     this.menuHeld = false;
     /**
@@ -343,6 +347,7 @@ export class UI {
       build: document.getElementById('build'),
       buildGroups: document.getElementById('build-groups'),
       buildSubs: document.getElementById('build-subs'),
+      buildTabs: document.getElementById('build-tabs'),
       buildTools: document.getElementById('build-tools'),
       buildStrip: document.getElementById('build-strip'),
       buildBack: document.getElementById('build-back'),
@@ -353,6 +358,8 @@ export class UI {
       buildClose: document.getElementById('build-close'),
       rotate: document.getElementById('rotbtn'),
       leave: document.getElementById('closebtn'),
+      undo: document.getElementById('undobtn'),
+      redo: document.getElementById('redobtn'),
       prompt: document.getElementById('prompt'),
       rail: document.getElementById('rail'),
       search: document.getElementById('panel-search'),
@@ -391,6 +398,12 @@ export class UI {
     // auto-facing arguing with you comes along with it — see `rotateBuild`.
     this.el.rotate.innerHTML = ICONS.rotate;
     this.el.rotate.onclick = () => this.rotateBuild();
+    // Taking a press back, for a hand that has no Ctrl+Z. The same two messages
+    // the keys send and no payload either — which step comes back is a fact
+    // about the shop's own stack (see `server/sim/undo.js`), so there is
+    // nothing here for a button to name and nothing for it to get wrong.
+    if (this.el.undo) this.el.undo.onclick = () => this.net.send('undo');
+    if (this.el.redo) this.el.redo.onclick = () => this.net.send('redo');
     // ...and the way back out, on the other thumb. `toggleBuild(false)` and not
     // `showBar(null)`, which is the same distinction the bar's own close button
     // makes in the other direction: putting the strip away leaves you building
@@ -1287,9 +1300,45 @@ export class UI {
     const el = this.el.leave;
     if (!el) return;
     const on = pillDrives() && (this.paletteArmed || !!this.holding);
-    if (on === this._leaveOn) return;
-    this._leaveOn = on;
-    el.classList.toggle('show', on);
+    if (on !== this._leaveOn) {
+      this._leaveOn = on;
+      el.classList.toggle('show', on);
+    }
+    this.syncSteps();
+  }
+
+  /**
+   * Undo and Redo, under the thumb that owns the way out.
+   *
+   * `syncLeave`'s test exactly, and deliberately not `syncRotate`'s: a wall, a
+   * floor and a paint brush have no facing to turn and every one of them is a
+   * press you can want back, so the narrower "over a fixture ghost" would leave
+   * the button off for three of the four things it is most for.
+   *
+   * `.off` rather than `.show` for an empty stack, which is the one judgement
+   * call in here. Hiding a Redo the instant you build something new would take
+   * the button out from under a thumb already moving toward it — the complaint
+   * `#rotbtn`'s own comment settles by pinning it to nothing that can change
+   * size. Dimmed, it stays where it was and says why it does nothing.
+   *
+   * Both counts come off the snapshot rather than being tallied here. The stack
+   * is one per SHOP (see `server/sim/undo.js`), so a client keeping its own
+   * count would be wrong the moment the other player built anything — and it
+   * would be wrong in the direction that offers you a button that does nothing.
+   */
+  syncSteps() {
+    const on = pillDrives() && (this.paletteArmed || !!this.holding);
+    // Behind a key, because this runs off the snapshot at 10Hz and the answer
+    // moves a handful of times a session — the same guard `syncRotate` and
+    // `syncLeave` each keep for their own one boolean.
+    const key = `${on}:${!!this.undos}:${!!this.redos}`;
+    if (key === this._stepsKey) return;
+    this._stepsKey = key;
+    for (const [el, n] of [[this.el.undo, this.undos], [this.el.redo, this.redos]]) {
+      if (!el) continue;
+      el.classList.toggle('show', on);
+      el.classList.toggle('off', !n);
+    }
   }
 
   /**
@@ -1504,6 +1553,10 @@ export class UI {
     return {
       groups: this.el.buildGroups,
       subs: this.el.buildSubs,
+      // What those two scroll inside. Same shape as `strip` below and not drawn
+      // into: the nav row is content-width, so a tab with sub-tabs on it runs
+      // off a phone with no way to drag it back.
+      tabs: this.el.buildTabs,
       items: this.el.buildTools,
       // The strip's frame and its two ends. Not drawn into — they are what the
       // entries scroll *inside* — so they are handed over once and `bar.js`
@@ -3475,6 +3528,11 @@ export class UI {
     // the next hire you open says Unfollow.
     if (this.follow && !(state.roster ?? []).some((e) => e.id === this.follow)) this.setFollow(null);
     this.el.cash.textContent = money(state.cash);
+    // How deep the shop's build stack is, both ways. Mirrored rather than
+    // counted — see `syncSteps`. `syncLeave` is what redraws the pair, and it
+    // already runs off the same tick as the two thumb buttons beside them.
+    this.undos = state.undos ?? 0;
+    this.redos = state.redos ?? 0;
     // The weekday, then the count. A shop that only ever said "Day 62" could
     // tell you how long you had been at it and never where you were in the
     // week, which is the question the report's own week and the reputation it
@@ -3949,8 +4007,13 @@ export class UI {
     // The mark is NOT in this key, and must not be: it goes on the node in
     // `markPress` precisely so that holding a button is not a reason to rebuild
     // the card under the finger holding it.
+    // ...and whether a row is GREY is in it, which is the one thing here that
+    // is easy to leave out and impossible to see missing: a row that goes off
+    // and on keeps its words, so without this the card is not rebuilt and the
+    // button stays lit over a press the shop now refuses — the green-ghost bug
+    // with the fix for it in the same function.
     const key = hints
-      ? hints.map((h) => `${h.btn}${h.tag ?? ''}:${h.say}`).join('|')
+      ? hints.map((h) => `${h.btn}${h.tag ?? ''}${h.off ? '!' : ''}:${h.say}`).join('|')
       : null;
     if (key === this._promptKey) return;
     this._promptKey = key;
@@ -4028,6 +4091,13 @@ export class UI {
         if (!row || e.button > 0) return;
         e.preventDefault();
         const h = this._hints?.[Number(row.dataset.i)];
+        // A GREY ROW STILL ANSWERS, which is the whole difference between a
+        // button that is off and a button that is broken. It is the same
+        // sentence the shop would have said to the press it is standing in for
+        // (see `off` in `pressHints`), moved to the moment you ask for it — and
+        // it is why the row is `aria-disabled` rather than `disabled`, since a
+        // disabled control is not sent the press at all.
+        if (h?.off) { this.toast(h.off, true); return; }
         if (!h?.run) return;
         // A HOLD ROW IS NOT ARMED UNTIL THE PRESS IS ONE, and that is the whole
         // of what makes a quick tap on it do nothing *visible*. It already did
@@ -4079,13 +4149,30 @@ export class UI {
       // the armed-action line (`doing`) is a statement about what is happening,
       // and a thing that looks pressable and is not is the green-ghost bug with
       // words on it. `type="button"`, or it is a submit inside nothing.
-      const row = document.createElement(h.run ? 'button' : 'span');
-      if (h.run) { row.type = 'button'; row.dataset.i = String(i); }
+      // ...and a GREY row is a button too, which is the point of it: it holds
+      // its place in the card so the list does not reshuffle under your thumb
+      // every time your hands fill, and it takes the press so it can say why.
+      const row = document.createElement(h.run || h.off ? 'button' : 'span');
+      if (h.run || h.off) { row.type = 'button'; row.dataset.i = String(i); }
       this._rowEls.push(row);
       // `pr-r` is a `row-reverse`, so a right-button job puts its mouse on the
       // right of its own words. The side is doing the talking, and a right
       // press drawn glyph-first would argue with the only thing this says.
-      row.className = `pr-say${right ? ' pr-r' : ''}`;
+      // ...and `pr-k` so the stylesheet can find the keyed row. It is the one
+      // row that is not a mouse button, which on a phone is the one row whose
+      // cap is hidden — so without a class on it there is nothing left in the
+      // markup to tell it from an ordinary left-hand row. See the pairing rule
+      // in index.html: R is a *modifier* on the unit you just chose to move, not
+      // a third thing to do to it, and the layout says so by putting them on one
+      // line.
+      row.className = `pr-say${right ? ' pr-r' : ''}${keyed ? ' pr-k' : ''}${h.off ? ' pr-off' : ''}`;
+      // Said to a screen reader as well as drawn, and `aria-disabled` rather
+      // than `disabled` on purpose — see the press handler above: the row still
+      // has to be sent the press, or the reason it is grey has nowhere to come
+      // out. On a desktop nothing is pressing it (the pill is a caption there,
+      // `pointer-events: none`) and the shop says the same sentence itself when
+      // you make the press in the world, so the grey is the whole of it.
+      if (h.off) row.setAttribute('aria-disabled', 'true');
       // A proximity job — a till with somebody at it, the bed under your feet —
       // belongs to neither button (`p.pressing` is one bit that says a button is
       // down and nothing about which), so it gets no mouse rather than one with

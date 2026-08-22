@@ -433,7 +433,9 @@ export function stepStaff(game, dt) {
       const run = JOBS[job];
       if (!run) continue;         // authored a job this build doesn't have
       try {
-        if (worked(game, s, run)) { s.job = job; took = true; spend(s); break; }
+        // `tending` is a tick held rather than a job done, so it costs no wear —
+        // see `tend`.
+        if (worked(game, s, run)) { s.job = job; took = true; if (!s.tending) spend(s); break; }
       } catch {
         // A broken job is not worth killing the tick loop over, and not worth
         // killing the *worker* over either — try the next one.
@@ -533,6 +535,10 @@ export function stepStaff(game, dt) {
  */
 function worked(game, s, run) {
   s.stalled = false;
+  // ...and the other half of the same idea — see `tend`. Cleared here so it can
+  // only ever describe the run that just happened, and read once, beside
+  // `spend`, in `stepStaff`.
+  s.tending = false;
   const did = run(game, s);
   const stalled = s.stalled;
   s.stalled = false;
@@ -762,13 +768,47 @@ const FALLTHROUGH = 0.5;
  */
 function drawOrder(game, jobs) {
   if (jobs.length <= 1) return jobs;
-  if (!game.isOpen()) {
+  {
     const rest = jobs.filter((j) => j.job !== 'serve');
-    // `rest.length < jobs.length` is "they actually have a serve weight" — the
-    // whole branch is a no-op otherwise, and skipping it keeps a shut shop
-    // drawing exactly the numbers an open one does for everybody else.
+    // `rest.length < jobs.length` is "they actually have a serve weight" — both
+    // branches are a no-op otherwise, and skipping them keeps a shop drawing
+    // exactly the numbers it always did for everybody without a till on their
+    // list.
     if (rest.length && rest.length < jobs.length) {
-      return [...drawOrder(game, rest), ...jobs.filter((j) => j.job === 'serve')];
+      if (!game.isOpen()) {
+        return [...drawOrder(game, rest), ...jobs.filter((j) => j.job === 'serve')];
+      }
+      /**
+       * ...and the same exception pointed the other way, which is the half that
+       * actually costs money.
+       *
+       * A weight says two things at once, and the shut-shop branch above is
+       * about the share half. This is about the PRIORITY half, and the draw is
+       * where it was being lost: the head is drawn in proportion, so a clerk
+       * authored `serve 9` with six odd jobs at 1 draws a weight-1 job as head
+       * **two ticks in five** — and a head is tried FIRST, before serve, with
+       * the fallthrough floor at half of 1 letting everything else in behind it.
+       * So a ripe bed, a crate on the dock or a shelf that wants filling all
+       * outrank a shopper standing at the counter, and once a hire sets off
+       * `stepStaff` walks before it re-decides anything, so they are gone for
+       * the whole round trip.
+       *
+       * Measured on the shipped clerk's list plus six directives at 1: over 20
+       * in-game minutes the hire was away from the till for **85%** of the ticks
+       * somebody was in the line, against 23% for a hire whose only job is
+       * serving — and the line lasted 5.6x longer for it. What that reads as is
+       * a bot who cannot see the queue, which is exactly what it was reported
+       * as. It is not that they do not know; it is that nothing let serving
+       * interrupt.
+       *
+       * Moving it to the FRONT rather than pre-empting the list outright is the
+       * whole care needed. `serve` still guards itself — no line, no tick — so a
+       * farmhand authored `serve 1` still spends their day in the field and
+       * still steps in when somebody is at the counter, which is what a light
+       * weight was asking for. And the head is still drawn from the rest, so the
+       * floor, the ratios and the rng stream underneath are untouched.
+       */
+      if (anyLining(game)) return [...jobs.filter((j) => j.job === 'serve'), ...drawOrder(game, rest)];
     }
   }
   const rest = [...jobs].sort((a, b) => b.weight - a.weight);
@@ -1563,36 +1603,188 @@ function putDown(game, s) {
 // Each one guards itself. Nothing may assume it runs before anything else.
 // ---------------------------------------------------------------------------
 
-/** Man a till: take the money off the counter, then ring the next shopper up. */
+/**
+ * ANYBODY IN THIS LINE, standing in it or still walking up to their place.
+ *
+ * The dispatch question — which till, whether to go, whether to stay — and it
+ * is deliberately NOT the ring-up question below. `leaveShop` re-paths the
+ * *whole* queue into `TO_TILL` after every sale, and says why: "a walker is
+ * only a stander who has not arrived". So a predicate that counts only the
+ * people standing still answers "nobody waiting" for the length of every
+ * shuffle, and a hire released on that answer is one the draw may take
+ * somewhere else — between two customers, at the busiest till in the shop.
+ *
+ * `Game.serve` and `stepQueue` both already draw this distinction (see the note
+ * on `queue[0]` stalling the line). The staff job was the one place the two
+ * questions shared an answer.
+ */
+const lining = (game, t) => (t.queue ?? []).some((id) => {
+  const st = game.customers[id]?.state;
+  return st === 'QUEUE' || st === 'TO_TILL';
+});
+
+/** ...and somebody actually in their slot, which is the only one you can ring up. */
+const ready = (game, t) => (t.queue ?? []).some((id) => game.customers[id]?.state === 'QUEUE');
+
+/**
+ * How close a person has to be to the working side of a till to count as being
+ * on it. `goTo`'s own default, which is the distance a hire settles for when
+ * they walk to that exact spot — so a clerk who has arrived at a post and a
+ * player standing on it are being measured the same way.
+ *
+ * Deliberately the TEND side and not `serveCandidate`'s 2.2 from the counter
+ * itself. That reach is the right one for "could you ring somebody up", and it
+ * is the wrong one for this, because it is a circle round the till that takes in
+ * the customer side, the queue and — in a shop this size — the unit next door.
+ * Standing down a clerk because the shopkeeper is filling the freezer two tiles
+ * away is the bug this whole section is about, arriving through a new door.
+ */
+const TEND_REACH = 1.2;
+
+/**
+ * IS THE SHOPKEEPER ON THIS ONE?
+ *
+ * You are the only human who works here, and working a till is the one job you
+ * do side by side with the crew rather than instead of them. Nothing said so:
+ * `claimed` walks `game.players` and skips everybody who is not `staff`, so a
+ * player stood behind the counter ringing people up was invisible to the hire
+ * whose whole job that is — and with serving now winning the draw the moment a
+ * line forms (see `drawOrder`), the two of you would crowd one counter while the
+ * shop went unstocked.
+ *
+ * The answer has to be a *place* rather than an action. There is no "serving"
+ * state to read — a sale is a ring that arms, fires and is gone inside a second,
+ * so a clerk asking "are they serving right now" would stand down and come back
+ * between every customer, which is worse than not asking. Standing at the post
+ * is the honest signal, and it is re-asked every tick: step away and the hire
+ * takes the counter back on the next one.
+ */
+function minded(game, till) {
+  /**
+   * ...and never in a balance run, which is the one thing here that had to be
+   * measured rather than reasoned about.
+   *
+   * `simulate`'s bot is a cursor rather than a person: it TELEPORTS to whatever
+   * it is stocking and stays there until the next second, and a shelf beside the
+   * counter puts it on the till's working side. Measured over three 60-day runs
+   * of a real save, it sat there for **14.2%** of all ticks — so unguarded this
+   * would stand the shop's clerks down for a seventh of every balance run, and
+   * every figure in the repo would shift for a reason that has nothing to do
+   * with anybody serving anybody.
+   *
+   * `autoServe` is the honest test and not a bot-shaped special case: it means
+   * the tills ring themselves up because there is no human in this run at all,
+   * which is precisely the condition under which "is the shopkeeper on this one"
+   * is not a question. See `stepQueue`.
+   */
+  if (game.autoServe) return false;
+  const post = tendSpot(till);
+  if (!post) return false;
+  for (const o of Object.values(game.players)) {
+    if (o.staff) continue;
+    if (Math.hypot(o.x - post.x, o.z - post.z) <= TEND_REACH) return true;
+  }
+  return false;
+}
+
+/**
+ * Is anybody anywhere waiting to pay that the crew still have to deal with?
+ * Read by the draw — see `drawOrder`.
+ *
+ * A till you are stood at does not count, which is the half that makes this
+ * usable: without it the queue you are personally working would go on
+ * out-ranking every other job on every hire's list for as long as it lasted.
+ */
+const anyLining = (game) => (game.layout?.checkouts ?? [])
+  .some((t) => lining(game, t) && !minded(game, t));
+
+/**
+ * MINDING THE COUNTER, which is not the same answer as working.
+ *
+ * The mirror of `stall`, and it exists for the same reason that one does: the
+ * two things a job can mean by `return true` are "I did something" and "I have
+ * this tick", and every other job in the file means both at once. Standing at a
+ * till while the line shuffles forward is the one place they come apart — the
+ * hire must hold the tick, or the draw takes them away mid-queue, and must not
+ * be *charged* for it, because `spend` is one job's worth of wear and waiting is
+ * not a job. At `DRAIN` a tick this would flatten a full tank in ten seconds of
+ * standing still, and what that reads as is a clerk who takes a break every time
+ * the shop gets busy.
+ *
+ * A flag read once in `stepStaff`, the same shape and for the same reason as
+ * `stalled`: a third return value would be nine call sites that each have to
+ * spell the distinction again.
+ */
+function tend(s) {
+  s.tending = true;
+  s.cooldown = IDLE;
+  return true;
+}
+
+/**
+ * Man a till: take the money off the counter, then ring the next shopper up.
+ *
+ * NOTHING ABOUT THIS NEEDS A FREE PAIR OF HANDS, and it used to open by
+ * demanding one. `serve` is the only goods verb in the game that moves no
+ * goods — `Game.serve` finds the front of the line and calls `completeSale`,
+ * which never touches the server's arms — so `if (s.carry) return false` was a
+ * refusal with nothing behind it, and it was the refusal that quietly undid the
+ * rest of this section: a hire who had picked up an armful was out of action as
+ * a clerk however far up their list serving sat, and on a shop-hand's directives
+ * that is most of the day. Measured on the reported clerk, hands were full for
+ * **1,790** of the ticks they spent away from a line, second only to being
+ * mid-errand.
+ *
+ * The tell that it was an accident rather than a decision is that YOU were
+ * already exempt: `serveCandidate` has never asked about `p.carry`, so the
+ * shopkeeper could always ring somebody up holding six loaves and the crew could
+ * not. Same shape as the chevrons and `shelfAccepts` — the shop's rule and your
+ * hands' rule have to be one rule, and this was the last place they were two.
+ *
+ * A crate on the SHOULDER is untouched and deliberately so: `stepStaff` answers
+ * `s.haul` above the draw entirely, and that branch is the relief guarantee that
+ * stops anybody being welded to a box. Serving is a job you may do with your
+ * arms full; it is not a job you may be *drawn onto* carrying a crate nothing
+ * else will lift.
+ */
 function serve(game, s) {
-  if (s.carry) return false;
   // One clerk per till, and it has to be enforced here rather than left to
   // `idle`'s posts: `idle` spreads people who have nothing to do, and this is
   // the path taken by everybody who *does*. Both clerks used to answer the same
   // queue, which means both walk over, one rings the sale and the other stands
   // on the same tile watching — an unmanned second till at the same time.
+  //
+  // ...and one SHOPKEEPER per till on the same argument, which is `minded`. A
+  // counter you are stood behind is a counter that is being worked, so it is
+  // filtered out here beside the claims rather than checked further down: with
+  // two tills the hire should take the other one, and the `?? tills[0]` fallback
+  // below would otherwise walk them onto your toes to collect the cash you are
+  // standing on.
   const busy = claimed(game, s);
-  const tills = game.layout.checkouts.filter((t) => !busy.has(key('till', t.id)));
+  const tills = game.layout.checkouts
+    .filter((t) => !busy.has(key('till', t.id)) && !minded(game, t));
   if (!tills.length) return false;
 
-  const waiting = (t) => (t.queue ?? []).some((id) => game.customers[id]?.state === 'QUEUE');
   // A queue is a queue: nothing here rates one waiting shopper above another,
   // so among the tills that HAVE somebody, which one is a question about the
-  // walk. `pickNearest` is `tills.find(waiting)` for every rung that has not
+  // walk. `pickNearest` is `tills.find(lining)` for every rung that has not
   // paid for it, which is the fallback below reached by the same route it
   // always was — and `?? tills[0]` stays, because a till with nobody at it is
   // only ever somewhere to collect cash from and there is no choice in that.
-  const till = pickNearest(s, tills, waiting) ?? tills[0];
+  const till = pickNearest(s, tills, (t) => lining(game, t)) ?? tills[0];
   const post = tendSpot(till);
   const standing = Math.hypot(s.x - post.x, s.z - post.z) <= 0.6;
 
   // Cash left on the counter is worth collecting even with nobody in the line.
-  if (!waiting(till) && !(standing && game.cashDrops.length)) return false;
+  if (!lining(game, till) && !(standing && game.cashDrops.length)) return false;
   claim(s, 'till', till.id);
   if (!goTo(game, s, post, 0.6)) return true;
 
   if (game.collectCash(s) > 0) { s.cooldown = paceOf(s); return true; }
-  if (!waiting(till)) return false;
+  // Standing at the post with a line that has nobody in its front slot yet:
+  // mind the counter rather than handing the tick back. See `tend` and
+  // `lining` — the shopper being rung up next is, at this instant, walking.
+  if (!ready(game, till)) return lining(game, till) ? tend(s) : false;
   const res = game.serve(s.id, till.id);
   // How long the sale held them up is the worker's own pace over the till's
   // speed — a hire on a scanner rings people through faster than the same hire

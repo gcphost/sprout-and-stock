@@ -8,6 +8,7 @@ import {
   faceAlong, isProp, isWalkableTile, workSpotOf, REACH, conveyorAt,
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
+import { lotStacks, lotMain, lotRoom, lotTotal } from '../shared/lot.js';
 import { Scene } from './render/scene.js';
 import { Transport } from './transport.js';
 import { UI } from './ui.js';
@@ -461,6 +462,27 @@ addEventListener('keydown', (e) => {
   // returned on: Shift is a modifier, and every other binding in here reads it
   // (Tab cycles the palette backwards with it) rather than being replaced by it.
   if (k === 'shift') setShift(true);
+
+  /**
+   * Taking a build press back, and putting it forward again.
+   *
+   * Read and returned on BEFORE the menu keys below, which is not tidiness:
+   * those are matched on the bare letter, so a `z` or a `y` bound to a section
+   * would open it under the modifier and Ctrl+Z would undo your wall *and* open
+   * the supplier. Any key the rail grows later is safe by construction.
+   *
+   * Ctrl and Cmd both, because this is one build that runs on a laptop and in a
+   * browser on a Mac; Ctrl+Y and Ctrl+Shift+Z both mean redo for the same
+   * reason, which is that half the world learned each.
+   *
+   * Not gated on build mode — see the messages in `server/rooms/shop.js`. The
+   * moment you most want this is the one just after you have left it.
+   */
+  if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
+    e.preventDefault();
+    net.send(k === 'y' || e.shiftKey ? 'redo' : 'undo');
+    return;
+  }
 
   // Every menu key is read off the same array the rail draws itself from, so a
   // new section is bound and labelled the moment it exists. Pressing the key of
@@ -2478,12 +2500,37 @@ function showBeltDrag(cx, cy) {
   // Same four arguments the server re-runs this with, `rot` included, or the
   // ghost is a preview of a different run from the one the release lays.
   const cells = beltRunCells(beltDrag.start, to, BELT_RUN_MAX, ui.buildRot);
-  if (!cells.length) { scene.setFloorGhost(null, null); return null; }
+  if (!cells.length) {
+    scene.setFloorGhost(null, null);
+    scene.setRunGhost(null, null, null);
+    return null;
+  }
   const L = scene.storeLayout;
-  const ok = cells.filter((c) => canPlace(L, {
-    kind: beltDrag.kind, x: c.x, z: c.z, rot: c.rot,
-  }).ok);
+  // Per cell rather than only counted, because the models are drawn per cell
+  // and a run that clips one shelf should show that square amber under an amber
+  // belt — the count alone would paint the whole run the colour of its worst
+  // square, which is the opposite of what "it skips it and lays the rest" means.
+  for (const c of cells) {
+    c.state = canPlace(L, { kind: beltDrag.kind, x: c.x, z: c.z, rot: c.rot }).ok ? 'ok' : 'warn';
+  }
+  const ok = cells.filter((c) => c.state === 'ok');
   scene.setFloorGhost(cells, ok.length === cells.length ? 'ok' : (ok.length ? 'warn' : 'no'));
+  /**
+   * ...and the belts themselves, facing the way the drag turned them.
+   *
+   * The key is built HERE rather than in the renderer, off the four things the
+   * run is derived from, because that is the cheap question: the pointer moves
+   * sixty times a second inside one tile and `beltRunCells` answers the same
+   * thing every time, so keying on the cells would mean rebuilding the string
+   * (and comparing 64 cells of it) for every one of those frames. Crossing a
+   * tile is what changes any of these four.
+   */
+  scene.setRunGhost(
+    `${beltDrag.kind}/${beltDrag.piece ?? ''}/${beltDrag.variant ?? ''}`
+      + `:${beltDrag.start.x},${beltDrag.start.z}>${to?.x},${to?.z}:${ui.buildRot}:${ok.length}`,
+    cells,
+    { kind: beltDrag.kind, piece: beltDrag.piece ?? null, variant: beltDrag.variant ?? '', tier: 1 },
+  );
   ui.setBuildVerdict(ok.length
     ? { ok: true, warn: ok.length < cells.length ? `${cells.length - ok.length} squares are taken` : null }
     : { ok: false, reason: 'nothing can go along there' });
@@ -2688,8 +2735,26 @@ canvas.addEventListener('pointerdown', (e) => {
   if (armed && RUN_KINDS.includes(armed.kind)) {
     const start = scene.pickTile(e.clientX, e.clientY);
     if (start) {
-      beltDrag = { start, kind: armed.kind, piece: armed.piece ?? null, id: e.pointerId };
+      // `variant` rides along with the piece now that the preview draws the
+      // real art: a corner belt and a straight one are the same row and the
+      // same price, so a ghost that dropped the shape would preview a design
+      // you did not arm — which is the green-ghost rule said about a look.
+      beltDrag = {
+        start, kind: armed.kind, piece: armed.piece ?? null,
+        variant: ui.buildVariant ?? '', id: e.pointerId,
+      };
       canvas.setPointerCapture(e.pointerId);
+      // The hover ghost has to go, and this is the only drag that has one to
+      // get rid of: a belt is a FIXTURE tool, so `refreshGhost` has been
+      // drawing a single caged ghost on the tile under the pointer right up
+      // until this press — and the first thing that press does is return early
+      // from `refreshGhost` for the rest of the drag, which leaves that ghost
+      // standing in the scene with nothing left to update or remove it. It was
+      // invisible while a run previewed as flat squares and is not now: what
+      // you see is the first cell wearing two belts, one of them at whatever
+      // facing the pointer happened to be resting at. The other three drags
+      // (wall, brush, paint) are tools that never had a fixture ghost.
+      scene.clearBuildGhost();
       showBeltDrag(e.clientX, e.clientY);
       return;
     }
@@ -3107,9 +3172,10 @@ function endPress(e) {
   }
   if (beltDrag && (!e || e.pointerId === beltDrag.id)) {
     const drawn = e ? showBeltDrag(e.clientX, e.clientY) : null;
-    const { start, kind, piece } = beltDrag;
+    const { start, kind, piece, variant } = beltDrag;
     beltDrag = null;
     scene.setFloorGhost(null, null);
+    scene.setRunGhost(null, null, null);
     ui.setBuildVerdict(null);
     if (drawn) {
       if (!drawn.ok) { ui.toast('nothing can go along there', true); return; }
@@ -3117,7 +3183,12 @@ function endPress(e) {
       // The armed rotation goes with it — see `beltRunCells`. A drag says which
       // way every cell but the last one faces; R says the rest, and for a press
       // that never travelled it says all of it.
-      net.send('build-run', { kind, piece, x: start.x, z: start.z, to, rot: ui.buildRot });
+      // `variant` goes too, and never did until the preview started drawing the
+      // real art. `buildRun` has always taken one and nothing has ever sent it,
+      // which was invisible while the ghost was a square: arm the corner belt,
+      // watch a square, get the straight one. A preview that draws the shape has
+      // to be a preview of the shape that gets built.
+      net.send('build-run', { kind, piece, variant, x: start.x, z: start.z, to, rot: ui.buildRot });
     }
     return;
   }
@@ -3437,6 +3508,42 @@ const myCarry = () => latestState?.players
  */
 const myHaul = () => latestState?.players
   ?.find((p) => p.id === net.myId)?.haul ?? null;
+
+/**
+ * WOULD ONE MORE OF THIS FIT IN YOUR HANDS?
+ *
+ * `Game.tapCrate` and `Game.unload` both decide this with `lotRoom` against
+ * `carryLot`, and both answer a press that has already been made — which is
+ * what a greyed row exists to stop being the way you find out. So this is the
+ * same call with the same numbers: the cap rides on the snapshot (`carryCap`,
+ * because a rucksack moves it) and the KIND cap is `lotRoom`'s own default,
+ * which is `LOT_KINDS` — the same constant `CARRY_KINDS` is. Nothing here is a
+ * second opinion about the rule; only about when it is asked.
+ *
+ * A cap we have not been sent answers "yes", deliberately: that is an old
+ * server or a frame that has not landed, and the failure direction has to be
+ * the button we already had rather than a shop that greys out everything.
+ */
+function handRoom(itemId) {
+  const cap = myState()?.carryCap;
+  if (!(cap > 0) || !itemId) return Infinity;
+  return lotRoom(myCarry(), itemId, { cap });
+}
+
+/**
+ * ...and the two different noes, in the shop's own words.
+ *
+ * `tapCrate` says these, and they want opposite things from you: full hands are
+ * "put something down", a full third KIND is "put something down *of the right
+ * thing*". A single "hands full" over an armful with room in it reads as the
+ * button being broken.
+ */
+function noRoomWhy(itemId) {
+  const cap = myState()?.carryCap ?? 0;
+  return lotTotal(myCarry()) >= cap
+    ? 'Your hands are full — put something down first'
+    : `No free hand for ${ui.itemName(itemId)} — put something down first`;
+}
 
 /**
  * IS A PRESS PART-WAY THROUGH? Then the pointer stops choosing.
@@ -4165,10 +4272,30 @@ function pressHints({ aim, board, onPile, drop }) {
   // as the words, or a shelf's "Go to it" TWICE and its plain right-button walk
   // — three presses that are genuinely different gestures — would collapse into
   // a row that lies about how to make it.
-  const add = (btn, tag, say, run = null) => {
-    const twin = out.find((h) => h.say === say && h.tag === tag && h.btn !== btn);
+  //
+  // A ROW THAT CANNOT FIRE IS STILL A ROW, which is the one thing this list did
+  // not have a shape for. Its rule has always been "offer nothing you cannot
+  // do", and that is right about a press whose target is somewhere else — a
+  // shelf that will not take these goods is not a thing you got wrong, and the
+  // shop says so by not lighting it. It is wrong about a press whose target is
+  // exactly what you are pointing at and whose only problem is YOU: hands full
+  // at a crate dropped Take one off the list, so the four buttons became two,
+  // the grid reflowed under your thumb, and what is left on screen says nothing
+  // about why. The refusal was one press away the whole time — you make it, and
+  // the shop answers "hands full" in a toast.
+  //
+  // So `off` keeps the row, greys it, and hands that same sentence to whoever
+  // presses it anyway. It is deliberately not the same thing as dropping a row:
+  // use it where the button belongs to this target and the state is the veto,
+  // and go on dropping rows that are about a press this target does not offer
+  // at all. `pillDrives` is worth checking before adding one where there was no
+  // row before — on a desktop this pill is a caption naming which mouse button
+  // does what, and a caption for a press that does nothing is noise there.
+  const add = (btn, tag, say, run = null, off = null) => {
+    const twin = out.find((h) => h.say === say && h.tag === tag
+      && h.btn !== btn && (h.off ?? null) === off);
     if (twin) { twin.btn = 'lr'; return; }
-    if (out.length < 4) out.push({ btn, tag, say, run });
+    if (out.length < 4) out.push({ btn, tag, say, run, off });
   };
   const carry = myCarry();
   const haul = myHaul();
@@ -4265,22 +4392,59 @@ function pressHints({ aim, board, onPile, drop }) {
     // pixels is never the tin anybody meant, so a pile offers the lift only.
     if (crate.stacked) { add('l', 'hold', 'Pick this box up', lift); return out; }
     if (haul) return out;
+    // What is IN the box, which the pointer's own answer does not carry: a
+    // desktop aim is `pickPallet`'s hit (an id and a position) and a phone's is
+    // the record the tap named. One lookup here, so both ends ask the shop the
+    // same question — and `null` when the box has gone out from under the aim,
+    // which every test below then answers "live" to. A row greyed on a frame we
+    // have not got is the failure that reads as the shop refusing you.
+    const stock = (latestState?.deliveries ?? []).find((d) => d.id === crate.id) ?? null;
+    // Which pile a rummage is about. The rows name no kind, and unnamed means
+    // the biggest stack at both ends — see `tapCrate`, which picks the same one.
+    const takeId = stock ? lotMain(stock)?.item_id ?? null : null;
     add('l', null, 'Take one',
-      () => net.send('crate-one', { palletId: crate.id, put: false }));
-    add('l', 'hold', carry ? 'Take an armful' : 'Pick the crate up', lift);
-    if (carry) {
+      () => net.send('crate-one', { palletId: crate.id, put: false }),
+      handRoom(takeId) > 0 ? null : noRoomWhy(takeId));
+    // The hold is two jobs chosen by what is in your hands (`errandAction`), and
+    // only one of them can be refused for room: empty hands can always shoulder
+    // a box, while an armful is `unload`, which sweeps the crate and comes back
+    // "hands full" when not one pile in there would fit.
+    const sweeps = !stock || lotStacks(stock).some((s) => handRoom(s.item_id) > 0);
+    add('l', 'hold', carry ? 'Take an armful' : 'Pick the crate up', lift,
+      carry && !sweeps ? noRoomWhy(takeId) : null);
+    // THE PUTS ARE A COLUMN WHERE THE PILL DRIVES, and a column that empties
+    // itself the moment your hands do is half the card rearranging under your
+    // thumb — with nothing left on screen to say the other direction exists.
+    // So on a phone they stay and go grey. On a desktop the same pair is a
+    // caption about a mouse button, and a caption for a press that does nothing
+    // is noise, so there they are dropped exactly as they always were.
+    const empty = carry ? null : 'Your hands are empty';
+    if (carry || pillDrives()) {
+      const giveId = lotMain(carry)?.item_id ?? null;
+      const cap = latestState?.crateCap ?? Infinity;
       add('r', null, 'Put one back',
-        () => net.send('crate-one', { palletId: crate.id, put: true }));
+        () => net.send('crate-one', { palletId: crate.id, put: true }),
+        // `tapCrate`'s pair of noes, in its own words: a full box is "come back
+        // later" and a box with no board left for this is "that one is spoken
+        // for", and they want opposite things from you.
+        empty ?? (lotRoom(stock, giveId, { cap }) > 0 ? null
+          : (lotTotal(stock) >= cap ? 'That crate is full'
+            : `That crate has no room left for ${ui.itemName(giveId)}`)));
       // ...and the lot, which is the same grade the board below offers and the
       // one a crate did not have — see `armPut`. `place` at the box's own cell,
       // because `dropGoods` is what tops a crate up; a row that sent `crate-one`
       // in a loop would be the second opinion this whole function is written not
       // to be. Only where the shop would take it, or the row is advertising a
-      // press that comes back red.
+      // press that comes back red — which is a fact about the SQUARE rather than
+      // about your hands, so it stays a dropped row rather than a grey one.
+      //
+      // A full box is not a refusal here the way it is above: `dropGoods` tops
+      // one up, spends a free board in it, and stacks a new box on the cell when
+      // it can do neither. Empty hands are the only veto.
       if (canDropAt({ x: Math.round(crate.x), z: Math.round(crate.z) })) {
         add('r', 'hold', 'Put them all in', () => pillPress(
           () => net.send('place', { x: Math.round(crate.x), z: Math.round(crate.z) }), true,
-        ));
+        ), empty);
       }
     }
     return out;
@@ -4441,14 +4605,22 @@ function pressHints({ aim, board, onPile, drop }) {
     // and it self-corrects; where the tap is the aim it just sits there being
     // wrong.
     if (ripeBoard(f, board) && boardTakes() && boardQty(f, board) > 0) {
+      // Greyed rather than dropped when your hands have no room — `unshelve`
+      // refuses this on `lotRoom` exactly as `tapCrate` does, and a row that
+      // left because of something about YOU takes the reason with it. See
+      // `off` on `add`.
       add('l', null, 'Take one', () => {
         pickBoard(f, board);
         net.send('shelf-one', { shelfId: f.id, itemId: board });
-      });
+      }, handRoom(board) > 0 ? null : noRoomWhy(board));
+      // The lot goes on your SHOULDER, so this one is bounded by the box up
+      // there rather than by your hands — `crateBoard`'s own test, and its own
+      // words. An empty shoulder is a new box, which is always room.
       add('l', 'hold', 'Crate the lot', () => pillPress(() => {
         pickBoard(f, board);
         net.send('take', { shelfId: f.id, itemId: board });
-      }, true));
+      }, true), lotRoom(haul, board, { cap: latestState?.crateCap ?? Infinity }) > 0
+        ? null : 'That crate is full');
     } else {
       // **The left button does not walk you to a unit, and saying it did was
       // this pill's own version of the green ghost.** `openInTwo` grades one

@@ -7738,9 +7738,68 @@ export class Scene {
     this.floorGhost = group;
   }
 
+  /**
+   * Preview a run of conveyor as the conveyor it is.
+   *
+   * The floor ghost above says WHERE and WHETHER, in one colour per cell, and
+   * for a wall or a stroke of lino that is the whole of what a preview owes
+   * you. A conveyor is the one thing you drag out whose entire point is a
+   * *direction*: which way the goods go is decided by the drag, corners fall
+   * out of where you turned, and none of that is visible on a flat square. So a
+   * run drawn as squares is a preview that cannot say the one thing it is for —
+   * you lay it, look at the belts, and find out then.
+   *
+   * `setBuildGhost`'s note says squares are deliberate because "a sixty-cell run
+   * of real ghosts is sixty models built per pointer move", and that is the
+   * thing this must not do. It is keyed by the CALLER, on the arguments the run
+   * is derived from rather than on the cells it came out as: a pointer inside
+   * one tile re-runs `beltRunCells` sixty times a second and gets the same
+   * answer every time, so the models are built when you cross a tile boundary
+   * and not otherwise. No cap and no thinning, unlike the lawn: `BELT_RUN_MAX`
+   * is 64, a belt is a handful of boxes, and a run whose last few cells were
+   * squares would be a preview that lies about exactly the end you are aiming.
+   *
+   * No cage per cell and no work spots — see `buildFixtureGhost`. The squares
+   * underneath are still doing that half of the job.
+   */
+  setRunGhost(key, cells, spec) {
+    if (key === this.runGhostKey) return;
+    this.runGhostKey = key;
+
+    if (this.runGhost) {
+      this.actorRoot.remove(this.runGhost);
+      disposeGroup(this.runGhost);
+      this.runGhost = null;
+    }
+    if (!key || !cells?.length || !this.storeLayout) return;
+
+    const group = new THREE.Group();
+    for (const c of cells) {
+      // Resolved per cell through the same `fixtureModel` a standing fixture
+      // uses, and with the cell's OWN rot — which is the whole feature, since
+      // `beltRunCells` is where a corner decides which way it faces.
+      const at = { ...spec, x: c.x, z: c.z, rot: c.rot };
+      const model = this.fixtureModel(at);
+      if (!model) continue;
+      const g = buildFixtureGhost({
+        model,
+        t: tierProgress(1, this.pieceOf(at)?.tiers?.length ?? 1),
+        rot: rot4(c.rot ?? 0),
+        height: Math.max(modelHeight(partsAt(model, 1)), 0.12),
+        verdict: c.state ?? 'ok',
+        cage: false,
+      });
+      g.position.set(c.x, 0, c.z);
+      group.add(g);
+    }
+    this.actorRoot.add(group);
+    this.runGhost = group;
+  }
+
   clearBuildGhost(keepKey = false) {
     this.setEdgeGhost(null, null);
     this.setFloorGhost(null, null);
+    this.setRunGhost(null, null, null);
     if (this.buildGhost) {
       this.actorRoot.remove(this.buildGhost);
       disposeGroup(this.buildGhost);

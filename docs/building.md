@@ -1401,6 +1401,89 @@ than across it, and they needed no new machinery — `off`/`len` place a band
 along the wall, so a vertical member is a short band that happens to be tall, the
 same way the curtain's strips ride a brick course's.
 
+### Taking it back
+
+Build mode is the one place in this game where a single press costs real money
+and is hard to reverse by hand. A wall drag across the wrong aisle is eight
+segments to knock back out at half the money each; a shelf dropped one tile over
+has to be found, lifted and re-aimed; a floor stroke you did not want is a
+bulldozer drag along the same line, priced again. Everything else the player does
+is either free (walking, pointing, opening a menu) or a decision the shop lives
+with (buying stock, hiring). So undo is scoped to construction and to nothing
+else, and that scope is the feature rather than a first cut of it.
+
+**It is a stack of diffs, not a stack of shops.** The tempting shape is a
+snapshot: the building *is* `placements`, `edits`, `ground` and `paint`, all four
+are plain data, and restoring them is one assignment each. It is wrong for
+exactly one reason, and the reason is goods. A fixture's stock does not live on
+its placement — it lives on the layout record, under an id `repositionFixture`
+re-mints every time anything moves. Restore the array and the shelf comes back at
+its old id with six loaves filed under the new one: goods destroyed, nothing
+logged, and a shop that is quietly poorer four presses later with nothing to
+connect it to. So a step records what *changed*, and undoing it walks each change
+back through the same paths a press uses — `repositionFixture` for a fixture that
+is still standing, which carries contents across by alias because that is what
+the alias is for, and a direct overlay write for edges, ground and paint, which
+hold no goods and therefore cannot lose any.
+
+**The money is reversed exactly, and that is a decision rather than a shortcut.**
+The honest-looking alternative is to let the inverse verbs charge normally, so
+undoing a purchase sells the shelf back at `FIXTURE_REFUND` and you are out half
+its price. That reads as a fine for mis-clicking, and an undo you cannot afford
+to use is not an undo. So a step banks the cash it moved and the undo moves
+exactly the negative of it — as a **delta** and never as a restored balance, or
+undoing this morning's wall would also hand back the day's takings. There is no
+arbitrage in that, because the stack is strict: every undo is followed either by
+a redo that costs precisely what the undo paid back, or by a new action that
+clears the redo stack. You can only ever return to a (building, cash) pair you
+have already stood in.
+
+**Only a press is a step.** `recordUndo` writes nothing unless a step is open,
+and the only thing that opens one is a build message from a real client
+(`server/rooms/shop.js`). The generator's own placements, the balance bot's sixty
+days of shopping, the MCP surface and every `verify:*` sweep therefore record
+nothing at all — which is both the memory answer and the right answer, since none
+of those is somebody pressing a button they wish they hadn't. `Game.undoStep` is
+`holdReflow`'s sibling in shape and in argument: a drag is one gesture however
+many verbs it runs, so nested calls join the open step and `buildRun` and
+`bulkFixtures` need to know nothing about any of it.
+
+**A refusal comes before anything moves.** A step can hold twelve fixtures — a
+conveyor run is one press — and half an undo leaves a shop that is neither what
+you had nor what you asked for, with no entry left to try again with. So every
+part is asked whether its inverse is legal before the first one is applied, and
+the whole step is refused with that reason if any says no. The cases are real
+ones: somebody stocked the shelf in the meantime, a wall went up across the tile,
+the other player tore the thing out.
+
+**One stack, not one per player.** There is one shop, two people can be building
+in it, and the thing you most want back when co-op goes wrong is the wall your
+mate just drew across the door — which a per-player stack would refuse. Nothing
+is persisted: an undo stack that outlived a restart would be offering to reverse
+a shop you last saw a week ago, and every fixture id in it has been re-minted by
+the reload anyway.
+
+Two details that are not about undo and would be easy to get wrong. The overlay
+verbs record the **overlay entry** rather than the edge kind or the ground kind,
+because a segment the shell drew has no entry at all — recording its kind would
+restore it as something the *player* drew, which is identical until the shop
+grows and the generator wants its own wall back. And a removal comes back as
+**itself** rather than through `placeFixture`: that verb is a purchase, it mints
+tier 1 and no variant, so an undo routed through it hands you a plain shelf where
+a Commercial one stood, which is a demotion nothing logs wearing an undo.
+
+Ctrl+Z and Ctrl+Y on a desktop (Cmd on a Mac, Ctrl+Shift+Z for redo as well,
+because half the world learned each). On a phone there is no Ctrl at all, so the
+device where every build press is made with a fingertip would have shipped the
+feature unreachable — `#undobtn`/`#redobtn` are the thumb version, stacked under
+the X on the same edge because they are a pair you press repeatedly and splitting
+them across the screen makes stepping back three presses a two-handed exercise.
+An empty stack dims the button rather than hiding it, for the same reason
+`#rotbtn` is pinned to nothing that can change size: a control that disappears
+from under a thumb already on its way to it is worse than one that says no.
+
+See `verify:undo`.
+
 ### Appliances are the one thing left, and that is step 12
 
 An appliance is still priced by its own upgrade row, and it is not the scan:
@@ -1570,6 +1653,17 @@ the number.
     message, no server change, four existing ones sent from one aim
     (`razeAim`). It takes Shift off the multi-select while the bar is up, which
     is the one thing it costs. See above.
+20. **The curtain, which is a way through you do not open.** *Built.* See above.
+21. **The roller door.** *Built.* See above.
+22. **Taking it back.** *Built.* Ctrl+Z and Ctrl+Y over every build verb there
+    is, plus a pair of thumb buttons for the device that has no Ctrl. A stack of
+    diffs rather than of snapshots, because a fixture's stock is filed under an
+    id a move re-mints and restoring the placement array would destroy it
+    silently; the money reversed exactly and as a delta, because an undo you are
+    fined for using is not an undo; and only a *press* opening a step, which is
+    what keeps the generator, the balance bot, MCP and every sweep out of it.
+    Additive: no new column, no new tile, nothing on the save. See above, and
+    `verify:undo`.
 
 ---
 

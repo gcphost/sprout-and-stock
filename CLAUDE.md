@@ -659,6 +659,38 @@ Thirty sweeps, about a minute:
   `GRACE_DAYS`, or every assertion passes whatever that constant becomes. It
   writes nothing at all: no content rows, no save, no cleanup.
 
+- `verify:undo` guards the one thing in build mode that is meant to leave no
+  trace, and every claim in it is invisible by construction: a shop you never
+  touched and a shop you built in and undid are the same still frame — that IS
+  the feature — so a correct undo and one that quietly ate a shelf's stock are
+  the same picture of the same aisle. Its control is the assertion that decides
+  whether any of it is opt-in: `recordUndo` writes nothing unless a step is open
+  and only a build message opens one, so the generator, the balance bot, MCP and
+  every other sweep in here must record **nothing at all** — a control that is
+  wrong is `simulate` growing a stack of sixty days of purchases and every sweep
+  measuring a shop carrying a second copy of its own history. Its centrepiece is
+  the shape this could most plausibly have been built in and must not be: the
+  building is four plain arrays, so undo *looks* like a stack of snapshots, one
+  assignment each — and a fixture's stock lives on the layout record under an id
+  `repositionFixture` re-mints on every move, so restoring the array brings the
+  shelf back at its old id with the loaves filed under the new one. Goods
+  destroyed, nothing logged, discovered as a shop that is poorer four presses
+  later. So: stock it, move it, undo, count. Plus that a drag is ONE entry
+  (`buildEdge` writes eight segments itself and `buildRun` calls `placeFixture`
+  twelve times, and eight presses of Ctrl+Z for one press of the mouse looks
+  exactly like undo working); that the money comes back in FULL rather than at
+  `FIXTURE_REFUND`, that a round trip is worth zero, and that it is a **delta**
+  — earn between the press and the Ctrl+Z and the takings must survive it; that
+  a refused press pushes nothing, or every no sits on top of the stack as an
+  undo that does nothing; that a step with a blocker is refused **whole**, since
+  half an undo leaves a shop that is neither state with no entry left to retry;
+  that a new press forgets the future; that undoing a hole in a wall the SHELL
+  drew leaves `edits` empty rather than an entry saying "wall", which draws
+  identically until the shop grows; that paint comes back **without a re-flow**,
+  which is `verify:paint`'s claim said about the way home; and that a removal
+  comes back as itself rather than through `placeFixture`, which mints tier 1 —
+  a demotion nothing logs, wearing an undo. It writes nothing at all.
+
 Each of the first twelve found real bugs the day it was written, and so did
 `verify:hot` — two, both of them a list of kinds somebody had written out by
 hand — and so did `verify:orphans`, which is the only one so far written to a
@@ -786,7 +818,7 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, and the roller door that is a way through whose whole feature is the picture | steps 1–9, 11, 13–21 built; 10 cancelled; 12 next |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, and taking a build press back | steps 1–9, 11, 13–22 built; 10 cancelled; 12 next |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
 | [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit | steps 1–3, 2b and 3b built; 4–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
@@ -1945,6 +1977,75 @@ what the next step was meant to be.
   had to learn not to walk a charging clerk back to their till. `simulate` is
   blind to all of it — the balance bot never promotes, so every hire in a run is
   on rung 1 and the rng stream is untouched.
+- **…and a QUEUE outranks the draw, which is not the same as serving being
+  heavy.** A weight says two things at once — a share of the day and a priority
+  — and `drawOrder` only ever spent it on the first. The head is drawn in
+  proportion and tried FIRST, so a clerk authored `serve 9` with six odd
+  directives at 1 draws a weight-1 job as head **two ticks in five**, and the
+  `FALLTHROUGH` floor at half of 1 lets everything else in behind it: a ripe
+  bed, a crate on the dock and a shelf that wants filling all outranked a
+  shopper standing at the counter. Then `stepStaff` walks before it re-decides
+  anything, so the hire is gone for the whole round trip. Measured on that list
+  over 20 in-game minutes: away from the till for **85%** of the ticks somebody
+  was in the line, against 23% for a hire whose only job is serving, with the
+  line lasting 5.6x longer for it. **It is invisible as a bug and obvious as a
+  personality** — nothing logs anything, the hire is visibly working the whole
+  time, and what it reads as is a bot who cannot see the queue. So `serve` moves
+  to the FRONT of the order while anybody is lining up, which is the shut-shop
+  exception in the same function pointed the other way, and moving it rather
+  than pre-empting the list is the whole care needed: `serve` still guards
+  itself, so a farmhand authored `serve 1` still spends their day in the field.
+  Two things it needed underneath. `lining` counts anybody whose place in the
+  line is theirs, **walkers included** — `leaveShop` re-paths the whole queue
+  into `TO_TILL` after every sale, so a predicate reading only `QUEUE` answers
+  "nobody waiting" for the length of every shuffle and releases the clerk
+  between two customers. And a hire standing at a post with nobody in the front
+  slot yet has to hold the tick without being *charged* for it (`tend`, the
+  mirror of `stall`): `spend` is one job's worth of wear, and at `DRAIN` a tick
+  a wait would flatten a full tank in ten seconds, which reads as a clerk who
+  takes a break every time the shop gets busy. `simulate` is nearly blind to all
+  of it — `autoServe` is a bot welded to every till, so a balance run always has
+  one and the clerk's serving is decorative there, which means what it measures
+  is the knock-on to *stocking*: which other jobs the clerk does instead. Thirty
+  seeds of a real save moved **−533 → +2231** mean profit (sd 4427 → 4138, so
+  ≈2.5 standard errors). **Ten was not enough and said the opposite** — the
+  first run read 1133 → 262 with the spread apparently tripling, and both halves
+  of that were the sample rather than the change. At this variance the *before*
+  arm alone swings from +1133 to −533 depending which ten seeds you draw, which
+  is CLAUDE.md's own "one seed is not a measurement" holding at n=10.
+- **…and serving is the one goods verb that moves no goods, which is why it
+  never needed a free pair of hands.** `serve` opened `if (s.carry) return
+  false`, and that was the refusal that quietly undid everything above it: a
+  hire who had picked up an armful was out of action as a clerk however far up
+  their list serving sat, which on a shop-hand's directives is most of the day.
+  Hands were full for **1,790** of the ticks the reported clerk spent away from
+  a line, second only to being mid-errand. `Game.serve` finds the front of the
+  line and calls `completeSale`, and neither touches the server's arms — so the
+  tell that this was an accident rather than a decision is that YOU were already
+  exempt: `serveCandidate` has never asked about `p.carry`, so the shopkeeper
+  could always ring somebody up holding six loaves and the crew could not. Same
+  shape as the chevrons and `shelfAccepts`, and the last place the shop's rule
+  and your hands' rule were two rules. A crate on the SHOULDER stays refused,
+  and the line is worth keeping: `stepStaff` answers `s.haul` above the draw
+  entirely because that branch is the relief guarantee that stops anybody being
+  welded to a box — serving is a job you may do with your arms full, not one you
+  may be *drawn onto* carrying a crate nothing else will lift.
+- **…and the shopkeeper is a person the crew could not see.** `claimed` walks
+  `game.players` and skips everybody who is not `staff`, so a player stood behind
+  the counter ringing people up was invisible to the hire whose whole job that
+  is — and with serving now winning the draw, the two of you crowd one counter
+  while the shop goes unstocked. `minded` is the test and it has to be a
+  **place** rather than an action: a sale is a ring that arms, fires and is gone
+  inside a second, so a clerk asking "are they serving right now" stands down and
+  comes back between every customer, which is worse than not asking. It is the
+  TEND side at `goTo`'s own reach and deliberately not `serveCandidate`'s 2.2 —
+  that circle takes in the customer side, the queue and the unit next door, so it
+  would stand a clerk down because you were filling the freezer two tiles away.
+  And it is off under `autoServe`, which is the one thing here that had to be
+  measured rather than reasoned about: `simulate`'s bot TELEPORTS to whatever it
+  is stocking and sat on a till's working side for **14.2%** of all ticks over
+  three 60-day runs, so unguarded this would stand the clerks down for a seventh
+  of every balance run for a reason unconnected to anybody serving anybody.
 - **`till`, `sow` and `harvest` were never three decisions, and the fold is a
   MAX rather than a sum.** They are three steps of one loop over the same beds
   — nobody has ever wanted the middle one on its own — so they cost three lines
