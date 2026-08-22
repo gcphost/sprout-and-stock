@@ -95,6 +95,14 @@ export function wireDrag(el, handle, idOf) {
 
   handle.addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
+    // A RELEASE WE NEVER SAW, and this is the one drag in the game where that
+    // is visible as a bug rather than merely felt: the panel stays welded to
+    // the pointer, and `restorePos` bows out for as long as `drag` is set, so
+    // every menu opened afterwards comes up wherever the last one was left.
+    // Capture normally guarantees the pointerup, and capture is taken away by
+    // things that are none of this file's business — see `healLostPress` in
+    // client/main.js, which is the same repair for the drags on the world.
+    if (e.buttons === 0) { end(e); return; }
     drag.moved = true;
     place(el, e.clientX - drag.dx, e.clientY - drag.dy);
   });
@@ -115,6 +123,10 @@ export function wireDrag(el, handle, idOf) {
   };
   handle.addEventListener('pointerup', end);
   handle.addEventListener('pointercancel', end);
+  // The moment the handle stops being told anything is the last moment this
+  // drag can be ended honestly. After an ordinary release it fires with `drag`
+  // already null and does nothing, which is what makes it safe to add.
+  handle.addEventListener('lostpointercapture', end);
 
   handle.addEventListener('dblclick', (e) => {
     if (e.target.closest('button')) return;

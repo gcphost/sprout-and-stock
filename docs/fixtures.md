@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-123 pieces across 24 kinds.
+125 pieces across 24 kinds.
 
 > ⚠️ **Boards you cannot see into.** Goods fill a unit from the TOP board
 > down, because on a 45° camera each board covers the one below it. So a
@@ -85,6 +85,18 @@ Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other
 2. **Full gondola** — $150, holds ×1.4
 3. **Signed gondola** — $340, holds ×1.8
 
+#### Pallet Rack
+
+`pallet-rack` · kind `shelf` · $220 to build
+
+30 parts · 3 stages, driven by tier · **6 boards of goods** (18 facings drawn)
+
+🔄 **Open all round** — no back panel, so it is worked from all four sides rather than three. Reach and the working-spot markers only: where it may be built and where a tap walks you go by the one anchor either way.
+
+1. **Pallet rack** — free, holds ×1.8, open all round
+2. **Tall rack** — $420, holds ×2.4
+3. **Powered rack** — $900, holds ×3
+
 ### `freezer`
 
 Indoors only, owns its cell (people walk around it), worked from the side it faces (`browseAt`), and reachable from either end, rotates.
@@ -137,6 +149,18 @@ Shapes: Standard, Wall run, Wall corner, Wall corner (other way), Endcap — loo
 1. **Under-counter** — free, holds ×0.6
 2. **Upright cooler** — $140, holds ×1.1, keeps ×1.2
 3. **Glass-door cooler** — $300, holds ×1.6, keeps ×1.5
+
+#### Cold Rack
+
+`cold-rack` · kind `freezer` · $480 to build
+
+23 parts · 3 stages, driven by tier · **5 boards of goods** (15 facings drawn) · has glass
+
+🔄 **Open all round** — no back panel, so it is worked from all four sides rather than three. Reach and the working-spot markers only: where it may be built and where a tap walks you go by the one anchor either way.
+
+1. **Cold rack** — free, holds ×1.8, keeps ×1.4, open all round
+2. **Chilled rack** — $560, holds ×2.2, keeps ×1.8
+3. **Cold store** — $1100, holds ×2.8, keeps ×2.4
 
 ### `warmer`
 

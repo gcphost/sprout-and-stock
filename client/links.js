@@ -26,34 +26,40 @@ export const SUPPORT_URL = 'https://buymeacoffee.com/sprocket.n.stock';
  * is the platform's metaphor, not ours — it says nothing about where the money
  * goes, and a drink is not a thing this shop even sells.
  *
- * So it says what is actually true: the game is free, and paying for it buys
- * more of it. "The game" rather than "the devs" for the same reason — it is the
- * shop somebody is standing in that they might want more of, and who banked it
- * is not the interesting half.
+ * It is also **not an imperative**. "Support the game" is a thing being asked of
+ * you, on a screen you opened to press something else, and a button that tells
+ * you to do something is one you have to decline. This is a condition instead:
+ * it names the only case in which the rest of the sentence is any of your
+ * business, and if it does not apply you have already finished reading. The
+ * link is what completes it, which is why it does not need a verb of its own.
+ *
+ * "The game" rather than "the devs", as before — it is the shop somebody is
+ * standing in that they might like, and who banked it is not the interesting
+ * half.
  */
-export const SUPPORT_LABEL = 'Support the game';
+export const SUPPORT_LABEL = 'If you like the game';
 
 /**
- * What the two standing links say — the front door and the Menu row. Static,
- * and staying that way.
+ * THERE IS NO STANDING CAPTION, and that is the decision rather than an
+ * omission — anything added back here is a second sentence about money on a
+ * screen somebody opened to do something else.
  *
- * The joke is the game's own: everybody who works in this shop is a machine and
- * none of them is paid in anything you would recognise, so "the crew work for
- * free" is a true sentence about the game AND about the game's price. What it
- * lands on is the ask itself — the next aisle is the thing money buys, and it
- * is deliberately a *direction* rather than a promise: "the next aisle" is what
- * this is for, where "every £3 is a feature" is a roadmap somebody can hold you
- * to.
+ * There was one ("Free to play. The crew work for free. The next aisle
+ * doesn't."), it was a joke about the game's own robots, and it was cut. What
+ * is wrong with it is not the wording, it is that a pitch under a link is a
+ * pitch: the label already says the whole thing, the press is one tap, and the
+ * only work a caption underneath can do is *argue*. Nobody reading a menu row
+ * wants to be argued with, and a line long enough to make the case is a
+ * paragraph lying across a 214px panel — which is the complaint that moved this
+ * off the front door in the first place.
  *
- * It does NOT warm up as somebody plays, and that was tried. A line that
- * changes on a screen you are looking at to press something else is a thing
- * that moves for no reason you can see, and the front door is read for about
- * two seconds — so the whole ladder was invisible where it sat and would only
- * ever have been noticed as inconsistency. The place a game is allowed to
- * notice how long you have stayed is the place it is ALREADY stopping to say
- * so, which is the award card. See `awardSupport` below.
+ * It also does NOT warm up as somebody plays, and that was tried before it was
+ * cut. A line that changes on a screen you are looking at to press something
+ * else moves for no reason you can see. The place a game is allowed to notice
+ * how long you have stayed is the place it is ALREADY stopping to say so, which
+ * is the award card — see `awardSupport` below, and note that it is three rungs
+ * out of forty-five.
  */
-export const SUPPORT_LINE = 'Free to play. The crew work for free. The next aisle doesn\'t.';
 
 /**
  * The ask on the award card, keyed to the rung that fired it.

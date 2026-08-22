@@ -25,6 +25,7 @@ import { Tutor } from './tutor.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
 import { cinemaOn, setCinema, onCinema } from './cinema.js';
+import { debugOn, onDebug } from './debug.js';
 import { mix } from './audio/mix.js';
 import { sfx } from './audio/sfx.js';
 import { music } from './audio/music.js';
@@ -856,6 +857,12 @@ const pointer = { x: innerWidth / 2, y: innerHeight / 2, onCanvas: true };
 let settledWho = null;
 
 addEventListener('pointermove', (e) => {
+  // A press whose release we never saw, ended by the first move after it — the
+  // window's half, which is the one that fires while the pointer is over a
+  // panel and the canvas is hearing nothing. See `healLostPress`. It does not
+  // return: where the pointer is and what it has settled on are true whether or
+  // not a gesture just ended.
+  healLostPress(e);
   pointer.x = e.clientX;
   // The lift lives HERE and nowhere else, because this is the one place the
   // pointer is worked out — a second offset applied by the canvas handler would
@@ -3663,6 +3670,12 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  // BEFORE THE TURN, NOT AFTER IT. See `healLostPress`: this is the frame a
+  // stuck spin would have rotated the shop in, and it is asked here as well as
+  // on the window because a canvas press is answered here FIRST — the window's
+  // copy catches the pointer while it is over a panel, and by the time it runs
+  // for a move over the shop the view has already moved.
+  if (healLostPress(e)) return;
   if (spin && e.pointerId === spin.id) {
     // ONCE THE WALK HAS STARTED, THE MOUSE IS NOT AN INSTRUCTION.
     //
@@ -4138,6 +4151,98 @@ function dropGesture() {
 }
 
 addEventListener('blur', dropGesture);
+
+/**
+ * IS A PRESS WITH THIS POINTER'S ID STILL IN FLIGHT?
+ *
+ * Every drag in here is keyed by the id of the press that started it, so the
+ * question has an id in it rather than being "is anything happening": a second
+ * finger coming off a HUD button is not the first one letting go of the shop,
+ * and `dropGesture` abandons *everything* — asked without the id it would be
+ * the tidy-up that throws away the drag it was called about.
+ *
+ * `pinch` and `touches` are deliberately not in the list. They are the one
+ * gesture with no press behind it (two fingers, neither of which owns it), and
+ * they have `pointercancel` — which fires reliably on a touchscreen and is
+ * exactly the event the cases below are missing.
+ */
+function gestureId(id) {
+  return spin?.id === id
+    || drag.id === id
+    || edgeDrag?.id === id
+    || faceDrag?.id === id
+    || beltDrag?.id === id
+    || floorDrag?.id === id
+    || marquee?.id === id;
+}
+
+/**
+ * THE RELEASE THAT NEVER ARRIVED.
+ *
+ * `dropGesture` is the answer to the two ways a press ends without an event;
+ * this is the answer to the third, which is worse because it has no cause you
+ * can enumerate: the pointerup happened and *we never saw it*. Capture is what
+ * normally guarantees we do — every gesture in `pointerdown` takes it — and
+ * capture is released out from under you by things that are none of the game's
+ * business: an element under the pointer going away, a native menu, the OS
+ * taking the button, a browser deciding a gesture is its own.
+ *
+ * What that leaves is the worst failure this file has, because it is silent and
+ * it is *permanent*. `spin` stays set, a mouse reuses one pointerId for its
+ * whole life, and so the very next `pointermove` over the canvas turns the shop
+ * with nothing held down — the view spinning as you reach for a menu, for the
+ * rest of the session. There is no press left to end it and no error anywhere,
+ * and what it reads as is the camera having broken.
+ *
+ * So it is repaired from the state instead of from a list of causes: **a mouse
+ * with no buttons down has no press in flight**, whatever became of the up.
+ * Asked on the move, which is both the first thing that happens afterwards and
+ * the thing the symptom is made of, so the heal lands before a single pixel of
+ * turn does.
+ *
+ * Touch is exempt and has to be: a finger reports `buttons` 1 only while it is
+ * on the glass, which is the only time it sends moves at all, so there is
+ * nothing here for it to answer — and the browser cancels touch gestures
+ * properly. A pen hovers at `buttons` 0 all day and is covered by the id test
+ * above, which is false for a hover.
+ */
+function healLostPress(e) {
+  if (e.buttons !== 0 || e.pointerType === 'touch') return false;
+  if (!gestureId(e.pointerId)) return false;
+  dropGesture();
+  return true;
+}
+
+/**
+ * ...and the same repair off the events that DID arrive, somewhere else.
+ *
+ * On the window, so a release over a panel — the half of the screen the canvas
+ * cannot see, and the one your hand crosses on the way to a menu — closes the
+ * press it belongs to. Canvas presses bubble through here too and find their
+ * gesture already ended, which is the guard doing its job rather than a race:
+ * the target's own handler has run by the time this one does.
+ *
+ * `lostpointercapture` is the same claim made one step earlier. It fires after
+ * an ordinary pointerup (nothing left to drop, so this no-ops) and on every
+ * other way capture goes — which is the moment the canvas stops being told
+ * anything, and therefore the last moment a gesture can be ended honestly.
+ */
+const letGoElsewhere = (e) => { if (gestureId(e.pointerId)) dropGesture(); };
+addEventListener('pointerup', letGoElsewhere);
+addEventListener('pointercancel', letGoElsewhere);
+canvas.addEventListener('lostpointercapture', letGoElsewhere);
+
+// A tab going to the background is a blur on every browser that matters and
+// this on all of them. Same teardown, second door: the one thing worse than a
+// gesture stuck under an alt-tab is one stuck under an alt-tab that did not
+// happen to fire the event we were relying on. The keys go with it for the same
+// reason they go on the blur — a held W whose keyup landed in another tab is
+// the same stuck press one input along, and it walks you across the shop.
+addEventListener('visibilitychange', () => {
+  if (!document.hidden) return;
+  dropGesture();
+  keys.clear();
+});
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -6358,14 +6463,19 @@ function pollInput(dt) {
 let lastFrame = performance.now();
 
 /**
- * The frame clock, on screen, for `?perf`.
+ * The frame clock, on screen, for `?perf` — or the Menu's own switch.
  *
- * Off unless the URL asks, because it is a developer's readout and not a
- * feature: it sits over the shop, it updates four times a second, and nobody
- * playing has a use for a number that only means something next to another
- * number. It exists because "it feels chunky" is a report nobody can act on and
- * "38fps, 21ms, 940 draws" is — and because the machine it is chunky on is
- * never the machine you are sitting at.
+ * Off unless asked for, because it is a developer's readout and not a feature:
+ * it sits over the shop, it updates four times a second, and nobody playing has
+ * a use for a number that only means something next to another number. It
+ * exists because "it feels chunky" is a report nobody can act on and "38fps,
+ * 21ms, 940 draws" is — and because the machine it is chunky on is never the
+ * machine you are sitting at.
+ *
+ * `debugOn` is read every frame rather than once at boot, which is what lets it
+ * be a switch at all: see client/debug.js for why the URL could not stay the
+ * only way in. The element is built on the first frame it is wanted and taken
+ * out again the moment it is not, so an off readout costs a map lookup.
  *
  * Frame time as well as fps, and the two are not the same claim: fps averages
  * away the hitch that is actually being complained about, so the WORST frame in
@@ -6374,12 +6484,18 @@ let lastFrame = performance.now();
  * "this shop is heavy" — and `render.calls` is per frame, reset by three on
  * every draw, so it is read rather than accumulated.
  */
-const perfOn = new URLSearchParams(location.search).has('perf');
 const perf = { at: 0, frames: 0, worst: 0, el: null };
 
 function stepPerf(now, ms) {
-  if (!perfOn) return;
+  if (!debugOn('perf')) return;
   if (!perf.el) {
+    // The window starts here rather than at zero, or the first thing the
+    // readout ever prints is a mean taken over however long the page has been
+    // open — which is 0 fps on boot, and a wrong number on the frame somebody
+    // switched it on to read a number.
+    perf.at = now;
+    perf.frames = 0;
+    perf.worst = 0;
     perf.el = document.createElement('div');
     // Its own element with its own styles rather than a HUD class: the HUD is
     // laid out in stacks that other things measure (`--build-h` and friends),
@@ -6405,7 +6521,7 @@ function stepPerf(now, ms) {
 }
 
 // ---------------------------------------------------------------------------
-// `?tiles` — the debug grid, and the number under the pointer
+// The debug grid, and the number under the pointer — `?tiles`, or the switch
 //
 // Two halves of one question, and each is useless without the other. The grid
 // (`scene.setTileGrid`, drawn in client/render/tile-grid.js) answers "where is
@@ -6427,16 +6543,37 @@ function stepPerf(now, ms) {
 // look at.
 // ---------------------------------------------------------------------------
 
-const tilesOn = new URLSearchParams(location.search).has('tiles');
 const tileRead = { el: null, said: '' };
 
-// Said now, long before there is a shop to draw it over: the scene records the
-// wish and cuts the sheet on the first `buildWorld`. Boot order stays somebody
-// else's problem.
-if (tilesOn) scene.setTileGrid(true);
+/**
+ * Both readouts, wired to the switch — and to the URL, which `onDebug` replays
+ * the moment this registers.
+ *
+ * The grid half is said here long before there is a shop to draw it over: the
+ * scene records the wish and cuts the sheet on the first `buildWorld`, so boot
+ * order stays somebody else's problem. The two boxes are *removed* rather than
+ * hidden, because each is a `position: fixed` element with nothing else holding
+ * a handle to it — and a hidden one would keep `tileRead.said` alive, so
+ * switching the readout back on would show the last tile you crossed before you
+ * turned it off and stay on it until the pointer moved to a different one.
+ */
+onDebug((id, on) => {
+  if (id === 'tiles') {
+    scene.setTileGrid(on);
+    if (!on) {
+      tileRead.el?.remove();
+      tileRead.el = null;
+      tileRead.said = '';
+    }
+  }
+  if (id === 'perf' && !on) {
+    perf.el?.remove();
+    perf.el = null;
+  }
+});
 
 function stepTileRead() {
-  if (!tilesOn) return;
+  if (!debugOn('tiles')) return;
   if (!tileRead.el) {
     tileRead.el = document.createElement('div');
     tileRead.el.style.cssText = 'position:fixed;left:8px;top:8px;z-index:99;'

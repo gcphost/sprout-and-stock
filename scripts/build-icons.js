@@ -87,6 +87,23 @@ const WANTED = {
   // person, so the honest picture of farm work is the machine that does it.
   farmhand: 'ph:tractor-fill',
   chef: 'ph:chef-hat-fill',
+  // The four that shipped without one, and the failure is quiet rather than
+  // loud: `icon(kind, ICONS.staff)` is the soft lookup, so a kind with no glyph
+  // falls back to the robot — which is a perfectly good picture of a hire and
+  // says nothing about *which* hire. Four tabs wearing it is a strip where only
+  // the labels distinguish anything, and the tabs are 15px marks precisely so
+  // you do not have to read them.
+  //
+  // Each is the TOOL rather than the person, which is `farmhand`'s tractor
+  // argument: nobody who works here is a person. The broom would be the obvious
+  // janitor and it is spent — `empty` wears it, one strip away — and a glyph
+  // doing two jobs is exactly what this is fixing.
+  janitor: 'ph:spray-bottle-fill',
+  guard: 'ph:security-camera-fill',
+  runner: 'ph:trolley-fill',
+  // The all-rounder, so there is no one machine to draw. Named for the thing it
+  // is, which is the only tab on the strip where that is the honest answer.
+  'shop-hand': 'ph:hand-fill',
 
   // fixtures
   shelf: 'ph:books-fill',
@@ -232,8 +249,16 @@ if (missing.length) {
   process.exit(1);
 }
 
+// A key is quoted unless it is a bare identifier. Names here are game names and
+// most of them are one word, which is why this went four rounds without one —
+// but a worker kind is a content id, and `shop-hand` written unquoted is not an
+// ugly key, it is a syntax error in the generated file. Which is the whole
+// client: the first thing that imports `icons.js` fails and the game never
+// boots, from a build step whose own output is the thing that is wrong.
+const key = (k) => (/^[A-Za-z_$][\w$]*$/.test(k) ? k : `'${k}'`);
+
 const body = Object.entries(out)
-  .map(([k, v]) => `  ${k}: '${v.replace(/'/g, "\\'")}',`)
+  .map(([k, v]) => `  ${key(k)}: '${v.replace(/'/g, "\\'")}',`)
   .join('\n');
 
 writeFileSync(join(root, 'client', 'icons.js'), `/**

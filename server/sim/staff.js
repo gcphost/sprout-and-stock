@@ -1959,28 +1959,36 @@ function restock(game, s) {
   if (s.carry) return false;
   if (!game.orders.auto) return false;
   const c = content();
-  // Which items are already sat at the bay with somewhere to go. Per ITEM, not
-  // shop-wide — and that distinction is the difference between a scheduling
-  // hint and a deadlock.
-  //
-  // This used to be `deliveries.some(...)`: one crate of anything with anywhere
-  // to go stopped the shop ordering ANYTHING. A single crate of flowers with
-  // room for one on a shelf refused soda, tomatoes and coffee for a shop with
-  // $91,000 in the till and a board sat at 0 of 24. The guard was written when
-  // "is there stock on the floor I could shelve instead" and "have I got enough
-  // of this" were the same sentence, and they stopped being the same sentence
-  // the day the bay could hold a fortnight of different things at once.
-
-  // Every pile in every box, not one kind per box. Read the old way, a crate
-  // whose second pile is milk does not put milk in this set, so the shop buys
-  // milk that is already standing at the bay — which is the very deadlock the
-  // per-item version of this guard was written to fix, arriving again through
-  // the container growing a second kind.
-  const atTheBay = new Set(game.stockCrates()
-    .flatMap((d) => lotStacks(d))
-    .filter((s) => shelfFor(game, s.item_id, c))
-    .map((s) => s.item_id));
-
+  /**
+   * THE BAY GUARD IS GONE, AND `homeSupply` IS WHAT IT WAS REACHING FOR.
+   *
+   * It was a set of items with a crate standing somewhere, and any board wanting
+   * one of them ordered nothing. That has been narrowed twice already and each
+   * time in the same direction — shop-wide ("one crate of flowers refused soda,
+   * tomatoes and coffee") to per-item, then per-item to per-PILE — and this is
+   * the last step of the same walk: per-item to per-UNIT. Because it was still a
+   * boolean, and the honest question is a number.
+   *
+   * `homeSupply` is that number and is asked four lines below: it counts every
+   * pile in every crate, both hands, every shoulder, every planted bed and every
+   * order already placed, and `buy` spends it as `need - supply`. So "don't buy
+   * what is already coming" was covered, by quantity, the whole time — and the
+   * set on top of it turned a shortfall of 39 into an order of nothing.
+   *
+   * What it cost is exactly what it cannot see: a board holds `stack *
+   * capacity_mult * boards` now, so ONE unit of pork riding a conveyor on the
+   * far side of the shop vetoed a 140-unit board that was empty. On a real save
+   * that was **11 of the 20 units** in the queue, and the shop had 49 belt cells
+   * — a long enough pipeline that something of nearly everything is always in
+   * transit, so the veto was close to permanently on. Nothing logs it and every
+   * hire is visibly working; what you watch is a shop the size of a warehouse
+   * that reads as understocked no matter what you do.
+   *
+   * The scheduling half of it — "there is stock on the floor you could shelve
+   * instead" — was never this function's to make. `unload` outscores `restock`
+   * for a hire standing next to a crate, and a crate with somewhere to go is
+   * picked up because that job is drawn, not because this one stood down.
+   */
   // Two ceilings, and the lower one wins. `SPEND_FRACTION` of what sits above
   // the float is the shop keeping itself solvent tick by tick; the daily cap is
   // the player saying how much of the day's money the staff may commit at all.
@@ -2076,10 +2084,11 @@ function restock(game, s) {
       // being topped up for ever, which is the complaint said about the van
       // rather than about the shelf.
       if (!kept.includes(id) && !game.backRoomTakes(target, id, backTakes)) return 0;
-      // Already stood at the bay waiting to be shelved. Ordering more of THIS
-      // while a crate of it is on the floor is the thing the old shop-wide
-      // guard was reaching for, said about the item it is actually about.
-      if (atTheBay.has(id)) return 0;
+      // What the shop already has of this, counted wherever it is standing —
+      // every crate, both hands, every shoulder, every bed and every order
+      // already on a van. It is subtracted rather than used as a veto, which is
+      // the whole of what the retired `atTheBay` set got wrong: see the note at
+      // the top of this function.
       const supply = game.homeSupply(id);
       const room = Math.max(0, need(id) - supply);
       // `max` is about the whole shop, so it is measured against every board
@@ -2797,10 +2806,54 @@ function shelve(game, s) {
  * spoilage used to be a line in the log at midnight, and what you watch now is
  * somebody carrying it across the shop.
  *
- * Nothing scores which bin. `findPath` decides whether the walk is possible and
- * the shop has one skip in practice; a nearest-of-several search would be a rule
- * nobody can see the effect of.
+ * WHICH bin is `binFor`, and it used to be `bins[0]` — see the note there.
  */
+/**
+ * WHICH skip, and it was `bins[0]` for the whole life of the feature.
+ *
+ * The note that stood here said nothing scores which bin, because "the shop has
+ * one skip in practice". That is true of a shop with one skip and quietly false
+ * the moment somebody builds a second — which is a thing you build precisely
+ * because your first one is on the wrong side of a shop that got big. A real
+ * save had two, fifteen tiles apart, and every hire in the building walked past
+ * the near one to queue at `bins[0]`: 24 steps each way from the far corner
+ * against 4 from the other end.
+ *
+ * **What that reads as is the crew not clearing up**, which is the only reason
+ * it is worth a search at all. The rot does go, eventually, so nothing is stuck
+ * and nothing logs anything — you simply watch piles sit in the aisles while
+ * hires walk past them, and the skip you bought to fix it does nothing you can
+ * see. The second one is not a decoration; it is somebody spending money on
+ * exactly this problem and being told the money did nothing.
+ *
+ * Decided ONCE, at the lift, and remembered on the haul. Recomputed per tick it
+ * would be a path search per hire per tick on the hottest loop in the game, and
+ * it would also be free to change its mind halfway across the shop — walking
+ * toward one skip does keep that skip nearest, but a shop is not a straight
+ * line and a route round an aisle can cross the tipping point.
+ *
+ * By PATH and never by line of sight, which is the whole of what makes it safe:
+ * the near skip may be behind a wall, and `bins[0]` at least had `stall` to fall
+ * back on. A bin nothing can reach is not offered, and if none can be reached
+ * the old answer stands so the behaviour is never worse than it was.
+ */
+function binFor(game, s) {
+  const bins = game.layout.bins ?? [];
+  if (bins.length < 2) return bins[0] ?? null;
+  const kept = s.haul?.binId && bins.find((b) => b.id === s.haul.binId);
+  if (kept) return kept;
+  let best = null;
+  let bestSteps = Infinity;
+  for (const b of bins) {
+    const at = b.useAt ?? b;
+    const path = findPath(game.walk, game.layout, { x: Math.round(s.x), z: Math.round(s.z) }, at);
+    if (!path || path.length >= bestSteps) continue;
+    bestSteps = path.length;
+    best = b;
+  }
+  return best ?? bins[0];
+}
+
 function tidy(game, s) {
   // An armful with nowhere to go — the original whole of this job.
   //
@@ -2823,11 +2876,14 @@ function tidy(game, s) {
   // emptied first.
   if (s.carry && !s.haul?.waste) return putDown(game, s);
 
-  const bin = game.anyBin();
-  if (!bin) return false;
+  if (!game.anyBin()) return false;
 
   // Carrying it already? Then there is one thing to do with it.
   if (s.haul?.waste) {
+    const bin = binFor(game, s);
+    if (!bin) return false;
+    // Remembered, so the walk cannot change its mind halfway. See `binFor`.
+    s.haul.binId = bin.id;
     if (!goTo(game, s, bin.useAt ?? bin)) return true;
     // Straight off the shoulder. Not through `binGoods`, which is the player's
     // verb and would take an armful of good stock with it — a hire arriving at
@@ -3657,17 +3713,19 @@ export function shelfFor(game, itemId, c, spoken = null) {
  * Is there anywhere in the shop for another lot of this to GO?
  *
  * The test the two jobs that *produce* goods ask before producing, and the one
- * neither of them had. `restock` has always asked it — it is `atTheBay` plus
- * `homeSupply`, the whole subject of docs/ordering.md — and the shop's own two
- * sources of stock were exempt, so "the shop stops buying what it already has"
- * sat next to a kitchen and a farm that did not.
+ * neither of them had. `restock` has always asked its own version — `homeSupply`
+ * against a board's room, the whole subject of docs/ordering.md — and the shop's
+ * own two sources of stock were exempt, so "the shop stops buying what it
+ * already has" sat next to a kitchen and a farm that did not.
  *
  * Two questions, in the order that makes them cheap:
  *
  * - **Is a crate of it already standing at the drop-off?** Then the answer is
- *   shelve that, not make another. This is `restock`'s `atTheBay` guard said
- *   about the things you produce rather than the things you buy, and it is what
- *   stops a chef and a stocker taking turns building a pile.
+ *   shelve that, not make another. A boolean is right HERE and was wrong in
+ *   `restock` (see the retired `atTheBay` set), and the difference is that
+ *   producing is a decision about one batch you are about to start rather than
+ *   about a quantity to send a van for. It is what stops a chef and a stocker
+ *   taking turns building a pile.
  * - **Will any board take it?** `shelfFor` is the whole of "has the shop got
  *   room", including the reservations — a crafted good is never `assigned` to
  *   anything, so a shop whose every board is spoken for genuinely has nowhere

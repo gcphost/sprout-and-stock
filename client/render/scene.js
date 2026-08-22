@@ -1121,6 +1121,20 @@ const SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
 const FILL_HIGH = new THREE.Color(PALETTE.fillHigh);
 const FILL_DUSK = new THREE.Color(PALETTE.fillDusk);
 
+/**
+ * How much ambient the shop's ceiling is worth to the things that move in it,
+ * at midnight. Zero at noon — see `roomFill` in `setupLights` for what it is
+ * and `INDOOR_LIFT` in `lights.js` for the half of the same ceiling that is
+ * baked into everything standing still.
+ *
+ * The number is a match to that one rather than a taste: the bake multiplies a
+ * surface by `1 + 0.55` at full night, and on a floor under this sun that lands
+ * near enough where an extra third of ambient lands. Change either and check
+ * both, at dusk, with somebody standing on a shop floor — the failure is not
+ * "too dark", it is a person cut out of the ground they are standing on.
+ */
+const ROOM_FILL = 0.34;
+
 export class Scene {
   constructor(canvas) {
     this.renderer = new THREE.WebGLRenderer({
@@ -1383,6 +1397,33 @@ export class Scene {
     const bounce = new THREE.DirectionalLight(0xbcd8ff, 0.32);
     bounce.position.set(-18, 12, -14);
     this.scene.add(bounce);
+
+    /**
+     * The shop's own ceiling, for everything a bake cannot reach.
+     *
+     * `INDOOR_LIFT` lights the room by folding a lift into the colours of the
+     * things that never move — floor, fixtures, belts. That is most of what you
+     * look at and none of what walks about in it: people, crates, and the goods
+     * standing on every shelf are rebuilt every sync out of colours nothing
+     * baked. Left out they would be silhouettes on a lit floor, which is worse
+     * than the dark room this is fixing.
+     *
+     * Layer 0 is the whole of the aim, and it is a fact about this renderer
+     * rather than a trick: everything static was moved onto `BAKED_LAYER` so the
+     * lamp pool could not light it twice, so what is left on layer 0 is exactly
+     * the movers — plus the walls, which want this anyway, and the apron, which
+     * is why that got moved (see `buildWorld`).
+     *
+     * What it cannot do is tell inside from out. A shopper on the road at dusk
+     * takes the same lift as one at the till, because an ambient light is one
+     * number for everything it touches and the alternative is a layer flag
+     * rewritten per body per frame. It is small, it is warm, and against a farm
+     * that is genuinely dark it reads as somebody standing in the spill from the
+     * shop windows. If that ever stops being true, the honest fix is per-body,
+     * not a bigger number here.
+     */
+    this.roomFill = new THREE.AmbientLight(0xffeacd, 0);
+    this.scene.add(this.roomFill);
 
     // The ground is lit by lamps that were added up on the CPU (`bakeInto`), so
     // it sits on a layer the point lights cannot see or it would be lit twice.
@@ -2543,6 +2584,12 @@ export class Scene {
    */
   aimLights(L) {
     if (!L) return;
+    // Where the building is, which is what makes the bake able to tell a shop
+    // floor at dusk from a field at dusk. Here rather than in `buildWorld`
+    // because this is the method that already means "point the lighting at this
+    // layout", and the mask moves for the same reason the lamps do — a wall
+    // went up, so a cell that was outside is a room now.
+    this.lights.setIndoor(L);
     const fixtures = fixturesIn(L);
     this.lights.setEmitters(emittersIn(fixtures, (f) => this.pieceOf(f), CEILING_Y, this.signals));
     // Which of them are lamps that watch something, so `syncSignals` can skip
@@ -2712,6 +2759,14 @@ export class Scene {
     );
     ground.position.set(L.w / 2, -0.2, L.h / 2);
     ground.receiveShadow = true;
+    // Onto the baked layer with every other bit of ground. It is not baked —
+    // there is nothing per-cell about one box the size of the world — but it has
+    // to be off layer 0, because layer 0 is now what `roomFill` lifts at night.
+    // The apron is the outdoor field seen past the last tile, so lifting it
+    // would put a bright band round a dark lawn: the ONE part of this the eye
+    // reliably catches, since the seam is a straight line the length of the map.
+    // What it costs is the lamp pool, which never reached out here anyway.
+    ground.layers.set(BAKED_LAYER);
     this.staticRoot.add(ground);
 
     // Everything raised gets an instanced box per tile kind — and, for floor,
@@ -3866,6 +3921,14 @@ export class Scene {
     this.lights.setDaylight(daylight);
     this.ambient.intensity = 0.38 + daylight * 0.52 + this.lights.spill;
     this.ambient.color.copy(FILL_DUSK).lerp(FILL_HIGH, daylight);
+
+    // ...and the shop's own ceiling, on the movers. Same ramp as `INDOOR_LIFT`
+    // and deliberately the same shape — the two are one ceiling approximated
+    // twice, so they have to rise together or a shelf brightens while the loaf
+    // on it does not. Continuously, where the bake steps on the hour: the pool
+    // already glides against that same stepped floor and nobody has ever caught
+    // it, because what an eye reads at dusk is the total rather than the seam.
+    this.roomFill.intensity = ROOM_FILL * (1 - daylight);
 
     // The baked half of the same sunset, on the hour. Every lamp in the shop is
     // already in the floor's colours (`bakeInto`), and that sum is only right
@@ -10180,13 +10243,22 @@ function fixturesIn(L) {
     ...(L.stations ?? []).map((s) => ({ ...s, kind: 'station' })),
     ...(L.plots ?? []).map((p) => ({ ...p, kind: 'plot' })),
     ...(L.pens ?? []).map((p) => ({ ...p, kind: 'pen' })),
-    // Decorations carry their own kind, because there is more than one of them
-    // and which list they came out of no longer says which.
-    ...(L.props ?? []),
     ...(L.bins ?? []).map((b) => ({ ...b, kind: 'bin' })),
     ...(L.belts ?? []).map((b) => ({ ...b, kind: 'belt' })),
     ...(L.arms ?? []).map((a) => ({ ...a, kind: 'arm' })),
     ...(L.sorters ?? []).map((s) => ({ ...s, kind: 'sorter' })),
     ...(L.unders ?? []).map((u) => ({ ...u, kind: 'under' })),
+    // Decorations carry their own kind, because there is more than one of them
+    // and which list they came out of no longer says which.
+    //
+    // LAST, and that is a rule rather than tidiness: `fixtureAt` is a `find`,
+    // a decoration is the one fixture that stamps no tile, and so the order of
+    // this list IS the tie-break for a cell holding two things. A hanging lamp
+    // must never win one — it owns nothing, it is merely drawn over the cell —
+    // and that is exactly what `fixtureAt`'s own note says it relies on. It was
+    // true when props were written and stopped being true the day a conveyor
+    // was added underneath them, which is a one-line reorder and reads in the
+    // game as a machine you cannot open under a light.
+    ...(L.props ?? []),
   ];
 }

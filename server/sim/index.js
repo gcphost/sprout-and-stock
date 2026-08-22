@@ -1415,19 +1415,63 @@ const BASE_CATCHMENT = 16;
  * milestone in it moves nothing at all and the shop stops getting better while
  * getting bigger.
  *
- * This is the world's own term rather than a fifth thing to spend on, and that
- * is what keeps the split in `footfall` intact: restocking, pricing and serving
- * still cannot touch catchment, because a town growing around an established
- * shop is not shopkeeping — it is the same class of fact as `trading()` being
- * the world's hours rather than your shutters.
+ * **It is BANKED rather than derived, and that is the whole of it.** It used to
+ * be a saturating curve on `day` — `TOWN_GROWTH * (1 - e^-(day-1)/TOWN_TAU)`,
+ * capped at +24 and effectively finished by day 120 — which made the ceiling on
+ * the whole game 152 and left a shop past that with nothing in the world left to
+ * move. Now the shop earns a little town every day it trades and keeps it, so
+ * the term climbs for as long as somebody plays.
  *
- * **It saturates, for the reason `charmReach` and `parkReach` do.** A term that
- * climbs for ever is not a town, it is a printing press with a slow fuse — and
- * a curve rather than a step so there is no morning where the shop doubles. Tau
- * is deliberately longer than the early game: +3.9 by the end of week one, +11.5
- * by day 26, +22 by day 100, and the last two of it spread over the year. What
- * that buys is a number that moves every single day you play, which is the half
- * a ladder of occasional rungs can never provide.
+ * **Scaled by reputation, which is the one thing that keeps it from being a
+ * printing press with a slow fuse.** An accumulator that pays out regardless is
+ * a clock, and a clock is not a town; what is being modelled is word getting
+ * around, so a shop nobody rates grows slowly and a shop everybody rates grows
+ * at `TOWN_PER_DAY`. That is deliberately the old curve's opening slope
+ * (24/40 = 0.6/day) — so a shop that earns it holds for ever the best pace the
+ * old curve ever managed, instead of decaying off it.
+ *
+ * **It does NOT break the split in `footfall`.** Reputation is already `pull`,
+ * and paying it twice is the trap here: the reason that is not what this does is
+ * that `pull` reads today's reputation as a LEVEL and this reads it as a RATE.
+ * A shop that pins at 1.0 gets no more of `pull` for the next fortnight and does
+ * get a fortnight of town — which is exactly the hole this exists to fill, and
+ * why a term that simply re-read the level would flatten right back out.
+ *
+ * **Gated on having traded**, for the reason `R.SETTLED` below is: a day with
+ * the shutters down is not evidence about the shop, and ungated this pays a
+ * closed shop for existing. Which reverses what the old curve said — that a shop
+ * that shuts for a week still ages — and reversing it is the point, because the
+ * old one was a fact about the calendar and this one is a fact about the shop.
+ *
+ * **The rate is set by what a LOSS has to feel like, not by what a gain does.**
+ * It shipped at 0.6 — the old curve's opening slope, on the reasoning that a
+ * shop which earns it should hold for ever the best pace that curve ever managed
+ * — and that reasoning was about the wrong end of the number. Everything else in
+ * `catchment` can go DOWN: bulldoze a planter and `charmReach` drops, take out a
+ * parking bay and `parkReach` does. At 0.6 against a pinned reputation the town
+ * re-earns a whole point in under two days, so every one of those deductions is
+ * handed straight back — and at `NIGHT_SPEED` two in-game days is a couple of
+ * seconds of watching, which reads as the deduction never having happened.
+ *
+ * That is worse than the flat line this replaced. A term that climbs is fine; a
+ * term that climbs fast enough to paper over the other four is a term that
+ * quietly deletes them, and charm and parking are the two things in the game you
+ * decorate *for*. At 0.15 a point of charm stands lost for about a week, which is
+ * long enough to be a decision, and the town still grows without limit: +55 over
+ * a year of solid trading, against the +24 the old curve capped at.
+ */
+const TOWN_PER_DAY = 0.15;
+
+/**
+ * ...and the curve it replaced, kept for exactly one caller: a save that has
+ * never banked any.
+ *
+ * A shop mid-game when this shipped has a town of `BASE + 22` and no
+ * `townEarned` field, and a straight `?? 0` would take twenty-two people off it
+ * overnight — a shop that got materially worse because it was loaded. So the old
+ * curve is evaluated once, at that shop's current day, and banked as the opening
+ * balance. From the next rollover it accrues like everybody else, and these two
+ * constants are never read again.
  */
 const TOWN_GROWTH = 24;
 const TOWN_TAU = 40;
@@ -1822,6 +1866,17 @@ export class Game {
      */
     this.paint = { ...(state.paint ?? {}) };
     /**
+     * How much town this shop has banked — see `TOWN_PER_DAY` and `townGrowth`.
+     *
+     * The fallback is the OLD CURVE at this shop's day rather than zero, and it
+     * has to be evaluated here rather than only in `Game.create`: an ephemeral
+     * game has no save at all, so `simulate` and every `verify:*` sweep reach
+     * the constructor directly, and defaulting those to zero would measure a
+     * day-60 shop with a day-1 town. That is the `fresh()` trap in its second
+     * form — a field that is not new but newly matters.
+     */
+    this.townEarned = state.townEarned ?? Game.seedTownEarned(state.day);
+    /**
      * Whether the yard has ever been stamped — see `freezeYard`.
      *
      * A mark, not a count. "Does this shop own a bay" answers a different
@@ -2068,6 +2123,12 @@ export class Game {
       // because a guard that only survives a hot reload fires a fresh world
       // event on every cold start — see `runDirector`.
       lastDirectorDay: w.lastDirectorDay ?? null,
+      // How much town the shop has banked. Left `undefined` on a save that
+      // predates it rather than defaulted here, because the fallback is the old
+      // curve at this shop's day and it is stated once, in the constructor —
+      // where the ephemeral games that never come through this function can
+      // reach it too. See `TOWN_PER_DAY`.
+      townEarned: w.townEarned,
       ownedUpgrades: w.ownedUpgrades ?? [],
       // Every day that has finished, and the demand meter's memory of them. A
       // save from before either reads as a shop with no history, which is what
@@ -2328,6 +2389,11 @@ export class Game {
       tradedToday: this.tradedToday,
       pausedAt: this.paused ? this.pausedAt : null,
       lastDirectorDay: this.lastDirectorDay ?? null,
+      // The banked town. Written at the day rollover immediately before this
+      // runs, like `ledger` and `totals` — and read back by `Game.create`,
+      // which is the half this file's own notes about `paint` and `traffic`
+      // exist to remind you of.
+      townEarned: this.townEarned,
       ownedUpgrades: this.ownedUpgrades,
       // Both are written at the day rollover, *before* this runs — see
       // `onNewDay`. Saved after the day they describe rather than during the day
@@ -3795,6 +3861,19 @@ export class Game {
     if (traded && this.reputation < this.town.repSettle) {
       this.moveRep(this.town.repSettleRate * (this.town.repSettle - this.reputation), R.SETTLED);
     }
+    // ...and the town hears about it. See `TOWN_PER_DAY` for why this is banked
+    // rather than derived and why reputation is a rate here rather than the
+    // level `pull` already reads.
+    //
+    // AFTER the settle drift, deliberately: a shop clawing its way off the floor
+    // should bank the reputation it has just been handed back rather than
+    // yesterday's, or the one day in the game where the number is moving fastest
+    // is the one day the town is told about last.
+    //
+    // Gated on `traded` beside it, and before `persist` for the same reason that
+    // note gives — a day of town applied after the save is a day a restart
+    // silently takes back.
+    if (traded) this.townEarned += TOWN_PER_DAY * this.reputation;
     // Before `persist`, and after the last thing that touches the day's money —
     // `payWages` is it. `spoilStock` runs first and deliberately moves no cash:
     // it prices what it binned into `stats.spoiledValue`, which is a readout of
@@ -7077,24 +7156,42 @@ export class Game {
     // reward worth having. Unbounded on purpose where the other two saturate —
     // the ladder is finite, so what it can add is already capped by how many
     // rungs there are.
-    // ...and the town's own growth, which is the fifth and the only one nobody
-    // did anything to get. See `TOWN_GROWTH`: between two of the four above,
-    // this is the only thing that moves, and on a shop whose reputation has
-    // pinned there is otherwise nothing in the game left to move at all.
+    // ...and the town's own growth, which is the fifth and the only one with no
+    // ceiling. See `TOWN_PER_DAY`: between two of the four above, this is the
+    // only thing that moves, and on a shop whose reputation has pinned there is
+    // otherwise nothing in the game left to move at all. It used to be the one
+    // term nobody did anything to get, and it is now the one term you can only
+    // get by trading well — which is what makes it the term that never runs out.
     return BASE_CATCHMENT + this.townGrowth() + countUpgrade(this, 'catchment', 'reach')
       + this.charmReach() + this.parkReach() + milestoneReach(this);
   }
 
   /**
-   * How much the town has grown around a shop that kept opening.
+   * How much the town has grown around a shop that kept trading.
    *
-   * Measured on `day` and nothing else, which is the whole of what makes it the
-   * world's term rather than a fifth thing you buy — see `TOWN_GROWTH`. A shop
-   * that shuts for a week still ages, and that is right: the town did not stop
-   * growing because you did, and the shutters already cost you the trade.
+   * A field read rather than a formula, which is the whole of what changed —
+   * see `TOWN_PER_DAY`. It is banked one day at a time in `onNewDay` and it is
+   * the only term in `catchment` with no ceiling, so this is the number that
+   * keeps a finished shop's ledger moving.
+   *
+   * A getter rather than the raw field because every other term here is one,
+   * and `catchment` reading four calls and one property would be the seam
+   * somebody later "tidies" the wrong way.
    */
   townGrowth() {
-    return TOWN_GROWTH * (1 - Math.exp(-Math.max(0, this.day - 1) / TOWN_TAU));
+    return this.townEarned;
+  }
+
+  /**
+   * ...and the opening balance for a shop that predates the field.
+   *
+   * The old curve, at whatever day this shop is on. See `TOWN_GROWTH` for why
+   * it is evaluated rather than defaulted to zero: `?? 0` is not a field that
+   * failed to load, it is twenty-two people deleted from an established town by
+   * the act of opening the save.
+   */
+  static seedTownEarned(day) {
+    return TOWN_GROWTH * (1 - Math.exp(-Math.max(0, (day ?? 1) - 1) / TOWN_TAU));
   }
 
   /**
@@ -8703,7 +8800,31 @@ export class Game {
       return err(`${item.name} has to be made in an appliance, not ordered`);
     }
 
-    const take = Math.min(qty, item.stack);
+    /**
+     * ONE ORDER IS AS BIG AS IT WAS ASKED FOR, AND `stack` IS NOT AN ORDER.
+     *
+     * It was `min(qty, item.stack)`, which is a board's worth — "how many units
+     * fit in one shelf stack", per the schema — quietly doing duty as a ceiling
+     * on a purchase. Those were the same number for exactly as long as a unit
+     * was one board of one tier: a shelf held `stack` of a thing, so a van
+     * carrying `stack` filled it and anything above was overflow.
+     *
+     * A board holds `stack * capacity_mult * boards` now, so a rack board wants
+     * forty and the supplier silently sold twelve. Nothing said so — `restock`
+     * asks for exactly the board's room (`buy`) and this clipped the answer on
+     * the way past, so what you watch is the crew ordering correctly, a van
+     * turning up a third full, and a board that takes four vans to fill while
+     * the shop reads as having plenty of money and plenty of room. The bigger
+     * the unit, the worse it gets, which is the wrong way round for a thing you
+     * paid for.
+     *
+     * There is no ceiling of its own now, deliberately, because there are three
+     * already and each is about something real: the pad it lands on, the room
+     * the shop has for it, and the money. A number bigger than any of those is
+     * refused by name a few lines down rather than silently becoming a smaller
+     * order — which is the whole complaint, said the other way round.
+     */
+    const take = Math.trunc(qty);
     if (take <= 0) return err('order at least one');
 
     // Physics rather than a consequence, so this one refuses — and it refuses
@@ -8714,16 +8835,16 @@ export class Game {
     // which is where this is meant to be prevented.
     if (!this.layout.bay) return err('nowhere for it to land — lay a delivery bay first');
 
-    // ...and the same argument one step further along, which is new: a run that
-    // turns up with more than the pad can hold has nowhere to put it. The pad's
-    // capacity caps what may be IN FLIGHT, checked here with the other guards,
-    // rather than a full bay quietly delaying the van — the first is a number
-    // you can see and paint your way out of, the second is a mechanic nobody
-    // asked for that presents as the supplier having stopped working.
+    // ...and the same argument one step further along: a van has nowhere to
+    // unload onto a pad that is already under crates. Checked here with the
+    // other guards rather than as a full bay quietly delaying the run — the
+    // first is a number you can see and clear your way out of, the second is a
+    // mechanic nobody asked for that presents as the supplier having stopped
+    // working.
     //
-    // It has to count the orders as well as the crates. Counting only what is
-    // standing there would let six orders placed in one tick all pass a check
-    // against an empty pad and land together on a bay that holds four.
+    // What is on ITS WAY is not counted here and is counted by `looseRoom`
+    // below — see the note on `bayRoom` for why booking the van against the pad
+    // made a yard with nothing standing in it read as full.
     const room = this.bayRoom();
     if (room <= 0) return err('the bay is full — unload it before ordering more');
     if (take > room) return err(`only room for ${room} more at the bay`);
@@ -8895,7 +9016,8 @@ export class Game {
   }
 
   /**
-   * How much more the delivery bay can take, counting what is on its way.
+   * How much more the delivery bay can take — WHAT IS STANDING ON IT, and
+   * nothing that is still on a lorry.
    *
    * A cell holds one crate and a crate holds an armful, which is the rule the
    * pads have had since they became paintable — "how big you paint it is how
@@ -8905,6 +9027,28 @@ export class Game {
    * you park an armful and a stripped shelf leaves its stock where it stood;
    * neither is the wholesaler's problem, and counting them would mean tidying
    * your own goods into the yard stopped you being able to order.
+   *
+   * **It counted the van's whole load too, and that was this doing
+   * `looseRoom`'s job with a much smaller number.** The reasoning was that six
+   * orders placed in one tick would each pass a test against a pad as it was
+   * before any of them landed — which is true, and is exactly what `looseRoom`
+   * is for: that one counts every outstanding order against the bay, the
+   * drop-off and every conveyor cell together, so the shop-wide brake on buying
+   * more than there is anywhere to put was already there and already honest.
+   * Two brakes on one wheel, and the tighter one was a fact about a pad that
+   * DRAINS: a shop had a twelve-cell bay reading 18 units free with **nothing at
+   * all standing on it**, because a 114-unit van was booked against it and the
+   * crew clear each drop as fast as it lands. What that reads as is a supplier
+   * refusing to sell to a shop whose yard is visibly empty, and the advice it
+   * leads you to — paint a bigger bay — is advice to pay for cells that will
+   * never hold a crate.
+   *
+   * So the two are a pair with one job each. This is PHYSICS at the moment the
+   * doors open: is there room on the pad right now. `looseRoom` is the
+   * COMMITMENT: is there room in the shop for everything you have already
+   * bought. A van that lands on a pad fuller than it expected stacks rather
+   * than spilling (`dropGoods` shares a cell), which is why the physics half
+   * can afford to be about now rather than about later.
    */
   bayRoom() {
     const bay = this.layout.bay;
@@ -8924,7 +9068,6 @@ export class Game {
     for (const d of this.deliveries) {
       if (bay.cells.some((c) => c.x === d.x && c.z === d.z)) used += lotTotal(d);
     }
-    for (const o of this.orders.pending) used += o.qty ?? 0;
     return Math.max(0, bay.cells.length * this.crateCapacity() - used);
   }
 
@@ -9034,7 +9177,12 @@ export class Game {
      * the same way, and a rule that counted one kind would make the number
      * depend on which pieces somebody happened to use.
      */
-    const cells = pads + conveyorsOf(this.layout).length;
+    // ...at `CRATES_PER_CELL` each, because a cell of belt holds as many boxes
+    // as `CRATE_PITCH` lets stand on it and a cell of pad holds one. The two
+    // have to be counted apart or the pitch and the allowance drift: a run
+    // packed to the clamp would eat room it was never credited with, and the
+    // shop would stop ordering because its conveyors were doing their job.
+    const cells = pads + conveyorsOf(this.layout).length * Game.CRATES_PER_CELL;
     let used = 0;
     // Everywhere, which is the whole point — no cell test. Rubbish counts here
     // too, and for `bayRoom`'s reason rather than in spite of it: an order has
@@ -9226,9 +9374,20 @@ export class Game {
       // The first order always gets on, however big it is. Otherwise a van
       // authored smaller than one order strands those goods for ever — paid
       // for, due, and refused by every van that ever comes.
-      if (aboard.length && load + crates(o) > cap) break;
+      //
+      // **`continue`, not `break`** — it stopped loading at the first order that
+      // would not fit, rather than going on to look for one that would. Which
+      // means the size of the load was decided by the ORDER OF THE LIST: four
+      // crates aboard, a five-crate order next, and the lorry left with four and
+      // eleven behind it however many one-crate orders were sitting there. On a
+      // shop with 697 units waiting that is the difference between a van and a
+      // van you paid for, and there is nothing on screen to say the lorry could
+      // have taken more — a half-full van and a full one are the same lorry
+      // driving up the same lane.
+      if (aboard.length && load + crates(o) > cap) continue;
       aboard.push(o);
       load += crates(o);
+      if (load >= cap) break;
     }
 
     const start = lane.in[0];
@@ -9480,19 +9639,42 @@ export class Game {
       }
     }
 
-    // Whatever is still in your arms becomes crates of its own, ONE CELL for
-    // the lot of them: a delivery is a pallet of a thing, so sixteen carrots
-    // are a pile of carrots on a cell rather than three quarters of your bay
-    // spoken for by a single order. A free cell is preferred and the counter
-    // only decides who shares once the whole pad is full — otherwise the pile
-    // is drawn inside whatever was already standing there, and how big you
-    // painted the pad would stop meaning anything. What a cell holds is a KIND;
-    // how high it stands is how much of it there is.
+    /**
+     * ...and whatever is still in your arms becomes crates of its own, A FREE
+     * CELL AT A TIME, and only stacked once there is no bare cell left.
+     *
+     * It picked ONE cell and put the whole lot on it, on the argument that a
+     * delivery is a pallet of a thing and sixteen carrots should not claim three
+     * quarters of the bay. That argument is about a crate or two and stops being
+     * true at the size a delivery can now be: a 60-unit order is five boxes, and
+     * five boxes on one square is a tower on a pad with eleven cells bare beside
+     * it. It is worse than untidy — a buried crate offers the pointer nothing
+     * but the whole box (`crateStacked`), and the pad reads as full while most
+     * of it is empty.
+     *
+     * So the free-cell preference that was already here is asked once per BOX
+     * rather than once per drop. What that keeps is the half worth keeping — a
+     * cell holds a KIND, so a mixed drop still lands as one readable pile per
+     * thing — and what it gives up is the claim that one order may only ever own
+     * one square, which was never a rule anybody could see, only a stack they
+     * could not unpick.
+     *
+     * The fallback shares round-ROBIN rather than sending everything to one
+     * counted cell: past the point where the pad is full the goods are going to
+     * stack whatever happens, and a pad that grows evenly is one you can still
+     * read. `n0` keeps two drops in the same tick from choosing the same square.
+     */
     const n0 = this.nextDeliveryId;
     const taken = new Set(this.deliveries.map((d) => `${d.x},${d.z}`));
-    const spot = slots.find((s) => !taken.has(`${s.x},${s.z}`)) ?? slots[n0 % slots.length];
+    let shared = 0;
+    const nextSpot = () => {
+      const free = slots.find((s) => !taken.has(`${s.x},${s.z}`));
+      if (free) { taken.add(`${free.x},${free.z}`); return free; }
+      return slots[(n0 + shared++) % slots.length];
+    };
 
     while (left > 0) {
+      const spot = nextSpot();
       const n = this.nextDeliveryId++;
       const take = Math.min(opts.cap, left);
       const del = {
@@ -10642,16 +10824,52 @@ export class Game {
    * line has nowhere to go, and it clears from the front the moment the head
    * moves, at exactly the speed of the belt.
    *
-   * A WHOLE CELL rather than a box-width, and that is a capacity rule rather
-   * than a look. One cell holds one crate — it is what a run's length means in
-   * boxes and what everything from `bayRoom` to a player counting a jam reads —
-   * and the clamp is now the only thing enforcing it, so packing them tighter
-   * would silently double what every conveyor in the game carries. The three
-   * things this used to be traded against are gone with the per-cell shape: a
-   * jammed run and a moving one are told apart by the run being STOPPED, which
-   * the renderer already reads off `beltStuck`.
+   * A BOX-WIDTH, so a queue on a belt is boxes touching.
+   *
+   * It was a whole cell, and the argument was that one cell holding one crate is
+   * a capacity rule rather than a look: the clamp is the only thing enforcing
+   * it, so packing them tighter multiplies what every conveyor in the game
+   * carries. Both halves of that are true and the conclusion was the wrong way
+   * round — what a run holds is a number two lines of code read, and what a jam
+   * LOOKS like is the only readout a conveyor has. A backed-up line drawn with
+   * two thirds of a tile between each box does not read as backed up; it reads
+   * as a belt running with gaps in it, which is the one thing the player most
+   * needs to be able to tell at a glance.
+   *
+   * So the capacity claim moves with it rather than holding it back:
+   * `CRATES_PER_CELL` is the same number said the other way, and `looseRoom` —
+   * the one place a run's length is spent as storage — multiplies by it. Get
+   * that pair out of step and a jammed run silently eats the yard allowance it
+   * is no longer credited for, which is a shop that stops being able to order
+   * because its belts are full.
+   *
+   * 0.5 against `CRATE` in client/render/props.js (0.318), the way
+   * `CURTAIN_DROP` is measured off the box a conveyor carries under it — and
+   * THE NUMBER IS SET BY THE CORNERS, not by the straights.
+   *
+   * This is an arc length along the line's path, and the boxes are drawn at
+   * chord distance. Round a right-angle bend the worst case is two crates
+   * sitting the same distance either side of the vertex, where the chord is
+   * `pitch / sqrt(2)` — so a pitch that looks like a finger's gap down a
+   * straight is an OVERLAP at every corner in the shop, which reads as boxes
+   * clipping through each other rather than as arithmetic. 0.4 gave 0.283
+   * there, inside the 0.318 the box is wide. 0.5 gives 0.354, which clears.
+   *
+   * It is also the ceiling: `CRATES_PER_CELL` floors `1 / pitch`, so anything
+   * above 0.5 drops a cell's credit from two boxes to one and hands the yard
+   * allowance back. Padding and capacity meet exactly here.
+   *
+   * What may be PUT on a cell is a different question and still one at a
+   * time — see `beltCellFree`.
    */
-  static CRATE_PITCH = 1;
+  static CRATE_PITCH = 0.5;
+
+  /**
+   * ...and the same fact as a count, for the one place that spends a run's
+   * length as storage. Floored, so the number a shop is credited with is never
+   * more than the line can actually hold.
+   */
+  static CRATES_PER_CELL = Math.floor(1 / 0.5);
 
   static ARM_SECONDS = 0.9;
 
@@ -10873,6 +11091,13 @@ export class Game {
     if (crate.waste) return met.bins.length > 0;
     const piles = lotStacks(crate).filter((p) => p.qty > 0);
     if (!piles.length) return false;
+    // ...and so is a box the shop has given up on entirely, for the same
+    // reason: since `armTakes` a skip will have it, and it is the only thing in
+    // the shop that will. Answered here as well as in `mayRide` because these
+    // are the two ends of one journey — a box allowed onto the run and then
+    // steered away from the one line that can end it is worse than never having
+    // been let on, since it rides for ever instead of waiting where it fell.
+    if (piles.every((p) => givenUp(this, p.item_id))) return met.bins.length > 0;
     // A hopper counts as somewhere goods can go, or a line feeding the
     // kitchen is invisible to the one piece whose job is choosing lines.
     return piles.every((p) => !givenUp(this, p.item_id)
@@ -11053,7 +11278,14 @@ export class Game {
     // Only when something else is left — a junction whose ways out are ALL
     // rubbish lines has nothing better to offer and the box waits, which is the
     // jam it already was rather than a new one.
-    if (crate && !crate.waste) {
+    //
+    // ...and a box the shop has given up on every pile of is steered like
+    // rubbish rather than away from it, since a skip is now the one place it
+    // can end up. Same exemption, same sentence: this guard is about a box that
+    // has somewhere better to be, and that one has not.
+    const forTheSkip = crate && !crate.waste && lotStacks(crate).length
+      && lotStacks(crate).every((p) => givenUp(this, p.item_id));
+    if (crate && !crate.waste && !forTheSkip) {
       const keeps = pool.filter((w) => {
         const met = conveyorMeets(this.layout, this.beltAt(w.x, w.z));
         return !met.bins.length || met.shelves.length > 0 || met.stations.length > 0;
@@ -11330,7 +11562,18 @@ export class Game {
   mayRide(crate, cell) {
     if (!crate || !cell) return false;
     if (crate.waste) return conveyorMeets(this.layout, cell).bins.length > 0;
-    return !lotStacks(crate).every((p) => givenUp(this, p.item_id));
+    if (!lotStacks(crate).every((p) => givenUp(this, p.item_id))) return true;
+    // ...and a box that is ENTIRELY given up may ride to a skip, which is the
+    // same sentence as the rubbish line above rather than an exception to it.
+    //
+    // Both refusals here are about a box that would ride for ever, and neither
+    // is about the box: they are about there being nowhere on that network for
+    // it to end up. A run with a skip on it is somewhere, now that a loader
+    // aimed at one will take stock (see `armTakes`). Refuse it and the dump has
+    // no exit in the other direction either — goods the shop gave up on could
+    // be off-ramped onto the floor and never picked back up, which is a pile
+    // that can only leave by rotting.
+    return conveyorMeets(this.layout, cell).bins.length > 0;
   }
 
   /**
@@ -12305,6 +12548,29 @@ export class Game {
     if (crate.waste) return (this.layout.bins ?? []).some((b) => b.x === at.x && b.z === at.z);
     const piles = lotStacks(crate);
     if (!piles.length) return false;
+    // ...and the skip takes STOCK too, but only what the shop has given up on.
+    //
+    // The rule this bends is docs/workers.md's, and bending it is the point: a
+    // *worker* may never decide six loaves are not worth keeping, which is why
+    // `tidy` carries out rot and walks a dead board to the drop-off instead.
+    // A loader you aimed at a skip is not a worker making that call. It is the
+    // same consent `armPull` runs on — pointing a machine at a unit is you
+    // saying what that unit is for — and it is opt-in twice over, since you
+    // have to build the loader and then turn it at the bin.
+    //
+    // Without it a dump has no exit. A given-up item is refused every board in
+    // the shop, so nothing will ever lift it off the off-ramp; the only way out
+    // is for it to rot where it stands and leave as rubbish days later. What
+    // that reads as is a machine that works and a shop that fills up with piles
+    // of boxes anyway.
+    //
+    // `some` and not `every`, exactly as the shelf branch below is: a mixed box
+    // loses the dead half here and rides on with the rest, which is `tidy`'s own
+    // sentence about a hire at the skip holding rubbish in one hand and cheese
+    // in the other.
+    if ((this.layout.bins ?? []).some((b) => b.x === at.x && b.z === at.z)) {
+      return piles.some((p) => givenUp(this, p.item_id));
+    }
     const unit = (this.layout.shelves ?? []).find((sh) => sh.x === at.x && sh.z === at.z);
     if (unit && piles.some((p) => !givenUp(this, p.item_id)
       && this.shelfAccepts(unit, p.item_id)
@@ -12351,11 +12617,15 @@ export class Game {
   }
 
   armLand(arm, at, crate) {
+    const skip = (this.layout.bins ?? []).find((b) => b.x === at.x && b.z === at.z);
     if (crate.waste) {
-      const skip = (this.layout.bins ?? []).find((b) => b.x === at.x && b.z === at.z);
       if (skip) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
       return;
     }
+    // Stock into a skip, which is only ever what the shop has given up on —
+    // see `armTakes`. It tips pile by pile and leaves the rest in the box, so
+    // the crate rides on if there is anything live still in it.
+    if (skip) { this.armTip(crate); return; }
     const unit = (this.layout.shelves ?? []).find((sh) => sh.x === at.x && sh.z === at.z);
     if (unit && this.armPour(unit, crate)) return;
     const machine = (this.layout.stations ?? []).find((st) => st.x === at.x && st.z === at.z);
@@ -12545,7 +12815,8 @@ export class Game {
     //
     // ...and never off the side it UNLOADS onto, or the off-ramp above is a
     // loop: the box goes down, the loader is empty, and the next swing picks the
-    // same box straight back up. Three sides in, one side out.
+    // same box straight back up. Three sides in, one side out — for STOCK. Rot
+    // is never off-ramped, so it is lifted from all four; see below.
     const out = anchorTile(arm.x, arm.z, arm.rot);
     const met = conveyorMeets(this.layout, arm);
     for (const s of sides) {
@@ -12555,9 +12826,25 @@ export class Game {
       // one thing it was turned that way to do — while an identical one next to
       // it, pointing at bare floor, works. Two machines side by side doing
       // different things for a reason nothing on screen can show.
-      if (mode !== 'load' && s.x === out.x && s.z === out.z) continue;
+      const faced = mode !== 'load' && s.x === out.x && s.z === out.z;
       if (this.beltAt(s.x, s.z)) continue;
       const loose = this.deliveries.find((d) => !d.belt
+        // ...and the faced side, EXCEPT FOR RUBBISH, which this loader can
+        // never have been the one to put there.
+        //
+        // The exclusion above is about the off-ramp, and the off-ramp is the
+        // one branch of the swing rot never reaches: the waste case returns a
+        // dozen lines up, deliberately, because `armDrop` goes through
+        // `dropGoods` and would hand the rot back as food. So there is no loop
+        // to prevent here and the exclusion is the same pure cost the load-only
+        // exception names — worse, because aiming a loader AT a pile is the one
+        // gesture anybody makes when they want that pile gone, so the machine
+        // refuses the only thing it was plainly asked to do while three
+        // identical sides of it work. Nothing on screen can show why.
+        //
+        // `byArm` below is the guard that actually closes the loop for stock,
+        // and it is a fact about the box rather than about the side.
+        && !(faced && !d.waste)
         // ...and never the box this same loader just set down. See `armDrop`.
         && d.byArm !== arm.id
         // Rubbish with no skip down the line, and anything the shop has GIVEN
@@ -13004,6 +13291,38 @@ export class Game {
       const took = p.qty - lotQty(res.left, p.item_id);
       if (took > 0) crate.stacks = lotTake(crate, p.item_id, took).lot?.stacks ?? [];
     }
+    if (!lotTotal(crate)) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+    return true;
+  }
+
+  /**
+   * Tip the given-up piles of a crate into a skip, and leave the rest.
+   *
+   * `armPour`'s shape pointed at the one destination that destroys things, and
+   * the filter is what keeps that safe: `givenUp` and nothing else, so the only
+   * stock a loader can ever bin is stock the shop has already stopped stocking,
+   * stopped buying and refused every board in the building. Anything live in
+   * the same box is untouched and rides on, which is why this takes piles out
+   * rather than deleting the crate.
+   *
+   * It is the SHOP's judgement being carried out rather than a second one: the
+   * decision to give up was made days earlier by `giveUpBoard`, is visible in
+   * the supplier as "not stocking", and is undone the moment you tick a shelf
+   * for that item. This machine only moves what that decision already stranded.
+   *
+   * No money moves in either direction, which is `verify:bin`'s claim about
+   * every other way into a skip — `spoiledValue` prices what rots, and what you
+   * threw out on purpose was never a loss the shop takes twice.
+   */
+  armTip(crate) {
+    const dead = lotStacks(crate).filter((p) => givenUp(this, p.item_id));
+    if (!dead.length) return false;
+    for (const p of dead) crate.stacks = lotTake(crate, p.item_id, p.qty).lot?.stacks ?? [];
+    this.logGoods(null, {
+      pre: 'A loader put ',
+      post: ' in the skip — the shop had given up on it.',
+      goods: dead.map((p) => ({ item_id: p.item_id, qty: p.qty })),
+    });
     if (!lotTotal(crate)) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
     return true;
   }
@@ -17349,9 +17668,10 @@ export class Game {
        * name says which trip this was and the archetype says what to do about
        * it.
        *
-       * Mostly people, some machines (`BOT_SHOPPER_SHARE`). A shopper is a
-       * capsule with a nose, so nothing on screen contradicts either — unlike a
-       * hire, who is visibly a machine.
+       * A person, always. The machine register belongs to the payroll — a hire
+       * is visibly a machine, and a shopper who was one read as the roster's
+       * name generator having got loose in the spawn rather than as a robot
+       * doing the shopping. See the header of `names.js`.
        *
        * Off the namer's own stream, so a shopper's name costs the balance
        * stream nothing: the basket, budget and jitter draws below are the same
@@ -17362,7 +17682,6 @@ export class Game {
        */
       name: this.namer.unique(
         [...Object.values(this.customers).map((c) => c.name), ...this.roster.map((e) => e.name)],
-        { bot: this.namer.botShopper() },
       ),
       // A driver is put down ON their space and a walker off the edge of the
       // world. The jitter that keeps four people arriving on one footpath from

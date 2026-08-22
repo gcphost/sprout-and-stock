@@ -11,7 +11,11 @@
  * The town forgets a bad week (`repSettle`), a floored shop still gets a
  * trickle (`pullFloor`), and nothing at all costs money until you hire somebody
  * — so a neglected shop converges on mediocre and sits there for a hundred
- * days, while `townGrowth` quietly makes it busier the whole time.
+ * days, while `townGrowth` quietly makes it busier the whole time. That last
+ * clause is weaker than it was and deliberately so: the town is banked at a
+ * rate scaled by reputation now (`TOWN_PER_DAY`), so a mediocre shop still
+ * grows and grows at a mediocre pace, where the old day-based curve handed it
+ * the same town a thriving one got.
  *
  * **Explicit numbers, not multipliers over the constants.** Same shape as
  * `START_TIERS` and for a better reason than symmetry: `0.6 × REP_SETTLE` is a

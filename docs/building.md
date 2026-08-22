@@ -350,9 +350,11 @@ Both of the things this section warned about were real:
   visibly switching the far end off.
 - **A light that changes no number is decoration with extra steps.** Still true,
   and still deliberate: nothing in the sim reads `emits`. What it does do is dim
-  with the day (`DAY_FLOOR`), so a lamp is worth most at dusk. That is the cheap
-  half of "indoors is not outdoors" below — the lamp dims and the room does not.
-  If lighting is ever meant to *matter*, the hook is the tag system, not
+  with the day (`DAY_FLOOR`), so a lamp is worth most at dusk. That is one half
+  of "indoors is not outdoors" below; the other half — the room keeping a light
+  of its own once the sun is off it — is built now, so the sentence that used to
+  live here ("the lamp dims and the room does not") no longer holds. If lighting
+  is ever meant to *matter*, the hook is the tag system, not
   `if (piece.id === 'lamp')`.
 
 One thing worth knowing that wasn't obvious: three's falloff makes `intensity` a
@@ -362,28 +364,55 @@ invisible unless it is scaled by its own range squared. That scaling lives in
 
 ### Indoors is not outdoors
 
-There is already a sun. `scene.js` lerps `SUN_HIGH`→`SUN_DUSK` and
-`FILL_HIGH`→`FILL_DUSK` across the day, so the world visibly opens and closes.
-That is a single global term applied to everything, indoors and out alike —
-which is why a shop at dusk currently looks like a field at dusk.
+**Built, except the windows.** There is already a sun: `scene.js` lerps
+`SUN_HIGH`→`SUN_DUSK` and `FILL_HIGH`→`FILL_DUSK` across the day, so the world
+visibly opens and closes. That is a single global term applied to everything,
+indoors and out alike — which is why a shop at dusk used to look like a field at
+dusk, and why the building read as *switching off* at teatime rather than as
+evening coming on. A room is not lit by the sky; it has a ceiling.
 
-The `indoor` mask makes the split answerable for free, and this is the payoff
-that turns lamps into a purchase:
+The `indoor` mask makes the split answerable for free:
 
 - **Outdoors** is lit by the sun. It gets dark at night, and nothing you buy
   changes that. Farm work at dusk is meant to be gloomy.
-- **Indoors** gets only a fraction of the sun, plus whatever your own lights
-  add. An unlit shop goes dark at dusk — so buying lights is what keeps you
-  trading in the evening, rather than a thing you do because it looks nice.
-- **Windows earn their keep.** A `window` edge lets the sun into the cells
-  behind it. That is the difference between a windowed frontage and a bunker,
-  and it makes an aesthetic choice a functional one.
+- **Indoors** keeps a lift of its own that grows as the daylight goes —
+  `INDOOR_LIFT` in `lights.js`, zero at noon, multiplicative on the surface's own
+  colour, and folded into the bake `bakeInto` was already doing for lamps.
+- **Windows earn their keep.** Still proposed. A `window` edge letting the sun
+  into the cells behind it is the difference between a windowed frontage and a
+  bunker, and it is what would make an aesthetic choice a functional one.
 
-Do the cheap version. Two ambient terms rather than real light transport: an
-outdoor ambient that tracks the sun, and an indoor ambient that is a low floor
-value plus a falloff from each nearby `emits` piece and each window edge.
-Per-cell, computed when the layout changes and when the hour changes — not per
-frame, and not a shadow map.
+Two things the build settled that the sketch had the wrong way round.
+
+**The floor is generous, not stingy.** The plan here was a *low* indoor floor, so
+that buying lamps was what kept you trading in the evening. Played, that is a
+shop you cannot see for two hours of every day, and what it reads as is a bug in
+the renderer rather than as an unlit building — nobody looks at a dark room and
+thinks "I should go shopping". So the lift is set where the room still reads on
+its own and a lamp *sharpens its own corner* instead of rescuing the building.
+`DAY_FLOOR` already gives a lamp its moment; it did not need this as well.
+
+**It is TWO terms, because the renderer has two lightings.** Everything static
+was moved onto `BAKED_LAYER` so the eight real lamps could not light it twice
+(see `Lights`), which means the shop is lit in two halves and the ceiling has to
+be added to both:
+
+- the **bake** (`INDOOR_LIFT`) — floor, walls' faces, fixtures, belts: per cell,
+  from the `indoor` mask, redone when the layout changes and on the hour, exactly
+  as the sketch wanted. Not per frame, and not a shadow map.
+- the **fill** (`ROOM_FILL` in `scene.js`) — one small warm ambient on layer 0,
+  which is precisely what is left there: the movers. People, crates, and the
+  goods on every shelf are rebuilt out of colours nothing baked, so left out of
+  this they would be silhouettes standing on a lit floor — a worse-looking bug
+  than the dark room, and one that only appears once the first half works.
+
+The fill cannot tell inside from out, and that is the known cost: a shopper on
+the road at dusk takes the same lift as one at the till. It is small enough to
+read as spill from the shop windows. The apron — the big ground box that runs
+past the last tile — had to be moved onto `BAKED_LAYER` to keep it out of the
+fill, or the world gets a bright band around a dark lawn, which is the one part
+of this an eye catches instantly because the seam is a straight line the length
+of the map.
 
 The gameplay knob that follows: **closing time is a consequence, not a rule.**
 Today the shop shuts at a fixed hour. It could instead shut when nobody can see

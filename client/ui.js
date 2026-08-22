@@ -499,6 +499,30 @@ export class UI {
      * a menu whose key did NOT move is still not rebuilt.
      */
     this.el.panel.addEventListener('pointerover', () => { this._overPanel = true; });
+    /**
+     * ...and a PRESS outranks the hover, because the repaint being held off is
+     * the ANSWER to that press.
+     *
+     * The rule above is about incidental churn — a sale, the clock, the cash —
+     * arriving under a hand that is reaching for a row. A press is not that: it
+     * is a finished interaction whose whole feedback is the menu coming back
+     * saying something different, and your pointer is over the panel by
+     * definition when you make one. So ticking a recipe wrote its line in the
+     * feed and left the list drawn exactly as it was, until something unrelated
+     * — moving the pointer off the panel — flushed it. What that reads as is
+     * the press not having worked, in the one menu where the press IS the only
+     * thing on screen that could have changed.
+     *
+     * A one-shot rather than a window of milliseconds: the change has to go to
+     * the server and come back on a snapshot, so what is being waited for is
+     * the next signature that MOVES, whenever that lands. Whoever repaints
+     * clears it (`tickFixture`), which is what re-arms the hover guard for the
+     * churn that follows.
+     *
+     * On the capture phase so a handler that stops propagation — every `data-btn`
+     * and `data-act` in `wireRows` does — still arms it.
+     */
+    this.el.panel.addEventListener('click', () => { this._panelPressed = true; }, true);
     this.el.panel.addEventListener('pointerleave', () => {
       this._overPanel = false;
       this.panelTick?.(this);
@@ -2726,6 +2750,9 @@ export class UI {
     this.setWorkerRef(null);
     this.wayRef = null;
     this.panelTick = null;
+    // A press waiting on a repaint that will never come, because the menu it
+    // was made in is gone.
+    this._panelPressed = false;
     sec.onOpen?.(this);
     this._sectionKey = sec.live?.(this) ?? null;
     this.el.search.placeholder = `search ${sec.name.toLowerCase()}…`;
@@ -3860,11 +3887,14 @@ export class UI {
     // for one bar, which is how the length and the colour end up a tick apart.
     // The town: how many are in here, out of how many could be.
     //
-    // The pair is the point. Catchment on its own is a number nothing in the
-    // shop ever moves against — it changes a handful of times in a whole game —
-    // so it read as a fact about the map rather than as the ceiling on your
-    // trade. The headcount beside it is the same number's near end, and it moves
-    // every minute you watch it.
+    // The pair is the point. Catchment on its own read as a fact about the map
+    // rather than as the ceiling on your trade — the headcount beside it is the
+    // same number's near end, and it moves every minute you watch it. That
+    // argument was written when the town stepped a handful of times in a whole
+    // game; it now banks a little every morning the shop traded (see
+    // `TOWN_PER_DAY`), which makes the pair better rather than redundant: the
+    // slow half finally moves, and the fast half is still what says whether the
+    // shop is anywhere near using it.
     //
     // Still written only when either half changes: this runs at 10Hz over a live
     // canvas, and one of the two is now a number that actually moves — which is
@@ -5035,6 +5065,7 @@ export class UI {
     this.wayRef = null;
     // Whatever per-entity menu was open stops being kept up to date with it.
     this.panelTick = null;
+    this._panelPressed = false;
     this.el.panel.classList.remove('show');
     this.el.filter.hidden = true;
     this.clearFilter();

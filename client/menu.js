@@ -602,9 +602,9 @@ export class Menu {
              tucked into a tooltip: a caption pinned under a 440px column on a
              phone is not a footnote, it is a paragraph lying across the bottom
              of the menu, which is the complaint that moved this here in the
-             first place. The words are not lost — SUPPORT_LINE is still the
-             caption on the Menu's own row (client/sections.js), which is a list
-             you are reading rather than a screen you are leaving.
+             first place. The Menu's own row carried those words for a while
+             afterwards and has since dropped them too — see client/links.js:
+             the label says the whole thing, and a caption under it is a pitch.
 
              A plain <a> rather than a row with a handler, deliberately. Every
              other press on this screen resolves the menu with a world, so a

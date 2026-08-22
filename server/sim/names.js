@@ -2,12 +2,17 @@
  * Who everybody is.
  *
  * Two registers, because this shop is staffed by machines and shopped in by
- * people — and, often enough to be worth it, the other way round. A hire is
- * drawn from `parts` in `workers` with a chassis, trim and a glow, so a clerk
- * called "Marla Finch" is a picture and a name disagreeing; a shopper is a
- * capsule with a nose and could be either, so shoppers are mostly people with
- * a share of bots among them. That share is the only thing in here that is a
- * decision rather than a word list.
+ * people. A hire is drawn from `parts` in `workers` with a chassis, trim and a
+ * glow, so a clerk called "Marla Finch" is a picture and a name disagreeing; a
+ * shopper is somebody who walked in off the street, so a shopper is a person.
+ *
+ * A share of the shoppers used to be machines too (`BOT_SHOPPER_SHARE`, a
+ * quarter), on the argument that a capsule with a nose could be either and that
+ * a world where only the staff are bots never shows you half the name list.
+ * What it read as in play is the *worker* generator having got loose in the
+ * customer spawn — "Turnip Mk VII bought 3x Bread" is not a shopper who happens
+ * to be a robot, it is a bug report. The two registers are told apart by who
+ * draws from them now, and nothing draws from both.
  *
  * Names are **cosmetic**, and the one rule that keeps them cosmetic is that
  * they are drawn off their own stream. `Game.rng` is re-seeded `seed:day` and
@@ -67,16 +72,6 @@ const BOT_SERIES = ['TK', 'QP', 'MX', 'AR', 'ZM', 'HB', 'VC', 'NX', 'DL', 'KP', 
 
 const MARKS = ['II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 
-/**
- * How many shoppers are machines.
- *
- * Not a balance knob — nothing in the sim reads it and nothing about a shopper
- * changes with it. It is here so the two registers are both *visible* in a
- * day's trading: a world where only the staff are bots never shows you the half
- * of the name list you are paying attention to.
- */
-export const BOT_SHOPPER_SHARE = 0.25;
-
 /** How many draws before a namer gives up on finding an unused one. */
 const TRIES = 24;
 
@@ -109,10 +104,6 @@ export function makeNamer(seed) {
     human,
     bot,
     one,
-
-    /** Whether the next body drawn should be a machine. Its own draw, so a
-     * caller that only ever wants people costs the stream nothing extra. */
-    botShopper: () => rng.next() < BOT_SHOPPER_SHARE,
 
     /**
      * One name nobody in `taken` already has.

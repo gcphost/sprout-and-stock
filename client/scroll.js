@@ -74,6 +74,12 @@ export function wireScroll(box, { axis = 'x', ends } = {}) {
       const from = horiz ? e.clientX : e.clientY;
       const was = at();
       const move = (ev) => {
+        // The release that never arrived — the list would otherwise go on
+        // scrolling with the hand for the rest of the session, since these two
+        // listeners are only ever taken off by an `up` that has to happen. Same
+        // repair as `healLostPress` in client/main.js, and mouse-only here
+        // because that is the only pointer this drag is wired for at all.
+        if (ev.buttons === 0) { up(); return; }
         const d = (horiz ? ev.clientX : ev.clientY) - from;
         // The same 8px the bar's hold timer treats as "this is a drag, not a
         // press", so one gesture is never both.
@@ -85,9 +91,11 @@ export function wireScroll(box, { axis = 'x', ends } = {}) {
       const up = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
     });
     if (horiz) box.addEventListener('wheel', (e) => {
       // Pixels, lines, pages — the same three modes `main.js` normalises for the

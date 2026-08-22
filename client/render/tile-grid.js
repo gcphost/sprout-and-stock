@@ -1,7 +1,8 @@
 /**
  * The debug grid — every tile wearing its own coordinates.
  *
- * Switched on with `?tiles` and off by default, because it is a tool for the
+ * Switched on with `?tiles` or from the Menu's switch grid (client/debug.js),
+ * and off by default, because it is a tool for the
  * one conversation nobody has in the game: an agent says "the shelf at 11,23"
  * and you have no way at all to find 11,23 by looking. The shop has never drawn
  * a coordinate anywhere — `pickTile` answers the question for a press and then

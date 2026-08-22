@@ -85,6 +85,9 @@ const check = (ok, label, detail = '') => {
   if (!ok) failures.push(`${label}${detail ? ` — ${detail}` : ''}`);
 };
 const eq = (a, b, label) => check(a === b, label, `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
+/** ...and the same for a distance along a line, which is arithmetic on floats. */
+const near = (a, b, label, eps = 1e-6) => check(Math.abs(a - b) <= eps, label,
+  `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
 
 const SHOP = { shelf: 4, freezer: 0, warmer: 0, checkout: 1, plot: 0, stations: [] };
 
@@ -497,17 +500,28 @@ function crateOn(g, belt, item = GOODS, qty = 4) {
 
   eq(g.deliveries.length, 3, 'three boxes on a jammed run stay three boxes');
   eq(units(g), total, '...and nothing was created or destroyed waiting');
+  // They CLOSE UP rather than each holding the cell they started on — see
+  // `CRATE_PITCH`, which is a box-width now. Which cell each is filed on is a
+  // consequence of that and not a claim; what has to hold is the queue: in
+  // order, exactly one pitch apart, none of them merged, and none of them on
+  // the floor.
+  const along = crates.map((d) => g.beltSpot(d)?.at ?? NaN);
+  check(along.every(Number.isFinite), 'every box in the jam is still on the run');
   for (let i = 0; i < 3; i++) {
-    eq(crates[i].belt, belts[i].id, `box ${i} held its cell rather than piling up`);
-    eq(lotQty(crates[i], GOODS.id), 2, `...and box ${i} did not merge with its neighbour`);
+    eq(lotQty(crates[i], GOODS.id), 2, `box ${i} did not merge with its neighbour`);
+    if (i) {
+      near(along[i] - along[i - 1], Game.CRATE_PITCH,
+        `...and box ${i} closed up to exactly one pitch ahead of the one behind it`);
+    }
   }
   check(!g.deliveries.some((d) => !d.belt), 'nothing spilled onto the floor at the end of the run');
 
   // And it un-jams the moment the way clears, rather than needing a nudge.
+  const wasAt = crates.map((d) => g.beltSpot(d)?.at ?? NaN);
   g.deliveries = g.deliveries.filter((d) => d.id !== crates[2].id);
   run(g, 20);
-  eq(crates[1].belt, belts[2].id, 'clearing the head lets the line move up');
-  eq(crates[0].belt, belts[1].id, '...all of it, not just the front box');
+  check(g.beltSpot(crates[1]).at > wasAt[1], 'clearing the head lets the line move up');
+  check(g.beltSpot(crates[0]).at > wasAt[0], '...all of it, not just the front box');
 }
 
 // ---------------------------------------------------------------------------
@@ -953,6 +967,224 @@ function armIntoShelf(g, { item = GOODS, prep = null, turn = 0, past = false, lo
 }
 
 // ---------------------------------------------------------------------------
+// 11c. A LOADER AIMED AT A PILE OF ROT LIFTS IT.
+//
+// The one side a loader would not lift from was the side it FACES, and the
+// reason is real: that tile is its off-ramp, so a box set down there and picked
+// straight back up is a two-swing shuttle for the rest of the save. Three sides
+// in, one side out.
+//
+// It is false about rubbish, and false in the worst direction. Rot never
+// reaches the off-ramp — the waste branch of the swing returns above it,
+// deliberately, because `armDrop` goes through `dropGoods` and would hand the
+// rot back as food — so there is no loop on that side to prevent. What the
+// exclusion bought instead was that pointing a loader AT a pile of rot, which
+// is the one gesture anybody makes when they want that pile gone, is the single
+// aim that refuses it, while all three other sides of the same machine work.
+// Nothing logs it, the loader is visibly running, and the pile does not move.
+//
+// Asserted as a value each way against the same rig, because "it collects rot"
+// passes on a loader that was never aimed at any.
+// ---------------------------------------------------------------------------
+{
+  /**
+   * belt → loader → skip, with a spare walkable square on one of the loader's
+   * other sides. Returns null if the shell leaves no room for the shape.
+   */
+  const rig = () => {
+    const g = fresh();
+    const cells = beltRun(g, 2);
+    if (!cells) return null;
+    lay(g, [cells[0]]);
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(cells[1].x, cells[1].z, r);
+      if (g.beltAt(n.x, n.z) || !isWalkableTile(g.layout, n.x, n.z)) continue;
+      if (!canPlace(g.layout, { kind: 'bin', x: n.x, z: n.z, rot: 0 }).ok) continue;
+      const put = g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: cells[1].x, z: cells[1].z, rot: r });
+      if (!put.ok) continue;
+      // The skip goes on a DIFFERENT side, so the tile the loader faces stays
+      // bare floor a crate can stand on — which is the case being asked about.
+      let skip = null;
+      let spare = null;
+      for (const q of [0, 1, 2, 3]) {
+        if (q === r) continue;
+        const m = anchorTile(cells[1].x, cells[1].z, q);
+        if (g.beltAt(m.x, m.z)) continue;
+        if (!skip && g.placeFixture('me', { kind: 'bin', piece: 'bin', x: m.x, z: m.z, rot: 0 }).ok) {
+          skip = (g.layout.bins ?? []).find((b) => b.x === m.x && b.z === m.z);
+          continue;
+        }
+        if (skip && !spare && isWalkableTile(g.layout, m.x, m.z)) spare = m;
+      }
+      if (!skip || !spare) continue;
+      return { g, arm: g.beltAt(cells[1].x, cells[1].z), faced: n, spare, skip };
+    }
+    return null;
+  };
+
+  const aimed = rig();
+  check(!!aimed, 'a belt, a loader and a skip stand in a shop with room to spare');
+  if (aimed) {
+    const { g, arm, faced } = aimed;
+    check(conveyorMeets(g.layout, arm).bins.length > 0,
+      'the run knows there is a skip on it, or rubbish may not ride at all');
+    const rot = g.dropWaste(GOODS.id, 3, faced);
+    check(!!rot?.waste, 'rot stands on the tile the loader is pointing at');
+    check(until(g, () => !g.deliveries.some((d) => d.id === rot.id), 900),
+      '...and the loader lifts it and the run takes it to the skip',
+      `left at ${rot.x},${rot.z} belt=${rot.belt ?? 'none'}`);
+  }
+
+  // The pair: the three incidental sides were never the broken half, and a
+  // sweep that only asserted the faced one would pass on a loader that lifts
+  // rot from nowhere else.
+  const beside = rig();
+  if (beside) {
+    const { g, spare } = beside;
+    const rot = g.dropWaste(GOODS.id, 3, spare);
+    check(until(g, () => !g.deliveries.some((d) => d.id === rot.id), 900),
+      'and rot on a side it is NOT pointing at still goes',
+      `left at ${rot.x},${rot.z} belt=${rot.belt ?? 'none'}`);
+  }
+
+  // The control, and it is the loop the exclusion exists for: a loader with no
+  // skip on its run may not lift rot from the tile it faces either, or the box
+  // is a passenger the run can never be rid of.
+  {
+    const g = fresh();
+    const cells = beltRun(g, 2);
+    if (cells) {
+      lay(g, [cells[0]]);
+      let faced = null;
+      for (const r of [0, 1, 2, 3]) {
+        const n = anchorTile(cells[1].x, cells[1].z, r);
+        if (g.beltAt(n.x, n.z) || !isWalkableTile(g.layout, n.x, n.z)) continue;
+        if (!g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: cells[1].x, z: cells[1].z, rot: r }).ok) continue;
+        faced = n;
+        break;
+      }
+      check(!!faced, 'a loader with no skip anywhere on its run');
+      if (faced) {
+        const rot = g.dropWaste(GOODS.id, 3, faced);
+        run(g, 120);
+        check(g.deliveries.some((d) => d.id === rot.id) && !rot.belt,
+          '...refuses rot off the tile it faces, exactly as it refuses it off any other');
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 11d. THE DUMP HAS AN EXIT, AND IT IS ONLY EVER OPEN TO DEAD STOCK.
+//
+// A loader that off-ramps what nothing on the run wants is a dump, and the pile
+// it makes is by definition unliftable: `shelvesFor` refuses a given-up item
+// every board in the building, so no hire will ever come for it and `mayRide`
+// will not let it back on the belt. The only way out was to ROT where it stood
+// and leave as rubbish days later — which reads as a machine working perfectly
+// in a shop that fills up with boxes anyway.
+//
+// So a skip takes stock too, and the whole safety of that is one word:
+// `givenUp`. Which makes the CONTROL the centrepiece rather than the feature —
+// a conveyor that can bin things is one wrong predicate away from a machine
+// that eats your shop, and live stock going into a skip is invisible twice
+// over: nothing logs a shortfall, and a shelf that never got filled and a shelf
+// whose delivery was destroyed are the same empty shelf.
+//
+// Asserted as a value each way against one rig, plus the mixed box, because
+// "it bins dead stock" is satisfied by a loader that bins everything.
+// ---------------------------------------------------------------------------
+{
+  /** belt → loader aimed at a skip. The dump, built the way a player would. */
+  const rig = () => {
+    const g = fresh();
+    const cells = beltRun(g, 2);
+    if (!cells) return null;
+    lay(g, [cells[0]]);
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(cells[1].x, cells[1].z, r);
+      if (g.beltAt(n.x, n.z)) continue;
+      if (!g.placeFixture('me', { kind: 'bin', piece: 'bin', x: n.x, z: n.z, rot: 0 }).ok) continue;
+      const put = g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: cells[1].x, z: cells[1].z, rot: r });
+      if (!put.ok) continue;
+      // A spare side to stand a crate on, so the loader has something to lift.
+      let spare = null;
+      for (const q of [0, 1, 2, 3]) {
+        if (q === r) continue;
+        const m = anchorTile(cells[1].x, cells[1].z, q);
+        if (!g.beltAt(m.x, m.z) && isWalkableTile(g.layout, m.x, m.z)) { spare = m; break; }
+      }
+      if (!spare) continue;
+      return { g, cells, arm: g.beltAt(cells[1].x, cells[1].z), spare, skip: n };
+    }
+    return null;
+  };
+
+  const dead = rig();
+  check(!!dead, 'a belt, a loader and the skip it is aimed at');
+  if (dead) {
+    const { g, spare } = dead;
+    // What `giveUpBoard` writes, and the only thing that opens this door.
+    g.orders.dropped[GOODS.id] = g.day;
+    check(g.droppedItem(GOODS.id), 'the shop has given up on the goods');
+    const cash = g.cash;
+    const box = g.dropGoods(GOODS.id, 5, spare, { exact: true });
+    check(until(g, () => !g.deliveries.length, 900),
+      'a loader aimed at a skip bins stock the shop has given up on',
+      `left ${g.deliveries.map((d) => `${lotTotal(d)}@${d.x},${d.z}`).join(' ')}`);
+    eq(g.cash, cash, '...and no money moves in either direction');
+    check(!box.stacks?.length || !lotTotal(box), '...with nothing left in the box');
+  }
+
+  // THE CONTROL. The same rig, the same crate, the shop has NOT given up.
+  const live = rig();
+  if (live) {
+    const { g, spare } = live;
+    g.dropGoods(GOODS.id, 5, spare, { exact: true });
+    run(g, 900);
+    eq(units(g), 5, 'and live stock is never binned, however long it sits by that loader');
+  }
+
+  // The mixed box: the dead half goes, the live half stays in the crate.
+  const mixed = rig();
+  if (mixed) {
+    const { g, spare } = mixed;
+    g.orders.dropped[GOODS.id] = g.day;
+    const box = g.dropGoods(GOODS.id, 4, spare, { exact: true });
+    g.dropGoods(COLD.id, 3, spare, { exact: true });
+    check(lotQty(box, GOODS.id) === 4 && lotQty(box, COLD.id) === 3,
+      'one box holds a dead pile and a live one');
+    run(g, 900);
+    eq(g.deliveries.reduce((n, d) => n + lotQty(d, GOODS.id), 0), 0,
+      '...the skip takes the pile the shop gave up on');
+    eq(units(g), 3, '...and leaves the other one alone');
+  }
+
+  // And the way in: a wholly given-up box may ride to a skip, and may not ride
+  // a run that has none. Both halves — the second is the rule this relaxed, and
+  // without it a dead box rides for ever instead of waiting where it fell.
+  {
+    const g = fresh();
+    const cells = beltRun(g, 3);
+    const belts = lay(g, cells);
+    g.orders.dropped[GOODS.id] = g.day;
+    const box = g.dropGoods(GOODS.id, 3, { x: belts[1].x, z: belts[1].z }, { exact: true });
+    run(g, 60);
+    check(!box.belt, 'given-up stock never joins a run with no skip on it');
+    check(!g.beltAt(Math.round(box.x), Math.round(box.z)),
+      '...and is moved clear of the rails, exactly as rubbish is');
+  }
+  const way = rig();
+  if (way) {
+    const { g, cells } = way;
+    g.orders.dropped[GOODS.id] = g.day;
+    const box = g.dropGoods(GOODS.id, 3, { x: cells[0].x, z: cells[0].z }, { exact: true });
+    check(until(g, () => !!box.belt || !g.deliveries.some((d) => d.id === box.id), 120),
+      '...but it does join one that has a skip down the line');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 12. One swing stocks every side, not the first one that takes something.
 //
 // Invisible in play and invisible in a still frame: a loader that served two
@@ -1326,21 +1558,29 @@ function smooth(g, label, crates, ticks, at = {}) {
       60: () => { g.deliveries = g.deliveries.filter((d) => d.id !== head.id); },
     });
 
-    // ...AND THE JAM IS ONE CRATE PER CELL, which is the capacity rule and the
-    // reason `CRATE_PITCH` is a whole cell rather than a box-width. The clamp
-    // is the only thing bounding what a run carries now, so a tighter pitch
-    // would silently double it — a shop could count twice the boxes on the same
-    // belt, which is a balance change wearing a look.
+    // ...AND THE JAM CLOSES UP TO THE CLAMP, which is what `CRATE_PITCH` is:
+    // boxes touching, one box-width apart, however far along a cell that leaves
+    // them. It was a whole cell and the two claims traded places — see the note
+    // on the constant. The HEAD is the box that sits squarely somewhere, because
+    // it stopped where the line stops; everything behind it is measured off the
+    // box in front rather than off the ground, or the clamp is not what is
+    // holding the queue and a jam would draw with gaps in it.
+    //
+    // The capacity claim did not go away, it moved: `CRATES_PER_CELL` is this
+    // same number said the other way, and the yard sweep at the foot of this
+    // file is where it is spent. The pair is the assertion — a pitch that
+    // tightened without the credit following is a run that silently eats an
+    // allowance nobody gave it.
     run(g, 120);
     const settled = [mid, tail].map((d) => d.belt);
-    eq(new Set(settled).size, 2, 'two boxes queued behind the end hold two different cells');
-    for (const d of [mid, tail]) {
-      const spot = g.beltSpot(d);
-      eq(spot?.at, Math.round(spot?.at ?? -1),
-        'a box at rest in a queue sits squarely on a cell rather than part way along');
-    }
+    check(g.beltSpot(mid).at > g.beltSpot(tail).at,
+      'two boxes queued behind the end are still in the order they arrived',
+      `${g.beltSpot(mid).at} > ${g.beltSpot(tail).at}`);
+    check(settled.every((b) => b != null), 'and both are filed on a cell of the run');
     const gap = Math.abs(g.beltSpot(mid).at - g.beltSpot(tail).at);
-    eq(gap, Game.CRATE_PITCH, '...one pitch apart, which is one cell, which is the capacity');
+    near(gap, Game.CRATE_PITCH, 'closed up to exactly one pitch — boxes touching');
+    eq(Game.CRATES_PER_CELL, Math.floor(1 / Game.CRATE_PITCH),
+      '...and the capacity credit is that same pitch counted per cell');
   }
 }
 
@@ -3230,8 +3470,8 @@ function smooth(g, label, crates, ticks, at = {}) {
   check(!!cells, 'there is room for a four-cell run');
   if (cells) {
     lay(g, cells);
-    eq(cap(), before + cells.length * g.crateCapacity(),
-      'and each cell of it holds what a crate holds');
+    eq(cap(), before + cells.length * Game.CRATES_PER_CELL * g.crateCapacity(),
+      'and each cell of it holds what `CRATE_PITCH` lets stand on it');
 
     // ...and a box riding it still counts against the total, or a run would be
     // free capacity rather than capacity you can fill up. That pairing is the

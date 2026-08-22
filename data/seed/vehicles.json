@@ -29,6 +29,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -51,6 +52,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -73,6 +75,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -95,6 +98,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -117,6 +121,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -139,6 +144,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -161,6 +167,7 @@
               "alpha": 0.5,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -183,6 +190,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -205,6 +213,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -227,6 +236,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -249,6 +259,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -277,6 +288,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -299,6 +311,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -321,6 +334,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -343,6 +357,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -365,6 +380,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -387,6 +403,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -409,6 +426,7 @@
               "alpha": 0.5,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -431,6 +449,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -453,6 +472,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -475,6 +495,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -497,6 +518,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -519,6 +541,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -541,6 +564,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -569,6 +593,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -591,6 +616,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -613,6 +639,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -635,6 +662,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -657,6 +685,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -679,6 +708,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -701,6 +731,7 @@
               "alpha": 0.5,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -723,6 +754,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -745,6 +777,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -767,6 +800,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -789,6 +823,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -811,6 +846,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -833,6 +869,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -855,6 +892,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -877,6 +915,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             },
@@ -899,6 +938,7 @@
               "alpha": 1,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
               "tint": null
             }
@@ -907,7 +947,7 @@
       ]
     },
     "speed": 3.2,
-    "capacity": 6,
+    "capacity": 12,
     "color": "#eceae2"
   },
   {

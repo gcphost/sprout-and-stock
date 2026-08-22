@@ -1389,10 +1389,28 @@ function tickFixture(ui) {
   // `pointerleave`, where this same function is called again — see the panel
   // listeners in ui.js for why a shelf menu redraws three times a second while
   // the shop is trading, and why none of it is about this fixture.
-  if (ui._overPanel) return;
-  const f = ui.scene?.fixtureAt(ui.fixtureRef.x, ui.fixtureRef.z) ?? null;
+  //
+  // ...unless you PRESSED one. `_panelPressed` is armed by any click inside the
+  // panel and cleared by the repaint it was waiting for — see the listener in
+  // ui.js. Without it a tick on a row is a message sent, a line in the feed and
+  // a list that goes on drawing what it drew before, which reads as the press
+  // being ignored.
+  if (ui._overPanel && !ui._panelPressed) return;
+  // ...BY TILE **AND KIND**, which is `liveRef` — never `fixtureAt`, and that
+  // distinction is the whole of a bug that reads as a menu refusing to open.
+  // `fixtureAt` answers "what is on this cell", and a cell can hold two things:
+  // a hanging prop stamps no tile, so a tube light over a loader is two fixtures
+  // at 15,22 and a `find` returns whichever `fixturesIn` lists first. This runs
+  // every snapshot, so the menu you opened on the loader was re-read a frame
+  // later as the lamp and redrawn as the lamp — twenty times a second, with the
+  // press that got there working perfectly. What it looks like is the shop
+  // insisting on the light.
+  const f = ui.liveRef(ui.fixtureRef);
   if (!f) { ui.closePanel(); return; }
-  if (fixtureSignature(ui, f, liveFixture(ui, f)) !== ui._fxMenuKey) showFixture(ui, f);
+  if (fixtureSignature(ui, f, liveFixture(ui, f)) !== ui._fxMenuKey) {
+    ui._panelPressed = false;
+    showFixture(ui, f);
+  }
 }
 
 /**
@@ -2052,6 +2070,14 @@ function wireBoardOrder(ui, f, send) {
       }, BOARD_DWELL_MS);
 
       const move = (ev) => {
+        // THE RELEASE THAT NEVER ARRIVED — and here it is not just a row stuck
+        // to the pointer. `boardDragging` holds the menu's repaint off, so a
+        // drag nothing ever ends is a fixture menu frozen at the snapshot it
+        // was on: stock that stops counting down, an upgrade that never greys
+        // out, all of it looking like the panel having died rather than like a
+        // press. See `healLostPress` in client/main.js for the same repair on
+        // the world's own drags.
+        if (ev.buttons === 0) { done(false); return; }
         if (!live) {
           // Moved before it settled: this is the panel's scroll, and it is
           // already happening — all this has to do is stop taking it over.
@@ -2078,6 +2104,7 @@ function wireBoardOrder(ui, f, send) {
         row.removeEventListener('pointermove', move);
         row.removeEventListener('pointerup', up);
         row.removeEventListener('pointercancel', cancel);
+        row.removeEventListener('lostpointercapture', cancel);
         if (!live) return;
         live = false;
         row.classList.remove('moving');
@@ -2096,6 +2123,11 @@ function wireBoardOrder(ui, f, send) {
       row.addEventListener('pointermove', move);
       row.addEventListener('pointerup', up);
       row.addEventListener('pointercancel', cancel);
+      // Capture is taken above, at the dwell, so it can also be taken away —
+      // and this row is the one place where losing it silently stops the whole
+      // menu updating. Fires after an ordinary release with `live` already
+      // false, where `done` returns having removed these listeners twice.
+      row.addEventListener('lostpointercapture', cancel);
     });
   }
 }

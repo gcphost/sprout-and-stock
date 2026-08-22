@@ -5,7 +5,7 @@ time, each with their own agent, against one shared running world.
 
 The player is the only human who works here. Every hire is a machine — that has
 been true of the *art* since workers became content (`server/sim/names.js` draws
-staff from a machine register and shoppers mostly from a human one), and as of
+staff from a machine register and shoppers from a human one), and as of
 the rebrand it is true of the words too. Two conventions follow, and both are
 about words rather than code:
 

@@ -30,12 +30,13 @@ import { SOUNDS, TRACKS } from './audio/manifest.js';
 import { sfx } from './audio/sfx.js';
 import { reportHtml } from './report.js';
 import { CORNERS, isOff, setOff } from './corner.js';
+import { DEBUGS, debugOn, setDebug } from './debug.js';
 import { cinemaOn, setCinema } from './cinema.js';
 import { coopStatus, openCoop, coopSignature } from './coop.js';
 import { tutorOff, setTutorOff, replayTutor } from './tutor.js';
 import { haveStats, statsOn, setStats } from './analytics.js';
 import { deptOf } from './aisles.js';
-import { SUPPORT_URL, SUPPORT_LINE, SUPPORT_LABEL, openLink } from './links.js';
+import { SUPPORT_URL, SUPPORT_LABEL, openLink } from './links.js';
 
 /**
  * Every browsable list that renders into #panel.
@@ -2416,7 +2417,11 @@ export const SECTIONS = [
       // ...and the tour's switch, for the reason every other switch is in here:
       // `run` repaints, but `live` is what stops the repaint being thrown away
       // by the next snapshot's diff deciding nothing has changed.
-      + `|${tutorOff() ? '-' : '+'}`,
+      + `|${tutorOff() ? '-' : '+'}`
+      // ...and the two readouts, same reason. Both of them draw somewhere other
+      // than this panel, so the tile is the only thing on screen that can
+      // confirm the press landed.
+      + `|${DEBUGS.map((d) => (debugOn(d.id) ? '+' : '-')).join('')}`,
     // Every line here is clamped to one line in a 214px panel, so the copy has
     // to be short enough to survive it — an ellipsis mid-word is worse than a
     // blunter phrase. The long version lives in `sub`, which is also the hover.
@@ -2481,15 +2486,12 @@ export const SECTIONS = [
       {
         icon: ICONS.support,
         name: SUPPORT_LABEL,
-        // The same line the front door carries, and not the URL it used to
-        // show: a bare domain under a button is a thing to verify rather than a
-        // thing to read, and this is the one row in the menu that is allowed to
-        // be a joke. Both spellings come off `links.js` so the tone cannot end
-        // up different in the two places it is said. Static in both, for the
-        // reason written over SUPPORT_LINE: the version of this that noticed how
-        // long you had played belongs on the award card, where the game has
-        // already stopped to say something.
-        sub: SUPPORT_LINE,
+        // NO `sub`, which makes this the one `mid` row in the menu with nothing
+        // under its name. It has carried two things there and both were wrong:
+        // the URL (a bare domain is a thing to verify rather than a thing to
+        // read) and then a tag line, which is a pitch — and a pitch under a link
+        // whose label already says the whole thing can only argue with somebody
+        // who has not asked. See client/links.js.
         mid: true,
         run: () => openLink(SUPPORT_URL),
       },
@@ -2661,6 +2663,24 @@ function switchGrid(ui) {
         on: !isOff(c.id),
         title: isOff(c.id) ? 'Put away.' : c.sub,
       })),
+      // The two developer readouts, which until now could only be turned on by
+      // typing in the address bar — see client/debug.js for why that is not a
+      // switch. Drawn off `DEBUGS` rather than written out for the reason
+      // `CORNERS` is: a third readout is on this grid the day it exists.
+      //
+      // LAST on the grid, and deliberately not behind any kind of dev gate.
+      // Nothing here can break a shop or spend a penny, they are two small
+      // boxes in two corners, and the alternative — a build flag — is a switch
+      // that is missing on exactly the machine somebody is trying to tell you
+      // is slow. What keeps them out of the way is the order: everything above
+      // is a thing a player came here for.
+      ...DEBUGS.map((d) => ({
+        id: `debug:${d.id}`,
+        icon: icon(d.icon, ICONS.settings),
+        name: d.name,
+        on: debugOn(d.id),
+        title: debugOn(d.id) ? d.sub : `Off. ${d.sub}.`,
+      })),
       // Only in a build that has somewhere to send them. A switch in front of
       // somebody whose game reports nothing is the "tier that changes no
       // number" trap wearing a privacy setting, and it is the worse form of it:
@@ -2697,6 +2717,9 @@ function switchGrid(ui) {
       stats: () => { setStats(!statsOn()); ui.paintSection(); },
       ...Object.fromEntries(CORNERS.map((c) => [
         `corner:${c.id}`, () => { setOff(c.id, !isOff(c.id)); ui.paintSection(); },
+      ])),
+      ...Object.fromEntries(DEBUGS.map((d) => [
+        `debug:${d.id}`, () => { setDebug(d.id, !debugOn(d.id)); ui.paintSection(); },
       ])),
     },
   }];
