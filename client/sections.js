@@ -30,6 +30,7 @@ import { SOUNDS, TRACKS } from './audio/manifest.js';
 import { sfx } from './audio/sfx.js';
 import { reportHtml } from './report.js';
 import { CORNERS, isOff, setOff } from './corner.js';
+import { cinemaOn, setCinema } from './cinema.js';
 import { coopStatus, openCoop, coopSignature } from './coop.js';
 import { tutorOff, setTutorOff, replayTutor } from './tutor.js';
 import { haveStats, statsOn, setStats } from './analytics.js';
@@ -2629,6 +2630,30 @@ function switchGrid(ui) {
           ? 'Silent. Everything else keeps running.'
           : 'On. How loud each part is, under the music tab.',
       },
+      /**
+       * ...and the one switch on this grid that turns the grid off.
+       *
+       * It is here rather than anywhere else because this is where somebody
+       * looks for "turn a thing off", and it is worth knowing that pressing it
+       * is the last thing that happens on this panel: the HUD it hides includes
+       * the panel it is on, so the tile lights and vanishes in the same frame.
+       * That reads correctly — you asked for the screen to be clear — but it
+       * means the tile can never show its own ON state to anybody, which is why
+       * the way back is printed on the letterbox and not here.
+       *
+       * Not persisted, unlike every other tile in this grid. See
+       * client/cinema.js: this one is a fact about the next ninety seconds
+       * rather than about the person.
+       */
+      {
+        id: 'cinema',
+        icon: ICONS.camera,
+        name: 'Cinema',
+        on: cinemaOn(),
+        title: cinemaOn()
+          ? 'HUD off. Press C to bring it back.'
+          : 'Hides the HUD and letterboxes the shop, for recording. C toggles it.',
+      },
       ...CORNERS.map((c) => ({
         id: `corner:${c.id}`,
         icon: icon(c.icon, ICONS.settings),
@@ -2664,6 +2689,11 @@ function switchGrid(ui) {
         ui.tutor?.maybeStart(ui.worldId);
       },
       sound: () => { mix.setMuted(!soundOff); ui.paintSection(); },
+      // Repainted before it goes, like the rest of them: turning cinema OFF
+      // from the key leaves this panel open behind it, and a tile still lit for
+      // a mode that has ended is the one state this switch can actually be
+      // caught lying in.
+      cinema: () => { setCinema(!cinemaOn()); ui.paintSection(); },
       stats: () => { setStats(!statsOn()); ui.paintSection(); },
       ...Object.fromEntries(CORNERS.map((c) => [
         `corner:${c.id}`, () => { setOff(c.id, !isOff(c.id)); ui.paintSection(); },

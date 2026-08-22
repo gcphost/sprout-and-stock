@@ -654,6 +654,53 @@
 
     .hud { position: fixed; z-index: 10; }
 
+    /* CINEMA — see client/cinema.js. Everything the game puts in front of the
+       shop already carries `.hud`, so this is the whole of it: one selector,
+       and a widget added tomorrow is covered on the day it exists.
+
+       `display: none` rather than an opacity or a visibility, deliberately.
+       The panel is a scroll container and the rail is a column of buttons, and
+       either left in the layout at zero opacity is still swallowing every
+       pointer event over a third of the screen — which is a recording session
+       where the shop cannot be clicked and nothing anywhere says why. */
+    body.cinema .hud { display: none !important; }
+
+    /* The two bars, which are the only thing this ADDS. 2.39:1 across a 16:9
+       window is about 8% off the top and the bottom, and they are `vh` so the
+       crop is the same shape whatever the window is. Fixed, above everything,
+       and inert: a bar you could click would be a strip of dead screen along
+       the two edges the toolbar and the meters live on, which is exactly where
+       the hand goes the moment the recording stops. */
+    body.cinema::before, body.cinema::after {
+      content: ''; position: fixed; left: 0; right: 0;
+      height: 8vh; background: #000; z-index: 900; pointer-events: none;
+    }
+    body.cinema::before { top: 0; }
+
+    /* ...and the bottom one says the way out, because it has to. This mode
+       hides the panel the switch that turned it on lives on, so the key is the
+       only way back and the letterbox is the only thing left on screen to
+       print it. It fades rather than staying, on the same argument the shutter
+       hint makes: it is there for the first few seconds, which is the only
+       time anybody needs telling. */
+    body.cinema::after {
+      bottom: 0;
+      content: 'C brings the HUD back';
+      font: 600 12px/8vh ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: .08em; text-align: center;
+      color: rgba(255,255,255,.5);
+      animation: cine-hint 5s ease forwards;
+    }
+    @keyframes cine-hint {
+      0%, 55% { color: rgba(255,255,255,.5); }
+      100% { color: transparent; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      /* No fade rather than an instant one: the words are the way out of a mode
+         with nothing else on screen, so the safe failure is that they stay. */
+      body.cinema::after { animation: none; }
+    }
+
     /* Icons are inline SVG sized in em, so every font-size rule that used to
        size an emoji still sizes the icon. `display:block` because an inline
        SVG sits on the text baseline and drags a gap under every button. */

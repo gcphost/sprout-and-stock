@@ -24,6 +24,7 @@ import { track, shopOpen } from './analytics.js';
 import { Tutor } from './tutor.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
+import { cinemaOn, setCinema, onCinema } from './cinema.js';
 import { mix } from './audio/mix.js';
 import { sfx } from './audio/sfx.js';
 import { music } from './audio/music.js';
@@ -31,6 +32,13 @@ import { events } from './audio/events.js';
 
 const canvas = document.getElementById('game');
 const scene = new Scene(canvas);
+// The one wire between the recording mode and the renderer, made once. Cinema
+// is otherwise a class on `<body>`; what the scene wants out of it is the
+// second set of easing gains — see `CINE_EASE`. Registered here rather than set
+// at each press, because there are two presses (the key and the switch tile)
+// and a mode half of them told the camera about is a capture that glides only
+// when you started it the right way.
+onCinema((on) => { scene.cinema = on; });
 // Hand the GPU context back when the page actually goes away — see
 // `Scene.destroy`. `persisted` is the bfcache case, where the page is being put
 // aside and may come straight back: tearing the renderer down there would
@@ -540,6 +548,26 @@ addEventListener('keydown', (e) => {
   // Spin the camera a quarter turn.
   if (k === ',') scene.rotateView(-1);
   if (k === '.') scene.rotateView(1);
+
+  /**
+   * The two view keys that are not about where the camera is pointing.
+   *
+   * `F` is the same step the last notch of the wheel takes — a key as well as a
+   * gesture because the wheel one is only findable by somebody who kept
+   * scrolling after the view stopped getting closer, which is nobody. It goes
+   * through the scene's own toggle rather than setting the flag, so entering
+   * from a key and entering from the wheel are one path.
+   *
+   * `C` is the way out of cinema, and is the reason the mode can exist at all:
+   * it hides the panel its own switch lives on, so without a key the only way
+   * back would be a reload. Bare, and safe to be bare — Ctrl+C is the clipboard
+   * and is handled above with a `return`, so this is never reached holding it.
+   */
+  if (k === 'f') {
+    const on = scene.setFirstPerson(!scene.fpv);
+    ui.toast(on ? 'First person. Scroll out or press F to step back.' : 'Back to the shop view.');
+  }
+  if (k === 'c') setCinema(!cinemaOn());
 
   // The shutters and the clock. Not on RAIL_ITEMS with the menus, because
   // neither opens anything — they are the same press as the button in the HUD,

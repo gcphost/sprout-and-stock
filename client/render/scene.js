@@ -187,6 +187,138 @@ const ZOOM_DEFAULT = 1.45;    // ~12 tiles tall: the shop, not the whole county
 const ZOOM_STEP = 1.12;
 
 /**
+ * ...and one rung past the last one, the view goes INSIDE whoever it is riding.
+ *
+ * This is the one place in the game with a second camera, and the reason is
+ * written three hundred lines up in `PITCH_MIN`: a view with no ground left in
+ * it "is a first-person camera wearing an orthographic projection, and reads as
+ * the tilt being broken". That was said as an argument for a floor on the tilt
+ * and it is just as true said forward — an ortho camera at eye height has no
+ * perspective in it at all, so an aisle does not converge, a shelf two tiles
+ * away is drawn exactly the size of the one you are touching, and what you get
+ * is not a person's view of a shop, it is a very tight crop of the same
+ * picture. There is no number you can put in `FRUSTUM` that fixes that, because
+ * the thing missing is the projection.
+ *
+ * So first person is a `PerspectiveCamera` and everything else is untouched.
+ * That costs less than it sounds: `pickTile`, `pickFixture` and `pickPerson` go
+ * through `Raycaster.setFromCamera`, and the readouts go through `project` —
+ * both of which take either camera and neither of which knows which one it has.
+ * The three places that genuinely read an orthographic frustum (`resize`,
+ * `panBy`'s pixels-to-tiles, and the edge arrows' screen scale) name `this.ortho`
+ * rather than `this.camera`, which is what keeps them honest when the active
+ * camera is the other one.
+ *
+ * `FPV_Y` is EYE HEIGHT and not `EYE_Y`. The follow point is chest height on
+ * purpose — it is what you want a picture *centred* on — and a camera put there
+ * is a camera in somebody's ribcage. A head is about 0.96, so this is just
+ * under the crown.
+ *
+ * The near plane has to be small or the shelf you are standing at is clipped
+ * away — at the ortho default the whole aisle would be — and it cannot be
+ * arbitrarily small either, because near/far is what the depth buffer's
+ * precision is spent on. 0.06 of a tile is about an inch of shop.
+ */
+const FPV_FOV = 74;
+const FPV_Y = 0.88;
+const FPV_NEAR = 0.06;
+const FPV_FAR = 400;
+/**
+ * How far up and down you may look, in radians.
+ *
+ * Short of straight up for `PITCH_MAX`'s reason exactly — at 90° `lookAt`'s up
+ * vector is parallel to the view and the yaw stops being defined — and short by
+ * a lot more than that guard needs, because a first-person camera looking at
+ * its own feet or at the sky is a screenshot of nothing. 68° still puts the top
+ * of a shelf and the floor at the end of an aisle in frame.
+ */
+const FPV_PITCH_MAX = 68 * (Math.PI / 180);
+
+/**
+ * Radians per pixel of drag, for looking around in there.
+ *
+ * A number of its own rather than the ortho drag's, because the two gestures
+ * are not the same gesture. Out there a drag turns *the shop*, which is an
+ * object at arm's length; in here it turns your head, and a head that swung a
+ * shop's worth of degrees per pixel would be unusable. Roughly a quarter turn
+ * across a 340px drag.
+ */
+const FPV_LOOK = 0.0046;
+
+/**
+ * HOW HARD THE VIEW CHASES WHAT IT IS AIMED AT, per frame, and the same four
+ * numbers again for somebody with a capture running.
+ *
+ * These were four literals scattered down `render` and they are gathered here
+ * because cinema needs a second set of them, and a second set written inline
+ * beside the first is four `? :` in the hottest function in the client.
+ *
+ * The ORDINARY numbers are what the game has always used and they are tuned for
+ * *playing*: a camera that keeps up. You are driving somebody around a shop, so
+ * a view that lags behind them is a view you are fighting, and every one of
+ * these is set as loose as it can be without the world feeling like it is on a
+ * spring.
+ *
+ * The CINEMA numbers are tuned for the opposite thing, which is that nobody is
+ * playing — somebody is recording. A capture is watched back at full speed by
+ * people who did not make the inputs, so what reads as responsive to the hand
+ * that made it reads as *twitchy* to everybody else: the follow snaps on every
+ * step, the turn arrives in a fifth of a second, and a wheel notch is a jolt.
+ * Roughly a third of the gain across the board, which is about a 12-frame
+ * settle instead of a 4 — a glide you would have put on a dolly.
+ *
+ * `tilt` is the one that is not a slowdown but a switch. Outside cinema it is
+ * 1, meaning the first-person pitch is not eased at all: a drag is direct
+ * manipulation and the hand doing it is the easing, which is the argument
+ * `spinView` already makes about the yaw. There is nothing to smooth for a
+ * player, and everything to smooth for a recording.
+ *
+ * Each has a FLOOR beside it, and the floor is the half that makes this a pan
+ * rather than a drift. A proportional ease is a spring: the step is a fraction
+ * of what is left, so it is fastest at the start, asymptotic at the end and
+ * NEVER ARRIVES while the thing it chases is still moving. Turn the gain down
+ * far enough to look smooth and what you get is a camera permanently a fixed
+ * distance behind a walking shopkeeper, sliding about under them — which is
+ * exactly "floaty", and turning the gain down further makes it worse rather
+ * than better. A dolly does the opposite: it moves at a rate, keeps pace, and
+ * lands. So the step is the proportional term OR the floor, whichever is
+ * bigger, clamped to what is left — which gives ease-out on a big correction
+ * and a steady tracking rate on a small one.
+ *
+ * The floors are per FRAME, like the gains, because everything in this loop
+ * already is. `look` is 0.055 of a tile, which is about 3.3 tiles a second at
+ * 60Hz — comfortably above a walk, so the camera locks on rather than trailing.
+ * `yaw` is 0.0075 radians, about 26° a second: a slow pan you would have set on
+ * a tripod, and the gain above it is what takes over when you throw the drag.
+ *
+ * The gains went back UP when the floors went in. They were low because low was
+ * the only smoothing knob there was; with a floor doing the tracking, the gain
+ * is only shaping the ease-out, and a low one there is what read as syrup.
+ *
+ * Zoom gets no floor on purpose: it is the one of the four that is never
+ * chasing a moving target — a wheel notch is a fixed distance, so the spring
+ * arrives on its own and a floor would only put a snap on the last of it.
+ */
+const EASE = {
+  look: 0.08, lookMin: 0, yaw: 0.14, yawMin: 0, zoom: 0.18, tilt: 1, tiltMin: 0,
+};
+const CINE_EASE = {
+  look: 0.09, lookMin: 0.055, yaw: 0.10, yawMin: 0.0075, zoom: 0.09, tilt: 0.12, tiltMin: 0.006,
+};
+
+/**
+ * Move a number toward another by `gain` of the gap, never slower than `floor`
+ * and never past it. One spelling, because the yaw and the pitch are the same
+ * move and a floor applied to one of them is a camera whose two axes disagree
+ * about what kind of camera it is.
+ */
+function glide(from, to, gain, floor) {
+  const d = to - from;
+  const step = Math.min(Math.abs(d), Math.max(Math.abs(d) * gain, floor));
+  return from + (d < 0 ? -step : step);
+}
+
+/**
  * How far the ground runs past the last tile.
  *
  * Sized against the *camera*, not the tile grid: the point is that zooming all
@@ -480,6 +612,13 @@ const SHADOW_SLIP = SHADOW_TEXEL / 4;
 
 /** Scratch for `pickPropBox`, which runs per prop per pointer move. */
 const BOX_HIT = new THREE.Vector3();
+
+/** Scratch for the follow glide — see `EASE`. Runs every frame. */
+const GLIDE_V = new THREE.Vector3();
+
+/** Scratch for the first-person pose, which is rebuilt every frame. */
+const FPV_DIR = new THREE.Vector3();
+const FPV_AT = new THREE.Vector3();
 
 /** Scratch for `sealedPile`, which fires rays from a pile back at the viewer. */
 const SEAL_RAY = new THREE.Raycaster();
@@ -1025,7 +1164,48 @@ export class Scene {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(PALETTE.sky);
 
-    this.camera = new THREE.OrthographicCamera();
+    /**
+     * Two cameras, one active. See `FPV_FOV`.
+     *
+     * `this.camera` is whichever is being drawn through and is what everything
+     * outside this file asks — it is handed to every raycast and every
+     * `project`, and both take either kind. Anything that reads the ORTHO
+     * FRUSTUM has to name `this.ortho` instead, or it is silently asking a
+     * perspective camera for a `top` it does not have.
+     *
+     * The swap is made in `render` rather than in `setFirstPerson`, so there is
+     * one line in the game that decides which camera is live and it is the line
+     * that also poses it.
+     */
+    this.ortho = new THREE.OrthographicCamera();
+    this.persp = new THREE.PerspectiveCamera(FPV_FOV, 1, FPV_NEAR, FPV_FAR);
+    this.camera = this.ortho;
+    /** Whether the view is inside somebody's head. See `setFirstPerson`. */
+    this.fpv = false;
+    /**
+     * Where they are looking, in radians off the horizon, as a target/drawn
+     * pair like the yaw's — see `EASE.tilt`, which collapses the two into one
+     * outside cinema.
+     */
+    this.fpvAim = 0;
+    this.fpvPitch = 0;
+    /**
+     * Whether a capture is running. Set from client/cinema.js at boot, and the
+     * only thing the renderer knows about the mode: everything else it does is
+     * a class on `<body>`.
+     */
+    this.cinema = false;
+    /**
+     * Whose body is not being drawn, and who it belongs to.
+     *
+     * The first is an id off the snapshot and the second is the record we
+     * actually turned off, held separately: the person the camera rides can
+     * change under us (a theft cut, a hire you stopped watching, a rejoin), and
+     * a body hidden and then forgotten is somebody permanently invisible with
+     * nothing on screen to say why.
+     */
+    this._eyeId = null;
+    this._hidBody = null;
     this.camOffset = BASE_CAM_OFFSET.clone();
     // Where the view is headed, in radians and never wrapped: letting it run
     // past ±2π means easing toward it always spins the short way round on its
@@ -1095,7 +1275,7 @@ export class Scene {
     // Two values, like camTarget/camLook: where the wheel says we're going, and
     // where we've eased to. Set before resize(), which bakes the projection.
     this.camZoom = ZOOM_DEFAULT;
-    this.camera.zoom = ZOOM_DEFAULT;
+    this.ortho.zoom = ZOOM_DEFAULT;
 
     this.setupLights();
 
@@ -1210,7 +1390,16 @@ export class Scene {
     // filter on EVERY light, so leaving these three out drops the floor to
     // black. The camera needs it too, or it simply stops drawing the shop.
     for (const l of [this.ambient, sun, bounce]) l.layers.enable(BAKED_LAYER);
-    this.camera.layers.enable(BAKED_LAYER);
+    // BOTH cameras, and never `this.camera` — which is whichever one is live
+    // and is the ortho every time this runs. A camera is born seeing layer 0
+    // only, so a second one added without this line draws the shop with its
+    // floor, its walls, its grass and every baked fixture missing: what is left
+    // is the apron underneath and the actors on top, which is a green field
+    // with people standing in it and shelving hanging in the air. Nothing
+    // errors, and it reads as first person being unfinished rather than as one
+    // bit not being set. See `FPV_FOV`.
+    this.ortho.layers.enable(BAKED_LAYER);
+    this.persp.layers.enable(BAKED_LAYER);
 
     // Whatever the player has wired up. Everything above is the sky; this is the
     // only light in the scene that anybody had to buy.
@@ -1221,13 +1410,18 @@ export class Scene {
     const w = innerWidth;
     const h = innerHeight;
     const aspect = w / h;
-    this.camera.left = (-FRUSTUM * aspect) / 2;
-    this.camera.right = (FRUSTUM * aspect) / 2;
-    this.camera.top = FRUSTUM / 2;
-    this.camera.bottom = -FRUSTUM / 2;
-    this.camera.near = -200;
-    this.camera.far = 400;
-    this.camera.updateProjectionMatrix();
+    this.ortho.left = (-FRUSTUM * aspect) / 2;
+    this.ortho.right = (FRUSTUM * aspect) / 2;
+    this.ortho.top = FRUSTUM / 2;
+    this.ortho.bottom = -FRUSTUM / 2;
+    this.ortho.near = -200;
+    this.ortho.far = 400;
+    this.ortho.updateProjectionMatrix();
+    // Both, always, whichever is live: a camera whose aspect was last set for a
+    // window two sizes ago is one that draws the shop stretched for the whole
+    // frame you switch to it, which reads as the switch itself being broken.
+    this.persp.aspect = aspect;
+    this.persp.updateProjectionMatrix();
     // The ratio is decided HERE and not in the constructor, because it is a
     // question about the window rather than about the monitor — see
     // `PIXEL_BUDGET`. Recomputed on every resize for the same reason: dragging a
@@ -1244,6 +1438,23 @@ export class Scene {
    * simply stops. Returns the new target so the caller can report it.
    */
   zoomBy(steps) {
+    // The wheel is the whole gesture: one more notch in at the end of the
+    // ladder steps inside, and one notch out steps back. Deliberately NOT a
+    // rung on `camZoom` — first person is a different projection rather than a
+    // closer one, so a number that ran on past ZOOM_MAX would be a scale nobody
+    // is applying, and every reader of `camZoom` would have to know that.
+    //
+    // Entering has to be a SECOND notch at the top rather than a notch that
+    // also reaches the top, or scrolling in from across the shop shoots past
+    // the closest ordinary view and into somebody's head in one spin.
+    if (this.fpv) {
+      if (steps > 0) this.setFirstPerson(false);
+      return this.camZoom;
+    }
+    if (steps < 0 && this.camZoom >= ZOOM_MAX) {
+      this.setFirstPerson(true);
+      return this.camZoom;
+    }
     const z = this.camZoom * ZOOM_STEP ** -steps;
     this.camZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
     return this.camZoom;
@@ -1258,6 +1469,17 @@ export class Scene {
    */
   zoomByFactor(f) {
     if (!(f > 0)) return this.camZoom;
+    // A pinch can leave first person and can never enter it, and that asymmetry
+    // is the point. A spread is a continuous scale with no notches in it, so
+    // there is no "one more" for it to be — the gesture would tip you inside
+    // somebody's head at whatever moment your fingers crossed a threshold, with
+    // no press anywhere to blame. Getting back out has to work from any input
+    // that can move the zoom at all, or a phone with a stray spread on it is a
+    // shop you cannot see.
+    if (this.fpv) {
+      if (f < 1) this.setFirstPerson(false);
+      return this.camZoom;
+    }
     this.camZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, this.camZoom * f));
     return this.camZoom;
   }
@@ -1309,6 +1531,17 @@ export class Scene {
    * the shop coming toward you is the camera going up and over it.
    */
   tiltView(rad) {
+    // In first person the same drag moves your head instead, and the sign flips
+    // because the two are describing the same hand. Out there, dragging down
+    // the screen pulls the far side of the shop toward you and the camera rises
+    // *over* it — which is a view that ends up looking further DOWN. In here
+    // looking further down is a negative pitch, so the drag that meant one
+    // means the other, and a shared sign would have the view swing the opposite
+    // way the instant you stepped inside.
+    if (this.fpv) {
+      this.fpvAim = clamp(this.fpvAim - rad, -FPV_PITCH_MAX, FPV_PITCH_MAX);
+      return this.fpvAim;
+    }
     const p = Math.min(PITCH_MAX, Math.max(PITCH_MIN, this.camPitch + rad));
     if (p === this.camPitch) return this.camPitch;
     this.camPitch = p;
@@ -1459,6 +1692,29 @@ export class Scene {
    * rather than the world axes.
    */
   panBy(dxPx, dyPx) {
+    // Inside a head there is nothing to pan: the view is chained to a body and
+    // `camPan` is held at zero (see `setFirstPerson`), so a drag that moved it
+    // would be a gesture with no effect on screen — which is worse than a
+    // gesture that is refused, because you go on making it. It looks around
+    // instead, which is the same drag doing the same job one projection over.
+    //
+    // Through `spinView`/`tiltView` rather than writing the angles, so the LOOK
+    // and the two keys that turn the view stay one pose: `,` and `.` still work
+    // in here, and they still turn you a quarter.
+    if (this.fpv) {
+      const rad = -dxPx * FPV_LOOK;
+      // With a capture running the turn is a TARGET rather than the drawn
+      // angle, which is the one place cinema changes a gesture instead of a
+      // number: `spinView` writes both on purpose — a drag is the hand's own
+      // easing — and that is right for the hand and wrong for whoever watches
+      // it back, where every twitch of the mouse is in the recording. Setting
+      // `camYaw` alone leaves the ease at the bottom of `render` to chase it,
+      // and `EASE.yaw` is what decides how slowly.
+      if (this.cinema) this.camYaw += rad;
+      else this.spinView(rad);
+      this.tiltView(dyPx * FPV_LOOK);
+      return this.camPan;
+    }
     const upp = (FRUSTUM / this.camZoom) / (this.renderer.domElement.clientHeight || 1);
     const hx = this.camOffset.x;
     const hz = this.camOffset.z;
@@ -1507,9 +1763,84 @@ export class Scene {
    * far end of the farm would otherwise leave you playing somebody who is off
    * screen. The glide back is free, because `camLook` eases toward its aim.
    */
+  /**
+   * Step into whoever the camera is riding, or back out.
+   *
+   * Four things are put back on the way in and each is a way for this to look
+   * broken rather than to be broken.
+   *
+   * The ORTHO ZOOM is pinned at its top rung, because that is the view you came
+   * from and the view one notch out has to be — a zoom left wherever it
+   * happened to be would have stepping out land you somewhere across the shop.
+   * The PITCH is zeroed to the horizon: what you were looking at a moment ago
+   * was the shop from 40° up, and inheriting that would begin first person
+   * staring at the floor. The PAN goes with it, because it is an offset off a
+   * body and the whole of this mode is being *at* that body — a view dragged
+   * six tiles out and then stepped into would put the camera in mid-air over
+   * the car park. And the BODY is put back visible on the way out, which is the
+   * one of the four that is unrecoverable if it is missed.
+   *
+   * It does not touch `camYaw`, and that is deliberate: which way you are
+   * facing is the one thing about the old view that is still true of the new
+   * one, so stepping in keeps looking the way you were already looking.
+   */
+  setFirstPerson(on) {
+    const next = !!on;
+    if (next === this.fpv) return this.fpv;
+    this.fpv = next;
+    if (next) {
+      this.camZoom = ZOOM_MAX;
+      this.ortho.zoom = ZOOM_MAX;
+      this.fpvAim = 0;
+      this.fpvPitch = 0;
+      this.camPan.set(0, 0, 0);
+      // Straight to the body rather than eased onto it. `camLook` lerps, so
+      // without this the first half-second of first person is spent flying in
+      // from wherever the ortho view had settled — which is a nice move and the
+      // wrong one, because it happens *inside* the shop and reads as the camera
+      // having been dropped through a wall.
+      this.camLook.copy(this.camTarget);
+    } else {
+      this.showEye(true);
+    }
+    return this.fpv;
+  }
+
+  /**
+   * Draw the body the camera is inside, or don't.
+   *
+   * You cannot stand in your own head: the model's crown is at about 0.96 and
+   * the eye is at 0.88, so the camera sits *within* the mesh and what you get
+   * looking down is the inside of a face filling the frame. Nothing about that
+   * reads as "you are this person" — it reads as the renderer having broken.
+   *
+   * The record is looked up fresh every frame and the one we turned off is
+   * remembered, because who the camera rides can change while it is off (a
+   * theft cut, a hire you stopped watching) and a body hidden against an id
+   * that has moved on is somebody invisible for the rest of the session.
+   */
+  showEye(on) {
+    const rec = this._eyeId
+      ? (this.players.get(this._eyeId) ?? this.customers.get(this._eyeId) ?? null)
+      : null;
+    if (this._hidBody && this._hidBody !== rec) {
+      this._hidBody.obj.visible = true;
+      this._hidBody = null;
+    }
+    if (!rec?.obj) return;
+    rec.obj.visible = on;
+    this._hidBody = on ? null : rec;
+  }
+
   setFreeRoam(on) {
     if (this.freeRoam === !!on) return;
     this.freeRoam = !!on;
+    // Building steps you back out, and it is the same argument `releaseCut`
+    // makes below: the mode exists to reach places nobody can stand, and first
+    // person is the one view that cannot go anywhere a body cannot. Left on,
+    // the palette would come up over a camera that refuses to fly and the keys
+    // would appear dead.
+    if (this.freeRoam) this.setFirstPerson(false);
     // ...and a cut already running is handed back on the way in, or the two
     // seconds a theft borrowed span the moment you start building and drag the
     // view off the shelf you were reaching for. `cutTo` refuses while free, so
@@ -3501,6 +3832,12 @@ export class Scene {
       }
       this.camTarget.set(eye.x, EYE_Y, eye.z);
       this.camFollowing = true;
+      // Whose body first person is inside. Noted here rather than worked out in
+      // `render`, because this is the one place that already knows which of the
+      // three candidates won — and re-deriving it a second time is two answers
+      // to one question, which is how the camera ends up in one person and the
+      // hidden body ends up being somebody else's.
+      this._eyeId = eye.id ?? null;
       if (this.freeRoam) this.clampPan();
       // ...and a restored view takes its offset from HERE, once. This is the
       // first moment the target is the thing it will be for the rest of the
@@ -7765,7 +8102,13 @@ export class Scene {
       // zoom. This is what keeps an arrow the same size on screen however far
       // out the view is — the pips it stands in for do the opposite, because
       // they belong to something in the shop and this belongs to the frame.
-      const world = (this.camera.top - this.camera.bottom) / this.camera.zoom / h;
+      // `this.ortho` and not `this.camera`: a perspective camera has no `top`,
+      // so in first person this would be NaN over NaN and every arrow in the
+      // shop would be placed at the origin of the frame. The ortho zoom is
+      // pinned at its top rung while you are in there (`setFirstPerson`), so
+      // what this answers is a constant — which is the right answer anyway,
+      // since an arrow riding the edge of the frame belongs to the frame.
+      const world = (this.ortho.top - this.ortho.bottom) / this.ortho.zoom / h;
 
       const off = [];
       for (const pip of this.stockPips.values()) {
@@ -9299,16 +9642,29 @@ export class Scene {
     // straight to its new scale read as the world flinching rather than as the
     // camera moving. Snapped once it's close, so we stop rebuilding the
     // projection matrix every frame forever.
-    const dz = this.camZoom - this.camera.zoom;
+    // Which set of gains the whole pose is chasing on. Read once, here, rather
+    // than asked four times down the function: they are one decision, and four
+    // separate reads is four chances for half the camera to be gliding while
+    // the other half snaps.
+    const ease = this.cinema ? CINE_EASE : EASE;
+    const dz = this.camZoom - this.ortho.zoom;
     if (dz) {
-      this.camera.zoom = Math.abs(dz) < 0.002 ? this.camZoom : this.camera.zoom + dz * 0.18;
-      this.camera.updateProjectionMatrix();
+      this.ortho.zoom = Math.abs(dz) < 0.002 ? this.camZoom : this.ortho.zoom + dz * ease.zoom;
+      this.ortho.updateProjectionMatrix();
+    }
+    // The first-person pitch, which is the yaw's opposite number and eases the
+    // same way. `tilt` is 1 outside cinema, so this is an assignment there and
+    // the branch costs a multiply.
+    if (this.fpvPitch !== this.fpvAim) {
+      this.fpvPitch = glide(this.fpvPitch, this.fpvAim, ease.tilt, ease.tiltMin);
     }
     // Swing round to the target corner, same easing idea as zoom and camLook.
     // A drag has already moved both, so this is a no-op while one is happening.
     const da = this.camYaw - this.camAngle;
     if (da) {
-      this.camAngle += Math.abs(da) < 0.0005 ? da : da * 0.14;
+      this.camAngle = Math.abs(da) < 0.0005
+        ? this.camYaw
+        : glide(this.camAngle, this.camYaw, ease.yaw, ease.yawMin);
       this.aimCamera();
     }
     // Readouts follow the eased angle, not the target one, so they turn *with*
@@ -9326,15 +9682,56 @@ export class Scene {
       this.readoutsDirty = false;
       this.faceReadouts();
     }
-    this.camLook.lerp(this.camAim.copy(this.camTarget).add(this.camPan), 0.08);
+    // The follow, and the one that decides whether this reads as floaty: a
+    // lerp alone leaves the camera a fixed distance behind anybody walking. See
+    // `EASE` — with no floor this is exactly the lerp it has always been.
+    this.camAim.copy(this.camTarget).add(this.camPan);
+    if (ease.lookMin) {
+      GLIDE_V.subVectors(this.camAim, this.camLook);
+      const d = GLIDE_V.length();
+      if (d > 1e-4) {
+        const step = Math.min(d, Math.max(d * ease.look, ease.lookMin));
+        this.camLook.addScaledVector(GLIDE_V, step / d);
+      }
+    } else {
+      this.camLook.lerp(this.camAim, ease.look);
+    }
     // Which lamps get a real light follows the camera, so it belongs here rather
     // than in the layout build. Cheap: it returns immediately until the view has
     // actually gone somewhere. What it lights is only ever the things that MOVE
     // — the ground is baked and sits on a layer these cannot reach, which is
     // what makes a pool that follows you acceptable again. See lights.js.
     this.lights.update(this.camLook);
-    this.camera.position.copy(this.camLook).add(this.camOffset);
-    this.camera.lookAt(this.camLook);
+    // The one line in the game that decides which camera is being drawn
+    // through, and it is the line that poses it — see the constructor.
+    //
+    // The heading is `camAngle` and NOT `camOffset`, even though the two say the
+    // same thing out there. `camOffset` is a position, so its horizontal part
+    // shrinks to nothing as the pitch approaches straight down — read as a
+    // direction it would be a heading that gets less certain the more you tilt,
+    // and at `PITCH_MAX` it would be a heading of nothing at all. The angle is
+    // the honest input, and it is also the field the two turn keys write.
+    if (this.fpv) {
+      this.camera = this.persp;
+      const flat = Math.cos(this.fpvPitch);
+      // The ortho camera stands at +x+z and looks back at the origin, so the
+      // direction it is FACING at yaw 0 is the other way — which is what a head
+      // stepping into that view has to inherit, or turning round is the first
+      // thing you do every time.
+      FPV_DIR.set(-Math.SQRT1_2 * flat, Math.sin(this.fpvPitch), -Math.SQRT1_2 * flat)
+        .applyAxisAngle(AXIS_Y, this.camAngle);
+      this.camera.position.set(this.camLook.x, FPV_Y, this.camLook.z);
+      this.camera.lookAt(FPV_AT.copy(this.camera.position).add(FPV_DIR));
+    } else {
+      this.camera = this.ortho;
+      this.camera.position.copy(this.camLook).add(this.camOffset);
+      this.camera.lookAt(this.camLook);
+    }
+    // Every frame rather than on the switch, because the body being hidden is a
+    // record that is rebuilt whenever the model is restaged — a promotion, a
+    // redraw over MCP, a rejoin — and a visibility set once on a group that has
+    // since been thrown away is a person who quietly comes back.
+    this.showEye(!this.fpv);
     // Onto the texel grid rather than onto the look point — see
     // `snapToShadowTexel`. The light's DIRECTION is untouched by it (both ends
     // move together, and `SUN_OFFSET` is what separates them), so nothing in
