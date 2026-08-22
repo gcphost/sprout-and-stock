@@ -34,6 +34,7 @@
 import { content } from '../content.js';
 import { DEPARTMENTS, homeKind } from '../../shared/tags.js';
 import { isProp, padCells, shelfKind } from '../../shared/build.js';
+import { R } from '../../shared/reputation.js';
 
 /**
  * A lifetime tally, as "the days that are done" plus "today so far".
@@ -127,6 +128,49 @@ export const MILESTONES = [
      */
     measure: (g) => lifetime(g, 'sold'),
     reward: { cash: 250, supplies: 12 },
+  },
+  {
+    /**
+     * THE ONE RUNG THAT IS NOT A CONGRATULATION.
+     *
+     * Patience is a budget every annoyance draws on and it is entirely
+     * invisible: a shopper who has had enough turns round and walks out, and
+     * from across the shop that is the same picture as a shopper leaving
+     * because they are done. The only trace is a line in the feed and 0.03 off
+     * the slowest number in the game — so the first thing anybody learns about
+     * the mechanic is a reputation bar that has been sliding for a week.
+     *
+     * The ladder is the machinery that already stops the world to explain
+     * something, so this borrows it rather than inventing a second modal. What
+     * it costs is that the file's own header says milestones are the thing that
+     * congratulates you, and one row here does not. That is the honest trade:
+     * the alternative is a card of its own with its own arming, its own
+     * once-ever flag and its own reason not to fire twice, all of which
+     * `checkMilestones` already is.
+     *
+     * It obeys the one rule a rung has to: `repMoves` is wiped every morning,
+     * but `checkMilestones` runs once a second, so the first instant it is true
+     * is inside the day it happened. Measured off the CAUSE rather than off a
+     * counter of its own — a storm-out already writes `R.STORMED` through
+     * `moveRep`, so this is a measurement of state the shop keeps and not a new
+     * thing to keep.
+     *
+     * The reward is deliberately the smallest one on the ladder and it is
+     * `supplies` rather than cash: a card that hands you money for upsetting
+     * somebody reads as a bounty on it, where a van bringing stock reads as the
+     * thing to do about it — which is what the blurb says to do.
+     */
+    id: 'first-storm',
+    name: 'Somebody walked out',
+    blurb: 'A shopper ran out of patience and left with nothing. Queues, bare '
+      + 'shelves and a crowded floor all wear people down — and one who leaves '
+      + 'angry costs you six who were merely turned away.',
+    unit: 'count',
+    need: 1,
+    measure: (g) => yes((g.stats?.repMoves?.[R.STORMED] ?? 0) < 0),
+    reward: { supplies: 12 },
+    // Not the fanfare. See `sound` in `checkMilestones`' payload.
+    sound: 'angry',
   },
   {
     id: 'take-100',
@@ -866,6 +910,10 @@ function award(g, m) {
     name: m.name,
     blurb: m.blurb,
     reward: m.reward,
+    // Which noise the card makes, when it is not the fanfare. Only `first-storm`
+    // sets it, and it is on the ROW rather than decided by the client so that a
+    // rung and the sound it makes cannot drift apart in two files.
+    sound: m.sound ?? null,
     got,
     // What the town is now, for every award rather than only the ones that grew
     // it: the modal is where anybody ever finds out this number exists.

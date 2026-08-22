@@ -62,6 +62,7 @@ const KENNEY = { by: 'Kenney', from: 'kenney.nl', licence: 'CC0' };
 const MDKIERAN = { by: 'mdkieran', from: 'OpenGameArt', licence: 'CC0' };
 const RUBBERDUCK = { by: 'rubberduck', from: 'OpenGameArt', licence: 'CC0' };
 const ANTUMDELUGE = { by: 'AntumDeluge', from: 'OpenGameArt', licence: 'CC0' };
+const PDSOUNDS = { by: 'stephan', from: 'pdsounds.org / Wikimedia Commons', licence: 'Public domain' };
 const MONPLAISIR = { by: 'Monplaisir', from: 'Wikimedia Commons / Free Music Archive', licence: 'CC0' };
 const KOMIKU = { by: 'Komiku', from: 'Wikimedia Commons / Free Music Archive', licence: 'CC0' };
 
@@ -135,9 +136,22 @@ export const SOUNDS = [
   // one-shot and a loop rather than taste. Every sound above is a report you
   // hear once, at a moment you were waiting for it; this one is on for as long
   // as you stand there, and a background you *notice* is a background you end
-  // up muting the game to be rid of. The file is authored near full scale (peak
-  // ~0.85), so most of this number is bringing it back down to where a room
-  // tone belongs — start here and go DOWN.
+  // up muting the game to be rid of. The file is cut to a mean of −20dBFS,
+  // which is what every number below is tuned against — start here and go DOWN.
+  //
+  // A LOOP HAS A MINIMUM LENGTH, and that is the one thing about this row that
+  // is a rule rather than taste. The file this replaces was **0.63 seconds**: a
+  // perfectly good recording of a motor, looped at 1.6Hz, which is squarely in
+  // the band the ear reads as mechanical wobble rather than as a steady tone.
+  // So it did not sound like an appliance running, it sounded like an appliance
+  // with something wrong with it — and nothing about the row, the gain or the
+  // wiring was at fault, only the length. Two things follow. Under about two
+  // seconds a machine loop is a defect however good the source is, and this one
+  // is 7.25s with a 0.75s equal-power crossfade folding its tail over its head,
+  // so the wrap is two adjacent samples of the original tape. And `rate`
+  // divides it: a variant at 0.78 stretches the period and one at 1.25 shortens
+  // it, so the shortest loop in the set is the real floor, not the average.
+  // `motor-fast` is still 0.62s and still has this — see the note below it.
   //
   // A FRIDGE HUM WAS THE OTHER HALF OF THIS AND IS GONE, which is worth knowing
   // before authoring the next always-on loop. It was the textbook case for the
@@ -149,7 +163,12 @@ export const SOUNDS = [
   // ambient bed's verdict (see docs/audio.md) arriving from a completely
   // different direction. The file went with it: an asset nothing names is a
   // download every player pays for and nobody hears.
-  { id: 'machine', url: machine, gain: 0.16, loops: true, name: 'Appliance running', ...RUBBERDUCK },
+  // A real dishwasher, not a synthesised one — see docs/audio.md on why the
+  // crowd bed failed as synthesis. Cut from the steadiest 8 seconds of a 4m36s
+  // public-domain recording, chosen by measuring the tape rather than by
+  // scrubbing it: the window whose level and brightness both vary least (5.6%
+  // and 17% over 100ms frames) at a level representative of the whole take.
+  { id: 'machine', url: machine, gain: 0.16, loops: true, name: 'Appliance running', ...PDSOUNDS },
   /**
    * ...and seven more of them, because one was eleven machines humming the same
    * note.
@@ -167,9 +186,10 @@ export const SOUNDS = [
    * nothing but the coffee machine could ever politely use, which is how a
    * shared library turns into eleven near-duplicates.
    *
-   * All seven come out of the same CC0 pack `machine` does (rubberduck's *30
-   * CC0 SFX loops*), which is worth knowing for the reason the licence note at
-   * the top of this file gives: one pack, one credit line, one thing to check.
+   * All seven come out of one CC0 pack (rubberduck's *30 CC0 SFX loops*), which
+   * is worth knowing for the reason the licence note at the top of this file
+   * gives: one pack, one credit line, one thing to check. `machine` came out of
+   * it too until its length disqualified it.
    *
    * THE GAINS ARE ALL 0.16 AND THAT IS A STARTING POINT RATHER THAN A MIX.
    * It is what `machine` was tuned to by ear, and these are its packmates at
@@ -181,6 +201,12 @@ export const SOUNDS = [
    */
   { id: 'pump', url: pump, gain: 0.16, loops: true, name: 'Pump', ...RUBBERDUCK },
   { id: 'boil', url: boil, gain: 0.16, loops: true, name: 'Boiling', ...RUBBERDUCK },
+  // 0.62s, and therefore the one row left carrying the fault `machine` was
+  // replaced for — the blender names it at 1.25, which repeats it twice a
+  // second. Left alone deliberately rather than overlooked: a fast little motor
+  // is the one appliance where a rapid pulse is arguably the sound, and it is
+  // the *slow* wobble on a deep drone that reads as broken. Judge it by ear off
+  // the Menu's Sound rows before deciding.
   { id: 'motor-fast', url: motorFast, gain: 0.16, loops: true, name: 'Fast motor', ...RUBBERDUCK },
   { id: 'motor-heavy', url: motorHeavy, gain: 0.16, loops: true, name: 'Heavy motor', ...RUBBERDUCK },
   { id: 'compressor', url: compressor, gain: 0.16, loops: true, name: 'Compressor', ...RUBBERDUCK },

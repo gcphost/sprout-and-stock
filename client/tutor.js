@@ -184,9 +184,47 @@ const lotSize = (lot) => {
   return lot.qty ?? 0;
 };
 
-/** Every unit of shelving standing in the shop, by kind. */
-const shelvesOf = (t, kind = null) => (t.state?.shelves ?? [])
-  .filter((s) => !kind || s.kind === kind);
+/**
+ * Every unit of shelving standing in the shop, by kind — AND WHERE IT IS.
+ *
+ * The snapshot's shelf record is what a shelf is *doing*: its boards, its stock,
+ * what it is kept for, what it is called. It has never carried `x` or `z`, and
+ * that is correct — where a unit stands only moves on a re-flow, so it rides the
+ * layout, on the layout's own clock. `deliveries` and `cashDrops` do carry a
+ * position, which is exactly why every crate step in this file worked and every
+ * shelf step did not.
+ *
+ * Read straight through, it fails in the one way nothing catches. `at` hands the
+ * marker `{ world: shelf }`, `holeFor` calls `worldToScreen(world.x, world.z)`,
+ * and that builds a `THREE.Vector3` — whose constructor defaults a missing
+ * component to **0**. So a ring aimed at any shelf in the game was drawn at
+ * world origin: the corner of the map, out in the field, with the card politely
+ * pinned beside it. Nothing is undefined by the time anything could complain,
+ * nothing is NaN, nothing is logged, and the tour looks like it is confidently
+ * pointing somewhere.
+ *
+ * `dist` took the same road to a different end — `undefined - number` is NaN, so
+ * `atIt` was false at every shelf in the shop, for ever. That is the half that
+ * wedges rather than misleads: the two-phase shelf steps ask it to decide
+ * whether you have arrived, and it can only ever answer no.
+ *
+ * So the position is married on here, by id, off the layout the renderer is
+ * already holding — the same source `spotToWalk` reads, and the same join
+ * `Scene.syncShelves` makes for the goods it draws. A unit the layout has not
+ * caught up with is DROPPED rather than passed on without a position: "there is
+ * no shelf to point at" is a state every step here already copes with (`lost`,
+ * and the veil gets out of the way), and a shelf at 0,0 is not.
+ */
+const shelvesOf = (t, kind = null) => {
+  const where = new Map((t.scene?.storeLayout?.shelves ?? []).map((s) => [s.id, s]));
+  return (t.state?.shelves ?? [])
+    .filter((s) => !kind || s.kind === kind)
+    .map((s) => {
+      const at = where.get(s.id);
+      return at ? { ...s, x: at.x, z: at.z } : null;
+    })
+    .filter(Boolean);
+};
 
 /** The nearest crate of stock on the floor — the one the marker should point at. */
 function nearestCrate(t) {
@@ -220,10 +258,35 @@ const atIt = (t, thing) => {
   return !!(me && thing && dist(me, thing) <= REACH);
 };
 
-/** A shelf with room on it, preferring one that is already carrying something. */
+/**
+ * A shelf to point at — and with something in your hands, one that will TAKE it.
+ *
+ * `takers` is the shop's own answer to "which units would have what you are
+ * holding", worked out server-side off `shelfAccepts` and hung on your own
+ * player record. It is what draws the green chevrons, which is to say it is the
+ * thing this file's own hint text promises: *"Arrows point at every shelf that
+ * will take what you are holding."* Ringing a unit chosen by any other rule is
+ * a tour that contradicts the arrows it just told you to read — the green-ghost
+ * bug wearing a tutorial marker.
+ *
+ * The old rule was `kind === 'shelf'` plus "has something on it", which is
+ * wrong three ways at once and each of them silently: it could never ring a
+ * freezer or a hot counter, so anything frozen was guaranteed to be marked at a
+ * unit that refuses it; it read "has stock" as "has room", which is nearly the
+ * opposite test; and it never asked what you were carrying at all.
+ *
+ * The fallback is that old rule exactly, and it has to stay: half the steps that
+ * call this ask you to open a shelf's menu rather than to fill it, and with
+ * empty hands `takers` is empty — a tour that pointed at nothing there would be
+ * a step you cannot start.
+ */
 function anyShelf(t) {
-  const units = shelvesOf(t, 'shelf');
-  return units.find((s) => (s.stacks ?? []).length) ?? units[0] ?? null;
+  const want = new Set(meOf(t)?.takers ?? []);
+  const units = shelvesOf(t);
+  const takes = units.filter((s) => want.has(s.id));
+  if (takes.length) return takes.find((s) => (s.stacks ?? []).length) ?? takes[0];
+  const plain = units.filter((s) => s.kind === 'shelf');
+  return plain.find((s) => (s.stacks ?? []).length) ?? plain[0] ?? null;
 }
 
 /**
@@ -707,53 +770,6 @@ const STEPS = [
   },
 
   {
-    id: 'menu',
-    kicker: 'Shelves',
-    say: 'Press and hold on that shelf to open its menu.',
-    // A hold is the other half of every press in the game and nothing on screen
-    // says so. It is the only way to reach what a thing can DO, and a player
-    // who never finds it never prices anything, never sets a shelf aside and
-    // never sells a fixture back.
-    hint: () => perInput(
-      'A click uses a thing. Holding the button opens what it can do. That '
-        + 'is true of every shelf, crate, machine and doorway in the shop.',
-      'A tap picks a thing out and lists what it can do along the bottom. '
-        + 'Holding opens the whole menu — every shelf, crate, machine and '
-        + 'doorway in the shop has one.',
-    ),
-    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
-    done(t) { return t.ui.openPanel === 'fixture'; },
-  },
-
-  {
-    id: 'assign',
-    kicker: 'Shelves',
-    say: (t) => (t.ui.openPanel === 'fixture'
-      ? 'Under "Keep it for", pick something this shelf is for.'
-      : 'Press and hold the shelf again to bring its menu back.'),
-    hint: (t) => (t.ui.openPanel === 'fixture'
-      ? 'Now your crew will restock it with that and nothing else, and the shop '
-        + 'will order more when it runs low. The same menu sets the price per '
-        + 'board, hides the shelf out the back, tells the crew to leave it '
-        + 'alone, and upgrades, moves or sells the unit.'
-      : perInput('You clicked off it, which closes the menu. Nothing was lost.',
-        'You tapped off it, which closes the menu. Nothing was lost.')),
-    // Two phases, because the menu is a thing the player can shut — clicking on
-    // the world is how you dismiss ANY panel, so a step that only ever pointed
-    // at `#panel` had nothing to point at the moment somebody clicked the floor,
-    // and sat there stranded on a card asking about a menu that was not up.
-    //
-    // It asks for the menu back rather than re-opening it: the click that shut
-    // it was deliberate, and a panel that springs back up under you is a
-    // tutorial wrestling you for the mouse.
-    at: (t) => (t.ui.openPanel === 'fixture'
-      ? { el: '#panel' }
-      : { world: anyShelf(t), y: SHELF_Y }),
-    start(t) { this.from = keptCount(t); },
-    done(t) { return this.from !== null && keptCount(t) > this.from; },
-  },
-
-  {
     id: 'crate',
     kicker: 'Stock',
     say: (t) => (meOf(t)?.haul
@@ -784,6 +800,67 @@ const STEPS = [
     // No box left to lift is not a failure — you may well have shelved the lot
     // by hand on the beat before.
     skipWhen(t) { return !nearestCrate(t) && !meOf(t)?.haul; },
+  },
+
+  {
+    id: 'menu',
+    kicker: 'Shelves',
+    say: 'Press and hold on that shelf to open its menu.',
+    // A hold is the other half of every press in the game and nothing on screen
+    // says so. It is the only way to reach what a thing can DO, and a player
+    // who never finds it never prices anything, never sets a shelf aside and
+    // never sells a fixture back.
+    hint: () => perInput(
+      'A click uses a thing. Holding the button opens what it can do. That '
+        + 'is true of every shelf, crate, machine and doorway in the shop.',
+      'A tap picks a thing out and lists what it can do along the bottom. '
+        + 'Holding opens the whole menu — every shelf, crate, machine and '
+        + 'doorway in the shop has one.',
+    ),
+    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
+    done(t) { return t.ui.openPanel === 'fixture'; },
+  },
+
+  {
+    id: 'assign',
+    kicker: 'Shelves',
+    // "Quick pick" and not "Keep it for", which is the heading this card named
+    // for as long as that heading was on screen. It still exists — it is the
+    // second group in the shelf's menu — but a fixture menu's tabs are icons on
+    // purpose (see `ui.js`, where the argument is made: those headings are
+    // sentences, so they are captions rather than tabs), so the only one whose
+    // words are ever rendered is whichever tab is open. That is the shortlist,
+    // every time: `group` drops an empty group and Quick pick is built first.
+    //
+    // So the old copy sent you hunting a quoted label that appears nowhere in
+    // the panel, which is the worst shape an instruction can have — it reads as
+    // the menu being wrong rather than the sentence being old. The rows are the
+    // same rows either way (`quickRows` is a *selection* of the full list, not a
+    // second list about the same items), so the press this card is asking for is
+    // unchanged and so is `done`.
+    say: (t) => (t.ui.openPanel === 'fixture'
+      ? 'Under "Quick pick", choose what this shelf is for.'
+      : 'Press and hold the shelf again to bring its menu back.'),
+    hint: (t) => (t.ui.openPanel === 'fixture'
+      ? 'Now your crew will restock it with that and nothing else, and the shop '
+        + 'will order more when it runs low. The same menu sets the price per '
+        + 'board, hides the shelf out the back, tells the crew to leave it '
+        + 'alone, and upgrades, moves or sells the unit.'
+      : perInput('You clicked off it, which closes the menu. Nothing was lost.',
+        'You tapped off it, which closes the menu. Nothing was lost.')),
+    // Two phases, because the menu is a thing the player can shut — clicking on
+    // the world is how you dismiss ANY panel, so a step that only ever pointed
+    // at `#panel` had nothing to point at the moment somebody clicked the floor,
+    // and sat there stranded on a card asking about a menu that was not up.
+    //
+    // It asks for the menu back rather than re-opening it: the click that shut
+    // it was deliberate, and a panel that springs back up under you is a
+    // tutorial wrestling you for the mouse.
+    at: (t) => (t.ui.openPanel === 'fixture'
+      ? { el: '#panel' }
+      : { world: anyShelf(t), y: SHELF_Y }),
+    start(t) { this.from = keptCount(t); },
+    done(t) { return this.from !== null && keptCount(t) > this.from; },
   },
 
   {

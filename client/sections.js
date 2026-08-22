@@ -28,6 +28,7 @@ import { reportHtml } from './report.js';
 import { CORNERS, isOff, setOff } from './corner.js';
 import { coopStatus, openCoop, coopSignature } from './coop.js';
 import { tutorOff, setTutorOff, replayTutor } from './tutor.js';
+import { haveStats, statsOn, setStats } from './analytics.js';
 import { deptOf } from './aisles.js';
 import { SUPPORT_URL, SUPPORT_LINE, SUPPORT_LABEL, openLink } from './links.js';
 
@@ -141,7 +142,17 @@ export const BUILD_GROUPS = [
   { id: 'shop', name: 'Shop', icon: ICONS.shelf, blurb: 'Where goods sit and money changes hands.' },
   { id: 'appliance', name: 'Appliances', icon: ICONS.station, blurb: 'Machines that turn stock into something worth more.' },
   { id: 'farm', name: 'Farm', icon: ICONS.plot, blurb: 'Beds to grow in, and what fences them off.' },
-  { id: 'logistics', name: 'Logistics', icon: ICONS.crate, blurb: 'Moves stock about without anybody walking it.' },
+  // Back of house. It started as the belts alone — "moves stock about without
+  // anybody walking it" — and the three job-carrying pads joined them from
+  // Outdoors, which is what widened the blurb: a dock is not something that
+  // moves stock, it is where the moving starts. See `bay` in `KIND_TOOLS` for
+  // the argument.
+  {
+    id: 'logistics',
+    name: 'Logistics',
+    icon: ICONS.crate,
+    blurb: 'Where stock lands, where it waits, and what carries it on without anybody walking it.',
+  },
   {
     id: 'shell',
     name: 'Building',
@@ -189,22 +200,24 @@ export const BUILD_GROUPS = [
    * competing with are what is behind it.
    *
    * It went from a tab to a group when the lawn arrived, and that is the honest
-   * order of events: Land is the ground the other four are painted ON, so a
-   * palette that offered a delivery bay at the same level as the turf under it
-   * was answering the second question before the first.
+   * order of events: Land is the ground the other tabs are painted ON, so a
+   * palette that offered a car park at the same level as the turf under it was
+   * answering the second question before the first.
    *
-   * The name is dominant-case rather than exact, deliberately. A `drop` pad
+   * It is down to three, and the two that left are why the name is now exact
+   * rather than dominant-case. Yard and Crew went to Logistics — a `drop` pad
    * indoors is a stockroom and a break area is as often a corner of the shop
-   * floor as it is out the back — both blurbs say so — and naming the group for
-   * its exceptions would mean naming it nothing anybody would look under.
+   * floor as it is out the back, so "is this outside" was a first question
+   * neither of them could answer. What is left genuinely is all outdoors: the
+   * ground itself, the ways in, and somewhere to leave the car.
    */
   {
     id: 'outdoors',
     name: 'Outdoors',
     icon: ICONS.town,
     blurb: 'The ground the shop stands in. All of it is painted over an area, and none of it is a thing you place.',
-    // Outward, in rings: what the ground already is, then the ways in, then the
-    // three pads that carry a job — your goods, your crew, and everybody else.
+    // Outward, in rings: what the ground already is, then the ways in, then
+    // where the people who arrive on them leave the car.
     subs: [
       // The ground that was already there, which is the one tab whose contents
       // you own before you buy anything.
@@ -240,28 +253,10 @@ export const BUILD_GROUPS = [
         icon: ICONS.move,
         blurb: 'How everybody gets here. Vehicles take the cheapest lane and feet take the paved way, so what you lay is the way in.',
       },
-      {
-        id: 'yard',
-        name: 'Yard',
-        icon: ICONS.crate,
-        blurb: 'Where deliveries land, and where stock waits to be shelved.',
-      },
-      // Its own tab rather than a third swatch under Yard, and the distinction
-      // is the player's rather than the code's: the yard is where the goods go
-      // and this is where the people go. A break area is as often a corner of
-      // the shop floor as it is out the back, so filing it under Yard would put
-      // it behind the one word that says it is about stock.
-      {
-        id: 'staff',
-        name: 'Crew',
-        icon: ICONS.staff,
-        blurb: 'Ground for the machines that work here. Paint a charging bay and that is where they dock.',
-      },
-      // And the same argument once more, one step further out. Staff is ground
-      // for the people on your payroll; this is ground for everybody else. A
-      // car park is not the yard — the yard is where the goods arrive and this
-      // is where the people do — and it is not Staff either, because a customer
-      // does not work here. Its own tab is the only place that is true of it.
+      // The last pad left out here, and the one that had the best claim to the
+      // tab all along: a car park is ground for the people who come to buy,
+      // which is the one job-carrying pad whose answer to "is this outside" is
+      // always yes. Yard and Crew stood beside it until they went to Logistics.
       {
         id: 'customers',
         name: 'Customers',
@@ -414,29 +409,49 @@ export const KIND_TOOLS = {
     sub: 'floors',
     blurb: 'Drag out an area. Floor is what a shelf needs under it — walls alone only make a room.',
   },
-  // The yard, which is the same brush laying ground that carries a job rather
-  // than a look. Under Building, because it is drawn the way floor is — but on
-  // its own sub-tab, because what it is *for* has nothing to do with how the
-  // shop looks: you pick a floor by taste and a bay by how big a delivery you
-  // want to take.
+  /**
+   * The three pads that carry a job, filed with the belts rather than with the
+   * ground they are painted on.
+   *
+   * They were under Outdoors for two steps, on the argument that they are laid
+   * with the same brush as the turf and the tarmac — which is true, and is a
+   * fact about the code rather than about anybody reaching for one. Filed that
+   * way, the question the palette asked first was *is this outside*, and none of
+   * these three has a fixed answer to it: a `drop` pad indoors is a stockroom, a
+   * break area is as often a corner of the shop floor as it is out the back, and
+   * only the bay is reliably out of doors at all. So the first question was one
+   * the player could not answer about the thing they were looking for.
+   *
+   * What they have in common with a conveyor is the thing somebody has in mind
+   * when they reach for any of them: where stock lands, where it waits, and what
+   * moves it on. A dock with no belt off it and a belt with no dock feeding it
+   * are each half a job, and finding those two on different top-level tabs hid
+   * the second half from anyone doing the first — which is the same argument
+   * that put Floors next to Walls.
+   *
+   * Flat rather than sub-tabbed, deliberately. Yard and Crew were their own
+   * sub-tabs under Outdoors and the reasoning for that split still reads well,
+   * but it was a split of EIGHT — see the note on Outdoors for why eight was the
+   * tell. Seven entries is a set of choices you take in at a glance, and a
+   * sub-tab here would put a click in front of the dock to keep a distinction
+   * the blurbs already make.
+   */
   bay: {
     icon: ICONS.crate,
-    group: 'outdoors',
-    sub: 'yard',
+    group: 'logistics',
     blurb: 'Drag out an area. Wholesale orders land here as pallets — make it bigger to take bigger deliveries.',
   },
   drop: {
     icon: ICONS.crate,
-    group: 'outdoors',
-    sub: 'yard',
+    group: 'logistics',
     blurb: 'Drag out an area. Where hands get cleared and stock waits to be shelved. Indoors it is a stockroom.',
   },
-  // The same brush again, laying ground that carries a job for the staff rather
-  // than for the stock.
+  // The one of the three that carries a job for the crew rather than for the
+  // stock — and it stays here rather than following the car park out, because a
+  // charging bay is where the things that DO the moving go between jobs.
   break: {
     icon: ICONS.staff,
-    group: 'outdoors',
-    sub: 'staff',
+    group: 'logistics',
     blurb: 'Drag out an area. Your crew dock and charge here instead of topping up wherever they finished, and come back fuller. One cell holds one unit.',
   },
   // The fourth pad, on the one sub-tab where it is not filed under somebody
@@ -2545,6 +2560,19 @@ function switchGrid(ui) {
         on: !isOff(c.id),
         title: isOff(c.id) ? 'Put away.' : c.sub,
       })),
+      // Only in a build that has somewhere to send them. A switch in front of
+      // somebody whose game reports nothing is the "tier that changes no
+      // number" trap wearing a privacy setting, and it is the worse form of it:
+      // what it takes is not money but a promise about them.
+      ...(haveStats() ? [{
+        id: 'stats',
+        icon: ICONS.report,
+        name: 'Stats',
+        on: statsOn(),
+        title: statsOn()
+          ? 'On. Anonymous play time only — never what you build or buy.'
+          : 'Off. Nothing that could be you is stored.',
+      }] : []),
     ],
     // Every one repaints at once rather than waiting for the next snapshot: the
     // honest test of a switch is that it moved, and two of these move something
@@ -2560,6 +2588,7 @@ function switchGrid(ui) {
         ui.tutor?.maybeStart(ui.worldId);
       },
       sound: () => { mix.setMuted(!soundOff); ui.paintSection(); },
+      stats: () => { setStats(!statsOn()); ui.paintSection(); },
       ...Object.fromEntries(CORNERS.map((c) => [
         `corner:${c.id}`, () => { setOff(c.id, !isOff(c.id)); ui.paintSection(); },
       ])),

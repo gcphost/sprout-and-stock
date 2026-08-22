@@ -22934,6 +22934,30 @@
         "covers": 0,
         "emits": null,
         "open": null
+      },
+      {
+        "name": "Quick Sorter",
+        "cost": 140,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1.9,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Maglev Sorter",
+        "cost": 330,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 3.2,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
       }
     ],
     "variants": [],
@@ -29300,6 +29324,30 @@
         "capacity_mult": 1,
         "keeps_mult": 1,
         "speed_mult": 1,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Quick Underground",
+        "cost": 95,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1.8,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Maglev Underground",
+        "cost": 265,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 3,
         "unattended": 0,
         "lines": 1,
         "covers": 0,

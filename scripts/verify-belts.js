@@ -70,10 +70,10 @@
  */
 
 import { Game } from '../server/sim/index.js';
-import { writeContent, refresh } from '../server/content.js';
+import { writeContent, refresh, content } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
-import { canPlace, anchorTile, isWalkableTile, edgeAt, beltRunCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets } from '../shared/build.js';
+import { canPlace, anchorTile, isWalkableTile, edgeAt, beltRunCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, tunnelExit, TUNNEL_SPAN } from '../shared/build.js';
 import { E, canStep, shopperCanCross } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 import { lotQty, lotTotal, lotStacks } from '../shared/lot.js';
@@ -115,6 +115,51 @@ const STORE = {
 };
 
 /**
+ * A run that is already quick, and a junction with a ladder on it. See 20.
+ *
+ * Two pieces rather than one because the claim only EXISTS when the sorter is
+ * the slow cell: a junction running at the same speed as the belts either side
+ * of it is never what a queue forms at, so a sweep laid on `zz-belt-piece`
+ * would be measuring the run and calling it the junction. `QUICK_BELT` is fast
+ * at its first rung — no ladder, nothing to upgrade — so the only thing that
+ * differs between the two shops is the rung on the sorter.
+ *
+ * Its ladder is this file's own, at numbers nobody would ship, for the reason
+ * `verify:till` gives about its Test Till: an extreme rung makes a throughput
+ * difference something you assert on rather than argue about, and if the
+ * shipped Quick/Maglev Sorter is ever retuned this file must not start failing
+ * over a balance decision it has no opinion about. Three rungs, because the
+ * claim is rung one against the TOP one and two rungs cannot tell the top rung
+ * from the next one.
+ */
+const BELT_MULT = 3;
+const SORT_MULT = 3;
+const QUICK_BELT = {
+  id: 'zz-belt-quick', kind: 'belt', name: 'Test Quick Belt', cost: 10,
+  model: { parts: [{ shape: 'box', color: '#3b3f46', pos: [0, 0.06, 0], scale: [0.9, 0.12, 0.9] }] },
+  tiers: [{ name: 'Quick', cost: 0, speed_mult: BELT_MULT }],
+};
+const JUNCTION = {
+  id: 'zz-belt-junction', kind: 'sorter', name: 'Test Junction', cost: 10,
+  model: { parts: [{ shape: 'box', color: '#55606e', pos: [0, 0.4, 0], scale: [0.8, 0.8, 0.8] }] },
+  tiers: [
+    { name: 'Slow', cost: 0, speed_mult: 1 },
+    { name: 'Middling', cost: 0, speed_mult: 2 },
+    { name: 'Quick', cost: 0, speed_mult: SORT_MULT },
+  ],
+};
+/** ...and a mouth with the same ladder on it. See 21. */
+const MOUTH = {
+  id: 'zz-belt-mouth', kind: 'under', name: 'Test Mouth', cost: 10,
+  model: { parts: [{ shape: 'box', color: '#c8d0da', pos: [0, 0.1, 0], scale: [0.9, 0.2, 0.7] }] },
+  tiers: [
+    { name: 'Slow', cost: 0, speed_mult: 1 },
+    { name: 'Middling', cost: 0, speed_mult: 2 },
+    { name: 'Quick', cost: 0, speed_mult: SORT_MULT },
+  ],
+};
+
+/**
  * An ordinary stocker, so the belt can be asked the one question a sweep over
  * pure functions cannot: does the CREW use it.
  */
@@ -128,12 +173,14 @@ const STOCKER = {
 process.on('exit', () => {
   for (const [t, id] of [['items', GOODS.id], ['items', COLD.id],
     ['fixtures', BELT.id], ['fixtures', ARM.id], ['fixtures', STORE.id],
+    ['fixtures', QUICK_BELT.id], ['fixtures', JUNCTION.id], ['fixtures', MOUTH.id],
     ['workers', STOCKER.id]]) {
     try { remove(t, id); } catch { /* best effort */ }
   }
 });
 for (const [kind, row] of [['item', GOODS], ['item', COLD], ['fixture', BELT], ['fixture', ARM],
-  ['fixture', STORE], ['worker', STOCKER]]) {
+  ['fixture', STORE], ['fixture', QUICK_BELT], ['fixture', JUNCTION], ['fixture', MOUTH],
+  ['worker', STOCKER]]) {
   const res = writeContent(kind, row, 'verify');
   check(res.ok, `the catalog accepts the test ${kind} ${row.id}`, res.error ?? '');
 }
@@ -232,6 +279,11 @@ function armFeeding(g, belt) {
     return { x: a.x, z: a.z, rot, behind };
   }
   return null;
+}
+
+/** Whichever of the two test items this unit will actually have, if either. */
+function shelfWants(g, shelf) {
+  return [GOODS.id, COLD.id].find((id) => g.shelfAccepts(shelf, id)) ?? null;
 }
 
 /** A crate of `qty` standing on a belt, put there the way an arm would. */
@@ -454,11 +506,21 @@ function crateOn(g, belt, item = GOODS, qty = 4) {
   if (spot) {
     const crate = g.dropGoods(GOODS.id, 5, spot, { exact: true });
     const total = units(g);
-    // A loader swings at 0.9s and a belt cell takes 0.6s, so by two seconds the
-    // box has been lifted AND carried on. Asked at 1.1s, which is after the
-    // swing and before the hand-off.
+    // A BOX IS LEFT WHERE YOU CAN SEE IT FIRST, which is the one thing between
+    // the drop and the swing. A machine decides in no time, so a loader beside
+    // the bay used to lift every crate on the tick it landed and a delivery
+    // arrived as goods already on the belt — the van, the pad and the boxes all
+    // drawn correctly and never on screen together. Asked at 1.1s, a hair inside
+    // `CRATE_REST_SECONDS`, because a rest nobody can measure is a rest that is
+    // not there: this passes identically on a loader that simply swings slowly,
+    // which is why the claim below is a value at a time rather than "eventually".
     run(g, 11);
-    eq(crate.belt, loader.id, 'the loader lifted the crate off the floor onto itself');
+    eq(crate.belt, undefined, 'a box that has only just landed is left where it fell');
+
+    // ...and then it goes, which is the half that stops the rest being a machine
+    // that has quietly stopped working.
+    check(until(g, () => crate.belt === loader.id),
+      'the loader lifted the crate off the floor onto itself');
     eq(units(g), total, '...and conserved it');
     eq(lotQty(crate, GOODS.id), 5, '...whole, rather than a handful at a time');
 
@@ -985,12 +1047,17 @@ function beltRect(g) {
     // crate crossed the whole loop in one tick and the belt was an animation
     // over an instant hand-off. Nobody builds a ring in step 1, which is
     // exactly why this looked harmless.
-    const crate = crateOn(g, g.beltAt(ring[0].x, ring[0].z), GOODS, 3);
+    // Started on one of the two PLAIN BELTS, because the claim is about the
+    // stepping order and a loader would answer a different question: a machine
+    // holds a box for one swing before letting the run take it on, so a crate
+    // put on a loader has not moved a cell in a belt-second and that is the
+    // hold rather than the ring.
+    const crate = crateOn(g, g.beltAt(ring[1].x, ring[1].z), GOODS, 3);
     run(g, 7); // one belt-second's worth, at BELT_SECONDS 0.6
     const now = g.beltAt(crate.x, crate.z);
-    check(now && `${now.x},${now.z}` !== `${ring[0].x},${ring[0].z}`,
+    check(now && `${now.x},${now.z}` !== `${ring[1].x},${ring[1].z}`,
       'a crate on a ring moves');
-    eq(`${now?.x},${now?.z}`, `${ring[1].x},${ring[1].z}`,
+    eq(`${now?.x},${now?.z}`, `${ring[2].x},${ring[2].z}`,
       '...exactly one cell, rather than lapping the whole ring in a tick');
   }
 }
@@ -1215,6 +1282,140 @@ function smooth(g, label, crates, ticks, at = {}) {
       const total = units(g);
       smooth(g, 'a loader whose box is leaving', [leaving, loose], 120);
       eq(units(g), total, '...and nothing was created or destroyed doing it');
+    }
+  }
+}
+
+{
+  // ...AND EVERY BOX THAT GOES PAST A LOADER IS OFFERED TO IT. ONCE, ALWAYS.
+  //
+  // The claim that decides whether an aisle stocks at all, and the one that
+  // reads as the feature not working rather than as a bug. A crate crosses a
+  // cell in one cell-time and a loader swings on a clock of its own, so a
+  // machine that only looks at what is squarely on it sees one tick in twelve
+  // and the aisle it was bought to fill quietly stays empty — with every box
+  // visibly trundling past every one of them. A machine that looks at whatever
+  // names its cell has the mirror problem: it grabs boxes that have already
+  // begun to leave and yanks them backwards.
+  //
+  // So a loader HOLDS a box for one swing, and this is the assertion that says
+  // so: several boxes down one run, and every single one of them is served.
+  // Written as "all of them" rather than "some of them", because a lottery
+  // passes any weaker claim — the broken version stocked about one box in
+  // twelve and looked exactly like a slow shop.
+  const g = fresh();
+  let built = null;
+  for (const shelf of g.layout.shelves ?? []) {
+    for (const rot of [0, 1, 2, 3]) {
+      const cell = anchorTile(shelf.x, shelf.z, rot);
+      const back = anchorTile(cell.x, cell.z, (rot + 1) % 4);
+      const front = anchorTile(cell.x, cell.z, (rot + 3) % 4);
+      if (!canPlace(g.layout, { kind: 'arm', x: cell.x, z: cell.z, rot: (rot + 2) % 4 }).ok) continue;
+      if (!canPlace(g.layout, { kind: 'belt', x: back.x, z: back.z, rot: 0 }).ok) continue;
+      if (!canPlace(g.layout, { kind: 'belt', x: front.x, z: front.z, rot: 0 }).ok) continue;
+      built = { shelf, cell, back, front };
+      break;
+    }
+    if (built) break;
+  }
+  check(!!built, 'there is a shelf with a run that can pass a loader');
+  if (built) {
+    const { shelf, cell, back, front } = built;
+    g.placeFixture('me', { kind: 'belt', piece: BELT.id, x: back.x, z: back.z, rot: aim(back, cell) });
+    g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: cell.x, z: cell.z, rot: aim(cell, shelf) });
+    g.placeFixture('me', {
+      kind: 'belt', piece: BELT.id, x: front.x, z: front.z,
+      rot: aim(front, { x: front.x * 2 - cell.x, z: front.z * 2 - cell.z }),
+    });
+    const feeder = g.beltAt(back.x, back.z);
+    const item = shelfWants(g, shelf);
+    check(!!item, 'the unit beside it will take one of the test items');
+    if (feeder && item) {
+      const sent = [];
+      const total0 = units(g);
+      for (let i = 0; i < 400 && sent.length < 5; i++) {
+        if (g.beltCellFree(feeder)) {
+          const d = g.dropGoods(item, 3, { x: feeder.x, z: feeder.z }, { exact: true });
+          if (d && g.loadBelt(feeder, d)) sent.push({ crate: d, had: lotTotal(d) });
+        }
+        g.step(0.1);
+      }
+      run(g, 200);
+      eq(sent.length, 5, 'five boxes went down the run');
+      const served = sent.filter(({ crate, had }) => {
+        const live = g.deliveries.find((d) => d.id === crate.id);
+        return !live || lotTotal(live) < had;
+      }).length;
+      eq(served, sent.length, 'the loader served EVERY box that passed it',
+        `${served} of ${sent.length} — a machine that only sees a box squarely on its cell catches about one in twelve`);
+      eq(units(g), total0 + sent.reduce((n, s) => n + s.had, 0),
+        '...and conserved every unit doing it');
+    }
+  }
+}
+
+{
+  // ...AND A BELT FULL OF STOCK MUST NOT WELD THE SHOP'S BOARDS OPEN.
+  //
+  // The one claim in this file that is not about a conveyor at all, and it is
+  // here because a conveyor is what makes it happen. `releaseBoards` holds an
+  // empty board while `homeSupply` says stock of that item exists — reasonable,
+  // since it might refill — and `homeSupply` counts every crate in the shop
+  // including the ones riding a belt. So a board that is empty *because* the
+  // goods are stuck going round resets its own clock on the strength of the
+  // goods that are stuck, for ever. It never ages, so it never releases.
+  //
+  // The closed state is stable rather than slow, which is what makes it worth an
+  // assertion: `shelfCapacity` is shared among the boards a unit has open, so a
+  // unit with every board open and empty has room on none of them, `pourInto`
+  // moves nothing, the box rides on and off-ramps onto the drop-off, and the
+  // board holds itself open on the strength of the box it could not take. A live
+  // shop reached fifteen units of twenty like that, with a warmer reading 19/10
+  // because the capacity had been divided under stock already standing on it.
+  // What it looks like is a shop that quietly stopped shelving anything, days
+  // after the belts filled up.
+  //
+  // So a bare board on a unit with no spare is given back whatever `homeSupply`
+  // says. Asserted with the crate ON A BELT, because that is the supply that
+  // cannot land and the reason the guard was immortal.
+  const g = fresh();
+  const cells = beltRun(g, 2);
+  const id = (g.layout.shelves ?? []).find((u) => u.kind === 'shelf' && !u.boh)?.id;
+  check(!!cells && !!id, 'there is a run and a plain shelf to fill the boards of');
+  if (cells && id) {
+    const belts = lay(g, cells);
+    // AFTER the run is laid, because laying it re-flows: a record captured
+    // before is a copy of a shelf that no longer exists, and every assertion
+    // below would be read off the ghost while the roll walked the live one.
+    const shelf = (g.layout.shelves ?? []).find((u) => u.id === id);
+    check(!!shelf, 'the unit survives the run being laid');
+    // Every board on the unit opened and left empty, which is the state a shop
+    // gets into by pouring a little of everything and selling it down.
+    for (const item of Object.values(content().byId.items)) {
+      if (g.shelfStacks(shelf).length >= g.shelfBoards(shelf)) break;
+      g.boardFor(shelf, item);
+    }
+    const bare = g.shelfStacks(shelf).filter((k) => !(k.qty > 0)).map((k) => k.item_id);
+    check(g.shelfStacks(shelf).length >= g.shelfBoards(shelf), 'the unit has every board open',
+      `${g.shelfStacks(shelf).length} of ${g.shelfBoards(shelf)}`);
+    check(bare.length > 0, '...and all of them bare');
+
+    if (bare.length) {
+      // A crate of one of those very items, riding the belt: supply the shop
+      // owns and cannot put anywhere, which is exactly what the guard reads.
+      const stuck = g.dropGoods(bare[0], 4, { x: belts[0].x, z: belts[0].z }, { exact: true });
+      check(!!stuck && g.loadBelt(belts[0], stuck), 'a crate of one of them is on the belt');
+      check(g.homeSupply(bare[0]) > 0, '...and the shop counts it as supply it already has');
+
+      const before = g.shelfStacks(shelf).length;
+      g.tradedToday = true;
+      g.releaseBoards(true);
+      const after = g.shelfStacks(shelf).length;
+      check(after < before, 'the roll gives a bare board back on a unit with none to spare',
+        `${before} boards before, ${after} after — the supply guard used to hold it open for ever`);
+      check(g.shelfStacks(shelf).length < g.shelfBoards(shelf),
+        '...so the unit has somewhere to put the next crate');
+      eq(lotQty(stuck, bare[0]), 4, '...and the crate it was holding out for is untouched');
     }
   }
 }
@@ -2115,6 +2316,558 @@ function smooth(g, label, crates, ticks, at = {}) {
     '...one axis at a time');
   eq(beltRunCells({ x: 0, z: 0 }, { x: 900, z: 0 }).length, BELT_RUN_MAX,
     'and a drag across the world is capped');
+}
+
+// ---------------------------------------------------------------------------
+// 20. A rung on the JUNCTION's ladder is a rung on what gets through it.
+//
+// The belt and the loader have had speed ladders since they shipped and the
+// sorter had one rung, so you could make a run faster and the machines on it
+// faster and the junction in the middle stayed at track speed for ever — which
+// on a busy shop is exactly where the queue forms.
+//
+// Nothing about that is visible. A box through a quick junction and a box
+// through a slow one are the same box on the same shelf; only the clock moved.
+// And the failure this file exists to catch is quieter still: CLAUDE.md's
+// flattest warning is that a tier which changes no number is a button that
+// takes money and does nothing, which is what `verify:till` was written for
+// after three constructors shipped without a `kind` on their record and
+// `fixtureStats` answered 1/1/1 at a machine that still worked.
+//
+// So it is measured as boxes past the junction over a window against a real
+// queue, never as `fixtureStats` — asserting a rung against the function that
+// resolves it passes whatever that function does.
+//
+// The run either side is a belt that is ALREADY quick, and that is the whole
+// rig rather than a detail: a junction running at the speed of the belts
+// touching it is not what anything queues at, so laid on ordinary track this
+// would measure the run and call it the sorter.
+// ---------------------------------------------------------------------------
+{
+  const LEN = 14;
+  const AT = 6; // six cells of queue behind it, seven of empty line in front
+
+  /** A straight east run of `LEN` cells with room for a junction at `AT`. */
+  const laneFor = (g) => {
+    for (let z = 1; z < g.layout.h - 1; z++) {
+      for (let x = 1; x + LEN < g.layout.w - 1; x++) {
+        const cells = [];
+        for (let i = 0; i < LEN; i++) cells.push({ x: x + i, z });
+        if (!cells.every((c) => canPlace(g.layout, { kind: 'belt', x: c.x, z: c.z, rot: 0 }).ok)) continue;
+        if (!canPlace(g.layout, { kind: 'sorter', x: cells[AT].x, z: cells[AT].z, rot: 0 }).ok) continue;
+        return cells;
+      }
+    }
+    return null;
+  };
+
+  /**
+   * A quick run with a junction in it, at `tier`.
+   *
+   * The rungs are climbed through `upgradeFixture` rather than written onto the
+   * record, and the cell is looked up again on every pass because an upgrade
+   * re-flows and a re-flow re-mints ids — the same trap `repositionFixture`
+   * springs on a field it forgets to name.
+   */
+  function lane(tier) {
+    const g = fresh();
+    const cells = laneFor(g);
+    if (!cells) return null;
+    for (const [i, c] of cells.entries()) {
+      const kind = i === AT ? 'sorter' : 'belt';
+      const put = g.placeFixture('me', {
+        kind, piece: kind === 'sorter' ? JUNCTION.id : QUICK_BELT.id, x: c.x, z: c.z, rot: 0,
+      });
+      if (!put.ok) return null;
+    }
+    for (let n = 1; n < tier; n++) {
+      const at = g.beltAt(cells[AT].x, cells[AT].z);
+      const up = g.upgradeFixture('me', at.id);
+      check(up.ok, `the junction climbs to rung ${n + 1}`, up.error ?? '');
+    }
+    return { g, cells };
+  }
+
+  /** Six boxes queued nose to tail behind the junction, and a window. */
+  function through(tier, seconds) {
+    const rig = lane(tier);
+    if (!rig) return null;
+    const { g, cells } = rig;
+    const junction = g.beltAt(cells[AT].x, cells[AT].z);
+    for (let i = 0; i < 6; i++) {
+      const c = cells[AT - 1 - i];
+      const crate = g.dropGoods(GOODS.id, 1, { x: c.x, z: c.z }, { exact: true });
+      if (!crate) return null;
+      g.loadBelt(g.beltAt(c.x, c.z), crate);
+    }
+    const was = units(g);
+    run(g, Math.round(seconds * 10));
+    return {
+      past: g.deliveries.filter((d) => d.belt && d.x > junction.x + 0.5).length,
+      mult: g.fixtureStats(g.beltAt(cells[AT].x, cells[AT].z)).speed_mult,
+      kept: units(g) === was,
+    };
+  }
+
+  const slow = through(1, 2);
+  const quick = through(3, 2);
+  check(!!slow && !!quick, 'there is room for a queue, a junction and a line out of it');
+
+  if (slow && quick) {
+    eq(slow.mult, 1, 'a junction on its first rung runs at its authored speed');
+    eq(quick.mult, SORT_MULT, '...and one on its top rung at its own');
+    check(slow.past > 0, 'boxes get through a slow junction', `${slow.past} of 6 in 2s`);
+    check(quick.past > slow.past,
+      '...and more of them through a quick one in the same window',
+      `slow ${slow.past}, quick ${quick.past}`);
+    check(slow.kept && quick.kept, 'and nothing is created or destroyed either way');
+  }
+
+  // ...and the spur it EJECTS down takes the same rung, which is the other half
+  // of what a sorter's clock governs. `stepSpur` reads `beltSeconds` off the
+  // cell the spur belongs to, so leaving this out would buy a quick junction
+  // with a slow throat — a box that crosses the machine in a blink and then
+  // crawls off the side of it, which reads as the off-ramp being broken rather
+  // than as a rung that was only half wired up.
+  //
+  // COLD needs a freezer and this shop has none, so nothing down the line is
+  // ever keen and every box is a stray for the reject side to take.
+  function ejectTicks(tier) {
+    const rig = lane(tier);
+    if (!rig) return null;
+    const { g, cells } = rig;
+    const s = g.beltAt(cells[AT].x, cells[AT].z);
+    const rot = [0, 1, 2, 3].find((r) => {
+      const n = anchorTile(s.x, s.z, r);
+      return !g.beltAt(n.x, n.z) && isWalkableTile(g.layout, n.x, n.z);
+    });
+    if (rot == null) return null;
+    const set = g.setSorterReject('me', s.id, rot);
+    check(set.ok, 'the junction can be given a reject side', set.error ?? '');
+    const cell = g.beltAt(cells[AT].x, cells[AT].z);
+    const crate = g.dropGoods(COLD.id, 2, { x: cell.x, z: cell.z }, { exact: true });
+    if (!crate) return null;
+    g.loadBelt(cell, crate);
+    for (let i = 1; i <= 200; i++) {
+      g.step(0.1);
+      if (crate.spur?.done) return i;
+    }
+    return null;
+  }
+
+  const slowSpur = ejectTicks(1);
+  const quickSpur = ejectTicks(3);
+  check(!!slowSpur && !!quickSpur, 'a stray comes off the junction at both rungs');
+  if (slowSpur && quickSpur) {
+    check(quickSpur < slowSpur,
+      'a quick junction ejects down its spur quicker than a slow one does',
+      `slow ${slowSpur} ticks, quick ${quickSpur}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 21. A rung on a MOUTH, which is the longest hop in the shop.
+//
+// The same claim as 20 and worth making twice, because a tunnel is the one
+// place a cell's rung is not worth one cell: the span between two mouths is a
+// SINGLE leg of the line, so the whole crossing is travelled at the entry
+// mouth's own speed. Five tiles at one cell's rate — three seconds of ordinary
+// track — and a tunnel one rung behind the run it joins is therefore the worst
+// slow cell a shop can own, in the piece bought precisely to shorten a journey.
+//
+// It also asserts the half that could easily have been a dead button. A tunnel
+// is TWO fixtures, either of which can be upgraded on its own, and only the
+// upstream one governs the span. That is the ordinary rule (a cell's rung buys
+// the hop OUT of it), but it means an exit mouth's rung is worth nothing at all
+// unless its own onward step moves — so both are measured, separately, and a
+// rig where only one mouth is quick is the control for each.
+//
+// Nothing here was covered before: `under` shipped with one rung and this file
+// had no tunnel in it, so the whole kind was a hole.
+// ---------------------------------------------------------------------------
+{
+  const LEN = 13;
+  const IN = 4;
+  const OUT = IN + TUNNEL_SPAN + 1; // the far mouth, with bare ground between
+
+  const laneFor = (g) => {
+    const kindAt = (i) => (i === IN || i === OUT ? 'under' : 'belt');
+    for (let z = 1; z < g.layout.h - 1; z++) {
+      for (let x = 1; x + LEN < g.layout.w - 1; x++) {
+        const cells = [];
+        for (let i = 0; i < LEN; i++) cells.push({ x: x + i, z });
+        if (cells.every((c, i) => canPlace(g.layout, { kind: kindAt(i), x: c.x, z: c.z, rot: 0 }).ok)) return cells;
+      }
+    }
+    return null;
+  };
+
+  /** Quick track, a tunnel in the middle of it, and a rung on each mouth. */
+  function lane(inTier, outTier) {
+    const g = fresh();
+    const cells = laneFor(g);
+    if (!cells) return null;
+    for (const [i, c] of cells.entries()) {
+      // The span stamps nothing and reserves nothing — that is the whole of
+      // what a tunnel gives back — so those cells stay bare ground.
+      if (i > IN && i < OUT) continue;
+      const kind = (i === IN || i === OUT) ? 'under' : 'belt';
+      const put = g.placeFixture('me', {
+        kind, piece: kind === 'under' ? MOUTH.id : QUICK_BELT.id, x: c.x, z: c.z, rot: 0,
+      });
+      if (!put.ok) return null;
+    }
+    for (const [i, want] of [[IN, inTier], [OUT, outTier]]) {
+      for (let n = 1; n < want; n++) {
+        const at = g.beltAt(cells[i].x, cells[i].z);
+        const up = g.upgradeFixture('me', at.id);
+        check(up.ok, `the mouth at ${i} climbs to rung ${n + 1}`, up.error ?? '');
+      }
+    }
+    const mouth = g.beltAt(cells[IN].x, cells[IN].z);
+    const far = tunnelExit(g.layout, mouth);
+    check(far && far.x === cells[OUT].x && far.z === cells[OUT].z,
+      'the two mouths are a tunnel rather than two short belts');
+    return { g, cells };
+  }
+
+  /** Boxes out of the far mouth over a window, against a queue at the near one. */
+  function through(inTier, seconds) {
+    const rig = lane(inTier, 1);
+    if (!rig) return null;
+    const { g, cells } = rig;
+    const exit = g.beltAt(cells[OUT].x, cells[OUT].z);
+    for (let i = 0; i < 4; i++) {
+      const c = cells[IN - i];
+      const crate = g.dropGoods(GOODS.id, 1, { x: c.x, z: c.z }, { exact: true });
+      if (!crate) return null;
+      g.loadBelt(g.beltAt(c.x, c.z), crate);
+    }
+    const was = units(g);
+    run(g, Math.round(seconds * 10));
+    return {
+      past: g.deliveries.filter((d) => d.belt && d.x >= exit.x - 0.01).length,
+      mult: g.fixtureStats(g.beltAt(cells[IN].x, cells[IN].z)).speed_mult,
+      kept: units(g) === was,
+    };
+  }
+
+  const slow = through(1, 4);
+  const quick = through(3, 4);
+  check(!!slow && !!quick, 'there is room for a queue, a tunnel and a line out of it');
+
+  if (slow && quick) {
+    eq(slow.mult, 1, 'a mouth on its first rung runs at its authored speed');
+    eq(quick.mult, SORT_MULT, '...and one on its top rung at its own');
+    check(slow.past > 0, 'boxes come out of a slow tunnel', `${slow.past} of 4 in 4s`);
+    check(quick.past > slow.past,
+      '...and more of them out of a quick one in the same window',
+      `slow ${slow.past}, quick ${quick.past}`);
+    check(slow.kept && quick.kept, 'and nothing is created or destroyed underground');
+  }
+
+  /** Ticks to reach the far mouth, and ticks from there to the next belt. */
+  function legs(inTier, outTier) {
+    const rig = lane(inTier, outTier);
+    if (!rig) return null;
+    const { g, cells } = rig;
+    const mouth = g.beltAt(cells[IN].x, cells[IN].z);
+    const exit = g.beltAt(cells[OUT].x, cells[OUT].z);
+    const next = g.beltAt(cells[OUT + 1].x, cells[OUT + 1].z);
+    const crate = g.dropGoods(GOODS.id, 1, { x: mouth.x, z: mouth.z }, { exact: true });
+    if (!crate) return null;
+    g.loadBelt(mouth, crate);
+    let span = null;
+    for (let i = 1; i <= 400; i++) {
+      g.step(0.1);
+      if (span == null && crate.belt === exit.id) span = i;
+      if (crate.belt === next.id) return { span, out: i - span };
+    }
+    return null;
+  }
+
+  // Only the UPSTREAM mouth is under the span, so its rung is the one that buys
+  // the crossing — and the far one's has to buy its own step, or half of every
+  // tunnel in the shop has an upgrade button that takes money and does nothing.
+  const both = legs(1, 1);
+  const nearQuick = legs(3, 1);
+  const farQuick = legs(1, 3);
+  check(!!both && !!nearQuick && !!farQuick, 'a box crosses the tunnel at every pairing');
+
+  if (both && nearQuick && farQuick) {
+    check(nearQuick.span < both.span,
+      'a rung on the mouth goods go IN by shortens the whole span',
+      `slow ${both.span} ticks, quick ${nearQuick.span}`);
+    eq(farQuick.span, both.span,
+      '...and a rung on the far one does not, because the span is not its hop');
+    check(farQuick.out < both.out,
+      'the far mouth buys its own step out instead, or its ladder is a dead button',
+      `slow ${both.out} ticks, quick ${farQuick.out}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 22. A junction says which way it sent that one.
+//
+// The roof marks are one bar per side and the lit one is the way the goods
+// went, which is the only reason a player can read a splitter at all — and a
+// loader has had `move` on the wire since spurs, while a sorter never did. Its
+// choice lived and died inside `sortChoice`, deleted on the tick it was acted
+// on, so the one piece in the shop whose whole job is choosing between ways out
+// was the one piece with nothing to report.
+//
+// It is asserted here rather than left to the eye for the reason every readout
+// in this file is: a junction sending everything one way and a junction whose
+// marks are wired to nothing draw the same picture, which is a machine that
+// looks like it is not sorting.
+//
+// The counter is the half that is easy to leave out. `n` only goes up, because
+// the client needs the EDGE and the window is 1.2s — a junction working flat
+// out sends several boxes inside it, and a flag alone would read as one long
+// send with every box after the first never drawn.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  // Five cells rather than three, and the tail is the reason: the run is a dead
+  // end, so the first box parks on it and the second is held at the junction by
+  // ordinary backpressure — which is the machine working correctly and would
+  // read here as the counter being broken.
+  const cells = beltRun(g, 5);
+  check(!!cells, 'there is room for a five-cell run with a tail on it');
+  if (cells) {
+    cells.forEach((c, i) => {
+      const kind = i === 1 ? 'sorter' : 'belt';
+      const put = g.placeFixture('me', {
+        kind, piece: kind === 'sorter' ? 'sorter' : BELT.id, x: c.x, z: c.z, rot: 0,
+      });
+      check(put.ok, `the ${kind} at ${c.x},${c.z} goes down`, put.error ?? '');
+    });
+    const s = g.beltAt(cells[1].x, cells[1].z);
+    const said = () => g.snapshot().sorters?.find((q) => q.id === s.id)?.move ?? null;
+
+    eq(said(), null, 'a junction nothing has passed through reports nothing');
+
+    crateOn(g, s, GOODS, 2);
+    check(until(g, () => !!said()), 'a box through it puts a way out on the wire');
+    const first = said();
+    if (first) {
+      eq(`${first.d[0]},${first.d[1]}`, '1,0',
+        '...and it is the side the box actually left by');
+      eq(first.n, 1, '...counted once');
+    }
+
+    // ...and the second box is its own event. A window with no counter under it
+    // is one long send that the client can never see the end of.
+    crateOn(g, g.beltAt(cells[1].x, cells[1].z), GOODS, 2);
+    // Asked as a VALUE and not as "bigger than last time": the window is 1.2s
+    // and the first send has long since aged out, so `said()` is null in
+    // between and a comparison against it is a comparison with nothing.
+    check(until(g, () => said()?.n === 2),
+      'the next one climbs the counter rather than re-arming a flag');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 23. A loader will not LIFT what it would not pour.
+//
+// The arm has obeyed `givenUp` at one end of its swing since it shipped — it
+// never feeds a board the shop has written off — and asked nothing at the other.
+// So the crate `merchandise` had just carried off a dead board was lifted onto
+// the run, where every unit down it refuses that item for the same reason: a
+// box that can never be put down, riding for the rest of the save.
+//
+// It is `verify:hand`'s centrepiece arriving by machine. That file's whole
+// claim is that a board the hand clears does not come straight back, and a
+// loader standing beside the shelf undid it — while looking exactly like a
+// machine doing its job, which is why it took a screenshot to find.
+//
+// The pair is what makes it a claim. "Never lifts a given-up box" is satisfied
+// by a loader that lifts nothing at all, so the control is the same crate, the
+// same tile and the same machine with the shop's mind unchanged. And the mixed
+// case is the third: refusing EVERY box with a dead pile in it would strand the
+// good half, which is the same over-correction the sorter's purity rule avoids.
+// ---------------------------------------------------------------------------
+{
+  /** A loader within reach of a shelf's browse tile — where a cleared board lands. */
+  function clearedRig() {
+    const g = fresh();
+    for (const sh of g.layout.shelves ?? []) {
+      const b = sh.browseAt;
+      if (!b) continue;
+      for (const r of [0, 1, 2, 3]) {
+        const a = anchorTile(b.x, b.z, r);
+        if (!canPlace(g.layout, { kind: 'arm', x: a.x, z: a.z, rot: 0 }).ok) continue;
+        if (!g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: a.x, z: a.z, rot: 0 }).ok) continue;
+        return { g, at: b };
+      }
+    }
+    return null;
+  }
+
+  /** Does the machine put this crate on the run, given long enough? */
+  function lifted(rig, piles) {
+    const { g, at } = rig;
+    let crate = null;
+    for (const [id, qty] of piles) crate = g.dropGoods(id, qty, at, { exact: true }) ?? crate;
+    // Named by tile, so a merge lands them in one box — which is what a hire
+    // clearing a mixed board actually leaves behind.
+    crate = g.deliveries.find((d) => Math.round(d.x) === at.x && Math.round(d.z) === at.z);
+    const was = units(g);
+    const got = until(g, () => !!crate?.belt, 400);
+    return { got, kept: units(g) === was };
+  }
+
+  // The control, and it decides whether this is a rule or a machine that has
+  // stopped working: the shop has said nothing about this item, so the box goes.
+  const keen = clearedRig();
+  check(!!keen, 'a loader can stand within reach of a shelf s browse tile');
+  if (keen) {
+    const r = lifted(keen, [[GOODS.id, 6]]);
+    check(r.got, 'a box on that tile is lifted onto the run when nothing is wrong with it');
+    check(r.kept, '...and nothing is lost doing it');
+  }
+
+  // ...and the same box, on the same tile, once the shop has given up on it.
+  const dead = clearedRig();
+  if (dead) {
+    dead.g.orders.dropped[GOODS.id] = dead.g.day;
+    const r = lifted(dead, [[GOODS.id, 6]]);
+    check(!r.got, 'a box the shop has given up on is left where the hand put it');
+    check(r.kept, '...and left whole');
+  }
+
+  // ...and a MIXED box with one live kind in it still rides, or the fix strands
+  // the good half to save the dead one.
+  const mixed = clearedRig();
+  if (mixed) {
+    mixed.g.orders.dropped[GOODS.id] = mixed.g.day;
+    const r = lifted(mixed, [[GOODS.id, 3], [COLD.id, 3]]);
+    check(r.got, 'a mixed box with something live in it is still lifted');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 24. A loader does not fill a room the run is about to empty.
+//
+// The larder trap, said about one machine. `armPull` takes a board out of a
+// stockroom the moment the shop floor wants it, and the pour half fills
+// anything beside it that will take the goods — so a loader standing between a
+// run and a marked room does both, to the same unit, for ever. Twelve donuts
+// in, ten straight back out.
+//
+// Neither half is wrong, which is why it survived: both are the documented
+// behaviour and both are working. It is docs/workers.md's own sentence about
+// the runner — *the larder is not raided, or the runner and the chef undo each
+// other all afternoon with both of them correct* — arriving through a machine
+// nobody had pointed that sentence at.
+//
+// And it is invisible in every measurement except the right one. Counted as
+// crate journeys the shop looks healthy: every trip delivers, nothing is lost,
+// no crate repeats a side. The oscillation is on the SHELF, not on the box.
+//
+// The control is what stops this turning the stockroom off: with nothing on the
+// floor that wants the item, the room is exactly where it should go.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  // A loader beside a shelf, with a second shelf on the same run.
+  let rig = null;
+  for (const sh of g.layout.shelves ?? []) {
+    for (const rot of [0, 1, 2, 3]) {
+      const a = anchorTile(sh.x, sh.z, rot);
+      if (!canPlace(g.layout, { kind: 'arm', x: a.x, z: a.z, rot: 0 }).ok) continue;
+      const face = [0, 1, 2, 3].find((q) => {
+        const t = anchorTile(a.x, a.z, q);
+        return t.x === sh.x && t.z === sh.z;
+      });
+      if (face == null) continue;
+      if (!g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: a.x, z: a.z, rot: face }).ok) continue;
+      rig = { room: sh, arm: g.beltAt(a.x, a.z) };
+      break;
+    }
+    if (rig) break;
+  }
+  check(!!rig, 'a loader can stand beside a unit');
+
+  if (rig) {
+    const arm = rig.arm;
+    const room = g.layout.shelves.find((u) => u.id === rig.room.id);
+    const crate = { id: 'probe-room', stacks: [{ item_id: GOODS.id, qty: 4 }] };
+    const at = { x: room.x, z: room.z };
+
+    // On the shop floor it is an ordinary unit, and the machine fills it.
+    room.boh = false;
+    check(g.armTakes(arm, at, crate), 'a loader fills an ordinary unit beside it');
+
+    // Every unit this loader touches, because `conveyorMeets` answers for the
+    // whole RUN and a one-cell run is still four sides — a second shelf against
+    // the same machine is a floor unit whether the sweep meant it or not.
+    const touching = (g.layout.shelves ?? [])
+      .filter((u) => Math.abs(u.x - arm.x) + Math.abs(u.z - arm.z) === 1);
+
+    // Marked as a room, with nothing on the floor down this run that wants the
+    // goods, it is still exactly where they should go — the control that keeps
+    // this from switching stockrooms off.
+    for (const u of touching) u.boh = true;
+    check(g.armTakes(arm, at, crate),
+      'and it still fills a room when nothing on the floor will take them');
+
+    // ...and with a floor unit on the same run that WILL take them, the floor
+    // gets first claim — or the very next swing pulls the board back out.
+    const floor = touching.find((u) => u.id !== room.id);
+    if (floor) {
+      floor.boh = false;
+      check(g.shelfAccepts(floor, GOODS.id), 'there is a floor unit that wants them');
+      check(!g.armTakes(arm, at, crate),
+        'a room is not filled while the shop floor still wants the goods');
+    } else {
+      check(true, 'no second unit touches this loader — the pair claim is skipped');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 25. A run is storage, and it is the third thing you lay that holds crates.
+//
+// `looseRoom` is a TOTAL rather than a region — every loose crate wherever it
+// stands, against the yard you painted — and that is right, and it left the
+// conveyor on the wrong side of the line. A box riding a belt is standing
+// somewhere, so it counted; the belt it was standing on did not. A shop that
+// automated its aisles therefore spent its yard allowance on stock that was
+// already on its way to a shelf: a live save had 94 of its 132 units riding,
+// 71% of the brake applied to boxes doing exactly what they were bought to do.
+//
+// What that reads as is the supplier refusing to order for a shop whose floor
+// is visibly clear, which is the ordering looking broken.
+//
+// The control is the shop that never laid one, and it is the assertion that
+// decides whether this is opt-in or a change to every save in existence.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cap = () => g.looseRoom();
+  const before = cap();
+  check(Number.isFinite(before), 'a shop with a yard has a finite crate allowance', `${before}`);
+
+  // The control: laying nothing changes nothing.
+  g.regenerateLayout();
+  eq(cap(), before, 'a shop with no conveyor is the old game to the unit');
+
+  const cells = beltRun(g, 4);
+  check(!!cells, 'there is room for a four-cell run');
+  if (cells) {
+    lay(g, cells);
+    eq(cap(), before + cells.length * g.crateCapacity(),
+      'and each cell of it holds what a crate holds');
+
+    // ...and a box riding it still counts against the total, or a run would be
+    // free capacity rather than capacity you can fill up. That pairing is the
+    // whole of what keeps this honest: a jammed run stops the ordering exactly
+    // as a full yard does.
+    const room = cap();
+    const crate = crateOn(g, g.beltAt(cells[0].x, cells[0].z), GOODS, 5);
+    eq(cap(), room - lotTotal(crate), 'a box riding it is still spending the allowance');
+  }
 }
 
 // ---------------------------------------------------------------------------

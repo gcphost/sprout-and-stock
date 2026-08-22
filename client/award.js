@@ -31,9 +31,20 @@ import { money } from './money.js';
 import { SUPPORT_URL, SUPPORT_LABEL, awardSupport } from './links.js';
 
 export class Award {
-  constructor(ui, el) {
+  /**
+   * `takeInput` is what to do to a gesture that is already in flight — see
+   * `dropGesture` in client/main.js, and the note on the backdrop below for why
+   * a card is the one overlay in the game that needs it.
+   *
+   * Handed in rather than reached for, because everything a card does to the
+   * world it does through `ui` (`setPaused`), and the pointer is not `ui`'s —
+   * it belongs to the canvas, which is main.js's. A default of nothing keeps
+   * this constructible from a sweep.
+   */
+  constructor(ui, el, takeInput = () => {}) {
     this.ui = ui;
     this.el = el;
+    this.takeInput = takeInput;
     this.queue = [];
     this.showing = null;
     // Whether the clock was already stopped when the first card went up. Held
@@ -103,6 +114,23 @@ export class Award {
       // so a card that goes up over an already-stopped clock leaves it stopped.
       this.restore = this.ui.state?.paused === true;
       if (!this.restore) this.ui.setPaused(true);
+      // ...and the same sentence about the pointer, which the pause does not
+      // cover. The backdrop note above is about the press AFTER the card
+      // arrives; this is the press that was already happening WHEN it did, and
+      // that one has no event coming to close it — the card is raised by the
+      // shop's clock, not by anything the player pressed.
+      //
+      // A camera turn is the one that shows: the right button is held, the
+      // pointer's next journey is across the screen to the green button, and
+      // every pixel of it is applied as rotation. So the world stops, the card
+      // says well done, and the shop spins wildly behind it — and the wrongness
+      // outlives the card, because letting go over the backdrop is a pointerup
+      // the canvas never treats as the end of anything it started.
+      //
+      // Only when the card first takes the screen, beside the pause and for the
+      // same reason: two milestones landing together are one interruption, and
+      // the second `next()` in a run happens on a press the player *did* make.
+      this.takeInput();
     }
 
     this.el.querySelector('.award-name').textContent = won.name;

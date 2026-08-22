@@ -634,6 +634,31 @@ Thirty sweeps, about a minute:
   as such in docs/browser.md. It authors one world row and removes it, its save
   and its modifiers on exit.
 
+- `verify:grace` guards the first five days, and its control is the assertion
+  that decides whether the whole thing is opt-in: a shop past the ramp is the old
+  game **to the digit**, on every cause, in both directions — every save in
+  existence is played well past day 5, so a control that is wrong has quietly
+  rebalanced all of them. The rest is about a still frame that cannot be looked
+  at, because a shopper who stormed out of a day-1 shop and one who stormed out
+  of a day-10 shop are the same picture and the shop afterwards is the same shop;
+  only the slowest number in the game moved. That losses are discounted and
+  **gains never are**, which is the entire feature — a shop that cannot climb on
+  day 1 is one that cannot dig itself out, and scaling both directions is the
+  more elegant sentence that makes the opening week inert. That `R.SETTLED` is
+  untouched, or the spring holding a new shop off the floor is throttled by the
+  thing protecting it. That it is a RAMP rather than a flag, asserted as three
+  distinct days AND as their specific values, since "strictly increasing" is
+  satisfied by a curve that is 0.99 on day one — the `packs` trap said about a
+  divisor. That the discount is applied over `REP_CAUSES` rather than a
+  hand-written list, which is how an eighth cause becomes the one that still
+  craters a beginner while passing every other assertion in the file. And that
+  the **receipt** banks what landed rather than face value, because the report's
+  total is arithmetic on its own bars and a discount applied to the number but
+  not to the breakdown explains less than all of the movement — on exactly the
+  days a beginner is reading it. It restates the ramp rather than importing
+  `GRACE_DAYS`, or every assertion passes whatever that constant becomes. It
+  writes nothing at all: no content rows, no save, no cleanup.
+
 Each of the first twelve found real bugs the day it was written, and so did
 `verify:hot` — two, both of them a list of kinds somebody had written out by
 hand — and so did `verify:orphans`, which is the only one so far written to a
@@ -771,13 +796,14 @@ what the next step was meant to be.
 | [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | step 1 built (no rung authored yet); 2–4 proposed |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
-| [docs/difficulty.md](docs/difficulty.md) | why a neglected shop finds a level instead of going under — the settle spring, the floor under demand, and a game where standing still is free; difficulty as a second axis beside the starting tier, upkeep as the first fixed cost, and why today's constants are the *easy* preset rather than the default | step 1 built; 2–4 proposed |
+| [docs/difficulty.md](docs/difficulty.md) | why a neglected shop finds a level instead of going under — the settle spring, the floor under demand, and a game where standing still is free; difficulty as a second axis beside the starting tier, upkeep as the first fixed cost, why today's constants are the *easy* preset rather than the default, and the grace a new shop's first week gets because the presets were only ever measured on a day-60 save | steps 1 and 1b built; 2–4 proposed |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/tutorial.md](docs/tutorial.md) | the robot who shows you round a shop you have just made — a veil that blocks rather than only darkens, a step that is a predicate over the snapshot rather than a press it caught, the third answer to "where is the hole" that stops it ever wedging, and the second list for somebody who JOINED a shop rather than making one | steps 1 and 1b built; 2–4 proposed |
 | [docs/audio.md](docs/audio.md) | a bus per slider, why the sounds cannot come from the log, the four caps that stop a busy shop being a slot machine, sound as a column on a catalog row, the Sound rows and the Credits tab in the Menu, the loop a fixture holds open while it works — and why the ambient bed was built, played and cut | steps 2–5 built; 1 cut; 6 proposed |
 | [docs/waste.md](docs/waste.md) | the shop's way out — the skip, why a hire may carry out rot and never your stock, rot becoming a box on the floor only if you own one, and the one spelling that keeps rubbish from reading as supply | step 1 built; 2–3 proposed |
 | [docs/pickups.md](docs/pickups.md) | the customer who never comes in — a collection point as a till whose queue is fed by the road, why picking is `serve` rather than a new job, why a staged tote is not stock, and the share that is a consequence of owning one | all proposed |
 | [docs/seating.md](docs/seating.md) | the customer who stops — the break area pointed at shoppers, why the cell is the seat and the bench is a multiplier on it, the first honest dwell impulse has ever had, and the four readers that must NOT share a predicate | all proposed |
+| [docs/analytics.md](docs/analytics.md) | is anybody playing this — why GA4 rather than the three other freebies, why a build with no `VITE_SNS_GA` ships none of it, the minute heartbeat that stops a quiet session being cut into pieces, why `mode` is the only place co-op is visible, and the third of the players ad blockers hide, and consent as three states where "has not said" is not "said no" | built, off until the id is set |
 | [docs/browser.md](docs/browser.md) | the whole game on a URL — the server moving into the tab, the two seams (transport, store) that keep one codebase serving two targets, why the browser build has no SQLite in it, P2P over a data channel and the signalling that is not free, a host tab throttled to 1Hz, and the MCP surface that is the price | steps 1–7 built; 8 open on numbers nobody has yet |
 | [docs/shipping.md](docs/shipping.md) | the standalone binary, inviting one friend in, the session token that is also the invite code, MCP as the shipped mod surface, and what a disconnect does to whatever you were holding | steps 2–4 built; 1, 5–8 proposed |
 | [docs/steam.md](docs/steam.md) | selling it on Steam for Windows and macOS — the shell that keeps the renderer we have tested on, a server nobody can find, why Steam Cloud and SQLite's WAL disagree, the 43 milestones that are already an achievement list, why the model call leaves the build and `inventEvent` *is* the director, and why Steam's own relay retires the invite code | step 7 built (the model path, cut everywhere rather than only in the package); the rest proposed |
@@ -2713,6 +2739,27 @@ what the next step was meant to be.
   fired precisely when every item that fits a unit was already stocked, so the
   one function whose job is choosing the *range* was deliberately buying a
   second board of the best seller.
+- **A STARTING VALUE is a behaviour change when the thresholds below it are
+  absolute — and `MOOD_BASE` broke two constants that way at once.** It lowered
+  the mood a shopper walks in on from 1 to 0.6–0.7, and docs/difficulty.md said
+  of it that "everything downstream in `stepMood` is untouched, so a queue costs
+  what a queue costs". True in budget-per-second; false in *seconds*, which is
+  the only unit anybody can see. `patience` is a budget and the drain is
+  absolute, so an authored 70 bought about 45 seconds and `ANNOY_LINE`'s "runs
+  out in exactly `patience` seconds" anchor stopped holding for every archetype
+  simultaneously — and because `MOOD_ANNOYED` is absolute too, time from the
+  door to somebody *looking* cross in a queue fell **3.35x** (a Snack Kid: 13
+  seconds to 3.9). The drain is scaled by `cust.mood0` now, which restores the
+  storm-out anchor exactly and deliberately leaves the shortened fuse to anger,
+  because that half IS the feature and charm is what buys it back. The second
+  casualty was the same shape pointed at money: a visit's reputation gain is
+  `REP_VISIT * (mood - MOOD_ANNOYED)`, scaled to a mood of 1 that
+  `ANNOY_IN_SHOP` guarantees nobody reaches, so it paid a fifth of its own
+  ceiling — against a flat per-line miss charge it could never out-earn, which
+  made a good day come out negative and pinned every shop at the settle floor.
+  **Whenever something changes where a number STARTS, list every absolute
+  threshold underneath it** — each one is a rule whose meaning just moved, and
+  none of them looks wrong afterwards.
 - **Whatever you change, check the balance bot still models a player doing it.**
   Auto-replant meant plots were never empty, and `simulate` skipped any planted
   plot — so every bed froze on its first crop and three crops reported as

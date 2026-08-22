@@ -779,10 +779,20 @@ export function faceAlong(L, spec, { ignoreId = null, keep = false } = {}) {
    * walkable grass and the far side of an annex divider is ordinary shop floor.
    * Read tiles alone and a shelf against a wall you *drew* stands side-on to
    * it, which is exactly the case somebody building a back room hits first.
+   *
+   * The indoor test is `whatThisCosts`'s and is asked the same way, or the
+   * assist and the warning are two opinions about one question — which is the
+   * green-ghost bug with the arrow pointed the other way: a facing the assist
+   * refuses to pick and the shop would have accepted. For a `where: 'any'` kind
+   * — the skip, which belongs out the back — every side of an outdoor tile
+   * failed this, so all four rotations tied at "unusable" and the search fell
+   * through to whatever angle you happened to be holding. Assist that answers
+   * `from` for all four inputs is assist that is switched off, and it looks
+   * exactly like a fixture that simply does not back onto walls.
    */
   const open = (t) => WALKABLE.has(tileAt(L, t.x, t.z))
     && !blockedAt(L, t.x, t.z, ignoreId)
-    && insideStore(L, t.x, t.z)
+    && (def.where !== 'indoor' || insideStore(L, t.x, t.z))
     && !SOLID.has(edgeBetween(L, x, z, t.x, t.z));
   const usable = (rot) => open(anchorTile(x, z, rot));
   const backed = (rot) => !open(behindTile(x, z, rot));
@@ -2881,10 +2891,26 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
     && !(tx === x && tz === z && def.blocks);
 
   // ---- can anything use it, facing that way? -----------------------------
+  //
+  // The indoor half is a rule about WHO uses the thing, not about the thing, so
+  // it is asked of `where` rather than of every anchor. A shelf, a freezer, a
+  // warmer, a till and an appliance are all `where: 'indoor'` and are all worked
+  // from a spot a shopper or a hire reaches across the shop floor — turn one to
+  // face out through your own back wall and it is furniture.
+  //
+  // A skip is the counter-example and the reason this is a `where` test: `bin`
+  // is authored `where: 'any'` precisely because rubbish goes out the back, and
+  // the back of the shop is outdoors. Nothing in the sim disagrees — `tidy`
+  // walks somebody to `bin.useAt` through `findPath`, which has never cared
+  // which side of a wall a tile is on. So the shop refused to shut up about the
+  // one placement the kind exists for, and a warning that fires on the correct
+  // answer is a warning nobody reads on the placement that is genuinely wrong.
   if (def.anchor) {
     const a = anchorTile(x, z, spec.rot ?? 0);
     if (!open(a.x, a.z)) return 'nothing can use it facing that way';
-    if (!insideStore(L, a.x, a.z)) return 'it faces out of the shop — nobody will use it';
+    if (def.where === 'indoor' && !insideStore(L, a.x, a.z)) {
+      return 'it faces out of the shop — nobody will use it';
+    }
   } else if (!FACING.some((f) => open(x + f.dx, z + f.dz))) {
     return 'nothing can get to it';
   }

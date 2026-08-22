@@ -218,6 +218,120 @@ in `npm run verify` passed happily either side of it.
 
 ---
 
+## Step 1b — the first week, which the table above never measured — **built**
+
+The measurement in step 1 was taken against `shop-3-2` at **day 60**, and that
+is the whole of what went wrong with it. A day-60 shop has a name, a range and
+some charm on the walls; the preset lands on it as a slower climb. A day-1 shop
+has none of those, and the same preset lands on it as a shop the town already
+dislikes before the player has found the ordering menu.
+
+A real `normal` save (`shop-6`, seed `vc8sxh`) on the second morning:
+
+| | measured | on `relaxed`, same day |
+|---|---|---|
+| reputation | **0.150** — started at 0.500 | 0.500 |
+| walk-in mood | **0.58** | 0.67 |
+| headroom over `MOOD_ANNOYED` | **0.08** | 0.17 |
+| seconds queueing before visible anger | **~6s** | ~12s |
+| clean sales to pay off one storm-out | **~47** | ~22 |
+
+Day one cost it `repMove: -0.253`. A quarter of the entire scale, in the day
+somebody is still learning which button stocks a shelf.
+
+**Three rows of that table multiply, and the table draws them as separate
+knobs.** `normal` lowers `moodBase` by 0.04, which reads as 6%. It also lowers
+`repSettle` from 0.35 to 0.22, so the spring catches a bad week much further
+down. And `moodBase()` scales the room *by reputation* — so the 0.68 in the
+table is what a shop at a perfect name gets, and a shop sitting at its own
+settle level gets 80% of it. Then the way back out is
+`0.008 * (mood - MOOD_ANNOYED)`, proportional to the same headroom the low
+reputation just took away, which is the feedback loop `MOOD_REP`'s own comment
+names and says charm is the escape from. On day 2 nobody can afford to
+decorate.
+
+`MOOD_BASE`'s comment states the rule this broke, and states it as deliberate:
+
+> Above `MOOD_ANNOYED` by a clear margin on purpose. Start it near that line and
+> a new shop's customers arrive already looking cross, which reads as the town
+> hating you rather than as a room nobody has decorated.
+
+### The shape of the fix
+
+`GRACE_DAYS = 5`. A **loss** is charged at `day / GRACE_DAYS` of face value, in
+`Game.moveRep`. That day-1 beating costs `-0.05` instead of `-0.253`.
+
+**Losses only, and that asymmetry is the feature.** A gain is banked at full
+price from the first minute, so a new shop climbs at the ordinary rate and falls
+at a fifth of it — which is what digs one *out*, rather than merely slowing the
+descent. Scaling both directions is the more elegant sentence ("the town has no
+opinion yet") and it makes the opening week inert: nothing done on day 1 would
+mean anything either way.
+
+**In `moveRep` rather than at the nine call sites.** That function is already
+the one writer, for the receipt — so an eighth cause added tomorrow inherits the
+grace instead of being the one that still craters a beginner.
+
+**Not a preset knob**, and this is the one place that is worth arguing. Every
+other number in this doc is on the table; this one must not be, because the
+harsher presets are exactly the ones that need it. A `hard` game with less grace
+would compound the bug — and `hard` is already the worse case, since at
+`moodBase: 0.60` a single bad day puts the walk-in *below* `MOOD_ANNOYED`, which
+is the "decade of neglect" state arriving in week one. Same argument as
+`MOOD_TAU`: how long a town waits before making its mind up about a new shop is
+the same fact about towns everywhere.
+
+**It reads `this.day`**, which is already on the save — no clock to persist and
+no `elapsed` trap. Deliberately the shop's own age rather than time since the
+save was opened, or picking a world back up after a month away hands it another
+free week.
+
+### ...and the two numbers underneath it, which were the actual complaint
+
+Grace fixed the first week and the shop still played wrong on day 6, trading
+well, because two constants had been tuned against assumptions a later feature
+retired. Both are the same shape and neither is visible in anything but play.
+
+**A visit could not out-earn a miss.** `REP_VISIT` (was 0.008) is the only way
+reputation is ever *earned*, and it is scaled to a mood of 1 that nobody can
+reach — `ANNOY_IN_SHOP` draws from the door, so a good trip lands near 0.65. It
+paid a fifth of its own ceiling. Beside a flat −0.008 per missed line and −0.015
+for an empty-handed leave, one miss was worth 6.7 happy customers and the best
+possible visit was worth half a miss. Six boards cannot cover twelve lists, so
+it was a charge for being early at twelve times what serving somebody perfectly
+paid. Now 0.02, scaled by fill, and the miss is charged on the **share** of the
+list rather than per line — so three of four things and left happy books
+positive, barely, which is the intent.
+
+**`patience` had stopped meaning seconds.** See the ⚠️ under "no harder
+customers" below.
+
+Measured, 60 days, three seeds, on `shop-3` (day 365, `normal`, 14 staff):
+rep **0.79 / 1.00 / 0.82**, 4–12 storm-outs, ~20k items sold. That save had sat
+at **0.148 after 365 real days** of play. So a mature shop can now reach the top
+of the scale, which is the half to watch: one seed pinned at 1.0, and nothing
+here has been tuned for a shop that is *already* well regarded. The failure mode
+this replaced was a bar that never moved; the one to check for next is a bar
+that only goes up.
+
+### What it does not fix
+
+The step-1 measurement is still the only one there is, and it is still a day-60
+one. This makes the first five days survivable; it says nothing about whether
+`normal` is correctly tuned from day 6 onward, and the `hard` preset's
+below-the-line walk-in is untouched — grace delays it rather than removing it.
+Both want a balance run taken from a **new** world rather than an established
+save, which is the run nobody has done.
+
+`verify:grace` — 124 checks. Its control is the assertion that decides whether
+this is opt-in at all: a shop past the ramp is the old game to the digit, on
+every cause in `REP_CAUSES`, in both directions. Every save in existence is
+played well past day 5, so if that control is wrong this step has quietly
+rebalanced all of them. It restates the ramp rather than importing `GRACE_DAYS`,
+so a retune is supposed to fail it and be read.
+
+---
+
 ## Step 2 — upkeep, which is the one with teeth
 
 The building costs money to have. Per fixture, per day, charged in `payWages`.
@@ -371,3 +485,17 @@ Then:
 - **No harder customers per se.** `moodBase` is the one exception and it is a
   starting value rather than a behaviour — everything downstream of it in
   `stepMood` is untouched, so a queue costs what a queue costs.
+
+  ⚠️ **That last clause was wrong, and step 1b fixes it.** It is true in
+  budget-per-second and false in seconds, which is the only unit anybody can
+  see. `stepMood` drained an absolute amount against a budget that now *starts*
+  at 0.6–0.7 instead of 1, so a queue cost the same per second out of two thirds
+  of the money — an authored `patience: 70` was buying about 45 seconds, and
+  `ANNOY_LINE`'s "runs out in exactly `patience` seconds" anchor quietly stopped
+  holding for every archetype at once. Worse for the half you can watch, since
+  `MOOD_ANNOYED` is absolute too: time from the door to somebody *looking* cross
+  in a line fell **3.35x**, a Snack Kid from 13 seconds to 3.9. The drain is
+  scaled by the walk-in now, which restores the storm-out anchor exactly and
+  leaves the shortened fuse to anger — that part IS the feature, and charm is
+  what buys it back. The general shape is worth keeping: **a starting value and
+  a behaviour are the same thing when the thresholds below are absolute.**

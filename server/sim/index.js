@@ -480,8 +480,68 @@ const ANNOY_MESS = 0.9;
  * the sale of everything *else* on the list is still worth making.
  */
 const ANNOY_MISSED_STAPLE = 0.2;
-/** And what it does to your standing in the town, per staple missed. */
+/**
+ * And what it does to your standing in the town — over the whole visit, charged
+ * on the SHARE of their list you could not fill rather than per line.
+ *
+ * Per line is what it was, and per line it is a tax on having a small range
+ * rather than a verdict on the trip: somebody with four things on their list is
+ * four chances to be charged and somebody with one is one, so the shop is
+ * billed most by the shoppers who wanted the most from it. A share says the
+ * thing that was always meant — *how badly did we let you down* — and it is the
+ * half that makes `REP_VISIT` below able to out-earn it.
+ */
 const REP_MISSED_STAPLE = 0.008;
+
+/**
+ * WHAT ONE VISIT IS WORTH, and why it had to go up by a factor of two and a
+ * half.
+ *
+ * This is the only way reputation is EARNED — `R.SETTLED` is the town
+ * forgetting rather than the shop deserving — so its size against
+ * `REP_MISSED_STAPLE` and the −0.015 of an empty-handed leave is the whole
+ * question of whether a shop can trade its way up at all. At 0.008 it could
+ * not, and the arithmetic is not subtle.
+ *
+ * A verdict is `REP_VISIT * (mood - MOOD_ANNOYED)`, so the ceiling is a shopper
+ * leaving at mood 1. Nobody leaves at mood 1: `ANNOY_IN_SHOP` draws on the
+ * budget from the moment they are through the door, and the budget they walk in
+ * with is itself `moodBase()` — capped by reputation and by what the room is
+ * worth. A good trip in a good shop lands near 0.65, which is 0.15 of a range
+ * the constant is scaled to 0.5 of. So the term was tuned against a maximum the
+ * game cannot produce, and what it paid in practice was **a fifth of its own
+ * ceiling**.
+ *
+ * Measured on a real `normal` save (`shop-6`, day 6) having a good afternoon —
+ * 24 items sold, no storm-outs, nobody turned away:
+ *
+ *     served  +0.008    seven happy paying visits
+ *     missed  -0.016    two things people wanted and we hadn't got
+ *     empty   -0.030    two people who found nothing
+ *     ----------------
+ *     net     -0.038
+ *
+ * One missed line was worth 6.7 happy customers and one empty-handed leave
+ * 12.5, and the best possible visit in the game was worth half of one miss. Six
+ * boards cannot cover twelve archetypes' lists, so the misses are structural —
+ * which made this a charge for being early, levied at twelve times what serving
+ * somebody perfectly paid back.
+ *
+ * `REP_SETTLE`'s comment spotted exactly this ("a shopper who buys two of the
+ * three things they came for and leaves delighted is a NET LOSS") and answered
+ * it with the settle spring — a floor made of forgetting. A floor is the right
+ * shape for a shop that has *had* a bad week and the wrong one for this: it
+ * catches you at `repSettle` and there is no rung above it, so every shop
+ * converges on mediocre and stays there while visibly trading well. The bar
+ * sitting at 0.13 through a good week is what that looks like from the inside.
+ *
+ * At 0.02, and with the miss charged as a share, the sentence that comment
+ * calls wrong comes out right: three of four things, left happy, books
+ * **positive**. Barely — which is the intent. A shop that fills lists climbs, a
+ * shop that half fills them holds station, and a shop that sends people home
+ * empty still slides.
+ */
+const REP_VISIT = 0.02;
 
 /**
  * WHERE A BAD WEEK STOPS — the level the town's memory of you decays back to,
@@ -528,6 +588,49 @@ const REP_MISSED_STAPLE = 0.008;
  * gentle preset carries 0.35 / 0.45 — the figures this comment was written
  * about and the ones every existing save reads.
  */
+
+/**
+ * HOW LONG A NEW SHOP GETS THE BENEFIT OF THE DOUBT.
+ *
+ * The settle spring above is a floor made of forgetting, and it is the right
+ * shape for a shop that has *had* a bad week. It is the wrong shape for a shop
+ * whose first week is the player learning where the buttons are, because it
+ * catches you at `repSettle` — 0.22 on `normal`, 0.10 on `hard` — and the whole
+ * problem is what a reputation down there does to the people who then walk in.
+ *
+ * Two things multiply that the difficulty table shows as separate rows.
+ * `moodBase()` scales the room by reputation, so the 0.68 in that table is what
+ * a shop at a *perfect* name gets and a shop at its own settle level gets 80% of
+ * it. And the way back out is `0.008 * (mood - MOOD_ANNOYED)`, which is
+ * proportional to the same headroom the low reputation just took away. A real
+ * `normal` shop measured 0.08 of headroom on day 2: six seconds in a queue
+ * before a shopper *looks* cross, and forty-seven clean sales to pay off one
+ * walk-out. That is the loop `MOOD_REP` names and says charm is the way out of,
+ * and on day 2 nobody has the money to decorate.
+ *
+ * So a loss is charged at a fraction of face value for the first few days, and
+ * the fraction is what the table below reads as. `verify:grace` pins both ends.
+ *
+ * **Losses only, and that asymmetry is the entire feature.** A gain is banked at
+ * full price from the first minute, so a new shop climbs at the ordinary rate
+ * and falls at a fifth of it — which is what digs one *out* rather than merely
+ * stopping it going under. Scaling both would be "the town has no opinion yet",
+ * which sounds better and makes the opening week inert: nothing you did on day 1
+ * would have meant anything either way.
+ *
+ * **It is not a difficulty knob**, deliberately, and for the reason `MOOD_TAU`
+ * is not one: how long a town waits before it makes its mind up about a new shop
+ * is the same fact about towns everywhere. It is also the one knob a preset must
+ * *not* have, because the harsher presets are exactly the ones that need this —
+ * a `hard` game with less grace would compound the bug this exists to fix.
+ *
+ * **Nothing is exempt.** Every cause in `shared/reputation.js` is a way for a
+ * beginner's shop to bleed and the discount is applied in `moveRep`, which is
+ * the one writer — so an eighth cause gets this for free rather than being the
+ * one that still craters you. `R.SETTLED` is untouched by construction: it only
+ * ever pulls up, so it is never a loss to discount.
+ */
+const GRACE_DAYS = 5;
 
 /**
  * How hard the town has to be pulling on a tag before it is a reason somebody
@@ -2855,6 +2958,9 @@ export class Game {
         // trap `verify:belts` already pins about `auto`.
         reject: Number.isInteger(s.reject) ? s.reject : null,
         rot: s.rot ?? 0,
+        // ...and which way it last sent one, which is what the roof marks draw.
+        // Same shape and same terms as a loader's `move` — see `sorterSent`.
+        ...(this.sorterMove(s.id) ? { move: this.sorterMove(s.id) } : {}),
       })),
       cashDrops: this.cashDrops.map((d) => ({
         id: d.id, x: r2(d.x), z: r2(d.z), amount: d.amount,
@@ -3532,6 +3638,12 @@ export class Game {
    */
   moveRep(delta, cause) {
     if (!delta) return 0;
+    // A loss is charged at a fraction of face value for a new shop's first few
+    // days — see `GRACE_DAYS`. Losses only, so the climb is full price from the
+    // first minute. Here rather than at the nine call sites because this is the
+    // one writer, which is what makes an eighth cause inherit it instead of
+    // being the one that still craters a beginner.
+    if (delta < 0) delta *= this.repGrace();
     const before = this.reputation;
     this.reputation = clamp(before + delta, 0, 1);
     const moved = this.reputation - before;
@@ -3542,6 +3654,24 @@ export class Game {
     this.stats.repMoves ??= {};
     if (moved) this.stats.repMoves[cause] = (this.stats.repMoves[cause] ?? 0) + moved;
     return moved;
+  }
+
+  /**
+   * What a loss costs today, as a fraction of face value. See `GRACE_DAYS`.
+   *
+   * Read off `this.day`, which is already on the save, so there is no clock to
+   * persist and no `elapsed` trap to fall into — a shop reloaded on day 3 is
+   * still on day 3. It is the shop's own age rather than time since the save was
+   * opened, or picking a world back up after a month away would hand it another
+   * free week.
+   *
+   * The tally banks the DISCOUNTED figure, which is `moveRep`'s existing rule
+   * about the clamp said about this: the report answers "what is costing me",
+   * and what a walk-out cost you on day 1 is what it actually took off the
+   * number, not what it would have taken off an older shop.
+   */
+  repGrace() {
+    return clamp(this.day / GRACE_DAYS, 0, 1);
   }
 
   /**
@@ -5035,7 +5165,28 @@ export class Game {
         && !SOLID.has(edgeBetween(this.layout, cx, cz, s.x, s.z))
         && !occupied(s.x, s.z))
       .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
-    out.push({ x: cx, z: cz });
+    /**
+     * ...and the crate's OWN cell is the first answer whenever you can stand on
+     * it, rather than the last one.
+     *
+     * It was last because routing onto a crate once read as the walk having
+     * overshot — you ended up inside the thing you came for. That is a fair
+     * description of a fixture and never was of a box: a crate does not block,
+     * so its square is ordinary floor with something set down on it, and walking
+     * onto it is what a person does when they pick something up off the ground.
+     * Sent to a neighbour instead, you stop a tile short of the box you pointed
+     * at and reach across for it, which is the thing that actually looks wrong —
+     * and in a bay packed three deep the free neighbour can be on the far side,
+     * so the route goes the long way round a pile to stand behind it.
+     *
+     * Still pushed unconditionally when it is NOT walkable, which is the case
+     * this list was built for and the reason the fallback exists at all: a crate
+     * that has ended up on a tile nothing can enter has to leave *some* goal in
+     * the list, or `take` refuses with "No way through to there".
+     */
+    const own = { x: cx, z: cz };
+    if (isWalkable(this.walk, this.layout, cx, cz)) out.unshift(own);
+    else out.push(own);
     return out;
   }
 
@@ -5987,6 +6138,40 @@ export class Game {
           const name = content().byId.items[stack.item_id]?.name ?? stack.item_id;
           this.clearStack(shelf, stack.item_id);
           this.pushLog(`Gave the spare ${name} board back — it is kept on one shelf now.`);
+          continue;
+        }
+        /**
+         * A BARE BOARD ON A UNIT WITH NO SPARE ONE IS GIVEN BACK AT ONCE, AND
+         * THE SUPPLY GUARD DOES NOT GET A SAY.
+         *
+         * The guard below holds a board while stock of that item exists, on the
+         * reasonable ground that it might refill. `homeSupply` counts every
+         * crate in the shop INCLUDING the ones riding a conveyor — so the guard
+         * is true for exactly as long as the goods are stuck going round, and a
+         * board that is empty *because* nothing can land on it resets its own
+         * clock for ever. It never ages, so it never releases.
+         *
+         * That closes into a shop that cannot be stocked at all, and the state
+         * is stable rather than slow. `shelfCapacity` is shared out among the
+         * boards a unit has open, so a unit with every board open and empty has
+         * no room on any of them; `pourInto` moves nothing, the crate rides on
+         * and off-ramps onto the drop-off, `homeSupply` counts it there, and the
+         * board it was meant for holds itself open on the strength of it. A live
+         * shop reached fifteen units of twenty in that state, with a warmer
+         * reading 19/10 because the capacity had been divided under stock that
+         * was already on it. What it looks like is a shop that has quietly
+         * stopped shelving anything, days after the thing that filled the belts.
+         *
+         * So a bare board on a FULL unit is released the moment it is asked
+         * about: it is the thing standing between that unit and every case of
+         * goods in the building, `openStack` mints it again the instant anything
+         * is actually poured, and a unit that still has a spare board is
+         * untouched — which is every unit in a shop that is working.
+         */
+        if (this.shelfStacks(shelf).length >= this.shelfBoards(shelf)) {
+          const name = content().byId.items[stack.item_id]?.name ?? stack.item_id;
+          this.clearStack(shelf, stack.item_id);
+          this.pushLog(`Gave the ${name} board back — that ${this.fixtureSaid(shelf)} had no board left to fill.`);
           continue;
         }
         if (this.homeSupply(stack.item_id) > 0) { stack.emptyDays = 0; continue; }
@@ -8208,11 +8393,39 @@ export class Game {
    * stock, paint more storage — the same answer the farm and the kitchen get.
    */
   looseRoom() {
-    const cells = (this.layout.bay?.cells?.length ?? 0) + (this.dropPad()?.cells?.length ?? 0);
+    const pads = (this.layout.bay?.cells?.length ?? 0) + (this.dropPad()?.cells?.length ?? 0);
     // No yard at all is not "no room" — a shop with neither pad is refused by
     // `buyStock`'s own bay guard, which says something useful, and answering
     // zero here would shadow it with a worse message.
-    if (!cells) return Infinity;
+    //
+    // Asked of the PADS alone, deliberately, even though the run counts toward
+    // the capacity below: a shop with a mile of conveyor and no bay still has
+    // nowhere for a van to unload, and answering "plenty of room" here would
+    // shadow the guard that says so.
+    if (!pads) return Infinity;
+
+    /**
+     * ...and THE RUN IS STORAGE, which is the half the pads could not say.
+     *
+     * Every crate counts against this wherever it stands, which is the whole
+     * point of a total rather than a region — and a conveyor is a place crates
+     * stand. So a shop that automated its aisles was spending its yard allowance
+     * on boxes that were already on their way somewhere: a real save had 94 of
+     * its 132 units riding belts, 71% of the brake applied to stock that was
+     * doing exactly what it was bought to do, and what that reads as is the
+     * supplier refusing to order for a shop whose floor is visibly clear.
+     *
+     * It is the sentence the pads have made since they became ground — how big
+     * you lay it is how much it holds — said about the third thing you lay. And
+     * it stays honest in the direction that matters: a jammed run is full of
+     * boxes and full boxes are what close this, so a conveyor only buys room
+     * while it is actually moving things.
+     *
+     * Every cell, not just plain belt. A loader and a junction each hold a crate
+     * the same way, and a rule that counted one kind would make the number
+     * depend on which pieces somebody happened to use.
+     */
+    const cells = pads + conveyorsOf(this.layout).length;
     let used = 0;
     // Everywhere, which is the whole point — no cell test. Rubbish counts here
     // too, and for `bayRoom`'s reason rather than in spite of it: an order has
@@ -8648,6 +8861,11 @@ export class Game {
         if (!res.added) continue;
         d.stacks = res.lot.stacks;
         this.stampPile(d, itemId);
+        // A box that has just grown is a box something has just put goods in —
+        // see `CRATE_REST_SECONDS`. Topping one up counts, or a delivery that
+        // merged into yesterday's half-crate is lifted on the tick it lands
+        // while an identical one that opened a new box is not.
+        this.crateSettle(d);
         left -= res.added;
         first = first ?? d;
       }
@@ -8681,6 +8899,7 @@ export class Game {
         z: r2(spot.z),
       };
       this.stampPile(del, itemId);
+      this.crateSettle(del);
       this.deliveries.push(del);
       left -= take;
       first = first ?? del;
@@ -9840,6 +10059,61 @@ export class Game {
   static ARM_SAY_SECONDS = 1.2;
 
   /**
+   * How long a box that has just been set down is left where you can see it.
+   *
+   * A machine takes no time to decide, so a loader beside the bay lifted every
+   * crate on the tick it landed: a delivery arrived as goods appearing already
+   * on the belt, with nothing in between. The van, the pad and the boxes are
+   * all drawn perfectly — they are simply never all on screen at once — so what
+   * it reads as is a delivery that teleports, and the pad you paid to paint
+   * doing nothing.
+   *
+   * It is a REST rather than a slower swing, and the distinction is the whole
+   * of why this is not a number on `armClock`. A slower loader is slower at
+   * everything for ever, which is a balance change and a worse machine; this
+   * costs a beat once, at the moment a box appears, and nothing after it.
+   *
+   * Only a machine waits. A hire walking to the bay is already the pause, and
+   * making them stand about would be a hire visibly not working.
+   */
+  static CRATE_REST_SECONDS = 1.2;
+
+  /**
+   * Note that something has just been put down here.
+   *
+   * In memory and never persisted, which is the `elapsed` rule this file keeps
+   * relearning: that clock restarts at zero on every load, so a saved stamp sits
+   * in the future for ever and the box it names is never touched again. An empty
+   * map therefore reads as "everything has been there a while", which is the
+   * right answer for a shop that has just come back.
+   *
+   * Pruned on the way in rather than by a sweep of its own: every entry is stale
+   * a second after it is written, and the only ones that matter are the handful
+   * of boxes somebody is looking at right now.
+   */
+  crateSettle(crate) {
+    if (!crate) return;
+    this.crateSet ??= new Map();
+    if (this.crateSet.size > 64) {
+      for (const [id, at] of this.crateSet) {
+        if (this.elapsed - at >= Game.CRATE_REST_SECONDS) this.crateSet.delete(id);
+      }
+    }
+    this.crateSet.set(crate.id, this.elapsed);
+  }
+
+  /** Has this box stood still long enough for a machine to take it? */
+  crateRested(crate) {
+    const at = this.crateSet?.get(crate?.id);
+    // Nothing saw it land — a reload, a sweep, a save older than this rule.
+    if (at == null) return true;
+    // ...and the same guard `yieldedAt` carries, for a stamp that survived a
+    // reload some way nobody predicted.
+    if (at > this.elapsed) return true;
+    return this.elapsed - at >= Game.CRATE_REST_SECONDS;
+  }
+
+  /**
    * The conveyor cell standing here, belt or loader.
    *
    * One lookup for both, because a loader IS a belt as far as everything that
@@ -10517,6 +10791,10 @@ export class Game {
           const eject = this.sorterEject(cell, crate);
           if (eject && this.armDrop(cell, eject, crate, { dry: true })) {
             this.armSend(cell, eject, 1, { eject: true });
+            // An off-ramp is a way out like any other, and the one a player is
+            // most likely to be squinting at — a box that leaves the run is a
+            // box they have to find again.
+            this.sorterSent(cell.id, Math.sign(eject.x - cell.x), Math.sign(eject.z - cell.z));
             this.sortChoice?.delete(crate.id);
             ahead = crate;
             continue;
@@ -10527,6 +10805,32 @@ export class Game {
           // up: a stray with nowhere to be is still better on the run.
         }
 
+        /**
+         * A LOADER HOLDS THE BOX UNTIL IT HAS SWUNG AT IT, and that is the one
+         * place a machine is allowed to stop the line.
+         *
+         * A crate crosses a cell in one cell-time and a loader swings on its own
+         * clock, so left to run past, whether a box is served at all is a
+         * LOTTERY between the two — and the odds are terrible: the box is
+         * squarely on the machine for one tick of the twelve it spends on the
+         * square. What that draws is an aisle of loaders that stocks nothing,
+         * with every box visibly going past every one of them.
+         *
+         * The other two ways out are both worse. Letting the machine grab a box
+         * that has begun to leave means yanking it back to the centre to start
+         * down the spur — a crate jumping backwards, which is the report this
+         * whole rewrite was done for. Starting the spur from wherever the box
+         * had got to means the box crosses beside the rails the renderer drew
+         * from the cell centre, and CLAUDE.md's note on `SPUR_*_REACH` is that
+         * the day the sim and the renderer disagree about a spur, nothing errors
+         * and the crate simply floats.
+         *
+         * So the box waits, once, for one swing. Every loader is offered every
+         * box exactly once instead of two thirds of the time, which is what the
+         * aisle needed; and what the wait costs is the loader's own swing, which
+         * is what its `speed_mult` ladder buys. `mode: 'load'` is exempt because
+         * it never takes anything off the line — there is nothing to wait for.
+         */
         // Which way out, which is only ever a question at a junction — and there
         // it is `sorterOut`'s, asked with the same "has that line got room"
         // predicate the movement below uses, so the piece cannot choose a line
@@ -10541,6 +10845,36 @@ export class Game {
         let cap = ahead ? pos.get(ahead.id) - Game.CRATE_PITCH
           : (ex && roomAt(ex.line, crate) ? total : line.len);
         cap = Math.min(cap, total);
+        // A LOADER STOPS THE BOX ON ITS CENTRE UNTIL IT HAS SWUNG AT IT, and
+        // that is the one place a machine may hold the line up.
+        //
+        // A crate crosses a cell in one cell-time and a loader swings on a clock
+        // of its own, so a machine that only acts on what is squarely on it sees
+        // one tick in twelve and the aisle it was bought to fill quietly stays
+        // empty — every box visibly trundling past every one of them, which
+        // reads as the feature not working rather than as a bug. The other two
+        // ways out are worse: grabbing a box that has begun to leave means
+        // yanking it back to the centre to start down the spur, which is the
+        // crate-jumps-backwards report this rewrite was done for; and starting
+        // the spur from wherever the box had got to means it crosses beside the
+        // rails the renderer laid from the cell centre, and CLAUDE.md's note on
+        // `SPUR_*_REACH` is that when those two disagree the crate simply
+        // floats.
+        //
+        // So it is a CAP rather than a freeze, which is the whole of what makes
+        // it work: the box is stopped exactly ON the centre, so `armHolds` is an
+        // honest test and there is no float dust to be tolerant of. Every loader
+        // is offered every box exactly once instead of two thirds of the time,
+        // and what the wait costs is one swing, which is what a loader's
+        // `speed_mult` ladder buys. `mode: 'load'` never takes anything off the
+        // line, so there is nothing to wait for.
+        for (let j = loc.i; j < line.cells.length; j++) {
+          const c2 = line.cells[j];
+          if (line.dist[j] < at - 1e-9) continue;
+          if (c2.kind !== 'arm' || c2.mode === 'load' || crate.armDone === c2.id) continue;
+          cap = Math.min(cap, line.dist[j]);
+          break;
+        }
         cap = wholeLegs(line, at, cap, ex ? total - line.len : 0);
         // Never backwards. A crate that has committed to a hand-off keeps it,
         // whatever else arrives on the line it is crossing into — which is what
@@ -10557,11 +10891,25 @@ export class Game {
         crate.z = r2(p.z);
 
         if (ex && to >= total - 1e-9) {
+          // A JUNCTION SAYS WHICH WAY IT SENT THAT ONE, for the roof marks.
+          //
+          // Only at a junction, and that is the whole of why this is not on
+          // every hand-off in the shop: a belt cell has one way out, so a mark
+          // saying "it went that way" is a mark that has never said anything
+          // else. A sorter is the one piece where the answer was a decision, and
+          // it was the one piece with nothing on the wire to report it — the
+          // choice lived and died inside `sortChoice`, which is deleted on this
+          // very line.
+          if (line.junction) {
+            this.sorterSent(cell.id, Math.sign(ex.cell.x - cell.x), Math.sign(ex.cell.z - cell.z));
+          }
           // Handed on, and the box has not moved: the point it arrives at is the
           // point it left from, because a line's path runs to the first cell of
           // the next one. That overlap is what a seam used to be.
           crate.belt = ex.cell.id;
           crate.off = 0;
+          // A new square is a new machine, which has not looked at this box yet.
+          crate.armDone = null;
           pos.set(crate.id, ex.at);
           this.sortChoice?.delete(crate.id);
           on.get(ex.line.id)?.push(crate);
@@ -10574,6 +10922,7 @@ export class Game {
         // what the renderer, the loaders and every sweep in `verify:belts` read.
         let i = loc.i;
         while (i + 1 < line.cells.length && to >= line.dist[i + 1] - 1e-9) i += 1;
+        if (line.cells[i].id !== crate.belt) crate.armDone = null;
         crate.belt = line.cells[i].id;
         crate.off = to - line.dist[i];
         pos.set(crate.id, to);
@@ -10894,8 +11243,13 @@ export class Game {
        * a shelf has no box any more, so the one outcome the light exists to
        * report is the one that would never be recorded.
        */
-      const held = !!this.armHolds(arm);
+      const holding = this.armHolds(arm);
+      const held = !!holding;
       const did = this.armSwing(arm);
+      // ...and this box has now had its swing, so the run may take it on. See
+      // the hold in `stepBelts`: without the mark a box waits for ever, and
+      // without the wait the machine only ever sees one tick in twelve.
+      if (holding) holding.armDone = arm.id;
       if (did) this.armClock.set(arm.id, 0);
       /**
        * A swing that found nothing to do keeps its charge only while it is
@@ -10974,6 +11328,31 @@ export class Game {
     if (mv.at > this.elapsed) return null;
     return this.elapsed - mv.at <= Game.ARM_SAY_SECONDS
       ? { d: mv.d, out: mv.out, n: mv.n } : null;
+  }
+
+  /**
+   * A junction has just sent a box out by this side.
+   *
+   * Written exactly the way `armMoved` is and for its reasons, which are worth
+   * not re-deriving: a COUNTER rather than a stamp, because there is no clock on
+   * the wire and the client needs the edge — a busy junction sends several boxes
+   * inside `ARM_SAY_SECONDS` and a window alone would read as one long send with
+   * the rest never drawn. In memory and never persisted, because `elapsed`
+   * restarts at zero on every load and a saved stamp sits in the future for ever.
+   */
+  sorterSent(id, dx, dz) {
+    if (!dx && !dz) return;
+    this.sortMoved ??= new Map();
+    const was = this.sortMoved.get(id);
+    this.sortMoved.set(id, { d: [dx, dz], at: this.elapsed, n: (was?.n ?? 0) + 1 });
+  }
+
+  /** The last way a junction sent something, while it is still worth drawing. */
+  sorterMove(id) {
+    const mv = this.sortMoved?.get(id);
+    if (!mv) return null;
+    if (mv.at > this.elapsed) return null;
+    return this.elapsed - mv.at <= Game.ARM_SAY_SECONDS ? { d: mv.d, n: mv.n } : null;
   }
 
   /**
@@ -11100,6 +11479,11 @@ export class Game {
     // it simply rides on to whatever will.
     crate.spur = null;
     crate.off = 0;
+    // Back on the deck, and the machine may look at it again: one side per
+    // swing is the rule, so a mixed box beside a shelf and a freezer takes a
+    // second swing for the second one. `armNo` is what ends that rather than a
+    // count — a side that took nothing is not asked again.
+    crate.armDone = null;
     crate.x = arm.x;
     crate.z = arm.z;
   }
@@ -11140,7 +11524,8 @@ export class Game {
     if (!piles.length) return false;
     const unit = (this.layout.shelves ?? []).find((sh) => sh.x === at.x && sh.z === at.z);
     if (unit && piles.some((p) => !givenUp(this, p.item_id)
-      && this.shelfAccepts(unit, p.item_id))) return true;
+      && this.shelfAccepts(unit, p.item_id)
+      && this.roomTakes(arm, unit, p.item_id))) return true;
     const machine = (this.layout.stations ?? []).find((st) => st.x === at.x && st.z === at.z);
     if (machine) {
       const inputs = new Set(this.stationRecipes(machine).filter(Boolean)
@@ -11149,6 +11534,37 @@ export class Game {
         && this.stationHopperRoom(machine, p.item_id) > 0)) return true;
     }
     return false;
+  }
+
+  /**
+   * May this item go into a BACK-OF-HOUSE unit, or does the floor want it first?
+   *
+   * The larder trap, and it is the one docs/workers.md names about the runner:
+   * *the larder is not raided, or the runner and the chef undo each other all
+   * afternoon with both of them correct.* Said here about one machine.
+   *
+   * A loader pours into anything beside it that will take the goods, and
+   * `armPull` takes a board back OUT of a stockroom the moment the shop floor
+   * wants it. Both halves are right on their own and neither knows about the
+   * other, so a loader standing between a run and a marked room does both to the
+   * same unit: pour twelve donuts in, pull ten straight back out, for ever. What
+   * you WATCH is a shelf filling and emptying and filling again, which reads as
+   * the shelf being broken rather than as two jobs agreeing to disagree.
+   *
+   * The rule that ends it is the one `ferry` already states: a stockroom is the
+   * OVERFLOW, never a competitor. The floor gets first claim, and the room takes
+   * what the floor will not — so a room still fills when the aisle is full, and
+   * the moment the aisle has room the goods go there instead of round again.
+   *
+   * Asked of the same `conveyorMeets` walk `armPull` tests against, or the two
+   * halves would be answering the same question with different evidence, which
+   * is the drift CLAUDE.md records between the shop's rule and the hand's.
+   */
+  roomTakes(arm, unit, itemId) {
+    if (unit.boh !== true) return true;
+    const met = conveyorMeets(this.layout, arm);
+    return !met.shelves.some((sh) => sh.boh !== true && sh.id !== unit.id
+      && this.shelfAccepts(sh, itemId));
   }
 
   armLand(arm, at, crate) {
@@ -11330,6 +11746,27 @@ export class Game {
         // jams the run for the rest of the save — the bin feature's own
         // failure mode, arriving through a door it did not know about.
         && (!d.waste || met.bins.length > 0)
+        // ...and never a box the shop has GIVEN UP ON, which is the same rule
+        // `armTakes` already obeys at the other end of the swing.
+        //
+        // The asymmetry was the bug: a loader refused to pour a given-up item
+        // and lifted one perfectly happily. So the crate `merchandise` had just
+        // carried off a dead board went straight onto the run, where every unit
+        // down it refuses that item for the same reason — a permanent passenger,
+        // which is the "three frozen pizzas on a run with no freezer" failure
+        // with the shop's own judgement as the cause. And it undoes the one
+        // thing that job exists to do: `verify:hand`'s centrepiece is that a
+        // board the hand clears does not come straight back, and here it comes
+        // back by machine.
+        //
+        // EVERY pile, not any: a mixed box with one wanted kind in it still has
+        // somewhere to be, and refusing it would strand the good half. Same
+        // shape as the sorter's purity rule and for the same reason.
+        && !lotStacks(d).every((p) => givenUp(this, p.item_id))
+        // ...and never one that has only just landed. See `CRATE_REST_SECONDS`:
+        // a machine decides in no time at all, so without this a delivery is
+        // goods appearing already on the belt.
+        && this.crateRested(d)
         && Math.round(d.x) === s.x && Math.round(d.z) === s.z);
       // Onto the machine, then RIDE IN. `loadBelt` puts the crate on the cell
       // the instant it is lifted, which without the spur is a box teleporting a
@@ -15706,6 +16143,16 @@ export class Game {
       // same rule `patience` follows, and the one that keeps a re-flow from
       // being a mood event.
       mood: this.moodBase(),
+      /**
+       * ...and what they walked in with, kept, because it is what `patience` is
+       * a fraction OF. See `stepMood`.
+       *
+       * A second field rather than re-reading `moodBase()` for the same reason
+       * the line above exists at all: it is a fact about the moment they came
+       * through the door, and a shop that has been decorated since must not
+       * change how fast the person already in the queue is running out.
+       */
+      mood0: this.moodBase(),
       storming: false,
       // Set once, at the fork in `goToTill`, and never cleared — a thief is
       // still a thief after they are caught, which is what stops a released one
@@ -15978,6 +16425,28 @@ export class Game {
    * skips it: `stormOut` already takes 0.03 off reputation, and the tally was
    * taken when the line failed.
    */
+  /**
+   * How much of what they came in for they are leaving with, 0..1.
+   *
+   * One function because two things read it and they must not disagree: the
+   * miss charge below spends `1 - fill` and the visit's verdict spends `fill`,
+   * so a second spelling of "how did we do" is a shop that can be billed for a
+   * gap and paid for filling it in the same breath.
+   *
+   * By LINE rather than by unit, matching `cust.missed`, which is the list of
+   * lines that failed and the thing the feed already reports. A shopper who
+   * wanted six of something and got four did not go home disappointed; one who
+   * wanted bread and left without any did, and the two are different sentences.
+   *
+   * A shopper with nothing on their list reads as fully served — an impulse-only
+   * visit is not a shop that let anybody down.
+   */
+  visitFill(cust) {
+    const lines = cust.list?.length ?? 0;
+    if (!lines) return 1;
+    return clamp(1 - (cust.missed?.length ?? 0) / lines, 0, 1);
+  }
+
   stopShopping(cust, arch) {
     // Once per shopper, whatever happens to them afterwards. Anything that puts
     // a finished customer back on the shop floor — a layout re-flow is the one
@@ -16007,7 +16476,12 @@ export class Game {
       // without it, and a shopper who thought your milk was daylight robbery is
       // no happier than one who found the fridge empty — so the split above is
       // about telling the player what to do, never about softening the blow.
-      this.moveRep(-REP_MISSED_STAPLE * cust.missed.length, R.MISSED);
+      // The SHARE of their list we could not fill, never the count of lines —
+      // see `REP_MISSED_STAPLE`. Per line, a shopper who wanted four things and
+      // got three was charged four times what one who wanted one thing and got
+      // it was paid, so the shop was billed hardest by the people who tried to
+      // give it the most money.
+      this.moveRep(-REP_MISSED_STAPLE * (1 - this.visitFill(cust)), R.MISSED);
       /**
        * Who, and what sort of shopper they were.
        *
@@ -16380,7 +16854,36 @@ export class Game {
     // fact about the room rather than about their errand.
     if (this.mess > MESS_FROM) annoy += ANNOY_MESS * (this.mess - MESS_FROM);
 
-    cust.mood = clamp(cust.mood - (annoy / cust.patience) * dt, 0, 1);
+    /**
+     * ...spent as a fraction of the budget they ARRIVED with, which is what
+     * makes `patience` mean seconds again.
+     *
+     * The rates above are documented as relative to queueing, "which is 1.0 by
+     * definition: a shopper who does nothing but queue runs out in exactly
+     * `patience` seconds". That was true when everybody walked in at mood 1 and
+     * silently stopped being true the day `MOOD_BASE` shipped — the drain is
+     * absolute and the walk-in is now 0.6–0.7, so an authored 70 was buying
+     * about 45 seconds and no archetype was retuned.
+     *
+     * The half that is actually *visible* is worse, because `MOOD_ANNOYED` is an
+     * absolute line too. Time from the door to somebody looking cross in a queue
+     * fell by 3.35x across every archetype at once: a Snack Kid went from 13
+     * seconds to **3.9**, a Foodie from 52 to 15.7. docs/difficulty.md says of
+     * `moodBase` that "everything downstream of it in `stepMood` is untouched,
+     * so a queue costs what a queue costs" — true in budget-per-second, false in
+     * seconds-until-angry, and only the second one is a thing anybody can see.
+     *
+     * Scaling by `mood0` restores the anchor exactly: the time from the door to
+     * a storm-out is `patience / annoy` whatever they walked in on, so an
+     * authored number is seconds again. It deliberately does NOT restore the
+     * time to *looking* cross — that still shortens as the walk-in drops, which
+     * is `MOOD_BASE`'s actual feature (an ugly shop has less slack for a queue)
+     * and the thing charm buys back. What it fixes is the size: about 2.2x
+     * rather than 3.35x, and it goes away as the room gets nicer.
+     *
+     * `?? 1` for a customer built before the field — the sweeps make their own.
+     */
+    cust.mood = clamp(cust.mood - (annoy / cust.patience) * (cust.mood0 ?? 1) * dt, 0, 1);
     if (cust.mood > 0) return false;
     this.stormOut(cust);
     return true;
@@ -17182,7 +17685,20 @@ export class Game {
     // point — that you gained from forty people and gave it back to eleven who
     // had a miserable time getting served — and those are two different things
     // to do something about.
-    const mood = 0.008 * (cust.mood - MOOD_ANNOYED);
+    //
+    // Scaled by how much of their list they actually got, and `REP_VISIT` is
+    // two and a half times what this used to pay — see the constant for the
+    // arithmetic that made a good day come out negative. The two changes are one
+    // change: the gain had to be able to out-earn the miss charge sitting beside
+    // it, and it had to stay honest about a shopper who left happy with half of
+    // what they came for.
+    //
+    // The fill scales the GAIN and never the loss. Somebody who left annoyed
+    // left annoyed, and softening that because the shop also failed to stock
+    // what they wanted would pay a shop back for the second failure — the same
+    // trap `stopShopping`'s comment names about not softening the blow.
+    let mood = REP_VISIT * (cust.mood - MOOD_ANNOYED);
+    if (mood > 0) mood *= this.visitFill(cust);
     this.moveRep(mood, mood < 0 ? R.GRUMPY : R.SERVED);
     // Out of the basket and into their arms — the shop no longer owns it, but
     // they still have it until they are off the map.

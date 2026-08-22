@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-89 pieces across 20 kinds.
+91 pieces across 22 kinds.
 
 ## Fixtures
 
@@ -218,31 +218,59 @@ Indoors or out, owns its cell (people walk around it), worked from the side it f
 
 ### `belt`
 
-Indoors only, blocks nobody, nobody stands at it, rotates.
+Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 #### Conveyor
 
 `belt` · kind `belt` · $25 to build
 
-11 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 8 parts move always
+5 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 4 parts move always
 
-1. **Belt** — free, as built
+1. **Track** — free, as built
 2. **Quick Belt** — $40, speed ×1.8
-3. **Express Belt** — $110, speed ×3
+3. **Maglev Track** — $110, speed ×3
 
 ### `arm`
 
-Indoors only, blocks nobody, nobody stands at it, rotates.
+Indoors or out, owns its cell (people walk around it), nobody stands at it, rotates.
 
 #### Loader
 
 `arm` · kind `arm` · $90 to build
 
-7 parts · no `surface` boards — goods pile on its roof · 4 parts move always
+9 parts · no `surface` boards — goods pile on its roof
 
 1. **Loader** — free, as built
 2. **Quick Loader** — $90, speed ×1.9
 3. **Twin Loader** — $210, speed ×3.2
+
+### `sorter`
+
+Indoors or out, owns its cell (people walk around it), nobody stands at it, rotates.
+
+#### Sorter
+
+`sorter` · kind `sorter` · $140 to build
+
+9 parts · no `surface` boards — goods pile on its roof
+
+1. **Standard** — free, as built
+2. **Quick Sorter** — $140, speed ×1.9
+3. **Maglev Sorter** — $330, speed ×3.2
+
+### `under`
+
+Indoors or out, blocks nobody, nobody stands at it, rotates.
+
+#### Underground
+
+`under` · kind `under` · $60 to build
+
+8 parts · no `surface` boards — goods pile on its roof
+
+1. **Underground** — free, as built
+2. **Quick Underground** — $95, speed ×1.8
+3. **Maglev Underground** — $265, speed ×3
 
 ## Decorations
 
@@ -644,7 +672,7 @@ Ground. Painted over an area, blocks nobody, and carries a **job**: wholesale or
 
 `loading-bay` · kind `bay` · $8 per tile
 
-Surface `#9aa79b` / `#8c9a8d`, checker repeat. No model — ground *is* the cell.
+Surface `#ddd3bd` / `#d3c8b0`, checker repeat. No model — ground *is* the cell.
 
 ### `drop`
 
@@ -654,7 +682,7 @@ Ground. Painted over an area, blocks nobody, and carries a **job**: hands are cl
 
 `stockroom-floor` · kind `drop` · $8 per tile
 
-Surface `#c2a173` / `#a8865c`, planks repeat. No model — ground *is* the cell.
+Surface `#e6d6b4` / `#dbcaa6`, planks repeat. No model — ground *is* the cell.
 
 ### `break`
 
@@ -664,7 +692,7 @@ Ground. Painted over an area, blocks nobody, and carries a **job**: staff take t
 
 `break-room` · kind `break` · $12 per tile
 
-Surface `#b59ab8` / `#9d84a1`, checker repeat. No model — ground *is* the cell.
+Surface `#eadcc4` / `#e0d1b5`, checker repeat. No model — ground *is* the cell.
 
 ### `park`
 

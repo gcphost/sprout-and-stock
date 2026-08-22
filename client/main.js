@@ -19,6 +19,7 @@ import { showEdgeMenu, hasEdgeMenu, kindAt } from './edge-menu.js';
 import { Menu, preselectedWorld, setMenuApi, enableJoin } from './menu.js';
 import { bootSay, bootDone, bootFail } from './boot.js';
 import { Award } from './award.js';
+import { track, shopOpen } from './analytics.js';
 import { Tutor } from './tutor.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
@@ -54,8 +55,11 @@ const ui = new UI(net);
 // The seed picker pins itself to a plot in world space, so it needs to project.
 ui.scene = scene;
 // The award card. It owns its own element and stops the world while it is up —
-// see client/award.js.
-const award = new Award(ui, document.getElementById('award'));
+// see client/award.js. `dropGesture` is the other half of stopping: a card
+// arrives on the shop's clock rather than on a press, so it is the one overlay
+// that can land in the middle of a camera turn. Hoisted, so the forward
+// reference from here is fine.
+const award = new Award(ui, document.getElementById('award'), dropGesture);
 /**
  * The fitter who shows you round a shop you have just made — client/tutor.js.
  *
@@ -370,7 +374,15 @@ net.on('state', (m) => {
   music.setPaused(!!m.paused);
 });
 net.on('news', (m) => ui.toast(`📰 ${m.headline}`));
-net.on('achieved', (m) => { award.push(m); sfx.play('milestone'); });
+// The fanfare, unless the rung says otherwise. `first-storm` is the one that
+// does, and it is why the field exists: the ladder is being borrowed to explain
+// something that has gone WRONG, and a triumphant sting over "somebody walked
+// out" reads as the shop congratulating you for it.
+net.on('achieved', (m) => {
+  award.push(m);
+  sfx.play(m.sound ?? 'milestone');
+  track('milestone', { milestone_id: m.id });
+});
 net.on('content-changed', () => ui.toast('New content added — it is live now'));
 net.on('action', (res) => {
   if (res.ok) return;
@@ -3321,18 +3333,41 @@ canvas.addEventListener('pointercancel', (e) => {
   dropTouch(e.pointerId);
   if (!endSpin(e)) { endDrag(); endPress(e); }
 });
-addEventListener('blur', () => {
+/**
+ * EVERY GESTURE IN FLIGHT, ABANDONED — for the two things that happen TO you.
+ *
+ * Every other way a press ends is the player ending it: a release, a cancel, a
+ * second finger, a right-button abort. These two are not. The window losing
+ * focus never sends the pointerup at all, and an award card takes the screen on
+ * the shop's own clock — so in both, a gesture is left mid-air with no event
+ * coming that would close it.
+ *
+ * Nothing here is chosen for the award; it is the blur teardown, which was
+ * already exactly this list, given a name and a second caller. That is the
+ * argument for sharing it rather than writing a shorter version at the card:
+ * every one of these is a way for a press to get stuck, and a second list would
+ * be the one that goes out of date the day a sixth gesture is added.
+ *
+ * `endPress` is called with **no event**, deliberately, which is what makes it
+ * abandon a half-drawn wall rather than build it. That is the right answer for
+ * both callers and it is sharper for the card: the pointer's next journey is
+ * across the screen to a green button, and committing a run to wherever it
+ * happened to end is a wall you did not draw.
+ */
+function dropGesture() {
   touches.clear();
   pinch = null;
-  // A window that loses focus never sends the pointerup, so without this the
-  // button stays down for the server and the ring keeps winding while you are
-  // in another tab. `endDrag` below covers the ordinary paths; this covers the
-  // one that has no event at all.
+  // `release` first and on its own, because it is the one that is not local:
+  // without it the button stays DOWN as far as the server is concerned and the
+  // ring keeps winding on whatever you were last pointing at. `endDrag` below
+  // reaches it again on the ordinary paths; this covers the ones with no event.
   release();
   endSpin();
   endPress();
   endDrag();
-});
+}
+
+addEventListener('blur', dropGesture);
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -5603,6 +5638,7 @@ async function openWorld(worldId, name) {
   await net.connect(name, worldId);
   rememberInUrl(worldId);
   bootDone();
+  shopOpen('own');
   // No welcome toast. There was one — "Drag to move · tap a plot to sow · walk up
   // to things to use them" — and every clause of it had stopped being true: a
   // drag pans the camera rather than moving you, walking up to something stopped
@@ -5704,6 +5740,7 @@ async function openAsGuest(channel, name) {
   bootSay('Joining the shop…');
   net.becomeGuest(channel, name);
   bootDone();
+  shopOpen('guest');
   // ...and a guest gets shown round too, which for the whole of co-op they were
   // not: `maybeStart` is gated on a world this browser MADE, and a guest has no
   // world at all — so the one person in the game who has never seen it before

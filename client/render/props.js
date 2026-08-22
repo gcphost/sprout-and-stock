@@ -1911,6 +1911,9 @@ export function setGrowthBar(group, t) {
  * There is exactly one of these per painted region, so the texture it costs is
  * per pad and not per cell.
  */
+/** How much of the pad shows through its own marking. See the material below. */
+const PAD_MARK_ALPHA = 0.5;
+
 export function buildPadGlyph(glyph, ink) {
   const canvas = document.createElement('canvas');
   canvas.width = 128;
@@ -1923,6 +1926,20 @@ export function buildPadGlyph(glyph, ink) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
+    // Paint that has been walked on, rather than a sticker.
+    //
+    // Baking the mark into the ground light (see `addPadMarks`) puts it under
+    // the same lamp as the pad and does not touch how it sits ON it: full alpha
+    // is a fresh, opaque marking, and against a pad that is a soft mid-tone
+    // that still reads as a bright panel laid over the floor rather than as
+    // something painted into it. Letting the pad through is what makes it a
+    // marking — the same call `PAINT` makes about a wall finish and `stripes`
+    // about a crossing.
+    //
+    // One number, here, on purpose: it is the only thing anybody will ever want
+    // to turn, and every glyph in `paintGlyph` is authored at full ink so that
+    // none of them has its own opinion about how loud it is.
+    opacity: PAD_MARK_ALPHA,
     // Paint on ground that is already drawn: writing depth would let the mark
     // hide the goods standing on the pad, and the pad is the one piece of ground
     // in the shop with things stacked all over it.
@@ -1950,28 +1967,72 @@ function paintGlyph(ctx, canvas, glyph, ink) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
+  /**
+   * A crate on a lid line, and a down arrow through it, is what these two were
+   * — and between them they drew an E and a small window. Both were built out of
+   * thin strokes, which is the half that decided it: this is paint lying flat
+   * under a 40° camera, so a 0.09 line is the first thing foreshortening eats,
+   * and what survives of an outline at that angle is its silhouette. So both are
+   * FILLED now, and both say the thing itself rather than an abstraction of it —
+   * a bay is where the lorry goes, a drop-off is where the boxes pile up.
+   *
+   * Neither can be a letter, and neither can be a subtle drawing: the mark turns
+   * with the shop, so it is read at four different yaws, and the only thing that
+   * survives all four is a chunky shape with a distinctive outline.
+   */
   if (glyph === 'load') {
-    // A crate coming DOWN onto a line: what a lorry does at a delivery bay, and
-    // the arrow is the half that says which way the goods are going.
+    /**
+     * A lorry, side on, as ONE closed path — wheels included, as bumps along the
+     * underside rather than as circles sitting under it.
+     *
+     * That is the whole lesson from the version before this one, which drew the
+     * same lorry as four separate fills: a trailer, a cab and two wheels. Read
+     * flat, at a 40° camera, on a plane that is already foreshortened to a
+     * diamond, four disjoint shapes do not assemble into a vehicle in anybody's
+     * eye — they read as four blobs, and the gaps between them are as big a
+     * visual feature as the parts. A silhouette holds together because the
+     * OUTLINE is the information, and an outline cannot be broken into pieces.
+     *
+     * So: nothing here lifts the pen. Anything that would have been a detail
+     * inside the shape is left out instead of drawn small.
+     */
     ctx.beginPath();
-    ctx.moveTo(S * 0.5, S * 0.16);
-    ctx.lineTo(S * 0.5, S * 0.6);
-    ctx.moveTo(S * 0.28, S * 0.42);
-    ctx.lineTo(S * 0.5, S * 0.64);
-    ctx.lineTo(S * 0.72, S * 0.42);
-    ctx.moveTo(S * 0.22, S * 0.82);
-    ctx.lineTo(S * 0.78, S * 0.82);
-    ctx.stroke();
+    ctx.moveTo(S * 0.08, S * 0.28);
+    ctx.lineTo(S * 0.60, S * 0.28);
+    ctx.lineTo(S * 0.60, S * 0.40);
+    ctx.lineTo(S * 0.79, S * 0.40);
+    ctx.lineTo(S * 0.92, S * 0.53);
+    ctx.lineTo(S * 0.92, S * 0.66);
+    ctx.lineTo(S * 0.84, S * 0.66);
+    ctx.arc(S * 0.74, S * 0.66, S * 0.10, 0, Math.PI);
+    ctx.lineTo(S * 0.36, S * 0.66);
+    ctx.arc(S * 0.26, S * 0.66, S * 0.10, 0, Math.PI);
+    ctx.lineTo(S * 0.08, S * 0.66);
+    ctx.closePath();
+    ctx.fill();
     return;
   }
   if (glyph === 'stock') {
-    // A box, seen the way the whole game draws one — a rectangle with a lid
-    // line across it. The drop-off is where an armful becomes a crate.
-    ctx.strokeRect(S * 0.2, S * 0.26, S * 0.6, S * 0.5);
-    ctx.beginPath();
-    ctx.moveTo(S * 0.2, S * 0.44);
-    ctx.lineTo(S * 0.8, S * 0.44);
-    ctx.stroke();
+    /**
+     * Three crates stacked, two down and one across the join — and OUTLINED
+     * rather than filled, which is the opposite call to the lorry above and is
+     * made for the same reason.
+     *
+     * A lorry is a thing you know by its outline, so a solid one reads. A crate
+     * is a thing you know by being a box, and three solid boxes are three
+     * rectangles — which is what the last attempt drew, along with a cleared
+     * strip across each one to suggest a lid, so what actually landed was six
+     * pale bars in a grid. Stroked, the shape says box because you can see into
+     * it, and the shared edges between the three say stack.
+     *
+     * They TOUCH rather than sitting a hair apart. A gap is the thing that broke
+     * the lorry, and at this size it would separate the pile into three objects
+     * that happen to be near each other.
+     */
+    ctx.lineWidth = S * 0.075;
+    ctx.strokeRect(S * 0.16, S * 0.50, S * 0.34, S * 0.34);
+    ctx.strokeRect(S * 0.50, S * 0.50, S * 0.34, S * 0.34);
+    ctx.strokeRect(S * 0.33, S * 0.16, S * 0.34, S * 0.34);
     return;
   }
   if (glyph === 'charge') {

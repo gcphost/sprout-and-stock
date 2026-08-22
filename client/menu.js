@@ -167,6 +167,55 @@ function ago(ms) {
 const REMEMBERED = 'sns-world';
 
 /**
+ * A NEW SHOP IS NOT ENTERED IN BUILD MODE, WHATEVER THE LAST ONE WAS.
+ *
+ * `restoreView` in client/main.js keeps how you like the camera in `sns-view` —
+ * pitch, yaw, and whether you were building — and that key is the one that is
+ * deliberately NOT per-world, on the argument that all three are facts about
+ * the person rather than about the shop. The first two still are. The third
+ * stopped being one the day a tap in build mode took the VIEW there instead of
+ * your feet (`building()` in `tapAtPointer`), because the keys had already gone
+ * the same way (`flying()`): with the palette up there is no gesture left in the
+ * game that moves your body at all.
+ *
+ * So a shop you made ten seconds ago opened with its player parked, because of
+ * a mode you switched on in a different shop, and the tour's second card —
+ * "click the marked tile, you walk to it" — could not be finished by any press
+ * on the machine. Nothing on screen connects the two.
+ *
+ * Cleared HERE, at the moment of creation, rather than gated in `restoreView`,
+ * and both halves of that matter. It is the fact this press knows and nothing
+ * downstream does — "was this shop just made" is exactly `markWorldNew`'s
+ * question, asked one line below. And a gate would have to hold that fact
+ * somewhere until the first frame, which is a second list to leak: the tour's
+ * own new-world mark is only cleared when the tour ENDS, so a player with
+ * tutorials switched off would leave a world marked new for ever and never get
+ * their mode back in it.
+ *
+ * The per-world half goes too, and that is not tidiness. `mintId` frees the id
+ * of a deleted shop — make another one with the same name and you get the same
+ * string back — so a brand new save can inherit the camera position of the shop
+ * you just binned. Same trap `markWorldNew` documents about the tour's own
+ * marks, and it is why the first attempt at this fix, which read "has this
+ * world got a stored centre" as "have I ever played this world", did nothing at
+ * all for anybody who reuses a shop name.
+ *
+ * Keys spelled out rather than imported: client/main.js owns them, and it
+ * imports this file. Anything added to `sns-view` that is per-shop belongs in
+ * this function too.
+ */
+function forgetViewFor(id) {
+  try {
+    const raw = JSON.parse(localStorage.getItem('sns-view') ?? 'null');
+    if (raw && raw.build) {
+      delete raw.build;
+      localStorage.setItem('sns-view', JSON.stringify(raw));
+    }
+    if (id) localStorage.removeItem(`sns-view-at:${id}`);
+  } catch { /* private mode, quota, a stale value — none of it worth a toast */ }
+}
+
+/**
  * Whether this build can be a guest in somebody else's shop.
  *
  * Only the web build: joining means a data channel to a browser that is running
@@ -427,6 +476,9 @@ export class Menu {
       // handed the tour again on a shop you have already furnished is the thing
       // that makes people switch tutorials off. See client/tutor.js.
       markWorldNew(world.id);
+      // ...and it does not inherit the mode, or the camera, of whatever you
+      // were last doing somewhere else. See `forgetViewFor`.
+      forgetViewFor(world.id);
       this.play(world);
     });
   }

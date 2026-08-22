@@ -1985,22 +1985,97 @@ export class Scene {
       const zs = group.map(([, z]) => z);
       const w = Math.max(...xs) - Math.min(...xs) + 1;
       const d = Math.max(...zs) - Math.min(...zs) + 1;
-      // The centre of the pad's own cells, and then the member cell nearest to
-      // it — a U-shaped yard's middle is a square that is not part of the yard,
-      // and a symbol floating in the gap belongs to nothing.
       const mx = (Math.min(...xs) + Math.max(...xs)) / 2;
       const mz = (Math.min(...zs) + Math.max(...zs)) / 2;
-      const [gx, gz] = group.reduce((best, c) => (
+      /**
+       * The middle of the pad — and only the NEAREST CELL to it when the middle
+       * is not over the pad at all.
+       *
+       * A pad with an even span has its middle on a cell *boundary*, so snapping
+       * to a cell centre is half a tile off by construction. That is a look
+       * until the symbol is wide enough for half a tile to carry it over the
+       * edge, and at two cells it is: 1.6 of glyph, offset 0.5, on a pad 2 wide
+       * — 0.3 of a tile out on the grass. From three cells up the 2.2 ceiling
+       * keeps the symbol small enough that the same offset still lands inside,
+       * which is the whole of why this reads as "two looks wrong and three is
+       * fine" rather than as an offset that was always there.
+       *
+       * The fallback stays for the case its own comment was about: a U-shaped
+       * yard's middle is a square that is not part of the yard, and a symbol
+       * floating in the gap belongs to nothing.
+       *
+       * "Over the pad" is every cell the point TOUCHES — up to four of them,
+       * since an even span in both axes puts it on a shared corner — and all of
+       * them have to be ours. Asking whether any one is a member would re-create
+       * the same bug at an inside corner: the glyph would centre on a point with
+       * pad under a quarter of it and grass under the rest.
+       *
+       * Asked of this group rather than of `has`, which holds every pad of this
+       * kind in the shop: two regions can touch at a diagonal without being
+       * connected, and borrowing a corner off the pad next door would put the
+       * mark in the gap between them.
+       */
+      const mine = new Set(group.map(([x, z]) => `${x},${z}`));
+      const touching = (v) => (Number.isInteger(v) ? [v] : [Math.floor(v), Math.ceil(v)]);
+      const over = touching(mx).every((cx) => touching(mz).every((cz) => mine.has(`${cx},${cz}`)));
+      const [gx, gz] = over ? [mx, mz] : group.reduce((best, c) => (
         (c[0] - mx) ** 2 + (c[1] - mz) ** 2 < (best[0] - mx) ** 2 + (best[1] - mz) ** 2 ? c : best
       ), group[0]);
-      const size = Math.min(2.2, Math.max(0.7, Math.min(w, d) * 0.8));
+      /**
+       * ...and how big, which is the shorter span of the pad — EXCEPT where the
+       * mark had to fall back, because there the span is a lie.
+       *
+       * A bounding box describes a concave pad about as well as it describes any
+       * other, which is to say not at all: a U-shaped yard is 3×3 by that
+       * measure, so the symbol is sized for three cells and then drawn on a
+       * one-cell arm of the ring, hanging most of a tile out over the middle it
+       * is not part of. So in the fallback the size comes from how far the pad
+       * actually reaches from the cell the mark landed on, which is the same
+       * question the box was standing in for and the right one to ask.
+       *
+       * Only in the fallback: the centred branch has already established that
+       * the pad is solid under the middle, and its span is measured off cells it
+       * is genuinely in the middle of.
+       */
+      const reach = (dx, dz) => {
+        let n = 0;
+        while (mine.has(`${gx + dx * (n + 1)},${gz + dz * (n + 1)}`)) n += 1;
+        return n + 0.5;
+      };
+      const fit = over
+        ? Math.min(w, d)
+        : 2 * Math.min(reach(1, 0), reach(-1, 0), reach(0, 1), reach(0, -1));
+      // 0.73 of that rather than 0.8, and it is arithmetic rather than taste:
+      // the 2.2 ceiling is already 0.73 of a three-cell pad, and three cells is
+      // the size that looks right. At 0.8 the ratio *walked* — 0.80 of a
+      // two-cell pad, 0.73 of a three, 0.55 of a four — so a small pad wore a
+      // proportionally bigger symbol than a big one, on top of being the one
+      // that could not afford it. One number, one scale, every pad.
+      const size = Math.min(2.2, Math.max(0.7, fit * 0.73));
       const glyph = buildPadGlyph(mark.glyph, mark.ink);
       glyph.scale.set(size, size, 1);
       glyph.position.set(gx, height + 0.014, gz);
-      // Unbaked, and it is the one mark here that is: a texture's colour lives
-      // on the material rather than on an instance, so there is nothing per-cell
-      // to multiply the light into. A symbol is small enough that a lamp passing
-      // over it changing nothing reads as paint catching the light evenly.
+      /**
+       * Baked, like everything else painted on this pad.
+       *
+       * It used to be the one mark here that was not, and the argument was that
+       * a symbol is small enough that a lamp passing over it changing nothing
+       * reads as paint catching the light evenly. That was true of a thin
+       * stroked line and stopped being true the moment these became shapes with
+       * area: the pad around them is multiplied down into the ground light and
+       * the symbol was not, so what you get is a mark that is *brighter than the
+       * ground it is painted on* — which reads as a white decal stuck on the
+       * camera rather than as paint, the exact failure the edge lines and the
+       * crossing stripes are baked to avoid.
+       *
+       * A `MeshBasicMaterial`'s `color` multiplies its map, so the same
+       * per-instance value the lines use goes on the material instead. One
+       * sample at the middle of the symbol rather than per-cell, which is the
+       * half of the old comment that still holds — a mark this size does not
+       * want a gradient across it.
+       */
+      const lit = height + 0.014;
+      glyph.material.color = this.lights.bakeInto(new THREE.Color(1, 1, 1), gx, lit, gz);
       this.staticRoot.add(glyph);
     }
   }
@@ -3345,6 +3420,11 @@ export class Scene {
       .filter((a) => a.did).map((a) => [a.id, a.did]));
     this.armMove = new Map((state.arms ?? [])
       .filter((a) => a.move).map((a) => [a.id, a.move]));
+    // ...and the junction's own, which is the same field and the same window —
+    // see `sorterSent`. A sorter has no `did`: it takes nothing and refuses
+    // nothing, it only chooses, so the way out IS the whole readout.
+    this.sortMove = new Map((state.sorters ?? [])
+      .filter((s) => s.move).map((s) => [s.id, s.move]));
     // WHEN a transfer started is stamped HERE, on arrival, rather than in
     // `animateStations`. Two readers need it — the frame loop, which runs the
     // crate down the spur at 60Hz, and `syncDeliveries` below, which has to know
@@ -5954,12 +6034,43 @@ export class Scene {
      *
      * Halved here rather than covered over or drawn separately, so it stays one
      * mesh from one authored part at whatever colour that tier is painted.
+     *
+     * ...AND A BEND IS NOT THE ONLY CELL WITH NOTHING BEHIND IT, which is what
+     * this was actually about all along. The rule was written as `path.corner`
+     * because a bend is where it was noticed, and a corner is only one of the
+     * ways the back half ends up over a square the run never touches. The others
+     * happen in any shop: the first cell of a run has nothing feeding it by
+     * definition, and a belt whose `rot` names an empty square is a dead end that
+     * still lays a full tile of groove across itself. Both draw exactly what a
+     * bend used to — half a tile of track reaching into bare floor — and what it
+     * reads as is a belt somebody started building and abandoned.
+     *
+     * So the question is asked of the EDGE rather than of the shape: does
+     * anything hand goods to this cell across the side the back half lies on. A
+     * corner answers no (goods arrive across the side), which is why the old rule
+     * is a special case of this one rather than a clause beside it.
+     *
+     * `feeds` and not "is there a conveyor there" — the `ADJACENCY IS NOT
+     * CONNECTION` note on the filler is the same trap, and it is what keeps two
+     * runs laid side by side from growing stubs into each other.
      */
     const path = L && f.x != null ? this.conveyorPath(L, f) : null;
+    // Which way the art is turned, so "behind" is the model's own −x rather than
+    // a guess. The same expression `addFixtureProps` turns the prop by — a
+    // second spelling of it would cut the wrong end of a tunnel mouth, which is
+    // the one kind here whose art is deliberately laid against the flow.
+    const flowRot = derivedFlow(f.kind) ? this.conveyorFacing(L, f)
+      : (f.kind === 'under' && !tunnelExit(L, f)
+        ? rot4((f.rot ?? 0) + 2) : (f.rot ?? 0));
+    const back = path ? anchorTile(f.x, f.z, rot4(flowRot + 2)) : null;
+    const fedFromBack = back
+      ? path.feeds.some((v) => v.x === Math.sign(f.x - back.x)
+        && v.z === Math.sign(f.z - back.z))
+      : true;
     const half = (p) => {
       // The deck is the part that spans the tile — the same test `conveyorDeck`
       // uses to find it, rather than an index into a list somebody may reorder.
-      if (!path?.corner || (p.scale?.[0] ?? 0) < 0.99) return p;
+      if (!path || fedFromBack || (p.scale?.[0] ?? 0) < 0.99) return p;
       const pos = [...(p.pos ?? [0, 0, 0])];
       const scale = [...p.scale];
       // From the far side of the incoming leg to the outgoing edge — NOT from
@@ -6602,16 +6713,55 @@ export class Scene {
       // keeps the two marks from contradicting each other: a loader stocking a
       // shelf would otherwise wear a green join AND a "nothing downstream" pip.
       const outs = outsOf(c);
-      // A ring is every cell fed and every cell handing on, which is a run with
-      // no ends — correct, and nothing to draw.
+      const box = this.conveyorDeck(L, c);
+      // WHICH WAY THIS CELL'S RUN LIES, which is what the offset below is a
+      // fraction OF — and it is `conveyorPath` rather than a second derivation,
+      // because that function is what the SLATS are laid along. Any other answer
+      // is a mark set back along an axis the track it is lying on does not use,
+      // which is the sideways overhang below wearing a tidier spelling. It has
+      // the two fallbacks this needs already: a tail travels the way it is fed,
+      // and a lone cell that is neither falls back to its own facing, which is
+      // the direction its groove was drawn at.
+      const path = this.conveyorPath(L, c);
       for (const tail of [false, true]) {
         if (tail ? outs.length : fed.has(c.id)) continue;
         // A pip in the middle of the deck rather than on an edge: an end is a
         // fact about the CELL, where a join is a fact about the line between
         // two, and putting both on the edge would read as one more join.
+        //
+        // ...and set BACK along the run rather than west of centre. The nudge
+        // is what keeps a lone cell's two pips from being drawn on top of one
+        // another, and along the run it earns a second meaning for free: a head
+        // sits before the first cell and a tail after the last one, so the mark
+        // points at the gap it is about. Written down as x it did that on an
+        // east-west run and pushed the pip SIDEWAYS on a north-south one —
+        // `cross` is 0.13 on the shipped belt against a pip 0.16 across, so at
+        // 0.11 off centre most of it hung off the track onto the floor.
+        //
+        // A tail is set back along the way it is FED and a head along the way it
+        // hands ON, which are the same axis on a straight run and different ones
+        // at a bend — where the leg each pip is about is the one that exists.
+        const dir = tail ? path.in : path.out;
+        const step = tail ? 0.11 : -0.11;
         const pip = new THREE.Mesh(geo, endMaterial(tail));
-        pip.scale.set(0.16, 0.02, 0.16);
-        pip.position.set(c.x + (tail ? 0.11 : -0.11), 0.134, c.z);
+        pip.scale.set(0.16, PIP_H, 0.16);
+        // SEATED ON THE DECK, and it is worth saying what it was. This was
+        // 0.134 — a hair above 0.132, which is the exact height the join marks
+        // were moved DOWN from six lines up, for the reason recorded there: at
+        // this camera height reads as up-screen displacement, so a mark floating
+        // 0.04 over the track is drawn beside the cell it belongs to rather than
+        // on it. The joins were fixed and the ends were left behind, which is
+        // why the two disagree on a run you can see both on.
+        //
+        // Measured off the deck rather than written down, because the deck is
+        // content — `conveyorDeck` is the same reader the filler and the rails
+        // use, so a tier authored at a different height cannot leave this one
+        // number pointing at the old one.
+        pip.position.set(
+          c.x + dir.x * step,
+          box ? box.y + box.h / 2 + PIP_H / 2 : PIP_Y,
+          c.z + dir.z * step,
+        );
         pip.renderOrder = 3;
         pip.raycast = NO_PICK;
         this.beltRoot.add(pip);
@@ -6822,11 +6972,6 @@ export class Scene {
     // a blade authored in model space would point wherever the run happened to
     // be running. It is the one part of a sorter you can read from across the
     // shop, and without it the piece is a belt cell with a hub on it.
-    // Round, for the beacons below. Built here with the rest of `beltRoot` so
-    // `disposeGroup` frees it on the next re-flow — a shared one would be
-    // disposed out from under every other conveyor mesh in the shop.
-    const domeGeo = new THREE.CylinderGeometry(0.5, 0.42, 1, 12);
-
     // THE SIDES A BOX NEVER CROSSES GET WALLED IN, and that is the inversion.
     //
     // This cut a mouth on every carrying side, which was the same picture drawn
@@ -6880,52 +7025,70 @@ export class Scene {
         this.beltRoot.add(wall);
       }
 
-      // A BEACON ON THE ROOF — one machine, one light.
+      // A MARK PER SIDE ON THE ROOF, rather than one lamp in the middle of it.
       //
-      // There was a lamp per chute, on the argument that the readout belongs to
-      // the box rather than floating over the shelf, and that argument was
-      // right about a cabinet bolted to a unit. It stopped being about one
-      // thing the day a loader served three: a machine wearing three lights all
-      // saying the same word is a machine you have to check three times to read
-      // once. The roof is the one surface every one of these has, whichever way
-      // it is turned and however many units it feeds.
+      // There was a beacon here — one machine, one light — and before that a
+      // lamp per chute. The beacon is the better answer to "is this thing
+      // working" and it is the wrong answer to the question people actually ask
+      // of these two pieces, which is *which way did my box go*. A single dot
+      // has one bit to say it with: a loader that poured left and a loader that
+      // poured right are the same green dot, and a junction — the one piece in
+      // the shop whose whole job is choosing between ways out — reported its
+      // choice by lighting up in the middle.
       //
-      // ROUND, and against every other mesh on a conveyor — the whole family is
-      // boxes, so the one thing that is not a box is the one thing you look at.
-      // Its own geometry rather than the shared box: `disposeGroup` frees any
-      // geometry it does not recognise, so this is built per re-flow with the
-      // rest of `beltRoot` and goes out with it.
+      // So the roof carries a bar per side, and the one that lights is the side
+      // the goods crossed. It reads at a glance across the shop and it is the
+      // one readout on a conveyor whose meaning does not depend on remembering
+      // which colour meant what.
       //
-      // Its own material for `linkMaterial`'s reason one size up — `material()`
-      // is a cache keyed by colour, and recolouring a lamp through it would turn
-      // every cream thing in the shop green.
-      const beacon = new THREE.Mesh(domeGeo, new THREE.MeshLambertMaterial({
-        color: new THREE.Color(LAMP_IDLE), flatShading: true,
-      }));
-      beacon.scale.set(0.2, 0.11, 0.2);
-      beacon.position.set(c.x, box.y + box.h / 2 + 0.06, c.z);
-      beacon.raycast = NO_PICK;
-      this.beltRoot.add(beacon);
+      // ONLY THE SIDES GOODS CAN CROSS get one, off the same `open` set the
+      // walls above are cut from. A bar over a panelled side is a light for a
+      // path that does not exist — the "tier that changes no number" trap said
+      // about a readout — and worse, it makes the two machines look identical
+      // from above when the whole point is telling their shapes apart.
+      //
+      // Its own material per bar, for `linkMaterial`'s reason: `material()` is a
+      // cache keyed by colour, so recolouring through it would turn every cream
+      // thing in the shop green. And each bar goes on `rec.moving`, which is
+      // what `weld` is told to keep — welded, it would be drawn in exactly the
+      // right place, merged into a batch by vertex colour, and never change
+      // again, which reads as a machine that has stopped reporting.
       const rec = this.movingFixtures.get(c.id)
         ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
       rec.conveyor = true;
-      // A sorter has no `armSaid` — it takes nothing and refuses nothing, it
-      // only chooses — so its light answers the question a tunnel mouth's does:
-      // is there a box in here. Without this it is a lamp that is dim for ever,
-      // which is the "tier that changes no number" trap wearing a bulb.
-      if (c.kind === 'sorter') rec.mouth = true;
-      (rec.lamps ??= []).push(beacon);
-      rec.moving.push({
-        mesh: beacon,
-        motion: { kind: 'pulse', hz: 1.6, amount: 0.45 },
-        pos: beacon.position.clone(),
-        rot: 0,
-        scale: beacon.scale.clone(),
-        axis: null,
-        arm: null,
-        pivot: null,
-        phase: rec.moving.length * 0.41,
-      });
+      // Which way the run itself leaves, so a box that was merely PASSED ON has
+      // a side to light too. Without it a loader that refused a box says nothing
+      // at all, which is indistinguishable from a loader nothing reached.
+      rec.outSide = path.out && (path.out.x || path.out.z)
+        ? { dx: Math.sign(path.out.x), dz: Math.sign(path.out.z) } : null;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (!open.has(`${dx},${dz}`)) continue;
+        const face = dx ? box.long : box.cross;
+        const pip = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+          color: new THREE.Color(LAMP_IDLE), flatShading: true,
+        }));
+        // Along the edge it sits on, so a bar reads as belonging to that side
+        // rather than as a stud dropped on the roof.
+        pip.scale.set(dx ? 0.1 : box.long * 1.1, 0.04, dz ? 0.1 : box.cross * 1.1);
+        pip.position.set(c.x + dx * face * 0.66, box.y + box.h / 2 + 0.02, c.z + dz * face * 0.66);
+        pip.raycast = NO_PICK;
+        this.beltRoot.add(pip);
+        (rec.pips ??= []).push({ dx, dz, mesh: pip });
+        rec.moving.push({
+          // Nothing to animate — a bar that pulsed would pulse on every open
+          // side of a busy machine, which is the single dot's problem again in
+          // four places. What it is on this list for is `weld`.
+          mesh: pip,
+          motion: { kind: 'none' },
+          pos: pip.position.clone(),
+          rot: 0,
+          scale: pip.scale.clone(),
+          axis: null,
+          arm: null,
+          pivot: null,
+          phase: 0,
+        });
+      }
       this.movingFixtures.set(c.id, rec);
     }
 
@@ -8431,6 +8594,36 @@ export class Scene {
         body.lit = hue;
         for (const lamp of body.lamps) lamp.material.color.set(hue);
       }
+
+      // ...and the ROOF BARS, which answer "which way did it go" where the lamp
+      // above answers "what came of it". A loader and a junction each get one
+      // per side goods can cross, and at most one of them is lit.
+      //
+      // Green is a TRANSFER — the side a box actually crossed, whether that was
+      // poured into a unit, lifted off the floor, or picked by a junction as its
+      // way out. Amber is a PASS: the loader looked at the box, nothing beside
+      // it would take it, and it carried on down the run — so the bar that
+      // lights is the run's own exit, which is where the box went.
+      //
+      // The two are read in that order because a transfer is the more specific
+      // answer: `armSaid` says `pass` about the swing, and a swing that poured
+      // is not one, so they never both apply to the same box. Keyed as a string
+      // for the same reason the lamp keeps `body.lit` — a per-frame write per
+      // bar is exactly the cost the gate above exists to avoid.
+      if (body.pips) {
+        const mv = this.armMove?.get(id) ?? this.sortMove?.get(id) ?? null;
+        const lit = mv ? { dx: mv.d[0], dz: mv.d[1], hue: LAMP_ON }
+          : (said === 'pass' && body.outSide)
+            ? { ...body.outSide, hue: LAMP_PASS } : null;
+        const key = lit ? `${lit.dx},${lit.dz},${lit.hue},${mv?.n ?? ''}` : '';
+        if (body.pipLit !== key) {
+          body.pipLit = key;
+          for (const pip of body.pips) {
+            const on = lit && pip.dx === lit.dx && pip.dz === lit.dz;
+            pip.mesh.material.color.set(on ? lit.hue : LAMP_IDLE);
+          }
+        }
+      }
       // ...and the join marks, which answer a different question from the lamp
       // above and have to be asked separately even on the cell that has both.
       // A loader's lamp reports what it last DID (`armSaid`) — it took a box, it
@@ -9022,6 +9215,18 @@ const flowMaterial = (hex) => {
  */
 const END_HEAD = '#e0a341';
 const END_TAIL = '#e2564a';
+/** How thick a pip is, which is also how far its centre clears the deck top. */
+const PIP_H = 0.02;
+/**
+ * ...and where it sits on a cell whose art declares no deck at all.
+ *
+ * A fallback rather than the number, because every conveyor in the game has a
+ * track and `conveyorDeck` finds it — this is for a piece somebody authors this
+ * afternoon with nothing a tile wide on it. It matches the join marks' own
+ * height on the shipped belt, so an unreadable model is drawn at the height the
+ * rest of the run is rather than at the height this mark used to be.
+ */
+const PIP_Y = 0.097;
 let END_MATS = null;
 const endMaterial = (tail) => {
   END_MATS ??= [END_HEAD, END_TAIL]
