@@ -1494,10 +1494,48 @@ function refreshGhost(force = false) {
     // means something here. Computed off the same four things the markers were
     // just drawn from, so the pill cannot describe a target the highlights
     // disagree about — see `pressHints`.
-    ui.setPressHints(pressHints({ aim, board, onPile, drop: show ? drop : null }));
+    const hints = pressHints({ aim, board, onPile, drop: show ? drop : null });
+    // ...AND WHICH THING THE ROWS ARE ABOUT, which the pill has never said.
+    //
+    // Every row here is a verb with no subject — "Open it", "Turn it", "Take it
+    // there" — and the only thing naming the *it* was the build bar's own hint
+    // line, which is gated on the mode being on and on the pointer being over
+    // something (`buildHintText`). So out of build mode nothing named it at all,
+    // and in build mode it went the moment you looked away. What the shop draws
+    // instead is a ring, and a ring tells you WHERE the thing is, not what it
+    // is: three conveyor cells, a plot and a loader all ring identically.
+    //
+    // The pointer first and the selection second, which is the same order
+    // `pressHints` puts them in — so the name and the rows can never be about
+    // two different units. Only a fixture: a crate says what is in it on the box
+    // itself and a square is not a thing with a name.
+    const about = aim?.crate || onPile
+      ? null
+      : aim?.fixture ?? scene.fixtureById(ui.fixtureRef?.id) ?? null;
+    if (about) hints.about = ui.fixtureName(about);
+    ui.setPressHints(hints);
     return;
   }
-  const tile = scene.pickTile(pointer.x, pointer.y);
+  /**
+   * ...and the HUD is not a tile, which is the one way out of here that had no
+   * `onCanvas` on it.
+   *
+   * A ray fired at a point under the palette still hits the floor behind it, so
+   * with something armed the ghost went on tracking a shelf you could not see
+   * and the hint line went on describing it — which is how a warning ends up
+   * parked above the bar for as long as you are USING the bar. And it is the
+   * worst of the three lines to leave up: "that cuts 10 fixtures off from the
+   * door" is a sentence about a tap, sitting over a row of buttons, describing a
+   * press nobody is about to make. The half a second it takes to read it is
+   * spent working out which of the two things on screen it is about.
+   *
+   * Every other branch above already asks (`aiming`, and the two `pointer
+   * .onCanvas` reads on the aim), so this is the odd one out rather than a new
+   * rule. Deliberately not `aiming` itself: that one also freezes between
+   * presses on a touchscreen, which is right for a hover nobody has and wrong
+   * for the build ghost, which follows a held press.
+   */
+  const tile = pointer.onCanvas ? scene.pickTile(pointer.x, pointer.y) : null;
   if (!tile) {
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
     ui.setBuildVerdict(null);
@@ -2514,6 +2552,84 @@ function edgeDragRun(cx, cy) {
   return { segs: edgeRun(edgeDrag.start, to), to };
 }
 
+/**
+ * The box you drag round part of the shop to pick everything in it.
+ *
+ * The gesture docs/building.md called "the obvious next one" and left out, and
+ * the reason it was left out is the reason it is its own drag path: it is the
+ * one press in build mode that names several things and moves none of them, so
+ * it can share nothing with the wall, brush, lift and camera drags standing
+ * beside it in `pointerdown`.
+ *
+ * Three decisions in it.
+ *
+ * It is a **screen** rectangle, not a tile one, and `fixturesInRect` says why —
+ * at this camera a shelf is drawn most of a tile up-screen of the ground it
+ * stands on, so a box tested against tiles catches the row behind the one you
+ * dragged over.
+ *
+ * It **adds** rather than replaces, always. Shift already means "and this one
+ * too" on a click, and a drag under the same key that quietly threw away the
+ * five you had picked by hand would be the same key meaning the opposite thing
+ * at two speeds. So the box is a way of shift-clicking a lot of things at once,
+ * and `togglePicked` is what it calls — which also makes dragging over the same
+ * aisle twice a way to take it back out again.
+ *
+ * And a drag under `MARQUEE_SLOP` **is a click**, because a hand is not steady:
+ * a shift-click that jittered three pixels would otherwise become a box round
+ * nothing and read as the click having missed.
+ */
+const MARQUEE_SLOP = 5;
+let marquee = null;
+
+/** Draw it, or take it away. One absolutely-positioned div, no canvas work. */
+function showMarquee() {
+  const el = ui.el.marquee;
+  if (!el) return;
+  if (!marquee) { el.classList.remove('show'); return; }
+  const x = Math.min(marquee.x0, marquee.x1);
+  const y = Math.min(marquee.y0, marquee.y1);
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.style.width = `${Math.abs(marquee.x1 - marquee.x0)}px`;
+  el.style.height = `${Math.abs(marquee.y1 - marquee.y0)}px`;
+  el.classList.add('show');
+}
+
+/**
+ * Let go of it: a click if it never really moved, a box if it did.
+ *
+ * The box adds every fixture in it that is not already picked and takes out
+ * every one that is — `togglePicked`, once per unit, which is exactly what the
+ * clicks it stands in for would have done. One ripple, on the first, because a
+ * ripple per shelf over eleven shelves is a puddle.
+ */
+function endMarquee(e) {
+  if (!marquee || (e && e.pointerId !== marquee.id)) return false;
+  const m = marquee;
+  marquee = null;
+  showMarquee();
+  const moved = Math.abs(m.x1 - m.x0) > MARQUEE_SLOP || Math.abs(m.y1 - m.y0) > MARQUEE_SLOP;
+  if (!moved) {
+    // The click it always was. A miss is deliberately nothing at all — it is not
+    // "deselect", because the ordinary press already means that and this one is
+    // meant to be safe to repeat.
+    if (m.pick) {
+      ui.togglePicked(m.pick);
+      scene.ripple(m.pick.x, m.pick.z, 'miss');
+    }
+    return true;
+  }
+  const hits = scene.fixturesInRect(m.x0, m.y0, m.x1, m.y1);
+  if (!hits.length) return true;
+  scene.ripple(hits[0].x, hits[0].z, 'miss');
+  // One call, not one per unit: eleven shelves in a drag would otherwise be
+  // eleven redraws of a menu that is every item in the catalogue long. See
+  // `pickMany`.
+  ui.pickMany(hits);
+  return true;
+}
+
 let faceDrag = null;
 
 /**
@@ -3176,20 +3292,38 @@ canvas.addEventListener('pointerdown', (e) => {
   // cleared itself the moment your finger slid.
   if ((e.shiftKey || ui.pickLatch) && !ui.holding) {
     if (e.shiftKey) setShift(true);
-    // The selection, with the bar up or down — which is the half that changed
-    // when the bulldozer moved off this key. Missing the fixtures entirely does
-    // nothing at all: it is not "deselect", because the ordinary press already
-    // means that and this one is meant to be safe to repeat.
+    // The press opens a MARQUEE and the tap is its degenerate case, which is
+    // the only shape that lets one key mean both. A click adds one unit and a
+    // drag adds everything you drew round — and the two cannot be told apart on
+    // the way down, so the box starts on every press and `endMarquee` decides
+    // which it was by how far the pointer travelled. The old code answered on
+    // `pointerdown` and therefore had nowhere to put a drag at all.
+    //
+    // Captured, so a drag that leaves the canvas still ends here. Consumed
+    // whole — no `drag`, no hold timer — for the reason the toggle already was:
+    // the release must not ALSO be a tap, or `tapAtPointer` walks you to the
+    // last shelf you dragged over.
+    //
+    // `pick` is read now rather than on release, because the world moves: a
+    // stocker crossing under a stationary pointer between the press and the
+    // release would otherwise be what you had clicked — `settledWho`'s trap
+    // said about a fixture.
+    //
+    // Started on a hit, or anywhere at all inside a mode that is yours. That
+    // second clause is the old `if (ui.paletteArmed) return` in its new job: a
+    // shift-click that missed everything was already spent while building, and
+    // outside the mode it fell through to walking — which is Shift's other job
+    // on that key (`sprint`), and shift-click-to-run-over-there is a gesture
+    // people have. So the box may only begin on bare floor where the press was
+    // never going to walk you anyway.
     const pick = pickTarget(e.clientX, e.clientY);
-    if (pick) {
-      ui.togglePicked(pick);
-      scene.ripple(pick.x, pick.z, 'miss');
+    if (pick || ui.paletteArmed) {
+      marquee = {
+        id: e.pointerId, x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, pick,
+      };
+      canvas.setPointerCapture(e.pointerId);
       return;
     }
-    // ...and a miss with the palette up is still spent, for the reason above
-    // said about the other key: a shift-click that quietly bought a shelf is
-    // the worst possible answer to "I meant to add that one to the selection".
-    if (ui.paletteArmed) return;
   }
 
   // A wall tool takes the drag before the camera sees it — unless the
@@ -3532,6 +3666,14 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pinch) { stepPinch(); return; }
+  // Before every build drag, the way it took the press before every build drag:
+  // this one moves nothing, so nothing underneath it should be previewing.
+  if (marquee && e.pointerId === marquee.id) {
+    marquee.x1 = e.clientX;
+    marquee.y1 = e.clientY;
+    showMarquee();
+    return;
+  }
   if (faceDrag && e.pointerId === faceDrag.id) {
     showFaceDrag(e.clientX, e.clientY);
     return;
@@ -3558,7 +3700,12 @@ canvas.addEventListener('pointermove', (e) => {
   drag.travel = Math.max(drag.travel, Math.hypot(e.clientX - drag.ox, e.clientY - drag.oy));
   // Past the slop it is a pan and never becomes a tap again, so the long press
   // is disarmed for good rather than re-tested each move.
-  if (drag.travel >= TAP_SLOP) {
+  //
+  // ...unless a ring is already winding on this press, in which case the press
+  // is not up for reinterpretation at all — see `ringHasPress`. Everything below
+  // is the pan verdict, `release()` included, and that release is the half that
+  // hurt: it is what threw away a pull you were part way through.
+  if (drag.travel >= TAP_SLOP && !ringHasPress()) {
     clearLongPress();
     // Moved, so this press is a pan and never an action. Same verdict the tap
     // gets, and it has to be sent rather than merely remembered — the server is
@@ -3643,6 +3790,14 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function endPress(e) {
+  // First, and it returns: a marquee is the whole press. Everything below is a
+  // build verb, and this one is the press that decided which things the next
+  // build verb is about.
+  if (marquee && (!e || e.pointerId === marquee.id)) {
+    if (e) endMarquee(e);
+    else { marquee = null; showMarquee(); }
+    return;
+  }
   if (edgeDrag && (!e || e.pointerId === edgeDrag.id)) {
     const drawn = e ? showEdgeDrag(e.clientX, e.clientY) : null;
     const start = edgeDrag.start;
@@ -4085,6 +4240,33 @@ function noRoomWhy(itemId) {
  */
 const charging = () => ((latestState?.players
   ?.find((p) => p.id === net.myId)?.action?.progress ?? 0) > 0);
+
+/**
+ * ...and the fifth drag that is not the camera's: the one WINDING A RING.
+ *
+ * `drag.aiming`, `drag.moving` and `drag.carried` are all the same sentence —
+ * this press is doing something, so the shop must hold still underneath it —
+ * and a held press on a crate or a board is the one that was left out. It is
+ * also the one people make most: half a second is long enough for a hand to
+ * wander seven pixels, so a pull that was already a third of the way in threw
+ * its charge away and spun the view instead. Nothing says a word, the box you
+ * were emptying is still there, and what it reads as is the hold not working —
+ * intermittently, which is the worst way for it to read.
+ *
+ * Both halves, and neither alone is the test. `drag.took` is what makes it a
+ * question about the POINTER: the press named a crate or a pile on the way down
+ * (see the arming block in `pointerdown`), so this drag belongs to that press
+ * rather than to the view. `charging()` is what keeps it from being a tax on
+ * every other press — the server is the only thing that knows a ring has
+ * actually started, so a press on a crate across the shop (which walks, and
+ * charges nothing until you arrive) still gives its drag to the camera, and so
+ * does a press that happened to be made while a shopper was at the till.
+ *
+ * The camera is skipped rather than the whole branch, so `lx`/`ly` still track:
+ * the ring ends when the action fires, and a pan that resumed against an anchor
+ * from half a second ago would leap the whole drag in one frame.
+ */
+const ringHasPress = () => drag.took && charging();
 
 /**
  * A shelf's live record, boards and all.
@@ -4855,13 +5037,39 @@ function pressHints({ aim, board, onPile, drop }) {
   // before, because `dropping` and `boardTakes` already refuse the mode and the
   // rows would be describing presses the bar has taken.
   if (ui.paletteArmed) {
-    if (!f) return out;
+    // A SELECTION IS STILL A TARGET AFTER THE POINTER HAS LEFT IT, and in build
+    // mode that is the difference between a caption and a card that blinks.
+    //
+    // The rows here were derived from the hover alone, which is the right answer
+    // out on the shop floor — a pointer is live, and what it is over is what a
+    // press would land on. It is the wrong answer in this mode, because two of
+    // the three verbs below are not about the pointer at all: R turns whatever
+    // is SELECTED and the Move row runs `liftAimed` on it, and the selection is
+    // ringed in the shop and stays ringed while you look elsewhere. So the shop
+    // was drawing the marker and taking the words away — point at a unit and the
+    // pill names it, slide one tile onto bare floor and the whole card goes,
+    // with the teal frame still lit on the thing R would still turn. Reaching
+    // for the toolbar does it too, which is the moment you most need to know
+    // what you have got hold of.
+    //
+    // This is `pillDrives`'s own argument (see `f` above — "the thing you sent
+    // yourself to is still the thing") arriving at the other end: there it is
+    // the tap that survives the walk, here it is the selection that survives the
+    // hover. The pointer still wins wherever it has something to say, so a
+    // deliberate aim at another unit is never overruled — this is only what the
+    // pill falls back to when it would otherwise have gone blank.
+    //
+    // The HOLD-DRAG tag stays honest by being about the RINGED unit rather than
+    // about the square under the pointer: the row runs the lift itself, and the
+    // gesture it names is the one that works on the thing the words are about.
+    const sel = f ?? scene.fixtureById(ui.fixtureRef?.id) ?? null;
+    if (!sel) return out;
     // Where the pill drives, the tap only ever picks (`openInTwo`) and the row
     // is the way in, so it says one thing. On a mouse the tap climbs the ladder
     // itself and the row names the rung it is standing on — the same split the
     // out-of-reach branch below already makes, for the same reason.
-    if (pillDrives()) add('l', null, 'Open it', () => openInTwo(f, { open: true }));
-    else add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it', () => openInTwo(f));
+    if (pillDrives()) add('l', null, 'Open it', () => openInTwo(sel, { open: true }));
+    else add('l', null, ui.isSelected(sel) ? 'Open it' : 'Select it', () => openInTwo(sel));
     // The drag, which is the gesture everybody tries first and the one this pill
     // is worst placed to describe — you cannot pull a fixture with a button. So
     // the row RUNS it (the same `liftAimed` M does) and the tag says how to make
@@ -4874,13 +5082,13 @@ function pressHints({ aim, board, onPile, drop }) {
     // because a bare drag is still the camera: the press has to settle first
     // (`MOVE_DWELL_MS`), and naming only the second half of the gesture is how
     // you end up sweeping at a shelf and blaming the feature.
-    add('l', 'hold-drag', 'Move it', () => liftAimed(f, { reopen: false }));
+    add('l', 'hold-drag', 'Move it', () => liftAimed(sel, { reopen: false }));
     // ...and the one press here that is not a press at all. Only on the unit
     // that is actually selected, because that is what R acts on — offering it
     // over a fixture you are merely hovering would turn the one behind you.
     // `rotateSelected` owns the several-at-once refusal itself, the way the
     // Rotate button it stands in for does.
-    if (ui.isSelected(f)) add('k', 'R', 'Turn it', () => ui.rotateSelected());
+    if (ui.isSelected(sel)) add('k', 'R', 'Turn it', () => ui.rotateSelected());
     return out;
   }
 

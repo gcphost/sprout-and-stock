@@ -470,6 +470,52 @@ export const GROUND = {
     lastGone: 'that is your last parking space — nobody would be able to drive to the shop',
   },
   /**
+   * The paddock — the fifth pad, and the one that gave the animals a body.
+   *
+   * The bay and the drop-off hold the shop's goods, the break area holds its
+   * staff, the car park holds its shoppers. This one holds livestock, and it is
+   * the same sentence a fourth time: **how big you paint it is how many head it
+   * grazes**. `PEN_CELLS_PER_HEAD` is the exchange rate and it is the only new
+   * number in the step.
+   *
+   * ### Why paint rather than a fence
+   *
+   * You already have wall edges, gates and signed ways through, so the obvious
+   * shape is "a paddock is whatever your fence encloses" — flood from the
+   * shelter, bounded by `SOLID`. It is the wrong shape here for three reasons,
+   * and the first is fatal on its own. Enclosure in this game is shop-wide and
+   * all-or-nothing (`computeIndoor` answers ZERO indoor cells for a breached
+   * shell), so a second enclosure question would need its own flood, re-run on
+   * every wall segment of every drag — and build mode re-flows on every one of
+   * those. Then: a gate left open is a paddock that is silently the whole map,
+   * or silently nothing, with no reading on screen either way. And a fence you
+   * drew for the LOOK of it would start deciding the balance, which is the
+   * variant rule broken — a shape may never move a number.
+   *
+   * So the rails stay scenery and the paint is the rule. Draw a fence round it
+   * because a farm has fences, not because the game is counting them.
+   *
+   * ### Why the shelter does not stand on it
+   *
+   * A pad is never buildable — `BUILDABLE_INDOOR` is floor and
+   * `BUILDABLE_OUTDOOR` is grass — so a pen stands on grass and its paddock is
+   * the painted region it TOUCHES (`paddockOf`). That falls out rather than
+   * being decided, and it is the right answer anyway: you do not build on the
+   * delivery bay either, and a shelter standing in the middle of its own field
+   * with the grazing painted around it is the picture a farm actually makes.
+   *
+   * Losing it is a warning rather than a refusal, for the break area's reason:
+   * the fallback is the whole of what the game did before, since a pen with no
+   * paddock is one head, which is step 1's numbers to the digit.
+   */
+  paddock: {
+    label: 'Paddock',
+    tile: T.PADDOCK,
+    pad: true,
+    does: 'animals graze here, and how big you paint it is how many head a pen you stand in it holds',
+    lastGone: 'that is your last paddock tile — every pen would go back to a single animal',
+  },
+  /**
    * The road — the fifth ground kind and the second that is only a *look*.
    *
    * `floor` is the other one, and the pair is the whole taxonomy: the four pads
@@ -1698,6 +1744,61 @@ export function padCells(L, kind) {
 export const isPadAt = (L, kind, x, z) => tileAt(L, x, z) === groundTile(kind);
 
 /**
+ * The paddock THIS pen stands in — the contiguous run of painted cells its
+ * footprint touches, and never every paddock cell on the map.
+ *
+ * A pad is one named region in as many pieces as you painted it, and reading it
+ * globally is a bug docs/belts.md already paid for once: `dropGoods` fills a
+ * region by list order, so a loader beside the fridges handed its box to the
+ * yard thirty tiles away. Said about grazing it would be worse than a wrong
+ * shelf — a paddock at the top of the farm would fatten a hen house at the
+ * bottom of it, so the field you painted and the animals in it would be two
+ * unrelated facts that happen to be on the same save.
+ *
+ * So it is a flood over TILES, four-connected, seeded from the cells around the
+ * block. Deliberately not a flood over EDGES: this is the one place a second
+ * enclosure question could have crept in, and `GROUND.paddock`'s note is why it
+ * did not. Nothing here consults a wall, which means a fence you draw across a
+ * paddock does not divide it — paint is the rule, and if you want two fields,
+ * leave a cell of grass between them.
+ *
+ * Pure, and O(the region) rather than O(the map). Callers that ask it per tick
+ * should cache it against the layout's identity, the way `conveyorFlow` does —
+ * a re-flow replaces `L`, which is exactly when the answer can have changed.
+ */
+export function paddockOf(L, pen) {
+  const want = groundTile('paddock');
+  const out = [];
+  if (want == null || !L?.tiles) return out;
+  const seen = new Set();
+  const stack = [];
+  const visit = (x, z) => {
+    if (x < 0 || z < 0 || x >= L.w || z >= L.h) return;
+    const k = z * L.w + x;
+    if (seen.has(k) || L.tiles[k] !== want) return;
+    seen.add(k);
+    out.push({ x, z });
+    stack.push({ x, z });
+  };
+  for (const c of footprint(pen.kind ?? 'pen', pen.x, pen.z)) {
+    for (const d of FACING) visit(c.x + d.dx, c.z + d.dz);
+  }
+  while (stack.length) {
+    const c = stack.pop();
+    for (const d of FACING) visit(c.x + d.dx, c.z + d.dz);
+  }
+  return out;
+}
+
+/** Does this pen's block touch any of those cells? — "is it in that paddock". */
+export function pennedIn(pen, cellKeys, w) {
+  for (const c of footprint(pen.kind ?? 'pen', pen.x, pen.z)) {
+    for (const d of FACING) if (cellKeys.has((c.z + d.dz) * w + (c.x + d.dx))) return true;
+  }
+  return false;
+}
+
+/**
  * The pads that hold GOODS, as opposed to the ones that hold people.
  *
  * `PAD_KINDS` is all four — the bay, the drop-off, the break area and the car
@@ -2106,6 +2207,20 @@ export function conveyorAt(L, x, z) {
  * renderer with its own idea of where a belt goes is a picture of a shop that
  * works differently from the one you are playing.
  */
+/**
+ * Is a thing a loader can EMPTY INTO standing on this tile?
+ *
+ * The three `armLand` knows how to pour into, which is the same list
+ * `conveyorMeets` gathers and the same list `whatThisCosts` warns about. Written
+ * once, because a kind missing from one copy of it is a machine that works and
+ * a shop that will not admit it does.
+ */
+function unitOn(L, x, z) {
+  return (L?.shelves ?? []).some((u) => u.x === x && u.z === z)
+    || (L?.stations ?? []).some((u) => u.x === x && u.z === z)
+    || (L?.bins ?? []).some((u) => u.x === x && u.z === z);
+}
+
 const FLOW = new WeakMap();
 
 function conveyorFlow(L) {
@@ -2272,6 +2387,29 @@ function conveyorFlow(L) {
   // beltless chain answers independently and they disagree with each other.
   for (const c of arms) {
     if (map.has(c.id)) continue;
+    /**
+     * ...unless it is a LOADER EMPTYING INTO A UNIT, which hands on to nobody.
+     *
+     * A loader whose `rot` names a shelf, a machine or a skip is a terminus:
+     * what arrives on it goes into that unit, and there is no "next cell" to
+     * answer with. Made to guess one anyway it names whichever neighbour it has
+     * — and with nothing feeding it, the only neighbour is usually the junction
+     * you built it off. `conveyorBranches` then drops any neighbour whose flow
+     * points back at it, so the loader is refused as a way out: no blade drawn,
+     * no light on that side, and nothing ever sent down it.
+     *
+     * Which is the exact build the skip exists for — a sorter, a loader beside
+     * it, a bin beside that — reading as a sorter that cannot see the machine
+     * bolted to it. The loader is aimed correctly and the rubbish routing is
+     * working; it simply never gets a box. Only the walk's leftovers are
+     * answered this way: a loader with a feeder was resolved above and is part
+     * of a run whatever it pours into.
+     */
+    const out = c.kind === 'arm' ? anchorTile(c.x, c.z, c.rot ?? 0) : null;
+    if (out && !at.has(`${out.x},${out.z}`) && unitOn(L, out.x, out.z)) {
+      map.set(c.id, null);
+      continue;
+    }
     map.set(c.id, choose(c, null));
     queue.push(c);
     while (queue.length) {
@@ -2688,7 +2826,8 @@ export function conveyorMeets(L, cell) {
   let had = MEETS.get(L);
   if (!had || had.belts !== belts || had.arms !== arms || had.sorters !== sorters
     || had.shelves !== (L?.shelves ?? null) || had.stations !== (L?.stations ?? null)
-    || had.bins !== (L?.bins ?? null)) {
+    || had.bins !== (L?.bins ?? null) || had.pens !== (L?.pens ?? null)
+    || had.plots !== (L?.plots ?? null)) {
     had = {
       belts,
       arms,
@@ -2696,6 +2835,11 @@ export function conveyorMeets(L, cell) {
       shelves: L?.shelves ?? null,
       stations: L?.stations ?? null,
       bins: L?.bins ?? null,
+      // Watched by identity like the rest, and what that buys is nothing beyond
+      // a re-flow — this answers WHICH fixtures a run meets, never what is in
+      // them, so a pen filling up does not invalidate anything here.
+      pens: L?.pens ?? null,
+      plots: L?.plots ?? null,
       byCell: new Map(),
     };
     MEETS.set(L, had);
@@ -2703,11 +2847,25 @@ export function conveyorMeets(L, cell) {
   const hit = had.byCell.get(cell.id);
   if (hit) return hit;
 
-  const out = { shelves: [], stations: [], bins: [] };
+  const out = {
+    shelves: [], stations: [], bins: [], pens: [], plots: [],
+  };
   const seen = new Set();
   const take = (list, from, key) => {
     for (const u of from ?? []) {
       if (u.x !== key.x || u.z !== key.z || seen.has(u.id)) continue;
+      seen.add(u.id);
+      list.push(u);
+    }
+  };
+  // ...and the same for anything that takes more than one cell, which is the
+  // pen. `u.x === key.x` is "is this its MIN CORNER" — right about one cell in
+  // four of a 2x2 — so a loader stood against three of a pen's four sides would
+  // see nothing there. Exactly the `fixtureAt` trap docs/pens.md lists among the
+  // eight places "a fixture is a tile" was load-bearing, arriving on a conveyor.
+  const takeBig = (list, from, key) => {
+    for (const u of from ?? []) {
+      if (seen.has(u.id) || !covers(u, key.x, key.z)) continue;
       seen.add(u.id);
       list.push(u);
     }
@@ -2719,6 +2877,11 @@ export function conveyorMeets(L, cell) {
       take(out.shelves, L?.shelves, n);
       take(out.stations, L?.stations, n);
       take(out.bins, L?.bins, n);
+      // The farm. These two are the only entries in here a loader takes goods
+      // OUT of and never puts any in — a pen and a bed produce, so there is
+      // nothing to fill them with.
+      takeBig(out.pens, L?.pens, n);
+      take(out.plots, L?.plots, n);
     }
   }
   had.byCell.set(cell.id, out);
@@ -3106,15 +3269,39 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
   // it must not be is SILENT, because a broken junction and a working one are
   // the same dark rectangle, and the shop just quietly does nothing.
   if (def.flow) {
-    const isBelt = (tx, tz) => (L.belts ?? []).some((b) => b.x === tx && b.z === tz)
-      || (tx === x && tz === z);
-    const holds = (tx, tz) => (L.shelves ?? []).some((sh) => sh.x === tx && sh.z === tz)
+    // A RUN is belts, loaders, sorters and tunnel mouths, and `L.belts` is only
+    // the first of those. Named that way this fired on the commonest join in
+    // the shop — a belt pointing at the loader it feeds — which is a warning
+    // that goes off whatever you do, and one of those is a warning nobody
+    // reads. It is also what made the real one below worthless.
+    const onRun = (tx, tz) => (tx === x && tz === z)
+      || [L.belts, L.arms, L.sorters, L.unders]
+        .some((list) => (list ?? []).some((c) => c.x === tx && c.z === tz));
+    const atUnit = (tx, tz) => (L.shelves ?? []).some((sh) => sh.x === tx && sh.z === tz)
       || (L.stations ?? []).some((st) => st.x === tx && st.z === tz)
       || (L.bins ?? []).some((bn) => bn.x === tx && bn.z === tz);
+    /**
+     * A unit is the end of a run for a LOADER and for nothing else.
+     *
+     * A belt carries and never hands off: `stepBelts` exits into conveyor cells
+     * only, so a run pointed straight at a shelf, a machine or a skip simply
+     * stops on its last cell with the box sitting on it. This test used to
+     * count that as connected, which is the green-ghost rule inverted — the
+     * preview promising a join the sim has never had — and it is the one thing
+     * that could have said otherwise. A live shop ran both its skips off a
+     * sorter and stood eleven crates of rot beside them, with `conveyorMeets`
+     * answering "no bin on this network" everywhere and every loader in the
+     * building therefore refusing to lift rubbish at all. Nothing anywhere said
+     * a word, because the build that caused it had been declared fine.
+     */
+    const holds = (tx, tz) => spec.kind === 'arm' && atUnit(tx, tz);
 
     if (def.flow.out != null) {
       const o = anchorTile(x, z, (spec.rot ?? 0) + def.flow.out);
-      if (!isBelt(o.x, o.z) && !holds(o.x, o.z)) {
+      if (!onRun(o.x, o.z) && !holds(o.x, o.z)) {
+        // The wrong answer worth naming, because it is the one that LOOKS
+        // right: a run aimed squarely at the thing it was laid to fill.
+        if (atUnit(o.x, o.z)) return 'it runs past that — only a loader puts goods in';
         return spec.kind === 'belt'
           ? 'it runs into nothing — the next belt goes on the square it points at'
           : 'nothing in front of it to put goods into';
@@ -3122,7 +3309,7 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
     }
     if (def.flow.in != null) {
       const i = anchorTile(x, z, (spec.rot ?? 0) + def.flow.in);
-      if (!isBelt(i.x, i.z)) return 'nothing behind it to take goods from';
+      if (!onRun(i.x, i.z)) return 'nothing behind it to take goods from';
     }
   }
 
@@ -3131,12 +3318,29 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
   // nothing to take from" and "it has nowhere to put things" are different
   // mistakes and telling somebody the wrong one sends them to the wrong side.
   // A loader sits in the run and unloads sideways, so what it needs beside it is
-  // SHELVING. Without any it is a belt that cost four times as much — which is
-  // a thing you may build (it still carries crates) and must be told about.
+  // something that TAKES goods. Without any it is a belt that cost four times as
+  // much — which is a thing you may build (it still carries crates) and must be
+  // told about.
+  //
+  // Shelving is not the whole of that list, and naming only shelving is the
+  // `STOCK_KINDS` trap in a warning: a loader put beside a skip — which is the
+  // one placement that lets rubbish ride at all — was told it had nothing to
+  // fill, on the very press that fixes the shop. Machines are the same claim,
+  // and `armLand` already pours into all three.
+  //
+  // ...and the farm is the other half of that same correction. A loader beside a
+  // pen or a bed COLLECTS — it is the one thing on the list it takes goods out
+  // of rather than putting them in — so a run laid out to the field was told it
+  // had nothing to do on precisely the press that automates the walk. The
+  // wording says "work" rather than "fill" because both directions are in the
+  // list now, and a warning that names the wrong one is worse than a vague one.
   if (def.works) {
     const around = FACING.map((f) => ({ x: x + f.dx, z: z + f.dz }));
-    const unitish = (c) => (L.shelves ?? []).some((sh) => sh.x === c.x && sh.z === c.z);
-    if (!around.some(unitish)) return 'no shelving beside it — it will just carry crates past';
+    const unitish = (c) => [L.shelves, L.stations, L.bins, L.plots]
+      .some((list) => (list ?? []).some((u) => u.x === c.x && u.z === c.z))
+      // A pen is 2x2, so its far cells are not its record's `x, z`.
+      || (L.pens ?? []).some((u) => covers(u, c.x, c.z));
+    if (!around.some(unitish)) return 'nothing beside it to work — it will just carry crates past';
   }
 
   // ---- ...and can anyone stand behind it and work it? ---------------------

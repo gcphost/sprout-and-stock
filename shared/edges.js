@@ -85,6 +85,27 @@ export const E = {
   SHUTTER_IN: 17,
   /** Out only. */
   SHUTTER_OUT: 18,
+  // An ARCH: a way through with nothing in it. The span between two rooms, and
+  // the one opening whose whole content is the picture — it encloses and it is
+  // crossed exactly as a doorway is, so everything the sim reads about it is a
+  // doorway's answer. Two kinds rather than four, and the reason is the
+  // curtain's rather than the gate's: a hole with nothing hanging in it has no
+  // direction to be one-way about, so an entrance-only arch would be a rule
+  // with no picture. Staff-only needs no direction, so it gets that one.
+  /** A span. Anybody through, both ways. */
+  ARCH: 19,
+  /** ...and the one a stockroom wants. */
+  ARCH_STAFF: 20,
+  // Three more BOUNDARIES, and they are looks rather than kinds — the fence's
+  // own `GLAZING`. See `FENCING`: every one of them is half-height, solid,
+  // costs a fence and never makes a room, which is the whole of what a fence
+  // is. What differs is what it is made of.
+  /** Planting. Reads as a boundary rather than as a building. */
+  HEDGE: 21,
+  /** Posts and a rail. You see straight through it. */
+  RAILING: 22,
+  /** Masonry, waist high. A partition you look over — see `FENCING`. */
+  LOW_WALL: 23,
 };
 
 /**
@@ -133,6 +154,11 @@ export const WAYS = new Map([
   [E.SHUTTER_STAFF, { base: 'shutter', rule: 'staff', roofs: true }],
   [E.SHUTTER_IN, { base: 'shutter', rule: 'in', roofs: true }],
   [E.SHUTTER_OUT, { base: 'shutter', rule: 'out', roofs: true }],
+  // An arch roofs, for the reason a curtain does and a gate does not: it is a
+  // hole in a WALL, so a room with one in it is still a room. Leave it out and
+  // an archway between the shop and the stockroom takes the roof off both.
+  [E.ARCH, { base: 'arch', rule: 'all', roofs: true }],
+  [E.ARCH_STAFF, { base: 'arch', rule: 'staff', roofs: true }],
 ]);
 
 /**
@@ -156,6 +182,13 @@ export const WAY_RULES = {
   // so which side of it the town is on is a thing you decide after it is up,
   // the way you do about a doorway.
   shutter: ['all', 'staff', 'in', 'out'],
+  // ...and an arch takes the curtain's two rather than the doorway's four, for
+  // the curtain's own reason said about a hole instead of about strips: there
+  // is nothing hanging in it, so there is nothing a one-way rule could be drawn
+  // as. A staff arch has the same painted threshold a staff doorway has, which
+  // is a marking on the floor and needs no direction. It leads with `all`,
+  // because unlike a curtain an arch is bought to be walked through.
+  arch: ['all', 'staff'],
 };
 
 /** What the palette lays when you drag this sort of opening out. */
@@ -203,6 +236,45 @@ export const GLAZING = new Map([
 
 /** Which looks a window can be given, in the order a menu lists them. */
 export const GLAZING_LOOKS = ['standard', 'full', 'bay', 'high'];
+
+/**
+ * A BOUNDARY, and what it is made of.
+ *
+ * `GLAZING`'s argument said about the other end of the wall. A fence was the one
+ * edge in the game with no family — one look, nothing to choose — and everything
+ * a player wanted instead of it (a hedge round the farm, a rail along the
+ * forecourt, a low wall between the aisle and the café) is the same edge with
+ * different stuff in it: half height, solid, and it never makes a room.
+ *
+ * So these are looks and NOT kinds, which is a claim with three consequences and
+ * they are the reason it is worth writing down. They are one price, so choosing a
+ * hedge is not a balance change and `simulate` never runs over a picture. They
+ * swap for a refit, so changing your mind about the frontage costs nothing. And
+ * none of them is in `EDGE_CHARM` — a hedge is prettier than a panel and worth
+ * exactly the same to the town, because a look that moved catchment would be a
+ * knob wearing a colour, and pricing the whole family for charm would rebalance
+ * every fenced farm in existence.
+ *
+ * The day a boundary *does* something — a hedge that grows, a rail a shopper can
+ * see the fruit through — that is a number, and a number belongs on a kind.
+ */
+export const FENCING = new Map([
+  [E.FENCE, { base: 'fence', look: 'panel' }],
+  [E.HEDGE, { base: 'fence', look: 'hedge' }],
+  [E.RAILING, { base: 'fence', look: 'railing' }],
+  [E.LOW_WALL, { base: 'fence', look: 'low' }],
+]);
+
+/** Which looks a boundary can be given, in the order a menu lists them. */
+export const FENCE_LOOKS = ['panel', 'hedge', 'railing', 'low'];
+
+export const fenceBase = (kind) => FENCING.get(kind)?.base ?? null;
+export const fenceLook = (kind) => FENCING.get(kind)?.look ?? null;
+
+export function fenceKind(look) {
+  for (const [kind, f] of FENCING) if (f.look === look) return kind;
+  return null;
+}
 
 /**
  * HOW NICE AN EDGE MAKES THE SHOP — `charm` on a catalog row, said about the
@@ -274,10 +346,18 @@ export function glazingKind(look) {
  * offers exactly the kinds that share a family with the one under your pointer.
  * Anything with no family — a wall, a fence — has nothing to choose and no menu.
  */
-export const edgeFamily = (kind) => wayBase(kind) ?? glazingBase(kind);
+export const edgeFamily = (kind) => wayBase(kind) ?? glazingBase(kind) ?? fenceBase(kind);
 
-/** Edges you cannot walk through. */
-export const SOLID = new Set([E.WALL, E.FENCE, ...GLAZING.keys()]);
+/**
+ * Edges you cannot walk through.
+ *
+ * Derived from the two look tables rather than listing their members, which is
+ * the shape `ENCLOSING` already has and for the identical reason: a boundary
+ * left out of here is a hedge you walk straight through, and nothing anywhere
+ * would say a word — it draws perfectly, encloses nothing (correctly), and is
+ * simply not there as far as anybody's feet are concerned.
+ */
+export const SOLID = new Set([E.WALL, ...FENCING.keys(), ...GLAZING.keys()]);
 
 /**
  * Edges that make an enclosure.
@@ -289,8 +369,9 @@ export const SOLID = new Set([E.WALL, E.FENCE, ...GLAZING.keys()]);
  * stockroom is a patio, every shelf in it is refused, and the refusal reads
  * "something is already there" — which sends you looking in the wrong place.
  *
- * A FENCE is deliberately absent, and so is every gate. Fencing a field must
- * never roof it.
+ * Every FENCING is deliberately absent, and so is every gate. Fencing a field
+ * must never roof it — which is the same sentence about a hedge and about a low
+ * wall, and is why those are looks of a fence rather than short walls.
  *
  * Which of the two an opening is comes off `roofs` on its own row rather than
  * off its `base`, because a curtain is the third answer and reads like neither:

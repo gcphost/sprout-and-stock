@@ -82,6 +82,24 @@ export const T = {
    * other facing in the game already lives.
    */
   BELT: 16,
+  /**
+   * The paddock: the ground an animal is allowed to stand on.
+   *
+   * The fifth pad, and the first whose occupants are neither the shop's people
+   * nor its goods. A bay holds crates, a break area holds staff, a car park
+   * holds shoppers — and this one holds livestock, which is why it is a pad at
+   * all rather than a look: painted ground with a job on it, and the job is
+   * "how big you painted it is how many head it grazes".
+   *
+   * It is also the only fence this feature needs, and that is the decision
+   * worth knowing. A paddock could have been the cells a flood finds inside
+   * whatever fence you drew, which is what `computeIndoor` does for the shop —
+   * and a gate left open would then mean the field is the entire map, re-asked
+   * on every wall segment of every drag. Where an animal may stand is a fact
+   * about the cell, so it is written on the cell. Draw a fence round it if you
+   * want one; the rails are scenery and the paint is the rule.
+   */
+  PADDOCK: 17,
 };
 
 /**
@@ -91,6 +109,10 @@ export const T = {
  */
 export const WALKABLE = new Set([
   T.GRASS, T.FLOOR, T.DOOR, T.PATH, T.PLOT, T.BAY, T.DROP, T.BREAK, T.PARK,
+  // Walkable, like every other pad. A paddock bounds where an ANIMAL may stand
+  // and says nothing about anybody else — fencing the player out of their own
+  // field would make a pen you cannot walk up to and collect from.
+  T.PADDOCK,
   // Walkable, because a road is tarmac over grass you could always cross and
   // taking that away would mean a lane you paint can wall your own shop off.
   // Nothing in this game gets run over.

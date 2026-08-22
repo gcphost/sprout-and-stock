@@ -406,7 +406,7 @@
   },
   {
     "id": "beef",
-    "name": "Beef Cut",
+    "name": "Beef Joint",
     "tags": [
       "meat",
       "needs-freezer",
@@ -867,7 +867,7 @@
   },
   {
     "id": "carrot",
-    "name": "Carrot",
+    "name": "Carrots",
     "tags": [
       "produce",
       "perishable",
@@ -894,7 +894,15 @@
             0.34,
             0.16
           ],
-          "rot": 180
+          "rot": 180,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "cone",
@@ -909,7 +917,15 @@
             0.14,
             0.12
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -2569,7 +2585,7 @@
   },
   {
     "id": "flowers",
-    "name": "Flower Bunch",
+    "name": "Bunch of Flowers",
     "tags": [
       "perishable",
       "luxury",
@@ -2597,7 +2613,15 @@
             0.4,
             0.08
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -2612,7 +2636,15 @@
             0.2,
             0.22
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "sphere",
@@ -2627,7 +2659,15 @@
             0.13,
             0.14
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -4985,7 +5025,7 @@
   },
   {
     "id": "mustard",
-    "name": "Mustard Jar",
+    "name": "Jar of Mustard",
     "tags": [
       "condiment",
       "shelf-stable",
@@ -5018,6 +5058,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": null,
           "tint": null
         },
@@ -5040,6 +5081,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": null,
           "tint": null
         },
@@ -5062,6 +5104,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": null,
           "tint": null
         }
@@ -5951,7 +5994,7 @@
   },
   {
     "id": "poultry",
-    "name": "Whole Bird",
+    "name": "Whole Chicken",
     "tags": [
       "needs-freezer",
       "perishable",
@@ -6892,7 +6935,7 @@
   },
   {
     "id": "soap-bar",
-    "name": "Soap Bar",
+    "name": "Bar of Soap",
     "tags": [
       "household",
       "shelf-stable",
@@ -6924,6 +6967,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": null,
           "tint": null
         },
@@ -6946,6 +6990,7 @@
           "alpha": 1,
           "shadow": false,
           "drift": false,
+          "back": false,
           "motion": null,
           "tint": null
         }
@@ -6954,7 +6999,7 @@
   },
   {
     "id": "soda",
-    "name": "Fizzy Soda",
+    "name": "Fizzy Drink",
     "tags": [
       "beverage",
       "junk",
@@ -6986,7 +7031,11 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "cylinder",
@@ -7005,7 +7054,11 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
-          "drift": false
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }
@@ -7202,7 +7255,7 @@
   },
   {
     "id": "stock",
-    "name": "Stock",
+    "name": "Stock Cubes",
     "tags": [
       "pantry",
       "shelf-stable",
@@ -7739,7 +7792,7 @@
   },
   {
     "id": "tomato",
-    "name": "Tomato",
+    "name": "Tomatoes",
     "tags": [
       "produce",
       "perishable",
@@ -7767,7 +7820,15 @@
             0.28,
             0.3
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         },
         {
           "shape": "cone",
@@ -7782,7 +7843,15 @@
             0.1,
             0.14
           ],
-          "rot": 0
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null
         }
       ]
     }

@@ -160,6 +160,30 @@ const MOUTH = {
 };
 
 /**
+ * The farm, for section 22 — the one place a loader takes goods out of
+ * something that produced them rather than off something the shop stocked.
+ *
+ * The pen's batch is deliberately SMALLER than a crate holds and the crop's
+ * yield deliberately fixed: every claim down there is a count, and a batch that
+ * happened to straddle `crateLot().cap` would make each of them a test of the
+ * split as well as of the collect.
+ */
+const PEN_BATCH = 5;
+const FARM_PEN = {
+  id: 'zz-belt-pen', kind: 'pen', name: 'Test Coop', cost: 0,
+  produces: { item_id: GOODS.id, qty: PEN_BATCH, every: 1 },
+  model: { parts: [{ shape: 'box', color: '#a85a3a', pos: [0, 0.3, 0], scale: [0.6, 0.6, 0.6] }] },
+  tiers: [{ name: 'Basic', cost: 0 }],
+};
+const CROP_YIELD = 4;
+const FARM_CROP = {
+  id: 'zz-belt-crop', name: 'Test Sprout', item_id: GOODS.id,
+  grow_minutes: 1, seed_cost: 1, yield_min: CROP_YIELD, yield_max: CROP_YIELD,
+  seasons: ['spring', 'summer', 'autumn', 'winter'],
+  model: { parts: [{ shape: 'sphere', color: '#7bbf5a', pos: [0, 0.1, 0], scale: [0.2, 0.2, 0.2] }] },
+};
+
+/**
  * An ordinary stocker, so the belt can be asked the one question a sweep over
  * pure functions cannot: does the CREW use it.
  */
@@ -174,13 +198,14 @@ process.on('exit', () => {
   for (const [t, id] of [['items', GOODS.id], ['items', COLD.id],
     ['fixtures', BELT.id], ['fixtures', ARM.id], ['fixtures', STORE.id],
     ['fixtures', QUICK_BELT.id], ['fixtures', JUNCTION.id], ['fixtures', MOUTH.id],
+    ['fixtures', FARM_PEN.id], ['crops', FARM_CROP.id],
     ['workers', STOCKER.id]]) {
     try { remove(t, id); } catch { /* best effort */ }
   }
 });
 for (const [kind, row] of [['item', GOODS], ['item', COLD], ['fixture', BELT], ['fixture', ARM],
   ['fixture', STORE], ['fixture', QUICK_BELT], ['fixture', JUNCTION], ['fixture', MOUTH],
-  ['worker', STOCKER]]) {
+  ['fixture', FARM_PEN], ['crop', FARM_CROP], ['worker', STOCKER]]) {
   const res = writeContent(kind, row, 'verify');
   check(res.ok, `the catalog accepts the test ${kind} ${row.id}`, res.error ?? '');
 }
@@ -483,6 +508,75 @@ function crateOn(g, belt, item = GOODS, qty = 4) {
   run(g, 20);
   eq(crates[1].belt, belts[2].id, 'clearing the head lets the line move up');
   eq(crates[0].belt, belts[1].id, '...all of it, not just the front box');
+}
+
+// ---------------------------------------------------------------------------
+// 4b. A MERGE UNSTICKS ITSELF, which is backpressure's own failure mode.
+//
+// Two runs joining one is the commonest shape in a real shop — an aisle and a
+// spur into the same line — and a box crossing the gap between two lines is
+// counted against the line it is heading for, so a second feeder holds back.
+// Right, until BOTH of them are part way in: each counts the other, neither may
+// go backwards (`cap = Math.max(cap, at)`), and the pair stands there for the
+// rest of the save with every line behind them backing up.
+//
+// It is invisible as a bug and unmistakable as a picture: nothing errors,
+// nothing spills, no crate is lost, and what you watch is thirty boxes standing
+// still on a conveyor that is working perfectly. A live shop had two rows and
+// thirty-eight crates wedged on one square, and sixty-seven in-game minutes
+// went by without a single one of them moving a pixel.
+//
+// The guard is supposed to stop them both committing and cannot be relied on to:
+// a crate's address is a cell plus an offset, `conveyorLines` re-cuts the shop
+// on every purchase, and a box that was mid-LINE can come back mid-GAP. So the
+// claim here is recovery rather than prevention — put two boxes in the state by
+// hand, the way a re-flow leaves them, and the merge must sort itself out.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  check(!!cells, 'there is room for a three-cell run to merge into');
+  const belts = cells ? lay(g, cells) : [];
+  // A second run coming in from the side, onto the middle cell — so the middle
+  // of the row is fed by two.
+  const side = [3, 1].map((rot) => ({ ...anchorTile(cells[1].x, cells[1].z, (rot + 2) % 4), rot }))
+    .find((c) => canPlace(g.layout, { kind: 'belt', x: c.x, z: c.z, rot: c.rot }).ok);
+  check(!!side, 'there is room beside it for a second run to join');
+  if (cells && side) {
+    const put = g.placeFixture('me', { kind: 'belt', piece: BELT.id, x: side.x, z: side.z, rot: side.rot });
+    check(put.ok, 'the joining belt goes down', put.error ?? '');
+    const spur = g.beltAt(side.x, side.z);
+
+    // The shape has to be the one this is about, or every assertion below is
+    // true of a run that never merges.
+    const net = g.beltLines();
+    const mid = net.byCell.get(belts[1].id)?.line;
+    const from = (c) => net.byCell.get(c.id)?.line;
+    check(!!mid && from(belts[0]) !== mid && from(spur) !== mid,
+      'the two runs are lines of their own, joining a third');
+    const feeds = (net.feeds.get(mid?.id) ?? []).map((l) => l.id);
+    check(feeds.includes(from(belts[0])?.id) && feeds.includes(from(spur)?.id),
+      '...and the line they join knows both of them feed it');
+
+    // Both part way across the gap at once — the state a re-cut leaves, and the
+    // one the guard is meant to make unreachable. Written on the crates rather
+    // than driven into, because driving into it is exactly what cannot be done.
+    const a = crateOn(g, belts[0], GOODS, 2);
+    const b = crateOn(g, spur, GOODS, 3);
+    a.off = 0.4;
+    b.off = 0.4;
+    const total = units(g);
+    check(g.beltSpot(a).at > from(belts[0]).len && g.beltSpot(b).at > from(spur).len,
+      'both boxes have left their own line and neither has arrived');
+
+    run(g, 200);
+
+    const landed = [a, b].filter((c) => c.belt === belts[1].id || c.belt === belts[2].id);
+    eq(landed.length, 2, 'both boxes finish the merge rather than holding each other in the gap');
+    check(a.belt !== b.belt, '...one behind the other, not two on one cell');
+    eq(units(g), total, '...and nothing was created or destroyed sorting it out');
+    check(!g.deliveries.some((d) => !d.belt), '...and neither of them spilled onto the floor');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -791,6 +885,71 @@ function armIntoShelf(g, { item = GOODS, prep = null, turn = 0, past = false, lo
   eq(all(), total, '...with nothing created or destroyed');
   eq(g.deliveries.filter((d) => d.belt === belts[0].id).length, 1,
     '...as exactly one box on that cell');
+}
+
+// ---------------------------------------------------------------------------
+// 11b. ...and it may not REST on one.
+//
+// The square being part of a run and the box being ON the run are two claims,
+// and a box could satisfy the first without the second for as long as there
+// have been belts. Rot is how it happens without anybody asking for it:
+// `dropWaste` puts it down where the food was, and in a shop with a line down
+// the aisle that is a conveyor cell. Nothing then owns it — `stepBelts` moves
+// what has `d.belt`, `armDrop` refuses to put anything on a rail, and a loader's
+// side scan is about the floor. So it stands there with goods gliding through
+// it, untouchable by every machine in the building, which looks exactly like a
+// belt that refused it. Four crates on one live save.
+//
+// Both halves, because either alone is the wrong feature: what may ride goes ON
+// (a run you built is a thing that takes goods somewhere), and what may not is
+// moved CLEAR. And the control, which is most of the risk in a rule that moves
+// boxes: a crate that was never on a rail must not shuffle anywhere.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  const belts = lay(g, cells);
+  const total = units(g);
+
+  // Set down on the middle of the run, riding nothing — the state `dropWaste`
+  // leaves rot in, written the short way.
+  const stray = g.dropGoods(GOODS.id, 3, { x: belts[1].x, z: belts[1].z }, { exact: true });
+  check(!!stray && !stray.belt, 'a box can end up standing on a run without riding it');
+  run(g, 40);
+  check(!!stray.belt, '...and the run takes it rather than letting it stand there');
+  eq(units(g), total + 3, '...with nothing created or destroyed getting it on');
+}
+{
+  // Rubbish, with no skip anywhere on the network: it may never ride, or it is
+  // a passenger the run can never be rid of. So it has to be moved clear.
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  const belts = lay(g, cells);
+  const before = units(g);
+  const rot = g.dropWaste(GOODS.id, 2, { x: belts[1].x, z: belts[1].z });
+  check(!!rot?.waste, 'rot goes down as a rubbish crate');
+  run(g, 60);
+  check(!rot.belt, 'rubbish with no skip down the line never joins the run');
+  check(!g.beltAt(Math.round(rot.x), Math.round(rot.z)),
+    '...and is moved clear of the rails rather than left standing on them');
+  eq(units(g), before + 2, '...and it is the same rubbish, moved rather than binned');
+  check(isWalkableTile(g.layout, Math.round(rot.x), Math.round(rot.z)),
+    '...onto a square somebody can walk to and pick it up from');
+}
+{
+  // The control. A box on ordinary floor is not the rails' business, and a rule
+  // that moved one would be goods shuffling round the shop on their own.
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  lay(g, cells);
+  const off = { x: cells[0].x, z: cells[0].z + 1 };
+  const spot = isWalkableTile(g.layout, off.x, off.z) ? off : { x: cells[0].x, z: cells[0].z - 1 };
+  const box = g.dropGoods(GOODS.id, 2, spot, { exact: true });
+  check(!!box, 'a box stands on the floor beside the run');
+  const was = `${box.x},${box.z}`;
+  run(g, 60);
+  eq(`${box.x},${box.z}`, was, 'and a box that was never on the rails does not move');
+  check(!box.belt, '...nor is it helped onto a belt nobody put it on');
 }
 
 // ---------------------------------------------------------------------------
@@ -2827,6 +2986,220 @@ function smooth(g, label, crates, ticks, at = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// 24b. A JUNCTION CAN SEE THE LOADER BOLTED TO IT.
+//
+// A loader whose `rot` names a shelf, a machine or a skip hands on to nobody:
+// what arrives goes into that unit. With nothing feeding it, the derivation was
+// made to guess a next cell anyway, and the only neighbour it has is the
+// junction you built it off — so it came back as pointing AT the sorter.
+// `conveyorBranches` drops any neighbour whose flow points back (a two-cell tug
+// of war), so the loader was refused as a way out: no blade drawn, no light on
+// that side, nothing ever sent down it.
+//
+// Which is exactly the build the skip exists for — sorter, loader, bin — and it
+// reads as the sorter being unable to see a machine bolted to its own side. The
+// loader is aimed correctly and the rubbish routing works; it simply never gets
+// a box. A live shop had 1 of 91 conveyor cells able to reach a skip it had
+// paid for.
+//
+// The pair is what keeps it honest: a loader aimed at the junction itself is
+// still refused, because that one IS declared to feed it.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  check(!!cells, 'there is room for a run to hang a loader off');
+  if (cells) {
+    lay(g, [cells[0], cells[2]]);
+    // Sorter, loader, bin — the shop's own way of getting rot off the run, and
+    // the arrangement the bug was reported on. A skip is `where: 'any'`, so the
+    // whole rig stands where a run does.
+    let arm = null;
+    let skip = null;
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(cells[1].x, cells[1].z, r);
+      if (g.beltAt(n.x, n.z)) continue;
+      const far = { x: n.x + (n.x - cells[1].x), z: n.z + (n.z - cells[1].z) };
+      if (!canPlace(g.layout, { kind: 'arm', x: n.x, z: n.z, rot: aim(n, far) }).ok) continue;
+      const bin = g.placeFixture('me', { kind: 'bin', piece: 'bin', x: far.x, z: far.z, rot: aim(far, n) });
+      if (!bin.ok) continue;
+      const put = g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: n.x, z: n.z, rot: aim(n, far) });
+      if (!put.ok) continue;
+      arm = g.beltAt(n.x, n.z);
+      skip = (g.layout.bins ?? []).find((b) => b.x === far.x && b.z === far.z);
+      break;
+    }
+    check(!!arm && !!skip, 'a loader stands beside the run, emptying into a skip of its own');
+
+    // Aimed at the empty side OPPOSITE the loader, so the loader is one of the
+    // three incidental sides — which is the whole case. The side `rot` names has
+    // had an exception since splitters shipped, and the run's own continuation
+    // is the straight-on, so neither of those is what was broken.
+    const away = { x: cells[1].x - (arm.x - cells[1].x), z: cells[1].z - (arm.z - cells[1].z) };
+    const made = arm && g.placeFixture('me', {
+      kind: 'sorter', piece: 'sorter', x: cells[1].x, z: cells[1].z, rot: aim(cells[1], away),
+    });
+    check(!!made?.ok, 'and a sorter goes in the run beside it', made?.error ?? '');
+
+    if (arm && made?.ok) {
+      const sorter = g.beltAt(cells[1].x, cells[1].z);
+      const named = anchorTile(sorter.x, sorter.z, sorter.rot ?? 0);
+      check(named.x !== arm.x || named.z !== arm.z,
+        'the loader is on a side the sorter was NOT aimed at');
+      const on = g.beltNext(sorter);
+      check(!!on && on.x === cells[2].x && on.z === cells[2].z,
+        '...and the run itself is its straight-on, so the loader is neither');
+      const ways = conveyorBranches(g.layout, sorter);
+      check(ways.some((w) => w.x === arm.x && w.z === arm.z),
+        'the junction offers the loader as a way out',
+        `ways: ${ways.map((w) => `${w.x},${w.z}`).join(' ') || 'none'}`);
+      eq(g.beltNext(arm) ?? null, null,
+        '...because a loader emptying into a unit hands on to nobody');
+      // And the whole point of the branch: what the loader fills is now down
+      // the line from the run, which is what every routing decision reads —
+      // `mayRide` will not put rubbish on a network with no skip on it, so
+      // this is the difference between the feature working and being off.
+      const met = conveyorMeets(g.layout, g.beltAt(cells[0].x, cells[0].z));
+      check(met.bins.some((b) => b.id === skip.id),
+        '...so the run knows there is a skip down there');
+    }
+  }
+}
+{
+  // The pair. A loader AIMED at the junction is declared to feed it, and a
+  // junction that pushed back into its own feeder is a two-cell tug of war.
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  if (cells) {
+    lay(g, [cells[0], cells[2]]);
+    let arm = null;
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(cells[1].x, cells[1].z, r);
+      if (g.beltAt(n.x, n.z)) continue;
+      const put = g.placeFixture('me', {
+        kind: 'arm', piece: ARM.id, x: n.x, z: n.z, rot: aim(n, cells[1]),
+      });
+      if (!put.ok) continue;
+      arm = g.beltAt(n.x, n.z);
+      break;
+    }
+    const made = arm && g.placeFixture('me', {
+      kind: 'sorter', piece: 'sorter', x: cells[1].x, z: cells[1].z, rot: 0,
+    });
+    if (arm && made?.ok) {
+      const sorter = g.beltAt(cells[1].x, cells[1].z);
+      const named = anchorTile(sorter.x, sorter.z, sorter.rot ?? 0);
+      if (named.x !== arm.x || named.z !== arm.z) {
+        const ways = conveyorBranches(g.layout, sorter);
+        check(!ways.some((w) => w.x === arm.x && w.z === arm.z),
+          'a loader aimed INTO the junction is still not a way out of it');
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 24c. THE SKIP LINE TAKES RUBBISH AND NOTHING ELSE, AND A DEAD END LETS GO.
+//
+// Two claims about one still frame, because a box parked on the loader beside a
+// skip and a box on its way into one are the same picture — and the shop is the
+// same shop either way, right up until the day something rots.
+//
+// The junction half first. `sorterWants` needs EVERY pile placeable, so one
+// given-up item in a mixed crate makes the whole junction unkeen — and a box
+// nothing is keen on splits across all the ways out, which is right about every
+// ordinary line and false about this one. A skip refuses stock at every rung
+// (`armTakes`, `armLand`, `mayRide` all branch on `waste`), so a crate sent that
+// way arrives somewhere it can never be put away.
+//
+// Which would only be an odd walk, except that the spur to a skip is the one
+// shape in the game with no way back: one cell, so nothing downstream; the tile
+// it faces is the bin, which is not walkable, so the off-ramp refuses; and no
+// pads. The box parks there for the rest of the save and every crate of rot that
+// wants that skip queues behind it for ever. A live shop jammed BOTH its skips
+// that way — 5x Kale on one, 9x Salt + 3x Apple on the other — and what it reads
+// as is a paid-for skip that never takes anything, days after the mixed box that
+// did it.
+//
+// So the second half is the valve, and it is deliberately about a square
+// EXISTING rather than having room: a full mat is a loader holding its box back
+// on purpose (18b's cap), and folding the two would leak that cap sideways onto
+// the three tiles beside it. The pair is that rubbish still gets through
+// afterwards, or the first half is satisfied by a skip nothing reaches at all.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  check(!!cells, 'there is room for a run to hang a skip off');
+  if (cells) {
+    lay(g, [cells[0], cells[2]]);
+    let arm = null;
+    let skip = null;
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(cells[1].x, cells[1].z, r);
+      if (g.beltAt(n.x, n.z)) continue;
+      const far = { x: n.x + (n.x - cells[1].x), z: n.z + (n.z - cells[1].z) };
+      if (!canPlace(g.layout, { kind: 'arm', x: n.x, z: n.z, rot: aim(n, far) }).ok) continue;
+      if (!g.placeFixture('me', { kind: 'bin', piece: 'bin', x: far.x, z: far.z, rot: aim(far, n) }).ok) continue;
+      if (!g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: n.x, z: n.z, rot: aim(n, far) }).ok) continue;
+      arm = g.beltAt(n.x, n.z);
+      skip = (g.layout.bins ?? []).find((b) => b.x === far.x && b.z === far.z);
+      break;
+    }
+    check(!!arm && !!skip, 'sorter, loader, skip — the rig the whole feature is for');
+
+    const away = arm && { x: cells[1].x - (arm.x - cells[1].x), z: cells[1].z - (arm.z - cells[1].z) };
+    const made = arm && g.placeFixture('me', {
+      kind: 'sorter', piece: 'sorter', x: cells[1].x, z: cells[1].z, rot: aim(cells[1], away),
+    });
+    check(!!made?.ok, 'and a sorter in the run beside it', made?.error ?? '');
+
+    if (arm && skip && made?.ok) {
+      const sorter = g.beltAt(cells[1].x, cells[1].z);
+      const ways = [g.beltNext(sorter), ...conveyorBranches(g.layout, sorter)]
+        .filter((w) => w && g.beltAt(w.x, w.z));
+      check(ways.some((w) => w.x === arm.x && w.z === arm.z),
+        'the junction offers the skip line as a way out');
+      check(ways.length > 1, '...and it is not the only way out');
+
+      // Given up, so nothing anywhere is keen and the split is the branch under
+      // test. The live jam was exactly this: one dead item in a mixed box.
+      g.giveUpBoard?.(GOODS.id);
+      const went = [];
+      for (let i = 0; i < 12; i++) {
+        const to = g.sorterOut(sorter, { id: `bin-probe-${i}`, stacks: [{ item_id: GOODS.id, qty: 2 }] });
+        went.push(to && to.x === arm.x && to.z === arm.z ? 'x' : '.');
+      }
+      eq(went.filter((w) => w === 'x').length, 0,
+        'stock nothing wants is never sent down the line whose only end is a skip',
+        went.join(''));
+
+      // ...and the valve, asked of a box already sitting on it — every shop that
+      // has one today is in that state, and a fix that only stopped new ones
+      // leaves those jammed for ever.
+      crateOn(g, arm, GOODS, 4);
+      const total = units(g);
+      run(g, 60);
+      check(!g.deliveries.some((d) => d.belt === arm.id),
+        'a box that is not rubbish does not park on the skip loader for ever');
+      eq(units(g), total, '...and it is set down rather than binned');
+      // By WHERE rather than by id: `armDrop` goes through `dropGoods`, so what
+      // lands is a pallet of its own and the box that rode in is gone.
+      check(g.deliveries.some((d) => !d.belt && lotQty(d, GOODS.id) > 0
+        && isWalkableTile(g.layout, Math.round(d.x), Math.round(d.z))),
+        '...on a square somebody can walk to and pick it up from');
+
+      // The pair. Unjammed is worth nothing unless the rubbish then gets through.
+      const rot = g.dropWaste(GOODS.id, 2, { x: cells[0].x, z: cells[0].z });
+      check(!!rot?.waste, 'rot goes down as a rubbish crate at the head of the run');
+      run(g, 400);
+      check(!g.deliveries.some((d) => d.id === rot.id),
+        '...and the skip takes it, which is what the line was for');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 25. A run is storage, and it is the third thing you lay that holds crates.
 //
 // `looseRoom` is a TOTAL rather than a region — every loose crate wherever it
@@ -2867,6 +3240,206 @@ function smooth(g, label, crates, ticks, at = {}) {
     const room = cap();
     const crate = crateOn(g, g.beltAt(cells[0].x, cells[0].z), GOODS, 5);
     eq(cap(), room - lotTotal(crate), 'a box riding it is still spending the allowance');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 22. THE FARM. A loader collects a full pen and a ripe bed.
+//
+// The one place on a run where a loader takes goods out of something that
+// PRODUCED them rather than off something the shop stocked, and the reason it
+// belongs beside the tray rather than beside the stockroom pull: a full tray
+// stops its machine, a full pen stops filling and a ripe bed cannot grow the
+// next thing, so all three are swings that unblock something.
+//
+// None of it is visible. A crate of eggs a loader lifted and a crate of eggs a
+// farmhand carried over are the same box on the same belt, and the shop is the
+// same shop afterwards — only the wage bill moved. The control is the rest of
+// this file: no pen and no bed anywhere near a run is every shop in existence,
+// and every section above it is one of those.
+// ---------------------------------------------------------------------------
+
+/**
+ * A loader on a run with a pen or a bed against one of its sides.
+ *
+ * Searched rather than computed, for `armFeeding`'s reason: which side of a run
+ * has room for a 2x2 is a fact about the shell. Hands back the loader, the run
+ * it feeds and the thing it is working.
+ */
+function farmBeside(g, kind, place) {
+  const cells = beltRun(g, 3);
+  if (!cells) return null;
+  const belts = lay(g, cells);
+  for (const belt of belts) {
+    const spot = armFeeding(g, belt);
+    if (!spot) continue;
+    const res = g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: spot.x, z: spot.z, rot: spot.rot });
+    if (!res.ok) continue;
+    const arm = (g.layout.arms ?? []).find((a) => a.id === res.placed);
+    // Every side of the loader except the one it unloads onto (that is the run).
+    for (const r of [0, 1, 2, 3]) {
+      const at = anchorTile(arm.x, arm.z, r);
+      const built = place(at);
+      if (built) return { arm, belt, at, built };
+    }
+    g.removeFixture('me', arm.id);
+  }
+  return null;
+}
+
+const penAt = (g) => (at) => {
+  for (const rot of [0, 1, 2, 3]) {
+    // A pen is 2x2 and `x, z` is its MIN CORNER, so it has to be offered every
+    // corner that would put one of its cells on the loader's side — which is
+    // the whole of what section 22c is about.
+    for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+      const spec = { kind: 'pen', x: at.x + dx, z: at.z + dz, rot };
+      if (!canPlace(g.layout, spec).ok) continue;
+      const res = g.placeFixture('me', { ...spec, piece: FARM_PEN.id });
+      if (res.ok) return (g.layout.pens ?? []).find((p) => p.id === res.placed) ?? null;
+    }
+  }
+  return null;
+};
+
+const bedAt = (g) => (at) => {
+  const spec = { kind: 'plot', x: at.x, z: at.z, rot: 0 };
+  if (!canPlace(g.layout, spec).ok) return null;
+  const res = g.placeFixture('me', spec);
+  if (!res.ok) return null;
+  return (g.layout.plots ?? []).find((p) => p.id === res.placed) ?? null;
+};
+
+// 22a. A full pen goes onto the run, and the pen's CLOCK is reset with it.
+//
+// The reset is the half that is not about the crate. `stepPens` pins `filledAt`
+// to now on every tick a pen stands full, so a collect that left the stamp alone
+// would hand the next batch over the instant the gate cleared — "a pen is not a
+// hopper" undone by a machine, and invisible because a pen that refilled early
+// and one that refilled on time are the same full pen.
+{
+  const g = fresh();
+  const set = farmBeside(g, 'pen', penAt(g));
+  check(!!set, 'a loader stands beside a pen');
+  if (set) {
+    const { arm, built: pen } = set;
+    eq(g.penHeads(pen), 1, 'one head, since nothing painted a paddock');
+
+    // Nothing in it yet: the loader must lift nothing at all.
+    const boxes = g.deliveries.length;
+    run(g, 40);
+    eq(g.deliveries.length, boxes, 'an empty pen is left alone');
+
+    // Fill it the way the clock does.
+    g.elapsed += 120;
+    g.step(0.1);
+    eq(pen.qty, PEN_BATCH, 'the pen fills');
+
+    check(until(g, () => pen.qty === 0, 400), 'and the loader empties it');
+    const box = g.deliveries.find((d) => lotQty(d, GOODS.id) > 0);
+    check(!!box, 'into a crate');
+    eq(lotQty(box, GOODS.id), PEN_BATCH, 'holding exactly what was standing in the gate');
+    check(!!box.belt, 'and that crate is on the run');
+
+    // The clock: a pen just collected is a whole batch away, not due now.
+    eq(g.penFill(pen), 0, 'and the next batch starts from zero rather than being due');
+  }
+}
+
+// 22b. A ripe bed is picked, and the bed is re-sown exactly as a hire re-sows
+// it — seed cost and all. One rule, or the crew and the conveyor undo each
+// other down the same row, and a machine that skipped the seed would leave a
+// field of rough soil behind something that looked like it was working.
+{
+  const g = fresh();
+  const set = farmBeside(g, 'plot', bedAt(g));
+  check(!!set, 'a loader stands beside a bed');
+  if (set) {
+    const { built: bed } = set;
+    const sown = g.sow('me', bed.id, FARM_CROP.id);
+    check(sown.ok, 'a crop goes in', sown.error ?? '');
+
+    // Unripe: left alone. The pair to 22a's empty pen, and the assertion that
+    // makes "it picks a bed" mean something narrower than "it picks beds".
+    const boxes = g.deliveries.length;
+    run(g, 40);
+    eq(g.deliveries.length, boxes, 'an unripe bed is left alone');
+    check(!bed.ready, 'because it is not ready');
+
+    g.elapsed += 120;
+    g.step(0.1);
+    check(bed.ready, 'the crop ripens');
+
+    const cash = g.cash;
+    check(until(g, () => !bed.ready, 400), 'and the loader picks it');
+    const box = g.deliveries.find((d) => lotQty(d, GOODS.id) > 0);
+    check(!!box, 'into a crate');
+    eq(lotQty(box, GOODS.id), CROP_YIELD, 'holding what the bed was drawing');
+    eq(bed.crop_id, FARM_CROP.id, 'and the bed is re-sown with the same crop');
+    check(g.cash < cash, 'which cost a seed, exactly as a hire picking it would');
+  }
+}
+
+// 22c. THE 2x2. A pen's record is its min corner, so a loader against any of the
+// other three sides has to find it too — `covers`, never `x === x`. This is the
+// `fixtureAt` trap docs/pens.md lists among the eight places "a fixture is a
+// tile" was load-bearing, arriving on a conveyor: half the placements would work
+// perfectly and the other half would do nothing, with nothing anywhere saying
+// which you had built.
+{
+  let corners = 0;
+  for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+    const g = fresh();
+    const cells = beltRun(g, 3);
+    if (!cells) continue;
+    const belts = lay(g, cells);
+    let done = false;
+    for (const belt of belts) {
+      if (done) break;
+      const spot = armFeeding(g, belt);
+      if (!spot) continue;
+      const res = g.placeFixture('me', { kind: 'arm', piece: ARM.id, x: spot.x, z: spot.z, rot: spot.rot });
+      if (!res.ok) continue;
+      const arm = (g.layout.arms ?? []).find((a) => a.id === res.placed);
+      for (const r of [0, 1, 2, 3]) {
+        const at = anchorTile(arm.x, arm.z, r);
+        const spec = { kind: 'pen', x: at.x + dx, z: at.z + dz, rot: 0 };
+        if (!canPlace(g.layout, spec).ok) continue;
+        const put = g.placeFixture('me', { ...spec, piece: FARM_PEN.id });
+        if (!put.ok) continue;
+        const pen = (g.layout.pens ?? []).find((p) => p.id === put.placed);
+        g.elapsed += 120;
+        g.step(0.1);
+        if (pen.qty !== PEN_BATCH) break;
+        if (until(g, () => pen.qty === 0, 400)) corners++;
+        done = true;
+        break;
+      }
+    }
+  }
+  check(corners > 1, 'a loader collects a pen from more than one of its corners',
+    `only ${corners} of the four placements worked`);
+}
+
+// 22d. The warning. A loader beside a pen or a bed must NOT be told it has
+// nothing to do — which is the exact failure CLAUDE.md already records about the
+// skip: the one press that fixes the shop reporting that it changes nothing.
+// "A warning is only worth what its silence is worth."
+{
+  const g = fresh();
+  const set = farmBeside(g, 'pen', penAt(g));
+  check(!!set, 'a loader stands beside a pen');
+  if (set) {
+    const { arm, built: pen } = set;
+    const verdict = canPlace(g.layout, {
+      kind: 'arm', x: arm.x, z: arm.z, rot: arm.rot,
+    }, arm.id);
+    check(!/nothing beside it/.test(verdict.warn ?? ''),
+      'and is not told it has nothing to work', verdict.warn ?? '');
+    // ...and the run knows the pen is on it, which is what `armGather` is
+    // reached through and what any future "where can this go" would read.
+    const met = conveyorMeets(g.layout, arm);
+    check((met.pens ?? []).some((p) => p.id === pen.id), 'the run reports the pen it meets');
   }
 }
 

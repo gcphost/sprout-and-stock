@@ -565,7 +565,14 @@ function edgeParts(style) {
   // the stubs, or the piece is drawn three times and the button stops saying
   // "this, set in a wall". A new one missed here fails quietly and only on 38px.
   const plain = {
-    ...style, opening: false, glass: false, curtain: false, shutter: false, mark: null,
+    ...style,
+    opening: false, glass: false, curtain: false, shutter: false, arch: false,
+    // ...and `railing` is the one in this list that is not an opening at all,
+    // which is exactly why it belongs: the stubs either side are meant to be
+    // the SOLID thing this piece is set in, and a railing whose stubs were also
+    // railing draws three cells of fence with no piece in the middle of it.
+    railing: false,
+    mark: null,
   };
   const parts = [
     ...edgeRun(plain, -at, STUB),

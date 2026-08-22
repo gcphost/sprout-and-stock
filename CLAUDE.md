@@ -230,7 +230,38 @@ Thirty sweeps, about a minute:
   content write leaves the row absent, `pieceFor` falls through to `defaultPiece`,
   and every number in the file is then measured against a shipped pen — which
   fails in twenty places, none of them saying why. It authors two pieces, an
-  item, a worker and a world, and removes all five on exit.
+  item, a worker and a world, and removes all five on exit. Since the paddock it
+  also guards the herd, and its second control is what decides whether any of
+  that is opt-in: a pen with **no** paddock is one head, which is step 1's
+  arithmetic to the digit, and every shop in existence is one of those. Then the
+  claims a painted field brings — that four times the grazing is four times the
+  pace but the SAME stockpile (fold those two and a big field needs emptying as
+  often as a small one, which is the decision gone); that a part-painted head is
+  worth nothing; that two shelters on one field SPLIT it, or one brush stroke and
+  a repeated purchase is a printer that reads as working perfectly the whole
+  time; and that a field on the far side of the farm changes nothing, which is
+  `dropGoods`' region bug said about grazing, where the paint and the animals
+  would otherwise be two unrelated facts on one save. Its centrepiece is the one
+  claim in the feature a screenshot could check, and it found its bug on the
+  first run: over four hundred seconds no body ever leaves the painted set. A leg
+  is a straight line, so an animal picking a cell anywhere in an L-shaped field
+  **cuts the corner** — 122 strays, looking exactly like a pig strolling across
+  the shop floor between two halves of its own pen, and looking like bad pathing
+  rather than like arithmetic. Paired with "at least one of them moved", or the
+  claim is about statues. And the CEILING, which is the half that keeps a brush
+  stroke from being a printer: grazing is the supply and `heads` on the rung is
+  the most a shelter will keep, so all the paint in the world does not beat the
+  rung and a better shelter over a small field changes nothing — both halves, or
+  one of the two is a knob that takes money and moves no number. Its third
+  control is a pen row whose rungs never mention `heads`, which is every pen row
+  authored before now: it keeps ONE animal whatever you paint round it, and a
+  fourth row exists purely so that "the art is a look" is not asked of the same
+  piece — three claims on one control fail as each other. Plus that a re-flow
+  **parks** the herd rather than
+  restarting it (`parkNow` again, and the reason the bodies live on the Game
+  rather than on the layout record a re-flow rebuilds), that nothing about a body
+  reaches the save, and that scrubbing the paint puts the pen back to one head —
+  the control said backwards.
 
 - `verify:motion` guards the one thing a screenshot can never show: whether the
   thing was moving. That a part flagged `motion` becomes the *right* moving part
@@ -548,7 +579,20 @@ Thirty sweeps, about a minute:
   shop instantly, and what it reads as is goods being DESTROYED, because the
   place you were watching is empty afterwards and nothing logs a thing. Both
   halves or neither: a sweep that only counted crates-on-the-pad passes on the
-  teleport. And a third, which only EXISTS at a junction with three ways out:
+  teleport. Since the farm it also guards the only thing on a run a loader takes
+  goods OUT of: a full pen and a ripe bed. Its claims are the empty pen and the
+  unripe bed left alone (or "it collects" means "it collects constantly"); the
+  pen's CLOCK reset with its `qty`, since `stepPens` pins `filledAt` every tick
+  it stands full and a collect that left the stamp would hand the next batch over
+  the instant the gate cleared; the bed re-sown with its seed paid for, exactly as
+  a hire re-sows it, or the crew and the conveyor undo each other down one row;
+  and the 2x2, which is the one that half-works — a pen's record is its MIN
+  CORNER, so `covers` and never `x === x`, or a loader against three of its four
+  sides finds nothing and you cannot tell which placement you built. Plus the
+  WARNING, which is the skip's bug said about the farm: a loader beside a pen
+  told it has nothing to work is the one press that automates the walk reporting
+  that it changes nothing. And a third, which only EXISTS at a junction with
+  three ways out:
   that a split goes to the lines that WANT the box rather than across the
   junction at large. Below three that distinction cannot be drawn — "exactly one
   is keen" and "alternate" cover the ground between them — so two-way coverage
@@ -808,7 +852,7 @@ Keep to your side and you'll almost never touch the same file.
 | Economy and balance | `server/sim/economy.js` | Re-run `simulate` after every change. |
 | Customer behaviour, crops, actions | `server/sim/index.js` | The biggest file. Coordinate before restructuring. |
 | Layout generation | `server/layout.js` | Re-run `npm run verify` after every change. |
-| Build placement rules | `shared/build.js` | Imported by **both** client and server on purpose — see below. Also owns `size` — how many cells a kind takes, which is on the KIND because `canPlace` is pure and has never seen the catalog (see docs/pens.md). Also owns `GROUND` — the brush that paints floor and the road (a look), and the bay, the drop-off, the break area and the car park (a job). None of the six is a fixture. |
+| Build placement rules | `shared/build.js` | Imported by **both** client and server on purpose — see below. Also owns `size` — how many cells a kind takes, which is on the KIND because `canPlace` is pure and has never seen the catalog (see docs/pens.md). Also owns `GROUND` — the brush that paints floor, the road, the pavement and the land (a look), and the bay, the drop-off, the break area, the car park and the paddock (a job). None of the nine is a fixture. |
 | Tile vocabulary | `shared/tiles.js` | The one place tile kinds are defined. |
 | Tag vocabulary | `shared/tags.js` | Adding a tag is safe. Changing what one *means* affects everything. |
 | Validation rules | `shared/schemas.js` | Loosen carefully — this is what stops bad content reaching the game. |
@@ -887,15 +931,15 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop | steps 1–9, 11, 13–27 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, and the fence that stopped being the only thing a boundary could be made of | steps 1–9, 11, 13–27, 29 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
-| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, and the loader that fills a hopper and lifts a tray so one machine feeds the next — with nothing in the recipe book yet that needs it | steps 1–4, 2b and 3b built; 5–7 proposed |
+| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in | steps 1–4, 2b, 3b and 4b built; 5–7 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, and the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board | steps 1–9 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
 | [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | step 1 built (no rung authored yet); 2–4 proposed |
-| [docs/pens.md](docs/pens.md) | the animal that is a building — why a cow you re-sow every time you milk her is a bed's rhythm borrowed by something that is not planted, one `pen` kind against seven authored pieces, a ladder where `speed_mult` is how often you must come and `capacity_mult` is how long you may leave it, the full pen that STOPS rather than banking batches overnight, and the first fixture in the game to take more than one tile — plus the eight places "a fixture is a tile" was load-bearing | built |
+| [docs/pens.md](docs/pens.md) | the animal that is a building — why a cow you re-sow every time you milk her is a bed's rhythm borrowed by something that is not planted, one `pen` kind against seven authored pieces, a ladder where `speed_mult` is how often you must come and `capacity_mult` is how long you may leave it, the full pen that STOPS rather than banking batches overnight, and the first fixture in the game to take more than one tile — plus the eight places "a fixture is a tile" was load-bearing; and the paddock you PAINT rather than fence, where a head is a divisor on the one clock, the paddock that SUPPLIES animals against the rung that is their CEILING, the animal that came out of the art and onto the grass, and the third population that is neither a player nor a customer | steps 1–2 built |
 | [docs/production.md](docs/production.md) | everything on the shelf came from something — why a recipe book whose outputs nothing eats is a factory with no factory in it, the three tiers and the line between what you buy and what you make, an ingredient as an item with property tags only (so nobody ever buys it and it costs no code), the crafting margin that stops depth being a tax, the six primary-processing machines the shop never had, and the van that stops selling you 68 of 103 items the day you can make them | built; the van fork is open |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
@@ -1400,6 +1444,36 @@ what the next step was meant to be.
   for a second model when you find yourself wanting a second 0..1 — not for a
   second *look*, which is a variant, and not for a second *number*, which is a
   tier.
+- **…and a model authored for a FIXTURE and drawn as a BODY is a quarter turn
+  wrong, silently.** Two conventions have always met here and neither is a
+  mistake: fixture art is drawn **nose east** — `+x`, length along x, which is
+  what `buildFixtureGhost` turns by and what `docs/fixtures.md` renders — and a
+  body's `facing` is `Math.atan2(dx, dz)`, so `rotation.y = facing` swings local
+  **+z** onto the heading, which is right for a character whose nose is a nub on
+  +z. `vehicleYaw` is the one line that reconciles them, and its own note says
+  why it deserves a name: a van is nearly symmetric front to back at this zoom,
+  so a lorry driving sideways up the border ring still reads as a lorry, and you
+  blame the art. A pen's `body` is the second thing to meet this — a `fixtures`
+  row that `syncActors` draws — and a hen is *more* symmetric than a van, so it
+  reads as a slightly odd chicken rather than as a bug. `Scene.buildAnimal` bakes
+  the quarter into a wrapper group rather than setting `rotation.y`, because
+  `syncActors` owns that field on whatever it is handed. The general shape:
+  **which way is forward is a property of the TABLE a model was authored for,
+  not of the model**, so anything that draws one table's art through another
+  table's renderer owes a turn.
+- **…and anything that walks between two cells walks THROUGH the ones in
+  between.** An animal is kept in its paddock by the set of legal cells and by
+  nothing else — no pathing, no edge test, no enclosure question — which is
+  airtight and was wrong on the first run, because a leg is a straight line: a
+  body handed a cell several squares away across an L-shaped field cuts the
+  corner, and the corner is not in the field. 122 strays over four hundred
+  seconds, and what it draws as is a pig strolling across the shop floor between
+  two halves of its own pen — which reads as bad pathing in a feature that has
+  no pathing in it. `stepAnimal` steps to the **next cell along**, four-connected
+  and never eight, because a diagonal clips the corner of the two cells it
+  passes between and either of those may be the car park. Worth asking of
+  anything new that moves between named cells: **is every cell on the way also
+  named?**
 - **A kit is an object; a pastime is an activity.** `kits` is a content table of
   things somebody has on them — a paper bag they walk out with, a basket they
   fill, a trolley, a thief's swag sack. It looks like a pastime and is not one:
@@ -2227,8 +2301,8 @@ what the next step was meant to be.
   and never one you can move further into, or `demote` would silently rewrite
   somebody's shift.
 - **A tier that changes no number is a button that takes money and does nothing.**
-  `capacity_mult`, `keeps_mult`, `speed_mult` and `unattended` are the only knobs
-  the sim reads. The till ladder was priced at 0 for exactly that reason until
+  `capacity_mult`, `keeps_mult`, `speed_mult`, `unattended`, `lines`, `covers`
+  and `heads` are the only knobs the sim reads. The till ladder was priced at 0 for exactly that reason until
   `serveSeconds` gave a checkout's speed something to mean — see the `speed`
   upgrade kind for what happens when you forget (it sells, and `speedMult()`
   still hardcodes `boots-1`).
@@ -2532,6 +2606,24 @@ what the next step was meant to be.
   close the loop. `CRATE_PITCH` is a whole cell rather than a box-width for the
   same reason: the clamp is now the only thing bounding what a run carries, so a
   tighter pitch would silently double it.
+- **…and TWO boxes can be crossing into one line at once, which is a deadlock
+  rather than a jam.** A crate that has left its own line and not yet arrived is
+  counted against the line it is heading for, so a second feeder holds back —
+  right, until both of them are part way in: each counts the other, `cap =
+  Math.max(cap, at)` means neither may go back, and the pair stands there for
+  the rest of the save with every line behind them backing up. Nothing errors,
+  nothing spills, nothing is lost, and what you watch is thirty crates standing
+  still on a conveyor that is working perfectly. A live shop had two rows and
+  **38 boxes** wedged on one square with 67 in-game minutes going by and not one
+  of them moving a pixel. `roomAt` is asked before anything crosses, so they
+  should not both be able to commit — and a **re-flow** is what gets round it:
+  the address is a cell plus an offset, `conveyorLines` re-cuts the shop on
+  every purchase, and a box that was mid-LINE comes back mid-GAP. So `barrier`
+  is a recovery rather than a guard now: among crates crossing into the same
+  line, the one nearer to arriving wins and the rest are behind it rather than
+  in its way. The general shape: **a reservation that only one party can hold is
+  a deadlock the moment two of them can be handed it**, and the way in was not
+  the code that hands it out.
 - **…and a crate riding a belt is a STRAY as far as `unload` is concerned, which
   is a 1e6 bonus.** `stockCrates()` is deliberately the whole list — `homeSupply`
   counts a box on a conveyor as supply the shop already owns, `binOrphans` sweeps
@@ -2546,6 +2638,64 @@ what the next step was meant to be.
   has: **a list whose membership used to imply a fact stops implying it the
   moment something can be in it for a new reason**, and none of the old readers
   looks wrong afterwards.
+- **…and a belt runs PAST a shelf. Only a loader hands off, and the build ghost
+  said otherwise for as long as there were belts.** `stepBelts` exits into
+  conveyor cells and nothing else, so a run pointed straight at a shelf, a
+  machine or a skip stops on its last cell with the box sitting on it — and
+  `whatThisCosts` counted all three as a valid `flow.out`, which is the
+  green-ghost rule inverted: the preview promising a join the sim has never had.
+  Its cost was not one dead belt. A live shop fed both its skips off a *sorter*,
+  so `conveyorMeets` answered "no bin on this network" from every cell, and
+  `armSwing`'s guard — a loader may not lift rubbish unless there is a skip down
+  the line, or the rot rides for ever — turned the whole feature off: 32 loaders,
+  two paid-for skips, eleven crates of rot, and nothing anywhere saying a word.
+  Two things fell out of fixing it, and both are the same shape as the bug. The
+  run test named `L.belts` alone, so it fired on the commonest join in the shop
+  (belt into loader) — a warning that goes off whatever you do is one nobody
+  reads, which is what made the real one worthless. And the loader's own
+  "nothing beside it to fill" named only `L.shelves`, so the one press that
+  fixes this — a loader put next to the skip — was told it had nothing to do.
+  **A warning is only worth what its silence is worth.**
+- **…and a loader emptying into a UNIT hands on to nobody, which is a flow
+  answer rather than a missing one.** `conveyorFlow`'s last pass resolves
+  whatever the forward walk never reached, and it made every such cell guess a
+  next cell — so a loader with a skip on one side and a sorter on the other came
+  back as pointing AT the sorter. `conveyorBranches` drops any neighbour whose
+  flow points back (a two-cell tug of war), so the loader was refused as a way
+  out: no blade drawn, no light on that side, nothing ever sent down it. Which
+  is exactly the build the skip exists for, reading as a junction that cannot
+  see a machine bolted to its own side — and the loader is aimed correctly the
+  whole time, so the one thing on screen you would check says it is fine. A live
+  shop had **1 of 91** conveyor cells able to reach a skip it had paid for. The
+  fix is that a loader whose `rot` names a shelf, a machine or a skip answers
+  `null`: it is a terminus, what arrives goes into the unit, and there is no
+  next cell to name. Only the walk's leftovers are answered that way — a loader
+  with a feeder was resolved above and is part of a run whatever it pours into —
+  and the pair that keeps it honest is that a loader aimed INTO the junction is
+  still refused, because that one really is declared to feed it. The general
+  shape: **a derivation with no answer must be allowed to say so**, or the
+  guess it makes up gets read by everything downstream as a fact somebody
+  stated.
+- **…and a crate may not REST on the rails, which is a rule and not a plea.**
+  The square being part of a run and the box being ON the run are two claims,
+  and a box could satisfy the first without the second for as long as there have
+  been belts. Rot is how it happens without anybody asking: `dropWaste` puts it
+  down where the food was, and in a shop with a line down the aisle that is a
+  conveyor cell. Nothing then owns it — `stepBelts` moves what has `d.belt`,
+  `armDrop` refuses to put anything on a rail, and a loader's side scan is about
+  the floor — so it stands there with goods gliding through it, untouchable by
+  every machine in the building, looking exactly like a belt that refused it.
+  Four crates on one live save. `clearRails` runs at the top of the belt pass
+  and is both halves or neither: what may ride goes ON (a run you built is a
+  thing that takes goods somewhere) and what may not is moved CLEAR, which is
+  what keeps a box of rot from being lifted onto a network with no skip on it
+  and jamming the run for the rest of the save. `mayRide` is the one spelling of
+  that second question, asked here and by the loader's own lift — the two
+  disagreeing is how the asymmetry bug got in the first time. Fixing it at the
+  SOURCE is the road not taken and worth saying: `dropGoods` and `dropWaste`
+  could each refuse a rail, which is two guards that do not cover a save that
+  already has boxes on one, and no guard at all against the next thing that
+  learns to put goods down.
 - **`repositionFixture` NAMES every field it keeps, so a setting left out is
   reset rather than merely not copied.** It builds a fresh placement — `boh`,
   `piece`, `tier`, `variant` — and then re-flows, and the re-flow rebuilds the

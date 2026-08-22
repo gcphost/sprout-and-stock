@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-98 pieces across 23 kinds.
+123 pieces across 24 kinds.
 
 > ⚠️ **Boards you cannot see into.** Goods fill a unit from the TOP board
 > down, because on a 45° camera each board covers the one below it. So a
@@ -164,13 +164,13 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 8 parts · 4 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-Shapes: Standard, Express Kiosk, Corner Counter — looks only, same price and same ladder.
+Shapes: Standard, Express kiosk, Corner counter — looks only, same price and same ladder.
 
-1. **Manual Till** — free, as built
-2. **Barcode Scanner** — $180, speed ×1.4
-3. **Belted Checkout** — $420, speed ×1.9
-4. **Self-Checkout** — $900, speed ×1.5, serves itself at ×0.5 speed
-5. **Walk-Out Sensors** — $2400, bills 8 at once, no queue
+1. **Manual till** — free, as built
+2. **Barcode scanner** — $180, speed ×1.4
+3. **Belted checkout** — $420, speed ×1.9
+4. **Self-checkout** — $900, speed ×1.5, serves itself at ×0.5 speed
+5. **Walk-out sensors** — $2400, bills 8 at once, no queue
 
 ### `station`
 
@@ -221,7 +221,7 @@ Outdoors only, blocks nobody, nobody stands at it.
 
 4 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-Shapes: Standard, Timber Trough, Cold Frame — looks only, same price and same ladder.
+Shapes: Standard, Timber trough, Cold frame — looks only, same price and same ladder.
 
 1. **Bare earth** — free, as built
 2. **Raised bed** — $90, speed ×1.6
@@ -235,55 +235,55 @@ Outdoors only, **2x2 tiles**, owns its cells (people walk around it), worked fro
 
 `hen-house` · kind `pen` · $120 to build
 
-29 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+15 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-1. **Hen house** — free, as built
-2. **Deep-litter house** — $190, holds ×2.5, speed ×1.5
+1. **Hen house** — free, keeps 3 animals
+2. **Deep-litter house** — $190, holds ×2.5, speed ×1.5, keeps 6 animals
 
 #### Dairy Shed
 
 `dairy-shed` · kind `pen` · $160 to build
 
-30 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+12 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-1. **Dairy shed** — free, as built
-2. **Milking parlour** — $250, holds ×2.5, speed ×1.5
+1. **Dairy shed** — free, keeps 2 animals
+2. **Milking parlour** — $250, holds ×2.5, speed ×1.5, keeps 4 animals
 
 #### Poultry Run
 
 `poultry-run` · kind `pen` · $140 to build
 
-19 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
+10 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
 
-1. **Poultry ark** — free, as built
-2. **Covered run** — $220, holds ×2.5, speed ×1.5
+1. **Poultry ark** — free, keeps 3 animals
+2. **Covered run** — $220, holds ×2.5, speed ×1.5, keeps 6 animals
 
 #### Pig Pen
 
 `pig-pen` · kind `pen` · $200 to build
 
-36 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+8 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-1. **Pig pen** — free, as built
-2. **Sty and hardstanding** — $320, holds ×2.5, speed ×1.5
+1. **Pig pen** — free, keeps 2 animals
+2. **Sty and hardstanding** — $320, holds ×2.5, speed ×1.5, keeps 4 animals
 
 #### Turkey Pen
 
 `turkey-pen` · kind `pen` · $280 to build
 
-35 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+7 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-1. **Turkey pen** — free, as built
-2. **Barn and yard** — $420, holds ×2.5, speed ×1.5
+1. **Turkey pen** — free, keeps 2 animals
+2. **Barn and yard** — $420, holds ×2.5, speed ×1.5, keeps 4 animals
 
 #### Cattle Pen
 
 `cattle-pen` · kind `pen` · $320 to build
 
-36 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+10 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-1. **Cattle pen** — free, as built
-2. **Yard and crush** — $480, holds ×2.5, speed ×1.5
+1. **Cattle pen** — free, keeps 2 animals
+2. **Yard and crush** — $480, holds ×2.5, speed ×1.5, keeps 3 animals
 
 #### Beehive
 
@@ -291,8 +291,8 @@ Outdoors only, **2x2 tiles**, owns its cells (people walk around it), worked fro
 
 23 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
-1. **Beehive** — free, as built
-2. **Apiary** — $190, holds ×2.5, speed ×1.5
+1. **Beehive** — free, keeps 3 animals
+2. **Apiary** — $190, holds ×2.5, speed ×1.5, keeps 6 animals
 
 ### `bin`
 
@@ -315,8 +315,8 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 5 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 4 parts move always
 
 1. **Track** — free, as built
-2. **Quick Belt** — $40, speed ×1.8
-3. **Maglev Track** — $110, speed ×3
+2. **Quick track** — $40, speed ×1.8
+3. **Maglev track** — $110, speed ×3
 
 ### `arm`
 
@@ -326,11 +326,11 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 `arm` · kind `arm` · $90 to build
 
-9 parts · no `surface` boards — goods pile on its roof
+16 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 2 parts move always
 
 1. **Loader** — free, as built
-2. **Quick Loader** — $90, speed ×1.9
-3. **Twin Loader** — $210, speed ×3.2
+2. **Quick loader** — $90, speed ×1.9
+3. **Twin loader** — $210, speed ×3.2
 
 ### `sorter`
 
@@ -340,11 +340,11 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 `sorter` · kind `sorter` · $140 to build
 
-9 parts · no `surface` boards — goods pile on its roof
+13 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 3 parts move always
 
-1. **Standard** — free, as built
-2. **Quick Sorter** — $140, speed ×1.9
-3. **Maglev Sorter** — $330, speed ×3.2
+1. **Sorter** — free, as built
+2. **Quick sorter** — $140, speed ×1.9
+3. **Maglev sorter** — $330, speed ×3.2
 
 ### `under`
 
@@ -354,11 +354,11 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 `under` · kind `under` · $60 to build
 
-8 parts · no `surface` boards — goods pile on its roof
+10 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof
 
 1. **Underground** — free, as built
-2. **Quick Underground** — $95, speed ×1.8
-3. **Maglev Underground** — $265, speed ×3
+2. **Quick underground** — $95, speed ×1.8
+3. **Maglev underground** — $265, speed ×3
 
 ## Decorations
 
@@ -384,7 +384,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **0.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### A-Frame
+#### A-Frame Sign
 
 `a-frame-sign` · kind `prop-floor` · $25 to build
 
@@ -422,7 +422,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 💡 Emits `#ffd9a6`, intensity 1.6, range 7 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Bollard
+#### Bollard Light
 
 `bollard-light` · kind `prop-floor` · $40 to build
 
@@ -448,7 +448,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Bay
+#### Bay Tree
 
 `bay-tree` · kind `prop-floor` · $70 to build
 
@@ -482,7 +482,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Bistro
+#### Bistro Set
 
 `bistro-set` · kind `prop-floor` · $95 to build
 
@@ -498,7 +498,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Rack
+#### Bike Rack
 
 `bike-rack` · kind `prop-floor` · $45 to build
 
@@ -522,7 +522,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **0.25** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-#### Runner
+#### Rug Runner
 
 `rug-runner` · kind `prop-floor` · $28 to build
 
@@ -530,11 +530,35 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
+#### Column
+
+`column-plain` · kind `prop-floor` · $32 to build
+
+6 parts
+
+✨ Charm **1.4** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Square Pier
+
+`column-pier` · kind `prop-floor` · $28 to build
+
+4 parts
+
+✨ Charm **1.2** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
+#### Timber Post
+
+`column-post` · kind `prop-floor` · $22 to build
+
+5 parts
+
+✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
+
 ### `prop-ceiling`
 
 Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a room to hang in.
 
-#### Pendant
+#### Pendant Lamp
 
 `pendant-lamp` · kind `prop-ceiling` · $60 to build
 
@@ -544,7 +568,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#ffd7a1`, intensity 1.3, range 5.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Sign
+#### Aisle Sign
 
 `aisle-sign` · kind `prop-ceiling` · $45 to build
 
@@ -562,7 +586,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#ffe0b0`, intensity 0.8, range 4 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Tube
+#### Tube Light
 
 `tube-light` · kind `prop-ceiling` · $70 to build
 
@@ -572,7 +596,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#e8f0ff`, intensity 1.5, range 6 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Fan
+#### Ceiling Fan
 
 `ceiling-fan` · kind `prop-ceiling` · $110 to build
 
@@ -582,7 +606,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#ffe1b3`, intensity 1, range 5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Panel
+#### Panel Light
 
 `panel-light` · kind `prop-ceiling` · $80 to build
 
@@ -612,7 +636,7 @@ Indoors only, blocks nobody, nobody stands at it, rotates, hangs, so it needs a 
 
 💡 Emits `#ffd08a`, intensity 1.8, range 6.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
-#### Hanging
+#### Hanging Basket
 
 `hanging-basket` · kind `prop-ceiling` · $50 to build
 
@@ -684,6 +708,78 @@ Surface `#9d5240` / `#e0d6c6`, brick repeat. No model — a finish is the wall's
 
 Surface `#eef0ee` / `#c8ccc9`, tiles repeat. No model — a finish is the wall's own skin.
 
+#### Brilliant White
+
+`paint-white` · kind `paint` · $3 per face
+
+Surface `#f6f5f1`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Charcoal
+
+`paint-charcoal` · kind `paint` · $4 per face
+
+Surface `#3b3e44`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Deep Navy
+
+`paint-navy` · kind `paint` · $5 per face
+
+Surface `#2c3b56`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Buttermilk
+
+`paint-buttermilk` · kind `paint` · $4 per face
+
+Surface `#f2dda2`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Dusty Rose
+
+`paint-rose` · kind `paint` · $4 per face
+
+Surface `#dcb2ab`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Ochre
+
+`paint-ochre` · kind `paint` · $4 per face
+
+Surface `#c98b3f`, plain repeat. No model — a finish is the wall's own skin.
+
+#### Whitewashed Brick
+
+`paint-brick-white` · kind `paint` · $7 per face
+
+Surface `#e8e1d6` / `#c3baab`, brick repeat. No model — a finish is the wall's own skin.
+
+#### Engineering Brick
+
+`paint-brick-blue` · kind `paint` · $7 per face
+
+Surface `#4d5a68` / `#cdd1d4`, brick repeat. No model — a finish is the wall's own skin.
+
+#### London Stock
+
+`paint-brick-stock` · kind `paint` · $7 per face
+
+Surface `#cfae76` / `#e8e0cd`, brick repeat. No model — a finish is the wall's own skin.
+
+#### Subway Tile
+
+`paint-subway` · kind `paint` · $10 per face
+
+Surface `#f4f3ef` / `#b6b9ba`, brick repeat. No model — a finish is the wall's own skin.
+
+#### Bottle Green Tile
+
+`paint-tile-green` · kind `paint` · $9 per face
+
+Surface `#2f6b52` / `#ded9cc`, tiles repeat. No model — a finish is the wall's own skin.
+
+#### Cobalt Tile
+
+`paint-tile-cobalt` · kind `paint` · $9 per face
+
+Surface `#2a5aa0` / `#e0dcd0`, tiles repeat. No model — a finish is the wall's own skin.
+
 ## Ground
 
 Not placed — **painted**, over an area, priced per tile. These have no anchor and block nobody, because they are not standing in a cell, they *are* the cell.
@@ -752,6 +848,54 @@ Surface `#a35e49` / `#8b4e3c`, planks repeat. No model — ground *is* the cell.
 
 Surface `#f0ddb8`, plain repeat. No model — ground *is* the cell.
 
+#### Dark Oak Boards
+
+`dark-oak-boards` · kind `floor` · $12 per tile
+
+Surface `#7a5334` / `#63422a`, planks repeat. No model — ground *is* the cell.
+
+#### Parquet Blocks
+
+`oak-parquet` · kind `floor` · $18 per tile
+
+Surface `#b98b4e` / `#96692f`, checker repeat. No model — ground *is* the cell.
+
+#### Clay Paviors
+
+`clay-paviors` · kind `floor` · $13 per tile
+
+Surface `#ab5238` / `#cabfae`, brick repeat. No model — ground *is* the cell.
+
+#### Mosaic Tiling
+
+`mosaic-tile` · kind `floor` · $17 per tile
+
+Surface `#38707f` / `#ded9cc`, tiles repeat. No model — ground *is* the cell.
+
+#### Marble Tiling
+
+`marble-tile` · kind `floor` · $20 per tile
+
+Surface `#f0eee7` / `#cfccc2`, tiles repeat. No model — ground *is* the cell.
+
+#### Sage Lino
+
+`sage-lino` · kind `floor` · $5 per tile
+
+Surface `#7d9878`, plain repeat. No model — ground *is* the cell.
+
+#### Oxblood Lino
+
+`oxblood-lino` · kind `floor` · $5 per tile
+
+Surface `#8c3f3a`, plain repeat. No model — ground *is* the cell.
+
+#### Steel Deck
+
+`steel-deck` · kind `floor` · $9 per tile
+
+Surface `#8f959c` / `#7b828a`, checker repeat. No model — ground *is* the cell.
+
 ### `bay`
 
 Ground. Painted over an area, blocks nobody, and carries a **job**: wholesale orders land here, and how big you paint it is how many crates it holds.
@@ -792,6 +936,22 @@ Ground. Painted over an area, blocks nobody, and carries a **job**: shoppers who
 
 Surface `#79808c` / `#98a0ad`, planks repeat. No model — ground *is* the cell.
 
+### `paddock`
+
+Ground. Painted over an area, blocks nobody, and carries a **job**: animals graze here, and how big you paint it is how many head a pen you stand in it holds.
+
+#### Grazing
+
+`paddock-grazing` · kind `paddock` · $1.40 per tile
+
+Surface `#9ab069` / `#accb78`, tufts repeat. No model — ground *is* the cell.
+
+#### Muddy Yard
+
+`paddock-yard` · kind `paddock` · $1.10 per tile
+
+Surface `#7d6a4e` / `#8d7a5c`, tufts repeat. No model — ground *is* the cell.
+
 ### `road`
 
 Ground. Painted over an area, blocks nobody, and is purely a **look** — two designs of road leave byte-identical tiles.
@@ -802,7 +962,7 @@ Ground. Painted over an area, blocks nobody, and is purely a **look** — two de
 
 Surface `#5f646d` / `#565b63`, plain repeat. No model — ground *is* the cell.
 
-#### Gravel
+#### Gravel Track
 
 `gravel-track` · kind `road` · $2 per tile
 

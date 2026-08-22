@@ -681,7 +681,7 @@
   },
   {
     "id": "mustard-recipe",
-    "name": "Mustard",
+    "name": "Milled Mustard",
     "station": "mixer",
     "inputs": [
       {
@@ -1007,7 +1007,7 @@
   },
   {
     "id": "soda-recipe",
-    "name": "Fizzy Soda",
+    "name": "Pressed Apple Fizz",
     "station": "juicer",
     "inputs": [
       {
@@ -1079,7 +1079,7 @@
   },
   {
     "id": "stock-recipe",
-    "name": "Stock",
+    "name": "Simmered Stock",
     "station": "stock-pot",
     "inputs": [
       {

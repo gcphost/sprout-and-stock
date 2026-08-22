@@ -317,7 +317,7 @@ server.registerTool('create_fixture', {
     + '  paint         a finish for one SIDE of a wall — painted along a run, not on a cell\n'
     + '  road          the same, and the lane a van or a shopper\'s car would rather drive on\n'
     + '  path          pavement — the same again, for feet. A `stripes` design of one laid across a road is a crossing.\n'
-    + '  bay/drop/break/park  the pads — ground that carries a job. Deliveries land, stock waits, staff rest, shoppers park.\n\n'
+    + '  bay/drop/break/park/paddock  the pads — ground that carries a job. Deliveries land, stock waits, staff rest, shoppers park, animals graze.\n\n'
     + 'GROUND is the odd one and the only kind with no `model`: it is not a thing standing in a cell, it IS the cell, so what you author is `surface` — a colour, an optional second colour and how they repeat. '
     + 'It is also the only kind priced PER TILE, and it is what makes a walled extension usable: walls decide what counts as indoors, floor decides what a shelf can stand on. Price it so paving a back room is a real decision — the shipped range is $6 to $22 a tile.\n\n'
     + 'Props never block: people walk past them. A barrel that stopped somebody would need to own its cell, and a cell can only say one thing at a time — so anything that must be walked around is a shelf, not a prop.\n\n'
@@ -351,6 +351,7 @@ server.registerTool('create_fixture', {
     name: z.string().describe('Display name, e.g. "Shelving". This is what the build palette calls it.'),
     model: z.any().optional().describe('{parts:[...]} or {stages:[{name, at, parts:[...]}]}. Required for everything except GROUND (floor, road, bay, drop, break, park), which has no model. ' + STAGE_HELP),
     work: z.any().optional().describe('What it looks like while it is WORKING — same shape as `model`, staged by how far through a batch it is rather than by tier. Appliances only, for now: nothing else in the game can be busy. ' + WORK_HELP),
+    body: z.any().optional().describe('PENS ONLY. The ANIMAL — a body that walks around the paddock, rather than a part of the shed it came out of. Same shape as `model` but with NO stages: one pen draws as many copies of this as its `heads` allows, each ambling somewhere different, so there is no 0..1 to spend on it. Author it in ONE TILE standing at the origin, NOSE EAST like every other piece of art here — the renderer turns it to face where it is walking. Draw the shelter in `model` and the creature in here; a shed with a cow painted on it is a photograph of a farm. Leave it out for a piece whose animal is not worth drawing loose — a beehive is the whole picture, and bees on the grass are not. It moves no number: heads come off the paddock and the rung whether or not anybody has drawn one.'),
     surface: z.object({
       color: z.string().describe('#rrggbb. The main colour of the floor.'),
       accent: z.string().optional().describe('#rrggbb, the second colour of the pattern. Left out it is a darker shade of the first, which is usually what you want.'),
@@ -367,7 +368,7 @@ server.registerTool('create_fixture', {
       item_id: z.string().describe('Which existing item one batch is made of. Create the item first.'),
       qty: z.number().int().min(1).max(64).default(1).describe('How much one batch is.'),
       every: z.number().min(1).max(1440).default(60).describe('In-game MINUTES a batch takes. A day is 24x60 of these.'),
-    }).optional().describe('PENS ONLY, and required for one — a pen with no `produces` is a hutch with nothing in it. Makes this piece produce GOODS on its own clock, with no sowing and no seed: what you pay is the price of the pen. They stand in the pen until somebody collects them from its gate. The tier ladder is what makes a rung worth buying: `speed_mult` shortens the wait and `capacity_mult` is how many batches it will stockpile before it stalls, so tier 1 holds exactly one batch and then stops. Nothing else reads this field.'),
+    }).optional().describe('PENS ONLY, and required for one — a pen with no `produces` is a hutch with nothing in it. Makes this piece produce GOODS on its own clock, with no sowing and no seed: what you pay is the price of the pen. They stand in the pen until somebody collects them from its gate. The tier ladder is what makes a rung worth buying: `speed_mult` shortens the wait and `capacity_mult` is how many batches it will stockpile before it stalls, so tier 1 holds exactly one batch and then stops, and `heads` is how many animals it keeps. Nothing else reads this field.'),
     charm: z.number().min(0).max(20).optional()
       .describe('How much nicer this makes the shop look, which is how far word of it travels. It raises CATCHMENT \u2014 how much of the town is within reach at all \u2014 rather than reputation, because reputation is what the people who already came in think of you. Saturating: about half the maximum at 10 total charm across the whole shop, so a room full of pot plants is worth about as much as one nice centrepiece. 1 is a pleasant pot plant, 5 is a centrepiece.'),
     open: z.boolean().optional()
@@ -383,6 +384,8 @@ server.registerTool('create_fixture', {
       speed_mult: z.number().min(0.1).max(10).default(1),
       unattended: z.number().min(0).max(1).default(0)
         .describe('Checkouts only. What share of its speed it manages with nobody behind it. 0 = needs a person, which is every till until now; 0.5 = serves itself at half the speed a clerk would.'),
+      heads: z.number().int().min(1).max(24).default(1)
+        .describe('PENS ONLY. The most animals this rung will keep, however much grazing the player paints around it. The PADDOCK is the supply and this is the ceiling, and you need both: a field alone is one brush stroke buying an unbounded speed-up, and a rung alone is a number with no land behind it. Small animals crowd in and big ones do not \u2014 a hen house keeps 3, a cattle pen keeps 2. Give tier 1 at LEAST 2, or a paddock can never help that pen and the brush reads as broken. Defaults to 1, which is a pen that keeps the one animal pens have always kept.'),
     })).min(1).max(6).describe('Lowest rung first. Tier 1 is what a new one already is.'),
     cost: z.number().min(0).optional()
       .describe('What one costs to build — per TILE for ground (floor, bay, drop, break). 0 (the default) means "priced by the upgrade that sells this kind" — right for fixtures, free for props and for ground, neither of which has an upgrade behind it.'),

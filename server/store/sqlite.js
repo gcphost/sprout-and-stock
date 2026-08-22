@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   name       TEXT NOT NULL,
   model      TEXT NOT NULL,               -- JSON, staged by tier
   work       TEXT NOT NULL DEFAULT 'null',-- JSON, staged by how far through a batch
+  body       TEXT NOT NULL DEFAULT 'null',-- JSON, unstaged: the animal that walks about
   tiers      TEXT NOT NULL DEFAULT '[]',  -- JSON [{name, cost, ...mults}]
   variants   TEXT NOT NULL DEFAULT '[]',  -- JSON [{id, name, model, work}] — looks only
   cost       REAL NOT NULL DEFAULT 0,     -- 0 = priced by the upgrade that sells it
@@ -373,6 +374,10 @@ const ADDED_COLUMNS = [
   // they were running — and is why nothing in a live shop changed on the day
   // this landed.
   ['fixtures', 'work', "TEXT NOT NULL DEFAULT 'null'"],
+  // The animal, for the pens. 'null' is "nothing lives here", which is every row
+  // in the catalogue except seven — and is true of a beehive on purpose, since
+  // the hive is the whole of what you see.
+  ['fixtures', 'body', "TEXT NOT NULL DEFAULT 'null'"],
   // Whether you can walk all the way round it. 0 is "it has a back", which is
   // true of every unit authored before the question could be asked — so no shop
   // gains a side it did not have on the day this landed.
@@ -470,7 +475,7 @@ const JSON_FIELDS = {
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
-  fixtures: ['model', 'work', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'produces', 'tags'],
+  fixtures: ['model', 'work', 'body', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'produces', 'tags'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
   skins: ['slots', 'extras', 'tags'],

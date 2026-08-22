@@ -2,7 +2,7 @@
   {
     "id": "backpack-1",
     "name": "Carrying Rig",
-    "description": "A harness and side pouches. Your hands hold 12 at a time instead of 6 — crates are a fixed size and are not affected.",
+    "description": "A harness and side pouches. Your hands hold 12 at a time instead of 6. Crates stay the size they were.",
     "cost": 75,
     "kind": "capacity",
     "payload": {
@@ -48,7 +48,7 @@
   {
     "id": "catchment-retail-park",
     "name": "Retail Park Unit",
-    "description": "Out of town, off the ring road. Nobody walks past — they drive to you, so lay yourself some tarmac and somewhere to park before you move.",
+    "description": "Out of town, off the ring road. Nobody walks past, so lay some tarmac and a few parking bays before you move.",
     "cost": 20000,
     "kind": "catchment",
     "payload": {
@@ -72,7 +72,7 @@
   {
     "id": "checkout-3",
     "name": "Register Trade Account",
-    "description": "Buy registers at trade. 40% off every till you install, replacing the earlier deal rather than stacking with it — worth having before you line up a bank of self-service machines.",
+    "description": "Buy registers at trade. 40% off every till you install, and it replaces the earlier deal rather than stacking with it.",
     "cost": 850,
     "kind": "checkout",
     "payload": {
@@ -85,7 +85,7 @@
   {
     "id": "decor-frontage",
     "name": "New Shopfront",
-    "description": "Timber frontage, deep window bays and a lit stall out front. Adds to the repaint rather than replacing it — and like everything that makes the shop lovely, it reaches fewer new people the more of it you have.",
+    "description": "Timber frontage, deep window bays and a lit stall out front. Adds to the repaint rather than replacing it.",
     "cost": 1400,
     "kind": "decor",
     "payload": {
@@ -98,7 +98,7 @@
   {
     "id": "decor-repaint",
     "name": "Repaint and Signage",
-    "description": "New paint, a proper hanging sign and a swept forecourt. Nothing you place — the whole shop just looks like somewhere that is doing well, and word gets about.",
+    "description": "New paint, a proper hanging sign and a swept forecourt. Nothing to place: the shop just looks like somewhere doing well, and word gets about.",
     "cost": 450,
     "kind": "decor",
     "payload": {
@@ -133,7 +133,7 @@
   {
     "id": "licence-24-hour",
     "name": "24-Hour Licence",
-    "description": "The doors never have to shut. Night footfall is about a tenth of the evening rush and the dark still passes quickly, so this pays out slowly — and only while somebody is standing at the till.",
+    "description": "The doors never have to shut. Night footfall is about a tenth of the evening rush, so it pays out slowly, and only while somebody is on the till.",
     "cost": 3200,
     "kind": "hours",
     "payload": {
@@ -147,7 +147,7 @@
   {
     "id": "licence-late",
     "name": "Late Licence",
-    "description": "Trade until midnight. The evening rush is long over by then, so what you get is a trickle — worth it if somebody is on the till anyway.",
+    "description": "Trade until midnight. The evening rush is long over by then, so expect a trickle. Worth it if somebody is on the till anyway.",
     "cost": 900,
     "kind": "hours",
     "payload": {
@@ -207,7 +207,7 @@
   {
     "id": "space-1",
     "name": "East Paddock",
-    "description": "Three more columns of land down the east flank. Nothing is built for you and nothing you built moves — it is ground you are allowed to wall, floor, farm and pave, which is the only thing the map was ever short of.",
+    "description": "Three more columns of land down the east flank. Nothing is built for you and nothing you built moves. Ground to wall, floor, farm and pave.",
     "cost": 650,
     "kind": "space",
     "payload": {
@@ -218,7 +218,7 @@
   {
     "id": "space-2",
     "name": "South Paddock",
-    "description": "Three more rows of land toward the street. Same deal as the east strip: the building stays exactly where it is, and what you get is somewhere to put an annex, a longer drive or another block of beds.",
+    "description": "Three more rows of land toward the street. The building stays put. Room for an annex, a longer drive or another block of beds.",
     "cost": 900,
     "kind": "space",
     "payload": {
@@ -231,7 +231,7 @@
   {
     "id": "space-3",
     "name": "North Paddock",
-    "description": "Three more rows behind the shop, where the yard is — the one direction the map could not grow until now. The whole world slides south and the new rows become the back. Nothing you built moves relative to anything else: walls, paint, pads and crates all go together.",
+    "description": "Three more rows behind the shop, where the yard is. The world slides south to make room and everything you built goes with it.",
     "cost": 1200,
     "kind": "space",
     "payload": {
@@ -244,7 +244,7 @@
   {
     "id": "space-4",
     "name": "West Paddock",
-    "description": "Three more columns down the west flank, the mirror of the east strip and the same trick as the north one — the world slides east and the new ground appears on the left. Ground to wall, floor, farm and pave; nothing is built for you.",
+    "description": "Three more columns down the west flank. The world slides east to make room and everything you built goes with it.",
     "cost": 1500,
     "kind": "space",
     "payload": {
@@ -257,7 +257,7 @@
   {
     "id": "space-5",
     "name": "Back Field",
-    "description": "Five more rows behind the North Paddock — room for a proper yard, a second dock, a stockroom annex or a block of beds out of sight of the street. The deepest single piece of land the shop can buy.",
+    "description": "Five more rows behind the North Paddock. Room for a proper yard, a second dock or a stockroom out of sight of the street.",
     "cost": 2600,
     "kind": "space",
     "payload": {
@@ -270,7 +270,7 @@
   {
     "id": "space-6",
     "name": "The Back Forty",
-    "description": "Twenty more rows behind the Back Field — enough to put the whole shop somewhere else and still have a yard. The last piece of land on the map.",
+    "description": "Twenty more rows behind the Back Field. Enough to move the whole shop and still have a yard. The last land on the map.",
     "cost": 6000,
     "kind": "space",
     "payload": {
@@ -316,7 +316,7 @@
   {
     "id": "staff-shop-hand",
     "name": "Hire a Shop Hand",
-    "description": "Tills, deliveries and shelves — and picks the odd ripe plot when the shop is quiet.",
+    "description": "Tills, deliveries and shelves. Picks the odd ripe bed when the shop is quiet.",
     "cost": 280,
     "kind": "staff",
     "payload": {
@@ -338,7 +338,7 @@
   {
     "id": "station-blast-freezer",
     "name": "Blast Freezer",
-    "description": "Freezes anything you put in it, hard and fast. Peas, berries, chips, lollies, fish fingers — and a pizza you baked this morning, which is the only two-machine chain in the shop.",
+    "description": "Freezes anything you put in it, hard and fast. Peas, berries, chips, lollies, fish fingers, and this morning’s pizza.",
     "cost": 340,
     "kind": "station",
     "payload": {
@@ -360,7 +360,7 @@
   {
     "id": "station-butcher",
     "name": "Butcher's Block",
-    "description": "A block, a saw and a mincer. Whole birds become portions, beef becomes mince, pork becomes the bacon and sausages every breakfast roll in the shop is built on.",
+    "description": "A block, a saw and a mincer. Whole birds become portions, beef becomes mince, and pork becomes bacon and sausages.",
     "cost": 260,
     "kind": "station",
     "payload": {
@@ -372,7 +372,7 @@
   {
     "id": "station-candy-kettle",
     "name": "Candy Kettle",
-    "description": "A copper kettle for boiling sugar. Gummies, liquorice and chocolate slabs — the whole candy aisle, which the town asks for more than almost anything and no shop could make until now.",
+    "description": "A copper kettle for boiling sugar. Gummies, liquorice and chocolate slabs. The town asks for candy more than almost anything.",
     "cost": 280,
     "kind": "station",
     "payload": {
@@ -383,7 +383,7 @@
   {
     "id": "station-churn",
     "name": "Churn",
-    "description": "Separates and works milk into cream, butter and curds. The curds are the interesting part: give them twenty minutes in a preserving pot and you have a cheese wheel worth eight times the milk.",
+    "description": "Separates and works milk into cream, butter and curds. Twenty minutes of curds in a preserving pot makes a cheese wheel worth eight times the milk.",
     "cost": 240,
     "kind": "station",
     "payload": {
@@ -395,7 +395,7 @@
   {
     "id": "station-coffee",
     "name": "Coffee Machine",
-    "description": "Beans and milk in, a proper flat white out — and cocoa and milk in, hot chocolate out, which wants a hot counter rather than a shelf.",
+    "description": "Beans and milk in, a proper flat white out. Cocoa makes hot chocolate, which wants a hot counter rather than a shelf.",
     "cost": 240,
     "kind": "station",
     "payload": {
@@ -406,7 +406,7 @@
   {
     "id": "station-deep-fryer",
     "name": "Deep Fryer",
-    "description": "A basket and a vat of hot oil. Makes doughnuts out of your own wheat and eggs, and turns oven chips into hot chips — which want a hot counter, not a shelf.",
+    "description": "A basket and a vat of hot oil. Doughnuts out of your own wheat and eggs, and hot chips out of oven chips. The chips want a hot counter.",
     "cost": 210,
     "kind": "station",
     "payload": {
@@ -417,7 +417,7 @@
   {
     "id": "station-grill",
     "name": "Grill",
-    "description": "A flat-top grill. Raw meat and vegetables go on, dinner comes off: skewers for the shelf, and roast chicken, a turkey carvery, hot dogs and bacon rolls for a hot counter.",
+    "description": "A flat-top grill. Skewers for the shelf, and roast chicken, carvery, hot dogs and bacon rolls for a hot counter.",
     "cost": 230,
     "kind": "station",
     "payload": {
@@ -428,7 +428,7 @@
   {
     "id": "station-juicer",
     "name": "Juicer",
-    "description": "A press with a jug under it. Tomatoes and carrots off your own beds go in; garden juice and ketchup come out, worth several times the vegetables.",
+    "description": "A press with a jug under it. Tomatoes and carrots off your own beds go in, garden juice and ketchup come out, worth several times the veg.",
     "cost": 190,
     "kind": "station",
     "payload": {
@@ -439,7 +439,7 @@
   {
     "id": "station-mill",
     "name": "Mill",
-    "description": "Stone rollers that turn your own wheat into flour and your own beet into sugar. Nothing else in the shop makes an ingredient out of a crop, which is why almost every chain in the kitchen starts here.",
+    "description": "Stone rollers. Your own wheat becomes flour and your own beet becomes sugar. Most of the kitchen starts here.",
     "cost": 180,
     "kind": "station",
     "payload": {
@@ -451,7 +451,7 @@
   {
     "id": "station-mixer",
     "name": "Mixer",
-    "description": "A dough hook and a bowl. Flour and eggs go in; dough, pastry, batter and fresh pasta come out — the middle step every baked thing in the shop now wants.",
+    "description": "A dough hook and a bowl. Flour and eggs in, dough, pastry, batter and fresh pasta out. The middle step of most baking.",
     "cost": 200,
     "kind": "station",
     "payload": {
@@ -462,7 +462,7 @@
   {
     "id": "station-oven",
     "name": "Oven",
-    "description": "A proper deck oven. Wheat off your own fields goes in, bread worth four times the sheaf comes out — plus tarts, and mince pies for the three months of the year the town asks for them.",
+    "description": "A proper deck oven. Wheat off your fields becomes bread worth four times the sheaf. Also tarts, and mince pies in winter.",
     "cost": 220,
     "kind": "station",
     "payload": {
@@ -473,7 +473,7 @@
   {
     "id": "station-preserving-pot",
     "name": "Preserving Pot",
-    "description": "A copper pot and a rack of jars. Turns a glut off the fields into something that keeps for a year — pickles, or a chutney worth rather more if you have a bottle of hot sauce to go in it.",
+    "description": "A copper pot and a rack of jars. Turns a glut off the fields into pickles and chutney that keep for a year.",
     "cost": 200,
     "kind": "station",
     "payload": {
@@ -484,7 +484,7 @@
   {
     "id": "station-sandwich-press",
     "name": "Sandwich Press",
-    "description": "A hinged plate that toasts both sides at once. Bread plus a filling, out in a minute — the cheapest way to turn two shelf items into one better one.",
+    "description": "A hinged plate that toasts both sides at once. Bread and a filling, out in a minute. The cheapest way to turn two shelf items into a better one.",
     "cost": 170,
     "kind": "station",
     "payload": {
@@ -495,7 +495,7 @@
   {
     "id": "station-soft-serve",
     "name": "Soft-Serve Machine",
-    "description": "A chilled hopper and a lever. Milk plus berries or jam, out as swirls and lollies — and unlike the rest of the kitchen, what it makes needs a freezer rather than a shelf.",
+    "description": "A chilled hopper and a lever. Milk with berries or jam comes out as swirls and lollies. All of it needs a freezer.",
     "cost": 320,
     "kind": "station",
     "payload": {
@@ -506,7 +506,7 @@
   {
     "id": "station-stock-pot",
     "name": "Stock Pot",
-    "description": "A deep pot over a burner. Tins, dried pasta and a bit of mince go in; soup and ready meals come out. The soup wants a hot counter and the pasta bake wants a chiller — neither will run without one.",
+    "description": "A deep pot over a burner. Tins, dried pasta and a bit of mince become soup and ready meals. The soup wants a hot counter, the pasta bake a freezer.",
     "cost": 200,
     "kind": "station",
     "payload": {

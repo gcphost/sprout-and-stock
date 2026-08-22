@@ -1124,6 +1124,10 @@ export class Scene {
 
     this.players = new Map();
     this.customers = new Map();
+    // The livestock, and a third map for the third population — never merged
+    // into either of the two above, for the reason `Game.animals` gives. Here it
+    // costs one line, because `syncActors` has never known what it is drawing.
+    this.animals = new Map();
     this.stationProps = new Map();
     // The parts of built fixtures that move under their own steam — a blade, a
     // lever, a fan. Kept as its own index rather than walked out of `staticRoot`
@@ -3404,6 +3408,11 @@ export class Scene {
       // `syncActors`' `onBuild` and `markUnder`.
       (rec, p) => this.markUnder(rec, p));
     this.syncActors(state.customers, this.customers, (c) => buildCharacter(c.color));
+    // ...and the animals, keyed by which piece they came out of so that
+    // redrawing a hen over MCP restages every hen in the shop — `syncActors`'
+    // own `keyOf`, doing here exactly what it does for a promoted hire.
+    this.syncActors(state.animals ?? [], this.animals,
+      (a) => this.buildAnimal(a), (a) => a.piece ?? '');
     // The shop's own footfall map, when it is due — `trafficWire` sends it
     // every couple of seconds and leaves the field off in between, so this is
     // usually a compare against `undefined`. Adopted whether or not the overlay
@@ -3714,6 +3723,39 @@ export class Scene {
     return buildModel(kind.model, {
       t: tierProgress(p.tier ?? 1, kind.tiers?.length ?? 1), skin: worn,
     });
+  }
+
+  /**
+   * One animal, off the `body` model of the pen it belongs to.
+   *
+   * No tier and no stage: `body` takes no 0..1 at all, because one pen draws as
+   * many of these as the paddock is worth and each is somewhere different. That
+   * is the whole reason it is a third model rather than more parts on the
+   * shelter — see `body` in shared/schemas.js.
+   *
+   * A row that has been deleted out from under a body draws the built-in
+   * character, which is the same shrug `buildActor` gives a hire whose kind has
+   * gone: content is edited live, and the alternative to a shrug is a hole in
+   * the field where something is standing.
+   */
+  buildAnimal(a) {
+    const piece = (this.catalog.pieces ?? []).find((p) => p.id === a.piece);
+    if (!piece?.body) return buildCharacter('#c9a227');
+    // The two conventions `vehicleYaw` exists for, met a second time and settled
+    // the same way. `body` lives on a `fixtures` row, so it is authored NOSE
+    // EAST like every other piece of fixture art and like `docs/fixtures.md`
+    // will draw it — while `syncActors` sets `rotation.y = facing`, which is a
+    // +z-forward reading meant for a character whose nose is a nub on +z. A hen
+    // authored east and turned by a body's facing walks sideways for ever, and
+    // at this zoom a chicken is nearly symmetric: it reads as odd art rather
+    // than as a quarter turn. Baked into a wrapper rather than applied on the
+    // group, because `syncActors` owns `rotation.y` on whatever it is handed.
+    const turned = new THREE.Group();
+    turned.rotation.y = -Math.PI / 2;
+    turned.add(buildModel(piece.body));
+    const holder = new THREE.Group();
+    holder.add(turned);
+    return holder;
   }
 
   /**
@@ -4178,7 +4220,7 @@ export class Scene {
   animateActors(dt, snap = false) {
     const move = snap ? 1 : 1 - Math.exp(-dt * ACTOR_CHASE);
     let slip = 0;
-    for (const map of [this.players, this.customers]) {
+    for (const map of [this.players, this.customers, this.animals]) {
       for (const rec of map.values()) {
         if (rec?.tx === undefined) continue;
         const dx = (rec.tx - rec.obj.position.x) * move;
@@ -5226,6 +5268,80 @@ export class Scene {
   }
 
   /**
+   * Every fixture DRAWN inside a screen rectangle — the marquee's answer.
+   *
+   * A rectangle cannot be a ray, so this is the one pick in the game that is not
+   * `pickFixtureHit`, and the difference is worth stating: a ray asks "what is
+   * under this pixel" and answers with the nearest, while a box asks "what is
+   * in here" and has to answer with all of them, including things standing
+   * behind other things. That is right for a marquee — you drew a box round an
+   * aisle, not round its front row.
+   *
+   * Against the ART and never the tile, which is the same distinction
+   * `pickFixture` exists for: at this camera a shelf is drawn most of a tile
+   * up-screen of the ground it stands on, so a box tested against tile centres
+   * would take in the row behind the one you dragged over and miss the one you
+   * did. The projected box is the eight corners rather than two, because a box
+   * in the world is a hexagon on the screen — the same measurement
+   * `nearestBoard` takes, for the same reason.
+   *
+   * INTERSECTS rather than contains. A box round part of an aisle is how anybody
+   * drags, and demanding that a whole shelf fit inside it would mean the ones at
+   * the edges of your drag silently did not come — which reads as the marquee
+   * missing things rather than as a rule.
+   *
+   * `staticRoot` alone and deliberately NOT `pickTargets`, which also hands back
+   * a shelf's stock and a bed's crop: those live in `actorRoot`, move with what
+   * they stand on, and have no id of their own. Fine for a ray that has already
+   * hit one; here it would let a loaf of bread on the front row drag its whole
+   * unit in from outside the box.
+   *
+   * Resolved id-first and tile-second, which is `pickFixtureHit`'s own line and
+   * carries its reason: only a PROP stamps `userData.fixture`, because a
+   * decoration owns no tile and `fixtureAt` can only ever answer the thing
+   * underneath it.
+   */
+  fixturesInRect(x0, y0, x1, y1) {
+    if (!this.storeLayout) return [];
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const lo = { x: Math.min(x0, x1) - rect.left, y: Math.min(y0, y1) - rect.top };
+    const hi = { x: Math.max(x0, x1) - rect.left, y: Math.max(y0, y1) - rect.top };
+    const box = new THREE.Box3();
+    const v = new THREE.Vector3();
+    const seen = new Set();
+    const out = [];
+    for (const o of this.staticRoot.children) {
+      if (!o.userData.pick) continue;
+      o.updateMatrixWorld(true);
+      box.setFromObject(o);
+      if (box.isEmpty()) continue;
+      let bx0 = Infinity; let by0 = Infinity; let bx1 = -Infinity; let by1 = -Infinity;
+      for (let i = 0; i < 8; i += 1) {
+        v.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y,
+          i & 4 ? box.max.z : box.min.z);
+        v.project(this.camera);
+        const sx = (v.x + 1) / 2 * rect.width;
+        const sy = (1 - v.y) / 2 * rect.height;
+        if (sx < bx0) bx0 = sx;
+        if (sx > bx1) bx1 = sx;
+        if (sy < by0) by0 = sy;
+        if (sy > by1) by1 = sy;
+      }
+      if (bx1 < lo.x || bx0 > hi.x || by1 < lo.y || by0 > hi.y) continue;
+      const f = (o.userData.fixture ? this.fixtureById(o.userData.fixture) : null)
+        ?? this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
+      // By id, never by identity: `allFixtures` rebuilds its records on every
+      // call, so one fixture met twice is two objects and `===` is false for
+      // every unit in the shop — the trap `pickFixtureHit`'s reach-through
+      // already names.
+      if (!f || seen.has(f.id)) continue;
+      seen.add(f.id);
+      out.push(f);
+    }
+    return out;
+  }
+
+  /**
    * Every fixture in the layout as a uniform record — the same shape the server
    * works over in build mode, so the two agree about what a fixture is.
    */
@@ -5782,7 +5898,9 @@ export class Scene {
         if (path.corner && along < 0) continue;
         const dx = path.out.x;
         const dz = path.out.z;
-        mesh.scale.set(dx ? thin : long, high, dz ? thin : long);
+        Scene.aimCarrier(mesh, { x: dx, z: dz }, {
+          thin, high, long, span,
+        });
         mesh.position.set(c.x + dx * along, y, c.z + dz * along);
         entry.dir = { x: dx, z: dz };
         Scene.lightSlat(mesh, entry);
@@ -5839,7 +5957,9 @@ export class Scene {
           // instead mirrors the half-leg onto the OPPOSITE side of the cell,
           // which lays track out into a square that has nothing on it and no
           // reason ever to get one.
-          mesh.scale.set(f.x ? thin : long, high, f.z ? thin : long);
+          Scene.aimCarrier(mesh, f, {
+            thin, high, long, span,
+          });
           mesh.position.set(c.x + f.x * along, y, c.z + f.z * along);
           const entry = {
             mesh,
@@ -5911,7 +6031,16 @@ export class Scene {
           const high = p.scale?.[1] ?? 0.03;
           const long = p.scale?.[2] ?? 0.56;
           const mesh = new THREE.Object3D();
-          mesh.scale.set(sp.dx ? thin : long, high, sp.dz ? thin : long);
+          // The SPUR's own flow, which is the direction goods cross it — outward
+          // on a pour and inward on a lift. The same sign the chase runs on, and
+          // it has to be the same one: an arrow is a louder version of the claim
+          // the moving band makes, so a chevron pointing the other way is not a
+          // quieter mistake, it is the machine saying two opposite things about
+          // itself at once.
+          const dir = { x: sp.dx * sp.flow, z: sp.dz * sp.flow };
+          Scene.aimCarrier(mesh, dir, {
+            thin, high, long, span: step,
+          });
           mesh.position.set(c.x + sp.dx * along, y, c.z + sp.dz * along);
           const entry = {
             mesh,
@@ -5921,7 +6050,7 @@ export class Scene {
             arm: null,
             pivot: null,
             phase: rec.moving.length * 0.41,
-            dir: { x: sp.dx * sp.flow, z: sp.dz * sp.flow },
+            dir,
             pos: mesh.position.clone(),
             scale: mesh.scale.clone(),
           };
@@ -5978,7 +6107,7 @@ export class Scene {
     const hues = [...byColour.entries()].flatMap(([c, hs]) => hs.map(() => new THREE.Color(c)));
     if (holders.length) {
       const im = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(1, 1, 1), material('#ffffff', 1), holders.length,
+        Scene.carrierGeometry(), material('#ffffff', 1), holders.length,
       );
       im.raycast = NO_PICK;
       im.castShadow = false;
@@ -6038,6 +6167,87 @@ export class Scene {
     mesh.userData.flow = entry;
     mesh.userData.wave = mesh.position.x * (entry.dir?.x ?? 1)
       + mesh.position.z * (entry.dir?.z ?? 0);
+  }
+
+  /**
+   * THE CARRIER IS A CHEVRON, and which way it points is the whole of what it
+   * says.
+   *
+   * It was a box — 0.1 along the flow by 0.13 across — which at this camera is a
+   * SQUARE, and a square says a cell is a belt and nothing else. Which way that
+   * belt runs was told in one place only: the band of brighter carriers walking
+   * the flow, which is a beautiful thing to watch and only exists while a box is
+   * actually on the cell. That is about four tenths of a second per crate, so
+   * for nearly all of a shop's life every run in the building is a row of
+   * identical dots — and the one question anybody has of a conveyor, standing
+   * over it holding something, is which end the goods come out of. You had to
+   * put a crate on it and watch.
+   *
+   * So the shape carries the direction and the light carries the SPEED, which is
+   * the split each is good at: a still belt still points, and a running one
+   * still flows. It costs nothing — same instance, same batch, same bake, one
+   * quarter turn per carrier — because the geometry is authored pointing along
+   * its own +x and every carrier already knows its `dir`.
+   *
+   * The turn is `vehicleYaw` rather than a second spelling of it: fixture art is
+   * drawn nose-east and a heading is `atan2(dx, dz)`, and those two conventions
+   * meeting is exactly what that function is for. A chevron laid a quarter turn
+   * out is not a bug you can see — it points across the belt, which reads as a
+   * slat, which is what it used to be.
+   */
+  static aimCarrier(mesh, dir, { thin, high, long, span }) {
+    // BIGGER THAN THE SQUARE IT REPLACES, both ways, and neither is a taste
+    // call. A chevron is mostly notch — the arms are under half of its footprint
+    // — so laid at the bar's own size it reads as a smaller, fainter dot rather
+    // than as an arrow. Across is what makes the V an angle you can see at all,
+    // and it stays inside the deck (0.20 against 0.26 on the plain belt, 0.19
+    // against 0.28 on the quick one) or the carriers hang over the edge of the
+    // track they are supposed to be running on.
+    const across = long * 1.55;
+    // ...and along is capped by the GAP rather than chosen, because the pitch is
+    // authored per tier: the quick belt packs its carriers at 0.2 where the
+    // plain one has 0.33, so a length that is a nose-to-tail run of arrows on
+    // one design is a solid stripe on the other — which is a belt with no
+    // carriers on it, told twice as often.
+    const along = Math.max(thin, Math.min(long * 1.15, (span || 0.25) * 0.62));
+    mesh.scale.set(along, high, across);
+    mesh.rotation.y = vehicleYaw(Math.atan2(dir.x, dir.z));
+  }
+
+  /**
+   * The unit chevron every carrier is an instance of: a flat arrow pointing
+   * along its own +x, filling a 1×1×1 box so that `aimCarrier`'s scale means
+   * the same thing a box's did.
+   *
+   * `LEAD + ARM === 1` is the invariant and it is what makes that true — the
+   * apex lands on +0.5 and the wingtips on −0.5, so the shape is exactly as long
+   * as it is asked to be. Break it and every carrier in the shop sits slightly
+   * off the spot it was laid at, which draws as a run whose arrows drift out of
+   * step with their own spacing.
+   *
+   * Extruded rather than built from two rotated bars, which is the obvious way
+   * and leaves a notch at the apex where the two boxes cross: one polygon has a
+   * mitre because a mitre is what a polygon does at a corner.
+   */
+  static carrierGeometry() {
+    const LEAD = 0.55; // how far the apex leads the wingtips
+    const ARM = 0.45; // the arm's own thickness, measured along the flow
+    const tail = 0.5 - LEAD;
+    const shape = new THREE.Shape();
+    shape.moveTo(tail, -0.5);
+    shape.lineTo(0.5, 0);
+    shape.lineTo(tail, 0.5);
+    shape.lineTo(-0.5, 0.5);
+    shape.lineTo(0.5 - ARM, 0);
+    shape.lineTo(-0.5, -0.5);
+    shape.closePath();
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false });
+    // Authored flat in the shape's own plane and stood up here: the extrusion
+    // becomes HEIGHT and the shape's across-axis becomes z, so the finished
+    // geometry is x-along-flow, y-up, z-across — the axes `aimCarrier` scales.
+    geo.translate(0, 0, -0.5);
+    geo.rotateX(-Math.PI / 2);
+    return geo;
   }
 
   /** Is this a part the renderer re-lays rather than the model drawing it? */

@@ -33,8 +33,8 @@
  */
 
 import {
-  WAY_RULES, GLAZING_LOOKS, wayBase, wayRule, wayKind,
-  glazingLook, glazingKind, edgeFamily, edgeW, edgeN, isIndoor,
+  WAY_RULES, GLAZING_LOOKS, FENCE_LOOKS, wayBase, wayRule, wayKind,
+  glazingLook, glazingKind, fenceLook, fenceKind, edgeFamily, edgeW, edgeN, isIndoor,
 } from '../shared/edges.js';
 import { ICONS } from './icons.js';
 import { actIcon } from './fixture-menu.js';
@@ -105,6 +105,32 @@ const CHOICE = {
     icon: ICONS.ambient,
     sub: 'A strip up under the lintel: light, and nothing to see through it.',
   },
+  // What a boundary is made of — see `FENCING`. Looks, like the glazings, so the
+  // same sentence applies and is worth saying on each: swapping is free.
+  panel: {
+    name: 'Fence',
+    short: 'Panel',
+    icon: ICONS.plot,
+    sub: 'Boarded panels. The plain one.',
+  },
+  hedge: {
+    name: 'Hedge',
+    short: 'Hedge',
+    icon: ICONS.plot,
+    sub: 'Planting, clipped square. Deeper than a panel, and nothing to paint.',
+  },
+  railing: {
+    name: 'Railing',
+    short: 'Rail',
+    icon: ICONS.build,
+    sub: 'Posts and a rail. Blocks the way and you see straight through it.',
+  },
+  low: {
+    name: 'Low wall',
+    short: 'Low',
+    icon: ICONS.build,
+    sub: 'Waist-high masonry. The one boundary that takes a finish.',
+  },
 };
 
 /**
@@ -142,7 +168,21 @@ const FAMILY = {
     asks: 'Open to',
     noWay: 'One way needs an inside and an outside — this has the same on both sides.',
   },
-  window: { what: 'Window', asks: 'Glazed' },
+  // An arch offers two of the four for the reason a curtain does, and the wording
+  // has to be its own: "strips have no direction in them" is nonsense said about
+  // a hole, and the doorway's answer is wrong — an arch between the shop and the
+  // street genuinely has an inside and an outside, and still cannot be one-way.
+  arch: {
+    what: 'Archway',
+    asks: 'Open to',
+    noWay: 'A hole with nothing in it has no way of showing which direction it lets you go.',
+  },
+  // The two families whose choice is a LOOK. `free` is what the panel says about
+  // the price, and it is the surprising fact about both of them — a look must
+  // never move a number, so there is nothing to pay. Said in the family's own
+  // words, because "you keep the wall" is not true of a hedge.
+  window: { what: 'Window', asks: 'Glazed', free: 'free — you keep the wall' },
+  fence: { what: 'Boundary', asks: 'Made of', free: 'free — it is the same fence either way' },
 };
 
 /** The kind on one lattice line. `edgesV` is a west face, `edgesH` a north one. */
@@ -174,6 +214,10 @@ function isBoundary(L, at) {
 export function choicesFor(L, at) {
   const kind = kindAt(L, at);
   if (glazingLook(kind)) return GLAZING_LOOKS;
+  // A boundary is the second family that is a look, and takes the window's
+  // answer for the window's reason: there is nothing for a look to be
+  // conditional on. A hedge is a hedge wherever it stands.
+  if (fenceLook(kind)) return FENCE_LOOKS;
   const base = wayBase(kind);
   if (!base) return [];
   const all = WAY_RULES[base] ?? [];
@@ -181,11 +225,19 @@ export function choicesFor(L, at) {
 }
 
 /** What this edge's choice is right now. */
-const choiceOf = (kind) => wayRule(kind) ?? glazingLook(kind) ?? null;
+const choiceOf = (kind) => wayRule(kind) ?? glazingLook(kind) ?? fenceLook(kind) ?? null;
 
-/** ...and the kind that is this edge's family with that choice on it. */
-const kindFor = (family, choice) => (family === 'window'
-  ? glazingKind(choice)
+/**
+ * ...and the kind that is this edge's family with that choice on it.
+ *
+ * Keyed off the family rather than off "is the choice a rule", because a rule
+ * and a look cannot be told apart from the choice alone — and `wayKind` answers
+ * `null` for anything it does not recognise, so getting this wrong is a menu
+ * whose every square does nothing.
+ */
+const LOOK_KIND = { window: glazingKind, fence: fenceKind };
+const kindFor = (family, choice) => (LOOK_KIND[family]
+  ? LOOK_KIND[family](choice)
   : wayKind(family, choice));
 
 /** Is there anything to open here at all? Asked by the hover and by the press. */
@@ -237,7 +289,11 @@ export function showEdgeMenu(ui, at) {
   // The one thing a square cannot say, and only where it is true: one way is
   // offered on a boundary that HAS an in and an out, so anywhere else the two
   // missing squares would read as a bug rather than as an answer.
-  const why = (family === 'window' || choices.includes('in')) ? null : meta.noWay;
+  // Asked as "has this family got a rule at all" rather than as `!== 'window'`,
+  // which is the predicate-against-the-only-member shape: with a second look
+  // family in the table, the old test told a hedge that one way needs an inside
+  // and an outside.
+  const why = (meta.free || choices.includes('in')) ? null : meta.noWay;
 
   // The head is a picture of the edge and what its choice means. The picture comes
   // off `EDGE_STYLE` through `artForEdge` — the same record the renderer builds the
@@ -252,7 +308,7 @@ export function showEdgeMenu(ui, at) {
     </div>
     <div class="fx-detail">
       ${line(meta.asks, info.name)}
-      ${family === 'window' ? line('Changing it', 'free — you keep the wall') : ''}
+      ${meta.free ? line('Changing it', meta.free) : ''}
       ${why ? line('One way', `<i>${why}</i>`) : ''}
     </div>
   </div>`];

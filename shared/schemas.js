@@ -594,6 +594,30 @@ export const FixtureSchema = z.object({
    */
   work: ModelSchema.nullable().default(null),
   /**
+   * The ANIMAL — a body that walks around, rather than a part of the building
+   * it came out of.
+   *
+   * A third model, and the split is the same one `work` makes and for a reason
+   * just as structural: `model` is the shelter, which is staged by TIER and
+   * stands still on its cells, and this is a thing with legs whose position is a
+   * fact about the world rather than about the placement. There is no 0..1 to
+   * spend on it at all — one pen draws `heads` copies of this, each somewhere
+   * different, so it is not a stage of anything.
+   *
+   * Authored in ONE TILE, standing at the origin, nose east — `buildModel`'s
+   * own convention, and the same one a worker's `model` and a vehicle's obey. It
+   * is scaled by nothing: an animal is the size it is drawn, which is what lets
+   * a hen and a cow be authored to the same scale as the people and read
+   * correctly next to them.
+   *
+   * Null is a pen with nobody in it, which is a perfectly good pen — a beehive
+   * has no body to speak of, and the hive being the whole of what you see is
+   * right. Nothing in the sim reads it: heads are counted off the paddock, so a
+   * piece nobody has drawn an animal for produces exactly as fast as one
+   * somebody has. It moves no number and needs no `simulate`.
+   */
+  body: ModelSchema.nullable().default(null),
+  /**
    * "This one watches the shop" — which world quantity drives its art, out of
    * `WORLD_SIGNALS`.
    *
@@ -736,6 +760,30 @@ export const FixtureSchema = z.object({
      * number" — the warning that exists to catch the opposite mistake.
      */
     covers: z.number().int().min(0).max(64).default(0),
+    /**
+     * PENS ONLY — the most animals this rung will keep, however much grazing you
+     * paint around it.
+     *
+     * The paddock is the SUPPLY and this is the CEILING, and the pair is what
+     * makes both worth having. A field alone is one brush stroke buying an
+     * unbounded divisor on the clock, which is a printer; a rung alone is a
+     * number you buy with no land behind it, and the fence and the acre stop
+     * meaning anything. You need enough grazing *and* a shelter big enough, and
+     * whichever you are short of is the one to spend on next.
+     *
+     * It is the third thing this ladder sells and the three are deliberately
+     * different questions: `speed_mult` is how OFTEN you must come,
+     * `capacity_mult` is how LONG you may leave it, and this is how MANY. Fold
+     * any two together and one of the decisions disappears.
+     *
+     * **One rather than zero**, for `lines`' reason exactly: this is a count of
+     * bodies and every pen ever built has at least the one it has always had. A
+     * pen row authored with no `heads` on its rungs is step 1's pen — one
+     * animal, today's numbers to the digit, and a paddock painted round it that
+     * does nothing. Which is the honest answer, and is why the seven shipped
+     * pieces all set it.
+     */
+    heads: z.number().int().min(1).max(24).default(1),
     /**
      * A light this rung switches on. Null on every rung is a fitting that never
      * glows, which is every fixture in the game except the lamps.

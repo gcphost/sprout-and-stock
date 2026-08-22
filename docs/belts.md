@@ -1,6 +1,6 @@
 # Belts — the trip nobody walks
 
-Status: **steps 1, 2, 2b, 3, 3b and 4 built.** Steps 5–7 proposed.
+Status: **steps 1, 2, 2b, 3, 3b, 4 and 4b built.** Steps 5–7 proposed.
 
 Steps 1–3 are the build. Steps 5–7 are written down so the shape is argued now
 rather than discovered later, and should not be started.
@@ -966,6 +966,79 @@ being blind, not the change being free.
 
 ---
 
+## Step 4b — the farm, which is the walk that never changes shape
+
+The open question at the bottom of this file used to be *can a belt go
+outdoors*, with "the farm is the obvious second customer" as the reason to
+care. Belts became `where: 'any'` in step 2, so they could reach the field —
+and the last link was still missing: **a loader could not collect anything.**
+`conveyorMeets` knew shelves, stations and bins, which is three things a loader
+puts goods *into*, and the farm is the only place in the shop that produces
+them.
+
+So a run laid out to the beds did nothing until a hire walked out, collected by
+hand, and set a crate down beside it. The belt was the second half of a journey
+whose first half was the whole walk.
+
+`armGather` (a pen) and `armReap` (a bed) are that link, and both are
+`armTake`'s shape — the verb that lifts a finished tray off a machine. **That
+parallel is the argument for where they sit in the swing**: a full tray stops
+its machine, a full pen stops filling, and a ripe bed cannot grow the next
+thing. All three are swings that *unblock* something, where the stockroom pull
+below them is a swing that *tidies*. The pen goes before the bed for `farm`'s
+own reason (see [docs/pens.md](pens.md)): a full pen has **stopped** where a
+ripe bed merely sits there.
+
+Four things about it are worth knowing.
+
+**They are the only entries in `conveyorMeets` a loader takes goods OUT of.**
+A pen and a bed produce, so there is nothing to fill them with. Which also
+means the placement warning had to change its wording: `works` used to say
+"nothing beside it to **fill**", and a loader against a pen is doing the
+opposite — a warning that names the wrong direction sends you to the wrong side.
+
+**A pen is 2×2, so `covers` and never `x === x`.** A pen's record is its *min
+corner*, so three of its four sides are not its `x, z` — a loader against any of
+them would have found nothing there. That is the `fixtureAt` trap docs/pens.md
+lists among the eight places "a fixture is a tile" was load-bearing, arriving on
+a conveyor, and it is the worst shape of it: half the placements work perfectly
+and the other half quietly do nothing, with nothing on screen saying which one
+you built. `verify:belts` 22c builds all four corners.
+
+**The pen's clock is reset, not just its `qty`.** `stepPens` pins `filledAt` to
+now on every tick a pen stands full, so the two agree without either knowing
+about the other — and a collect that left the stamp alone would hand the next
+batch over the instant the gate cleared. That is "a pen is not a hopper" undone
+by a machine, and it is invisible: a pen that refilled early and one that
+refilled on time are the same full pen.
+
+**`armReap` buys the seed, exactly as a hire does.** This looks like the thing
+docs/workers.md forbids — *what something is worth is the player's question, and
+a worker answering it is a worker spending your money* — and it is not. The line
+is **who chose**: you sowed that bed, and re-sowing what is already in it is
+carrying out your decision rather than making one. `harvest` has spent a seed on
+every pick since auto-replant shipped, so one rule or the crew and the conveyor
+undo each other down the same row — and a machine that skipped it would leave a
+field of rough soil behind something that looked like it was working.
+`replantable` already refuses on season and on cash, so neither can go negative.
+
+There is **no destination test**, unlike `armPull`. That one takes stock the shop
+has already placed and could strip an aisle onto a run with nowhere for it to go;
+these create goods that did not exist a tick ago, and the off-ramp (`armDrop`) is
+what guarantees they land somewhere.
+
+### A run goes AROUND a field
+
+A belt still cannot be laid on a paddock or on a bed. `T.PADDOCK` is a pad and
+`T.PLOT` is what a bed is made of, and neither is in `BUILDABLE_INDOOR` or
+`BUILDABLE_OUTDOOR` — the same rule that keeps a run off the delivery bay and
+the car park. That is deliberate rather than an oversight: a conveyor through
+the middle of a field is a conveyor through the middle of the thing it is
+collecting from. Lay the run alongside and let a loader reach in, which is the
+sentence step 1 already wrote about pads.
+
+---
+
 ## Step 7 — the underground, and the tile it does NOT own
 
 Proposed. It came out of play rather than out of this document: a return leg
@@ -1083,10 +1156,10 @@ project, not an afternoon.
   replaces a hire. If it does not, it is an expensive decoration; if it replaces
   two, the crew stop mattering. This is the one number that decides whether the
   feature is good, and nothing but playing it will say.
-- **Can a belt go outdoors?** The farm is the obvious second customer — beds to
-  the shop is a long walk that never changes shape, which is the ideal belt. But
-  it makes a belt weatherless furniture standing on grass, and it wants a rule
-  about the border ring. Probably yes, probably not in step 1.
+- ~~**Can a belt go outdoors?**~~ **Answered, in two halves.** Step 2 made a
+  belt `where: 'any'`, so a run reaches the field; step 4b gave the loader the
+  verbs to collect one, which is the half that was still missing for two steps
+  and made an outdoor run a belt with nothing on the end of it.
 - **Should a crate on a belt be pickable?** `pickPallet` picks a pile apart by
   height and `liftCrate` no longer refuses a buried one. A box going past on a
   belt is a moving target, which is the one thing the pointer has never had to

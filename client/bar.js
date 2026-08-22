@@ -160,11 +160,19 @@ export function renderBar(el, {
   // node under the pointer — which drops `:hover` until the mouse moves again.
   // On a bar whose tiles carry a live line ("looking for something to do") that
   // is a button flickering in time with the shop. See client/paint.js.
-  setHtml(el.groups, groups.map((g) => `
-    <button class="cat${g.id === open?.id ? ' on' : ''}" data-cat="${esc(g.id)}"
-      data-tip-wait title="${esc(g.blurb ?? g.name)}">
+  // The tip is on the tabs you are NOT on. `.cat .nm` is hidden until a tab is
+  // open (`.cat.on .nm`), so the tip is what names the other five — and the one
+  // you are standing on already prints its own name an inch below the bubble.
+  // A tooltip repeating a label you can read is a box that appears over the shop
+  // for no reason, on the tab your pointer is most often resting on.
+  setHtml(el.groups, groups.map((g) => {
+    const on = g.id === open?.id;
+    return `
+    <button class="cat${on ? ' on' : ''}" data-cat="${esc(g.id)}"
+      ${on ? '' : `data-tip-wait title="${esc(g.name)}"`}>
       <span class="ico">${g.icon}</span><span class="nm">${esc(g.name)}</span>
-    </button>`).join(''));
+    </button>`;
+  }).join(''));
 
   renderSubTabs(el.subs, subs, sub?.id);
 
@@ -194,7 +202,7 @@ export function renderBar(el, {
       ${i < KEYED ? `<span class="key">${i + 1}</span>` : ''}
       ${it.badge ? `<span class="have">${esc(it.badge)}</span>` : ''}
       <span class="ico${it.art ? ' art' : ''}">${it.art ?? it.icon}</span>
-      <span class="nm">${esc(it.name)}</span>
+      <span class="nm${it.name.length > 11 ? ' long' : ''}">${esc(it.name)}</span>
       ${it.note ? `<span class="cost">${esc(it.note)}</span>` : ''}
       ${it.shapes ? '<span class="more" data-more="1">▾</span>' : ''}
     </button>`).join(''));
@@ -370,11 +378,15 @@ function renderSubTabs(el, subs, at) {
   if (!el) return;
   el.hidden = !subs;
   if (!subs) { setHtml(el, ''); return; }
-  setHtml(el, subs.map((s) => `
-    <button class="subcat${s.id === at ? ' on' : ''}" data-subcat="${esc(s.id)}"
-      data-tip-wait title="${esc(s.blurb ?? s.name)}">
+  // Not on the open one, for the reason above.
+  setHtml(el, subs.map((s) => {
+    const on = s.id === at;
+    return `
+    <button class="subcat${on ? ' on' : ''}" data-subcat="${esc(s.id)}"
+      ${on ? '' : `data-tip-wait title="${esc(s.name)}"`}>
       <span class="ico">${s.icon}</span><span class="nm">${esc(s.name)}</span>
-    </button>`).join(''));
+    </button>`;
+  }).join(''));
 }
 
 /**

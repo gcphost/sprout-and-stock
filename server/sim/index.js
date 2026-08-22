@@ -50,7 +50,7 @@ import {
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
   shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces,
-  covers, footprintMid,
+  covers, footprintMid, footprint, paddockOf, pennedIn,
 } from '../../shared/build.js';
 import {
   pieceFor, kindOf, defaultPiece, countKey, boardsOf, openOf, fixtureLabel,
@@ -236,6 +236,16 @@ const EDGE_COST = {
   // hold it up. All four rules at one price, the way a signed doorway is — the
   // refit in `buildEdge` is what makes signing one and unsigning it free.
   [E.SHUTTER]: 46, [E.SHUTTER_STAFF]: 46, [E.SHUTTER_IN]: 46, [E.SHUTTER_OUT]: 46,
+  // An arch is a doorway with no door in it, and it is priced under one for
+  // exactly that reason — more than the wall it interrupts, less than the joinery
+  // it leaves out. Both rules at one price, the way a signed doorway is.
+  [E.ARCH]: 28, [E.ARCH_STAFF]: 28,
+  // ...and every boundary is a fence, because they are LOOKS of one — see
+  // `FENCING` in shared/edges.js. One price is not a rounding here, it is the
+  // claim: a look must never move a number, so hedging your farm instead of
+  // panelling it is a decision about the picture and never about the money, and
+  // the refit in `buildEdge` is what makes changing your mind free.
+  [E.HEDGE]: 4, [E.RAILING]: 4, [E.LOW_WALL]: 4,
 };
 const EDGE_LABEL = {
   [E.WALL]: 'a wall', [E.WINDOW]: 'a window', [E.DOOR]: 'a doorway',
@@ -247,6 +257,8 @@ const EDGE_LABEL = {
   [E.CURTAIN_STAFF]: 'a strip curtain', [E.CURTAIN]: 'an open strip curtain',
   [E.SHUTTER]: 'a roller door', [E.SHUTTER_STAFF]: 'a staff roller door',
   [E.SHUTTER_IN]: 'a roller entrance', [E.SHUTTER_OUT]: 'a roller exit',
+  [E.ARCH]: 'an archway', [E.ARCH_STAFF]: 'a staff archway',
+  [E.HEDGE]: 'a hedge', [E.RAILING]: 'a railing', [E.LOW_WALL]: 'a low wall',
 };
 const PLAYER_SPEED = 4.2;      // tiles/sec
 const CUSTOMER_SPEED = 2.2;
@@ -871,6 +883,36 @@ const TRAFFIC_REACH = 1.4;
  * with it rather than fighting them every delivery.
  */
 const SPOT_PULL = 0.35;
+
+/**
+ * How many cells of paddock one animal needs — the exchange rate the whole of
+ * step 2 rests on, and the only new number in it.
+ *
+ * Four, which is a 2x2 of grazing per head and therefore reads as "one animal's
+ * worth of field" at a glance: the same square the shelter itself takes. A
+ * paddock painted eight by four is eight head, and that is a field you can see
+ * is eight animals big without counting anything.
+ *
+ * It is deliberately coarse. Finer and a stroke of the brush is a fraction of an
+ * animal, so the readout would move without the field visibly changing; coarser
+ * and the first useful paddock is most of the farm. `Math.floor` in `penField`
+ * means a part-painted head is worth nothing, which is the honest reading of a
+ * paddock too small to keep another animal in.
+ */
+const PEN_CELLS_PER_HEAD = 4;
+
+/**
+ * How fast an animal wanders, in tiles per second, and how long it stands still
+ * between one amble and the next.
+ *
+ * Slow on purpose — well under a shopper's 1.6 — because the one thing a body
+ * in a field must not read as is somebody with somewhere to be. Nothing in the
+ * sim is downstream of either number: an animal is a picture, it never blocks a
+ * cell, and where it happens to be standing when you collect is not a question
+ * anybody asks.
+ */
+const ANIMAL_PACE = 0.45;
+const ANIMAL_PAUSE = [1.5, 6];
 
 const EYE_LEVEL = 0.8;
 const BOARD_SPREAD = 0.75;
@@ -1637,6 +1679,36 @@ export class Game {
      * other side.
      */
     this.yieldedAt = new Map();
+    /**
+     * The livestock — a body per head, wandering its paddock.
+     *
+     * **A third population, and not a third kind of person.** `this.players`
+     * means "somebody with hands" and `this.customers` means "somebody who might
+     * buy something", and putting a pig in either is the `inACar` trap at a size
+     * that would be very hard to unpick: `stepMood` drains patience over the
+     * shoppers, `measureOccupancy` counts the crush, `moodAverage` averages them,
+     * `payWages` pays the roster. Every one of those is right today and silently
+     * wrong the moment a cow is in the list — and none of them would look wrong
+     * afterwards.
+     *
+     * **In memory, and deliberately not saved.** An animal is not a thing you
+     * own — the shelter and the paddock are, and both of those are on the save
+     * already. How many there are is derived from the paint on every tick, so
+     * there is nothing here a reload could lose except where a hen happened to
+     * be standing, which is worth nothing to anybody. That also means there is
+     * no `elapsed` stamp in here to get wrong, no conservation question, and no
+     * new field for `Game.create`'s named-field payload to forget.
+     *
+     * **On the Game rather than on the layout record**, which is the one
+     * placement decision in here that had to be made rather than fallen into. A
+     * pen's contents ride a re-flow through `carryOver`, but a re-flow REBUILDS
+     * the record — so bodies filed there would snap back to the shelter on every
+     * wall segment of every drag. That is `parkNow`'s bug exactly: a car that
+     * began its approach again on each re-flow is a customer who never arrives,
+     * and a herd that teleports home whenever you build a fence is a herd you
+     * can only watch by putting the tools down.
+     */
+    this.animals = new Map();
     this.nextCashId = state.nextCashId ?? 1;
     // Pallets waiting at the bay to be unloaded.
     this.deliveries = state.deliveries ?? [];
@@ -3074,6 +3146,22 @@ export class Game {
         qty: pn.qty ?? 0,
         cap: this.penCap(pn),
         fill: r2(this.penFill(pn)),
+        // How many head the paddock is running, for the pen's own menu. A
+        // divisor on the clock is the least visible number in the game — a pen
+        // filling four times as fast and one filling once look identical in any
+        // still frame — so the one place it can be read is beside the bar. Both
+        // numbers, because "out of grazing" and "out of shelter" are the same
+        // count and opposite things to do about it.
+        heads: this.penHeads(pn),
+        maxHeads: this.penField(pn).ceiling,
+      })),
+      // The livestock. A body per head, and the third population on the wire —
+      // never folded into `players` or `customers`, for the reason `this.animals`
+      // gives. `piece` rather than a model, the way every other actor does it:
+      // the client already holds the catalog and resolves the art itself.
+      // Empty on every shop that has never painted a paddock or drawn an animal.
+      animals: [...this.animals.values()].map((a) => ({
+        id: a.id, piece: a.piece, x: r2(a.x), z: r2(a.z), facing: a.facing,
       })),
       queues: this.layout.checkouts.map((c) => ({ id: c.id, queue: c.queue?.length ?? 0 })),
       // Which way each junction is sending things, and it is here for exactly
@@ -3577,6 +3665,12 @@ export class Game {
     // shop's clock rather than on a stopwatch, so the compressed night has to
     // count. It is the pair to `stepCrops` in every respect — see `stepPens`.
     this.stepPens(world);
+    // ...and the bodies in them, which take `dt` rather than `world` — the
+    // opposite hand-off to the line above, and the split is the van's exactly.
+    // What a pen PRODUCES is on the shop's clock, so the compressed night has to
+    // count; a thing with legs is a thing with legs, and a herd stampeding at 6x
+    // through the small hours is the same wrongness as a lorry doing it.
+    this.stepAnimals(dt);
     // Once per tick, before the two things that read it. Both the crowd
     // everyone inside is fed up with and the queue an arrival balks at have to
     // be the *same* number, or the shop turns people away over a crush its own
@@ -7739,6 +7833,97 @@ export class Game {
   }
 
   /**
+   * HOW MANY ANIMALS this pen is running — the paddock it stands in, divided.
+   *
+   * A head is a DIVISOR ON THE ONE CLOCK (`penFill`), and that is the whole of
+   * what a head does. The tempting shape is the other one: give every animal
+   * its own clock, its own little pile and its own stall, and let the pen be the
+   * sum of them. That is four clocks, four trays, four stalls and four collect
+   * verbs for a thing the player experiences as one gate — and the fix for all
+   * four is the same arithmetic this line does in one place.
+   *
+   * The opposite mistake is worth naming too, because it is the one that looks
+   * harmless: animals as a pure headcount readout, with the field producing what
+   * it always did. That is a visible thing that means nothing, which is the
+   * "tier that changes no number" trap wearing feathers.
+   *
+   * ### The paddock supplies them; the RUNG is the ceiling
+   *
+   * Both, and neither alone. Grazing alone is one brush stroke buying an
+   * unbounded divisor on the clock, which is a printer. A rung alone is a number
+   * you buy with no land behind it, and the field stops meaning anything. So you
+   * need enough grazing *and* a shelter big enough, and whichever you are short
+   * of is the one to spend on next — which is a decision, where either half on
+   * its own is a formality.
+   *
+   * That makes the ladder sell three things, and they are deliberately different
+   * questions: `speed_mult` is how OFTEN you must come, `capacity_mult` is how
+   * LONG you may leave it, and `heads` is how MANY. Fold any two together and
+   * one of the decisions disappears — a big field that needed emptying at the
+   * same interval as a small one would be `capacity_mult` wearing acreage.
+   *
+   * ### Why it divides by the shelters sharing the field
+   *
+   * The land supports what it supports. Without this, one big paddock with six
+   * hen houses standing in it is six pens each dividing by the whole acreage —
+   * a money printer built out of one brush stroke and a repeated purchase, and
+   * one that reads as working perfectly the entire time.
+   *
+   * **A pen with no paddock is ONE head, which is step 1's numbers to the
+   * digit.** That is the control the whole step rests on: no shop that has never
+   * painted a paddock moves by a cent.
+   */
+  penHeads(pen) {
+    return this.penField(pen).heads;
+  }
+
+  /**
+   * The field a pen is working: its cells, those cells as keys, and how many
+   * head they come to.
+   *
+   * One record rather than three functions because all three answers come out
+   * of one flood, and the flood is the expensive part — `stepAnimals` wants the
+   * cells and `stepPens` wants the count, both once per tick.
+   *
+   * Cached against the layout's IDENTITY, `conveyorFlow`'s rule and for its
+   * reason: a re-flow replaces `this.layout`, and a re-flow is exactly and only
+   * when any of this can have changed, since painting ground calls
+   * `regenerateLayout`. Anything that mutated `tiles` in place instead would be
+   * handed a stale field — the same caveat that function carries about `L.belts`.
+   */
+  penField(pen) {
+    if (this.penGraze?.layout !== this.layout) this.penGraze = { layout: this.layout, at: new Map() };
+    const had = this.penGraze.at.get(pen.id);
+    if (had) return had;
+
+    const L = this.layout;
+    // The paddock, else the block itself — which is what keeps a pen with no
+    // paddock looking like a pen rather than like an empty hutch: one head,
+    // milling about inside the two tiles the shelter stands on.
+    const paddock = paddockOf(L, pen);
+    const cells = paddock.length ? paddock : footprint(pen.kind ?? 'pen', pen.x, pen.z);
+    const keys = new Set(cells.map((c) => c.z * L.w + c.x));
+    // What the RUNG will keep, whatever the land could support. The pair is the
+    // whole design: grazing is the supply and the shelter is the ceiling, so a
+    // field alone is one brush stroke buying an unbounded divisor on the clock
+    // and a rung alone is a number with no land behind it. Whichever you are
+    // short of is the one to spend on next, and the pen's own menu says which.
+    const ceiling = this.fixtureStats(pen).heads;
+    let heads = 1;
+    if (paddock.length) {
+      const sharing = (L.pens ?? []).filter((p) => pennedIn(p, keys, L.w)).length;
+      const grazes = Math.floor(paddock.length / (PEN_CELLS_PER_HEAD * Math.max(1, sharing)));
+      heads = clamp(grazes, 1, ceiling);
+    }
+    // Which of the two is binding, for the menu — a pen that is out of land and
+    // one that is out of shelter are the same number, and they are opposite
+    // things to do something about.
+    const field = { cells, keys, heads, ceiling, w: L.w };
+    this.penGraze.at.set(pen.id, field);
+    return field;
+  }
+
+  /**
    * How much is standing ready, and how much it will hold before it stalls.
    *
    * `capacity_mult` is a stockpile rather than a bigger batch, which is the
@@ -7766,7 +7951,11 @@ export class Game {
     const made = this.penMakes(pen);
     if (!made || pen.qty >= this.penCap(pen)) return 0;
     const mins = ((this.elapsed - (pen.filledAt ?? 0)) / 60) * this.fixtureStats(pen).speed_mult;
-    return clamp(mins / made.every, 0, 1);
+    // Four hens lay four times as often as one hen. THE one place a head is
+    // worth anything — `penCap` is untouched, so a bigger field fills the same
+    // stockpile faster rather than a bigger stockpile at the same rate, which is
+    // what keeps `capacity_mult` a separate decision from how much you painted.
+    return clamp((mins * this.penHeads(pen)) / made.every, 0, 1);
   }
 
   /**
@@ -7804,6 +7993,108 @@ export class Game {
       pen.qty = Math.min(cap, (pen.qty ?? 0) + made.qty);
       pen.filledAt = this.elapsed;
     }
+  }
+
+  /**
+   * Move the livestock, and keep one body per head.
+   *
+   * Reconciled every tick rather than on a purchase, because everything it
+   * depends on can change without a pen being touched: paint a cell and the herd
+   * grows, scrub one and it shrinks, drop a second shelter in the same field and
+   * both flocks halve. Deriving it is one loop over a handful of pens and means
+   * there is no second place that has to remember to stay in step.
+   *
+   * **No draw comes out of `this.rng`.** Every balance number in the game is
+   * downstream of how many times that stream has been called, so wandering
+   * livestock would move every basket, crop and spawn roll after it — and two
+   * `simulate` runs either side of *authoring a hen* would diverge with nothing
+   * in the output to say why. `hash01` costs no draw at all, gives the same
+   * animal the same amble on every machine, and makes the balance provably
+   * untouched because nothing random happened. Same call the client already
+   * makes for a hire's breathing phase.
+   */
+  stepAnimals(dt) {
+    const pens = this.layout.pens ?? [];
+    if (!pens.length && !this.animals.size) return;
+
+    const live = new Set();
+    for (const pen of pens) {
+      // Nothing to draw, so nothing to keep. Heads are counted off the paddock
+      // either way — a piece nobody has drawn an animal for fills exactly as
+      // fast as one somebody has, which is what keeps `body` a look.
+      const piece = this.fixtureContent(pen);
+      if (!piece?.body) continue;
+      const field = this.penField(pen);
+      if (!field.cells.length) continue;
+      for (let i = 0; i < field.heads; i++) {
+        const id = `${pen.id}#${i}`;
+        live.add(id);
+        let a = this.animals.get(id);
+        if (!a) {
+          const at = field.cells[Math.floor(hash01(`${id}:born`) * field.cells.length)];
+          a = { id, x: at.x, z: at.z, facing: 0, tx: at.x, tz: at.z, wait: 0, leg: 0 };
+          this.animals.set(id, a);
+        }
+        // Re-read rather than kept from birth: a re-flow rebuilds the placement,
+        // so the row this pen resolves to can change under a body that is still
+        // standing in the field.
+        a.piece = piece.id;
+        this.stepAnimal(a, field, dt);
+      }
+    }
+    for (const id of [...this.animals.keys()]) if (!live.has(id)) this.animals.delete(id);
+  }
+
+  /**
+   * One body: stand a while, step to the NEXT CELL ALONG, amble over.
+   *
+   * The next cell along and never a cell picked out of the field at large, and
+   * that is the whole of what keeps an animal in its paddock. A leg is a
+   * straight line, so a body crossing to a cell several squares away cuts the
+   * corner — and a paddock somebody painted round an L-shaped fence, or in two
+   * lobes joined by a neck, has cells the straight line goes through that are
+   * not in the field. What that looks like is a pig strolling across the shop
+   * floor between two bits of its own pen, which is the one failure in this
+   * feature a screenshot can catch and the one it would be blamed on the
+   * pathing for. Four-connected rather than eight, because a diagonal clips the
+   * corner of the two cells it passes between and either of those may be the
+   * car park. `verify:pens` walks four hundred seconds of this and asserts the
+   * set is never left.
+   */
+  stepAnimal(a, field, dt) {
+    if (a.wait > 0) {
+      a.wait -= dt;
+      return;
+    }
+    const dx = a.tx - a.x;
+    const dz = a.tz - a.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.02) {
+      a.x = a.tx;
+      a.z = a.tz;
+      a.leg++;
+      const [lo, hi] = ANIMAL_PAUSE;
+      a.wait = lo + hash01(`${a.id}:${a.leg}:for`) * (hi - lo);
+      const open = [];
+      for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (field.keys.has((a.tz + oz) * field.w + (a.tx + ox))) open.push([ox, oz]);
+      }
+      // A one-cell paddock, or a shelter's own block with something in the way:
+      // stand still rather than step out of it.
+      if (open.length) {
+        const [ox, oz] = open[Math.floor(hash01(`${a.id}:${a.leg}:to`) * open.length)];
+        a.tx += ox;
+        a.tz += oz;
+      }
+      return;
+    }
+    const go = Math.min(d, ANIMAL_PACE * dt);
+    a.x = r2(a.x + (dx / d) * go);
+    a.z = r2(a.z + (dz / d) * go);
+    // The same convention every other body on the floor uses: `rotation.y =
+    // facing` swings local +z onto the heading, so a model authored nose-east
+    // faces where it is going.
+    a.facing = r2(Math.atan2(dx, dz));
   }
 
   /**
@@ -10738,6 +11029,38 @@ export class Game {
     // thinking off on.
     let pool = open;
 
+    // ...but never down a line whose only end is the SKIP, and that exception is
+    // not the paragraph below wearing a different hat.
+    //
+    // "A box no line wants has no better claim on one exit than another" is the
+    // rule for the not-keen split and it is right about every ordinary line: the
+    // box rides to the end, a loader off-ramps it, and a hire picks it up. A
+    // rubbish line is the one place it is false, because a skip refuses stock at
+    // every rung — `armTakes`, `armLand` and `mayRide` all branch on `waste` —
+    // and the spur to one is typically a single cell whose faced tile is the bin
+    // itself, which `armDrop` cannot set anything down on. So a crate sent that
+    // way parks on the loader for the rest of the save, and every crate of rot
+    // that wants that skip queues behind it for ever. What you watch is a shop
+    // with a paid-for skip that never takes anything, four days downstream of
+    // one mixed box — and the box that jammed it looks exactly like a box being
+    // delivered.
+    //
+    // It bites hardest where the split fires at all: `sorterWants` needs EVERY
+    // pile placeable, so one given-up item in a mixed crate makes the whole
+    // junction unkeen. A live shop jammed both its skips that way, with 5x Kale
+    // on one and 9x Salt + 3x Apple on the other.
+    //
+    // Only when something else is left — a junction whose ways out are ALL
+    // rubbish lines has nothing better to offer and the box waits, which is the
+    // jam it already was rather than a new one.
+    if (crate && !crate.waste) {
+      const keeps = pool.filter((w) => {
+        const met = conveyorMeets(this.layout, this.beltAt(w.x, w.z));
+        return !met.bins.length || met.shelves.length > 0 || met.stations.length > 0;
+      });
+      if (keeps.length) pool = keeps;
+    }
+
     // ...but a split is between the lines that WANT it, not across the
     // junction at large.
     //
@@ -10988,9 +11311,95 @@ export class Game {
    * a picture the player can read and act on; spilling would bury the shop in
    * boxes while looking like it was working.
    */
+  /**
+   * May this box go on a run at all?
+   *
+   * Two refusals, both of them about a box that would ride for ever. Rubbish
+   * with no skip down the line jams the run for the rest of the save — the bin
+   * feature's own failure mode arriving through a door it did not know about —
+   * and a box every pile of which the shop has GIVEN UP on is refused by every
+   * unit down the line for the same reason it was given up. EVERY pile and not
+   * any: a mixed box with one wanted kind in it still has somewhere to be, and
+   * refusing it would strand the good half.
+   *
+   * One spelling, because two things ask it — a loader deciding whether to lift
+   * something beside it, and `clearRails` deciding whether a box standing on a
+   * run may join it. Asked with the CELL the box would set off from, since what
+   * is down the line is a fact about where you get on.
+   */
+  mayRide(crate, cell) {
+    if (!crate || !cell) return false;
+    if (crate.waste) return conveyorMeets(this.layout, cell).bins.length > 0;
+    return !lotStacks(crate).every((p) => givenUp(this, p.item_id));
+  }
+
+  /**
+   * The nearest square a crate may stand on that is not part of a run.
+   *
+   * Rings outward and gives up rather than reaching across the shop: a box
+   * shifted thirty tiles is goods teleporting, which reads as them being
+   * destroyed. Null means leave it where it is — on the rails is bad and
+   * across the building is worse.
+   */
+  offRails(x, z, reach = 4) {
+    const x0 = Math.round(x);
+    const z0 = Math.round(z);
+    for (let r = 1; r <= reach; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const tx = x0 + dx;
+          const tz = z0 + dz;
+          if (this.beltAt(tx, tz)) continue;
+          if (!isWalkable(this.walk, this.layout, tx, tz)) continue;
+          return { x: tx, z: tz };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A CRATE MAY NOT REST ON THE RAILS.
+   *
+   * The square being part of a run and the box being on the run are two
+   * different claims, and for as long as there have been belts a box could
+   * satisfy the first without the second. Rot is how it happens: `dropWaste`
+   * puts it down where the food was, which in a shop with a line down the aisle
+   * is a conveyor cell — and nothing then owns it. `stepBelts` only moves what
+   * has `d.belt`, `armDrop` refuses to put anything on a rail, and a loader's
+   * side scan is about the floor. So it stands there with goods gliding through
+   * it, untouchable by every machine in the building, looking exactly like a
+   * belt that refused it. Four crates on one live save.
+   *
+   * On rather than off wherever it can be: a box that may ride is a box the run
+   * will take somewhere, which is the whole point of having built one. What may
+   * not ride is moved clear instead, and only a box with nowhere to go is left
+   * where it is.
+   *
+   * It rests first (`crateRested`), for the reason the loader's own lift does —
+   * a machine decides in no time at all, and without the pause a delivery is
+   * goods appearing already on the belt.
+   */
+  clearRails() {
+    for (const d of this.deliveries) {
+      if (d.belt) continue;
+      const cell = this.beltAt(Math.round(d.x), Math.round(d.z));
+      if (!cell || !this.crateRested(d)) continue;
+      if (this.mayRide(d, cell) && this.loadBelt(cell, d)) continue;
+      const spot = this.offRails(d.x, d.z);
+      if (!spot) continue;
+      d.x = spot.x;
+      d.z = spot.z;
+    }
+  }
+
   stepBelts(dt) {
     const net = this.beltLines();
     if (!net.lines.length) return;
+    // Before anything moves, or a box sitting on the rails waits a tick to be
+    // noticed and the run steps around it.
+    this.clearRails();
 
     /**
      * Where every box is, in the coordinates of the line it is on.
@@ -11023,7 +11432,7 @@ export class Game {
      * sees it coming and holds back. Nothing is stored, so nothing can be left
      * standing when a crate is eaten by a shelf half way through a hand-off.
      */
-    const barrier = (line, self) => {
+    const barrier = (line, self, mine = null) => {
       let near = Infinity;
       // Never the box that is asking. On a RING a line feeds itself, so a crate
       // part way round the join would count its own committed hand-off as
@@ -11038,12 +11447,45 @@ export class Game {
           const at = pos.get(d.id);
           if (!(at > from.len)) continue;
           const ex = this.beltExit(from, d);
-          if (ex?.line === line) near = Math.min(near, at - ex.total);
+          if (ex?.line !== line) continue;
+          const gap = at - ex.total;
+          /**
+           * TWO BOXES CAN BE CROSSING INTO ONE LINE AT ONCE, and left to it they
+           * hold each other there for the rest of the save.
+           *
+           * A committed crate counts every other committed crate as being in
+           * its way, and `cap = Math.max(cap, at)` means neither may go back —
+           * so at a merge with two feeders part way in, each waits for the
+           * other and every line behind them backs up. It is not a crash and
+           * not a spill: what you watch is thirty crates standing still on a
+           * conveyor that is working perfectly, which reads as belts being
+           * broken. A live shop had two rows and thirty-eight boxes wedged on
+           * one square this way.
+           *
+           * They should not both be able to commit — `roomAt` is asked before
+           * anything crosses — and a re-flow is what gets round it: the address
+           * is a cell plus an offset, lines are re-cut on every purchase, and a
+           * box that was mid-line can come back as a box mid-GAP. So this is a
+           * recovery rather than a guard, and it costs nothing when the guard
+           * held.
+           *
+           * The one nearer to arriving wins; a box further back than me is
+           * behind me rather than in my way, and it will merge behind me at
+           * `CRATE_PITCH` the moment I land. Ties go by id, or "nearer" is not
+           * an order and both of them stand still on the exact tick they draw
+           * level.
+           */
+          if (mine != null && (gap < mine || (gap === mine && d.id > self.id))) continue;
+          near = Math.min(near, gap);
         }
       }
       return near;
     };
-    const roomAt = (line, self) => barrier(line, self) >= Game.CRATE_PITCH - 1e-9;
+    // `mine` is how far into the hand-off the asker itself is, and it is only
+    // ever a number for a crate that has already left its own line — see the
+    // note in `barrier`. Null for everything still on one, which is every
+    // ordinary ask and the case that has to be unchanged.
+    const roomAt = (line, self, mine = null) => barrier(line, self, mine) >= Game.CRATE_PITCH - 1e-9;
 
     /**
      * A HOP LONGER THAN A CELL IS ALL OR NOTHING, which is the tunnel.
@@ -11159,9 +11601,17 @@ export class Game {
           return !!l && roomAt(l.line, crate);
         });
         const total = ex ? ex.total : line.len;
+        // How far into the hand-off this box already is, for a box that has
+        // left its own line — null while it is still on one, which is the
+        // ordinary case and the one that must not change. See `barrier`: it is
+        // what stops two crates crossing into the same line from holding each
+        // other there for ever. Not asked of the chooser above, because a
+        // junction keeps its choice once made (`sortChoice`) and a candidate's
+        // `total` is not known until it has been chosen.
+        const crossing = ex && at > line.len ? at - total : null;
 
         let cap = ahead ? pos.get(ahead.id) - Game.CRATE_PITCH
-          : (ex && roomAt(ex.line, crate) ? total : line.len);
+          : (ex && roomAt(ex.line, crate, crossing) ? total : line.len);
         cap = Math.min(cap, total);
         // A LOADER STOPS THE BOX ON ITS CENTRE UNTIL IT HAS SWUNG AT IT, and
         // that is the one place a machine may hold the line up.
@@ -12030,6 +12480,39 @@ export class Game {
         if (this.armDrop(arm, s, riding, { dry: true })) return this.armSend(arm, s, 1);
       }
 
+      // ...and a loader with NO GROUND EXIT AT ALL, at the end of the line, may
+      // use any side it can.
+      //
+      // "The crate rides on to the next loader" is what makes the narrow
+      // off-ramp above safe, and it is two claims: that there is a next loader,
+      // and that this one had somewhere to put a box down if it came to it. The
+      // spur to a skip has neither. It is one cell, so nothing is downstream;
+      // the tile it faces is the bin, which is not walkable, so `armDrop`
+      // refuses; and there are no pads. A crate that is not rubbish therefore
+      // parks on that loader for the rest of the save — and every crate of rot
+      // that wants that skip queues behind it for ever. What you watch is a shop
+      // with a paid-for skip that never takes anything, days downstream of the
+      // one mixed box that jammed it.
+      //
+      // The test is whether a drop square EXISTS rather than whether one has
+      // room, and that distinction is the whole guard. A full mat is a loader
+      // holding its box back on purpose (`ARM_DROP_STACK`, or the thing buries
+      // the floor); no square at all is a loader with nowhere to be. Fold the
+      // two and the cap leaks sideways onto the three tiles beside it, which is
+      // the tower the cap exists to refuse, lying down.
+      //
+      // Rubbish never reaches this — the waste branch returns above — and that
+      // is load-bearing rather than incidental: `armDrop` goes through
+      // `dropGoods`, which makes stock, so an off-ramped rot crate would come
+      // back as food.
+      const ground = (s) => !this.beltAt(s.x, s.z)
+        && isWalkable(this.walk, this.layout, s.x, s.z);
+      if (![...pads, facing].some(ground) && !conveyorNext(this.layout, arm)) {
+        for (const s of sides) {
+          if (this.armDrop(arm, s, riding, { dry: true })) return this.armSend(arm, s, 1);
+        }
+      }
+
       // Nothing wanted anything. Not a failure — the crate rides on to the next
       // loader, which `stepBelts` does without being asked.
       return null;
@@ -12055,7 +12538,10 @@ export class Game {
 
     // 2. Empty: lift a crate off the floor beside it, which is how goods get out
     // of the yard and onto the run. Never off another conveyor cell — that is
-    // `stepBelts`' job and doing it here would let a loader jump the queue.
+    // `stepBelts`' job and doing it here would let a loader jump the queue. A
+    // box standing on a rail without riding one is not this branch's problem
+    // either: `clearRails` gets it onto the run or off the rails before
+    // anything here is asked.
     //
     // ...and never off the side it UNLOADS onto, or the off-ramp above is a
     // loop: the box goes down, the loader is empty, and the next swing picks the
@@ -12074,28 +12560,17 @@ export class Game {
       const loose = this.deliveries.find((d) => !d.belt
         // ...and never the box this same loader just set down. See `armDrop`.
         && d.byArm !== arm.id
-        // Rubbish rides only if there is a skip down the line. Without that a
-        // box of rot is lifted onto a conveyor that has nowhere to end it and
-        // jams the run for the rest of the save — the bin feature's own
-        // failure mode, arriving through a door it did not know about.
-        && (!d.waste || met.bins.length > 0)
-        // ...and never a box the shop has GIVEN UP ON, which is the same rule
-        // `armTakes` already obeys at the other end of the swing.
+        // Rubbish with no skip down the line, and anything the shop has GIVEN
+        // UP on, are both boxes that would ride for ever — see `mayRide`, which
+        // is the one spelling of that and is asked by `clearRails` too.
         //
-        // The asymmetry was the bug: a loader refused to pour a given-up item
-        // and lifted one perfectly happily. So the crate `merchandise` had just
-        // carried off a dead board went straight onto the run, where every unit
-        // down it refuses that item for the same reason — a permanent passenger,
-        // which is the "three frozen pizzas on a run with no freezer" failure
-        // with the shop's own judgement as the cause. And it undoes the one
-        // thing that job exists to do: `verify:hand`'s centrepiece is that a
-        // board the hand clears does not come straight back, and here it comes
-        // back by machine.
-        //
-        // EVERY pile, not any: a mixed box with one wanted kind in it still has
-        // somewhere to be, and refusing it would strand the good half. Same
-        // shape as the sorter's purity rule and for the same reason.
-        && !lotStacks(d).every((p) => givenUp(this, p.item_id))
+        // The asymmetry was the bug it was written for: a loader refused to
+        // pour a given-up item and lifted one perfectly happily. So the crate
+        // `merchandise` had just carried off a dead board went straight onto the
+        // run, where every unit down it refuses that item for the same reason —
+        // a permanent passenger, which is the "three frozen pizzas on a run with
+        // no freezer" failure with the shop's own judgement as the cause.
+        && this.mayRide(d, arm)
         // ...and never one that has only just landed. See `CRATE_REST_SECONDS`:
         // a machine decides in no time at all, so without this a delivery is
         // goods appearing already on the belt.
@@ -12135,6 +12610,30 @@ export class Game {
     for (const s of sides) {
       const machine = (this.layout.stations ?? []).find((st) => st.x === s.x && st.z === s.z);
       if (machine && this.armTake(arm, machine)) return this.armSend(arm, s, 0);
+    }
+
+    // 3b. Still empty: collect the FARM beside it — a full pen, or a ripe bed.
+    //
+    // Beside the tray rather than down with the stockroom, and it is the same
+    // argument: a full tray stops its machine, a full pen stops filling, and a
+    // ripe bed cannot grow the next thing until it is picked. All three are
+    // swings that unblock something, where the stockroom pull is a swing that
+    // tidies.
+    //
+    // The pen first, and the reason is `farm`'s own fold (docs/pens.md): a pen
+    // that is full has STOPPED where a bed merely sits there ripe. Same order
+    // the crew work the field in, so a run down a mixed row does what a hire
+    // walking it would.
+    //
+    // `covers` rather than `x === x`, because a pen is 2x2 and its record is the
+    // min corner — a loader against its far side would otherwise find nothing.
+    for (const s of sides) {
+      const pen = (this.layout.pens ?? []).find((p) => covers(p, s.x, s.z));
+      if (pen && this.armGather(arm, pen)) return this.armSend(arm, s, 0);
+    }
+    for (const s of sides) {
+      const bed = (this.layout.plots ?? []).find((pl) => pl.x === s.x && pl.z === s.z);
+      if (bed && this.armReap(arm, bed)) return this.armSend(arm, s, 0);
     }
 
     // 4a. Still empty: a LOAD-ONLY loader pulls off the unit it is aimed at.
@@ -12236,6 +12735,108 @@ export class Game {
       return true;
     }
     return false;
+  }
+
+  /**
+   * A loader's half of `collectPen` — the eggs out of the gate and onto the run.
+   *
+   * `armTake`'s shape exactly, said about the other thing in the shop that fills
+   * on its own clock and STOPS. That parallel is the argument for it existing at
+   * all: a machine whose tray is full has stopped, and a pen that is full has
+   * stopped, and a loader that unblocks the one should unblock the other.
+   *
+   * `collectPen` is the player's verb and takes a player, because what it really
+   * does is `handOver` — the shoulder, then the hands, then the ground. A
+   * machine has none of those, so this is the same *bookkeeping* with a crate on
+   * the end: take the lot, reset the clock the way collecting does, hand it to
+   * the belt.
+   *
+   * The clock reset is not a nicety and is why this cannot just read `qty`.
+   * `stepPens` pins `filledAt` to now on every tick a pen stands full, so the
+   * two agree without either knowing about the other — and a collect that left
+   * the stamp alone would hand the next batch over the instant the gate cleared,
+   * which is the "a pen is not a hopper" rule undone by a machine.
+   *
+   * No destination test, unlike `armPull` and for its stated reason: that one
+   * takes stock the shop has already placed and could strip an aisle onto a run
+   * with nowhere to go. This creates goods that did not exist a tick ago, and
+   * the off-ramp (`armDrop`) is what guarantees they land somewhere.
+   */
+  armGather(arm, pen) {
+    if (!(pen.qty > 0)) return false;
+    const made = this.penMakes(pen);
+    const itemId = made?.item_id;
+    // Content is edited live, so the row that named what this makes can be gone
+    // with six of it standing in the gateway. `collectPen` refuses out loud for
+    // the same reason; `binOrphans` is what eventually collects it.
+    if (!itemId || !content().byId.items[itemId]) return false;
+
+    const take = Math.min(pen.qty, this.crateLot().cap);
+    const del = {
+      id: `del-${this.nextDeliveryId++}`,
+      stacks: [{ item_id: itemId, qty: take, day: this.day }],
+      x: arm.x,
+      z: arm.z,
+    };
+    pen.qty -= take;
+    pen.filledAt = this.elapsed;
+    this.stats.harvested += take;
+    this.deliveries.push(del);
+    this.loadBelt(arm, del);
+    return true;
+  }
+
+  /**
+   * ...and the same for a ripe bed, which is `harvest` with no hands.
+   *
+   * It **replants exactly as a hire does**, seed cost and all, and that is the
+   * one decision in here worth arguing. docs/workers.md's rule is that what
+   * something is worth is the player's question and a worker answering it is a
+   * worker spending your money — so a machine buying seed looks like precisely
+   * the thing that rule forbids. It is not, and the line is *who chose*: you
+   * sowed that bed, and re-sowing what is already there is carrying out the
+   * decision rather than making one. `harvest` has spent a seed on every pick
+   * since auto-replant shipped, and a loader that skipped it would leave a field
+   * of rough soil behind a machine that looked like it was working — one rule,
+   * or the crew and the conveyor undo each other down the same row.
+   *
+   * `harvest` is not reused directly for `armGather`'s reason: it is built round
+   * `handOver`, and the last thing a loader wants is an armful.
+   */
+  armReap(arm, plot) {
+    if (!plot.ready || !plot.crop_id) return false;
+    const c = content();
+    const crop = c.byId.crops[plot.crop_id];
+    if (!crop || !c.byId.items[crop.item_id]) return false;
+
+    // Decided when it was sown, so the bed hands over what it has been drawing.
+    const grew = plot.yield || this.rng.int(crop.yield_min, crop.yield_max);
+    const take = Math.min(grew, this.crateLot().cap);
+    const del = {
+      id: `del-${this.nextDeliveryId++}`,
+      stacks: [{ item_id: crop.item_id, qty: take, day: this.day }],
+      x: arm.x,
+      z: arm.z,
+    };
+    // Everything the bed grew, because everything the bed grew still exists —
+    // `harvest`'s note. What will not fit in one box stays on the bed's own
+    // tile rather than being destroyed, which is the same answer `handOver`
+    // gives a pair of full hands.
+    const spare = grew - take;
+    if (spare > 0) this.dropGoods(crop.item_id, spare, plot);
+    this.stats.harvested += grew;
+
+    const again = this.replantable(crop);
+    if (again.ok) {
+      this.cash -= crop.seed_cost;
+      this.stats.spent += crop.seed_cost;
+      this.sowInto(plot, crop);
+    } else {
+      this.clearPlot(plot);
+    }
+    this.deliveries.push(del);
+    this.loadBelt(arm, del);
+    return true;
   }
 
   armPull(arm, room, met) {
@@ -13471,7 +14072,7 @@ export class Game {
   /** The stat block a fixture is currently running on. */
   fixtureStats(idOrFixture) {
     const f = typeof idOrFixture === 'string' ? this.findFixture(idOrFixture) : idOrFixture;
-    if (!f) return { capacity_mult: 1, keeps_mult: 1, speed_mult: 1, unattended: 0, lines: 1, covers: 0 };
+    if (!f) return { capacity_mult: 1, keeps_mult: 1, speed_mult: 1, unattended: 0, lines: 1, covers: 0, heads: 1 };
     const tier = this.fixtureTiers(f)[this.fixtureTier(f) - 1] ?? {};
     return {
       capacity_mult: tier.capacity_mult ?? 1,
@@ -13487,6 +14088,9 @@ export class Game {
       // sensor that covers nobody, it is a different thing entirely, and the
       // default has to be the shop everybody already owns.
       covers: Math.max(0, Math.trunc(tier.covers ?? 0)),
+      // One rather than zero, for `lines`' reason: a count of bodies, and every
+      // pen ever built keeps at least the one it always did.
+      heads: Math.max(1, Math.trunc(tier.heads ?? 1)),
     };
   }
 
@@ -14326,6 +14930,14 @@ export class Game {
     costs.curtain = EDGE_COST[wayDefault('curtain')];
     costs.shutter = EDGE_COST[E.SHUTTER];
     costs.fence = EDGE_COST[E.FENCE];
+    // Every boundary at the fence's own price, keyed by the palette entry's id —
+    // one line per look rather than one number, for the reason the glazings have
+    // four lines: the bar prints what it is about to charge, and a blank price on
+    // three of four buttons reads as free.
+    costs.hedge = EDGE_COST[E.HEDGE];
+    costs.railing = EDGE_COST[E.RAILING];
+    costs['low-wall'] = EDGE_COST[E.LOW_WALL];
+    costs.arch = EDGE_COST[E.ARCH];
     costs.gate = EDGE_COST[E.GATE];
     // Demolishing is deliberately absent rather than priced at 0. It pays you
     // `FIXTURE_REFUND` back, so "$0" on the button would be the one number here
@@ -16256,13 +16868,67 @@ export class Game {
    * counts, an annex you floor counts, and the aisles your own shelving eats do
    * too. Read off the same two masks everything else does rather than kept as a
    * number beside the shop — `world.fixtures` is the cautionary tale.
+   *
+   * ...and the third state, which this had no answer for. Enclosure is
+   * all-or-nothing, so taking enough wall out does not hand back a smaller room,
+   * it hands back a CLOSET: a live shop read four indoor cells, two of them
+   * walkable, and therefore a building that holds half a person. That is a
+   * cliff rather than a slope, and it is a cliff every threshold downstream sits
+   * under at once — one shopper is `occupancy` 2.0, which is past `CROWD_FROM`
+   * and past `TURN_AWAY_AT` in the same tick, so arrivals are turned away at the
+   * door, everybody who does get in storms straight back out, and
+   * `stepCrowdRep` bleeds every trading second. Reputation reached zero in a
+   * morning and stayed there, and the only thing on screen that said so was
+   * `room` reading 1.
+   *
+   * So a breached shell falls back to the rect the building was stamped as.
+   * That is `startLane`'s answer to the identical question — when the mask stops
+   * meaning anything, take the requirement from something that still exists —
+   * and the test is deliberately `canPlaceEdges`' rather than a second opinion
+   * about the same thing: a partition drawn across your own aisles leaves the
+   * DOORWAY indoors and must go on being measured exactly as it is today, while
+   * a shell with a hole in it puts the doorway outside and is the only case this
+   * is for. A shop with walls never reaches the fallback, so nothing that is
+   * enclosed moves by a cent.
    */
   floorRoom() {
     const { w, h, indoor, blocked } = this.layout;
     if (!indoor) return Infinity;
     let tiles = 0;
     for (let i = 0; i < w * h; i++) if (indoor[i] && !blocked?.[i]) tiles++;
-    return tiles * CAPACITY_PER_TILE;
+    if (!this.shellBreached()) return tiles * CAPACITY_PER_TILE;
+
+    // The stamped footprint, which is floor by construction (`generateLayout`
+    // stamps the whole shell) — so `blocked` is the same and only question the
+    // enclosed branch asks, and shelving goes on taking its own room away.
+    const s = this.layout.store;
+    if (!s) return tiles * CAPACITY_PER_TILE;
+    let rect = 0;
+    for (let z = Math.max(0, s.z); z < Math.min(h, s.z + s.h); z++) {
+      for (let x = Math.max(0, s.x); x < Math.min(w, s.x + s.w); x++) {
+        if (!blocked?.[z * w + x]) rect++;
+      }
+    }
+    // Never smaller than what the walls do still close in: a shop can be
+    // breached at the front and have a sealed stockroom bigger than the rect.
+    return Math.max(tiles, rect) * CAPACITY_PER_TILE;
+  }
+
+  /**
+   * Is the shell open to the sky, as opposed to merely partitioned?
+   *
+   * The door, because that is the one cell whose answer tells the two apart —
+   * `canPlaceEdges` has drawn the line here since signed doorways arrived, and
+   * two readers disagreeing about what "breached" means is how the fallback
+   * above would come to fire on a shop that has simply been divided in two.
+   */
+  shellBreached() {
+    const { w, h, indoor, door } = this.layout;
+    if (!indoor || !door) return false;
+    const x = Math.round(door.x);
+    const z = Math.round(door.z);
+    if (x < 0 || z < 0 || x >= w || z >= h) return false;
+    return indoor[z * w + x] !== 1;
   }
 
   /**

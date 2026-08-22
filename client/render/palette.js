@@ -55,6 +55,11 @@ export const PALETTE = {
    *  should read as the front of the building rather than as more of the back
    *  of it — the two yard pads are deliberately warm and light. */
   park: '#79808c',
+  /** The paddock: the one pad that is not hardstanding at all. Grazed grass —
+   *  greener and duller than the lawn beside it, which is the whole read. The
+   *  four pads above are pale and warm because they are concrete you put things
+   *  on; this one has to say "still a field, and something eats it". */
+  paddock: '#9ab069',
   /** The road: darker than the car park it leads to, because the lane is the
    *  thing you drive on and the pad is the thing you stand on. Near-neutral on
    *  purpose — it is the longest run of one colour anybody will paint, so a
@@ -77,6 +82,21 @@ export const PALETTE = {
   counterTop: '#66c2b5',
   path: '#d9cbb0',
   fence: '#c99a63',
+  // A hedge, and the one boundary that carries its OWN colour on its band —
+  // which is what keeps paint off it, by the rule in `buildEdges` that a band
+  // with a colour already on it is left bare. Nobody paints a hedge. Two greens
+  // because the top is what you see most of at 45° and a single one draws a
+  // green slab; darker at the face, lighter on the clipped top, the way a
+  // planting reads in daylight.
+  hedge: '#5f7f4a',
+  hedgeTop: '#7a9b5c',
+  // A railing: dark posts and a lighter top rail, so the horizontal reads
+  // against the ground rather than dissolving into it. Both carry their own
+  // colour for the hedge's reason — you paint a railing in practice, and the
+  // finish tool paints a WALL FACE, which is a surface a rail simply has not
+  // got.
+  railing: '#8a8579',
+  railingRail: '#b6b0a2',
   door: '#f6f3ea',
   // A strip curtain: milky PVC on a metal rail. Deliberately opaque rather than
   // glass — the alpha band in `edgeBands` is one shared value (`GLASS`, 0.35),
@@ -154,6 +174,11 @@ export const TILE_STYLE = {
   [T.DROP]: { color: PALETTE.drop, h: 0.06 },
   [T.BREAK]: { color: PALETTE.break, h: 0.06 },
   [T.PARK]: { color: PALETTE.park, h: 0.06 },
+  // Flush with the grass, unlike the four pads above it, and for `T.ROAD`'s
+  // reason rather than in spite of it: a paddock is a field somebody has fenced
+  // off, not a slab laid on one, and a lip round the edge of a meadow would read
+  // as a raised bed the size of the farm.
+  [T.PADDOCK]: { color: PALETTE.paddock, h: 0.02 },
   // Flush with the grass rather than raised the 0.07 the pads are. A pad is a
   // platform you put things on and a road is ground you drive over, and a lip
   // along a lane that runs the width of the map would read as a kerb the van
@@ -404,6 +429,11 @@ export const PAD_MARK = {
   [T.DROP]: { ink: '#ad9b78', glyph: 'stock' },
   [T.BREAK]: { ink: '#bcac92', glyph: 'charge' },
   [T.PARK]: { ink: '#cdd3db', glyph: 'park' },
+  // The paddock is deliberately NOT in here, and it is the one pad that should
+  // never be. Both marks are paint, and the sentence above is that paint on
+  // concrete is concrete you can see the paint on — a field is the one pad with
+  // no concrete in it, so a white line round a meadow reads as a tennis court.
+  // What tells you where it ends is that something is grazing inside it.
 };
 
 export const CRATE_LOOK = {
@@ -479,6 +509,16 @@ const EDGE_BASE = {
   // between the four glazings — see `GLAZING` in shared/edges.js. Anything that
   // wanted a fifth look should be two numbers here and nothing else.
   glass: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, glass: true },
+  // An arch is a doorway with the door left out and the span built in, so it is
+  // the doorway's own base with one flag changed. Thicker, because the courses
+  // that close the head in are a pier's worth of masonry rather than a frame's —
+  // and the thickness is what makes the corbels read at 45°, since what you see
+  // of a step is its top face.
+  arch: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.22, arch: true },
+  // A boundary. One base for all four looks, because every fact the sim has about
+  // them is shared — see `FENCING`, shared/edges.js. Each look overrides only
+  // what it is made of.
+  fence: { color: PALETTE.fence, h: 0.5, t: 0.14 },
 };
 
 /**
@@ -506,7 +546,28 @@ export const EDGE_STYLE = {
   // a stockroom and on anything a passer-by should not be able to see the till
   // through.
   [E.WINDOW_HIGH]: { ...EDGE_BASE.glass, sill: 0.72, head: 1.02 },
-  [E.FENCE]: { color: PALETTE.fence, h: 0.5, t: 0.14 },
+  [E.FENCE]: EDGE_BASE.fence,
+  // Three more boundaries, and they are LOOKS rather than kinds — one price, one
+  // set of rules, free to swap between (`FENCING`, shared/edges.js). Only a
+  // hedge is thicker, and that is not a rule either: planting has depth, and a
+  // hedge drawn at a panel's thickness is a green fence.
+  //
+  // The hedge and the railing carry their own colours, which is what keeps the
+  // paint tool off them — a band with a colour on it is skipped by `buildEdges`.
+  // A LOW WALL deliberately does not, so it takes a finish exactly as the wall
+  // it is half of does. That is the one difference between these four that is
+  // worth more than a colour, and it is a consequence rather than a rule.
+  [E.HEDGE]: { ...EDGE_BASE.fence, color: PALETTE.hedge, top: PALETTE.hedgeTop, h: 0.62, t: 0.3 },
+  [E.RAILING]: {
+    ...EDGE_BASE.fence, color: PALETTE.railing, rail: PALETTE.railingRail,
+    h: 0.55, t: 0.08, railing: true,
+  },
+  [E.LOW_WALL]: { ...EDGE_BASE.fence, color: PALETTE.wall, top: PALETTE.wallTop, t: 0.17 },
+  // An arch, and the same arch with a rule on it. The mark rides on the
+  // threshold exactly as a doorway's does, because an arch is a hole you walk
+  // through the middle of and has a step under it for the same reason.
+  [E.ARCH]: EDGE_BASE.arch,
+  [E.ARCH_STAFF]: { ...EDGE_BASE.arch, mark: PALETTE.markStaff },
   // The same hole in the same wall, with the threshold painted. `mark` is the
   // whole difference, and it is a difference you can SEE — the feature is
   // otherwise invisible in a screenshot, which is a fine thing to say about a
@@ -625,6 +686,60 @@ const SHUTTER_RIBS = 3;
 const SHUTTER_TRACK = 0.11;
 
 /**
+ * An ARCH, and the three numbers that keep it from being a doorway.
+ *
+ * The whole of what you are buying here is the picture — an arch encloses like a
+ * doorway, is crossed like a doorway and is signed like a doorway, so if the
+ * span does not read at a glance then it is a doorway at a different price. Same
+ * argument the shutter's coil makes, and it bites harder: a shutter at least has
+ * gear on it, where an arch is *absence* shaped a particular way.
+ *
+ * So it is STEPPED rather than curved. A true soffit at this camera is a
+ * half-tile radius drawn about fourteen pixels high, where an arc and a chamfer
+ * are the same three grey pixels — and every curve in this renderer is a stack
+ * of boxes anyway. Three corbels a side is what reads as a span; two reads as a
+ * chamfer and four is noise.
+ *
+ * `ARCH_SPRING` is how far the masonry has closed in by the crown, per side, so
+ * the narrowest the opening ever gets is `1 - 2 * ARCH_SPRING`. It is the number
+ * to be careful with: past about a quarter the crown is narrower than the
+ * doorway it is supposed to be grander than, and what that draws is a keyhole.
+ *
+ * `ARCH_RISE` is how far down the springing starts from the header. Deep, because
+ * the header itself is thin — an arch reads as a span between two piers, and a
+ * thick lintel with a token step under it reads as a doorway somebody has put a
+ * bracket in.
+ */
+const ARCH_HEAD = 0.09;
+const ARCH_RISE = 0.32;
+const ARCH_SPRING = 0.22;
+const ARCH_STEPS = 3;
+
+/**
+ * A RAILING: how many posts to a cell, and where the rail sits.
+ *
+ * The `stripes`/`tufts`/curtain argument for the fifth time — what survives of a
+ * flat pattern across a room at 45° is its colour, so a rail drawn as a paler
+ * band on a solid boundary is a fence painted two colours. What makes a railing a
+ * railing is that you can SEE THE SHOP THROUGH IT, and that is geometry: gaps.
+ *
+ * Four posts to a cell against a cell that is a metre and a half is a post about
+ * every 40cm, which is close-set for a real rail and the sparsest that still
+ * reads as a barrier rather than as three sticks. `RAIL_POST` is a fraction of
+ * that pitch, the way `CURTAIN_DUTY` is of a strip's.
+ *
+ * There are TWO rails, one at the top and one part way down, and `RAIL_AT` is
+ * where the lower one sits as a fraction of the boundary's own height. Keep the
+ * two clear of each other: at `RAIL_AT + RAIL_THICK / h` past `1 - RAIL_THICK / h`
+ * they overlap into a solid band, which is a fence again — the one failure here
+ * that draws as a perfectly good piece of a different kind.
+ */
+const RAIL_POSTS = 4;
+const RAIL_POST = 0.24;
+const RAIL_AT = 0.45;
+const RAIL_THICK = 0.08;
+
+/**
  * The stack of boxes one edge is built from, bottom to top.
  *
  * Lives here, beside the style it reads, because two things draw an edge now:
@@ -659,6 +774,56 @@ export function edgeBands(style) {
       // through keeps a little of the extra, because that stripe is the only
       // thing on screen saying who a door is for and it is being read edge-on.
       { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
+    ];
+  }
+  // An arch: the opening's own two bands, with the span corbelled in from either
+  // side under the header.
+  //
+  // Built out of the opening's bands rather than beside them, for the reason the
+  // roller door's are: the head and the step are at the same heights, so an arch
+  // in a painted wall takes the paint on the parts of it that are wall, and a
+  // signed one puts its stripe exactly where a signed doorway puts it. What is
+  // added is the springing — and unlike the shutter's gear, every course of it
+  // carries NO colour of its own, because it is masonry. Paint an arched wall and
+  // the arch is painted, which is the whole reason anybody builds one.
+  if (style.arch) {
+    const head = style.h - ARCH_HEAD;
+    const spring = head - ARCH_RISE;
+    return [
+      { y0: head, y1: style.h },
+      { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
+      // Widest at the TOP, which is the way round an arch actually closes: the
+      // opening is full width at the springing line and narrowest at the crown,
+      // so the masonry grows as it rises. Drawn the other way you get a funnel,
+      // which reads as a doorway with its jambs splayed.
+      ...Array.from({ length: ARCH_STEPS }, (_, i) => {
+        const len = ARCH_SPRING * ((i + 1) / ARCH_STEPS);
+        const step = ARCH_RISE / ARCH_STEPS;
+        return [-1, 1].map((s) => ({
+          y0: spring + step * i,
+          y1: spring + step * (i + 1),
+          off: s * (0.5 - len / 2),
+          len,
+        }));
+      }).flat(),
+    ];
+  }
+  // A railing: posts up from the deck with a rail across them, and the gaps
+  // between the posts are the piece. `off`/`len` place a band along the cell —
+  // the same machinery a brick course and a curtain's strips already ride — so a
+  // vertical member is a short band that happens to be tall.
+  if (style.railing) {
+    const pitch = 1 / RAIL_POSTS;
+    const rail = style.h * RAIL_AT;
+    return [
+      // The rail first, so a run of them merges into one instanced mesh with the
+      // rails of every other cell rather than alternating with posts.
+      { y0: rail, y1: rail + RAIL_THICK, color: style.rail ?? style.color },
+      { y0: style.h - RAIL_THICK, y1: style.h, color: style.rail ?? style.color },
+      ...Array.from({ length: RAIL_POSTS }, (_, i) => ({
+        y0: GROUND_LINE, y1: style.h, color: style.color,
+        off: -0.5 + pitch * (i + 0.5), len: pitch * RAIL_POST,
+      })),
     ];
   }
   // A roller door, up: an opening's header and threshold, with the coil hung
@@ -1006,7 +1171,17 @@ export function patternColor(surface, x, z) {
   // are the thing standing on it. Authored the way you would say it out loud —
   // colour is the brick, accent is the joint — so the swap belongs here rather
   // than in whoever authors the row.
-  if (surface.pattern === 'brick') return jitter(accent, 0.02, x * 31 + z * 17);
+  //
+  // Asked as `bondOf` rather than as `pattern === 'brick'`, and that is the whole
+  // of the bug this line used to have. `tiles` is the second pattern laid in
+  // courses and it was named here in neither half: the flat skin took the BASE,
+  // so the grout came out the same colour as the tile it was grouting and the
+  // authored `accent` moved nothing at all — a content column no row's value
+  // could affect, which is the trap CLAUDE.md names about tiers, wearing a
+  // surface. Nothing logs it and a tiled wall still looks tiled, because the
+  // proud course keeps its own shadow. One question, so a third bond cannot
+  // arrive with one of its two halves.
+  if (bondOf(surface)) return jitter(accent, 0.02, x * 31 + z * 17);
   return jitter(alt ? accent : base, 0.03, x * 31 + z * 17);
 }
 

@@ -12,7 +12,7 @@
  * there, including two things nobody would think to write down by hand:
  *
  *   - **a tier that changes no number.** `capacity_mult`, `keeps_mult`,
- *     `speed_mult`, `unattended`, `lines` and `covers` are the only knobs the
+ *     `speed_mult`, `unattended`, `lines`, `covers` and `heads` are the only knobs the
  *     sim reads, so a rung
  *     that moves none of them and costs money is a button that takes your cash
  *     and does nothing. They are flagged rather than hidden, because sometimes
@@ -120,6 +120,10 @@ function tierLines(row) {
       // having queues. Printed as a count because that is what it is — how many
       // shoppers it reads cleanly before shrinkage starts climbing.
       (t.covers ?? 0) > 0 ? `bills ${t.covers} at once, no queue` : null,
+      // The ceiling on a pen's livestock — the paddock is what supplies them.
+      // Worth naming on rung 1 too, unlike every multiplier above it: "keeps 3"
+      // is the fact you want before you buy, where "holds x1" is noise.
+      (t.heads ?? 1) > 1 ? `keeps ${t.heads} animals` : null,
     ].filter(Boolean);
     // Tier 1 is what a new one already is, so it is exempt: it costs 0 and is
     // supposed to move nothing.
@@ -358,7 +362,8 @@ const dead = [];
 for (const r of rows) {
   (r.tiers ?? []).forEach((t, i) => {
     const flat = [t.capacity_mult, t.keeps_mult, t.speed_mult].every((m) => m == null || m === 1)
-      && !t.unattended && (t.lines ?? 1) <= 1 && (t.covers ?? 0) <= 0;
+      && !t.unattended && (t.lines ?? 1) <= 1 && (t.covers ?? 0) <= 0
+      && (t.heads ?? 1) <= 1;
     if (i > 0 && flat && (t.cost ?? 0) > 0) dead.push(`\`${r.id}\` → **${t.name}** (${money(t.cost)})`);
   });
 }
@@ -387,7 +392,7 @@ md.push('');
 
 if (dead.length) {
   md.push('> ⚠️ **Tiers that change no number.** `capacity_mult`, `keeps_mult`,');
-  md.push('> `speed_mult`, `unattended`, `lines` and `covers` are the only knobs the sim');
+  md.push('> `speed_mult`, `unattended`, `lines`, `covers` and `heads` are the only knobs the sim');
   md.push('> reads, so');
   md.push('> these rungs take money and');
   md.push('> do nothing. Sometimes deliberate — the till ladder is priced at 0 because');

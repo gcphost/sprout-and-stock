@@ -1,9 +1,10 @@
 # Pens — the animal that is a building
 
-Status: **built.** One `pen` build kind, seven authored pieces, a `verify:pens`
-sweep, and the seven animal *crop* rows retired. It is also the first fixture in
-the game that takes more than one tile, which is most of what this document is
-about.
+Status: **steps 1 and 2 built.** One `pen` build kind, seven authored pieces, a
+`verify:pens` sweep, and the seven animal *crop* rows retired. It is also the
+first fixture in the game that takes more than one tile, which is most of what
+step 1 is about. Step 2 took the animal out of the art and put it on the grass —
+see [the paddock](#step-2--the-paddock-and-the-animals-that-roam) at the bottom.
 
 ---
 
@@ -269,10 +270,239 @@ a **shipped** pen — which fails in twenty places, none of them saying why.
 
 ---
 
+## Step 2 — the paddock, and the animals that roam
+
+Step 1 shipped a pen whose animal was a **decal on a shed**. `hen-house` had a
+hen in its model, the hen was at rot 0 where the modeller left it, and it stood
+there for the life of the save. A farm made of those is a photograph of a farm.
+
+The three things that were wrong are separable, and all three are now done:
+
+1. **An animal is a body**, not a part of the building it came out of.
+2. **The pen stopped carrying its own fence.** Five of the seven had rails
+   painted on them, which is scenery pretending to be a rule.
+3. **How many animals is a number you can raise** — by painting a field.
+
+### A head is a DIVISOR on the one clock
+
+This is the whole mechanism and everything else is a consequence of it.
+
+```
+penFill = (minutes elapsed × speed_mult × HEADS) / produces.every
+```
+
+Nothing else moves. One clock, one stockpile, one stall, one Collect at one
+gate — every mechanism step 1 built survives verbatim, and `verify:pens` still
+passes nearly whole.
+
+The obvious fork is *each animal produces* against *the field produces and the
+animals are the picture of it*, and both are wrong in their pure form. Four hens
+each with their own clock is four clocks, four trays, four stalls and four
+collect verbs for a thing the player experiences as one gate. And animals that
+are only a headcount readout are the "tier that changes no number" trap wearing
+feathers — a visible thing that means nothing.
+
+**Heads is a third knob and not a rename of either**, which is the split the
+section above already argues: `speed_mult` is how often you must come,
+`capacity_mult` is how long you may leave it, and `heads` is **how many**.
+`penCap` is untouched by the paddock, so a bigger field fills the *same*
+stockpile faster rather than a bigger one at the same rate — fold the two
+together and a big field needs emptying at the same interval a small one does,
+which is the decision gone.
+
+**One head is step 1's numbers to the digit**, which is the control the whole
+step rests on. No shop that has never painted a paddock moves by a cent.
+
+### The paddock supplies them; the RUNG is the ceiling
+
+```
+heads = clamp(paddock cells / 4 / shelters sharing it,  1,  tier.heads)
+```
+
+Both, and neither alone.
+
+- **Grazing alone** is one brush stroke buying an unbounded divisor on the
+  clock, which is a printer.
+- **A rung alone** is a number you buy with no land behind it, and the fence and
+  the acre stop meaning anything.
+
+So you need enough grazing *and* a shelter big enough, and whichever you are
+short of is the one to spend on next. That is a decision; either half on its own
+is a formality. The pen's menu names which, because "out of grazing" and "out of
+shelter" are the same count on the same line and opposite things to do about it.
+
+Small animals crowd in and big ones do not, which is the one thing about a pen a
+player knows before the game tells them:
+
+| Piece | Keeps | Upgraded |
+|---|---|---|
+| Hen House | 3 | 6 |
+| Poultry Run | 3 | 6 |
+| Beehive | 3 | 6 |
+| Dairy Shed | 2 | 4 |
+| Pig Pen | 2 | 4 |
+| Turkey Pen | 2 | 4 |
+| Cattle Pen | 2 | 3 |
+
+**Every tier-1 keeps at least two, deliberately.** A rung whose ceiling is 1 is a
+pen a paddock can never help, and what that reads as is the brush being broken.
+
+`heads` **defaults to 1**, for `lines`' reason: it is a count of bodies and every
+pen ever built keeps the one it always did. So a pen row authored before any of
+this existed is step 1's pen — one animal, whatever you paint round it — and
+that is the honest answer rather than a convenience. It is also why all seven
+shipped pieces set the field: *a working system with no content in it is
+indistinguishable from a broken one*, which is what happened to `charm`.
+
+### The paddock is PAINTED, and that is the load-bearing decision
+
+`GROUND.paddock` → `T.PADDOCK`, the fifth pad, laid with the same brush the
+delivery bay is. **`PEN_CELLS_PER_HEAD` is 4** — a 2×2 of grazing per animal,
+the same square the shelter itself takes, so a field painted eight by four reads
+as eight animals without anybody counting.
+
+The alternative was a *fenced flood*: you already have wall edges, gates and
+signed ways through, so "a paddock is whatever your fence encloses" is the
+sentence the feature was asked for in. It is the wrong shape here, and the first
+reason is fatal on its own.
+
+- **Enclosure in this game is shop-wide and all-or-nothing.** `computeIndoor`
+  answers *zero* indoor cells for a breached shell, so a paddock would need a
+  second flood of its own, re-run on every re-flow — and build mode re-flows on
+  every wall segment of every drag.
+- **A gate left open** is a paddock that is silently the whole map, or silently
+  nothing, with no reading on screen either way.
+- **A fence drawn for the look of it would start deciding the balance**, which
+  breaks the rule a variant lives under: a shape may never move a number.
+
+So the rails are scenery and the paint is the rule. Draw a fence round it
+because a farm has fences, not because the game is counting them.
+
+Two things fall out rather than being decided. A pad is **never buildable**
+(`BUILDABLE_OUTDOOR` is bare grass), so the shelter stands on grass and its
+paddock is the region it *touches* — which is right anyway, since you do not
+build on the delivery bay either. And `paddockOf` is a flood over **tiles**, so
+a fence drawn *across* a paddock does not divide it: if you want two fields,
+leave a cell of grass between them.
+
+### It is the region it TOUCHES, and it is DIVIDED
+
+`paddockOf` floods four-connected from the cells around the block, and never
+reads every paddock cell on the map. That is `dropGoods`' bug said about
+grazing — a pad is one named region in as many pieces as you painted it — and it
+would be worse here than a wrong shelf: a field at the top of the farm would
+fatten a coop at the bottom of it, so the paint and the animals would be two
+unrelated facts that happen to be on one save.
+
+And the heads are split between the shelters standing in the same field. The
+land supports what it supports: without the division, one big paddock with six
+hen houses in it is six pens each dividing by the whole acreage — a money
+printer built from one brush stroke and a repeated purchase, and one that reads
+as working perfectly the entire time.
+
+### The bodies: a third population, in memory, on the Game
+
+`Game.animals` is a `Map`, and each of the three words in that sentence is a
+decision.
+
+**A third population, and not a third kind of person.** `this.players` means
+"somebody with hands" and `this.customers` means "somebody who might buy
+something". Putting a pig in either is the `inACar` trap at a size that would be
+very hard to unpick: `stepMood` drains patience over the shoppers,
+`measureOccupancy` counts the crush, `moodAverage` averages them, `payWages`
+pays the roster. Every one of those is right today and silently wrong the moment
+a cow is in the list — and none of them would look wrong afterwards. What the
+third list costs is the snapshot, the renderer and `animateActors`, which came
+to four lines because `syncActors` has never known what it is drawing.
+
+**In memory, and not saved.** An animal is not a thing you own — the shelter and
+the paddock are, and both are already on the save. The count is re-derived from
+the paint every tick, so the only thing a reload loses is where a hen happened to
+be standing. That also means there is no `elapsed` stamp in here to get wrong and
+no new field for `Game.create`'s named-field payload to forget.
+
+**On the Game rather than on the layout record**, which is the one placement that
+had to be argued. A pen's *contents* ride a re-flow through `carryOver`, but a
+re-flow **rebuilds** the record — so bodies filed there would snap back to the
+shelter on every wall segment of every drag. That is `parkNow`'s bug exactly: a
+car that began its approach again on each re-flow is a customer who never
+arrives, and a herd that teleports home whenever you build a fence is a herd you
+can only watch by putting the tools down.
+
+**No draw comes out of `this.rng`.** Every balance number in the game is
+downstream of how many times that stream has been called, so wandering livestock
+would move every basket, crop and spawn roll after it — and two `simulate` runs
+either side of *authoring a hen* would diverge with nothing to say why. `hash01`
+costs no draw, gives the same animal the same amble on every machine, and makes
+the balance provably untouched because nothing random happened.
+
+### One cell at a time, which is the only thing keeping them in
+
+`stepAnimal` steps to the **next cell along** and never to a cell picked out of
+the field at large. There is no pathing, no edge test and no enclosure question
+anywhere in this — the set of legal cells *is* the answer — but that is only true
+while a leg cannot leave the set, and a leg is a straight line. A paddock painted
+round an L-shaped fence, or in two lobes joined by a neck, has cells the straight
+line goes through that are not in the field.
+
+**This was a real bug and the sweep caught it on the first run**: 122 strays over
+four hundred seconds. What it looks like is a pig strolling across the shop floor
+between two bits of its own pen, which is the one failure in this feature a
+screenshot can catch and the one that would be blamed on the pathing. Four-
+connected rather than eight, because a diagonal clips the corner of the two cells
+it passes between and either of those may be the car park.
+
+### `body` is a third model
+
+`model` is the shelter, staged by **tier**. `work` is what a thing looks like
+while it is running, staged by **how far through a batch** it is. `body` takes no
+0..1 at all — one pen draws as many copies as the paddock is worth, each
+somewhere different, so it is not a stage of anything. That is why it is a third
+model rather than more parts on the first one, and it is the same argument
+[docs/kitchen.md](kitchen.md) makes about `work`.
+
+Authored in one tile, standing at the origin, **nose east** like every other
+piece of fixture art — and turned a quarter in `Scene.buildAnimal`, because
+`syncActors` sets `rotation.y = facing`, which is the +z-forward reading meant
+for a character whose nose is a nub on +z. `vehicleYaw` exists for exactly this
+collision and this is its second meeting. A hen authored east and turned by a
+body's facing walks sideways for ever, and at this zoom a chicken is nearly
+symmetric: it reads as odd art rather than as a quarter turn.
+
+`body` is null on **beehive**, deliberately and for ever. A bee wandering about
+on the ground is not a picture of anything, and a hive being the whole of what
+you see is right. Heads are counted off the paint either way — a piece nobody has
+drawn an animal for runs exactly as many head as one somebody has, and draws none
+of them — which is what keeps `body` a look.
+
+### What the art pass cost
+
+All seven pieces lost their animals; five lost a fence. **`cattle-pen` was
+entirely fence, cows and troughs**, so stripping it left a field with two troughs
+in it and nothing to collect from — it gets the open-fronted field shelter the
+other six already had in some form.
+
+The one number a player cannot see is now on the pen's own menu (**Grazing**),
+and the one-head line names the paddock rather than reporting a 1: every pen in
+every shop that has never painted one says this, and "1 animal" reads as working
+when what it means is that there is a whole brush you have not found.
+
+---
+
 ## What is not built
 
 - **No pen is seeded.** Nothing procedural puts an animal in a shop, so every
-  existing save opens with an empty list and plays exactly as it did.
+  existing save opens with an empty list and plays exactly as it did. The same
+  is true of the paddock: nothing paints one, so every save is one head.
+- **A loader collects one**, since step 4b of [docs/belts.md](belts.md) — a
+  conveyor beside a pen empties its gate onto the run, the way it lifts a
+  finished tray off a machine. A belt still cannot be laid *on* a paddock (a pad
+  is never buildable), so a run goes around the field and reaches in.
+- **Nothing feeds them**, still. See the step 1 note above; roaming makes it
+  tempting and none of the argument against it has changed.
+- **Animals are not obstacles.** They block nobody and nothing routes around
+  them, which is why there is no pathing in any of this. A shopper walking
+  through a cow is possible and has not been seen to matter.
 - **No upgrade sells a discount on them.** `fixtureDiscount` reads the `upgrades`
   table by kind and `pen` is not in that enum; adding it is one row and one enum
   entry the day somebody wants it.

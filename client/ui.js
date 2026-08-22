@@ -364,6 +364,7 @@ export class UI {
       home: document.getElementById('homebtn'),
       pick: document.getElementById('pickbtn'),
       del: document.getElementById('delbtn'),
+      marquee: document.getElementById('marquee'),
       peek: document.getElementById('peek'),
       prompt: document.getElementById('prompt'),
       rail: document.getElementById('rail'),
@@ -850,6 +851,26 @@ export class UI {
     // promises about one press — so this is the pair to `copySelection`'s own
     // `disarmTool`, said from the other end.
     this.dropStamp?.();
+    /**
+     * ...and it drops the SELECTION, which is the third thing that was making a
+     * promise about the same press.
+     *
+     * A ring says "this is the thing you are working on" — R turns it, M picks
+     * it up, Delete takes it out. A tool says "this is the thing that goes down
+     * where you press". Both at once is the state you land in every time you
+     * move something: `endMove` re-selects what you just set down on purpose (or
+     * lining a lamp up is a re-select between every nudge), so reaching for the
+     * bar to build the *next* one leaves the last one ringed, and the shop is
+     * then holding two answers to what your hands are for. What it reads as is
+     * the selection being stuck, because nothing you do with the new tool ever
+     * clears it.
+     *
+     * `selectFixture(null)` rather than `setFixtureRef(null)`, for the ordering
+     * that method exists to state: a menu open over the thing is a menu about a
+     * ring that is going, and a panel outliving its ring is the disagreement the
+     * setter's own note refuses.
+     */
+    this.selectFixture(null);
     this.buildTool = t.kind ?? t.id;
     this.buildPiece = t.piece ?? '';
     this.buildStation = t.station ?? '';
@@ -1980,28 +2001,21 @@ export class UI {
     if (this.aimed && this.demolishArmed()) {
       return { text: `Tear out the ${this.fixtureName(this.aimed).toLowerCase()} — tap it`, warn: true };
     }
-    // Two gestures on one thing, so the line has to name both: a hold picks it
-    // up, and a gesture nothing on screen mentions is a gesture nobody finds.
-    // Only with the bar up, which is the one place the hold does anything —
-    // this same line is what a shopper sees pointing at a shelf.
-    // ...and which of the two presses you are on, because a tap that lights
-    // something up instead of opening it reads as a tap that missed. The line
-    // has to change between them or the first press looks like a failure of the
-    // second.
-    if (this.aimed) {
-      // ...and with the bar up, the gestures have moved one line up. The pill
-      // names every press a fixture answers to now (`pressHints`), each with the
-      // button that makes it and each pressable in its own right — which is
-      // strictly more than this line could say, since R and M have no place in a
-      // sentence and no existence at all on a phone. Two surfaces at the bottom
-      // of the screen saying "drag it to move it" is one of them reading as an
-      // echo, so what is left here is the one thing the pill cannot say: which
-      // unit those rows are about.
-      if (this.paletteArmed) return { text: this.fixtureName(this.aimed) };
-      return {
-        text: `${this.fixtureName(this.aimed)} — tap to ${this.isSelected(this.aimed) ? 'open it' : 'pick it'}`,
-      };
-    }
+    // Nothing about the thing under the pointer. That whole sentence — the name
+    // and which press does what to it — is the pill's now (`hints.about` and the
+    // rows beside it in `pressHints`), and the pill says it better: each verb is
+    // a button you can actually press, and it works on a phone, where R and M
+    // do not exist to be named in prose.
+    //
+    // This line used to carry it, and for one step it carried it TOO: the name
+    // arrived in the pill without leaving here, so a shelf under the pointer
+    // said "Shelving" twice, a few pixels apart, in two different colours. Two
+    // surfaces at the bottom of the screen naming one shelf is not redundancy
+    // you read past — it reads as one of them being a bug.
+    //
+    // The demolish warning above stays, and the split is the useful part: that
+    // one is not a NAME, it is what the armed tool would do to the thing, which
+    // is the one fact about an aimed fixture the pill's rows cannot carry.
     // Empty hands, which is where the mode starts. Says so, because a bar with
     // nothing lit and no ghost under the pointer is otherwise indistinguishable
     // from a mode that has stopped working — and it is the one state in build
@@ -2015,6 +2029,12 @@ export class UI {
     //
     // `linger`, because this one is an introduction rather than an answer: it is
     // true for as long as you have not picked anything.
+    //
+    // The selection used to be named here too, on the argument that `aimed` is a
+    // hover and a picked unit outlives the pointer. The pill answers that from
+    // the same two places in the same order (`about` in main.js: the aim first,
+    // then `fixtureRef`), so keeping it here was the same name in two boxes
+    // whether you were pointing at the unit or had walked away from it.
     if (this.paletteArmed && !this.toolArmed) {
       // ...and the one gesture in the mode that nothing else on screen mentions.
       // Shift is invisible until something reacts to it, and what reacts to it is
@@ -2234,7 +2254,7 @@ export class UI {
    * re-flow — so a selection held by id alone would empty itself the moment you
    * used it.
    */
-  togglePicked(f) {
+  togglePicked(f, { quiet = false } = {}) {
     if (!f) return;
     // Nothing picked yet: the first shift-click is an ordinary pick, so shift
     // is never a key you have to press twice to start with.
@@ -2246,13 +2266,39 @@ export class UI {
       const [next, ...rest] = this.picked;
       this.setFixtureRef(next ? this.liveRef(next) : null, { keepPicked: true });
       this.picked = next ? rest : [];
-      this.syncPickMarkers();
-      this.repaintFixtureMenu();
+      if (!quiet) this.settlePicked();
       return;
     }
     const at = this.picked.findIndex((r) => refIs(r, f));
     if (at >= 0) this.picked.splice(at, 1);
     else this.picked.push({ id: f.id, x: f.x, z: f.z, kind: f.kind });
+    if (!quiet) this.settlePicked();
+  }
+
+  /**
+   * A whole box of them at once — what the marquee drag calls.
+   *
+   * `bulkFixtures`' argument said on this side of the wire: eleven shelves in
+   * one drag must not be eleven redraws of a menu whose length is every item in
+   * the catalogue, and it must not be eleven rebuilds of the marker set either
+   * (`setMarkedSet` keys on the whole set, so each one is the full list). It is
+   * one gesture, so it settles once.
+   */
+  pickMany(list) {
+    if (!list?.length) return;
+    for (const f of list) this.togglePicked(f, { quiet: true });
+    this.settlePicked();
+  }
+
+  /**
+   * What every way of changing the selection ends with.
+   *
+   * Written once because the three of them have to agree: the rings on the shop
+   * floor, the menu that says how many, and the thumb button that acts on them.
+   * A caller that did two of the three is a shop showing four frames over a
+   * menu that says six.
+   */
+  settlePicked() {
     this.syncPickMarkers();
     // ...and the SECOND one opens the menu, which is the half that was missing.
     //
@@ -4277,8 +4323,14 @@ export class UI {
     // and on keeps its words, so without this the card is not rebuilt and the
     // button stays lit over a press the shop now refuses — the green-ghost bug
     // with the fix for it in the same function.
+    // The name of the unit the rows are about, when there is one — see the call
+    // site. It is in the key, or pointing at the freezer next to the freezer you
+    // were on keeps the first one's name over the second one's rows: every row
+    // reads identically between two units of a kind, so the words alone cannot
+    // tell them apart and this is the only part of the card that can.
+    const about = (doing && own == null ? null : this._hints?.about) ?? null;
     const key = hints
-      ? hints.map((h) => `${h.btn}${h.tag ?? ''}${h.off ? '!' : ''}:${h.say}`).join('|')
+      ? `${about ?? ''}#${hints.map((h) => `${h.btn}${h.tag ?? ''}${h.off ? '!' : ''}:${h.say}`).join('|')}`
       : null;
     if (key === this._promptKey) return;
     this._promptKey = key;
@@ -4399,6 +4451,18 @@ export class UI {
       };
       addEventListener('pointerup', drop);
       addEventListener('pointercancel', drop);
+    }
+    // The subject, in front of its verbs. First child rather than a line above,
+    // because the card is one row of chips and a second row would move the rows
+    // themselves down the screen every time the name appeared or went — which is
+    // the thing `#build` sizing already has to animate around, arriving under
+    // the pointer this time. It is a `span` and never a button: it is the one
+    // part of the card that is not a press.
+    if (about) {
+      const who = document.createElement('span');
+      who.className = 'pr-about';
+      who.textContent = about;
+      this.el.prompt.append(who);
     }
     hints.forEach((h, i) => {
       const right = h.btn === 'r';

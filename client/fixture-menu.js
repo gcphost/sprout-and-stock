@@ -1767,6 +1767,36 @@ function fixtureDetail(ui, f, live) {
     </div>`;
   }
 
+  if (f.kind === 'pen') {
+    // How many head it is running, and it is here because this is the ONLY
+    // place it can be read. A paddock divides the clock (`penFill`) and nothing
+    // else — so a pen filling four times as fast and a pen filling once are the
+    // same still frame, the same bar and the same shop. Counting the bodies out
+    // in the field is the alternative, which is a thing you do rather than a
+    // thing you see.
+    //
+    // The one-head line names the paddock rather than reporting a 1, because
+    // every pen in every shop that has never painted one says this, and "1
+    // animal" is a number that reads as working when what it means is that
+    // there is a whole brush you have not found.
+    // Which of the two is SHORT, because "out of grazing" and "out of shelter"
+    // are the same number on the same line and opposite things to do about it —
+    // and getting it wrong means painting half an acre at a pen that was never
+    // going to keep another animal.
+    const heads = live?.heads ?? 1;
+    const most = live?.maxHeads ?? 1;
+    const grazing = heads >= most
+      ? `${heads} animals — all this shelter holds${most > 1 ? '. Upgrade it for more' : ''}`
+      : `${heads} of ${most} — paint more paddock round it`;
+    return `<div class="fx-detail">
+      ${line('Grazing', heads > 1 || most > 1 ? grazing
+    : 'one animal — paint a paddock round it to keep more')}
+      ${line('Ready to collect', live?.qty
+    ? `${live.qty}× ${ui.itemName(live.item_id)}` : '<i>nothing yet</i>')}
+      ${line('Holds', `${live?.cap ?? 0}, then it stops filling`)}
+    </div>`;
+  }
+
   if (f.kind === 'checkout') {
     const q = ui.state?.queues?.find((c) => c.id === f.id);
     // How long a line it can take is the thing worth knowing before you turn

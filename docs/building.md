@@ -991,12 +991,12 @@ update.
 
 #### What it is not
 
-A marquee. Dragging a box round part of the shop to pick everything in it is the
-obvious next gesture and it is a separate one: it needs its own drag path in
-`pointerdown` beside the wall, brush, lift and camera drags, and a screen-space
-test against the art rather than the tile. Everything above it is already in
-place — the set of rings, the narrowed menu, `ids` on the wire — so it is a
-gesture rather than a feature.
+A marquee — *until step 27b, which built it.* It was named here as the obvious
+next gesture and as a separate one, and both were right: it needed its own drag
+path in `pointerdown` beside the wall, brush, lift and camera drags, and a
+screen-space test against the art rather than the tile. Everything else was
+already in place — the set of rings, the narrowed menu, `ids` on the wire — so
+it was a gesture rather than a feature. See below.
 
 #### …and the three verbs that came back
 
@@ -1045,6 +1045,46 @@ call for a reason that is about pixels rather than about gestures — the panel 
 the whole screen there, so opening it on the second pick would cover the aisle
 you are still picking from. The moment there is **letting the latch go**, which
 is the same sentence said by the device that has one.
+
+#### The box you drag round an aisle
+
+*Built (step 27b).* Shift-click adds one; shift-**drag** adds everything you drew
+round. It is one press with two outcomes and they cannot be told apart on the way
+down, so the box starts on every shift press and the release decides which it
+was by how far the pointer travelled — under `MARQUEE_SLOP` it is the click it
+always was. The old code answered on `pointerdown` and therefore had nowhere to
+put a drag at all.
+
+Four decisions in it.
+
+It is a **screen** rectangle and `Scene.fixturesInRect` tests against the ART,
+which is the same distinction `pickFixture` exists for: at this camera a shelf is
+drawn most of a tile up-screen of the ground it stands on, so a box tested
+against tile centres takes in the row behind the one you dragged over and misses
+the one you did. Each candidate's screen rect is its eight projected corners
+rather than two, because a box in the world is a hexagon on the screen — the
+measurement `nearestBoard` already takes.
+
+It **intersects** rather than contains. Demanding that a whole shelf fit inside
+the box would mean the units at the edges of your drag silently did not come,
+which reads as the marquee missing things rather than as a rule.
+
+It **adds**, always, and never replaces. Shift already means "and this one too"
+on a click, and a drag under the same key that threw away the five you had picked
+by hand would be one key meaning opposite things at two speeds. So it calls
+`togglePicked`, which also makes dragging over the same aisle twice the way to
+take it back out.
+
+And it settles **once** (`pickMany`). Eleven shelves in one drag must not be
+eleven redraws of a menu that is every item in the catalogue long, nor eleven
+rebuilds of the marker set — `bulkFixtures`' argument, said on the client's side
+of the wire.
+
+The one thing it may not do is begin on bare floor outside build mode. That is
+the old `if (ui.paletteArmed) return` in a new job: a shift-click that missed
+everything was already spent while building, and outside the mode it fell through
+to walking — which is Shift's other job on that key (sprint), and
+shift-click-to-run-over-there is a gesture people have.
 
 #### Remove, and the guard that reads the shop
 
@@ -1531,6 +1571,57 @@ The tracks are also the first band in `edgeBands` that runs **up** a cell rather
 than across it, and they needed no new machinery — `off`/`len` place a band
 along the wall, so a vertical member is a short band that happens to be tall, the
 same way the curtain's strips ride a brick course's.
+
+### The arch, and the three ways to be a fence
+
+Two additions in one step, and the reason they belong together is that they are
+the same argument arriving from opposite ends of the wall.
+
+The **archway** is a way through with nothing in it. Every fact the sim has about
+it is a doorway's: it is in `ENCLOSING` (leave it out and an arch between the
+shop and the stockroom takes the roof off both), a shopper crosses it exactly as
+they cross a doorway, and it is signable. So what you are buying is *entirely*
+the picture — which is a sharper version of the roller door's problem, because a
+shutter at least has gear on it and an arch is absence with a particular shape.
+Hence the corbelling: three steps a side under a thin header, closing in as they
+rise, because an arch's opening is widest at the springing and narrowest at the
+crown and drawing it the other way up gives you a funnel. It is *stepped* rather
+than curved for the reason everything here is a stack of boxes — a half-tile
+radius at this camera is fourteen pixels, where an arc and a chamfer are the same
+three greys.
+
+Two things about it are decisions rather than defaults. The springing courses
+carry **no colour of their own**, unlike the shutter's coil and the curtain's
+strips, so an arch in a painted wall is painted — which is the whole reason
+anybody builds one. And `WAY_RULES.arch` is two rules rather than four: an arch
+between the shop and the street genuinely has an inside and an outside, so the
+doorway's reason for refusing one-way does not apply, but the curtain's does — a
+hole with nothing in it has no way of *showing* which direction it lets you go,
+and a rule with no picture is a rule nobody can find again.
+
+`FENCING` is the other end. A fence was the one edge in the game with no family:
+one look, nothing to choose. Everything a player wants instead of it — a hedge
+round the farm, a rail along the forecourt, a low wall between the aisle and the
+café — is the same edge with different stuff in it, so these are `GLAZING`'s
+argument said about a boundary. Looks, not kinds. One price, so choosing a hedge
+is never a balance change and `simulate` never runs over a picture; free to swap,
+so changing your mind about the frontage costs nothing; and **none of them is in
+`EDGE_CHARM`**, which is the one that took thinking about. A hedge is prettier
+than a panel and worth exactly the same to the town, because charm on one look
+and not another is a knob wearing a colour — and pricing the whole family for
+charm would silently rebalance every fenced farm in existence.
+
+The looks are on the bar in two different places, and that is deliberate: a hedge
+and a railing sit with the fence under Farm, a low wall sits with the walls under
+Building. Where a thing goes on the palette is a fact about what somebody has in
+mind when they reach for it, not about which table it is in — the same call
+`road` and `path` made when they left Floors. They are still one family, so
+tapping any of the four offers all four.
+
+One consequence falls out rather than being ruled, and it is the most useful
+thing about the set: a **low wall takes paint** and a hedge and a railing do not.
+`buildEdges` skips any band that already carries a colour of its own, so it is
+enough that a hedge is green and a rail is grey. Nobody paints a hedge.
 
 ### Taking it back
 
@@ -2076,6 +2167,14 @@ the number.
     phone it is two more buttons in the left thumb stack, because Shift is not a
     key that exists there — the latch is the interesting one. See above, and
     `verify:pick` §7–8.
+29. **The arch, and the three ways to be a fence.** *Built.* One new opening
+    (`arch`, two rules — see above for why not four) and one new look family
+    (`FENCING`: panel, hedge, railing, low wall, all at a fence's price and free
+    to swap). The only code that had to learn anything new is `edgeBands`, which
+    grew a corbelled span and a posts-and-rail; everything else is a row in a
+    table, because `SOLID`, `ENCLOSING`, `RULED` and `edgeFamily` are all derived
+    from those tables rather than written out. Three column decorations were
+    authored alongside, as content. See above.
 28. **Turning a stamp.** Rotating a blueprint means rotating the offsets *and*
     the facings, and an `h` wall becomes a `v` one. Left out of 26 deliberately:
     doing only the second looks completely correct on a single shelf and shears

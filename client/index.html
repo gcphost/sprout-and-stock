@@ -1843,9 +1843,27 @@
     #prompt .pr-say.pr-off { opacity: .42; }
     /* A hairline rather than a dot or a gap: these are alternatives, and a
        middle dot reads as "and then", which is the opposite of what it means. */
-    #prompt .pr-say + .pr-say {
+    #prompt .pr-say + .pr-say,
+    /* ...and the same hairline after the NAME, which is not an alternative to
+       anything — it is the subject the rows are all about. It gets the divider
+       because the rule above is keyed on a row FOLLOWING a row, and the first
+       row stops being the first the moment a name is in front of it: without
+       this the name and the first verb run together as one phrase, which reads
+       as "Raised Bed Open it" rather than as a thing and what you can do to it. */
+    #prompt .pr-about + .pr-say {
       margin-left: 10px; padding-left: 10px;
       border-left: 1px solid rgba(58,49,40,.22);
+    }
+    /* Quieter than the verbs and never pressable. The rows are what you came to
+       the card for; this only has to answer "which one", which is a glance
+       rather than a read — so it is set at the tag's weight rather than at the
+       words'. `max-width` because a long piece name must not push the presses
+       off a narrow screen: the verbs are the control and the name is the label
+       on it. */
+    #prompt .pr-about {
+      font-size: 12px; font-weight: 800; letter-spacing: .02em; opacity: .62;
+      max-width: 11em; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; align-self: center;
     }
     /* Tap and hold are the one thing about this shop nobody can guess, so the
        longer press is labelled rather than implied. Small, dim, and in front of
@@ -4146,11 +4164,28 @@
       width: 66px; min-width: 66px; max-width: 66px;
       padding: 4px; border-radius: 12px; gap: 1px;
     }
+    /* ONE line, always. Two was the generous answer and it is the one thing a
+       strip of tabs may not do: the caption box is what sets the height of the
+       bar, so a tab whose names all fit on one line drew a bar 11px shorter than
+       the tab next to it. Every tile, the tabs above them and the HUD that sits
+       off `measureBar` all jump as you page across the palette — and what it
+       reads as is the bar being unstable, because the thing that moved is not
+       the thing you were looking at.
+
+       Reserving two lines everywhere fixes it the wrong way round: the bar then
+       stands permanently at the taller height to hold a second line that six
+       tabs out of eight never use.
+
+       So the height is fixed by being one line, and a long name gets smaller
+       type rather than a second row. `long` is set in `bar.js` off the name's
+       own length, which is the only measurement available before layout — the
+       ellipsis is the backstop for the handful it still cannot hold, and the
+       tile's `title` has the whole name for those. */
     #build:not(.browse) .tool .nm {
-      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-      white-space: normal; overflow: hidden;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       font-size: 9px; font-weight: 800; line-height: 1.15; letter-spacing: -.01em;
     }
+    #build:not(.browse) .tool .nm.long { font-size: 8px; letter-spacing: -.03em; }
     /* This one comes in shapes: hold it, or press this. A hold nothing on screen
        mentions is a gesture nobody finds, and a shape is cosmetic enough that
        never finding it would read as the game not having them.
@@ -4528,6 +4563,20 @@
     #viewbtn.show, #homebtn.show { display: flex; }
     #viewbtn svg, #homebtn svg { width: 20px; height: 20px; }
     #viewbtn:active, #homebtn:active { transform: scale(.94); background: #ffd66b; }
+
+    /* ---- the marquee ------------------------------------------------------
+       Dashed and barely filled, which is the one convention every editor shares
+       and the reason it does not need a legend. `pointer-events: none` is
+       load-bearing rather than tidy: the pointer is captured by the canvas for
+       the whole drag, and a box under it that could take a hit would end the
+       gesture the moment it grew past the cursor. */
+    #marquee {
+      display: none; position: fixed; pointer-events: none;
+      border: 1.5px dashed rgba(58,49,40,.75);
+      background: rgba(217,155,31,.16);
+      border-radius: 3px;
+    }
+    #marquee.show { display: block; }
 
     /* ---- the award card ---------------------------------------------------
        The one thing on screen that is allowed to look like a game rather than
@@ -5076,6 +5125,15 @@
       #prompt.show { transform: none; }
       #prompt .pr-say { grid-column: 1; }
       #prompt .pr-say.pr-r { grid-column: 2; }
+      /* The name is about BOTH columns, so it spans them and sits above the
+         split rather than in the left-hand one — a subject filed under "things
+         you take out" would read as one of them. The divider goes with it: on
+         this layout the rows are stacked, so a hairline down the left of the
+         first one is a line pointing at nothing. */
+      #prompt .pr-about { grid-column: 1 / -1; }
+      #prompt .pr-about + .pr-say {
+        margin-left: 0; padding-left: 0; border-left: 0;
+      }
       /* The glyph goes here too, not only on a touchscreen. The row is a
          two-column grid and the mouse has no column of its own, so it lands in
          the tag's and shunts HOLD onto a second line — a picture of a button
@@ -5481,6 +5539,11 @@
       <path d="M12 2.5v3.2M12 18.3v3.2M2.5 12h3.2M18.3 12h3.2"/>
     </svg>
   </button>
+  <!-- The box you drag round part of the shop. A plain div rather than anything
+       in the scene, because it is a SCREEN rectangle: it is drawn in the plane
+       the drag happens in, and a quad in the world would shear with the camera
+       and stop being the shape your hand made. -->
+  <div id="marquee" class="hud"></div>
   <div id="prompt" class="hud"></div>
   <div id="boardtip" class="hud"></div>
   <!-- Every unit's card at once, while Alt is held. Its own layer rather than

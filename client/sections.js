@@ -8,7 +8,11 @@ import {
   FIXTURES, isProp, isGround, isPaint, isSurface, FLOOR_KIND, STOCK_KINDS, shelfKind, FIXTURE_REFUND,
 } from '../shared/build.js';
 import { homeKind } from '../shared/tags.js';
-import { wayDefault } from '../shared/edges.js';
+// `E` beside `wayDefault`, and for the same reason the curtain reads its kind
+// rather than writing the number down: a palette entry naming an edge by its
+// integer is a button that silently builds something else the day the enum
+// grows a member above it.
+import { E, wayDefault } from '../shared/edges.js';
 import { kindOf, countKey } from '../shared/pieces.js';
 import { variantsOf } from '../shared/model.js';
 import { artForModel, artForTool, artForWorker } from './thumb.js';
@@ -102,21 +106,18 @@ export const DECOR_SUBS = [
     name: 'Greenery',
     icon: ICONS.seeds,
     tags: ['plant'],
-    blurb: 'Things that grow, or look like they do. Nothing to water.',
   },
   {
     id: 'lighting',
     name: 'Lighting',
     icon: ICONS.lamp,
     tags: ['lamp'],
-    blurb: 'What the shop looks like once the light comes off something you chose.',
   },
   {
     id: 'signs',
     name: 'Signs',
     icon: ICONS.label,
     tags: ['sign'],
-    blurb: 'Words on the shop floor. Nobody reads them but you.',
   },
   // Added the day the catch-all hit ten entries, which is the tell the comment
   // above describes: a bench, a bistro set and a bike rack are not odds and
@@ -128,20 +129,18 @@ export const DECOR_SUBS = [
     name: 'Furniture',
     icon: ICONS.furniture,
     tags: ['furniture'],
-    blurb: 'Somewhere to sit, lean or leave a bike. Indoors or out front.',
   },
   {
     id: 'bits',
     name: 'Odds and ends',
     icon: ICONS.fixtures,
-    blurb: 'Everything else you can stand about the place.',
   },
 ];
 
 export const BUILD_GROUPS = [
-  { id: 'shop', name: 'Shop', icon: ICONS.shelf, blurb: 'Where goods sit and money changes hands.' },
-  { id: 'appliance', name: 'Appliances', icon: ICONS.station, blurb: 'Machines that turn stock into something worth more.' },
-  { id: 'farm', name: 'Farm', icon: ICONS.plot, blurb: 'Beds to grow in, and what fences them off.' },
+  { id: 'shop', name: 'Shop', icon: ICONS.shelf },
+  { id: 'appliance', name: 'Appliances', icon: ICONS.station },
+  { id: 'farm', name: 'Farm', icon: ICONS.plot },
   // Back of house. It started as the belts alone — "moves stock about without
   // anybody walking it" — and the three job-carrying pads joined them from
   // Outdoors, which is what widened the blurb: a dock is not something that
@@ -151,13 +150,11 @@ export const BUILD_GROUPS = [
     id: 'logistics',
     name: 'Logistics',
     icon: ICONS.crate,
-    blurb: 'Where stock lands, where it waits, and what carries it on without anybody walking it.',
   },
   {
     id: 'shell',
     name: 'Building',
     icon: ICONS.build,
-    blurb: 'The building itself — what makes a room a room.',
     // In the order you do them: walls make the room, floor makes it usable, and
     // paint finishes it. Everything that is ground AROUND the building moved to
     // `outdoors` — see the note there for why eight sub-tabs was the tell.
@@ -166,13 +163,11 @@ export const BUILD_GROUPS = [
         id: 'walls',
         name: 'Walls',
         icon: ICONS.build,
-        blurb: 'Drawn along the lines between tiles. Anything they close in is indoors.',
       },
       {
         id: 'floors',
         name: 'Floors',
         icon: ICONS.floor,
-        blurb: 'What a shelf needs under it. Walls alone only make a room.',
       },
       // What the walls are finished in, which is the same afternoon as the
       // floors and a different gesture: a floor is dragged over an area and a
@@ -184,7 +179,6 @@ export const BUILD_GROUPS = [
         id: 'paint',
         name: 'Paint',
         icon: ICONS.decor,
-        blurb: 'What the walls are finished in. Point at the side you mean — the inside and the outside of one wall are two decisions.',
       },
     ],
   },
@@ -216,7 +210,6 @@ export const BUILD_GROUPS = [
     id: 'outdoors',
     name: 'Outdoors',
     icon: ICONS.outdoors,
-    blurb: 'The ground the shop stands in. All of it is painted over an area, and none of it is a thing you place.',
     // Outward, in rings: what the ground already is, then the ways in — and
     // where the people who arrive on them leave the car is part of the second.
     subs: [
@@ -233,7 +226,6 @@ export const BUILD_GROUPS = [
         id: 'land',
         name: 'Land',
         icon: ICONS.plot,
-        blurb: 'The ground outside, before anything is paved over it. A bed can still be dug in any of it — a lawn is a look, never a permission.',
       },
       // The ways in.
       //
@@ -252,7 +244,6 @@ export const BUILD_GROUPS = [
         id: 'roads',
         name: 'Roads',
         icon: ICONS.move,
-        blurb: 'How everybody gets here — the lane in, the paved way beside it, and where the car stops.',
       },
     ],
   },
@@ -260,7 +251,6 @@ export const BUILD_GROUPS = [
     id: 'decor',
     name: 'Decoration',
     icon: ICONS.decor,
-    blurb: 'Things you put about the place because you like them there.',
     subs: DECOR_SUBS,
   },
 ];
@@ -366,7 +356,7 @@ export const KIND_TOOLS = {
   pen: {
     icon: ICONS.plot,
     group: 'farm',
-    blurb: 'An animal, outside. Fills up on its own — collect it from the gate, and never sow it.',
+    blurb: 'A shelter for animals, outside. Fills up on its own — collect it from the gate, and never sow it. Paint a paddock around it to keep more than one.',
   },
   bin: {
     icon: ICONS.close,
@@ -468,6 +458,18 @@ export const KIND_TOOLS = {
     sub: 'roads',
     blurb: 'Drag out an area. Hardstanding out front for shoppers who drive here — one cell parks one, and they walk in from where they left it.',
   },
+  // The fifth pad, and the only one filed by what it holds rather than by where
+  // it tends to be. It goes under Farm because the tab's own blurb already
+  // describes it — "beds to grow in, and what fences them off" — and because
+  // the fence and the gate are sitting right there: a player who has just drawn
+  // rails round a field is one press away from the thing that makes the field
+  // mean something. Filed under Outdoors with the other painted ground it would
+  // be correct about the brush and wrong about the afternoon.
+  paddock: {
+    icon: ICONS.plot,
+    group: 'farm',
+    blurb: 'Drag out an area. Grazing for a pen standing in it — every four cells is another animal, and more animals fill it faster.',
+  },
   // The ground the world came with, and the last cell in the game to become
   // something you could restyle. See the `land` sub-tab for why it is neither a
   // floor nor a road despite being built exactly like both.
@@ -552,6 +554,33 @@ export const BUILD_TOOLS = [
     name: 'High window',
     blurb: 'A strip up under the lintel: light, no view. What a stockroom wants.',
   },
+  // The span. Its own tool rather than a look on the doorway, for the reason the
+  // roller door is one: a family is the set of things that swap for a *refit*,
+  // and trading a $34 doorway for a $28 arch is a purchase rather than a change
+  // of mind about one.
+  {
+    id: 'arch',
+    edge: E.ARCH,
+    group: 'shell',
+    sub: 'walls',
+    icon: ICONS.build,
+    name: 'Archway',
+    blurb: 'A way through with nothing in it. Encloses like a doorway. Tap one you have already built to keep shoppers out.',
+  },
+  // The low wall, filed with the walls rather than with the fence it is a look
+  // of. Where a thing goes on the bar is a fact about what somebody has in mind
+  // when they reach for it — a hedge and a railing are what you put round the
+  // farm, and a waist-high partition is what you put across a room. It is still
+  // one family: tap either and the menu offers all four.
+  {
+    id: 'low-wall',
+    edge: E.LOW_WALL,
+    group: 'shell',
+    sub: 'walls',
+    icon: ICONS.build,
+    name: 'Low wall',
+    blurb: 'Waist high, and you see over it. Never makes a room — so a partition, never an annex. Takes paint like any wall.',
+  },
   {
     id: 'door',
     edge: 3,
@@ -609,6 +638,24 @@ export const BUILD_TOOLS = [
     icon: ICONS.plot,
     name: 'Fence',
     blurb: 'Marks out the farm. Blocks the way, but never makes a room.',
+  },
+  // Two more boundaries, beside the fence they are looks of. Same price, same
+  // rules, and free to swap between — see `FENCING` in shared/edges.js.
+  {
+    id: 'hedge',
+    edge: E.HEDGE,
+    group: 'farm',
+    icon: ICONS.plot,
+    name: 'Hedge',
+    blurb: 'A fence made of planting. Same job, same price — it just is not a fence.',
+  },
+  {
+    id: 'railing',
+    edge: E.RAILING,
+    group: 'farm',
+    icon: ICONS.plot,
+    name: 'Railing',
+    blurb: 'Posts and a rail. Blocks the way and you can see the whole field through it.',
   },
   {
     id: 'gate',

@@ -47,7 +47,9 @@ import { Game } from '../server/sim/index.js';
 import { silenceMilestones } from '../server/sim/goals.js';
 import { content, writeContent } from '../server/content.js';
 import { remove, insertWorldRow, worldRow, deleteWorldRow } from '../server/db.js';
-import { canPlace, canPlaceCleanly, insideStore } from '../shared/build.js';
+import {
+  canPlace, canPlaceCleanly, insideStore, footprint, paddockOf, canPaintGround,
+} from '../shared/build.js';
 import { WALKABLE } from '../shared/tiles.js';
 import { lotQty, lotTotal } from '../shared/lot.js';
 
@@ -67,6 +69,16 @@ const near = (a, b, label, tol = 0.02) => check(Math.abs(a - b) <= tol, label, `
 const ITEM = 'zz-pen-egg';
 const PIECE = 'zz-pen-coop';
 const BARE = 'zz-pen-bare';
+const NOART = 'zz-pen-noart';
+const GRASS = 'zz-pen-grazing';
+
+/**
+ * Restated rather than imported from `server/sim/index.js`, and it is the same
+ * call `verify:grace` makes about `GRACE_DAYS` and `verify:routes` about its
+ * thresholds: an assertion that reads the constant it is checking passes
+ * whatever that constant becomes, which is not a test of anything.
+ */
+const PER_HEAD = 4;
 
 /**
  * Deliberately odd numbers, for `verify:economy`'s reason: 5 a batch every 3
@@ -82,6 +94,15 @@ const BATCH = 5;
 const EVERY = 1;
 const FAST = 2;
 const ROOM = 3;
+/**
+ * How many head rung 1 of the test pen will keep.
+ *
+ * Well above every head count section 11 paints for, and that is the point: the
+ * assertions about the LAND have to be measuring the land, so a ceiling low
+ * enough to bind would make half of them pass for the wrong reason. The one
+ * section that is about the ceiling paints past it deliberately.
+ */
+const MOB = 8;
 
 const TEST_ITEM = {
   id: ITEM,
@@ -104,9 +125,15 @@ const TEST_PEN = {
   cost: 0,
   produces: { item_id: ITEM, qty: BATCH, every: EVERY },
   model: { parts: [box] },
+  // The animal. One part, because nothing in section 11 is about what it looks
+  // like — only about how many of them there are and where they are standing.
+  body: { parts: [{ shape: 'sphere', color: '#f4f0e4', pos: [0, 0.12, 0], scale: [0.3, 0.24, 0.3] }] },
+  // `heads` is deliberately generous on rung 1 and RAISED on rung 2, so the
+  // sections about the paddock can measure the land without the ceiling binding
+  // and the section about the ceiling can measure it on purpose.
   tiers: [
-    { name: 'Basic', cost: 0 },
-    { name: 'Better', cost: 0, capacity_mult: ROOM, speed_mult: FAST },
+    { name: 'Basic', cost: 0, heads: MOB },
+    { name: 'Better', cost: 0, capacity_mult: ROOM, speed_mult: FAST, heads: MOB * 2 },
   ],
 };
 
@@ -121,6 +148,39 @@ const TEST_PEN = {
  */
 const TEST_BARE = {
   id: BARE, kind: 'pen', name: 'Verify Empty Pen', cost: 0, model: { parts: [box] },
+};
+
+/**
+ * ...and a working pen nobody has drawn an animal for.
+ *
+ * A THIRD control, and it has to be its own row rather than another job for
+ * `TEST_BARE`: that one is the control for `produces` being opt-in and, since
+ * the ceiling, for `heads` defaulting to 1 as well. Asking it to also stand for
+ * "the art is a look" would be three claims on one row, and a failure in any of
+ * them would read as a failure in the other two.
+ *
+ * What this one isolates is that heads come off the PAINT and the rung, never
+ * off whether somebody has drawn the animal — the same split `work` and
+ * `variants` make. A piece with no `body` runs exactly as many head as one with.
+ */
+const TEST_NOART = {
+  id: NOART, kind: 'pen', name: 'Verify Undrawn Pen', cost: 0,
+  produces: { item_id: ITEM, qty: BATCH, every: EVERY },
+  model: { parts: [box] },
+  tiers: [{ name: 'Basic', cost: 0, heads: MOB }],
+};
+
+/**
+ * A paddock design of this sweep's own, priced at nothing.
+ *
+ * Free deliberately: section 11 paints fields of several sizes to count heads,
+ * and a per-cell price would mean the big ones are also a test of whether the
+ * shop could afford them — which is a different assertion that would fail for
+ * an unrelated reason.
+ */
+const TEST_GRASS = {
+  id: GRASS, kind: 'paddock', name: 'Verify Grazing', cost: 0,
+  surface: { color: '#9ab069', pattern: 'plain' }, tiers: [{ name: 'Flat', cost: 0 }],
 };
 
 /** A farmhand who does nothing else, so section 10 measures the one job. */
@@ -142,13 +202,13 @@ const HAND = {
 const WORLD = 'zz-verify-pens';
 
 process.on('exit', () => {
-  for (const [table, id] of [['fixtures', PIECE], ['fixtures', BARE], ['items', ITEM], ['workers', HAND.id]]) {
+  for (const [table, id] of [['fixtures', PIECE], ['fixtures', BARE], ['fixtures', NOART], ['fixtures', GRASS], ['items', ITEM], ['workers', HAND.id]]) {
     try { remove(table, id); } catch { /* the DB is already gone */ }
   }
   try { deleteWorldRow(WORLD); } catch { /* the DB is already gone */ }
 });
 
-for (const [kind, row] of [['item', TEST_ITEM], ['fixture', TEST_PEN], ['fixture', TEST_BARE], ['worker', HAND]]) {
+for (const [kind, row] of [['item', TEST_ITEM], ['fixture', TEST_PEN], ['fixture', TEST_BARE], ['fixture', TEST_NOART], ['fixture', TEST_GRASS], ['worker', HAND]]) {
   const res = writeContent(kind, row, 'verify');
   check(res.ok, `the catalog accepts ${row.id}`, res.error ?? '');
 }
@@ -646,6 +706,331 @@ const only = (g) => (g.layout.pens ?? [])[0];
   const live = only(g);
   for (let i = 0; i < 1200 && live.qty > 0; i++) g.step(0.1);
   eq(live.qty, 0, 'and walks out and empties it');
+}
+
+// ---------------------------------------------------------------------------
+// 11. THE PADDOCK, and the herd standing in it.
+//
+// Everything here is invisible for the reason the whole file is: a pen filling
+// four times as fast and a pen filling once are the same still frame, and the
+// shop is the same shop afterwards. What is NEW is that some of it is invisible
+// in the other direction too — there are bodies on the grass now, and a herd
+// that quietly grazes the wrong field, teleports home whenever you draw a wall,
+// or wanders onto the shop floor all look like art rather than like a rule.
+//
+// Its control is the assertion that decides whether any of the step is opt-in:
+// a pen with NO paddock is one head, which is section 3's arithmetic to the
+// digit. Every shop in existence has never painted one.
+// ---------------------------------------------------------------------------
+
+/**
+ * Paint `want` cells of grazing outward from a pen, four-connected.
+ *
+ * Gathered against the layout as it stands and painted afterwards, which is not
+ * tidiness: `buildGround` re-flows, so `g.layout` is a different object by the
+ * second cell and a walk that re-read it each time would be following a map it
+ * was redrawing. Every cell chosen is grass, and painting grass cannot make a
+ * neighbour unpaintable, so the set stays legal for the whole run.
+ *
+ * Painted one cell at a time on purpose. A drag would be one call and would
+ * also be a test of `groundStroke`, which is `verify:floor`'s claim rather than
+ * this file's — and a run clipped by something in the way would leave a paddock
+ * of a size no assertion here had asked for.
+ */
+function graze(g, pens, want, piece = GRASS) {
+  const L = g.layout;
+  const seen = new Set();
+  const out = [];
+  // Seeded from every shelter that is meant to share the field, so the run this
+  // grows touches all of them. Painting outward from one and hoping the second
+  // ends up beside it is how the first draft of this failed.
+  const queue = [pens].flat().flatMap((p) => footprint('pen', p.x, p.z));
+  for (const c of queue) seen.add(`${c.x},${c.z}`);
+  while (queue.length && out.length < want) {
+    const c = queue.shift();
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (out.length >= want) break;
+      const x = c.x + dx;
+      const z = c.z + dz;
+      const key = `${x},${z}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!canPaintGround(L, [{ x, z }], 'paddock', piece).ok) continue;
+      out.push({ x, z });
+      queue.push({ x, z });
+    }
+  }
+  eq(out.length, want, `there is room for ${want} cells of grazing beside the pen`);
+  for (const c of out) {
+    const res = g.buildGround('me', { x: c.x, z: c.z, piece });
+    check(res.ok, `grazing goes down at ${c.x},${c.z}`, res.error ?? '');
+  }
+  return out;
+}
+
+// The control, and the pair that makes it mean something: no paint is one head
+// and today's clock, and paint is more heads and a faster one.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  eq(g.penHeads(pen), 1, 'a pen with no paddock is ONE head — every shop that exists');
+  eq(paddockOf(g.layout, pen).length, 0, 'and the flood finds nothing to graze');
+
+  const cap = g.penCap(pen);
+  graze(g, pen, PER_HEAD * 4);
+  const live = only(g);
+  eq(g.penHeads(live), 4, `${PER_HEAD * 4} cells of grazing is four head`);
+  eq(g.penCap(live), cap, 'and the STOCKPILE is untouched — heads are a pace, not a bigger pen');
+}
+
+// The divisor. Four hens lay four times as often, which is the whole of what a
+// head is worth — asserted as a batch that HAS landed at a quarter of the wait
+// and one that has NOT landed just short of it, or "faster" is satisfied by any
+// number bigger than one.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  graze(g, pen, PER_HEAD * 4);
+  const live = only(g);
+  eq(g.penHeads(live), 4, 'four head');
+
+  skipMinutes(g, EVERY / 4.4);
+  g.step(0.1);
+  eq(live.qty, 0, 'just short of a quarter of the wait, nothing has been laid');
+  skipMinutes(g, EVERY / 4);
+  g.step(0.1);
+  eq(live.qty, BATCH, 'and a quarter of the wait in, a whole batch has');
+}
+
+// A part-painted head is worth nothing. `Math.floor`, which is the honest
+// reading of a field too small to keep another animal in — and the thing that
+// stops one cell of the brush being a fraction of an animal nobody can see.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  graze(g, pen, PER_HEAD * 3 - 1);
+  eq(g.penHeads(only(g)), 2, 'one cell short of three head is two head');
+}
+
+// The land supports what it supports. Without the division, one big paddock and
+// six shelters standing in it is six pens each dividing by the whole acreage —
+// a money printer built from one brush stroke and a repeated purchase, and one
+// that reads as working perfectly the whole time.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  // BOTH shelters go down before any paint, or the second has nowhere to stand:
+  // a pen needs bare grass (`BUILDABLE_OUTDOOR`), and the field painted for the
+  // first one is exactly the grass the second would have used.
+  //
+  // The NEAREST legal spot rather than a guessed offset, because how close two
+  // pens can stand is a fact about the generated farm rather than about this
+  // sweep — and a field has to be able to reach both.
+  let second = null;
+  let best = Infinity;
+  for (let z = 1; z < g.layout.h - 1; z++) {
+    for (let x = 1; x < g.layout.w - 1; x++) {
+      const away = Math.abs(x - pen.x) + Math.abs(z - pen.z);
+      if (away >= best) continue;
+      for (const rot of [0, 1, 2, 3]) {
+        if (!canPlaceCleanly(g.layout, { kind: 'pen', x, z, rot }).ok) continue;
+        second = { x, z, rot };
+        best = away;
+        break;
+      }
+    }
+  }
+  check(!!second, 'there is room for a second shelter near the first');
+  if (second) {
+    const { pen: other } = build(g, PIECE, second);
+    const both = g.layout.pens ?? [];
+    eq(both.length, 2, 'two shelters');
+    graze(g, [pen, other], PER_HEAD * 4);
+    const live = g.layout.pens ?? [];
+    for (const p of live) eq(g.penHeads(p), 2, 'and one field of four head is split between them');
+  }
+}
+
+// A paddock is the region a shelter TOUCHES and never every paddock cell on the
+// map. This is `dropGoods`' bug said about grazing — a pad is one named region
+// in as many pieces as you painted it — and it would be worse here than a wrong
+// shelf: a field at the top of the farm would fatten a coop at the bottom of it,
+// so the paint and the animals would be two unrelated facts on one save.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  graze(g, pen, PER_HEAD * 3);
+  const mine = only(g);
+  eq(g.penHeads(mine), 3, 'three head on the field it stands in');
+
+  // A second field somewhere else entirely, with nothing standing in it.
+  const L = g.layout;
+  const far = [];
+  for (let z = L.h - 2; z > 1 && far.length < PER_HEAD * 5; z--) {
+    for (let x = L.w - 2; x > 1 && far.length < PER_HEAD * 5; x--) {
+      if (!canPaintGround(L, [{ x, z }], 'paddock', GRASS).ok) continue;
+      // Nowhere near the pen, or the two floods meet and this proves nothing.
+      if (Math.abs(x - pen.x) + Math.abs(z - pen.z) < 6) continue;
+      far.push({ x, z });
+    }
+  }
+  check(far.length > 0, 'there is somewhere else to paint');
+  for (const c of far) g.buildGround('me', { x: c.x, z: c.z, piece: GRASS });
+  eq(g.penHeads(only(g)), 3, 'and a field on the other side of the farm changes nothing');
+}
+
+// The bodies. Heads come off the PAINT and the animal is a look, which is the
+// same split `work` and `variants` make — so a piece nobody has drawn an animal
+// for runs exactly as many head as one somebody has, and draws none of them.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  graze(g, pen, PER_HEAD * 3);
+  g.step(0.1);
+  eq(g.animals.size, 3, 'three head is three bodies');
+  eq(new Set([...g.animals.values()].map((a) => a.piece)).size, 1, 'all off the one piece');
+
+  const undrawn = fresh();
+  const { pen: hutch } = build(undrawn, NOART);
+  graze(undrawn, hutch, PER_HEAD * 3);
+  undrawn.step(0.1);
+  eq(undrawn.penHeads(only(undrawn)), 3, 'a piece with no animal drawn still runs three head');
+  eq(undrawn.animals.size, 0, 'and draws none of them');
+}
+
+// The one claim in this file a screenshot could check, which is why it is here:
+// an animal that wandered onto the shop floor, into the road or across the car
+// park is the failure. There is no pathing and no edge test in any of it — the
+// legal cells ARE the answer — so this is a claim that the set is never left.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  const painted = graze(g, pen, PER_HEAD * 4);
+  const field = new Set(painted.map((c) => `${c.x},${c.z}`));
+  g.step(0.1);
+  eq(g.animals.size, 4, 'four bodies');
+
+  let strayed = 0;
+  let moved = 0;
+  const at0 = new Map([...g.animals.values()].map((a) => [a.id, `${a.x},${a.z}`]));
+  for (let i = 0; i < 4000; i++) {
+    g.step(0.1);
+    for (const a of g.animals.values()) {
+      // Between cells for most of a leg, so the test is the cell it is nearest
+      // rather than a whole number — a body walking the line between two
+      // painted squares is inside the field.
+      if (!field.has(`${Math.round(a.x)},${Math.round(a.z)}`)) strayed++;
+      if (at0.get(a.id) !== `${a.x},${a.z}`) moved++;
+    }
+  }
+  eq(strayed, 0, 'and over four hundred seconds not one of them leaves the paddock');
+  check(moved > 0, 'while at least one of them did move — or the claim above is about statues');
+}
+
+// A re-flow PARKS the herd rather than restarting it, which is `parkNow`'s bug
+// said about livestock: build mode re-flows on every wall segment of a drag, so
+// a herd that snapped back to the shelter each time is one you could only watch
+// by putting the tools down. This is also why the bodies live on the Game and
+// not on the layout record, which a re-flow rebuilds.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  graze(g, pen, PER_HEAD * 3);
+  for (let i = 0; i < 200; i++) g.step(0.1);
+  const before = [...g.animals.values()].map((a) => `${a.id}@${a.x},${a.z}`).sort();
+  check(before.length === 3, 'three bodies out in the field');
+
+  g.regenerateLayout();
+  g.regenerateLayout();
+  const after = [...g.animals.values()].map((a) => `${a.id}@${a.x},${a.z}`).sort();
+  eq(after.join('|'), before.join('|'), 'and two re-flows move none of them');
+  eq(g.penHeads(only(g)), 3, 'and the field is still the same field');
+}
+
+// Nothing about a body is on the save, and that is a decision rather than an
+// omission — an animal is not a thing you own, the shelter and the paint are,
+// and both of those are already stored. It also means there is no `elapsed`
+// stamp in here to get wrong, which is the trap section 7 exists for.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  graze(g, pen, PER_HEAD * 3);
+  g.step(0.1);
+  eq(g.animals.size, 3, 'three bodies');
+  const saved = JSON.stringify(g.saveState());
+  check(!saved.includes('"animals"'), 'and the save says nothing about any of them');
+  const live = only(g);
+  check(live.bodies === undefined, 'nor does the layout record the re-flow rebuilds');
+}
+
+// THE CEILING. The paddock is the supply and the rung is the most this shelter
+// will keep — and both halves have to bite, or one of them is a knob that takes
+// money and moves no number.
+//
+// The control that decides whether the ceiling is opt-in is `TEST_BARE`, whose
+// rungs say nothing about heads: `heads` defaults to 1, so a pen row authored
+// before any of this existed keeps exactly the one animal it always did, and a
+// paddock painted round it does nothing. That is the honest answer rather than
+// a convenience, and it is why all seven shipped pieces set the field.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  eq(g.fixtureStats(pen).heads, MOB, 'rung 1 of the test pen keeps a mob');
+
+  // Grazing for twice what the shelter will hold.
+  graze(g, pen, PER_HEAD * MOB * 2);
+  const live = only(g);
+  eq(g.penHeads(live), MOB, 'and all the grazing in the world does not beat the rung');
+  g.step(0.1);
+  eq(g.animals.size, MOB, 'so there are exactly that many bodies out there');
+
+  // ...and the rung is what lifts it, against a field that has not moved.
+  const up = g.upgradeFixture('me', live.id);
+  check(up.ok, 'the pen steps up a rung', up.error ?? '');
+  const better = only(g);
+  eq(g.fixtureStats(better).heads, MOB * 2, 'the better shelter keeps twice as many');
+  eq(g.penHeads(better), MOB * 2, 'and the same field now runs twice the herd');
+}
+
+// The other half of the pair, and the reason the menu names which is short: a
+// pen out of LAND and a pen out of SHELTER are the same count on the same line.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  graze(g, pen, PER_HEAD * 2);
+  const live = only(g);
+  eq(g.penHeads(live), 2, 'two head, because that is all the grazing there is');
+  eq(g.penField(live).ceiling, MOB, 'while the shelter would hold four times that');
+  const up = g.upgradeFixture('me', live.id);
+  check(up.ok, 'the pen steps up a rung', up.error ?? '');
+  eq(g.penHeads(only(g)), 2, 'and buying more shelter over a small field changes nothing');
+}
+
+// A pen row that has never heard of heads is step 1's pen exactly — one animal,
+// whatever you paint round it. This is the assertion that decides whether the
+// ceiling is opt-in, and every pen row ever authored before now is one of these.
+{
+  const g = fresh();
+  const { pen } = build(g, BARE);
+  eq(g.fixtureStats(pen).heads, 1, 'a rung with no `heads` keeps one');
+  graze(g, pen, PER_HEAD * 6);
+  eq(g.penHeads(only(g)), 1, 'and six head of grazing round it is still one animal');
+}
+
+// Taking the paint up takes the herd with it, which is the control said
+// backwards: the field is the only thing deciding, so scrubbing it is a shop
+// that has never painted one.
+{
+  const g = fresh();
+  const { pen } = build(g);
+  const painted = graze(g, pen, PER_HEAD * 3);
+  g.step(0.1);
+  eq(g.animals.size, 3, 'three bodies');
+
+  for (const c of painted) g.buildGround('me', { x: c.x, z: c.z, piece: '' });
+  g.step(0.1);
+  eq(g.penHeads(only(g)), 1, 'the grazing is gone and the pen is back to one head');
+  eq(g.animals.size, 1, 'and one body');
 }
 
 // ---------------------------------------------------------------------------
