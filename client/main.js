@@ -69,7 +69,7 @@ ui.scene = scene;
 // arrives on the shop's clock rather than on a press, so it is the one overlay
 // that can land in the middle of a camera turn. Hoisted, so the forward
 // reference from here is fine.
-const award = new Award(ui, document.getElementById('award'), dropGesture);
+const award = new Award(ui, document.getElementById('award'), () => dropGesture('award card'));
 /**
  * The fitter who shows you round a shop you have just made — client/tutor.js.
  *
@@ -395,6 +395,7 @@ net.on('achieved', (m) => {
 });
 net.on('content-changed', () => ui.toast('New content added — it is live now'));
 net.on('action', (res) => {
+  clickLog('SERVER answered', { ok: res.ok, error: res.error ?? null });
   if (res.ok) return;
   ui.toast(res.error, true);
   // A refusal is the one thing you cannot see: the shop simply does not do what
@@ -3170,6 +3171,25 @@ function showBeltDrag(cx, cy) {
 
 let floorDrag = null;
 
+/**
+ * TEMPORARY — one line per press, for chasing the dead-click bug. Delete with
+ * its callers once that is closed. `sns.clicks = false` in the console shuts it
+ * up without a reload.
+ */
+window.sns ??= {};
+window.sns.clicks = true;
+function clickLog(what, extra) {
+  if (!window.sns?.clicks) return;
+  // Flattened into the MESSAGE rather than passed as an object: the console
+  // collapses objects, and every field worth reading here was hidden behind a
+  // disclosure triangle in the one place somebody is copying lines out of it.
+  const bits = Object.entries({
+    tool: ui.toolId?.(), holding: ui.holding?.kind ?? null, ...extra,
+  }).map(([k, v]) => `${k}=${typeof v === 'object' && v ? JSON.stringify(v) : v}`);
+  // eslint-disable-next-line no-console
+  console.log(`[click] ${what} · ${bits.join(' ')}`);
+}
+
 function showFloorDrag(cx, cy) {
   if (!floorDrag) return null;
   const to = scene.pickTile(cx, cy);
@@ -3216,7 +3236,11 @@ canvas.addEventListener('pointerdown', (e) => {
     // and `endPress` with no event drops it without sending. This used to live
     // on `contextmenu`, which is too late on Windows — that event fires on
     // *release* there, by which point the pointerup below has already built it.
-    if (edgeDrag || floorDrag || faceDrag) { endPress(); return; }
+    if (edgeDrag || floorDrag || faceDrag) {
+      clickLog('RIGHT BUTTON aborted the run', { buttons: e.buttons, ctrl: e.ctrlKey, meta: e.metaKey });
+      endPress();
+      return;
+    }
     // A mouse reuses one pointerId for every button, so a right press during a
     // left drag would hand the spin that drag's own id and steal its moves.
     if (drag.id !== null) return;
@@ -3452,10 +3476,16 @@ canvas.addEventListener('pointerdown', (e) => {
       floorDrag = { start, kind: brush.kind, piece: brush.piece, id: e.pointerId };
       canvas.setPointerCapture(e.pointerId);
       showFloorDrag(e.clientX, e.clientY);
+      clickLog('down: floor drag started', { start });
       return;
     }
+    clickLog('down: floor tool but pickTile MISSED — press falls to camera', {});
   }
 
+  clickLog('down: no build drag claimed it — generic drag/tap path', {
+    lifted: !!(ui.paletteArmed && !ui.holding && !ui.demolishArmed()
+      && pickTarget(e.clientX, e.clientY)),
+  });
   drag.id = e.pointerId;
   drag.ox = drag.lx = e.clientX;
   drag.oy = drag.ly = e.clientY;
@@ -3587,14 +3617,24 @@ canvas.addEventListener('pointerdown', (e) => {
   drag.timer = setTimeout(() => {
     drag.timer = null;
     if (drag.id === null || drag.travel >= TAP_SLOP) return;
-    // Past here the press is a HOLD, whatever it goes on to do, so its release
-    // must not also read as a tap — otherwise finishing a ring sends you
-    // walking to whatever was under your finger, or re-arms the errand you
-    // just spent. Set outside the `HOLD_OPENS` guard on purpose: the flag is
-    // about whether a hold OPENS things, and winding a ring is now a second
-    // thing a hold does. Fires at 420ms against a ring that needs a full
-    // second, so the release is always swallowed before the action lands.
-    drag.done = true;
+    // `done` is what swallows the release, and it may only be set where the
+    // hold ACTUALLY DID SOMETHING — which is why it is written four times below
+    // rather than once up here. A hold that quietly ate the press makes a slow
+    // click do nothing at all, and that is not a subtle failure: it is
+    // indistinguishable from a missed click, it fires at 420ms (which is an
+    // ordinary click made while thinking), and there is nothing on screen to
+    // say why. Laying a row of shelves, half of them simply never appear.
+    //
+    // It was unconditional here for 86 commits, and the reason it moved up is
+    // real and is kept: winding a ring is a second thing a hold does, and the
+    // release of one must not ALSO read as a tap — or finishing a pull sends
+    // you walking to whatever was under your finger, or re-arms the errand you
+    // just spent. `drag.took` is that case and it is the FIRST branch below,
+    // which is the whole of what the move was buying.
+    //
+    // The rule for the next thing a hold learns to do: if it happens, say
+    // `done`; if the timer falls through it, the release is still a tap.
+    if (drag.took) { drag.done = true; return; }
 
     // Build mode's own answer to a held press, and it comes before `HOLD_OPENS`
     // because it is not the same question: that flag is about whether holding
@@ -3614,6 +3654,7 @@ canvas.addEventListener('pointerdown', (e) => {
     if (drag.lift) {
       const f = drag.lift;
       drag.lift = null;
+      drag.done = true;
       // The press now OWNS the pointer, and saying so is the difference between
       // carrying a lamp and spinning the shop while holding one. The button is
       // still down and the thing is in your hands, so every move from here is
@@ -3641,6 +3682,10 @@ canvas.addEventListener('pointerdown', (e) => {
     // and taking its hold away would cost it `openAtPointer` for nothing.
     if (drag.touch && (ui.paletteArmed || ui.holding) && !ui.demolishArmed()) {
       drag.aiming = true;
+      // ...and `endPress` places where the ghost is rather than treating this as
+      // a tap under the finger. `aimed` is read there before `tapped`, so this
+      // is belt and braces — but the rule above is "say it where it happens".
+      drag.done = true;
       // The hop IS the signal that sliding now moves the ghost rather than the
       // shop. Nothing else says so — there is no cursor to change and no room on
       // the pill for a mode — and a ghost that quietly started following the
@@ -3652,12 +3697,13 @@ canvas.addEventListener('pointerdown', (e) => {
       return;
     }
 
+    // Nothing left for a hold to do here, so the press is still whatever its
+    // release makes it — which for a mouse in build mode is the tap that lays
+    // the thing. Returning WITHOUT `done` is the fix; see the note above.
+    // (The press that named goods is handled first, at the top: a menu over a
+    // draining board would be one gesture doing two things.)
     if (!HOLD_OPENS) return;
-    // ...and the other thing a hold already means. This press named goods on
-    // the way down, so the ring you are watching is a board draining into a
-    // crate or a box coming off a pile — putting a menu over that would be one
-    // gesture doing two things, and the one nobody asked for is on top.
-    if (drag.took) return;
+    drag.done = true;
 
     // The wind-in has to land on something. Without a ripple at the end the
     // ring just stops being wound and the menu appears, which reads as the
@@ -3910,6 +3956,10 @@ function endPress(e) {
     floorDrag = null;
     scene.setFloorGhost(null, null);
     ui.setBuildVerdict(null);
+    clickLog('up: floor drag ending', {
+      hadEvent: !!e, cells: drawn?.cells.length ?? null, to: drawn?.to ?? null,
+      verdict: drawn?.verdict ?? null,
+    });
     if (drawn) {
       if (!drawn.verdict.ok) { ui.toast(drawn.verdict.reason, true); return; }
       if (drawn.verdict.warn) ui.toast(drawn.verdict.warn);
@@ -3919,6 +3969,7 @@ function endPress(e) {
       // the server runs the same `groundStroke` and trims it to the same
       // rectangle, so clamping twice could only ever disagree.
       const to = drawn.to ? { x: drawn.to.x, z: drawn.to.z } : null;
+      clickLog('SEND build-ground', { from: `${start.x},${start.z}`, to: to && `${to.x},${to.z}`, piece });
       net.send('build-ground', { x: start.x, z: start.z, piece, to });
     }
     return;
@@ -3928,6 +3979,10 @@ function endPress(e) {
   // already spent the gesture, so its release means nothing.
   const tapped = e && !drag.done && drag.travel < TAP_SLOP;
   const dropping = drag.moving && !!e;
+  clickLog('up: generic press ending', {
+    tapped, dropping, done: drag.done, travel: Math.round(drag.travel),
+    heldMs: Math.round(performance.now() - drag.pressedAt),
+  });
   // A press that spent itself aiming places where the GHOST is, not where the
   // finger is — they are `TOUCH_AIM_LIFT` apart, and the ghost is the one you
   // have been looking at. `pointer` is where it stands, so this is the same
@@ -4024,6 +4079,7 @@ function endSpin(e) {
   return { turned, put, held: performance.now() - at >= LONG_PRESS_MS };
 }
 canvas.addEventListener('pointerup', (e) => {
+  clickLog('canvas pointerup', { btn: e.button, buttons: e.buttons, ptr: e.pointerType });
   const wasPinching = !!pinch;
   dropTouch(e.pointerId);
   const spun = endSpin(e);
@@ -4137,7 +4193,8 @@ canvas.addEventListener('pointercancel', (e) => {
  * across the screen to a green button, and committing a run to wherever it
  * happened to end is a wall you did not draw.
  */
-function dropGesture() {
+function dropGesture(why = 'unknown') {
+  clickLog('ABANDON gesture', { why, live: !!(floorDrag || edgeDrag || faceDrag || beltDrag || marquee) });
   touches.clear();
   pinch = null;
   // `release` first and on its own, because it is the one that is not local:
@@ -4150,7 +4207,7 @@ function dropGesture() {
   endDrag();
 }
 
-addEventListener('blur', dropGesture);
+addEventListener('blur', () => dropGesture('window blur'));
 
 /**
  * IS A PRESS WITH THIS POINTER'S ID STILL IN FLIGHT?
@@ -4206,10 +4263,34 @@ function gestureId(id) {
  * properly. A pen hovers at `buttons` 0 all day and is covered by the id test
  * above, which is false for a hover.
  */
+let limping = null;
+
 function healLostPress(e) {
-  if (e.buttons !== 0 || e.pointerType === 'touch') return false;
-  if (!gestureId(e.pointerId)) return false;
-  dropGesture();
+  if (e.buttons !== 0 || e.pointerType === 'touch') { limping = null; return false; }
+  if (!gestureId(e.pointerId)) { limping = null; return false; }
+  // ONE SUCH EVENT IS NOT A LOST PRESS — IT IS USUALLY A RELEASE IN FLIGHT.
+  //
+  // "No buttons down" was read as "the up never arrived", and that is true of
+  // the state a second later and false of the instant it starts: letting go
+  // dispatches a `pointermove` at buttons 0 *before* the `pointerup` on a good
+  // third of drags, so the heal fired between the two and `dropGesture` threw
+  // away a run that was one event from being built — with the pointerup then
+  // arriving to find nothing left. What that looks like is a floor drag you
+  // drew, watched go green and let go of, which simply never happened.
+  //
+  // So it takes TWO. A press whose up was genuinely lost goes on sending moves
+  // at buttons 0 for as long as the hand keeps moving, and the second lands a
+  // few milliseconds later — while a release in flight has been dispatched by
+  // then and has cleared the gesture above. The symptom the heal exists for is
+  // the shop turning as you move the mouse, so healing on the second move of
+  // that turn rather than the first costs nothing anybody can see.
+  //
+  // Compared by IDENTITY and not by count: one physical move is handed to this
+  // twice — the canvas's `pointermove` and the window's — so counting events
+  // would make every first move its own second one.
+  if (limping === null || limping === e) { limping = e; return false; }
+  limping = null;
+  dropGesture(`healLostPress on ${e.type} (buttons=0, type=${e.pointerType})`);
   return true;
 }
 
@@ -4222,12 +4303,34 @@ function healLostPress(e) {
  * gesture already ended, which is the guard doing its job rather than a race:
  * the target's own handler has run by the time this one does.
  *
- * `lostpointercapture` is the same claim made one step earlier. It fires after
- * an ordinary pointerup (nothing left to drop, so this no-ops) and on every
- * other way capture goes — which is the moment the canvas stops being told
- * anything, and therefore the last moment a gesture can be ended honestly.
+ * `lostpointercapture` is the same claim made one step earlier: it is the moment
+ * the canvas stops being told anything, and therefore the last moment a gesture
+ * can be ended honestly.
+ *
+ * IT DOES NOT FIRE AFTER THE POINTERUP, WHICH IS WHAT THIS USED TO ASSUME.
+ * Chrome dispatches it *before* the release on an ordinary click — measured, on
+ * roughly a third of drags — so a run that was one event away from being built
+ * was abandoned instead, and the pointerup then arrived to find nothing left to
+ * commit. `endPress()` is called with no event by `dropGesture`, on purpose, so
+ * what that looks like is a floor drag you drew, watched go green, let go of,
+ * and which simply never happened. No refusal, no toast, nothing in the log.
+ *
+ * So the button state is the test, and it is `healLostPress`'s own rule read the
+ * other way round: **no buttons down means the release has happened**, and a
+ * release is the ordinary path's to answer — either the canvas's own pointerup
+ * (which commits) or the window's, one line above (which does not, because the
+ * press ended somewhere the canvas cannot see). Capture lost with the button
+ * still DOWN is the case this is actually for — a native menu, the OS taking the
+ * button, the browser claiming the gesture — and there no up is coming at all.
+ *
+ * Only for `lostpointercapture`: on a real `pointerup`/`pointercancel` the
+ * buttons are always 0, and skipping those is skipping the whole listener.
  */
-const letGoElsewhere = (e) => { if (gestureId(e.pointerId)) dropGesture(); };
+const letGoElsewhere = (e) => {
+  if (!gestureId(e.pointerId)) return;
+  if (e.type === 'lostpointercapture' && e.buttons === 0) return;
+  dropGesture(`letGoElsewhere on ${e.type} over <${e.target?.tagName ?? '?'}> buttons=${e.buttons} ptr=${e.pointerType}`);
+};
 addEventListener('pointerup', letGoElsewhere);
 addEventListener('pointercancel', letGoElsewhere);
 canvas.addEventListener('lostpointercapture', letGoElsewhere);
@@ -4240,7 +4343,7 @@ canvas.addEventListener('lostpointercapture', letGoElsewhere);
 // the same stuck press one input along, and it walks you across the shop.
 addEventListener('visibilitychange', () => {
   if (!document.hidden) return;
-  dropGesture();
+  dropGesture('tab hidden');
   keys.clear();
 });
 
