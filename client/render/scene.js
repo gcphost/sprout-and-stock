@@ -28,7 +28,7 @@ import { T } from '../../shared/tiles.js';
 import {
   FIXTURES, workSpots, flowSpots, conveyorNext, conveyorAt, conveyorsOf, conveyorBranches, tunnelExit, CONVEYOR_KINDS, derivedFlow, anchorTile, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind, GOODS_PADS, isPadAt, isWalkableTile,
   SPUR_UNIT_REACH, SPUR_OPEN_REACH,
-  faceKey, covers, footprintMid, sizeOf,
+  faceKey, covers, footprintMid, sizeOf, deckOf, CEILING, armReach,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf } from '../../shared/pieces.js';
 import { hash01 } from '../../shared/hash.js';
@@ -1137,6 +1137,15 @@ const ROOM_FILL = 0.34;
 
 export class Scene {
   constructor(canvas) {
+    /**
+     * Which storey the pointer works on — see `pickFixtureHit`.
+     *
+     * Mirrored from `ui.buildDeck` rather than read from it, because the scene
+     * has never known about the UI and the one thing it needs is a number. It
+     * defaults to the floor, so every press in the game outside build mode is
+     * exactly the press it always was.
+     */
+    this.pickDeck = 0;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
@@ -3415,6 +3424,11 @@ export class Scene {
    */
   fixtureBaseY(f) {
     if (FIXTURES[f.kind]?.at === 'ceiling') return CEILING_Y;
+    // ...and a conveyor cell hangs because of its PLACEMENT rather than its
+    // kind, which is the whole of what a second storey is. A belt, a loader, a
+    // sorter and a tunnel mouth are one kind each on either deck — four ceiling
+    // kinds would be four duplicates to keep in step with the four originals.
+    if (deckOf(f) === CEILING) return CEILING_Y;
     const ground = FIXTURES[f.kind]?.ground;
     return ground == null ? 0 : (TILE_STYLE[ground]?.h ?? 0);
   }
@@ -4405,7 +4419,7 @@ export class Scene {
         //
         // Free for everything else: nothing but a belt has ever moved a crate,
         // so this writes the same three numbers it already held.
-        existing.position.set(d.x, d.belt ? BELT_DECK : at * CRATE_STEP, d.z);
+        existing.position.set(d.x, crateY(d, at), d.z);
         // Where it belongs with nothing happening to it. A swing offsets the
         // mesh between snapshots (see `animateStations`), so the position it
         // offsets FROM has to be the one the shop last said rather than wherever
@@ -4426,7 +4440,7 @@ export class Scene {
       // Sat on the deck of the belt rather than on the floor. `at` is 0 for
       // anything belted (it is in no pile), so this is the belt's own height and
       // never an offset into a tower.
-      obj.position.set(d.x, d.belt ? BELT_DECK : at * CRATE_STEP, d.z);
+      obj.position.set(d.x, crateY(d, at), d.z);
       obj.userData.homeX = d.x;
       obj.userData.homeZ = d.z;
       obj.userData.beltId = d.belt ?? null;
@@ -5312,6 +5326,26 @@ export class Scene {
       const f = (o.userData.fixture ? this.fixtureById(o.userData.fixture) : null)
         ?? this.fixtureAt(Math.round(o.position.x), Math.round(o.position.z));
       if (!f || (keep && !keep(f))) continue;
+      /**
+       * ...and it has to be on the storey you are working on.
+       *
+       * A duct hangs over a shelf, so one ray meets both and the tie was going
+       * to whichever the camera happened to put in front — which is a bulldozer
+       * that eats the shelf while you are aiming at the run above it, and a run
+       * you cannot delete at all. Neither reads as a picking rule: it reads as
+       * Ctrl being broken.
+       *
+       * Asked HERE rather than in each caller, because the hover, the press,
+       * the menu, the pipette and the bulldozer all come through this one
+       * function — and a highlight that lit under a different rule than the
+       * press is the green-ghost bug with a storey on it.
+       *
+       * Off the ceiling, an overhead cell is not pointable at all. That is the
+       * same sentence pointed the other way: the shop floor is what you work on
+       * out of build mode, and a duct that swallowed clicks meant for the shelf
+       * underneath it would make an aisle unusable the day you roofed it.
+       */
+      if (deckOf(f) !== (this.pickDeck === CEILING ? CEILING : 0)) continue;
       const answer = { f, dist: hit.distance, board };
       // Nothing in front of it: the plain old answer, and the one every stocked
       // shelf in the game still gets. Only a pile that is BEHIND something has
@@ -5869,7 +5903,14 @@ export class Scene {
       : (isProp(f.kind) ? this.propBoxes.get(f.id) : null);
     if (!box) {
       const m = buildTargetMarker(mode);
-      m.position.set(f.x, f.y ?? 0, f.z);
+      // `fixtureBaseY` and not 0, which is the same correction the art itself
+      // got. A frame on the tile is right about everything that owns a cell —
+      // you point at a shelf to walk to the side of it — and the storey is not
+      // part of what that frame is saying, so an overhead cell drew its mark
+      // on the floor four metres below the thing under the pointer. What that
+      // reads as is the pointer having selected the aisle instead of the duct,
+      // which is exactly what it looks like it did.
+      m.position.set(f.x, f.y ?? this.fixtureBaseY(f), f.z);
       return m;
     }
     const size = box.getSize(new THREE.Vector3());
@@ -6117,7 +6158,7 @@ export class Scene {
     }
     for (const r of [0, 1, 2, 3]) {
       const n = anchorTile(cell.x, cell.z, r);
-      if (conveyorAt(L, n.x, n.z)) return rot4(r + 2);
+      if (conveyorAt(L, n.x, n.z, deckOf(cell))) return rot4(r + 2);
     }
     return cell.rot ?? 0;
   }
@@ -6138,7 +6179,7 @@ export class Scene {
    */
   conveyorPath(L, c) {
     const to = conveyorNext(L, c);
-    const out = to && conveyorAt(L, to.x, to.z)
+    const out = to && conveyorAt(L, to.x, to.z, deckOf(to))
       ? { x: Math.sign(to.x - c.x), z: Math.sign(to.z - c.z) } : null;
     // Every cell that hands to this one, not the first found — a cell can be a
     // MERGE, and a merge is not a bend. Picking whichever feeder happened to be
@@ -6148,9 +6189,9 @@ export class Scene {
     const feeds = [];
     for (const r of [0, 1, 2, 3]) {
       const n = anchorTile(c.x, c.z, r);
-      const other = conveyorAt(L, n.x, n.z);
+      const other = conveyorAt(L, n.x, n.z, deckOf(c));
       if (!other) continue;
-      const hits = (p) => p && p.x === c.x && p.z === c.z;
+      const hits = (p) => p && p.x === c.x && p.z === c.z && deckOf(p) === deckOf(c);
       const ways = [conveyorNext(L, other), ...conveyorBranches(L, other)];
       if (ways.some(hits)) feeds.push({ x: Math.sign(c.x - n.x), z: Math.sign(c.z - n.z) });
     }
@@ -6301,7 +6342,7 @@ export class Scene {
         Scene.aimCarrier(mesh, { x: dx, z: dz }, {
           thin, high, long, span,
         });
-        mesh.position.set(c.x + dx * along, y, c.z + dz * along);
+        mesh.position.set(c.x + dx * along, deckLift(c) + y, c.z + dz * along);
         entry.dir = { x: dx, z: dz };
         Scene.lightSlat(mesh, entry);
         entry.pos = mesh.position.clone();
@@ -6360,7 +6401,7 @@ export class Scene {
           Scene.aimCarrier(mesh, f, {
             thin, high, long, span,
           });
-          mesh.position.set(c.x + f.x * along, y, c.z + f.z * along);
+          mesh.position.set(c.x + f.x * along, deckLift(c) + y, c.z + f.z * along);
           const entry = {
             mesh,
             motion: { kind: 'chase', hz: p.motion?.hz ?? 1.1, amount: span },
@@ -6441,7 +6482,7 @@ export class Scene {
           Scene.aimCarrier(mesh, dir, {
             thin, high, long, span: step,
           });
-          mesh.position.set(c.x + sp.dx * along, y, c.z + sp.dz * along);
+          mesh.position.set(c.x + sp.dx * along, deckLift(c) + y, c.z + sp.dz * along);
           const entry = {
             mesh,
             motion: { kind: 'chase', hz: p.motion?.hz ?? 1.1, amount: step },
@@ -6781,7 +6822,7 @@ export class Scene {
     const free = [];
     for (const r of [0, 1, 2, 3]) {
       const n = anchorTile(f.x, f.z, r);
-      if (conveyorAt(L, n.x, n.z)) continue;
+      if (conveyorAt(L, n.x, n.z, deckOf(f))) continue;
       if (used.some((p) => p.x === n.x && p.z === n.z)) continue;
       free.push({ r, walled: SOLID.has(edgeBetween(L, f.x, f.z, n.x, n.z)) });
     }
@@ -6832,7 +6873,7 @@ export class Scene {
     if (own.length) return own;
     for (const r of [0, 1, 2, 3]) {
       const n = anchorTile(c.x, c.z, r);
-      const other = conveyorAt(L, n.x, n.z);
+      const other = conveyorAt(L, n.x, n.z, deckOf(c));
       if (!other) continue;
       const parts = this.conveyorSlatParts(other);
       if (parts.length) return parts;
@@ -6941,6 +6982,80 @@ export class Scene {
     };
   }
 
+  /**
+   * A SHAFT'S TWO ENDS, as the bands the renderer has to wall in.
+   *
+   * A lift is a housing at each storey with a glass tube between them, and the
+   * ends are enclosed for the reason the loader's and the sorter's sides are:
+   * a machine open on all four is a table, and what you want to see is the one
+   * side the goods actually cross. Left open the shaft was a cage — you could
+   * see straight through the bottom of it into the aisle behind, and nothing
+   * about it said which way a box was going in or coming out.
+   *
+   * Which sides those are cannot be authored, because a lift has no `rot`: it
+   * carries whichever way its feeders point, and both of its ends face a
+   * different run. So the panels are derived, like the chute and the blades,
+   * and this measures the BOX to put them in off the authored art — exactly as
+   * `conveyorDeck` and `conveyorHousing` do, and for the same reason. A band
+   * sized to a remembered shaft is a panel with daylight over it the day
+   * somebody draws a taller one.
+   *
+   * The glass tube is the middle: everything under it is the lower housing and
+   * everything above it is the upper one, up to the underside of the head.
+   */
+  liftBands(c) {
+    const model = this.fixtureModel(c);
+    if (!model) return null;
+    const parts = partsAt(model, this.fixtureT(c)) ?? [];
+    const top = (p) => (p.pos?.[1] ?? p.scale[1] / 2) + p.scale[1] / 2;
+    const bottom = (p) => (p.pos?.[1] ?? p.scale[1] / 2) - p.scale[1] / 2;
+    // The tube. Its faces are where the housings stop, and its own footprint is
+    // what they are as wide as.
+    const glass = parts.filter((p) => (p.alpha ?? 1) < 1 && p.scale[1] > 0.2);
+    if (!glass.length) return null;
+    const lo = Math.min(...glass.map(bottom));
+    const hi = Math.max(...glass.map(top));
+    // The pan a box stands on at the bottom, which is the one part a tile wide
+    // — the same handle `conveyorDeck` uses, taken at the lower of the two.
+    const pans = parts.filter((p) => (p.scale?.[0] ?? 0) >= 0.99);
+    if (!pans.length) return null;
+    const floor = Math.min(...pans.map(top));
+    // ...and the underside of the head, which is the tallest thing here.
+    const post = parts.reduce((best, p) => (p.scale[1] > (best?.scale[1] ?? 0) ? p : best), null);
+    const roof = top(post);
+    return {
+      face: Math.max(...glass.map((p) => Math.abs(p.pos?.[0] ?? 0) + Math.abs(p.pos?.[2] ?? 0))),
+      span: Math.max(...glass.map((p) => Math.max(p.scale[0], p.scale[2]))),
+      low: [floor, lo],
+      high: [hi, roof],
+    };
+  }
+
+  /**
+   * ...and which side of a shaft is a PORTAL, per storey.
+   *
+   * A lift stands on both, so "which way does it face" has two answers and
+   * neither is `rot`. Both directions count: the side a run hands IN on is as
+   * much a hole as the side it leaves by, and a housing walled across its own
+   * inlet is a box the goods arrive through the side of.
+   */
+  liftPorts(L, c) {
+    const ports = { 0: new Set(), [CEILING]: new Set() };
+    const to = conveyorNext(L, c);
+    if (to) ports[deckOf(to)]?.add(`${Math.sign(to.x - c.x)},${Math.sign(to.z - c.z)}`);
+    for (const d of [0, CEILING]) {
+      for (const r of [0, 1, 2, 3]) {
+        const n = anchorTile(c.x, c.z, r);
+        const other = conveyorAt(L, n.x, n.z, d);
+        if (!other || other.id === c.id) continue;
+        const way = conveyorNext(L, other);
+        if (!way || way.x !== c.x || way.z !== c.z) continue;
+        ports[d].add(`${Math.sign(n.x - c.x)},${Math.sign(n.z - c.z)}`);
+      }
+    }
+    return ports;
+  }
+
   conveyorPours(L, c) {
     if (c.kind !== 'arm') return [];
     // A loader told to only put goods ON the line pours nowhere, so nothing
@@ -6948,9 +7063,12 @@ export class Scene {
     // edge goods no longer cross. See `setArmMode`.
     if (c.mode === 'load') return [];
     const out = [];
-    for (const r of [0, 1, 2, 3]) {
-      const s = anchorTile(c.x, c.z, r);
-      if (conveyorAt(L, s.x, s.z)) continue;
+    // Four beside it, or the one BENEATH it — `armReach`, the same answer the
+    // swing pours by. Written out four-ways here, an overhead loader is drawn
+    // reaching the shelves either side of the aisle it hangs over and pours
+    // into none of them, which is the green-ghost bug on a ceiling.
+    for (const s of armReach(c)) {
+      if (conveyorAt(L, s.x, s.z, deckOf(c))) continue;
       const takes = (L.shelves ?? []).some((sh) => sh.x === s.x && sh.z === s.z)
         || (L.stations ?? []).some((st) => st.x === s.x && st.z === s.z)
         || (L.bins ?? []).some((bn) => bn.x === s.x && bn.z === s.z)
@@ -6985,7 +7103,7 @@ export class Scene {
     const bar = new THREE.Mesh(PATH_GEO, chevronMaterial(inward));
     // Across the way the goods travel, so it lies along the edge it marks.
     bar.scale.set(dx ? 0.05 : 0.3, 0.02, dz ? 0.05 : 0.3);
-    bar.position.set(c.x + dx * 0.34 + sx, 0.133, c.z + dz * 0.34 + sz);
+    bar.position.set(c.x + dx * 0.34 + sx, deckLift(c) + 0.133, c.z + dz * 0.34 + sz);
     bar.renderOrder = 3;
     bar.raycast = NO_PICK;
     this.beltRoot.add(bar);
@@ -7009,15 +7127,14 @@ export class Scene {
     if (c.mode === 'unload') return [];
     const faced = anchorTile(c.x, c.z, c.rot ?? 0);
     const out = [];
-    for (const r of [0, 1, 2, 3]) {
-      const s = anchorTile(c.x, c.z, r);
+    for (const s of armReach(c)) {
       // The side it unloads onto is never a side it lifts from — three sides in,
       // one side out, which is what stops the off-ramp being a loop. A load-only
       // loader has no off-ramp, so there is no loop and the exclusion would just
       // cost it the pad it is pointing at. Mirrors `armSwing`, or the arrow says
       // one thing and the machine does another.
       if (c.mode !== 'load' && s.x === faced.x && s.z === faced.z) continue;
-      if (conveyorAt(L, s.x, s.z)) continue;
+      if (conveyorAt(L, s.x, s.z, deckOf(c))) continue;
       const source = GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z))
         || (L.shelves ?? []).some((sh) => sh.x === s.x && sh.z === s.z && sh.boh === true);
       if (source) out.push(s);
@@ -7054,6 +7171,13 @@ export class Scene {
       if (seen.has(key)) return;
       const dx = Math.sign(s.x - c.x);
       const dz = Math.sign(s.z - c.z);
+      // An overhead loader's one side is its OWN square, which is no side at
+      // all: it serves the unit beneath it, so the goods go down a chute rather
+      // than out along a track. Left in, the zero vector is a spur of length
+      // nothing — every slat on it drawn at the cell's own centre, a carrier
+      // scrolling in a direction of `0,0`, and an edge bar lying across the
+      // middle of the machine. See the chute in `addConveyorPaths`.
+      if (!dx && !dz) return;
       seen.set(key, {
         dx,
         dz,
@@ -7092,7 +7216,7 @@ export class Scene {
     // through the one machine nobody thought of as having a spur.
     if (c.kind === 'sorter' && Number.isInteger(c.reject)) {
       const s = anchorTile(c.x, c.z, c.reject);
-      if (!conveyorAt(L, s.x, s.z)
+      if (!conveyorAt(L, s.x, s.z, deckOf(c))
         && (GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z)) || isWalkableTile(L, s.x, s.z))) {
         add(s, 1);
       }
@@ -7148,7 +7272,7 @@ export class Scene {
     // (the shortcut is refused) and not ground to set a box down on (`armDrop`
     // refuses a conveyor). Every one of those is `dead`, and calling it a line
     // was drawing a connection over a cell where nothing crosses at all.
-    if (conveyorAt(L, f.x, f.z)) return isOut ? null : 'dead';
+    if (conveyorAt(L, f.x, f.z, deckOf(c))) return isOut ? null : 'dead';
 
     // The same pair `armDrop` refuses on, in the same order — a mark drawn from
     // a second opinion about where a box may go is a mark that promises an
@@ -7246,12 +7370,32 @@ export class Scene {
 
     const outsOf = (c) => [
       ...[conveyorNext(L, c), ...conveyorBranches(L, c)]
-        .filter((to) => to && conveyorAt(L, to.x, to.z)),
+        .filter((to) => to && conveyorAt(L, to.x, to.z, deckOf(to))),
       ...poursOf(c),
     ];
 
+    /**
+     * How high a mark between this cell and that one goes.
+     *
+     * `deckLift` is a fact about a cell and that is right for every kind but
+     * one. A LIFT stands on both storeys — that is what it is for — so the
+     * storey its marks belong on is the storey of whatever it is joining, and
+     * `deckOf` on the shaft itself answers 0 whichever end you mean. Left as
+     * the cell's own, every join a shaft makes with the duct above it was drawn
+     * on the floor beside it: a flow pip on the ground pointing at nothing,
+     * four metres under the hand-over it is about, which reads as the top of
+     * the lift not being wired to the run it is plainly touching.
+     */
+    const joinY = (c, to) => (c.kind === 'lift' ? deckLift(to) : deckLift(c));
+
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
       for (const to of outsOf(c)) {
+        // Per hand-over rather than per cell, which is the shaft — see `joinY`.
+        const dY = joinY(c, to);
         const dx = Math.sign(to.x - c.x);
         const dz = Math.sign(to.z - c.z);
 
@@ -7321,7 +7465,7 @@ export class Scene {
         // readout.
         const link = new THREE.Mesh(geo, flowMaterial(CONVEYOR_LIT.idle));
         link.scale.set(dx ? 0.09 : 0.2, 0.012, dz ? 0.09 : 0.2);
-        link.position.set(c.x + dx * 0.5, 0.092, c.z + dz * 0.5);
+        link.position.set(c.x + dx * 0.5, dY + 0.092, c.z + dz * 0.5);
         link.renderOrder = 3;
         // Invisible to the pointer. These sit on top of the decks, so without
         // this every tap on a belt hits a decoration with no fixture id on it
@@ -7350,12 +7494,22 @@ export class Scene {
     // of a run nobody is playing. Which is the whole reason this is here.
     const fed = new Set();
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
       for (const to of [conveyorNext(L, c), ...conveyorBranches(L, c)]) {
-        const on = to && conveyorAt(L, to.x, to.z);
+        const on = to && conveyorAt(L, to.x, to.z, deckOf(to));
         if (on) fed.add(on.id);
       }
     }
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
       // The same `outsOf` the joins are drawn from, which is the whole of what
       // keeps the two marks from contradicting each other: a loader stocking a
       // shelf would otherwise wear a green join AND a "nothing downstream" pip.
@@ -7406,7 +7560,7 @@ export class Scene {
         // number pointing at the old one.
         pip.position.set(
           c.x + dir.x * step,
-          box ? box.y + box.h / 2 + PIP_H / 2 : PIP_Y,
+          dY + (box ? box.y + box.h / 2 + PIP_H / 2 : PIP_Y),
           c.z + dir.z * step,
         );
         pip.renderOrder = 3;
@@ -7428,6 +7582,11 @@ export class Scene {
     // colour cannot carry one. Same green as the join it sits inside, for the
     // same reason: this is the join saying more, not a second kind of mark.
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
       if (c.kind !== 'arm') continue;
       const ins = this.conveyorIntake(L, c);
       const outs = this.conveyorPours(L, c);
@@ -7437,8 +7596,13 @@ export class Scene {
       // neither, so they step aside and sit alongside each other.
       const key = (n) => `${n.x},${n.z}`;
       const shared = new Set(ins.map(key).filter((k) => outs.some((o) => key(o) === k)));
-      for (const n of ins) this.addEdgeChevron(c, n, true, shared.has(key(n)) ? -1 : 0);
-      for (const n of outs) this.addEdgeChevron(c, n, false, shared.has(key(n)) ? 1 : 0);
+      // ...and never the cell's own square, which is an overhead loader's one
+      // side: a bar marking an EDGE has no edge to lie along, so it lands
+      // across the middle of the machine. `conveyorSpurs` skips it for the same
+      // reason and the chute is what says it instead.
+      const side = (n) => n.x !== c.x || n.z !== c.z;
+      for (const n of ins.filter(side)) this.addEdgeChevron(c, n, true, shared.has(key(n)) ? -1 : 0);
+      for (const n of outs.filter(side)) this.addEdgeChevron(c, n, false, shared.has(key(n)) ? 1 : 0);
     }
 
     // ...and which way the piece is AIMED, which is the one thing on it the
@@ -7463,6 +7627,11 @@ export class Scene {
     // because "aimed at nothing" and "aimed at the shelf" are the two answers
     // that look identical from a chair and differ by a whole afternoon.
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
       if (!derivedFlow(c.kind)) continue;
       const f = anchorTile(c.x, c.z, c.rot ?? 0);
       const dx = Math.sign(f.x - c.x);
@@ -7475,7 +7644,7 @@ export class Scene {
       // ...and no well under this one either — same reason as the join's.
       const bar = new THREE.Mesh(geo, aimMaterial(kind));
       bar.scale.set(dz ? 0.26 : 0.06, 0.02, dz ? 0.06 : 0.26);
-      bar.position.set(c.x + dx * 0.33, 0.132, c.z + dz * 0.33);
+      bar.position.set(c.x + dx * 0.33, dY + 0.132, c.z + dz * 0.33);
       bar.renderOrder = 3;
       bar.raycast = NO_PICK;
       this.beltRoot.add(bar);
@@ -7497,6 +7666,17 @@ export class Scene {
     // belt. Along the run there is nothing to fill: the deck is already a full
     // tile that way.
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
+      // ...and never a SHAFT. A lift's pan is a full cross at both storeys —
+      // the run reaches its edge from any side already — so there is nothing to
+      // fill, and a filler here would be measured off the shaft's own `deckOf`,
+      // which is 0 whichever end you mean: a stub of track on the floor
+      // reaching toward a duct four metres above it.
+      if (c.kind === 'lift') continue;
       const deck = this.conveyorDeck(L, c);
       if (!deck) continue;
       // A BEND IS A RIGHT ANGLE, and it went round three shapes before this one.
@@ -7574,9 +7754,130 @@ export class Scene {
         const fill = new THREE.Mesh(geo, material(deck.color, 1));
         fill.scale.set(dx ? grow : wide, deck.h, dz ? grow : wide);
         const out = deck.cross + grow / 2;
-        fill.position.set(c.x + dx * out, deck.y, c.z + dz * out);
+        fill.position.set(c.x + dx * out, dY + deck.y, c.z + dz * out);
         fill.raycast = NO_PICK;
         this.beltRoot.add(fill);
+      }
+    }
+
+    /**
+     * ...and a SHAFT'S TWO ENDS, walled in but for the portal.
+     *
+     * The same inversion `COVERED_KINDS` makes about a loader, said about the
+     * one piece that stands on both storeys: the sides a box never crosses get
+     * panelled, and what is left is the hole it goes in and out through. Open
+     * on all four the lift was a cage — you saw straight through the bottom of
+     * it into the aisle behind, and nothing anywhere said which way a box was
+     * travelling.
+     *
+     * It is TWO housings rather than one, and that is what makes it worth its
+     * own loop: a shaft's ends face different runs on different storeys, so the
+     * open side at the top has nothing to do with the open side at the bottom.
+     * Neither is `rot`, because a lift has none — see `liftPorts`.
+     */
+    for (const c of cells) {
+      if (c.kind !== 'lift') continue;
+      const band = this.liftBands(c);
+      if (!band) continue;
+      const ports = this.liftPorts(L, c);
+      for (const [deck, span] of [[0, band.low], [CEILING, band.high]]) {
+        const high = span[1] - span[0];
+        if (!(high > 0.02)) continue;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          if (ports[deck].has(`${dx},${dz}`)) continue;
+          const wall = new THREE.Mesh(geo, material(CONVEYOR.frame, 1));
+          wall.scale.set(dx ? 0.05 : band.span, high, dz ? 0.05 : band.span);
+          wall.position.set(c.x + dx * band.face, span[0] + high / 2, c.z + dz * band.face);
+          wall.raycast = NO_PICK;
+          this.beltRoot.add(wall);
+        }
+      }
+    }
+
+    /**
+     * ...and OVERHEAD, the casing — which is the whole of what makes a duct a
+     * duct rather than a belt somebody drew in the air.
+     *
+     * Derived rather than authored, and that is the same argument the corner
+     * rails, the loader's chute and the sorter's blades already make, arriving
+     * at the one part of a run somebody had reached for a content row to draw.
+     * `belt-duct` was a deep copy of the belt catalog row with two glass panes
+     * appended, and it was wrong in three ways that a straight east-west run
+     * cannot show you. The panes are authored in MODEL space, so they lie along
+     * `rot` — and a cell's rotation is not the way the goods go through it, so
+     * every bend in the shop was glazed across its own mouth and open along the
+     * side nothing crosses. It was one PIECE, so it only ever existed for the
+     * one kind somebody made a copy for: a loader, a junction or a tunnel mouth
+     * hung overhead had no glass at all, which is what a T reads as when the
+     * duct either side of it is enclosed and it is not. And it was OPT-IN, so a
+     * plain belt laid on the ceiling — the obvious press, off the same tool —
+     * came out bare.
+     *
+     * So the casing is a fact about the STOREY and the flow, not about which
+     * row you picked: every overhead cell is glazed on every side goods do not
+     * cross, off the same in/out/branch/pour set the loader's own panels are
+     * cut from. A straight run gets two panes, a bend gets the two on its
+     * outside, a T gets one, and the row you build with is back to being about
+     * how fast the thing is.
+     */
+    for (const c of cells) {
+      if (deckOf(c) !== CEILING) continue;
+      const deck = this.conveyorDeck(L, c);
+      if (!deck) continue;
+      const dY = deckLift(c);
+      const path = this.conveyorPath(L, c);
+      const open = new Set();
+      for (const o of outsOf(c)) open.add(`${Math.sign(o.x - c.x)},${Math.sign(o.z - c.z)}`);
+      // NEGATED, the same conversion the filler above spells out: a feeder is
+      // stored as the direction goods travel, and the side it is on is the
+      // opposite vector. Read as-is, every duct is glazed shut at the end it is
+      // fed from and open along a flank nothing uses.
+      for (const f of path.feeds) open.add(`${-f.x},${-f.z}`);
+      // From the deck top up, measured off the model rather than written down
+      // — a run can be three tiers of three shapes, and a pane sized to a
+      // remembered track is glass with daylight under it the day somebody
+      // authors a thicker one.
+      const base = deck.y + deck.h / 2;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (open.has(`${dx},${dz}`)) continue;
+        const pane = new THREE.Mesh(geo, material(CONVEYOR.glass, GLASS));
+        pane.scale.set(dx ? DUCT_PANE : 1, DUCT_WALL, dz ? DUCT_PANE : 1);
+        pane.position.set(c.x + dx * DUCT_HALF, dY + base + DUCT_WALL / 2, c.z + dz * DUCT_HALF);
+        // Invisible to the pointer, exactly as every other mark on a run is:
+        // these stand between the camera and the cell, so a ray that stopped on
+        // one would hit a mesh with no fixture id and the press would silently
+        // select nothing.
+        pane.raycast = NO_PICK;
+        this.beltRoot.add(pane);
+      }
+
+      /**
+       * ...and the CHUTE, which is the one thing a duct does that a floor run
+       * cannot and the one thing nothing drew.
+       *
+       * An overhead loader reaches exactly one cell — the one underneath it
+       * (`armReach`) — so the goods leave DOWNWARDS, and every mark this file
+       * has for a hand-over is a mark on an EDGE. There is no edge: the loader
+       * and the shelf it stocks are the same square, four metres apart. What
+       * that leaves is a machine in a duct with no join mark, no chevron and no
+       * track on any of its four sides, which is exactly what an overhead
+       * loader that is not wired to anything looks like — and it is the piece
+       * the whole storey exists for.
+       *
+       * A collar rather than a tube all the way to the floor. The drop is most
+       * of a wall's height, so a full shaft is a column standing in the aisle
+       * you just bought the ceiling to clear, and at this camera it would hide
+       * the shelf it is pouring into. A stub hanging under the deck says which
+       * way the goods go and leaves the aisle empty, the same call
+       * `SPUR_UNIT_REACH` makes about a track that would otherwise be drawn
+       * under a shelf nobody can see through.
+       */
+      if (c.kind === 'arm' && this.conveyorPours(L, c).length) {
+        const collar = new THREE.Mesh(geo, material(CONVEYOR.frame, 1));
+        collar.scale.set(DUCT_CHUTE, DUCT_DROP, DUCT_CHUTE);
+        collar.position.set(c.x, dY + deck.y - DUCT_DROP / 2, c.z);
+        collar.raycast = NO_PICK;
+        this.beltRoot.add(collar);
       }
     }
 
@@ -7635,6 +7936,11 @@ export class Scene {
     // they are the three ways a box can leave a cell — the line in, the line out
     // and every branch, plus every unit a loader pours into.
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
       if (!COVERED_KINDS.has(c.kind)) continue;
       const box = this.conveyorHousing(c);
       if (!box) continue;
@@ -7667,7 +7973,7 @@ export class Scene {
         const face = dx ? box.long : box.cross;
         const wall = new THREE.Mesh(geo, material(CONVEYOR.frame, 1));
         wall.scale.set(dx ? 0.06 : box.cross * 2, high, dz ? 0.06 : box.long * 2);
-        wall.position.set(c.x + dx * face, BELT_TOP + high / 2, c.z + dz * face);
+        wall.position.set(c.x + dx * face, dY + BELT_TOP + high / 2, c.z + dz * face);
         wall.raycast = NO_PICK;
         this.beltRoot.add(wall);
       }
@@ -7717,7 +8023,7 @@ export class Scene {
         // Along the edge it sits on, so a bar reads as belonging to that side
         // rather than as a stud dropped on the roof.
         pip.scale.set(dx ? 0.1 : box.long * 1.1, 0.04, dz ? 0.1 : box.cross * 1.1);
-        pip.position.set(c.x + dx * face * 0.66, box.y + box.h / 2 + 0.02, c.z + dz * face * 0.66);
+        pip.position.set(c.x + dx * face * 0.66, dY + box.y + box.h / 2 + 0.02, c.z + dz * face * 0.66);
         pip.raycast = NO_PICK;
         this.beltRoot.add(pip);
         (rec.pips ??= []).push({ dx, dz, mesh: pip });
@@ -7740,6 +8046,11 @@ export class Scene {
     }
 
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
       if (c.kind !== 'sorter') continue;
       // One blade per way out, because a junction where four lines meet uses all
       // four and a single blade would be a picture of a T standing in a cross.
@@ -7748,7 +8059,7 @@ export class Scene {
         const dz = Math.sign(br.z - c.z);
         const blade = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
         blade.scale.set(0.5, 0.06, 0.09);
-        blade.position.set(c.x + dx * 0.2, 0.22, c.z + dz * 0.2);
+        blade.position.set(c.x + dx * 0.2, dY + 0.22, c.z + dz * 0.2);
         // Across the branch at forty-five degrees, which is what a diverter is:
         // the crate meets a slope and is pushed off the line rather than stopped.
         blade.rotation.y = -(Math.atan2(dz, dx) + Math.PI / 4);
@@ -7758,6 +8069,11 @@ export class Scene {
     }
 
     for (const c of cells) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
       if (c.kind !== 'arm') continue;
       /**
        * WHERE THE SPUR GOES, so the REAL crate can be moved along it.
@@ -7813,7 +8129,7 @@ export class Scene {
             const mid = near + len / 2;
             const bed = new THREE.Mesh(geo, material(deck.color, 1));
             bed.scale.set(sp.dx ? len : wide, deck.h, sp.dz ? len : wide);
-            bed.position.set(c.x + sp.dx * mid, deck.y, c.z + sp.dz * mid);
+            bed.position.set(c.x + sp.dx * mid, dY + deck.y, c.z + sp.dz * mid);
             bed.raycast = NO_PICK;
             this.beltRoot.add(bed);
           }
@@ -7837,7 +8153,7 @@ export class Scene {
               deck.h,
               oz ? SPUR_PAD_BAR : SPUR_PAD * 2 + SPUR_PAD_BAR,
             );
-            bar.position.set(cx + ox * SPUR_PAD, deck.y, cz + oz * SPUR_PAD);
+            bar.position.set(cx + ox * SPUR_PAD, dY + deck.y, cz + oz * SPUR_PAD);
             bar.raycast = NO_PICK;
             this.beltRoot.add(bar);
           }
@@ -7894,12 +8210,17 @@ export class Scene {
     // material: `material()` is a cache keyed by colour, so recolouring through
     // it would light every cream thing in the shop.
     for (const c of conveyorsOf(L)) {
+      // Overhead cells hang at `CEILING_Y`, so every mark drawn for one has to
+      // rise with it. These y values are literals measured off the deck — the
+      // deck moved, and a mark that did not is a chevron on the floor under a
+      // duct, which reads as the run having been laid downstairs.
+      const dY = deckLift(c);
       if (c.kind !== 'under') continue;
       const lamp = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
         color: new THREE.Color(LAMP_IDLE), flatShading: true,
       }));
       lamp.scale.set(0.14, 0.05, 0.14);
-      lamp.position.set(c.x, 0.36, c.z);
+      lamp.position.set(c.x, dY + 0.36, c.z);
       lamp.raycast = NO_PICK;
       this.beltRoot.add(lamp);
       const rec = this.movingFixtures.get(c.id)
@@ -8457,7 +8778,9 @@ export class Scene {
         verdict: c.state ?? 'ok',
         cage: false,
       });
-      g.position.set(c.x, 0, c.z);
+      // `fixtureBaseY` and not 0: `at` carries the deck off the spec, so a run
+      // dragged overhead previews overhead. On the floor it is 0 exactly as it was.
+      g.position.set(c.x, this.fixtureBaseY(at), c.z);
       group.add(g);
     }
     this.actorRoot.add(group);
@@ -10016,6 +10339,24 @@ const BELT_CRATE = 1;
 const BELT_TOP = 0.09;
 
 /**
+ * An overhead duct's glazing: how far out from the middle of the cell a pane
+ * stands, how thick it is, and how high it goes.
+ *
+ * `DUCT_HALF` is the one worth a sentence. It clears the widest crate rather
+ * than the widest track — a box wedged into its own casing is the "crate
+ * floating beside the rails" complaint with the panes doing the floating — and
+ * it stops short of the tile edge, so two runs laid side by side read as two
+ * ducts rather than as one glass wall down the aisle.
+ */
+const DUCT_HALF = 0.34;
+const DUCT_PANE = 0.02;
+const DUCT_WALL = 0.3;
+
+/** ...and the collar an overhead loader drops its goods through. */
+const DUCT_CHUTE = 0.34;
+const DUCT_DROP = 0.34;
+
+/**
  * How long a crate takes to cross one TILE of track — the server's own
  * `Game.BELT_SECONDS`.
  *
@@ -10235,6 +10576,26 @@ const chargeBand = (e) => (e == null ? -1 : (e > 0.6 ? 0 : e > 0.3 ? 1 : 2));
  * own idea of what a fixture is, is how a menu ends up acting on something the
  * player never pointed at.
  */
+/**
+ * How high a crate is drawn — the floor, a belt deck, or somewhere between.
+ *
+ * `d.deck` is a FRACTION rather than a storey (see `stepBelts`), so a box on a
+ * lift is drawn part way up the shaft. Rounding it to a deck would make the one
+ * part of an overhead run there is anything to watch happen in a single frame.
+ */
+/** How far a conveyor cell's world-space marks are lifted by its storey. */
+const deckLift = (c) => (deckOf(c) === CEILING ? CEILING_Y : 0);
+
+function crateY(d, at) {
+  if (!d.belt) return at * CRATE_STEP;
+  // `CEILING_Y` is where an overhead cell's model ORIGIN sits, so the box rides
+  // `BELT_DECK` above that — the same gap it rides above a belt on the floor,
+  // because it is the same distance above the same tray. Lerping between the
+  // two decks instead put the crate 0.1 too low all the way up and left it
+  // sitting under the pan of its own duct at the top.
+  return (d.deck ?? 0) * CEILING_Y + BELT_DECK;
+}
+
 function fixturesIn(L) {
   if (!L) return [];
   return [
@@ -10248,6 +10609,7 @@ function fixturesIn(L) {
     ...(L.arms ?? []).map((a) => ({ ...a, kind: 'arm' })),
     ...(L.sorters ?? []).map((s) => ({ ...s, kind: 'sorter' })),
     ...(L.unders ?? []).map((u) => ({ ...u, kind: 'under' })),
+    ...(L.lifts ?? []).map((f) => ({ ...f, kind: 'lift' })),
     // Decorations carry their own kind, because there is more than one of them
     // and which list they came out of no longer says which.
     //

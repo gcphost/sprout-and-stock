@@ -153,6 +153,9 @@ function tabGroups(all) {
         icon: r.icon,
         passive: !!r.passive,
         quiet: !!r.quiet,
+        // `empty` — what the tab says with nothing in it, for a bucket whose
+        // label is a verb. See the foot in `sectionHtml`.
+        empty: r.empty ?? null,
         count: r.count ?? null,
         rows: [],
       });
@@ -291,6 +294,15 @@ export class UI {
     // read off the tile it belongs to, at render.
     this.shapesOn = false;
     this.buildRot = 0;
+    /**
+     * Which storey the palette is building on. See `FIXTURES.lift`.
+     *
+     * On the UI rather than on the tool, because it is a fact about where you
+     * are pointing rather than about what you picked up: laying a run, a
+     * loader and a junction overhead is three tools and one storey, and a deck
+     * that reset with every tool would make an overhead aisle three toggles.
+     */
+    this.buildDeck = 0;
     // Whether that angle is YOURS. Off, the ghost faces itself against whatever
     // wall it is put against (`faceAlong`); pressing R turns the pin on and the
     // preview stops second-guessing you. See `resetRot`.
@@ -641,6 +653,11 @@ export class UI {
     // camera. Building wins: you asked for the wheel.
     if (on) this.setFollow(null);
     this.resetRot();
+    // ...and back to the floor. The one place `buildDeck` is reset, and the
+    // argument is `resetRot`'s pointed at a storey: a deck held across a
+    // session means the first press of the next one lands on a ceiling nobody
+    // asked for, over ground you were looking at.
+    this.buildDeck = 0;
     // The mode no longer brings the palette with it — that is the second press
     // (`pressBuild`), because the bar is the most expensive thing on screen and
     // most of building is rearranging what you already own. What entering the
@@ -1432,6 +1449,19 @@ export class UI {
   resetRot() {
     this.buildRot = 0;
     this.rotPinned = false;
+  }
+
+  /**
+   * Up to the ceiling, or back down.
+   *
+   * Deliberately NOT reset by `resetRot` or by picking a tool: see `buildDeck`.
+   * The one thing that does put you back on the floor is leaving build mode,
+   * because a deck you cannot see you are on is the quiet-build-mode bug with a
+   * storey on it — every press would land somewhere you were not looking.
+   */
+  toggleDeck() {
+    this.buildDeck = this.buildDeck ? 0 : 1;
+    return this.buildDeck;
   }
 
   /**
@@ -2993,7 +3023,8 @@ export class UI {
     const body = rows.length
       ? rows.map((r, i) => this.rowHtml(r, i, !!heads)).join('')
       : `<div class="foot">${this.query ? 'Nothing matches that.'
-        : `Nothing ${esc((groups?.[at]?.label ?? '').toLowerCase()) || 'here'} right now.`}</div>`;
+        : esc(groups?.[at]?.empty
+          ?? `Nothing ${(groups?.[at]?.label ?? '').toLowerCase() || 'here'} right now.`)}</div>`;
 
     // Which section, which tab of it, and what it is filtered to. All three
     // change what the list IS, so all three have to drop your place — a search

@@ -605,6 +605,45 @@ Thirty sweeps, about a minute:
   guessing. Paired with "both good lines are still shared", or narrowing the
   pool to a single winner passes the first half and turns the splitter off.
 
+- `verify:ceiling` guards the SECOND STOREY, and everything in it is invisible
+  twice over — a crate that rode a duct and one a hire carried are the same box
+  on the same shelf, and a duct four metres up is drawn against a floor the
+  camera sees straight through, so a box on the wrong storey and a box on the
+  right one are, from a chair, the same box. Its control is doubled: a shop with
+  no overhead cell, and the SQUARE, which is the whole pitch — laying a duct
+  over a tile must leave `tiles`, `blocked` and `indoor` byte-identical, leave
+  it walkable, and leave a belt and a shelf still placeable on it. Which is why
+  the second duct on one square has to be refused **explicitly**: there is no
+  tile stamp up there and a belt blocks nobody, so nothing else in `canPlace`
+  stands between an overhead run and an unlimited stack of them — `verify:catalog`'s
+  walk-over invariant, one storey up. Then the one line that IS a second storey,
+  asserted as two runs crossing over one another travelling opposite ways with
+  neither box ever changing deck. Its centrepiece is the LIFT, which is two
+  claims a still frame cannot separate. That its direction is derived from
+  whoever feeds it — including a **loader**, which is the case that could not be
+  answered while it was resolved inside `conveyorFlow`'s own seeding loop
+  (asking a derived cell there is unbounded recursion and it took the server
+  down), so a shaft at the end of a duct always guessed "up" and what that reads
+  as is a box that will not come down. And that a crate part way between storeys
+  is **over the shaft's own square**, sampled every tick, in both directions —
+  going up it always was, and coming down it stepped off the end of the duct
+  into thin air, because the riser was put on the near cell rather than on the
+  lift. Half of that looks perfect, which is why it lasted. Paired with `dist`
+  and `pts` measuring the same journey, since they were built by two pieces of
+  code and disagreed by exactly the riser: charged and never drawn, so the box
+  was handed two tiles of travel for a leg 1.41 long and cut the corner anyway.
+  Then the T, which is the report it was written for and is two claims — that a
+  junction overhead hands boxes down both branches, and that **not one arrives
+  downstairs**, asserted against a decoy run laid on the floor straight through
+  it. Every way out of a junction is a hand-off between two LINES, and the
+  lookup that turns one back into a cell defaults to the floor: with nothing
+  underneath, the box parked for the rest of the save; with the ordinary build
+  underneath, it dropped four metres and carried on being a perfectly ordinary
+  crate. Plus the overhead loader reaching ONE cell rather than four (`armReach`,
+  the one spelling, because five loops enumerate a loader's sides), a re-flow and
+  an **R** press keeping the storey, and conservation. It authors one item and
+  four fixture rows and removes them on exit.
+
 - `verify:paint` guards the same claim `verify:floor` makes about the ground,
   said about the other surface in the building — and it has to be made again
   rather than inherited, because paint goes somewhere nothing had gone before:
@@ -814,6 +853,15 @@ it guards had ever run*. `verify:motion`, `verify:hand`, `verify:park`,
 because every claim it makes is invisible in a still frame by construction. None of them is visible in a screenshot of one
 seed — which is exactly why they exist.
 
+`verify:ceiling` is the counter-example, and it is the one worth learning from:
+the second storey shipped **without** its sweep, on the argument that the sim
+half was proven by a smoke test. Four bugs were live in it by the time anybody
+played it — a diagonal ride, a lift that would not carry down, a junction
+overhead that handed its boxes to the floor, and a duct that only some pieces
+were glazed for — and every one of them had to be found from a chair. Three of
+the four are assertions this file's own rules would have demanded on the day.
+The sweep ships **with** the feature; a smoke test is not one.
+
 ⚠️ **`simulate` also inherits who works for you.** `Game.create` reads the saved
 world, so the roster and `ownedUpgrades` come along into the throwaway run. Hire
 someone between two runs and the second one is measuring a different shop. Every
@@ -933,14 +981,14 @@ what the next step was meant to be.
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, and the fence that stopped being the only thing a boundary could be made of | steps 1–9, 11, 13–27, 29 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
-| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in | steps 1–4, 2b, 3b and 4b built; 5–7 proposed |
+| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both | steps 1–4, 2b, 3b, 4b, 7 and 8 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, and the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board | steps 1–9 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
 | [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | step 1 built (no rung authored yet); 2–4 proposed |
 | [docs/pens.md](docs/pens.md) | the animal that is a building — why a cow you re-sow every time you milk her is a bed's rhythm borrowed by something that is not planted, one `pen` kind against seven authored pieces, a ladder where `speed_mult` is how often you must come and `capacity_mult` is how long you may leave it, the full pen that STOPS rather than banking batches overnight, and the first fixture in the game to take more than one tile — plus the eight places "a fixture is a tile" was load-bearing; and the paddock you PAINT rather than fence, where a head is a divisor on the one clock, the paddock that SUPPLIES animals against the rung that is their CEILING, the animal that came out of the art and onto the grass, and the third population that is neither a player nor a customer | steps 1–2 built |
-| [docs/production.md](docs/production.md) | everything on the shelf came from something — why a recipe book whose outputs nothing eats is a factory with no factory in it, the three tiers and the line between what you buy and what you make, an ingredient as an item with property tags only (so nobody ever buys it and it costs no code), the crafting margin that stops depth being a tax, the six primary-processing machines the shop never had, and the van that stops selling you 68 of 103 items the day you can make them | built; the van fork is open |
+| [docs/production.md](docs/production.md) | everything on the shelf came from something — why a recipe book whose outputs nothing eats is a factory with no factory in it, the three tiers and the line between what you buy and what you make, an ingredient as an item with property tags only (so nobody ever buys it and it costs no code), the crafting margin that stops depth being a tax, the six primary-processing machines the shop never had, and the van that stopped selling you 68 of 103 items the day you could make them — and sells them again, because making is cheaper on 67 of the 68 and the arithmetic was defending the appliances all along, so what is left is a crew who leave a recipe output to the kitchen and a player who may order anything | built; the van fork is closed |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
 | [docs/difficulty.md](docs/difficulty.md) | why a neglected shop finds a level instead of going under — the settle spring, the floor under demand, and a game where standing still is free; difficulty as a second axis beside the starting tier, upkeep as the first fixed cost, why today's constants are the *easy* preset rather than the default, and the grace a new shop's first week gets because the presets were only ever measured on a day-60 save | steps 1 and 1b built; 2–4 proposed |

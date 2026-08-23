@@ -773,8 +773,13 @@ function pickItemForShelf(game, shelf, folded) {
   // wholesale — leave those shelves for the harvest.
   const farmGrown = new Set(c.crops.map((cr) => cr.item_id));
 
-  // Crafted goods can't be ordered from the supplier, so the bot must not try
-  // to shelve them — it would price in stock that never arrives.
+  // Crafted goods are the CREW's blind spot rather than the supplier's — the
+  // van will sell you one (`Game.buyStock`), and `restock` still leaves every
+  // recipe output to the kitchen. The bot models the crew, so it goes on
+  // skipping them, and that is deliberately not "what a player may do": every
+  // balance figure in the repo was measured by a bot that never bought a loaf,
+  // and a bot that started would be an instrument that changed under the
+  // numbers it is there to compare.
   const crafted = new Set(c.recipes.map((r) => r.output_id));
 
   let candidates = c.items.filter((it) => {

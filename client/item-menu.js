@@ -211,7 +211,13 @@ export function showItem(ui, itemId) {
     foot.push(actIcon('again', ICONS.label, 'Stock it again',
       `Your crew stopped stocking ${it.name} — nothing was selling. Puts it back on the list now.`,
       'Stock'));
-  } else if (!crafted) {
+  } else {
+    // A made-here item orders like anything else — the van sells everything
+    // again (`Game.buyStock`), so the guard that used to stand here would be
+    // the menu withholding a press the shop honours. What stays behind the
+    // `crafted` test is the block above: a minimum, a maximum and a
+    // may-they-order are still three controls that would move no number,
+    // because the crew go on leaving these to the kitchen.
     const inbound = due?.qty ?? 0;
     const cancellable = inbound > 0 && !(due?.legs ?? []).every((l) => l.onVan);
     if (cancellable) {
@@ -270,7 +276,12 @@ function facts(ui, it, { held, due, shelf, price, crafted }) {
     hint ? ` title="${esc(hint)}"` : ''}><span>${esc(label)}</span><b>${value}</b></div>`;
   const cost = it.base_cost ?? 0;
   const sell = price ?? shelf ?? null;
-  const margin = sell != null && !crafted ? sell - cost : null;
+  // A made-here item has a wholesale price like anything else and you can spend
+  // it now (`Game.buyStock`), so both figures are true of it — the menu draws
+  // the appliance line as well rather than instead. Which is also the honest
+  // shape of the decision the graph is built on: what the van charges next to
+  // what the shelf takes is the number your own kitchen is competing with.
+  const margin = sell != null ? sell - cost : null;
   const inbound = due?.qty ?? 0;
   // The thing itself, beside the figures rather than over them: this menu is
   // reached by pressing a row that already showed you the picture, so its job
@@ -283,8 +294,10 @@ function facts(ui, it, { held, due, shelf, price, crafted }) {
     ${line('On the shelves', `${held || '<i class="none">–</i>'}${
   inbound ? `<i class="coming">+${inbound}</i>` : ''}`)}
     ${crafted
-    ? line('Made in', esc(crafted), `Made in the ${crafted}, not ordered.`)
-    : line('Costs you', money(cost))}
+    ? line('Made in', esc(crafted),
+      `Made in the ${crafted}. Your crew leave it to the kitchen — you can still order it.`)
+    : ''}
+    ${line('Costs you', money(cost))}
     ${margin != null ? line('Margin', `${money(margin)}${
   cost > 0 ? ` <i class="im-pct">${Math.round((margin / cost) * 100)}%</i>` : ''}`) : ''}
     ${inbound ? line('On the way', esc(comingWhy(due))) : ''}

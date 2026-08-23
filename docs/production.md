@@ -1,9 +1,9 @@
 # Production — everything on the shelf came from something
 
-Status: **built.** 29 items, 15 crops, 6 appliances and 68 recipes are live and
-exported; the variants cap is the only code that changed. What is NOT decided is
-the one thing this turned out to rest on — see **The van problem** below, which
-is a balance fork rather than a bug and is waiting on a call.
+Status: **built,** and the fork is closed. 29 items, 15 crops, 6 appliances and
+68 recipes are live and exported. **The van problem** below is the decision that
+was waiting on a call and has now been made — the van sells everything again,
+and it is the *crew* who leave recipe outputs to the kitchen.
 
 This is the content half of [docs/belts.md](docs/belts.md) step 4 and
 [docs/kitchen.md](docs/kitchen.md). Both of those are about machinery, both are
@@ -358,9 +358,70 @@ Three honest readings, and this is a decision rather than a defect:
    you can make it. Ties into `server/sim/goals.js`, which is already a ladder of
    measurements, and is the most work.
 
-**Nothing here picks one.** Option 2 is the smallest change that keeps the
-opening hour intact and is the one to reach for if the first playtest of a new
-world feels empty; option 1 needs no code at all and is what is live right now.
+### The call: option 2, without its column
+
+Reported from play as *"I can't buy a cheese wheel"*, which is option 1 being
+felt exactly as predicted. **The van sells everything again.** The clause is
+gone from `buyStock` and no `buyable` flag replaced it.
+
+What decided it is that the premise turned out to be **measurable** rather than a
+matter of taste, and it does not hold. Costed against the seeded catalogue —
+every recipe resolved down to raws at `base_cost`, cheapest path where an item
+has two recipes — making a thing is cheaper than ordering it on **67 of the 68**,
+median **0.54×**:
+
+| | make | buy | ratio |
+|---|---|---|---|
+| frozen-pizza | 0.30 | 2.10 | 0.14 |
+| bread | 0.24 | 1.00 | 0.24 |
+| butter | 0.58 | 2.00 | 0.29 |
+| **latte** | **1.30** | **1.10** | **1.18** |
+
+So vertical integration is a margin play **by construction** and never needed a
+refusal propping it up — which is option 2's whole argument, arriving without
+the column, the grandfathered list or the migration. The refusal was not
+defending the appliances; the arithmetic was, the entire time.
+
+`latte` is the one exception and it is a **recipe to reprice**, not a rule to
+keep: at 1.18× it is the one thing in the shop where owning the Barista is worse
+than phoning the supplier. It fails the 1.4× crafting margin above from the other
+side, and it is the only row in the catalogue that does.
+
+### …and the half the refusal was doing that nobody wrote down
+
+It was also keeping the shop's own money off anything the kitchen makes, and
+dropping it alone would have had `restock` topping up a cheese board from the van
+while your preserving pot filled crates of the same thing — every step a worker
+correctly restocking a thin shelf, and the appliance quietly never worth what it
+cost. That is `homeSupply`'s farm-competing-with-itself bug one department along.
+
+So the rule is split in two, which is the split this repo already draws in three
+other places (`orders.assign`, `giveUpBoard`, `shelfAccepts`'s `byHand`):
+
+- **You** may order anything. One press, full wholesale price, ×6 on the next van.
+- **Your crew** never order a recipe output. `pickItem` always said so for a bare
+  board; `restock`'s top-up and `larderOrder` say it themselves now instead of
+  leaning on a refusal in `buyStock` that is no longer there.
+
+The larder half bites hardest and is the one to keep in mind: a chain is exactly
+the case where one machine's output is the next one's input, so an unguarded
+larder answers every deep recipe by buying the intermediate — the mixer fed dough
+off the van with the mill idle beside it, and the chain this document exists to
+make worth building paid for and never used.
+
+**Nothing about the balance moved.** `simulate`'s bot filters crafted goods
+itself and still does, deliberately: it models the crew, so every figure in the
+repo stays comparable, and a bot that started buying loaves would be an
+instrument changing under the numbers it is there to compare. All 30 sweeps pass.
+`verify:yard`'s `orderable()` lost the `isCrafted` filter it grew for option 1 —
+which is the same lesson twice in one helper, and it is now written down there.
+
+The client had **three** mirrors of the refusal, and they are the reason this was
+more than one line: the supplier row's button, the item menu's foot, and the
+shelf menu's per-board order press — each with its own carefully argued comment
+about why a made-here item gets no van. All three were the green-ghost rule
+inverted the moment the server said yes: a press the shop would honour, withheld
+by the panel.
 
 ### What it broke in the sweeps, which is the same lesson twice
 

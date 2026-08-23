@@ -347,6 +347,31 @@ export const FIXTURES = {
     flow: { out: 0 },
   },
   /**
+   * The lift — the only cell whose next is on the other DECK.
+   *
+   * A conveyor run has always been one storey, so the square a run costs is the
+   * square the shop floor wanted back. A ceiling deck gives it back, and the
+   * lift is the whole of what joins the two: everything else about an overhead
+   * run is an ordinary belt, loader or sorter carrying `deck: 1`.
+   *
+   * Which WAY it goes is not a field and is not aimed — it falls out of the deck
+   * it is standing on. A floor lift sends up, a ceiling lift sends down, and the
+   * cell it hands to is its own x,z on the other deck. That is `under`'s
+   * derivation with the distance taken out, and it is derived for `under`'s
+   * reason: `repositionFixture` names every field it keeps, so a stored
+   * partner or a stored direction is one the R key clears, and what you would
+   * watch is a lift that works until you straighten it. `rot` is free here and
+   * means nothing, which is exactly why nothing about a lift can survive R
+   * wrongly.
+   *
+   * BLOCKS, like the loader and for its reason: it is a column with a track
+   * going up it, not ground you walk over.
+   */
+  lift: {
+    label: 'Lift', blocks: true, ground: T.BELT, where: 'indoor', rotates: false, anchor: null,
+    flow: { out: 0 },
+  },
+  /**
    * Decorations. Both stand in a cell and neither blocks it.
    *
    * Deliberately NOT the authored-`blocks` kind the design doc describes. A
@@ -2000,7 +2025,7 @@ const groundIsBusy = (ground) => {
  * concerned. Two lists would mean every hand-off asking two questions, and the
  * day somebody forgot the second one a crate would stop dead at every loader.
  */
-export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter', 'under'];
+export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter', 'under', 'lift'];
 
 /**
  * The kinds a DRAG lays a line of.
@@ -2121,8 +2146,62 @@ export const runFollows = (kind) => RUN_KINDS.includes(kind);
 export const derivedFlow = (kind) => kind === 'arm' || kind === 'sorter';
 
 export function conveyorsOf(L) {
-  return [...(L?.belts ?? []), ...(L?.arms ?? []), ...(L?.sorters ?? []), ...(L?.unders ?? [])];
+  return [...(L?.belts ?? []), ...(L?.arms ?? []), ...(L?.sorters ?? []),
+    ...(L?.unders ?? []), ...(L?.lifts ?? [])];
 }
+
+/**
+ * Which storey a conveyor cell is on. 0 is the floor and is every cell ever
+ * laid, which is what makes the ceiling opt-in rather than a change to every
+ * save in existence.
+ *
+ * It is a field on the PLACEMENT rather than a second set of kinds, for R3's
+ * reason and for a sharper one: a ceiling run wants belts, loaders, sorters and
+ * tunnels, so kinds would be four duplicates that then have to be kept in step
+ * with the four originals for ever. It rides a re-flow the way `mode`, `auto`
+ * and `reject` do — named in `compose`, or the first wall segment you drag
+ * drops the whole overhead run onto the floor.
+ */
+export const CEILING = 1;
+export const deckOf = (c) => (c?.deck === CEILING ? CEILING : 0);
+
+/**
+ * Two cells are neighbours only on the same deck — and this one line is what a
+ * second storey IS.
+ *
+ * Flow, lines, branches and jams are all keyed by fixture id and have never
+ * cared how high a crate is; the only thing in the whole system that assumes
+ * one storey is that a neighbour is found by x,z. Leave it out and a ceiling
+ * run laid over a floor run merges with it silently: boxes change storey at
+ * every crossing, which draws as a conveyor that teleports.
+ */
+const deckKey = (c) => `${c.x},${c.z},${deckOf(c)}`;
+
+/** The cell one quarter turn off this one, on this one's own deck. */
+const stepFrom = (c, r) => ({ ...anchorTile(c.x, c.z, r), deck: deckOf(c) });
+
+/**
+ * The tiles a loader can reach — four beside it, or the ONE beneath it.
+ *
+ * An overhead loader is deliberately the weaker of the two, and that is what
+ * keeps a ceiling run from being a floor run that costs no floor: a run down an
+ * aisle serves the units either side of every cell, where a duct over the same
+ * aisle serves whatever it is directly above. One machine per unit against one
+ * per pair. The ceiling buys you the SQUARE back and charges you in loaders.
+ *
+ * Here rather than in either half, because FIVE loops enumerate a loader's
+ * sides and every one of them has to agree: the swing that pours, the two
+ * `conveyorMeets`/`conveyorServes` walks that say what a run reaches, and the
+ * chevrons and spurs the renderer draws. Written out four-ways in any one of
+ * them, an overhead loader either serves shelves it cannot see or is drawn
+ * reaching them — and a mark that promises a hand-over the machine never makes
+ * is the green-ghost bug on a ceiling.
+ */
+export function armReach(c) {
+  if (deckOf(c) === CEILING) return [{ x: c.x, z: c.z }];
+  return [0, 1, 2, 3].map((r) => anchorTile(c.x, c.z, r));
+}
+
 
 /**
  * How far a tunnel reaches, in cells between the two mouths.
@@ -2161,11 +2240,19 @@ export function tunnelExit(L, cell) {
   return null;
 }
 
-/** The conveyor cell standing on this tile, if any. */
-export function conveyorAt(L, x, z) {
+/**
+ * The conveyor cell standing on this tile, if any.
+ *
+ * The deck defaults to the FLOOR, which is what keeps every existing caller —
+ * the ghost, the press, `dropGoods`' rail sweep, the crew — asking exactly the
+ * question they have always asked. Anything that wants the overhead run has to
+ * say so, and a lift answers on both because it is the one piece that spans.
+ */
+export function conveyorAt(L, x, z, deck = 0) {
   const cx = Math.round(x);
   const cz = Math.round(z);
-  return conveyorsOf(L).find((c) => c.x === cx && c.z === cz) ?? null;
+  return conveyorsOf(L).find((c) => c.x === cx && c.z === cz
+    && (c.kind === 'lift' || deckOf(c) === deck)) ?? null;
 }
 
 /**
@@ -2229,29 +2316,38 @@ function conveyorFlow(L) {
   // difference is that a sorter also keeps one side back for its branch.
   const arms = [...(L?.arms ?? []), ...(L?.sorters ?? [])];
   const unders = L?.unders ?? [];
+  const lifts = L?.lifts ?? [];
   const had = FLOW.get(L);
   if (had && had.belts === belts && had.arms === arms.length
     && had.armsRef === (L?.arms ?? []) && had.sortRef === (L?.sorters ?? [])
-    && had.underRef === unders) return had.map;
+    && had.underRef === unders && had.liftRef === lifts) return had.map;
 
-  const cells = [...belts, ...arms, ...unders];
-  const at = new Map(cells.map((c) => [`${c.x},${c.z}`, c]));
+  const cells = [...belts, ...arms, ...unders, ...lifts];
+  // A lift stands on both storeys, so it is filed under both — it is the one
+  // cell a run on either deck may hand to.
+  const at = new Map();
+  for (const c of cells) {
+    if (c.kind === 'lift') {
+      at.set(`${c.x},${c.z},0`, c);
+      at.set(`${c.x},${c.z},${CEILING}`, c);
+    } else at.set(deckKey(c), c);
+  }
   const map = new Map();
 
   /** This cell's conveyor neighbours, with which quarter turn each lies on. */
   const around = (c) => {
     const out = [];
     for (const r of [0, 1, 2, 3]) {
-      const n = anchorTile(c.x, c.z, r);
-      const other = at.get(`${n.x},${n.z}`);
-      if (other) out.push({ x: n.x, z: n.z, r, arm: other.kind === 'arm', cell: other });
+      const n = stepFrom(c, r);
+      const other = at.get(`${n.x},${n.z},${n.deck}`);
+      if (other) out.push({ ...n, r, arm: other.kind === 'arm', cell: other });
     }
     return out;
   };
   /** Is this neighbour known to hand TO us? Then it is not somewhere to hand on. */
   const feedsUs = (o, c) => {
     const to = map.get(o.cell.id);
-    return !!to && to.x === c.x && to.z === c.z;
+    return !!to && to.x === c.x && to.z === c.z && deckOf(to) === deckOf(c);
   };
   /**
    * Is this option a straight continuation — the cell opposite it also being a
@@ -2259,20 +2355,20 @@ function conveyorFlow(L) {
    * handle a chain made ENTIRELY of loaders has.
    */
   const throughR = (c, r) => {
-    const b = anchorTile(c.x, c.z, rot4(r + 2));
-    return at.has(`${b.x},${b.z}`);
+    const b = stepFrom(c, rot4(r + 2));
+    return at.has(`${b.x},${b.z},${b.deck}`);
   };
   const choose = (c, backR) => {
     // A sorter's `rot` side is its BRANCH, never its straight-on. Without this
     // the derivation would happily pick the branch as the pass-through and the
     // piece would have one output that it used twice.
-    const branch = c.kind === 'sorter' ? anchorTile(c.x, c.z, c.rot ?? 0) : null;
+    const branch = c.kind === 'sorter' ? stepFrom(c, c.rot ?? 0) : null;
     const open = around(c).filter((o) => !feedsUs(o, c)
       && !(branch && o.x === branch.x && o.z === branch.z));
     if (!open.length) return null;
     if (backR !== null) {
       const straight = open.find((o) => o.r === backR);
-      if (straight) return { x: straight.x, z: straight.z };
+      if (straight) return { x: straight.x, z: straight.z, deck: straight.deck };
     }
     // Carry the LINE on before preferring a belt. A column of loaders with no
     // plain belt anywhere in it has nothing to seed the walk, and "hand to the
@@ -2283,13 +2379,13 @@ function conveyorFlow(L) {
     const pick = open.find((o) => throughR(c, o.r))
       ?? open.find((o) => !o.arm)
       ?? open[0];
-    return { x: pick.x, z: pick.z };
+    return { x: pick.x, z: pick.z, deck: pick.deck };
   };
 
   // Seed: every plain belt answers for itself.
   const queue = [];
   for (const b of belts) {
-    map.set(b.id, anchorTile(b.x, b.z, b.rot));
+    map.set(b.id, stepFrom(b, b.rot));
     queue.push(b);
   }
 
@@ -2304,7 +2400,7 @@ function conveyorFlow(L) {
   // belt that never delivers.
   for (const u of unders) {
     const far = tunnelExit(L, u);
-    map.set(u.id, far ? { x: far.x, z: far.z } : anchorTile(u.x, u.z, u.rot ?? 0));
+    map.set(u.id, far ? { x: far.x, z: far.z, deck: deckOf(far) } : stepFrom(u, u.rot ?? 0));
     queue.push(u);
   }
 
@@ -2324,8 +2420,8 @@ function conveyorFlow(L) {
     // Loaders only. A sorter's `rot` is the branch, so reading it as the output
     // here would make every sorter in the shop a belt pointing sideways.
     if (a.kind === 'sorter') continue;
-    const f = anchorTile(a.x, a.z, a.rot ?? 0);
-    const other = at.get(`${f.x},${f.z}`);
+    const f = stepFrom(a, a.rot ?? 0);
+    const other = at.get(`${f.x},${f.z},${f.deck}`);
     if (!other) continue;
     // ...and only ever into a PLAIN BELT, which is the whole of what this
     // shortcut was ever for and the only case it can be right about.
@@ -2353,34 +2449,136 @@ function conveyorFlow(L) {
     // which is the answer the walk exists to give.
     if (other.kind !== 'belt') continue;
     const back = map.get(other.id);
-    if (back && back.x === a.x && back.z === a.z) continue;
-    map.set(a.id, { x: f.x, z: f.z });
+    if (back && back.x === a.x && back.z === a.z && deckOf(back) === deckOf(a)) continue;
+    map.set(a.id, { x: f.x, z: f.z, deck: f.deck });
     queue.push(a);
   }
 
   // ...and walk forward. A loader reached from something that hands to it is a
   // loader with a feeder, which is the one fact the derivation was missing.
-  while (queue.length) {
-    const c = queue.shift();
-    // BOTH ways out of a junction. A sorter that only propagated its straight-on
-    // would leave everything down its branch unseeded — and the cells that then
-    // fall back to the per-cell guess are a whole line of loaders that quietly
-    // decide, one by one, to hand sideways into the run next door.
-    const ways = [map.get(c.id)];
-    const br = c.kind === 'sorter' ? anchorTile(c.x, c.z, c.rot ?? 0) : null;
-    if (br && at.has(`${br.x},${br.z}`)) ways.push(br);
-    for (const to of ways) {
-      if (!to) continue;
-      const next = at.get(`${to.x},${to.z}`);
-      if (!next || !derivedFlow(next.kind) || map.has(next.id)) continue;
-      const fromR = [0, 1, 2, 3].find((r) => {
-        const a = anchorTile(next.x, next.z, r);
-        return a.x === c.x && a.z === c.z;
-      });
-      map.set(next.id, choose(next, fromR === undefined ? null : rot4(fromR + 2)));
-      queue.push(next);
+  const walk = () => {
+    while (queue.length) {
+      const c = queue.shift();
+      // BOTH ways out of a junction. A sorter that only propagated its
+      // straight-on would leave everything down its branch unseeded — and the
+      // cells that then fall back to the per-cell guess are a whole line of
+      // loaders that quietly decide, one by one, to hand sideways into the run
+      // next door.
+      const ways = [map.get(c.id)];
+      const br = c.kind === 'sorter' ? stepFrom(c, c.rot ?? 0) : null;
+      if (br && at.has(`${br.x},${br.z},${br.deck}`)) ways.push(br);
+      for (const to of ways) {
+        if (!to) continue;
+        const next = at.get(`${to.x},${to.z},${deckOf(to)}`);
+        if (!next || !derivedFlow(next.kind) || map.has(next.id)) continue;
+        // Which side it arrived from — and a crate off a LIFT arrived from
+        // below or above, which is no quarter turn at all. `null` is the honest
+        // answer and the one `choose` already has a branch for: there is no
+        // straight-on to prefer, so the cell picks by the ordinary rules. Made
+        // to guess a compass side instead, the first cell of every overhead run
+        // would carry straight on in whatever direction the lift happened to
+        // sit.
+        const fromR = c.kind === 'lift' ? undefined : [0, 1, 2, 3].find((r) => {
+          const a = stepFrom(next, r);
+          return a.x === c.x && a.z === c.z && a.deck === deckOf(c);
+        });
+        map.set(next.id, choose(next, fromR === undefined ? null : rot4(fromR + 2)));
+        queue.push(next);
+      }
     }
+  };
+  walk();
+
+  /**
+   * ...and THEN the lifts, which is a second pass and has to be.
+   *
+   * A lift is the only cell whose answer is not on its own storey, and which
+   * way it carries is read off whoever hands to it: a floor run arriving means
+   * up, a ceiling run arriving means down. Build one at the end of an aisle and
+   * it lifts, one at the end of the duct and it drops, and nobody configures
+   * anything — which is the whole reason it has no `rot`, since `rot` is the
+   * field the R key clears (`FIXTURES.lift`).
+   *
+   * It was resolved in the seeding loop above, where the only feeder it could
+   * safely ask was a DECLARED one — a plain belt or a tunnel mouth, aimed by
+   * somebody, able to answer with nothing else known. Asking a loader there is
+   * unbounded recursion into this very function and it took the server down
+   * once. So a shaft fed only by loaders fell through to the guess, for ever,
+   * whatever was actually plugged into it — and the guess is "up off the
+   * floor", so a lift at the end of a duct with a loader feeding it went UP,
+   * which is nowhere. What that reads as is a crate parking on a lift and
+   * refusing to come down.
+   *
+   * The recursion is not a fact about lifts, it is a fact about WHEN. After the
+   * walk every loader and sorter the run can reach has an answer sitting in
+   * `map`, so the same question is a lookup rather than a call — and the
+   * feeders that could not be asked at seeding time are exactly the ones that
+   * are known now. Then the walk runs again, from the lifts, so an overhead
+   * run's own loaders are derived off the storey the shaft actually chose.
+   */
+  const liftTo = (f) => {
+    /** Where this neighbour hands its crate, without asking anybody. */
+    const goes = (o) => {
+      const out = [map.get(o.id)];
+      const br = o.kind === 'sorter' ? stepFrom(o, o.rot ?? 0) : null;
+      if (br && at.has(`${br.x},${br.z},${br.deck}`)) out.push(br);
+      return out;
+    };
+    // Fed from BOTH — a loop that goes up one shaft and down this one — takes
+    // the floor's answer, arbitrarily and on purpose: some answer beats none,
+    // and the second feeder is a run the player can see is joined to the wrong
+    // end.
+    let from = null;
+    for (const d of [0, CEILING]) {
+      for (const r of [0, 1, 2, 3]) {
+        const n = anchorTile(f.x, f.z, r);
+        const other = at.get(`${n.x},${n.z},${d}`);
+        // Never another lift. A shaft's far cell is never one (see below), so a
+        // lift cannot be handed a box by one, and asking would be the same
+        // ordering problem one storey along.
+        if (!other || other.id === f.id || other.kind === 'lift') continue;
+        if (goes(other).some((w) => w && w.x === f.x && w.z === f.z && deckOf(w) === d)) {
+          from = d;
+          break;
+        }
+      }
+      if (from !== null) break;
+    }
+    // Nobody hands to it at all — a shaft still being built, or one reached
+    // only through cells the walk could not resolve. Up off the floor, down off
+    // the ceiling: the storey it is standing on is the honest guess about which
+    // way it carries.
+    const deck = from === null
+      ? (deckOf(f) === CEILING ? 0 : CEILING)
+      : (from === CEILING ? 0 : CEILING);
+    /**
+     * ...and it hands to a cell BESIDE it up there, never to its own square.
+     *
+     * Its own square on the far deck is the lift again — it answers
+     * `conveyorAt` on both storeys, which is what lets a run on either one hand
+     * to it — so "straight up" would be a cell whose `next` is its own id.
+     * Nothing errors and the box arrives where it already is, for ever.
+     */
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(f.x, f.z, r);
+      const other = at.get(`${n.x},${n.z},${deck}`);
+      if (!other || other.id === f.id || other.kind === 'lift') continue;
+      // Never back onto a feeder, which is a two-cell tug of war. Derived cells
+      // downstream of this shaft have no answer yet, so they cannot look like
+      // one; the ones that do are genuinely pointing in.
+      const back = map.get(other.id);
+      if (back && back.x === f.x && back.z === f.z && deckOf(back) === deck) continue;
+      return { x: n.x, z: n.z, deck };
+    }
+    // A shaft with nothing beside it on the far deck is an ordinary thing to
+    // have half-built, so it is a TERMINUS rather than a hang.
+    return null;
+  };
+  for (const f of lifts) {
+    map.set(f.id, liftTo(f));
+    queue.push(f);
   }
+  walk();
 
   // Anything the walk never reached has no belt upstream of it at all. Resolve
   // one, then PROPAGATE from it the same way — otherwise every cell of a
@@ -2405,30 +2603,20 @@ function conveyorFlow(L) {
      * answered this way: a loader with a feeder was resolved above and is part
      * of a run whatever it pours into.
      */
-    const out = c.kind === 'arm' ? anchorTile(c.x, c.z, c.rot ?? 0) : null;
-    if (out && !at.has(`${out.x},${out.z}`) && unitOn(L, out.x, out.z)) {
+    // A CEILING loader is a terminus the same way, and it is the one that does
+    // not read its `rot`: it serves the unit directly beneath it (`armDeck`),
+    // so the tile it empties into is its own. Left out, an overhead loader is
+    // the beltless leftover this branch is about and guesses a neighbour.
+    const out = c.kind === 'arm'
+      ? (deckOf(c) === CEILING ? { x: c.x, z: c.z } : anchorTile(c.x, c.z, c.rot ?? 0))
+      : null;
+    if (out && !at.has(`${out.x},${out.z},${deckOf(c)}`) && unitOn(L, out.x, out.z)) {
       map.set(c.id, null);
       continue;
     }
     map.set(c.id, choose(c, null));
     queue.push(c);
-    while (queue.length) {
-      const q = queue.shift();
-      const ways = [map.get(q.id)];
-      const b2 = q.kind === 'sorter' ? anchorTile(q.x, q.z, q.rot ?? 0) : null;
-      if (b2 && at.has(`${b2.x},${b2.z}`)) ways.push(b2);
-      for (const to of ways) {
-        if (!to) continue;
-        const next = at.get(`${to.x},${to.z}`);
-        if (!next || !derivedFlow(next.kind) || map.has(next.id)) continue;
-        const fromR = [0, 1, 2, 3].find((r) => {
-          const a = anchorTile(next.x, next.z, r);
-          return a.x === q.x && a.z === q.z;
-        });
-        map.set(next.id, choose(next, fromR === undefined ? null : rot4(fromR + 2)));
-        queue.push(next);
-      }
-    }
+    walk();
   }
 
   FLOW.set(L, {
@@ -2437,6 +2625,7 @@ function conveyorFlow(L) {
     armsRef: L?.arms ?? [],
     sortRef: L?.sorters ?? [],
     underRef: unders,
+    liftRef: lifts,
     map,
   });
   return map;
@@ -2452,10 +2641,15 @@ export function conveyorNext(L, cell) {
   // draws as a tunnel that is simply a short belt.
   if (cell.kind === 'under') {
     const far = tunnelExit(L, cell);
-    if (far) return { x: far.x, z: far.z };
-    return anchorTile(cell.x, cell.z, cell.rot);
+    if (far) return { x: far.x, z: far.z, deck: deckOf(far) };
+    return stepFrom(cell, cell.rot);
   }
-  if (!derivedFlow(cell.kind)) return anchorTile(cell.x, cell.z, cell.rot);
+  // The one cell that changes storey. Not aimed, so R cannot break it — and
+  // read off the flow map rather than worked out here, because which way it
+  // carries depends on who feeds it and that is not known until the walk has
+  // run. See `liftTo`.
+  if (cell.kind === 'lift') return conveyorFlow(L).get(cell.id) ?? null;
+  if (!derivedFlow(cell.kind)) return stepFrom(cell, cell.rot);
   return conveyorFlow(L).get(cell.id) ?? null;
 }
 
@@ -2469,8 +2663,8 @@ export function conveyorNext(L, cell) {
  */
 export function conveyorBranch(L, cell) {
   if (!cell || cell.kind !== 'sorter') return null;
-  const b = anchorTile(cell.x, cell.z, cell.rot ?? 0);
-  return conveyorAt(L, b.x, b.z) ? b : null;
+  const b = stepFrom(cell, cell.rot ?? 0);
+  return conveyorAt(L, b.x, b.z, b.deck) ? b : null;
 }
 
 /**
@@ -2493,13 +2687,14 @@ export function conveyorBranch(L, cell) {
 export function conveyorBranches(L, cell) {
   if (!cell || cell.kind !== 'sorter') return [];
   const straight = conveyorNext(L, cell);
-  const named = anchorTile(cell.x, cell.z, cell.rot ?? 0);
+  const named = stepFrom(cell, cell.rot ?? 0);
   const out = [];
   for (const r of [0, 1, 2, 3]) {
-    const n = anchorTile(cell.x, cell.z, r);
-    const other = conveyorAt(L, n.x, n.z);
+    const n = stepFrom(cell, r);
+    const other = conveyorAt(L, n.x, n.z, n.deck);
     if (!other) continue;
-    if (straight && n.x === straight.x && n.z === straight.z) continue;
+    if (straight && n.x === straight.x && n.z === straight.z
+      && deckOf(straight) === n.deck) continue;
     // The side you AIMED it at is a branch full stop — the one thing on this
     // piece the player said out loud, and it outranks every derivation here.
     //
@@ -2517,9 +2712,9 @@ export function conveyorBranches(L, cell) {
     // rather than a derivation artefact. Only that one case is refused.
     const isNamed = n.x === named.x && n.z === named.z;
     const to = conveyorNext(L, other);
-    const back = to && to.x === cell.x && to.z === cell.z;
+    const back = to && to.x === cell.x && to.z === cell.z && deckOf(to) === deckOf(cell);
     if (back && (!isNamed || !derivedFlow(other.kind))) continue;
-    out.push({ x: n.x, z: n.z });
+    out.push({ x: n.x, z: n.z, deck: n.deck });
   }
   // The side `rot` names goes first — a tie is settled by what you aimed it at.
   out.sort((a, b) => (a.x === named.x && a.z === named.z ? -1 : 0)
@@ -2556,7 +2751,12 @@ export function conveyorRun(L, cell) {
     out.push(at);
     for (const to of [conveyorNext(L, at), ...conveyorBranches(L, at)]) {
       if (!to) continue;
-      const on = conveyorAt(L, to.x, to.z);
+      // ...on the storey the way out names. Read off the floor, this walk stops
+      // dead at the first overhead cell — so `conveyorMeets` answers "that run
+      // serves nothing" about a whole duct, and every judgement built on it (a
+      // junction's keen test, the skip guard on a loader's lift) is made about
+      // a run the walk never saw.
+      const on = conveyorAt(L, to.x, to.z, deckOf(to));
       if (on && !seen.has(on.id)) queue.push(on);
     }
   }
@@ -2579,22 +2779,34 @@ export function conveyorRun(L, cell) {
  * skipping. Not a bug in any of the five: a bug in there being five.
  */
 export function alongPath(pts, at) {
-  if (!pts?.length) return { x: 0, z: 0, leg: 0, k: 0 };
-  if (pts.length === 1) return { x: pts[0].x, z: pts[0].z, leg: 0, k: 0 };
+  // The storey is the THIRD axis of this polyline, not a label on its ends. A
+  // lift's leg is zero long in x,z, so measured flat it is skipped by the guard
+  // below and the box is drawn on the far deck the tick it sets off — the ride
+  // is the one part of an overhead run you can actually watch, and it would not
+  // exist. `deck` comes back as a fraction for exactly that reason.
+  const d = (p) => (p?.deck === CEILING ? CEILING : 0);
+  if (!pts?.length) return { x: 0, z: 0, deck: 0, leg: 0, k: 0 };
+  if (pts.length === 1) return { x: pts[0].x, z: pts[0].z, deck: d(pts[0]), leg: 0, k: 0 };
   let left = Math.max(0, at);
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1];
     const b = pts[i];
-    const seg = Math.hypot(b.x - a.x, b.z - a.z);
+    const seg = Math.hypot(b.x - a.x, b.z - a.z, d(b) - d(a));
     if (seg <= 0) continue;
     if (left <= seg || i === pts.length - 1) {
       const k = Math.min(1, left / seg);
-      return { x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k, leg: i - 1, k };
+      return {
+        x: a.x + (b.x - a.x) * k,
+        z: a.z + (b.z - a.z) * k,
+        deck: d(a) + (d(b) - d(a)) * k,
+        leg: i - 1,
+        k,
+      };
     }
     left -= seg;
   }
   const last = pts[pts.length - 1];
-  return { x: last.x, z: last.z, leg: pts.length - 2, k: 1 };
+  return { x: last.x, z: last.z, deck: d(last), leg: pts.length - 2, k: 1 };
 }
 
 /**
@@ -2652,13 +2864,20 @@ export function conveyorLines(L) {
   const arms = L?.arms ?? [];
   const sorters = L?.sorters ?? [];
   const unders = L?.unders ?? [];
+  const lifts = L?.lifts ?? [];
   const had = LINES.get(L);
   if (had && had.belts === belts && had.arms === arms
-    && had.sorters === sorters && had.unders === unders) return had.out;
+    && had.sorters === sorters && had.unders === unders && had.lifts === lifts) return had.out;
 
-  const cells = [...belts, ...arms, ...sorters, ...unders];
-  const grid = new Map(cells.map((c) => [`${c.x},${c.z}`, c]));
-  const cellOf = (p) => (p ? grid.get(`${p.x},${p.z}`) ?? null : null);
+  const cells = [...belts, ...arms, ...sorters, ...unders, ...lifts];
+  const grid = new Map();
+  for (const c of cells) {
+    if (c.kind === 'lift') {
+      grid.set(`${c.x},${c.z},0`, c);
+      grid.set(`${c.x},${c.z},${CEILING}`, c);
+    } else grid.set(deckKey(c), c);
+  }
+  const cellOf = (p) => (p ? grid.get(`${p.x},${p.z},${deckOf(p)}`) ?? null : null);
 
   // Every way out of every cell, which is one for all of them but a junction.
   const ways = new Map();
@@ -2708,17 +2927,62 @@ export function conveyorLines(L) {
       c = n;
     }
     if (!path.length) return;
+    /**
+     * ...and the polyline, which is NOT one point per cell wherever a lift is.
+     *
+     * A lift hands to a cell beside it on the other storey, so the leg from one
+     * to the other changes x,z and deck at once — and `alongPath` interpolates
+     * a leg, so the box flies the diagonal: up and over, through the wall of
+     * its own shaft, rather than up the shaft and out along the duct. It is the
+     * one hop in the whole system anybody actually watches, and cutting the
+     * corner is the single thing that makes it read as a cheat.
+     *
+     * So a riser is inserted, and it goes over the SHAFT: the change of storey
+     * happens on the lift's own square, because the shaft is the only thing in
+     * the shop that can carry a box between two of them. Which of the pair that
+     * is depends on which way the goods are going, and getting it wrong is only
+     * visible in one direction — put on the near cell always, a box going UP
+     * rises in the shaft and a box coming DOWN steps off the end of the duct
+     * into thin air and descends beside it, then slides along the floor to the
+     * shaft it never entered. Half of it looks perfect, which is why it shipped.
+     *
+     * `dist` charges both legs, which keeps the crate's one number and the
+     * drawn polyline measuring the same journey — they are the same number in
+     * two units otherwise, and every jam behind a lift would sit a tile out.
+     *
+     * WHICH MAKES THIS LIST LONGER THAN `cells`, and that is the whole reason
+     * it is built here rather than mapped off the path afterwards. It was
+     * mapped, and the two halves shipped disagreeing: `dist` charged the riser
+     * and `pts` never had one, so `alongPath` was handed two tiles of travel to
+     * spend on a leg 1.41 long and the box flew the diagonal anyway — the
+     * corner-cutting this note is about, still there, with the fix for it
+     * sitting five lines above unused. `dist[i]` is the arc length of `pts` up
+     * to cell `i`'s own point either way, which is the only thing any reader of
+     * the two asks of them.
+     */
     const dist = [0];
+    const pts = [{ x: path[0].x, z: path[0].z, deck: deckOf(path[0]) }];
     for (let i = 1; i < path.length; i++) {
-      dist.push(dist[i - 1]
-        + Math.abs(path[i].x - path[i - 1].x) + Math.abs(path[i].z - path[i - 1].z));
+      const a = path[i - 1];
+      const b = path[i];
+      const flat = Math.abs(b.x - a.x) + Math.abs(b.z - a.z);
+      const rise = deckOf(b) !== deckOf(a);
+      if (rise && flat) {
+        const shaft = a.kind === 'lift' ? a : b;
+        const flatDeck = a.kind === 'lift' ? deckOf(b) : deckOf(a);
+        pts.push({ x: shaft.x, z: shaft.z, deck: flatDeck });
+        dist.push(dist[i - 1] + 1 + flat);
+      } else {
+        dist.push(dist[i - 1] + (flat || 1));
+      }
+      pts.push({ x: b.x, z: b.z, deck: deckOf(b) });
     }
     const line = {
       id: path[0].id,
       cells: path,
       dist,
       len: dist[dist.length - 1],
-      pts: path.map((p) => ({ x: p.x, z: p.z })),
+      pts,
       // Where it hands on. Per-crate at a junction, so the field is the list and
       // `sorterOut` picks; everywhere else there is exactly one answer.
       outs: ways.get(path[path.length - 1].id) ?? [],
@@ -2777,7 +3041,7 @@ export function conveyorLines(L) {
   }
 
   const out = { lines, byCell, order, feeds: from };
-  LINES.set(L, { belts, arms, sorters, unders, out });
+  LINES.set(L, { belts, arms, sorters, unders, lifts, out });
   return out;
 }
 
@@ -2872,8 +3136,7 @@ export function conveyorMeets(L, cell) {
   };
   for (const c of conveyorRun(L, cell)) {
     if (c.kind !== 'arm') continue;
-    for (const r of [0, 1, 2, 3]) {
-      const n = anchorTile(c.x, c.z, r);
+    for (const n of armReach(c)) {
       take(out.shelves, L?.shelves, n);
       take(out.stations, L?.stations, n);
       take(out.bins, L?.bins, n);
@@ -2894,8 +3157,7 @@ export function conveyorServes(L, cell) {
   const seen = new Set();
   for (const c of conveyorRun(L, cell)) {
     if (c.kind !== 'arm') continue;
-    for (const r of [0, 1, 2, 3]) {
-      const n = anchorTile(c.x, c.z, r);
+    for (const n of armReach(c)) {
       const u = units.find((sh) => sh.x === n.x && sh.z === n.z);
       if (u && !seen.has(u.id)) { seen.add(u.id); out.push(u); }
     }
@@ -2943,6 +3205,11 @@ export function fixturesOf(L) {
   for (const b of L.belts ?? []) out.push({ kind: 'belt', ...b });
   for (const a of L.arms ?? []) out.push({ kind: 'arm', ...a });
   for (const s of L.sorters ?? []) out.push({ kind: 'sorter', ...s });
+  // ...and `unders`, which was the fourth to be left out and had been since the
+  // day tunnels shipped: a mouth did not survive a shell stamp and nothing
+  // warned about stranding one.
+  for (const u of L.unders ?? []) out.push({ kind: 'under', ...u });
+  for (const f of L.lifts ?? []) out.push({ kind: 'lift', ...f });
   // Props carry their own kind, because there is more than one and they are not
   // told apart by which list they came out of.
   for (const p of L.props ?? []) out.push({ ...p });
@@ -2999,8 +3266,16 @@ export function fixturesOf(L) {
  * asked to re-derive where you were.
  */
 function conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping) {
-  if (!def.flow || ground !== T.BELT || keeping) return null;
-  const here = conveyorAt(L, x, z);
+  if (!def.flow || keeping) return null;
+  const deck = deckOf(spec);
+  // Overhead, the tile says NOTHING. A ceiling cell stamps no ground — that is
+  // the whole of what it gives back — so `T.BELT` is not there to refuse the
+  // second one, exactly as `blocked` is not there to refuse a second belt. This
+  // is the only thing standing between an overhead run and an unlimited stack of
+  // them on one square, which is the trap `verify:catalog` already asserts about
+  // every walk-over kind.
+  if (deck !== CEILING && ground !== T.BELT) return null;
+  const here = conveyorAt(L, x, z, deck);
   if (!here) return null;
   // ITSELF, first — which is what makes a conveyor rotatable at all.
   //
@@ -3052,6 +3327,30 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
     if (c.x < 1 || c.z < 1 || c.x >= L.w - 1 || c.z >= L.h - 1) {
       return no('off the edge of the world');
     }
+  }
+
+  /**
+   * A CEILING conveyor asks the roof, and the roof has two questions on it.
+   *
+   * Everything below this line is about the floor — what the ground is made of,
+   * what is standing on it, whether the queue can still reach the till — and not
+   * one of those is a fact about a duct four metres up. Asked of an overhead run
+   * they are all the wrong question with a plausible answer: a run could not
+   * cross its own aisle, could not pass over a shelf, and could not leave the
+   * building's floor plan, which is the entire reason to lay one.
+   *
+   * So the two that DO apply are asked here and the rest are skipped. It has to
+   * be indoors, because a ceiling is a thing a roof gives you and open sky does
+   * not — and the run may not stack, which `conveyorSwap` answers on its own
+   * deck since there is no tile stamp up there to do it.
+   */
+  if (deckOf(spec) === CEILING) {
+    if (!def.flow) return no('only a conveyor can go on the ceiling');
+    if (!cells.every((c) => insideStore(L, c.x, c.z))) return no('there is no roof there');
+    const swapUp = conveyorSwap(L, def, spec, T.BELT, x, z, ignoreId, keeping);
+    if (swapUp) return swapUp;
+    if (conveyorAt(L, x, z, CEILING)) return no('there is already a run overhead');
+    return { ok: true };
   }
 
   // Two questions where there used to be one, because a tile used to answer

@@ -348,6 +348,11 @@ export const KIND_TOOLS = {
     group: 'logistics',
     blurb: 'Two mouths, up to four cells apart, both facing the way goods go. The squares between stay yours.',
   },
+  lift: {
+    icon: ICONS.station,
+    group: 'logistics',
+    blurb: 'Joins the floor to the ceiling. Whatever feeds it decides which way it carries.',
+  },
   plot: {
     icon: ICONS.plot,
     group: 'farm',
@@ -1468,7 +1473,11 @@ function itemRows(ui) {
           + 'or press Stock to put it back now.',
       }
       : crafted
-        ? { icon: ICONS.station, title: `Made in the ${applianceName(madeBy.get(it.id))}, not ordered.` }
+        ? {
+          icon: ICONS.station,
+          title: `Made in the ${applianceName(madeBy.get(it.id))}. `
+            + 'You can order it too — your crew never will, because making it is cheaper.',
+        }
         : (!homeless && !inbound && !short && !hot && held > 0)
           ? { icon: ICONS.crate, title: `On ${on} shelf${on === 1 ? '' : 'ves'}.` }
           : null;
@@ -1576,7 +1585,7 @@ function itemRows(ui) {
       // finite stand-in `dueIn` uses and falls straight through to the keys it
       // always sorted on.
       backIn: dropped ? dropped.left : 1e9,
-      dim: homeless || (!crafted && cash < it.base_cost * 6),
+      dim: homeless || cash < it.base_cost * 6,
       /**
        * THE ROW OPENS THE ITEM.
        *
@@ -1609,42 +1618,37 @@ function itemRows(ui) {
        * refuses it, and a control the shop will refuse is the green-ghost bug
        * wearing a price.
        *
-       * **`Stock` is not one of the buying controls, and it sits outside the
-       * `crafted` guard for that reason.** It went inside first, which produced
-       * the one row in the panel that could not be true: a made-here item that
-       * the crew had stopped putting out, wearing the ✕ that says so, in the tab
-       * built to list exactly that — and no way whatever to undo it, because the
-       * guard above it is about *ordering* and this press is not an order. The
-       * whole complaint this feature answers is a shop decision you cannot see;
-       * showing it and then withholding the switch is a worse version of the
-       * same thing. Nothing about a sourdough recipe stops the shop giving up on
-       * the loaf, so nothing about it should stop you saying carry on.
+       * **`Stock` is not one of the buying controls.** It takes the slot
+       * outright while the mark is up, because buying six of something your
+       * crew will carry straight back out to the yard is the one press on this
+       * row that cannot work.
        *
-       * And it takes the slot outright while the mark is up, for the reason the
-       * paragraph above gives: buying six of something your crew will carry
-       * straight back out to the yard is the one press on this row that cannot
-       * work.
+       * **A made-here row buys like any other now**, and the guard that used to
+       * sit here is gone with the server's — see `Game.buyStock`. It had the
+       * shape of a green-ghost fix and had become the inverse: `buy-stock` on a
+       * wheel of cheese works, so a row with no button was the panel
+       * withholding a press the shop would honour. The crew still never order
+       * one, which is what the `mark` says and what keeps the Made-here tab
+       * worth having.
        */
       button: dropped
         ? { label: 'Stock', run: () => ui.net.send('stock-again', { itemId: it.id }) }
-        : crafted
-          ? null
-          : (inbound > 0 && !(due?.legs ?? []).every((l) => l.onVan))
-            ? {
-              label: 'Cancel',
-              danger: true,
-              run: () => ui.net.send('cancel-order', { itemId: it.id }),
-            }
-            // Tagged because the tour points at it — see `data-btn-tag` in
-            // ui.js. Only the ordering press carries one: Cancel and Stock are
-            // the same slot saying something else, and a mark that landed on
-            // either would be teaching a press that is not the one being asked
-            // for.
-            : {
-              label: '×6',
-              tag: 'buy',
-              run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }),
-            },
+        : (inbound > 0 && !(due?.legs ?? []).every((l) => l.onVan))
+          ? {
+            label: 'Cancel',
+            danger: true,
+            run: () => ui.net.send('cancel-order', { itemId: it.id }),
+          }
+          // Tagged because the tour points at it — see `data-btn-tag` in
+          // ui.js. Only the ordering press carries one: Cancel and Stock are
+          // the same slot saying something else, and a mark that landed on
+          // either would be teaching a press that is not the one being asked
+          // for.
+          : {
+            label: '×6',
+            tag: 'buy',
+            run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }),
+          },
     };
   // `todo` leads, because the first tab is a queue of four kinds of job and the
   // kinds used to be tabs — every key after it is what orders one rank within
@@ -1767,8 +1771,14 @@ function orderRows(ui) {
  *   keys), so the list opens on what is already coming — which is the one thing
  *   the retired On-the-way tab was for, minus a tab that reads 0 most days and
  *   can never be acted on. The header says how many are out; the row says when.
- * - **Made here** — unchanged, and still a tab rather than a slice of Buy,
- *   because you cannot order it. That is a different verb, not a filter.
+ * - **Made here** — still a tab rather than a slice of Buy, and the reason
+ *   changed under it without the tab needing to. It used to be "you cannot
+ *   order this", which was a refusal and therefore a verb; the van sells
+ *   everything now (`Game.buyStock`), so what these rows have in common is that
+ *   **your crew will never order one** — the shop leaves them to the kitchen,
+ *   because making is cheaper on all but one of them. Still a verb, still not a
+ *   filter: the ×6 is there if you want it, and nothing else in the panel is a
+ *   list of things only you will ever buy.
  *
  * `quiet` is the other half: a badge is a count of work, so only the first tab
  * wears one. See `grouped`.
@@ -1788,6 +1798,11 @@ const STOCK_TABS = [
     icon: ICONS.crate,
     quiet: true,
     test: (r) => !r.crafted,
+    // The empty line is `Nothing ${label} right now`, which is a sentence for a
+    // tab whose name is a noun and "Nothing buy right now" for one whose name
+    // is a verb. Said here rather than by renaming the tab, because the strip
+    // is something you learn the shape of and "Buy" is the right word on it.
+    empty: 'Nothing to buy right now.',
   },
   // What is left is exactly the crafted goods, and they are here to be
   // counted rather than bought — how many smoothies you have is worth
@@ -1962,6 +1977,9 @@ function grouped(rows, buckets, pin) {
       icon: b.icon,
       passive: b.passive,
       quiet: b.quiet,
+      // What to say when the bucket is empty, for a tab whose label is not a
+      // phrase. See `empty` on `STOCK_TABS`.
+      empty: b.empty,
       count: bins[i].length,
     },
     ...bins[i],

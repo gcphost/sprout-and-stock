@@ -27,7 +27,7 @@ import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
   FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
-  footprint, sizeOf,
+  footprint, sizeOf, deckOf, CEILING,
 } from '../shared/build.js';
 
 export { T };
@@ -215,6 +215,7 @@ export function generateLayout({
   arms = 0,
   sorters = 0,
   unders = 0,
+  lifts = 0,
   checkouts = 1,
   plots = 4,
   // Placed only, for `bins`' reason: nothing procedural puts an animal in a
@@ -230,7 +231,7 @@ export function generateLayout({
   shell = null,
 } = {}) {
   const req = {
-    seed, shelves, freezers, warmers, bins, belts, arms, sorters, unders, checkouts, plots, pens, stations,
+    seed, shelves, freezers, warmers, bins, belts, arms, sorters, unders, lifts, checkouts, plots, pens, stations,
     placements: placements ?? [],
     // Walls, windows and doorways the player drew. An overlay for the same
     // reason `placements` is one: the generator rebuilds the shell from scratch
@@ -660,6 +661,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const armsOut = [];
   const sortersOut = [];
   const undersOut = [];
+  const liftsOut = [];
   const layoutSoFar = () => ({
     w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ },
     bay, drop, break: breakRoom,
@@ -667,7 +669,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
     pens: pensOut,
     props: propsOut, bins: binsOut, belts: beltsOut, arms: armsOut, sorters: sortersOut,
-    unders: undersOut,
+    unders: undersOut, lifts: liftsOut,
     ground: groundOut,
     blocked,
   });
@@ -699,6 +701,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     arm: req.arms,
     sorter: req.sorters,
     under: req.unders,
+    lift: req.lifts,
     checkout: req.checkouts,
     plot: req.plots,
     pen: req.pens,
@@ -872,11 +875,17 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // `blocked` does for everything else — it is what makes the square a
       // conveyor, and it is what refuses the second belt on it, exactly as
       // `T.PLOT` refuses the second bed.
-      set(p.x, p.z, T.BELT);
+      //
+      // ...and OVERHEAD it does neither, which is the whole of what a ceiling
+      // run buys: the square underneath keeps its floor, its walk grid and its
+      // right to hold a shelf. `canPlace` does the refusing up there instead,
+      // because there is no tile left to do it.
+      if (deckOf(p) !== CEILING) set(p.x, p.z, T.BELT);
       const belt = makeBelt(p.id, p.x, p.z, p.rot ?? 0);
       belt.tier = p.tier ?? 1;
       belt.variant = p.variant ?? '';
       belt.piece = p.piece ?? null;
+      belt.deck = deckOf(p);
       beltsOut.push(belt);
       // Nothing reserved. A belt has no working spot, so there is no tile the
       // generator has to keep clear for it.
@@ -885,12 +894,23 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // What it does NOT do is stamp anything on the cells it reaches over:
       // those belong to nobody, which is the entire feature. See
       // `FIXTURES.under`.
-      set(p.x, p.z, T.BELT);
+      if (deckOf(p) !== CEILING) set(p.x, p.z, T.BELT);
       const under = makeUnder(p.id, p.x, p.z, p.rot ?? 0);
       under.tier = p.tier ?? 1;
       under.variant = p.variant ?? '';
       under.piece = p.piece ?? null;
+      under.deck = deckOf(p);
       undersOut.push(under);
+    } else if (p.kind === 'lift') {
+      // The one piece on both storeys, so it stamps and occupies the floor cell
+      // like the housing it is — you cannot walk through the column.
+      occupy(p.x, p.z);
+      set(p.x, p.z, T.BELT);
+      const lift = makeLift(p.id, p.x, p.z);
+      lift.tier = p.tier ?? 1;
+      lift.variant = p.variant ?? '';
+      lift.piece = p.piece ?? null;
+      liftsOut.push(lift);
     } else if (p.kind === 'arm') {
       // A loader is a belt cell by its STAMP and not by its footprint, and those
       // two came apart the day it became a housing. It still sets `T.BELT` — that
@@ -905,12 +925,15 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // like is shoppers strolling straight through the machine — a rule that is
       // enforced in one of the two places it has to be is not half enforced, it
       // is off.
-      if (FIXTURES[p.kind]?.blocks) occupy(p.x, p.z);
-      set(p.x, p.z, T.BELT);
+      // Overhead it does neither — see the belt branch. A loader four metres up
+      // is not a machine you walk into.
+      if (FIXTURES[p.kind]?.blocks && deckOf(p) !== CEILING) occupy(p.x, p.z);
+      if (deckOf(p) !== CEILING) set(p.x, p.z, T.BELT);
       const arm = makeArm(p.id, p.x, p.z, p.rot ?? 0);
       arm.tier = p.tier ?? 1;
       arm.variant = p.variant ?? '';
       arm.piece = p.piece ?? null;
+      arm.deck = deckOf(p);
       // Which half of its job it does. Carried across a re-flow like a sorter's
       // `auto`, or every wall segment you drag hands the shop's loaders back
       // their pickup behind you.
@@ -922,12 +945,13 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // — so the same pair, read from the same table. The only thing it has that
       // a belt has not is a second way out, and that is read at tick time off
       // `rot` rather than reserved here.
-      if (FIXTURES[p.kind]?.blocks) occupy(p.x, p.z);
-      set(p.x, p.z, T.BELT);
+      if (FIXTURES[p.kind]?.blocks && deckOf(p) !== CEILING) occupy(p.x, p.z);
+      if (deckOf(p) !== CEILING) set(p.x, p.z, T.BELT);
       const sorter = makeSorter(p.id, p.x, p.z, p.rot ?? 0);
       sorter.tier = p.tier ?? 1;
       sorter.variant = p.variant ?? '';
       sorter.piece = p.piece ?? null;
+      sorter.deck = deckOf(p);
       // Whether the crew choose its branch for it. Carried across a re-flow like
       // a shelf's `managed`, or every wall segment you drag turns the shop's
       // sorters back on behind you.
@@ -1218,6 +1242,13 @@ function compose(req, storeW, storeH, allowDrops = true) {
        */
       unders: undersOut,
       /**
+       * ...and the lifts. A fifth list for the same reason again, and one of
+       * its own rather than a `deck` on `belts`, because a lift is the only
+       * cell that is on BOTH storeys — so it is the one piece `conveyorAt`
+       * answers with whichever deck it is asked about.
+       */
+      lifts: liftsOut,
+      /**
        * Which design of floor is painted on each cell that has one.
        *
        * Sparse, and separate from `tiles` on purpose: `tiles` says what may
@@ -1490,6 +1521,25 @@ function makeBelt(id, x, z, rot) {
     x,
     z,
     rot,
+  };
+}
+
+/**
+ * One cell of the lift, which is the only piece that stands on both storeys.
+ *
+ * No `rot`: which way it carries is read off the deck it is on, so there is
+ * nothing here for the R key to clear. See `FIXTURES.lift`.
+ */
+function makeLift(id, x, z) {
+  return {
+    tier: 1,
+    variant: '',
+    id,
+    kind: 'lift',
+    x,
+    z,
+    rot: 0,
+    deck: 0,
   };
 }
 

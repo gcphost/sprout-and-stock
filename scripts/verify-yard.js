@@ -207,16 +207,20 @@ const cellsOf = (pad) => (pad ? pad.cells.map((c) => `${c.x},${c.z}`).sort().joi
  * What the supplier will actually sell you.
  *
  * This read `stack > 0` and called itself orderable, which was true for as long
- * as almost nothing had a recipe. `buyStock` refuses anything a recipe produces
- * — "has to be made in an appliance, not ordered" — so once docs/production.md
- * gave fifty items a recipe the helper was handing back bread and the sweep was
- * failing on an assertion about the YARD. `isCrafted` is the same test
- * `buyStock` runs, asked here rather than guessed at.
+ * as almost nothing had a recipe — and then `buyStock` began refusing anything a
+ * recipe produces, docs/production.md gave fifty items a recipe, and the helper
+ * was handing back bread while the sweep failed on an assertion about the YARD.
+ * It grew an `isCrafted` filter for that.
+ *
+ * The refusal is gone again (`Game.buyStock` — the van sells everything, and it
+ * is the CREW who leave recipe outputs to the kitchen), so the filter would now
+ * be the mirror of the same mistake: a helper narrower than the rule, quietly
+ * asserting about a slice of the catalogue. What is left is the one thing that
+ * was always meant — a row you can put in a crate. The comment stays, because
+ * the lesson is the pair: **a sweep that hard-codes a content rule is asserting
+ * against a rule, and the rule is the thing being changed.**
  */
-const orderable = () => {
-  const crafted = new Set(content().recipes.map((r) => r.output_id));
-  return content().items.filter((i) => i.stack > 0 && !crafted.has(i.id)).map((i) => i.id);
-};
+const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.id);
 
 // ---------------------------------------------------------------------------
 // 1. Stamped once, and once means once.

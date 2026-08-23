@@ -45,6 +45,7 @@ import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import { undoStep, recordUndo, undoLast, redoLast, specOf } from './undo.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
+  deckOf, CEILING, armReach,
   conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, conveyorLines, alongPath, tunnelExit, derivedFlow, runCells, runFollows, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
@@ -2046,6 +2047,7 @@ export class Game {
       arms: want.arm ?? 0,
       sorters: want.sorter ?? 0,
       unders: want.under ?? 0,
+      lifts: want.lift ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       // Both call sites, or the shop accepts a pen, charges for it, and drops
@@ -3299,6 +3301,14 @@ export class Game {
         // when a box is drawn between two of them and neither rounding is a lie
         // you would want a light blinking on.
         ...(d.belt ? { belt: d.belt } : {}),
+        // ...and WHICH STOREY it is on, as a fraction, because a lift is the
+        // one hop where the number between 0 and 1 is the whole thing you can
+        // watch. Left off the wire the sim carried the box up perfectly and the
+        // client drew it at `BELT_DECK` the whole way, which is a crate that
+        // rides past the lift along the floor — the run works and the elevator
+        // reads as broken. `Game.create`'s named-field trap said about a
+        // snapshot: out and back are two different pieces of code.
+        ...(d.deck ? { deck: d.deck } : {}),
         // ...and whether it is between the two mouths of a tunnel right now, in
         // which case there is nothing to draw. Derived here rather than stored
         // on the crate: `deliveries` is saved raw, and a transient flag in the
@@ -8794,11 +8804,39 @@ export class Game {
     const item = content().byId.items[itemId];
     if (!p || !item) return err('no such item');
 
-    // Anything a recipe produces has to be made, not ordered. Without this the
-    // supplier sells the finished product too and the appliances are pointless.
-    if (this.isCrafted(itemId)) {
-      return err(`${item.name} has to be made in an appliance, not ordered`);
-    }
+    /**
+     * THE VAN SELLS EVERYTHING. WHAT THE CREW WILL BUY IS THE SEPARATE QUESTION.
+     *
+     * This refused any recipe output outright — *"has to be made in an
+     * appliance, not ordered"* — and the reason was good: without it the
+     * supplier sells the finished product too and the appliances are pointless.
+     * It cost nothing while 24 recipes meant 24 items you could not order out
+     * of 78. docs/production.md authored the graph and it cost a great deal:
+     * **68 of 103 items became craftable, so 68 of 103 stopped being
+     * orderable**, and a new shop could no longer order a loaf of bread — or a
+     * wheel of cheese, which is how it was reported.
+     *
+     * The premise turns out to be measurable rather than a matter of taste, and
+     * it does not hold. Costed against the seeded catalogue, making a thing out
+     * of raws is **cheaper than the van on 67 of the 68**, median 0.54× — so
+     * vertical integration is a *margin* play by construction and does not need
+     * a refusal propping it up. That is docs/production.md's option 2 arriving
+     * without its column: no `buyable` flag, no grandfathered list, one clause
+     * gone. The one exception is `latte` at 1.18×, which is a recipe to reprice
+     * rather than a rule to keep.
+     *
+     * **What did NOT move is the crew.** The refusal was doing a second job
+     * nobody wrote down: it kept the shop's own money off anything the kitchen
+     * makes, and dropping it here alone would have had `restock` topping up a
+     * cheese board from the van while your preserving pot filled crates of the
+     * same thing — the "farm competing with itself" bug of `homeSupply`'s note,
+     * one department along, and reading as an appliance that was never worth
+     * buying. So `pickItem`, `restock` and `larderOrder` each ask `isCrafted`
+     * themselves now. That is this file's oldest line said once more: **the
+     * shop's judgement about its own range was never a rule about what you may
+     * do**, the same split `orders.assign`, `giveUpBoard` and `shelfAccepts`'s
+     * `byHand` all draw.
+     */
 
     /**
      * ONE ORDER IS AS BIG AS IT WAS ASKED FOR, AND `stack` IS NOT AN ORDER.
@@ -10950,10 +10988,10 @@ export class Game {
    * questions, and the day somebody forgot the second one a crate would stop
    * dead at every loader in the shop.
    */
-  beltAt(x, z) {
+  beltAt(x, z, deck = 0) {
     const bx = Math.round(x);
     const bz = Math.round(z);
-    return conveyorAt(this.layout, bx, bz);
+    return conveyorAt(this.layout, bx, bz, deck);
   }
 
   /** The shop's conveyors cut into lines — see `conveyorLines`. */
@@ -11007,11 +11045,26 @@ export class Game {
       w = line.outs[0] ?? null;
     }
     if (!w) return null;
-    const cell = this.beltAt(w.x, w.z);
+    // ON ITS OWN STOREY. Every way out carries the deck it is on, and asked
+    // without one this reads the FLOOR — so a ceiling run handed on to whatever
+    // happened to be underneath it, and to nothing at all where the floor was
+    // bare. Which is a hand-off between two LINES, so a straight duct never
+    // noticed (one line, no exit) and every T overhead was the bug: nothing
+    // below and the box parked on the last cell for the rest of the save, a
+    // floor run below and it dropped four metres onto it. Neither logs a word,
+    // and the second one reads as goods falling off the ceiling.
+    const cell = this.beltAt(w.x, w.z, deckOf(w));
     if (!cell) return null;
     const loc = this.beltLines().byCell.get(cell.id);
     if (!loc) return null;
-    const hop = Math.abs(cell.x - last.x) + Math.abs(cell.z - last.z);
+    // ...and the storey is a tile of the hop, exactly as it is a tile of the
+    // riser `conveyorLines` inserts. `total` is what the crate's own number is
+    // measured against and the polyline below is what it is drawn along, so a
+    // hop that forgot the rise would be the same two-numbers-one-journey
+    // disagreement the riser exists to close, arriving at the seam instead of
+    // inside a line.
+    const hop = Math.abs(cell.x - last.x) + Math.abs(cell.z - last.z)
+      + (deckOf(cell) === deckOf(last) ? 0 : 1);
     return { cell, line: loc.line, at: loc.line.dist[loc.i], total: line.len + hop };
   }
 
@@ -11084,7 +11137,10 @@ export class Game {
    * advertised.
    */
   sorterWants(side, crate) {
-    const met = conveyorMeets(this.layout, this.beltAt(side.x, side.z));
+    // A way out carries its own storey — see `beltExit`. Read off the floor, a
+    // junction overhead asks what an unrelated run downstairs serves, and in a
+    // shop with no run under it every branch answers "nothing wants this".
+    const met = conveyorMeets(this.layout, this.beltAt(side.x, side.z, deckOf(side)));
     // Rubbish is a one-answer question: the line with a skip on it. Asked
     // against shelving it would be false everywhere and every box of rot
     // would take whichever branch the counter happened to be on.
@@ -11138,7 +11194,13 @@ export class Game {
     const at = anchorTile(cell.x, cell.z, cell.reject);
     // A conveyor on that side is the hand-off above, not a setdown. `armDrop`
     // refuses it too, and going through here would put two crates on one cell.
-    if (this.beltAt(at.x, at.z)) return null;
+    //
+    // Asked of BOTH storeys, and it is the one lookup in here that is: a run on
+    // the junction's own deck is the hand-off, and a run on the FLOOR is where
+    // the box would land — `armDrop` refuses that side for the same reason it
+    // always has, and a junction that had decided to eject there would offer
+    // the crate a side that can never take it and jam on its own reject.
+    if (this.beltAt(at.x, at.z, deckOf(cell)) || this.beltAt(at.x, at.z)) return null;
     const straight = this.beltNext(cell);
     const branches = conveyorBranches(this.layout, cell);
     const ways = straight ? [straight, ...branches] : branches;
@@ -11186,8 +11248,10 @@ export class Game {
     // rather than a cell, because a cell is a fact about the shop as it was the
     // day you pressed the button — move the run and the sorter would be aimed
     // at a square with nothing on it, silently.
+    // ...on the junction's own storey, because every other way out here carries
+    // one and this one is compared against them and handed back as one.
     const reject = Number.isInteger(cell.reject)
-      ? anchorTile(cell.x, cell.z, cell.reject) : null;
+      ? { ...anchorTile(cell.x, cell.z, cell.reject), deck: deckOf(cell) } : null;
 
     // Who could actually put this box away, asked of the WHOLE junction rather
     // than of the ways that happen to be clear this tick. The reject line is
@@ -11287,7 +11351,7 @@ export class Game {
       && lotStacks(crate).every((p) => givenUp(this, p.item_id));
     if (crate && !crate.waste && !forTheSkip) {
       const keeps = pool.filter((w) => {
-        const met = conveyorMeets(this.layout, this.beltAt(w.x, w.z));
+        const met = conveyorMeets(this.layout, this.beltAt(w.x, w.z, deckOf(w)));
         return !met.bins.length || met.shelves.length > 0 || met.stations.length > 0;
       });
       if (keeps.length) pool = keeps;
@@ -11344,7 +11408,7 @@ export class Game {
     // `null` is every sorter that has ever been built, so this is opt-in to the
     // cent: no reject set and the split below is exactly what it always was.
     if (reject && !keenAny) {
-      const on = this.beltAt(reject.x, reject.z);
+      const on = this.beltAt(reject.x, reject.z, deckOf(reject));
       // Clear only — a jammed reject line must not swallow the alternation, or
       // one stuck box downstream stops the junction dead.
       if (on && (!free || free(reject))) return pick(reject);
@@ -11412,7 +11476,12 @@ export class Game {
       // Refusing everything that is not a conveyor is what made a sorter aimed
       // at its own yard do nothing at all, silently.
       const n = anchorTile(cell.x, cell.z, to);
-      if (!this.beltAt(n.x, n.z) && !isWalkable(this.walk, this.layout, n.x, n.z)) {
+      // The run on the junction's OWN storey, and the floor to set a box down
+      // on — which are the same tile for a floor sorter and two different
+      // questions for one overhead. Asked of the floor alone, a duct's junction
+      // could only be given a reject side where the aisle beneath it was clear.
+      if (!this.beltAt(n.x, n.z, deckOf(cell))
+        && !isWalkable(this.walk, this.layout, n.x, n.z)) {
         return err('there is nowhere on that side to send them');
       }
     }
@@ -11839,7 +11908,7 @@ export class Game {
         // predicate the movement below uses, so the piece cannot choose a line
         // by one rule and be held back by another.
         const ex = this.beltExit(line, crate, (w) => {
-          const a = this.beltAt(w.x, w.z);
+          const a = this.beltAt(w.x, w.z, deckOf(w));
           const l = a ? net.byCell.get(a.id) : null;
           return !!l && roomAt(l.line, crate);
         });
@@ -11896,10 +11965,36 @@ export class Game {
         const to = Math.min(cap, at + speed * dt);
 
         // THE ONE PLACE A CRATE ON THE NETWORK IS GIVEN A POSITION.
-        const pts = ex ? [...line.pts, { x: ex.cell.x, z: ex.cell.z }] : line.pts;
+        //
+        // ...and the hand-off gets the RISER too, which is `conveyorLines`'
+        // insert said at a seam. A lift is the last cell of its own line as
+        // often as it is a middle one — a shaft with a junction at the top of
+        // it is exactly that — and the leg appended here changes x,z and deck
+        // at once, so without the corner point the box flies up through the
+        // wall of its own shaft. Inside a line that was fixed and here it was
+        // not, which is the half a straight duct can never show you.
+        const pts = ex ? [...line.pts] : line.pts;
+        if (ex) {
+          const tail = line.cells[line.cells.length - 1];
+          const exPt = { x: ex.cell.x, z: ex.cell.z, deck: deckOf(ex.cell) };
+          if (exPt.deck !== deckOf(tail) && (exPt.x !== tail.x || exPt.z !== tail.z)) {
+            // Over the SHAFT, and which of the two that is depends on which way
+            // the goods are going — `conveyorLines` makes the same choice for
+            // the same reason, and getting it wrong is invisible going up.
+            const shaft = tail.kind === 'lift' ? tail : ex.cell;
+            const flatDeck = tail.kind === 'lift' ? exPt.deck : deckOf(tail);
+            pts.push({ x: shaft.x, z: shaft.z, deck: flatDeck });
+          }
+          pts.push(exPt);
+        }
         const p = alongPath(pts, to);
         crate.x = r2(p.x);
         crate.z = r2(p.z);
+        // ...and how high, which is the third axis of that same polyline. A
+        // FRACTION rather than the cell's own deck, because the ride up a lift
+        // is the one part of an overhead run there is anything to watch: rounded
+        // to the storey it would be a box that jumps four metres in one frame.
+        crate.deck = r2(p.deck);
 
         if (ex && to >= total - 1e-9) {
           // A JUNCTION SAYS WHICH WAY IT SENT THAT ONE, for the roof marks.
@@ -11962,6 +12057,12 @@ export class Game {
     crate.off = 0;
     crate.x = belt.x;
     crate.z = belt.z;
+    // ...and how HIGH, which is the field a box posted onto an overhead run
+    // arrives without. `stepBelts` writes it, so the box is on the floor for
+    // exactly one tick before the pass that owns it corrects — a crate a hire
+    // put on a duct flashing on the ground under it, once, which reads as the
+    // post having missed rather than as one frame.
+    crate.deck = deckOf(belt);
     return true;
   }
 
@@ -11986,7 +12087,7 @@ export class Game {
    * make the tool unusable in the shop it exists for. Nothing laid at all is the
    * only error.
    */
-  buildRun(playerId, { kind, piece = null, variant = '', x, z, to = null, rot = 0 } = {}) {
+  buildRun(playerId, { kind, piece = null, variant = '', x, z, to = null, rot = 0, deck = 0 } = {}) {
     const p = this.players[playerId];
     if (!p?.build?.on) return err('not in build mode');
     // Any fixture lays as a run — see the client's own note at the drag. What
@@ -12010,7 +12111,7 @@ export class Game {
     const out = this.holdReflow(() => {
       for (const c of cells) {
         const res = this.placeFixture(playerId, {
-          kind, piece, variant, x: c.x, z: c.z, rot: c.rot,
+          kind, piece, variant, x: c.x, z: c.z, rot: c.rot, deck,
         });
         if (res.ok) { laid += 1; last = res.placed ?? last; mine.push(res.placed); } else last ??= null;
       }
@@ -12408,8 +12509,19 @@ export class Game {
    * with the near end dropped.
    */
   static spurPath(arm, sp) {
-    const home = { x: arm.x, z: arm.z };
-    const far = { x: arm.x + sp.dx * sp.reach, z: arm.z + sp.dz * sp.reach };
+    // ...and a CHUTE is the same out-and-back turned on its end: `dd` is the
+    // storey it dips toward, which is how an overhead loader reaches the shelf
+    // underneath it. Its `dx`/`dz` are both zero, so without the third axis the
+    // path's three points are one point and `alongPath`'s zero-length guard
+    // skips the whole journey — the goods would change hands with nothing ever
+    // drawn moving, which is the instant-pour bug the spur was built to fix.
+    const deck = deckOf(arm);
+    const home = { x: arm.x, z: arm.z, deck };
+    const far = {
+      x: arm.x + sp.dx * sp.reach,
+      z: arm.z + sp.dz * sp.reach,
+      deck: deck + (sp.dd ?? 0) * sp.reach,
+    };
     return sp.act === 'lift' ? [far, home] : [home, far, home];
   }
 
@@ -12430,12 +12542,16 @@ export class Game {
     if (!crate) return null;
     const dx = Math.sign(at.x - arm.x);
     const dz = Math.sign(at.z - arm.z);
+    // The one side that is not a side: an overhead loader's own square, which is
+    // the unit beneath it. Down from the ceiling, and never up — a floor loader
+    // has no ceiling half, because the thing above it is somebody else's run.
+    const dd = dx === 0 && dz === 0 ? -1 : 0;
     const reach = this.spurReach(at);
     // `eject` is a sorter's off-ramp, which sets goods DOWN and never stocks
     // anything — see `armLand`. A junction has no opinion about shelves; if it
     // had, it would be a loader.
     const act = out ? (eject ? 'eject' : 'pour') : 'lift';
-    crate.spur = { dx, dz, reach, act, at: 0, len: act === 'lift' ? reach : reach * 2 };
+    crate.spur = { dx, dz, dd, reach, act, at: 0, len: act === 'lift' ? reach : reach * 2 };
     // Squarely on the machine's own square for the length of the trip: the box
     // is off the line's clock but still in the line's way, and the crate behind
     // it queues against the cell rather than against wherever the spur has
@@ -12468,6 +12584,11 @@ export class Game {
     const p = alongPath(Game.spurPath(arm, sp), sp.at);
     crate.x = r2(p.x);
     crate.z = r2(p.z);
+    // ...and the storey, exactly as `stepBelts` does. A spur is the other half
+    // of the same journey — a chute out of an overhead loader dips a whole
+    // deck — and a box whose height stopped being written the moment it left
+    // the run is a box that jumps to whatever `deck` it happened to be carrying.
+    crate.deck = r2(p.deck);
 
     // The turn, which is where the goods actually move. Once only — `done` is
     // what stops a box that is held at the far point re-pouring every tick.
@@ -12689,7 +12810,10 @@ export class Game {
   }
 
   armSwing(arm) {
-    const sides = [0, 1, 2, 3].map((r) => anchorTile(arm.x, arm.z, r));
+    // The cells this machine can reach — four beside it, or ONE beneath it.
+    // `armReach` is the one spelling, because the two walks that say what a run
+    // serves and the two loops that draw its chevrons ask the same question.
+    const sides = armReach(arm);
     const riding = this.armHolds(arm);
 
     // Which half of its job this one does. See `setArmMode`.
@@ -12725,7 +12849,13 @@ export class Game {
       // asked, because a loader between two units should serve both rather than
       // making you place a second one; what `rot` buys is going FIRST, which is
       // what makes it a preference for a mixed box rather than a switch.
-      const facing = anchorTile(arm.x, arm.z, arm.rot);
+      // Overhead there is nothing to aim: the one cell it can reach is the one
+      // under it, so `rot` has no preference left to express and the faced tile
+      // is that same square. Read the four-way version up there and the off-ramp
+      // below would post boxes onto a floor the loader cannot actually see.
+      const facing = deckOf(arm) === CEILING
+        ? { x: arm.x, z: arm.z }
+        : anchorTile(arm.x, arm.z, arm.rot);
       const order = [facing, ...sides.filter((s) => s.x !== facing.x || s.z !== facing.z)];
       for (const s of order) {
         if (this.armTakes(arm, s, riding)) return this.armSend(arm, s, 1);
@@ -14261,6 +14391,7 @@ export class Game {
       ...(this.layout.arms ?? []).map((a) => ({ ...a, kind: 'arm', ref: a })),
       ...(this.layout.sorters ?? []).map((s) => ({ ...s, kind: 'sorter', ref: s })),
       ...(this.layout.unders ?? []).map((u) => ({ ...u, kind: 'under', ref: u })),
+      ...(this.layout.lifts ?? []).map((f) => ({ ...f, kind: 'lift', ref: f })),
     ];
   }
 
@@ -15283,7 +15414,7 @@ export class Game {
     // `removeFixture`'s own, so a swap costs exactly what a sell-and-rebuy costs
     // and no amount of swapping can print money.
     if (FIXTURES[kind]?.flow) {
-      const here = this.beltAt(Math.round(spec.x), Math.round(spec.z));
+      const here = this.beltAt(Math.round(spec.x), Math.round(spec.z), Number(spec.deck) === CEILING ? CEILING : 0);
       if (here && here.kind !== kind) this.removeFixture(playerId, here.id);
     }
 
@@ -15307,6 +15438,11 @@ export class Game {
       x: Math.round(Number(spec.x)),
       z: Math.round(Number(spec.z)),
       rot: rot4(Number(spec.rot) || 0),
+      // Which storey. A conveyor and nothing else, because an overhead shelf is
+      // a shelf nobody can reach — `canPlace` says the same thing and says it
+      // as a refusal, and this is the half that stops the field being carried
+      // on a placement that has no meaning for it.
+      ...(FIXTURES[kind]?.flow && Number(spec.deck) === CEILING ? { deck: CEILING } : {}),
       tier: 1,
       // Which shape you picked off the palette. Costs the same as any other:
       // a variant is a look, and the price is the piece's.
@@ -15550,6 +15686,11 @@ export class Game {
       mode: from.mode,
       auto: from.auto,
       reject: from.reject,
+      // ...and which STOREY it is on, which is this trap's sharpest case yet:
+      // R is the press, and a deck left out here does not un-copy, it resets —
+      // so turning one cell of an overhead run would drop that cell to the
+      // floor, through a shelf, on the re-flow this call triggers.
+      deck: from.deck,
     };
     const check = canPlace(this.layout, placement, { ignoreId: id });
     if (!check.ok) return err(check.reason);
@@ -16739,6 +16880,7 @@ export class Game {
       arms: want.arm ?? 0,
       sorters: want.sorter ?? 0,
       unders: want.under ?? 0,
+      lifts: want.lift ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       // Both call sites, or the shop accepts a pen, charges for it, and drops
@@ -16917,7 +17059,16 @@ export class Game {
     // nothing in the shop can ever reach — see the shove below.
     if (this.deliveries.some((d) => d.belt)) {
       const live = new Set(conveyorsOf(layout).map((c) => c.id));
-      for (const d of this.deliveries) if (d.belt && !live.has(d.belt)) d.belt = null;
+      for (const d of this.deliveries) {
+        if (!d.belt || live.has(d.belt)) continue;
+        d.belt = null;
+        // ...and back down to the floor with it. `deck` is only ever written by
+        // the two passes that move a riding box, so a crate whose cell has been
+        // demolished keeps whatever height it was at — and what that draws is
+        // stock hanging in mid-air where a duct used to be, with nothing under
+        // it and nothing anywhere to say why. Parked stock is floor stock.
+        d.deck = 0;
+      }
     }
 
     // ...and a crate that has ended up UNDER something is pushed clear.

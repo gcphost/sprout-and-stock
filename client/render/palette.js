@@ -239,6 +239,10 @@ export const FIXTURE_LOOK = {
   // `fixtureHeight` reads this to aim, which is what makes it the difference
   // between a piece you can get rid of and one you cannot.
   under: { color: PALETTE.station, h: 0.3 },
+  // ...and the shaft, which is the tall one. `h` is what `fixtureHeight` aims
+  // at, so a lift given the belt's 0.3 would be a column you can only point at
+  // by clicking its feet.
+  lift: { color: PALETTE.station, h: 1.3 },
   'prop-floor': { color: PALETTE.floor, h: 0.3 },
   'prop-ceiling': { color: PALETTE.floor, h: 0.3 },
 };
@@ -339,6 +343,13 @@ export const CONVEYOR = {
   /** A recess, and the one place a conveyor is still allowed to be dark: a
    *  tunnel throat is a hole, and a hole that is not dark is a decal. */
   shadow: '#3b424e',
+  /** The walls of an overhead duct. Glass, because a run four metres up is
+   *  between the camera and everything under it — the same argument the
+   *  shopfront's glazing makes, said about a thing that hangs over the aisle
+   *  you are trying to look at. It is the only part of the family that is not
+   *  a grey: a duct has to read as enclosed from across the shop, and the pane
+   *  is what says the box inside it is not simply floating. */
+  glass: '#d6e9f4',
 };
 
 /**

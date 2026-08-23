@@ -1,8 +1,8 @@
 # Belts — the trip nobody walks
 
-Status: **steps 1, 2, 2b, 3, 3b, 4 and 4b built.** Steps 5–7 proposed.
+Status: **steps 1, 2, 2b, 3, 3b, 4, 4b, 7 and 8 built.** Steps 5–6 proposed.
 
-Steps 1–3 are the build. Steps 5–7 are written down so the shape is argued now
+Steps 1–3 are the build. Steps 5–6 are written down so the shape is argued now
 rather than discovered later, and should not be started.
 
 What shipped: the `belt`, `arm` and `sorter` kinds, the tile they stamp, the
@@ -1041,10 +1041,15 @@ sentence step 1 already wrote about pads.
 
 ## Step 7 — the underground, and the tile it does NOT own
 
-Proposed. It came out of play rather than out of this document: a return leg
-costs as much floor as the leg it returns from, a run cannot cross its own
-outbound line at all, and a conveyor laid through the shop reads as back-of-
-house in a room full of customers.
+Built, as the `under` kind — the section below is the argument it was built
+from, and the one thing it renamed is the kind: `belt-under` became `under`,
+since `deck` proved a kind does not have to be spelled out of its neighbours.
+`verify:belts` covers it.
+
+It came out of play rather than out of this document: a return leg costs as much
+floor as the leg it returns from, a run cannot cross its own outbound line at
+all, and a conveyor laid through the shop reads as back-of-house in a room full
+of customers.
 
 **The bridge is the wrong answer and is worth saying once.** A belt is
 `blocks: false` — that is step 1's rule and the reason a run is not a wall
@@ -1100,6 +1105,200 @@ and two ends may not. That the exit backing up stops the entry, and that a
 tunnel holds exactly one box while it does. And conservation, because a tunnel
 is a new place goods move between, and every one of those in this game has been
 a hole.
+
+---
+
+## Step 8 — the ceiling, which is the same square twice
+
+Built. `verify:ceiling`, 195 assertions.
+
+Step 7 says what is actually scarce: **the SQUARE**. A tunnel answers that by
+giving the cells between two mouths back, and the answer only works in a
+straight line for four tiles. A duct answers it everywhere. A run that hangs
+from the roof crosses the shop over the top of the aisles, the shelving, the
+checkouts and its own outbound leg, and costs no floor at all.
+
+### It is a field on the PLACEMENT, not four more kinds
+
+`deck` — 0 or `CEILING` — on the placement, read by `deckOf`. An overhead run
+wants belts, loaders, junctions and tunnel mouths, so kinds would be four
+duplicates that then have to be kept in step with the four originals for ever;
+the piece you build with stays the piece you build with, and the storey is a
+fact about where you were pointing. It rides a re-flow the way `mode`, `auto`
+and `reject` do — named in `compose` and named again in `repositionFixture`, or
+the first wall segment you drag drops the whole run onto the floor.
+
+**The one line that makes it a second storey is that a neighbour must match
+deck.** Flow, lines, branches, jams and hand-offs are all keyed by fixture id
+and have never cared how high a crate is; the only thing in the whole subsystem
+that assumed one storey is that a neighbour is found by x,z. That is `deckKey`,
+and it is the whole feature.
+
+### A ceiling cell stamps no tile and blocks nobody
+
+Which is the point — you get the square back — and it is also the trap. A
+non-blocking fixture is invisible to `blocked`, and `T.BELT` is what refuses a
+second belt on one square down here; up there nothing stamps anything. So the
+ceiling branch of `canPlace` refuses the second one **explicitly**, exactly the
+invariant `verify:catalog` asserts about every walk-over kind. Two rules apply
+overhead and the rest are skipped: it has to be indoors, because a ceiling is a
+thing a roof gives you, and the run may not stack.
+
+### The lift, and why its direction is derived
+
+`lift` is the one cell that spans both storeys — it answers `conveyorAt` on
+each, which is what lets a run on either hand to it. It has no `rot` and wants
+none: up and down are not quarter turns, and a stored direction is a field the
+**R** key clears (`repositionFixture` names every field it keeps). So the shaft
+runs whichever way the goods already are: a floor run arriving means up, a duct
+arriving means down. Build one at the end of an aisle and it lifts; build one at
+the end of the duct and it drops.
+
+**Which is resolved in a second pass, and that is the part that took two goes.**
+It was first answered inside `conveyorFlow`'s own seeding loop, where the only
+feeder it could safely consult was a *declared* one — a plain belt or a tunnel
+mouth, aimed by somebody, able to answer with nothing else known — because
+asking a loader there is unbounded recursion into the function you are standing
+in, and it takes the server down. A shaft fed only by loaders therefore always
+guessed, and the guess is "up off the floor". What that looks like is a crate
+parked on a lift refusing to come down, in a shop where every other piece works.
+The recursion is not a fact about lifts, it is a fact about **when**: after the
+forward walk, every loader the run can reach has an answer sitting in the map,
+so the same question is a lookup. Lifts resolve there and the walk runs again
+from them.
+
+### The three geometry claims, and the one that shipped half-right
+
+A lift hands to a cell **beside** it on the other storey — never to its own
+square, which is the lift again and would be a cell whose `next` is its own id.
+So the leg from one to the other changes x, z and deck at once, and `alongPath`
+interpolates a leg: left as one, the box flies the diagonal, up and over,
+through the wall of its own shaft. It is the one hop in the system anybody
+watches.
+
+So a riser goes into the polyline, and three things about it are each their own
+bug:
+
+- **It is inserted rather than mapped.** `line.pts` was `path.map(...)` while
+  `dist` charged the riser, so the box was handed two tiles of travel to spend
+  on a leg 1.41 long and cut the corner anyway — with the fix sitting five lines
+  above, computed and thrown away.
+- **It goes over the SHAFT**, and which of the pair that is depends on which way
+  the goods are going. Put on the near cell always, a box going up rises
+  correctly and a box coming down steps off the end of the duct into thin air.
+  Half of it looks perfect, which is why it lasted.
+- **The seam needs it too.** A lift is the last cell of its own line as often as
+  a middle one — a shaft with a junction at the top is exactly that — and the
+  exit point `stepBelts` appends is a second place the same leg is drawn.
+
+### The shaft's own art: two housings and a glass tube
+
+A lift is drawn as a housing at each storey with a glazed middle between them,
+and the two things that make it read are both derived.
+
+Its **pan is a cross** — two grooves, one per axis, at each deck — rather than
+the single groove a belt is drawn as. A belt's track lies along `rot`; a lift
+has none, so the run can arrive from any of four sides and a groove along one
+axis is a shaft the rails visibly stop short of. The cross reaches all four
+edges at both storeys, which is also why the filler loop skips a lift: there is
+nothing left to fill, and a filler measured off `deckOf` — 0 whichever end you
+mean — would be a stub of track on the floor reaching toward a duct four metres
+above it.
+
+Its **ends are enclosed but for the portal**, which is `COVERED_KINDS`'
+inversion said about the one piece that stands on both storeys: the sides a box
+never crosses are panelled, and what is left is the hole it goes in and out
+through. Open on all four it is a cage — you see straight through the bottom of
+it into the aisle behind and nothing says which way a box is travelling. Two
+housings rather than one, because a shaft's ends face different runs: the open
+side at the top has nothing to do with the open side at the bottom, and neither
+is `rot`.
+
+And the rails inside are **lit rather than moving**. A part carrying `scroll` is
+not art on a conveyor — `isSlat` pulls it out of the model and relays it along
+the run as a carrier — so the shaft's one authored band came back as a pair of
+tall slabs lying in the cage. What moves in a lift is the crate; a second moving
+thing beside it is noise.
+
+### An overhead loader reaches ONE cell
+
+The one beneath it (`armReach`), and that is what keeps a ceiling run from being
+a floor run that costs no floor. A run down an aisle serves the units either
+side of every cell; a duct over the same aisle serves whatever it is directly
+above. One machine per unit against one per pair — the ceiling buys you the
+square and charges you in loaders, which is a trade rather than an upgrade.
+
+`armReach` is in `shared/build.js` because **five** loops enumerate a loader's
+sides and all of them have to agree: the swing that pours, the two walks that
+say what a run reaches (`conveyorMeets`, `conveyorServes`), and the chevrons and
+spurs the renderer draws. Written out four-ways in any one of them, an overhead
+loader either serves shelving it cannot see or is drawn reaching it.
+
+### The casing is DRAWN, never authored
+
+Every mark on a run is derived — the corner rails, the loader's chute, the
+sorter's blades — and the glazing is the one part somebody reached for a content
+row for. `belt-duct` was a deep copy of the belt row with two glass panes
+appended, and it was wrong in three ways a straight east-west run cannot show
+you. The panes are authored in **model space**, so they lie along `rot`, and a
+cell's rotation is not the way goods go through it — every bend in the shop was
+glazed across its own mouth. It was one **piece**, so a loader, a junction or a
+tunnel mouth hung overhead had no glass at all, which is what a T reads as when
+the duct either side of it is enclosed and it is not. And it was **opt-in**, so
+a plain belt laid on the ceiling — the obvious press, off the same tool — came
+out bare.
+
+So the casing is a fact about the storey and the flow: every overhead cell is
+glazed on every side goods do not cross, off the same in/out/branch/pour set the
+loader's own panels are cut from. A straight run gets two panes, a bend gets the
+two on its outside, a T gets one, and the row you build with is back to being
+about how fast the thing is. `belt-duct` is deleted; a placement still naming it
+falls back to `belt`, which is what `pieceFor` has always done.
+
+The pan stays **solid**. Making it glass was tried: it removes the dark track
+the flow chevrons read against and the run becomes unreadable from across the
+shop.
+
+### The bug that is worth remembering: a hand-off has a storey
+
+Every way out of a cell carries the deck it is on, and every lookup that turns
+one back into a cell defaults to the **floor** — deliberately, because that is
+what keeps every existing caller asking the question it has always asked. Five
+of them on the junction path were never told: `beltExit`, the room test beside
+it, `sorterWants`, the keep filter and the reject side.
+
+Inside a line that is invisible, because a line's cells are contiguous and
+nothing is looked up. At a **junction** it is the whole feature: a sorter is a
+line of its own by construction, so every way out of one is a hand-off between
+two lines. With nothing under the duct, the box parked on the last cell for the
+rest of the save. With a floor run under it — which is the ordinary build, since
+you put the duct over the aisle you already automated — it **dropped four metres
+onto it** and carried on being a perfectly ordinary crate on a perfectly
+ordinary belt. Nothing logs a word either way, and the second one reads as goods
+falling off the ceiling.
+
+`verify:ceiling`'s T section is that, said as an assertion: a junction overhead
+with a decoy run laid on the floor straight through it, and not one box may ever
+be filed on a floor cell or drawn at deck 0.
+
+### How to build one
+
+`E` with the palette up toggles floor ↔ ceiling. Lay the floor run, put a
+**Lift** on the floor at the end of it, aim the last floor cell **at** the lift,
+press `E`, then lay the duct starting on a cell **beside** the lift — not on top
+of it.
+
+### What is not done
+
+- **Nothing routes anybody to a named storey.** A lift is found by A\* the way a
+  door is: there is no "send this up", only a shaft with a run on each end.
+- **A ceiling sorter's reject side tips over the edge** rather than dropping
+  down a chute of its own. It works — the box slides out and `armDrop` sets it
+  on the floor below — and it is the one place overhead where the picture is
+  weaker than the rule.
+- **The chute is a collar**, not a shaft to the floor. A full tube stands in the
+  aisle the ceiling was bought to clear, and at this camera it hides the shelf it
+  is pouring into.
 
 ---
 

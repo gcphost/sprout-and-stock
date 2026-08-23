@@ -4,7 +4,7 @@
 
 import {
   canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun, faceKey,
-  groundStroke, strokeThick, GROUND_STROKE_MAX, runCells, runFollows, BELT_RUN_MAX, RUN_KINDS, CONVEYOR_KINDS, canPlace, FIXTURES,
+  groundStroke, strokeThick, GROUND_STROKE_MAX, runCells, runFollows, BELT_RUN_MAX, RUN_KINDS, CONVEYOR_KINDS, canPlace, FIXTURES, CEILING,
   faceAlong, isProp, isWalkableTile, workSpotOf, REACH, conveyorAt, groundIndex, rot4,
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
@@ -623,6 +623,18 @@ addEventListener('keydown', (e) => {
   // meant to be in, and copying a design out of it is exactly the press that
   // makes you want the bar — which this puts up for you (`commitBuildMode`).
   if (k === 'q') pipette();
+  /**
+   * ...and E goes up a storey, which is only ever about a conveyor.
+   *
+   * `paletteArmed` rather than `buildOn`, exactly as Ctrl is: a mode a fixture
+   * menu borrowed puts nothing on screen saying you are in it, and a deck you
+   * cannot see you are on is worse than a bulldozer you cannot see — every
+   * press would land four metres above where you are looking.
+   */
+  if (k === 'e' && ui.paletteArmed) {
+    ui.toast(ui.toggleDeck() ? 'Building overhead' : 'Building on the floor');
+    refreshGhost();
+  }
   // ...and M picks the selected one up, which is the Move button's key. Its own
   // binding rather than a rung on R's, because it has nothing to fall through
   // to: with nothing selected there is nothing to move, and a key that quietly
@@ -1071,6 +1083,11 @@ function refreshGhost(force = false) {
   // a fixture torn out from under it. `setKinPreview` no-ops when it already
   // agrees.
   ui.setKinPreview(shiftDown);
+  // Which storey the pointer works on, mirrored every frame rather than pushed
+  // on the E press: the deck is also reset by leaving build mode, which happens
+  // through half a dozen doors in `ui`, and a pick rule that was one press
+  // stale would aim at the ceiling in a shop you had already come down from.
+  scene.pickDeck = ui.paletteArmed ? ui.buildDeck : 0;
   const raze = aiming ? razeAim(pointer.x, pointer.y) : null;
   ui.setRazeAim(raze ? razeSay(raze) : null);
   if (raze) {
@@ -1639,12 +1656,12 @@ function refreshGhost(force = false) {
     );
   }
   const drawn = ui.ghostPiece();
-  const key = `${kind}:${tile.x}:${tile.z}:${ui.buildRot}:${ui.holding?.id ?? ''}`
+  const key = `${kind}:${tile.x}:${tile.z}:${ui.buildRot}:${ui.buildDeck}:${ui.holding?.id ?? ''}`
     + `:${drawn.piece ?? ''}/${drawn.variant}/${drawn.station ?? ''}/${drawn.tier}`;
   if (key === ghostKey && !force) return;
   ghostKey = key;
   const verdict = scene.setBuildGhost({
-    kind, x: tile.x, z: tile.z, rot: ui.buildRot, moveId: ui.holding?.id ?? null, ...drawn,
+    kind, x: tile.x, z: tile.z, rot: ui.buildRot, deck: ui.buildDeck, moveId: ui.holding?.id ?? null, ...drawn,
   });
   ui.setBuildVerdict(verdict);
 }
@@ -2828,6 +2845,20 @@ function razeAim(cx, cy) {
  */
 function whatsThere(cx, cy) {
   const hit = scene.pickFixtureHit(cx, cy);
+  /**
+   * Overhead, the ladder is ONE rung — and it has to stop there.
+   *
+   * The three rungs below this one are the finish on a wall, the wall, and the
+   * painted ground, and none of the three exists on the ceiling. So a press
+   * that missed the duct fell straight past them onto the floor tile under it:
+   * the marker lit on the ground, and Ctrl scraped the aisle you were standing
+   * over while you were aiming four metres up.
+   *
+   * That is worse than a press that does nothing, because the thing it hits is
+   * the shop rather than the run — and nothing on screen says the pointer has
+   * changed storey, so it reads as the bulldozer ignoring the mode.
+   */
+  if (scene.pickDeck === CEILING) return hit?.f ? { kind: 'fixture', f: hit.f } : null;
   // ONE question about the line, answered twice — which is what keeps the two
   // wall rungs from disagreeing about which wall they are on. `pickFaceHit` hits
   // the edge meshes first, so pointing at a wall is exact and picks its side;
@@ -3142,7 +3173,7 @@ function showBeltDrag(cx, cy) {
   // belt — the count alone would paint the whole run the colour of its worst
   // square, which is the opposite of what "it skips it and lays the rest" means.
   for (const c of cells) {
-    c.state = canPlace(L, { kind: beltDrag.kind, x: c.x, z: c.z, rot: c.rot }).ok ? 'ok' : 'warn';
+    c.state = canPlace(L, { kind: beltDrag.kind, x: c.x, z: c.z, rot: c.rot, deck: ui.buildDeck }).ok ? 'ok' : 'warn';
   }
   const ok = cells.filter((c) => c.state === 'ok');
   scene.setFloorGhost(cells, ok.length === cells.length ? 'ok' : (ok.length ? 'warn' : 'no'));
@@ -3158,9 +3189,9 @@ function showBeltDrag(cx, cy) {
    */
   scene.setRunGhost(
     `${beltDrag.kind}/${beltDrag.piece ?? ''}/${beltDrag.variant ?? ''}`
-      + `:${beltDrag.start.x},${beltDrag.start.z}>${to?.x},${to?.z}:${ui.buildRot}:${ok.length}`,
+      + `:${beltDrag.start.x},${beltDrag.start.z}>${to?.x},${to?.z}:${ui.buildRot}:${ui.buildDeck}:${ok.length}`,
     cells,
-    { kind: beltDrag.kind, piece: beltDrag.piece ?? null, variant: beltDrag.variant ?? '', tier: 1 },
+    { kind: beltDrag.kind, piece: beltDrag.piece ?? null, variant: beltDrag.variant ?? '', tier: 1, deck: ui.buildDeck },
   );
   ui.setBuildVerdict(ok.length
     ? { ok: true, warn: ok.length < cells.length ? `${cells.length - ok.length} squares are taken` : null }
@@ -3173,11 +3204,19 @@ let floorDrag = null;
 
 /**
  * TEMPORARY — one line per press, for chasing the dead-click bug. Delete with
- * its callers once that is closed. `sns.clicks = false` in the console shuts it
- * up without a reload.
+ * its callers once that is closed. `sns.clicks = true` in the console turns it
+ * on without a reload, and `false` shuts it up again.
+ *
+ * OFF by default, which is the only part of this worth a sentence. It is not
+ * about noise in somebody else's console — it is that a press is the one event
+ * this game has sixty of a minute, and a `console.log` per press keeps every
+ * argument it was handed alive for as long as devtools holds the line. Left on
+ * for a player who never opens the console that is a slow leak nobody would
+ * ever attribute to a debug switch. On for whoever is actually chasing the bug
+ * is one line typed, in the console they already have open.
  */
 window.sns ??= {};
-window.sns.clicks = true;
+window.sns.clicks ??= false;
 function clickLog(what, extra) {
   if (!window.sns?.clicks) return;
   // Flattened into the MESSAGE rather than passed as an object: the console
@@ -3946,7 +3985,7 @@ function endPress(e) {
       // which was invisible while the ghost was a square: arm the corner belt,
       // watch a square, get the straight one. A preview that draws the shape has
       // to be a preview of the shape that gets built.
-      net.send('build-run', { kind, piece, variant, x: start.x, z: start.z, to, rot: ui.buildRot });
+      net.send('build-run', { kind, piece, variant, x: start.x, z: start.z, to, rot: ui.buildRot, deck: ui.buildDeck });
     }
     return;
   }
@@ -6386,6 +6425,9 @@ function tapAtPointer(cx, cy) {
   const piece = ui.holding?.piece ?? ui.buildPiece ?? null;
   const spec = {
     kind, piece, station, x: tile.x, z: tile.z, rot: ui.buildRot, variant: ui.buildVariant ?? '',
+    // Only a conveyor has a storey — the server refuses everything else, and
+    // sending it anyway would put a dead field on every shelf ever placed.
+    ...(FIXTURES[kind]?.flow ? { deck: ui.buildDeck } : {}),
   };
   // `tier` rides along for the drawing only — the server decides what a new one
   // is built at. Without it this call would redraw the ghost at tier 1 on the

@@ -856,9 +856,10 @@ function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
   // appliance (`RecipeSchema.station`) and the shop either owns one of those or
   // it does not — so an item whose machine you have not bought is not a board
   // waiting to be filled, it is a board that will sit empty until you buy a
-  // fryer. Nothing said so: `restock` cannot order a recipe output (`buyStock`
-  // refuses one) and no chef can produce it, so ticking it was the one choice in
-  // this panel with no outcome at all in either direction.
+  // fryer. Nothing said so: `restock` will not order a recipe output (it asks
+  // `isCrafted` — the van will sell you one, your crew never buy one) and no
+  // chef can produce it, so ticking it was the one choice in this panel with no
+  // outcome at all in either direction.
   const owned = new Set((ui.state?.stations ?? []).map((s) => s.station));
   const needsMachine = new Map();
   for (const r of ui.catalog.recipes ?? []) {
@@ -915,11 +916,13 @@ function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
         ? `you have no ${machineName(missing).toLowerCase()} to make this`
         : on
         ? (here ? `kept for this — ${here.qty} on this board`
-          // …and a van is never due for something the shop cannot buy. `buyStock`
-          // refuses a recipe output, so an empty board kept for salsa is waiting
-          // on an appliance and a stocker, and the delivery wording sent you to
-          // the supplier to look for an order that could not exist.
-          : (crafted.has(it.id) ? 'kept for this — the kitchen makes it'
+          // …and a van is never due for something the CREW will not order. They
+          // leave every recipe output to the kitchen (`restock` asks
+          // `isCrafted`), so an empty board kept for salsa is waiting on an
+          // appliance and a stocker unless you go and order some yourself —
+          // which the delivery wording would have sent you to the supplier to
+          // wait for instead.
+          : (crafted.has(it.id) ? 'kept for this — the kitchen makes it, or order some'
             : 'kept for this — a van is due'))
         : (here
           ? 'on it, but not kept — it will sell down and not be refilled'
@@ -1604,17 +1607,18 @@ function fixtureDetail(ui, f, live) {
     // in the supplier: the moment you notice a shelf is bare is the moment you
     // want to know whether you already did something about it.
     const coming = comingByItem(ui);
-    // Anything a recipe makes cannot be ordered at all — `buyStock` has refused
-    // it for as long as appliances have existed.
+    // Anything a recipe makes, which is now only a NOTE on a live button. The
+    // van refused a recipe output for as long as appliances existed and this
+    // row spent two revisions on the consequence — no button at all first, then
+    // a disabled one saying why, because "a button that can only error is worse
+    // than no button" is right about a button and wrong about a HOLE: three
+    // boards kept for salsa, juice and skewers with no order control anywhere on
+    // them read as ordering having gone missing from the menu, and an absence
+    // cannot answer "where is the order button".
     //
-    // It used to get no button, on the "a button that can only error is worse
-    // than no button" rule, and that rule is right about a button and wrong about
-    // a HOLE. A row of three units kept for salsa, juice and skewers had no order
-    // control anywhere on it, so the reading was that ordering had gone missing
-    // from this menu — the question is "where is the order button", and an absence
-    // cannot answer it. Disabled, saying why, is not a button that errors: it is
-    // the one place the answer can be read, and it keeps the row's grid the way
-    // the always-drawn Take button does.
+    // The refusal is gone (`Game.buyStock`), so the third revision is the
+    // simplest of the three: the button works, and being made here is a hint in
+    // its title rather than a reason it is dead.
     const crafted = craftedItems(ui);
     // How much more the yard will take. An order over this is refused by the
     // server, so the button offers a smaller one rather than a doomed one.
@@ -1681,12 +1685,19 @@ function fixtureDetail(ui, f, live) {
       // which the client cannot tell apart from a full one, and which the
       // server refuses with the exact sentence either way.
       const want = Math.max(0, Math.min(room, item?.stack ?? room, bayRoom ?? room));
-      const orderWhy = crafted.has(k.item_id)
-        ? `${name} is made here, not delivered — set an appliance to it and a stocker brings it over.`
-        : bayRoom === 0 ? 'No room at the bay for another order.'
-          : room <= 0 ? (inbound
-            ? `${inbound} already on the way — ${comingWhy(due)}`
-            : 'This board is full.')
+      // A made-here item is ordered like anything else — the van sells
+      // everything again (`Game.buyStock`) — so the only thing left to say
+      // about it here is that the kitchen is the cheaper way to fill this
+      // board, which is a hint on a live button rather than a reason it is
+      // dead.
+      const madeHere = crafted.has(k.item_id);
+      const orderWhy = bayRoom === 0 ? 'No room at the bay for another order.'
+        : room <= 0 ? (inbound
+          ? `${inbound} already on the way — ${comingWhy(due)}`
+          : 'This board is full.')
+          : madeHere
+            ? `Order ${want}× ${name} — it lands at the bay on the next van. `
+              + 'An appliance makes it cheaper, and your crew will never order it.'
             : `Order ${want}× ${name} — it lands at the bay on the next van.`;
 
       // The goods themselves, at the head of their own row. A unit holding three
@@ -1714,7 +1725,7 @@ function fixtureDetail(ui, f, live) {
             title="${esc(pending ? `Nothing on this board to price yet — ${name} takes its price when it lands.` : `Charge more for ${name}`)}" aria-label="Charge more">+</button>
         </span>
         <button class="fx-take fx-order"
-          ${want > 0 && !crafted.has(k.item_id)
+          ${want > 0
     ? `data-order="${esc(k.item_id)}" data-qty="${want}"` : 'disabled'}
           title="${esc(orderWhy)}" aria-label="Order more">${ICONS.supplier}</button>
         <button class="fx-take" ${k.qty > 0 && !clash ? `data-take="${esc(k.item_id)}"` : 'disabled'}

@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-125 pieces across 24 kinds.
+126 pieces across 25 kinds.
 
 > ⚠️ **Boards you cannot see into.** Goods fill a unit from the TOP board
 > down, because on a 45° camera each board covers the one below it. So a
@@ -383,6 +383,16 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 1. **Underground** — free, as built
 2. **Quick underground** — $95, speed ×1.8
 3. **Maglev underground** — $265, speed ×3
+
+### `lift`
+
+Indoors only, owns its cell (people walk around it), nobody stands at it.
+
+#### Lift
+
+`lift` · kind `lift` · $120 to build
+
+16 parts · no `surface` boards — goods pile on its roof · has glass
 
 ## Decorations
 
