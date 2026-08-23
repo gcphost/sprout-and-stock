@@ -73,7 +73,7 @@ import { Game } from '../server/sim/index.js';
 import { writeContent, refresh, content } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
-import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, tunnelExit, TUNNEL_SPAN } from '../shared/build.js';
+import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, conveyorNext, tunnelExit, TUNNEL_SPAN } from '../shared/build.js';
 import { E, canStep, shopperCanCross } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 import { lotQty, lotTotal, lotStacks } from '../shared/lot.js';
@@ -1885,6 +1885,69 @@ function smooth(g, label, crates, ticks, at = {}) {
     check(on > 0, 'the shelf still gets its goods');
     eq(g.deliveries.filter((d) => !d.belt).length, 0,
       '...and nothing was set down on the floor instead');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 16b. …AND THE OFF-RAMP IS AT THE END OF THE RUN, nowhere else.
+//
+// The pair to 16, and the one that says what the exit is FOR. A loader with
+// somewhere to hand the box on passes it, whatever is lying beside it — so a
+// jam is a row of boxes not moving, which is the picture 16 above is careful
+// about everywhere except here.
+//
+// It was the other way round for eight steps, and the reason it gave is still
+// the right reason: without an exit a crate nothing wants rides for ever. What
+// changed is that a dead end stopped being the only shape a run comes in. Since
+// docs/belts.md step 9 an aisle can send what its shelves would not take back
+// over the top and round, and under the old rule the FIRST loader with a full
+// board and a walkable tile beside it emptied the box onto the floor long
+// before it ever reached the return leg. Every box that came off was a box the
+// shelf genuinely refused, so the machine reads as working — and what you watch
+// is a conveyor that spits your stock out whenever it gets busy.
+//
+// Invisible either way: a crate on the floor beside a loader is a crate on the
+// floor beside a loader, and the only thing that says which rule put it there
+// is whether the run carried on past that cell.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  check(!!cells, 'there is room for a loader with a run past it');
+  if (cells) {
+    // A loader in the MIDDLE, aimed across the run at bare floor, with a belt
+    // still in front of it. Frozen goods in a shop with no freezer, so nothing
+    // anywhere beside it will take a single one — which is exactly the box 16
+    // above puts on the ground.
+    const side = [1, 3].map((r) => anchorTile(cells[1].x, cells[1].z, r))
+      .find((s) => canPlace(g.layout, { kind: 'belt', x: s.x, z: s.z, rot: 0 }).ok);
+    check(!!side, 'and bare floor beside it to dump onto');
+    const head = g.placeFixture('me', {
+      kind: 'belt', piece: BELT.id, x: cells[0].x, z: cells[0].z, rot: aim(cells[0], cells[1]),
+    });
+    check(head.ok, 'the belt behind it goes down', head.error ?? '');
+    const put = g.placeFixture('me', {
+      kind: 'arm', piece: ARM.id, x: cells[1].x, z: cells[1].z, rot: aim(cells[1], side),
+    });
+    check(put.ok, 'the loader goes down facing that floor', put.error ?? '');
+    const tail = g.placeFixture('me', {
+      kind: 'belt', piece: BELT.id, x: cells[2].x, z: cells[2].z, rot: aim(cells[1], cells[2]),
+    });
+    check(tail.ok, 'and the run carries on past it', tail.error ?? '');
+
+    const arm = g.beltAt(cells[1].x, cells[1].z);
+    check(!!conveyorNext(g.layout, arm), 'the loader has somewhere to hand on');
+    crateOn(g, g.beltAt(cells[0].x, cells[0].z), COLD, 4);
+    const total = units(g);
+    run(g, 200);
+
+    // THE CLAIM. Nothing on the ground anywhere, and the goods are still on the
+    // run — which is the pair, because "nothing on the floor" is also satisfied
+    // by a box that was destroyed.
+    eq(g.deliveries.filter((d) => !d.belt).length, 0,
+      'a loader with a run in front of it never sets the box down');
+    eq(g.deliveries.filter((d) => d.belt).length, 1, '...and the box is still on the run');
+    eq(units(g), total, '...with nothing created or destroyed');
   }
 }
 

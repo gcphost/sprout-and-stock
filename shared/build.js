@@ -2181,6 +2181,27 @@ const deckKey = (c) => `${c.x},${c.z},${deckOf(c)}`;
 const stepFrom = (c, r) => ({ ...anchorTile(c.x, c.z, r), deck: deckOf(c) });
 
 /**
+ * ...and the FIFTH way out, which is the same square on the other storey.
+ *
+ * Deliberately its own function rather than a fifth entry in the four-way loop,
+ * and that separation is the whole safety of step 9. `stepFrom` is the rule that
+ * MAKES a second storey — leave the deck out of it and a duct laid over a run
+ * merges with it silently — so a vertical neighbour arriving through the same
+ * loop would be that merge with a nicer spelling: every cell of every duct
+ * joined to whatever happened to be underneath it, boxes changing storey at
+ * every crossing, drawn as a conveyor that teleports and read as one that works.
+ *
+ * So every place that enumerates ways out has to ask for this BY NAME, and the
+ * two that do are the two the player can be said to have chosen — a junction,
+ * which is the piece whose entire job is choosing between ways out, and a loader
+ * with nowhere else to hand on. A plain belt never asks: it points where it
+ * points, and a run laid under a duct is still a run laid under a duct.
+ */
+export const acrossFrom = (c) => ({
+  x: c.x, z: c.z, deck: deckOf(c) === CEILING ? 0 : CEILING,
+});
+
+/**
  * The tiles a loader can reach — four beside it, or the ONE beneath it.
  *
  * An overhead loader is deliberately the weaker of the two, and that is what
@@ -2358,6 +2379,34 @@ function conveyorFlow(L) {
     const b = stepFrom(c, rot4(r + 2));
     return at.has(`${b.x},${b.z},${b.deck}`);
   };
+  /**
+   * The rise, if there is one and it is not already handing to us.
+   *
+   * Three guards, and each is its own way for two storeys to stop being two.
+   *
+   * A LIFT is never either end of it. It answers `at` on both decks — that is
+   * what lets a run on either hand to it — so "the cell above me" is the shaft
+   * itself and the answer would be a cell whose next is its own id: nothing
+   * errors, the box arrives where it already is, and every walk over the run
+   * walks that one cell until the tick loop stops. It is `liftTo`'s own guard,
+   * said one storey along.
+   *
+   * And the FEEDER test is the vertical's copy of `feedsUs`, which is the one
+   * that will not error and will not draw wrong either. Without it the floor
+   * cell hands up, the ceiling cell hands down, both on the same square, for
+   * ever — the loader ping-pong this function already warns about, stood on its
+   * end. It is also the whole of what stops a COLUMN: two cells over one square
+   * are the most that can exist, and this is what keeps them from being a run.
+   */
+  const risesTo = (c) => {
+    if (c.kind === 'lift') return null;
+    const n = acrossFrom(c);
+    const other = at.get(`${n.x},${n.z},${n.deck}`);
+    if (!other || other.id === c.id || other.kind === 'lift') return null;
+    const back = map.get(other.id);
+    if (back && back.x === c.x && back.z === c.z && deckOf(back) === deckOf(c)) return null;
+    return n;
+  };
   const choose = (c, backR) => {
     // A sorter's `rot` side is its BRANCH, never its straight-on. Without this
     // the derivation would happily pick the branch as the pass-through and the
@@ -2365,7 +2414,21 @@ function conveyorFlow(L) {
     const branch = c.kind === 'sorter' ? stepFrom(c, c.rot ?? 0) : null;
     const open = around(c).filter((o) => !feedsUs(o, c)
       && !(branch && o.x === branch.x && o.z === branch.z));
-    if (!open.length) return null;
+    /**
+     * ...and with no way out ON THIS STOREY, the rise — docs/belts.md step 9.
+     *
+     * LAST, which is the entire opt-in. A loader in the middle of an aisle with
+     * a duct crossing over it carries straight on exactly as it always did, and
+     * the only machine that ever looks up is one that has run out of shop: the
+     * endcap loader, which is the complaint this step exists for. A run down an
+     * aisle used to stop there, because the only way back was a `lift` and a
+     * lift wants a square — the square the endcap is standing on.
+     *
+     * `throughR` is never asked of it and must not be. It is what tells a run
+     * apart from a spur, and a cell carrying on straight up because the cell
+     * below it happens to be a conveyor is a column rather than a line.
+     */
+    if (!open.length) return risesTo(c);
     if (backR !== null) {
       const straight = open.find((o) => o.r === backR);
       if (straight) return { x: straight.x, z: straight.z, deck: straight.deck };
@@ -2467,6 +2530,15 @@ function conveyorFlow(L) {
       const ways = [map.get(c.id)];
       const br = c.kind === 'sorter' ? stepFrom(c, c.rot ?? 0) : null;
       if (br && at.has(`${br.x},${br.z},${br.deck}`)) ways.push(br);
+      // ...and a junction's RISE, for the same reason its named branch is here:
+      // a way out the walk does not travel is a way out whose loaders never get
+      // a feeder, so they fall through to the per-cell guess and a whole duct
+      // decides, one cell at a time, which way it runs.
+      if (c.kind === 'sorter') {
+        const up = acrossFrom(c);
+        const on = at.get(`${up.x},${up.z},${up.deck}`);
+        if (on && on.id !== c.id && on.kind !== 'lift') ways.push(up);
+      }
       for (const to of ways) {
         if (!to) continue;
         const next = at.get(`${to.x},${to.z},${deckOf(to)}`);
@@ -2610,6 +2682,35 @@ function conveyorFlow(L) {
     const out = c.kind === 'arm'
       ? (deckOf(c) === CEILING ? { x: c.x, z: c.z } : anchorTile(c.x, c.z, c.rot ?? 0))
       : null;
+    /**
+     * ...unless there is a DUCT OVER IT, and this is the one place step 9 had
+     * to reach into a rule that predates it.
+     *
+     * "A loader emptying into a unit hands on to nobody" is true right up to
+     * the moment the same square gained a way out, and the shop it is wrong
+     * about is the shop the whole step exists for: an aisle stocked by a row of
+     * loaders, an endcap at the end of it, and a duct overhead to take away
+     * what the shelves would not have. A row of loaders with no plain belt in
+     * it is exactly what never reaches the forward walk — nobody has a feeder,
+     * so every cell of it lands here — and the endcap is aimed at its shelf, so
+     * it was declared a terminus one line before anything asked about the rise.
+     *
+     * Which is the same build working or not depending on whether there
+     * happened to be a belt somewhere upstream, and nothing on screen could say
+     * so: an endcap resolved through `choose` gets the duct, an endcap resolved
+     * here does not, and both are a loader with a duct over it and a box that
+     * has stopped.
+     *
+     * A rise makes it a cell with somewhere to hand on, which is all this
+     * branch was ever asking. The units still go first — that is `armSwing`'s
+     * ladder, not this map, and it is untouched.
+     */
+    if (out && risesTo(c)) {
+      map.set(c.id, risesTo(c));
+      queue.push(c);
+      walk();
+      continue;
+    }
     if (out && !at.has(`${out.x},${out.z},${deckOf(c)}`) && unitOn(L, out.x, out.z)) {
       map.set(c.id, null);
       continue;
@@ -2715,6 +2816,36 @@ export function conveyorBranches(L, cell) {
     const back = to && to.x === cell.x && to.z === cell.z && deckOf(to) === deckOf(cell);
     if (back && (!isNamed || !derivedFlow(other.kind))) continue;
     out.push({ x: n.x, z: n.z, deck: n.deck });
+  }
+
+  /**
+   * ...and the fifth, which is straight up or straight down — step 9.
+   *
+   * A junction is the one piece in the shop whose whole job is choosing between
+   * ways out, so a duct hanging over one is a way out in exactly the sense the
+   * four beside it already are: you do not AIM a branch, you build a conveyor
+   * next to a junction and it becomes one. `rot` only ever decided which goes
+   * first. Standing a sorter where two storeys meet is the choosing, and it is
+   * what the return leg is made of — the goods this aisle has no home for go
+   * overhead and away, with no floor tile spent on the shaft.
+   *
+   * It cannot outrank a line that WANTS the box, and nothing here has to make
+   * sure of that: `sorterOut` sorts by `sorterWants` and only ever splits across
+   * the keen ones. A duct that serves nothing is never keen, which is the same
+   * protection the dead spur beside it already has.
+   *
+   * Same two guards as `risesTo` — never a shaft, never something already
+   * pointing at us — because a branch that is also a feeder is a two-cell tug of
+   * war, and at a junction that is the likely one.
+   */
+  const up = acrossFrom(cell);
+  const above = conveyorAt(L, up.x, up.z, up.deck);
+  if (above && above.id !== cell.id && above.kind !== 'lift'
+    && !(straight && straight.x === up.x && straight.z === up.z
+      && deckOf(straight) === up.deck)) {
+    const to = conveyorNext(L, above);
+    const back = to && to.x === cell.x && to.z === cell.z && deckOf(to) === deckOf(cell);
+    if (!back) out.push(up);
   }
   // The side `rot` names goes first — a tie is settled by what you aimed it at.
   out.sort((a, b) => (a.x === named.x && a.z === named.z ? -1 : 0)

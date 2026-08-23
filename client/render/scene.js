@@ -4342,7 +4342,13 @@ export class Scene {
         if (!onCell.has(c.id)) continue;
         const ways = [conveyorNext(L, c), ...conveyorBranches(L, c)].filter(Boolean);
         const open = ways.some((w) => {
-          const n = conveyorAt(L, w.x, w.z);
+          // ON THE STOREY THE WAY OUT NAMES. Asked without one this reads the
+          // floor, which is `beltExit`'s own bug said about the jam readout: a
+          // duct's hand-over resolves to whatever is underneath it, so an
+          // overhead run backed up solid reports itself clear because the aisle
+          // below it has room — and the amber tail that is the only signal a
+          // player has for a jam never lights.
+          const n = conveyorAt(L, w.x, w.z, deckOf(w));
           return !!n && !onCell.has(n.id);
         });
         if (!open) this.beltStuck.add(c.id);
@@ -5013,7 +5019,7 @@ export class Scene {
    * "which thing am I pointing at", which is why `pickFixture` stopped being
    * built out of this and raycasts the art instead.
    */
-  pickTile(clientX, clientY, y = 0) {
+  pickTile(clientX, clientY, y = this.pickDeck === CEILING ? CEILING_Y : 0) {
     if (!this.storeLayout) return null;
     const ray = this.pointerRay(clientX, clientY);
     this._plane ??= new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -6179,7 +6185,17 @@ export class Scene {
    */
   conveyorPath(L, c) {
     const to = conveyorNext(L, c);
+    // ...and a RISE is not a direction across the deck. Step 9 gave every cell
+    // a fifth way out — the same square one storey up — and `Math.sign` of that
+    // is `0,0`, which is not "no exit", it is a zero vector wearing one. Every
+    // reader below spends it: the slats are laid along `out`, the housing's
+    // open sides are keyed by it, the end pips are set back along it. Left in,
+    // a cell whose only way on is upward has its track drawn along a leg
+    // nothing uses. Null instead, which is the answer this already has for a
+    // terminus and means the same thing here — nothing leaves ACROSS the deck —
+    // so the cell travels the way it is fed and the rise is drawn by the riser.
     const out = to && conveyorAt(L, to.x, to.z, deckOf(to))
+      && (to.x !== c.x || to.z !== c.z)
       ? { x: Math.sign(to.x - c.x), z: Math.sign(to.z - c.z) } : null;
     // Every cell that hands to this one, not the first found — a cell can be a
     // MERGE, and a merge is not a bend. Picking whichever feeder happened to be
@@ -7399,6 +7415,60 @@ export class Scene {
         const dx = Math.sign(to.x - c.x);
         const dz = Math.sign(to.z - c.z);
 
+        /**
+         * A RISE has no edge, so it gets a riser rather than a coupling.
+         *
+         * Every other mark in here lies on the line between two cells, because
+         * every other hand-over crosses one. Step 9's does not: it is the same
+         * square twice, four metres apart, which is the geometry the overhead
+         * loader's chute already has. Drawn as a coupling it is `dx` and `dz`
+         * both zero — a plate square in the middle of the cell, at the near
+         * deck, saying nothing about the storey it is about and reading as one
+         * more join on a run that has none there.
+         *
+         * A COLLAR AND A POST THAT SPANS, and the span is the part that had to
+         * be learnt from a screenshot.
+         *
+         * It was a stub — 0.42 against a 1.9 gap — on the argument `DUCT_CHUTE`
+         * makes about the chute: a full shaft stands in the aisle the ceiling
+         * was bought to clear. That argument is right about a CHUTE, which is
+         * wide enough to post a crate through, and wrong about this, because a
+         * mark that stops four fifths short of the thing it connects to is not
+         * a restrained version of the connection — it is a stub of pipe on the
+         * roof of a machine, and what it says is that nothing joins. So the
+         * post reaches deck to deck and pays for it by being thin: `RISER_POST`
+         * is a fraction of the chute's width, so you can see the shelf behind
+         * it, which is the half of the original argument worth keeping.
+         *
+         * It goes on `rec.flow` like any other join, so the rise turns amber
+         * when the box on it cannot cross. That is the one readout on a
+         * conveyor a player has for a jam, and a hand-over left off it is a
+         * hand-over that never reports.
+         */
+        if (!dx && !dz) {
+          const far = deckLift(to);
+          const lo = Math.min(dY, far);
+          const hi = Math.max(dY, far);
+          const collar = new THREE.Mesh(geo, flowMaterial(CONVEYOR_LIT.idle));
+          collar.scale.set(DUCT_CHUTE, 0.05, DUCT_CHUTE);
+          collar.position.set(c.x, dY + (far > dY ? 0.13 : -0.05), c.z);
+          collar.renderOrder = 3;
+          collar.raycast = NO_PICK;
+          this.beltRoot.add(collar);
+          const post = new THREE.Mesh(geo, flowMaterial(CONVEYOR_LIT.idle));
+          post.scale.set(RISER_POST, Math.max(0.1, hi - lo), RISER_POST);
+          post.position.set(c.x, (lo + hi) / 2, c.z);
+          post.renderOrder = 3;
+          post.raycast = NO_PICK;
+          this.beltRoot.add(post);
+          const up = this.movingFixtures.get(c.id)
+            ?? { moving: [], phase: (c.x * 0.31 + c.z * 0.17) % 1, signal: null };
+          up.conveyor = true;
+          (up.flow ??= []).push(collar, post);
+          this.movingFixtures.set(c.id, up);
+          continue;
+        }
+
         // One small square on the JOIN, and nothing down the middle of the cell.
         //
         // The line this replaces ran half a tile per cell and joined up into an
@@ -8057,6 +8127,13 @@ export class Scene {
       for (const br of conveyorBranches(L, c)) {
         const dx = Math.sign(br.x - c.x);
         const dz = Math.sign(br.z - c.z);
+        // A blade is a slope a crate is pushed off SIDEWAYS by, so the one
+        // branch it cannot describe is the one that goes straight up. Drawn
+        // anyway it is a bar over the middle of the hub at `atan2(0, 0)` — a
+        // diverter pointing east on a junction that diverts nothing east, which
+        // is the marking layer's own green-ghost rule. The riser above is what
+        // says this branch exists.
+        if (!dx && !dz) continue;
         const blade = new THREE.Mesh(geo, material(CONVEYOR.rail, 1));
         blade.scale.set(0.5, 0.06, 0.09);
         blade.position.set(c.x + dx * 0.2, dY + 0.22, c.z + dz * 0.2);
@@ -10355,6 +10432,19 @@ const DUCT_WALL = 0.3;
 /** ...and the collar an overhead loader drops its goods through. */
 const DUCT_CHUTE = 0.34;
 const DUCT_DROP = 0.34;
+
+/**
+ * How WIDE a rise's post is — step 9's join mark, which spans deck to deck.
+ *
+ * Thin is how it pays for reaching all the way. `DUCT_DROP`'s argument against
+ * a full shaft is about the aisle the ceiling was bought to clear, and it holds
+ * for a chute a crate has to fit down; a mark does not have to fit anything, so
+ * it can join the two storeys honestly at a fifth of the width and still let
+ * you see the shelf behind it. Stubbed instead — which is how it shipped — it
+ * reads as a length of pipe on the roof of a machine, saying that nothing is
+ * connected.
+ */
+const RISER_POST = 0.07;
 
 /**
  * How long a crate takes to cross one TILE of track — the server's own

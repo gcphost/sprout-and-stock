@@ -1087,7 +1087,16 @@ function refreshGhost(force = false) {
   // on the E press: the deck is also reset by leaving build mode, which happens
   // through half a dozen doors in `ui`, and a pick rule that was one press
   // stale would aim at the ceiling in a shop you had already come down from.
-  scene.pickDeck = ui.paletteArmed ? ui.buildDeck : 0;
+  // A stamp has no armed palette row — `copySelection` deliberately disarms it
+  // so its footprint is the one promise under the pointer — but its target is
+  // still on the storey its source came from. Without this a copied overhead
+  // duct asks `pickTile` for the floor plane: from an angled camera that is a
+  // different x,z, so a one-cell straight is stamped beside its intended
+  // neighbour and reads as a corner the player never drew. A mixed stamp stays
+  // grounded; it is the only unambiguous anchor it has until stamps can rotate.
+  const stampDeck = clipboard?.length && clipboard.every((f) => f.deck === CEILING)
+    ? CEILING : 0;
+  scene.pickDeck = ui.paletteArmed ? ui.buildDeck : stampDeck;
   const raze = aiming ? razeAim(pointer.x, pointer.y) : null;
   ui.setRazeAim(raze ? razeSay(raze) : null);
   if (raze) {
@@ -2952,6 +2961,9 @@ function copySelection() {
     piece: f.piece ?? null,
     variant: f.variant ?? '',
     rot: f.rot ?? 0,
+    // The server's blueprint already carries this through `specOf`; the client
+    // needs it too, because it owns the preview AND the plane the stamp aims on.
+    deck: f.deck ?? 0,
   }));
   stampSeq++;
   // Holding the blueprint means holding nothing else. Arming a tool is what
@@ -2973,8 +2985,9 @@ function pasteCells(tile) {
     kind: c.kind,
     piece: c.piece,
     variant: c.variant,
+    deck: c.deck,
     state: canPlace(scene.storeLayout, {
-      kind: c.kind, x: tile.x + c.dx, z: tile.z + c.dz, rot: c.rot,
+      kind: c.kind, x: tile.x + c.dx, z: tile.z + c.dz, rot: c.rot, deck: c.deck,
     }).ok ? 'ok' : 'warn',
   }));
 }
@@ -6453,7 +6466,15 @@ function tapAtPointer(cx, cy) {
   }
   if (ui.openPanel === 'fixture') ui.closePanel();
   const placing = !ui.holding;
-  net.send(ui.holding ? 'build-drop' : 'build-place', spec);
+  // A lone conveyor is still a run of one. Sending it through `build-place`
+  // skipped `buildRun`'s tail join, so the missing link between an arm and a
+  // duct kept the palette's default facing and truthfully drew as an L. The
+  // run path sees the one continuing ceiling belt, turns toward it, and leaves
+  // ordinary fixture placement exactly as it was.
+  const message = ui.holding ? 'build-drop' : (FIXTURES[kind]?.flow ? 'build-run' : 'build-place');
+  net.send(message, message === 'build-run'
+    ? { ...spec, to: null }
+    : spec);
 
   // ...and on a phone, ONE tap buys one thing. The tool stays armed on a desktop
   // because that is what makes a row of shelving a row of clicks, and a mouse

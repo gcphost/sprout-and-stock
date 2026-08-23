@@ -1302,6 +1302,179 @@ of it.
 
 ---
 
+## Step 9 — up is a way OUT
+
+Built. `verify:ceiling`, 323 assertions.
+
+Step 8 gave the shop a second storey and then made reaching it cost a floor
+tile, which is the thing the storey was bought to stop. An aisle with shelving
+down both sides, a conveyor along it, a loader per unit, an endcap on the end —
+and the run stops there, because the only way back is a `lift` and a lift wants
+a square. You can have the endcap or the return leg.
+
+So the cell directly above a floor cell — same x, same z, `deck: CEILING` — is a
+fifth way out, and the same downward. The `lift` stays: it is what you build when
+you want a shaft you can see and a storey change somewhere with nothing under it.
+This is what you build when the square is spoken for.
+
+### `acrossFrom` is a separate function on purpose
+
+`stepFrom` is the same-deck rule and it is what a second storey IS: leave the
+deck out of it and a duct laid over a run merges with it silently, boxes changing
+storey at every crossing, drawn as a conveyor that teleports. A vertical
+neighbour reached through the same four-way loop would be that merge with a
+nicer spelling. So `acrossFrom` is its own function and every place that
+enumerates ways out has to ask for it **by name** — which is what makes the list
+of askers short enough to argue about.
+
+### Two things ask, and a plain belt is not one of them
+
+**A junction**, because that is the piece whose entire job is choosing between
+ways out. And that is not a special case: you do not *aim* a branch today either
+— `conveyorBranches` takes every neighbouring cell that is not the straight-on
+and is not feeding it, and `rot` only ever decided which goes first. Building a
+sorter where two storeys meet is the choosing.
+
+**A loader with nowhere else**, which is `choose`'s last resort and the endcap.
+Last, and that is the whole opt-in: a loader mid-aisle with a duct crossing over
+it carries straight on exactly as it did, so the only machine that ever looks up
+is one that has run out of shop.
+
+**And an aisle made entirely of loaders is the shape that found the hole.** "A
+loader emptying into a unit hands on to nobody" is a rule from step 2 and it is
+true right up to the moment that square gained a way out. A row of loaders with
+no plain belt in it never reaches the forward walk — nobody has a feeder, so
+every cell of it lands in `conveyorFlow`'s leftovers — and down there the endcap,
+aimed at its shelf, was declared a terminus one line before anything asked about
+the rise. Same build, working or not depending on whether there happened to be a
+belt somewhere upstream, with nothing on screen to say which. The leftover rule
+is narrowed rather than deleted: a loader with nothing overhead is still a
+terminus and still answers `null`.
+
+A plain belt points where it points. A tunnel mouth answers with its far mouth. A
+lift is resolved by `liftTo` and is excluded at both ends of a rise — its own
+square on the far deck is *itself*, so "straight up" would be a cell whose next
+is its own id, which is `liftTo`'s own guard said one storey along.
+
+`throughR` is never asked of a rise and must not be. It is what tells a run apart
+from a spur, and a cell carrying on straight up because the cell below it happens
+to be a conveyor is a column rather than a line.
+
+### The rise sits between the units and the ground
+
+`armSwing` is a ladder — shelving first, then a pad, then the floor it faces —
+and every rung of it is about a box **leaving** the network. A duct overhead is
+not: `stepBelts` carries the box up the moment the swing declines, and a box on a
+run beats a box on the floor for a hire to find. So the rise goes above the
+ground drop, and that ordering is the difference between a feature and dead code:
+the endcap this exists for has walkable floor beside it, which every loader in
+every shop does. It turned out to outrank a **pad** as well, which the sweep
+found by accident — the row it picks happens to sit beside the drop-off.
+
+A jammed duct means the swing declines and the box waits on the loader, which is
+what every other cell on a run does with a full cell in front of it. Dropping it
+because the duct was busy for a second and a half would be the automation quietly
+handing itself back to the crew.
+
+### …which turned out to be a rule about the whole ladder
+
+Preferring the rise over the ground was not enough, and it took a screenshot to
+see why: it only holds the loader whose *own* next cell is the duct. Every loader
+**upstream** of that one still had a horizontal way on, so the first of them with
+a full board and a walkable tile beside it emptied the box onto the floor long
+before it ever reached the return leg. Every box that came off was one a shelf
+genuinely refused, so the machine reads as working — and what you watch is a
+conveyor that spits your stock out whenever it gets busy.
+
+So the off-ramp is at the **terminus** and nowhere else. Step 2's reason for it
+is still the right reason — without an exit a crate nothing wants rides for ever
+— but a dead end has stopped being the only shape a run comes in, and the whole
+point of a duct is that what the shelves would not take goes back over the top
+and round. The rule is now one sentence a player can hold: *a loader only puts a
+box down when the run has run out.* The narrow version's answer depended on
+whether something four cells away happened to be a duct, invisibly.
+
+A full loop circulates rather than spilling, which is what a loop IS: the boxes
+going round are the buffer, and they are the signal that the shop is backed up.
+Every dead end keeps its off-ramp, a skip still takes what nothing wants, and a
+junction still has `sorterEject`. `verify:belts` §16b is the pair to §16, and the
+two of them are the whole rule.
+
+### What cost nothing, and it is most of the step
+
+`beltExit`'s hop already adds 1 for a deck change, so a vertical hand-off is
+charged correctly. `conveyorLines`' riser branch is `rise && flat` and a rise has
+`flat === 0`, so it is not hit and must not be — the box goes straight up over
+its own square, which is what `alongPath` already interpolates and what
+`dist[i] === ` arc length of `pts` already agrees with. The same is true at a
+seam: the exit point `stepBelts` appends is the same x,z one deck along, so the
+riser insert there is skipped for the same reason.
+
+Which is what says the line rewrite (step 3b) was the right shape. A whole new
+way for goods to travel, and the geometry, the backpressure, the jam readout and
+the conservation all came for free.
+
+### The renderer has no vertical anything
+
+Every mark on a run lies on a tile **edge**, and this hand-over has no edge — it
+is the same square twice, four metres apart, which is exactly the problem the
+overhead loader's chute already has. Three things fall out:
+
+- **A rise is not a direction across the deck.** `conveyorPath`'s `in`/`out` are
+  x,z vectors, so `Math.sign` of a rise is `0,0` — not "no exit", a zero vector
+  wearing one. Every reader spends it: the slats are laid along `out`, the
+  housing's open sides are keyed by it, the end pips are set back along it. It is
+  `null` now, which is the answer that function already has for a terminus and
+  means the same thing here.
+- **A blade cannot describe it.** A sorter's diverter is a slope a crate is
+  pushed off sideways by, so the one branch it cannot draw is straight up — and
+  drawn anyway it is a bar over the middle of the hub at `atan2(0, 0)`, a
+  diverter pointing east on a junction that diverts nothing east.
+- **So the join mark is a collar and a post that SPANS the gap.** It shipped as
+  a stub — 0.42 against 1.9 — on `DUCT_CHUTE`'s argument that a full shaft
+  stands in the aisle the ceiling was bought to clear. That argument is about a
+  chute, which is wide enough to post a crate down; a mark has to fit nothing,
+  so it can join the two storeys honestly at a fifth of the width. Stubbed, it
+  reads as a length of pipe on the roof of a machine, which says the opposite of
+  what it is for. It goes on `rec.flow` like every other
+  join, so a rise turns amber when the box on it cannot cross — a hand-over left
+  off that list is a hand-over that never reports, and the amber tail is the only
+  signal a player has for a jam.
+
+And the jam readout itself had the `beltExit` bug one more time: `beltStuck`
+looked its ways out up without a storey, so an overhead run backed up solid
+reported itself clear because the aisle below it had room.
+
+### The section of `verify:ceiling` that had to change, and why it is not a loss
+
+Section 7 laid a floor run straight through the square a ceiling junction stands
+on, and asserted that no box ever arrives downstairs. Step 9 makes that square the
+junction's fifth way out, so the decoy is no longer a decoy: it is a connection,
+and a deliberate one.
+
+What the section is about survives, because the bug it was written for is a
+**lookup** — every way out of a junction is a hand-off between two lines,
+resolved by turning a way out back into a cell, and read without a storey that
+answered the floor. So the decoy moved under the two **exits**, which are the
+squares those lookups name, and the hub has nothing below it. Both branches still
+have a floor cell waiting to catch a hand-off that forgot which deck it was on.
+
+### What is not done
+
+- **Nothing routes a box to a storey.** A rise is taken because there is nowhere
+  else or because a junction split onto it, never because anything wanted to be
+  upstairs. There is no "send this up".
+- **A sorter cannot be told to reject upward.** `reject` is a quarter turn and up
+  is not one. What you get instead is the alternation: a duct that serves nothing
+  is never keen, so it collects its share of what nothing wants, which is most of
+  the way there and is not the same sentence.
+- **A floor junction sealed on all four sides is a hood with a box going through
+  it.** The housing's open sides are cut from the x,z set the walls are, and a
+  rise contributes none — so a junction whose only exit is upward is panelled
+  shut and the crate rises through the roof of it.
+
+---
+
 ## Steps 5–6 — written down, not built
 
 **Step 5 — a throughput overlay.** Factorio players live in the production

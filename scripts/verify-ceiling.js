@@ -67,6 +67,34 @@
  * - **Conservation**, at every hop, because a new place goods move between has
  *   been a hole every single time in this game.
  *
+ * ...and since step 9, when the same square became a way OUT rather than only a
+ * place to be:
+ *
+ * - **The rise is CHOSEN**, which is the sharpest control in this file. Up is a
+ *   fifth exit, and the moment it exists the two networks section 3 keeps apart
+ *   can touch by default — laying a duct across the shop would silently join it
+ *   to every run it crossed. So a plain belt never looks up, a loader with a run
+ *   in front of it never looks up, and the only two that do are a junction and a
+ *   loader that has run out of aisle. The three are asserted in one shop that
+ *   differs by nothing else.
+ * - **The endcap, three ways.** A loader at the end of a line with a duct over
+ *   it sends its box UP; with no duct it comes off onto the ground exactly as it
+ *   did before; and with a shelf in front of it the shelf is stocked and nothing
+ *   rises at all. That ordering is not decoration — the rise sits between the
+ *   units and the ground drop in `armSwing`'s ladder, and below the ground drop
+ *   it would be dead code in every shop, because every loader in every shop has
+ *   walkable floor beside it.
+ * - **A junction sorts up, and a keen line still wins.** The pair, because
+ *   either half alone is satisfied by the bug: a rise that could outrank a line
+ *   which will take the goods is the `homeFull` spread bug wearing a storey, and
+ *   every box that DID arrive would arrive correctly.
+ * - **No column, and it comes down again.** Two cells over one square are the
+ *   most that can exist and the one thing they must not be is a run — left
+ *   unguarded the floor cell hands up, the ceiling cell hands down, for ever,
+ *   which does not error and does not spill. Paired with a ring that changes
+ *   storey twice, because a return leg that only goes up is a way of losing
+ *   stock on the roof.
+ *
  * Runs on ephemeral Games. It writes one item row and four fixture rows into
  * the content database — usually the live shared one — and removes them on exit.
  *
@@ -79,7 +107,7 @@ import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
 import {
   canPlace, anchorTile, isWalkableTile, conveyorAt, conveyorNext, conveyorLines,
-  conveyorMeets, conveyorsOf, armReach, deckOf, CEILING,
+  conveyorMeets, conveyorsOf, conveyorBranches, armReach, deckOf, CEILING,
 } from '../shared/build.js';
 import { lotTotal } from '../shared/lot.js';
 
@@ -540,15 +568,41 @@ for (const dir of ['up', 'down']) {
   for (let z = 2; z < g.layout.h - 2 && !mid; z++) {
     for (let x = 2; x < g.layout.w - 2; x++) {
       const arms = [{ x: x - 1, z }, { x, z }, { x: x + 1, z }, { x, z: z + 1 }];
-      const ok = arms.every((c) => canPlace(g.layout, { kind: 'belt', x: c.x, z: c.z, rot: 0, deck: CEILING }).ok
-        && canPlace(g.layout, { kind: 'belt', x: c.x, z: c.z, rot: 0 }).ok);
+      // ...and the two floor runs the exits hang over, which reach one cell
+      // further than the duct does — see the decoy below.
+      const under = [{ x: x + 1, z }, { x: x + 2, z }, { x, z: z + 1 }, { x, z: z + 2 }];
+      const ok = arms.every((c) => canPlace(g.layout, { kind: 'belt', x: c.x, z: c.z, rot: 0, deck: CEILING }).ok)
+        && under.every((c) => canPlace(g.layout, { kind: 'belt', x: c.x, z: c.z, rot: 0 }).ok);
       if (ok) { mid = { x, z }; break; }
     }
   }
   check(!!mid, 'there is a cross of roof to build a junction under');
 
-  // The floor decoy, first: an ordinary run through the same squares.
-  const decoy = [-1, 0, 1].map((d) => put(g, { kind: 'belt', x: mid.x + d, z: mid.z, rot: 0 }));
+  /**
+   * The floor decoy, first — and WHERE it goes changed with step 9.
+   *
+   * It used to run straight through the junction's own square, which was the
+   * sharpest possible version of this claim while a duct and the aisle under it
+   * were two networks that could not touch. Step 9 makes the square below a
+   * junction its fifth way out, so a floor belt there is no longer a decoy: it
+   * is a connection, and a deliberate one. Section 10 is that build asserted as
+   * a feature.
+   *
+   * What this section is actually about survives intact, because the bug it was
+   * written for is a LOOKUP: every way out of a junction is a hand-off between
+   * two lines, resolved by turning a way out back into a cell, and read without
+   * a storey that answered the floor. So the decoy goes under the two EXITS —
+   * the squares those lookups name — and not under the hub. Both branches still
+   * have a floor cell waiting to catch a hand-off that forgot which deck it was
+   * on, and the junction itself has nothing below it to be joined to.
+   */
+  const decoy = [
+    put(g, { kind: 'belt', x: mid.x + 1, z: mid.z, rot: 0 }),
+    put(g, { kind: 'belt', x: mid.x + 2, z: mid.z, rot: 0 }),
+    put(g, { kind: 'belt', x: mid.x, z: mid.z + 1, rot: 1 }),
+    put(g, { kind: 'belt', x: mid.x, z: mid.z + 2, rot: 1 }),
+  ];
+  eq(conveyorAt(g.layout, mid.x, mid.z, 0), null, 'and nothing on the floor under the hub');
 
   const feed = put(g, { kind: 'belt', x: mid.x - 1, z: mid.z, rot: 0, deck: CEILING });
   const tee = put(g, { kind: 'sorter', x: mid.x, z: mid.z, rot: 1, deck: CEILING });
@@ -694,6 +748,357 @@ for (const dir of ['up', 'down']) {
   eq(spot(crate).deck, CEILING, 'a box re-flowed at every step still gets to the top');
   eq(units(g2), held, 'and nothing is lost doing it');
   eq(g2.deliveries.filter((d) => d.id === crate.id).length, 1, 'and it is still one box');
+}
+
+// ---------------------------------------------------------------------------
+// 10. THE RISE IS CHOSEN, and this is the sharpest control in step 9.
+//
+// Up is a fifth way out — the same square one storey along — and the moment it
+// exists the two networks a duct and the aisle under it were carefully kept
+// apart can touch by default. Which is the merge section 3 exists to refuse,
+// arriving by the front door: laying a duct across your shop would silently
+// join it to every run it crossed, and a box changing storey at a crossing is
+// drawn as a conveyor that teleports and read, from a chair, as one that works.
+//
+// So two things choose it and nothing else does. A JUNCTION, which is the piece
+// whose whole job is choosing between ways out. And a LOADER WITH NOWHERE ELSE,
+// which is the endcap this step exists for. A plain belt never looks up, and a
+// loader that can carry on across its own deck never looks up either.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 5);
+  const z = row[0].z;
+  const x0 = row[0].x;
+
+  // A run of four on the floor: belt, loader, belt, loader. The last one is the
+  // endcap — nothing in front of it and nothing beyond it.
+  const head = put(g, { kind: 'belt', x: x0, z, rot: 0 });
+  const mid = put(g, { kind: 'arm', x: x0 + 1, z, rot: 1 });
+  const on = put(g, { kind: 'belt', x: x0 + 2, z, rot: 0 });
+  const end = put(g, { kind: 'arm', x: x0 + 3, z, rot: 0 });
+  // ...and a duct over the middle loader AND over the end one, so the two
+  // answers below differ by nothing except whether the machine had anywhere
+  // else to hand on.
+  const overMid = put(g, { kind: 'belt', x: x0 + 1, z, rot: 0, deck: CEILING });
+  const overEnd = put(g, { kind: 'belt', x: x0 + 3, z, rot: 0, deck: CEILING });
+
+  // A PLAIN BELT NEVER LOOKS UP. Its own `rot` is its answer and always was,
+  // which is what makes every run ever laid unchanged by this — but it is also
+  // the one claim that would fail if the vertical had been added to the four-way
+  // neighbour loop instead of asked for by name.
+  const overHead = put(g, { kind: 'belt', x: x0, z, rot: 0, deck: CEILING });
+  const way = conveyorNext(g.layout, head);
+  eq(deckOf(way), 0, 'a plain belt under a duct still hands along the floor');
+  eq(`${way?.x},${way?.z}`, `${x0 + 1},${z}`, 'to the cell it points at and nothing else');
+  eq(conveyorBranches(g.layout, head).length, 0, 'and a belt has no branches at all');
+  eq(deckOf(conveyorNext(g.layout, overHead)), CEILING, 'and the duct over it stays upstairs');
+
+  // A LOADER MID-RUN NEVER LOOKS UP EITHER. It has somewhere to go on its own
+  // storey, so the duct crossing over it is scenery — which is what keeps this
+  // from being a change to every aisle anybody automates from now on.
+  const along = conveyorNext(g.layout, mid);
+  eq(deckOf(along), 0, 'a loader with a run in front of it carries straight on');
+  eq(`${along?.x},${along?.z}`, `${x0 + 2},${z}`, 'along the floor');
+  eq(deckOf(conveyorNext(g.layout, overMid)), CEILING, 'and the duct over it is a run of its own');
+
+  // ...AND THE ENDCAP DOES. Same machine, same duct, one difference: there is
+  // no more aisle. This is the complaint step 9 was written for — a run down an
+  // aisle used to stop dead here, because the only way back is a shaft and a
+  // shaft wants the square the endcap is standing on.
+  const up = conveyorNext(g.layout, end);
+  eq(deckOf(up), CEILING, 'a loader at the end of the line hands UP');
+  eq(`${up?.x},${up?.z}`, `${overEnd.x},${overEnd.z}`, 'onto its own square, one storey along');
+  check(!!on, 'the run behind it is still there');
+}
+
+// ---------------------------------------------------------------------------
+// 10b. …AND AN AISLE MADE ENTIRELY OF LOADERS, which is what people build.
+//
+// "Belts on the corners, loaders down the straights" is the advice; a row of
+// units stocked one machine each is the shape, and such a row has no plain belt
+// in it at all. That row never reaches `conveyorFlow`'s forward walk — nobody
+// has a feeder, so every cell of it lands in the leftovers — and down there a
+// loader aimed at a shelf was declared a TERMINUS one line before anything
+// asked about the rise.
+//
+// So the same build worked or did not depending on whether there happened to be
+// a belt somewhere upstream, and nothing on screen could say which: an endcap
+// resolved through `choose` took the duct, an endcap resolved as a leftover did
+// not, and both are a loader with a duct over it and a box that has stopped.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 5);
+  const z = row[0].z;
+  const x0 = row[0].x;
+
+  // Three loaders in a line and NOT ONE BELT, each aimed at a shelf of its own.
+  const shelves = [];
+  for (let i = 0; i < 3; i++) {
+    const res = g.placeFixture('me', { kind: 'shelf', x: x0 + i, z: z + 1, rot: 0 });
+    check(res.ok, 'a shelf goes beside the aisle', res.error ?? '');
+    shelves.push({ x: x0 + i, z: z + 1 });
+  }
+  const arms = [0, 1, 2].map((i) => put(g, { kind: 'arm', x: x0 + i, z, rot: 1 }));
+  eq((g.layout.belts ?? []).length, 0, 'and the run has no plain belt anywhere in it');
+  const overEnd = put(g, { kind: 'belt', x: x0 + 2, z, rot: 0, deck: CEILING });
+
+  const up = conveyorNext(g.layout, arms[2]);
+  eq(`${up?.x},${up?.z},${deckOf(up)}`, `${overEnd.x},${overEnd.z},${CEILING}`,
+    'the endcap of a beltless row hands up all the same');
+  // ...and the two with no duct over them are UNTOUCHED, which is the control
+  // and the only thing that says the leftover rule was narrowed rather than
+  // deleted. A loader aimed at a shelf with nothing overhead is still a
+  // terminus, exactly as it was: `null`, not a guessed neighbour.
+  for (let i = 0; i < 2; i++) {
+    eq(conveyorNext(g.layout, arms[i]), null,
+      'while a loader with no duct over it is still a terminus');
+  }
+  check(shelves.length === 3, 'and its three shelves are standing');
+}
+
+// ---------------------------------------------------------------------------
+// 11. THE ENDCAP, END TO END — and the ladder the rise sits on.
+//
+// `armSwing` is a ladder of preferences: shelving first, because that is what
+// the machine is for, then somewhere to set the box down. Step 9 puts the rise
+// between them, and that ordering is the difference between a feature and dead
+// code — a loader with bare floor beside it is every loader in every shop, so a
+// rise below the ground drop would never once be reached.
+//
+// Three runs of the same shop, differing by one press each. None of them can be
+// told apart in a still frame: a box on a duct, a box on the floor and a box on
+// a shelf are all a box that arrived somewhere.
+// ---------------------------------------------------------------------------
+for (const build of ['duct', 'bare', 'shelf']) {
+  const g = fresh();
+  const row = roofRow(g, 5);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  const face = { x: x0 + 3, z };
+
+  put(g, { kind: 'belt', x: x0, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 1, z, rot: 0 });
+  const arm = put(g, { kind: 'arm', x: x0 + 2, z, rot: 0 });
+  if (build !== 'bare') put(g, { kind: 'belt', x: x0 + 2, z, rot: 0, deck: CEILING });
+  if (build === 'duct') put(g, { kind: 'belt', x: x0 + 3, z, rot: 0, deck: CEILING });
+  if (build === 'shelf') {
+    const res = g.placeFixture('me', { kind: 'shelf', x: face.x, z: face.z, rot: 2 });
+    check(res.ok, 'a shelf goes in front of the endcap loader', res.error ?? '');
+  } else {
+    eq(isWalkableTile(g.layout, face.x, face.z), true,
+      `${build}: the tile it faces is bare walkable floor`);
+  }
+
+  const crate = crateOn(g, g.beltAt(x0, z), 4);
+  const held = units(g);
+  run(g, 400);
+
+  const shelf = (g.layout.shelves ?? []).find((s) => s.x === face.x && s.z === face.z);
+  const onShelf = (shelf?.stacks ?? []).reduce((n, st) => n + (st.qty ?? 0), 0);
+  /**
+   * ON THE RUN or ON THE GROUND, and never by the box's id.
+   *
+   * `armDrop` goes through `dropLot`, which merges into whatever pile is
+   * already standing there and retires the crate that arrived — so a test that
+   * followed the id would report "no box on the floor" for the one build where
+   * the box is definitely on the floor.
+   *
+   * And by "the ground" rather than by the faced tile, which is what the first
+   * draft of this asserted and got wrong in an instructive direction: pads come
+   * before the faced tile on the ladder, and the row this sweep happens to find
+   * is next to the drop-off. So the control is a stronger claim than intended —
+   * the rise outranks the PAD as well, which is the rung above the one trap 6 is
+   * written about.
+   */
+  const grounded = g.deliveries.filter((d) => !d.belt && lotTotal(d) > 0);
+  const riding = g.deliveries.filter((d) => d.belt && lotTotal(d) > 0);
+
+  if (build === 'duct') {
+    // THE CLAIM, and it is a pair. The box is on the duct AND it is not on the
+    // floor — the second half being the one that matters, since a loader that
+    // off-ramped first would look exactly like a loader doing its job.
+    eq(riding.length, 1, 'the endcap sends its box on rather than off the run');
+    eq(deckOf(riding[0] ?? {}) === CEILING || (riding[0]?.deck ?? 0) > 0.99, true,
+      'and it is upstairs', JSON.stringify(spot(riding[0] ?? {})));
+    eq(grounded.length, 0, 'with nothing set down anywhere');
+  }
+  if (build === 'bare') {
+    // The control, and it is the whole of what says this is opt-in: take the
+    // duct away and the same shop does exactly what it did before step 9.
+    eq(grounded.length, 1, 'with no duct over it the box comes off onto the ground');
+    eq(riding.length, 0, 'and nothing is left on the run');
+  }
+  if (build === 'shelf') {
+    // ...and the rise is BELOW the units on the ladder. A machine that sent its
+    // goods up rather than into the shelf it is bolted to is a loader that has
+    // stopped being a loader, and the duct would be busy the whole time.
+    check(onShelf > 0, 'a shelf in front of it is stocked before anything rises', `${onShelf} units`);
+    eq(riding.length + grounded.length, 0, 'and nothing goes up while the shelf will have it');
+  }
+  eq(units(g), held, `${build}: and nothing is created or destroyed`);
+  check(!!crate && !!arm, `${build}: the run was built`);
+}
+
+// ---------------------------------------------------------------------------
+// 12. A JUNCTION SORTS UP, and a keen line still wins.
+//
+// The other half of the return leg: goods this aisle has no home for go
+// overhead and away, with no floor tile spent on a shaft. A sorter gets the
+// fifth side for the same reason it gets the other four — you do not aim a
+// branch, you build a conveyor next to a junction and it becomes one.
+//
+// Its pair is the assertion that keeps it from being the `homeFull` spread bug
+// wearing a storey: a line that WILL take the goods outranks the rise, every
+// time, and a duct that serves nothing is never keen.
+// ---------------------------------------------------------------------------
+for (const keen of [false, true]) {
+  const g = fresh();
+  const row = roofRow(g, 6);
+  const z = row[0].z;
+  const x0 = row[0].x;
+
+  const feed = put(g, { kind: 'belt', x: x0, z, rot: 0 });
+  // Aimed at the side with nothing on it, so the duct above has to arrive as a
+  // BRANCH rather than as the straight-on. Pointed along the run instead, the
+  // junction's `rot` side would be its named branch and `choose` would hand the
+  // rise the straight-on — the same two ways out with the labels swapped, which
+  // would pass this section while saying nothing about `conveyorBranches`.
+  const tee = put(g, { kind: 'sorter', x: x0 + 1, z, rot: 3 });
+  put(g, { kind: 'belt', x: x0 + 2, z, rot: 0 });
+  const roof = put(g, { kind: 'belt', x: x0 + 1, z, rot: 0, deck: CEILING });
+  // ...and a home down the FLOOR branch, or not. That one shelf is the entire
+  // difference between the two runs.
+  if (keen) {
+    const shelfAt = { x: x0 + 3, z: z + 1 };
+    const res = g.placeFixture('me', { kind: 'shelf', x: shelfAt.x, z: shelfAt.z, rot: 0 });
+    check(res.ok, 'a shelf goes down the floor branch', res.error ?? '');
+    put(g, { kind: 'arm', x: x0 + 3, z, rot: 1 });
+  }
+
+  const branches = conveyorBranches(g.layout, tee);
+  const isRise = (w) => w.x === tee.x && w.z === tee.z && deckOf(w) === CEILING;
+  eq(branches.filter(isRise).length, 1, 'a junction under a duct has the duct as a branch');
+  const straight = conveyorNext(g.layout, tee);
+  eq(`${straight?.x},${straight?.z},${deckOf(straight)}`, `${x0 + 2},${z},0`,
+    'and its straight-on is still the aisle');
+
+  // Six boxes, one at a time, so nothing here is about backpressure.
+  let went = 0;
+  // Conservation, kept as a running total rather than a snapshot: the goods a
+  // keen junction sends down the floor branch END UP ON THE SHELF, so a shop
+  // measured before and after would honestly be richer by everything that got
+  // put away. What is being asserted is that no hop invented or ate anything.
+  let owed = units(g);
+  for (let n = 0; n < 6; n++) {
+    const crate = crateOn(g, feed, 2);
+    owed += 2;
+    let rose = false;
+    for (let i = 0; i < 160; i++) {
+      g.step(0.1);
+      if ((crate.deck ?? 0) > 0) rose = true;
+      if (!g.deliveries.includes(crate)) break;
+      if (crate.belt === roof.id && !(crate.off > 0)) break;
+    }
+    if (rose) went++;
+    owed -= lotTotal(crate);
+    g.deliveries = g.deliveries.filter((d) => d.id !== crate.id);
+  }
+  if (keen) {
+    // THE PAIR. A rise that could outrank a line which will take the goods is a
+    // leak, and it would be invisible: every box that DID arrive arrived
+    // correctly, which is the "sorter that does not sort" report exactly.
+    eq(went, 0, 'nothing goes up while a floor line can put the goods away', `${went} of 6`);
+  } else {
+    check(went > 0, 'a junction with nowhere on its own storey sends goods up', `${went} of 6`);
+    check(went < 6, 'and still splits with the line beside it', `${went} of 6`);
+  }
+  eq(units(g), owed, `${keen ? 'keen' : 'split'}: and no hop invented or ate a unit`);
+}
+
+// ---------------------------------------------------------------------------
+// 13. NO COLUMN, AND IT COMES DOWN AGAIN.
+//
+// Two cells over one square are the most that can exist, and the one thing they
+// must not be is a run. Left unguarded the floor cell hands up, the ceiling cell
+// hands down, both on the same square, for ever — the loader ping-pong
+// `conveyorFlow` already warns about, stood on its end. It does not error and it
+// does not spill; the box simply oscillates over one tile while the shop looks
+// like it is working.
+//
+// And the other half, which is what makes a return leg a return leg rather than
+// a way of losing stock on the roof: a box that went up has to come down.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 4);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  const low = put(g, { kind: 'arm', x: x0, z, rot: 1 });
+  const high = put(g, { kind: 'arm', x: x0, z, rot: 1, deck: CEILING });
+  const a = conveyorNext(g.layout, low);
+  const b = conveyorNext(g.layout, high);
+  const points = (from, to) => !!from && from.x === to.x && from.z === to.z
+    && deckOf(from) === deckOf(to);
+  check(!(points(a, high) && points(b, low)), 'two machines over one square are not a loop',
+    `${JSON.stringify(a)} / ${JSON.stringify(b)}`);
+}
+
+{
+  // A ring that changes storey twice: along the floor, up at the endcap, back
+  // west overhead, and down again at the head of the run.
+  const g = fresh();
+  const row = roofRow(g, 4);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  const start = put(g, { kind: 'belt', x: x0, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 1, z, rot: 0 });
+  const rise = put(g, { kind: 'arm', x: x0 + 2, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 2, z, rot: 2, deck: CEILING });
+  put(g, { kind: 'belt', x: x0 + 1, z, rot: 2, deck: CEILING });
+  const drop = put(g, { kind: 'arm', x: x0, z, rot: 1, deck: CEILING });
+
+  eq(deckOf(conveyorNext(g.layout, rise)), CEILING, 'the endcap loader lifts the box');
+  const back = conveyorNext(g.layout, drop);
+  eq(deckOf(back), 0, 'and the loader at the far end of the duct sets it down again');
+  eq(`${back?.x},${back?.z}`, `${x0},${z}`, 'on the run it came off');
+
+  const crate = crateOn(g, start, 3);
+  const held = units(g);
+  let wasUp = false;
+  let cameBack = false;
+  let offSquare = 0;
+  let rode = 0;
+  for (let i = 0; i < 600; i++) {
+    g.step(0.1);
+    const now = spot(crate);
+    /**
+     * THE RIDE, which is section 6's claim about a shaft said about a rise —
+     * and it is the one thing here a player could actually watch. A box part way
+     * between storeys is over the square it left, because there is nothing else
+     * for it to be over: the two cells ARE one square. Anywhere else is a crate
+     * hanging in the middle of the aisle.
+     */
+    if (now.deck > 1e-6 && now.deck < 1 - 1e-6) {
+      rode++;
+      // One of the two squares a storey change happens on, and exactly on it.
+      // Which of the pair is not worth deciding here — the ring goes round more
+      // than once, so a test that remembered "we have been up already" would be
+      // measuring the previous lap.
+      const over = (Math.abs(now.x - x0) < 1e-6 || Math.abs(now.x - (x0 + 2)) < 1e-6)
+        && Math.abs(now.z - z) < 1e-6;
+      if (!over) offSquare++;
+    }
+    if (now.deck > 0.99) wasUp = true;
+    if (wasUp && now.deck < 1e-6) cameBack = true;
+  }
+  check(rode > 0, 'the box is caught part way between storeys', `${rode} ticks`);
+  eq(offSquare, 0, 'and every one of those is over the square it left');
+  check(wasUp, 'a box put on a floor run reaches the duct');
+  check(cameBack, 'and comes back down again rather than staying on the roof');
+  eq(units(g), held, 'with nothing created or destroyed going round');
+  eq(g.deliveries.filter((d) => d.id === crate.id).length, 1, 'and it is still one box');
 }
 
 // ---------------------------------------------------------------------------

@@ -643,6 +643,39 @@ Thirty sweeps, about a minute:
   the one spelling, because five loops enumerate a loader's sides), a re-flow and
   an **R** press keeping the storey, and conservation. It authors one item and
   four fixture rows and removes them on exit.
+  Since step 9 — the same square being a way OUT rather than only a place to be
+  — its sharpest control is that **the rise is CHOSEN**. Up is a fifth exit, and
+  the moment one exists the two networks the file's own section 3 keeps apart can
+  touch by default: laying a duct across the shop would silently join it to every
+  run it crossed. So a plain belt never looks up, a loader with a run in front of
+  it never looks up, and the only two that do are a junction — the piece whose
+  whole job is choosing between ways out — and a loader that has run out of
+  aisle. All three are asserted in one shop that differs by nothing else — and
+  again in a row made ENTIRELY of loaders, which is the shape "belts on the
+  corners, loaders down the straights" produces and the one that found the hole:
+  a beltless row never reaches the forward walk, so its endcap was declared a
+  terminus by step 2's "a loader emptying into a unit hands on to nobody" one
+  line before anything asked about the rise. Same build, working or not
+  depending on whether there happened to be a belt upstream. Then
+  the ENDCAP three ways, which is the ladder in `armSwing` rather than a
+  behaviour: a duct over it and the box goes up, no duct and it comes off onto
+  the ground exactly as it did, a shelf in front and the shelf is stocked with
+  nothing rising at all. Below the ground drop that rung would be dead code in
+  every shop, because every loader in every shop has walkable floor beside it —
+  and it turns out to outrank a PAD too, which the sweep found by accident. Plus
+  the pair at a junction, worthless split in half: a sorter sends what nothing
+  wants up, and a line that WILL take the goods still outranks the rise, or it is
+  the `homeFull` spread bug wearing a storey with every box that arrived having
+  arrived correctly. And no COLUMN — two cells over one square are the most that
+  can exist and the one thing they must not be is a run, since unguarded the
+  floor cell hands up and the ceiling cell hands down for ever, which neither
+  errors nor spills — paired with a ring that changes storey twice, because a
+  return leg that only goes up is a way of losing stock on the roof. Its section
+  7 had to MOVE for this and the move is the interesting part: the decoy floor
+  run used to lie under the ceiling junction's own square, and that square is now
+  a way out, so it stopped being a decoy. The claim survives because the bug it
+  guards is a *lookup* — the decoy sits under the two EXITS now, which are the
+  squares those lookups name.
 
 - `verify:paint` guards the same claim `verify:floor` makes about the ground,
   said about the other surface in the building — and it has to be made again
@@ -981,7 +1014,7 @@ what the next step was meant to be.
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, and the fence that stopped being the only thing a boundary could be made of | steps 1–9, 11, 13–27, 29 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
-| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both | steps 1–4, 2b, 3b, 4b, 7 and 8 built; 5–6 proposed |
+| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg | steps 1–4, 2b, 3b, 4b and 7–9 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, and the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board | steps 1–9 built |
@@ -2744,6 +2777,48 @@ what the next step was meant to be.
   could each refuse a rail, which is two guards that do not cover a save that
   already has boxes on one, and no guard at all against the next thing that
   learns to put goods down.
+- **…and UP is a way out, which is one function that must never be folded into
+  the four-way loop.** `stepFrom` is the same-deck rule and it is what a second
+  storey IS — leave the deck out of it and a duct laid over a run merges with it
+  silently, boxes changing storey at every crossing, drawn as a conveyor that
+  teleports and read as one that works. So `acrossFrom` (the same square, the
+  other deck) is its own function and every place that enumerates ways out asks
+  for it **by name**, which is what keeps the list of askers short enough to
+  argue about. Two ask. A **junction**, and that is not a special case: you do
+  not aim a branch today either — `conveyorBranches` takes every neighbour that
+  is not the straight-on and is not feeding it, and `rot` only ever decided which
+  goes first. And a **loader with nowhere else**, which is `choose`'s last resort
+  and is the whole opt-in: a loader mid-aisle with a duct crossing over it
+  carries straight on exactly as it always did, so the only machine that ever
+  looks up is one that has run out of shop. Three things about the rest of it.
+  `throughR` is never asked of a rise and must not be — a cell carrying on
+  straight up because the cell below is a conveyor is a *column*, not a line.
+  A **lift** is excluded at both ends, because its own square on the far deck is
+  itself and "straight up" would be a cell whose next is its own id, which is
+  `liftTo`'s guard one storey along. And the **feeder test** is the vertical's
+  copy of `feedsUs`: without it the floor cell hands up, the ceiling cell hands
+  down, both on the same square, for ever — the loader ping-pong `conveyorFlow`
+  already warns about stood on its end, and it neither errors nor spills. What it
+  cost in the sim is `armSwing`'s off-ramp moving to the TERMINUS. It began as a
+  rung above the ground drop and below the units — below the drop it would be
+  dead code in every shop, since the endcap it exists for has walkable floor
+  beside it and so does every other loader ever built — and that was still not
+  enough, which took a screenshot to see. Preferring the rise only holds the
+  loader whose OWN next cell is the duct, so every loader upstream of it still
+  had a horizontal way on, and the first one with a full board and a walkable
+  tile beside it emptied the box onto the floor long before it ever reached the
+  return leg. Every box that came off was one a shelf genuinely refused, so the
+  machine reads as working the whole time. So: *a loader only puts a box down
+  when the run has run out.* Step 2's reason for the off-ramp is still right — a
+  crate nothing wants must not ride for ever — but a dead end stopped being the
+  only shape a run comes in, and a full loop circulating IS what a loop is: the
+  boxes going round are the buffer and the one signal the shop is backed up.
+  Every dead end keeps its exit, a skip still takes what nothing wants, and a
+  junction still has `sorterEject`. `verify:belts` §16b is the pair to §16 and
+  the two of them are the whole rule. What it cost in geometry is nothing at all — `beltExit`'s
+  hop already charges a deck change, and a rise is a leg with `flat === 0`, so
+  `conveyorLines`' riser branch is skipped and `alongPath` already carries the
+  box straight up over its own square.
 - **`repositionFixture` NAMES every field it keeps, so a setting left out is
   reset rather than merely not copied.** It builds a fresh placement — `boh`,
   `piece`, `tier`, `variant` — and then re-flows, and the re-flow rebuilds the

@@ -12100,6 +12100,7 @@ export class Game {
     // what a cell faces when the drag did not say, which is every cell of a
     // one-cell run. Defaulting it here rather than carrying it over the wire
     // would lay a run facing north out of a ghost the player had turned.
+    const runDeck = Number(deck) === CEILING ? CEILING : 0;
     const cells = runCells({ x: Math.round(x), z: Math.round(z) },
       to ? { x: Math.round(to.x), z: Math.round(to.z) } : null, BELT_RUN_MAX, rot,
       runFollows(kind));
@@ -12111,7 +12112,7 @@ export class Game {
     const out = this.holdReflow(() => {
       for (const c of cells) {
         const res = this.placeFixture(playerId, {
-          kind, piece, variant, x: c.x, z: c.z, rot: c.rot, deck,
+          kind, piece, variant, x: c.x, z: c.z, rot: c.rot, deck: runDeck,
         });
         if (res.ok) { laid += 1; last = res.placed ?? last; mine.push(res.placed); } else last ??= null;
       }
@@ -12158,8 +12159,8 @@ export class Game {
     // today and states the claim: everything under this line is about flow, and
     // a kind that does not follow the drag has no flow to fix.
     const ends = runFollows(kind) ? [
-      conveyorAt(this.layout, Math.round(x), Math.round(z)),
-      to ? conveyorAt(this.layout, Math.round(to.x), Math.round(to.z)) : null,
+      conveyorAt(this.layout, Math.round(x), Math.round(z), runDeck),
+      to ? conveyorAt(this.layout, Math.round(to.x), Math.round(to.z), runDeck) : null,
     ].filter(Boolean).map((c) => c.id) : [];
 
     let turned = false;
@@ -12167,14 +12168,14 @@ export class Game {
       const tail = id ? this.findFixture(id)?.ref : null;
       if (!tail || derivedFlow(tail.kind) || tail.kind === 'under') continue;
       const ahead = anchorTile(tail.x, tail.z, tail.rot ?? 0);
-      if (conveyorAt(this.layout, ahead.x, ahead.z)) continue;
+      if (conveyorAt(this.layout, ahead.x, ahead.z, deckOf(tail))) continue;
       const feeds = (o) => {
         const w = conveyorNext(this.layout, o);
         return !!w && w.x === tail.x && w.z === tail.z;
       };
       const joins = [0, 1, 2, 3]
         .map((r) => ({ r, t: anchorTile(tail.x, tail.z, r) }))
-        .map(({ r, t }) => ({ r, o: conveyorAt(this.layout, t.x, t.z) }))
+        .map(({ r, t }) => ({ r, o: conveyorAt(this.layout, t.x, t.z, deckOf(tail)) }))
         .filter(({ o }) => o && !feeds(o));
       if (joins.length !== 1) continue;
       tail.rot = joins[0].r;
@@ -12875,6 +12876,39 @@ export class Game {
       // Asked DRY, like every other side: `armDrop` does the real thing at the
       // far end of the journey, and asking it to commit here would set the box
       // down a spur-length before it arrived.
+      /**
+       * ...BUT ONLY AT THE END OF THE RUN. A loader with anywhere to hand the
+       * box on passes it, and never puts it on the floor.
+       *
+       * Everything below this line is about a box LEAVING the network, and the
+       * one thing that decides whether it should is whether the run is over.
+       * Step 2 wrote it the other way round — any loader whose neighbours all
+       * refused would set the box down beside it — and the reason it gave is
+       * still the right reason: without an exit, a crate holding anything no
+       * unit wants rides for ever, round a loop or parked at a dead end, and
+       * the shop looks like it is working. What has changed is that a dead end
+       * is no longer the only shape a run comes in. Since step 9 an aisle can
+       * send what its shelves would not take back over the top and round, which
+       * is the whole reason to build a duct — and under the old rule the first
+       * loader with a full shelf and a walkable tile beside it emptied the box
+       * onto the floor before it ever reached the return leg. What that reads
+       * as is a conveyor that spits your stock out whenever it gets busy.
+       *
+       * So the exit is at the terminus, which is one sentence a player can hold
+       * — *a loader only puts a box down when the run has run out* — where the
+       * old rule's answer depended on whether something four cells away
+       * happened to be a duct, invisibly.
+       *
+       * A full loop therefore circulates rather than spilling, which is what a
+       * loop IS: the boxes going round are the buffer, and they are the one
+       * signal the player has that the shop is backed up. Every dead end still
+       * has its off-ramp, a skip still takes what nothing wants, and a junction
+       * still has `sorterEject`.
+       *
+       * Rubbish never reaches here — the waste branch returns above.
+       */
+      if (conveyorNext(this.layout, arm)) return null;
+
       const pads = sides.filter((s) => GOODS_PADS.some((k) => isPadAt(this.layout, k, s.x, s.z)));
       for (const s of [...pads, facing]) {
         if (this.armDrop(arm, s, riding, { dry: true })) return this.armSend(arm, s, 1);
