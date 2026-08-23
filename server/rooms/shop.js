@@ -616,6 +616,19 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
 
+    // ...and which way a shaft carries. Build mode only, like the three above,
+    // and bulk like them because a loop rejoining on two levels is built out of
+    // more than one shaft.
+    this.onMessage('lift-way', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setLiftWay(client.sessionId, id, m?.way ?? null),
+        (n) => (m?.way == null
+          ? `${n} lifts work out which way to carry again.`
+          : `${n} lifts carry ${m.way} now.`),
+      ));
+    });
+
     // What the shop does without being asked, and what that may cost per day.
     // Each field is optional — the supplier sends the one row you pressed, for
     // the same reason `assign` carries `on`: a message that re-sent the other

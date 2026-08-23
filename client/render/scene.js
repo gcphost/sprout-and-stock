@@ -5800,8 +5800,17 @@ export class Scene {
    * placing, walking, the ghost — and no longer the right answer for "what am
    * I pointing at", which is `pickFixtureHit`'s job and goes by id.
    */
-  fixtureAt(x, z) {
-    return this.allFixtures().find((f) => covers(f, x, z)) ?? null;
+  fixtureAt(x, z, deck = null) {
+    return this.allFixtures().find((f) => covers(f, x, z)
+      // ...ON A STOREY, when the caller knows which one it means.
+      //
+      // A tile answered one fixture until a decoration stopped stamping one,
+      // and it answered one PLACE until a duct could hang over a shelf. The
+      // second is worse than the first, because both candidates are real
+      // fixtures with real records and `find` simply takes whichever is listed
+      // first. Null is "any", which is every caller that means a tile — the
+      // ghost, a move's landing square — and is what those have always got.
+      && (deck == null || deckOf(f) === deck)) ?? null;
   }
 
   /** ...and by id, for a pointer that has already hit the thing itself. */

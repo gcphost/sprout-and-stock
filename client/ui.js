@@ -8,7 +8,7 @@
 
 import { variantsOf } from '../shared/model.js';
 import { fixtureLabel, pieceFor, kindOf, openOf } from '../shared/pieces.js';
-import { spotsOf } from '../shared/build.js';
+import { spotsOf, deckOf, sameFixture } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel, weekdayLabel } from '../shared/clock.js';
 import { pillDrives } from './input.js';
@@ -1384,13 +1384,21 @@ export class UI {
    * the id is right until the snapshot lands and the tile is right afterwards,
    * and for a decoration the tile is only *nearly* right — it shares one.
    *
+   * ...AND WITH THE STOREY, which is the half a duct over a shelf broke. The id
+   * goes stale on the very press this feeds — `repositionFixture` re-mints it —
+   * so the tile arm is where R lands from the second press onward, and a tile
+   * with a run over it is two fixtures. What you got was: rotate the duct, press
+   * R again, and the FLOOR cell turns. Both presses look correct and the ring
+   * never moves, so it reads as R picking at random rather than as a lookup
+   * missing an axis.
+   *
    * Null with your hands full: every verb it feeds acts on something standing in
    * the shop, and what you are carrying is not standing anywhere.
    */
   selectedFixture() {
     if (!this.fixtureRef || this.holding) return null;
     return this.scene?.fixtureById(this.fixtureRef.id)
-      ?? this.scene?.fixtureAt(this.fixtureRef.x, this.fixtureRef.z)
+      ?? this.scene?.fixtureAt(this.fixtureRef.x, this.fixtureRef.z, deckOf(this.fixtureRef))
       ?? null;
   }
 
@@ -1415,11 +1423,16 @@ export class UI {
    * every other comparison in here is by tile — and the tile alone is not enough
    * now that a decoration shares one, or pointing at a lamp would read as
    * pointing at the shelf under it and open the wrong menu on the second press.
+   *
+   * The storey is the third part for the same reason, and a duct is the worse
+   * case than a lamp: a belt over a belt matches on tile AND on kind, so the
+   * ring would be drawn round the floor cell while the menu was open on the one
+   * overhead.
    */
   isSelected(f) {
     const r = this.fixtureRef;
     if (!r || !f) return false;
-    return r.id === f.id || (r.x === f.x && r.z === f.z && r.kind === f.kind);
+    return r.id === f.id || sameFixture(r, f);
   }
 
   /**
@@ -2413,7 +2426,7 @@ export class UI {
    */
   liveRef(r) {
     if (!r) return null;
-    return this.scene?.allFixtures().find((f) => f.x === r.x && f.z === r.z && f.kind === r.kind)
+    return this.scene?.allFixtures().find((f) => sameFixture(f, r))
       ?? this.scene?.fixtureById(r.id)
       ?? null;
   }
@@ -2619,7 +2632,7 @@ export class UI {
     // here would empty itself the moment you used it, which reads as the second
     // press doing nothing.
     this.setFixtureRef(
-      fixtures.find((f) => f.x === at.x && f.z === at.z && f.kind === at.kind)
+      fixtures.find((f) => sameFixture(f, at))
       ?? fixtures.find((f) => f.id === at.id)
       ?? null,
       { keepPicked: true },

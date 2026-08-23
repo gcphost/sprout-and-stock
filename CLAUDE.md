@@ -2542,6 +2542,26 @@ what the next step was meant to be.
   general shape: **an invariant a lookup relies on can be retired by a feature
   three files away**, and "one fixture per tile" was retired the day a prop
   stopped owning its cell.
+- **…and "the same fixture" is tile + kind + STOREY, spelled once.** An id is
+  not durable — `repositionFixture` re-mints one on every turn, and the
+  generator mints `shelf-p0`, `shelf-p1`… positionally and re-mints those on
+  every re-flow, so an id lookup can quietly land on a different shelf. Tile and
+  kind is the fallback every client-side holder of a reference used, and it was
+  right for exactly as long as a square was one place. A duct over a belt
+  matches on both. Three call sites had their own copy — the open menu following
+  its fixture (`refreshFixture`), the teal selection following the same fixture
+  with no menu up (`refollowSelection`), and a bulk pick's held refs (`liveRef`)
+  — and all three re-pointed at whichever of the pair `fixturesIn` listed first.
+  **What that reads as is the R key deselecting you.** Turn the duct; the
+  re-flow moves the re-minted placement to the end of the list, so the selection
+  lands on the FLOOR cell; the next press turns that instead; then it swaps
+  back, forever. Nothing errors, both rotations happen, and the ring never
+  visibly moves — so it reads as R picking at random rather than as a lookup
+  missing an axis. `sameFixture` in `shared/build.js` is the one spelling, and
+  it is in `shared/` rather than in `client/` because the answer has to be
+  identical in all three or the ring is drawn round one fixture while the menu
+  is open on another. `Scene.fixtureAt` takes an optional deck for the same
+  reason; null still means "any", which is every caller that means a *tile*.
 - **A colour that is right on a bar is not right on the number beside it.**
   `--good` and `--accent` are *mark* colours, measured against the panel, and on
   a 10px bar they are the correct green and red. The Shop report's warning tiles
@@ -2819,6 +2839,39 @@ what the next step was meant to be.
   hop already charges a deck change, and a rise is a leg with `flat === 0`, so
   `conveyorLines`' riser branch is skipped and `alongPath` already carries the
   box straight up over its own square.
+- **…and a shaft can be TOLD, which is the one thing the derivation cannot get
+  right.** Reading a lift's direction off its feeder beats any setting until two
+  runs arrive on the same square — the ordinary way two levels of one loop
+  rejoin — where there is nothing to derive and `liftTo` takes the floor's
+  arbitrarily. `way` (`null`/`up`/`down`) is a field on the placement,
+  deliberately not `rot`, for the reason a lift has no `rot` at all: R clears
+  that field. `null` is every shaft ever built. The **pass-through comes free
+  and is not a fourth setting** — a shaft told Down hands to a floor cell beside
+  it, so a crate that arrived along the floor carries straight on into it while
+  one that arrived overhead descends into the same cell. The one thing it needs
+  that `auto` and `reject` do not is that the press **re-flows**: a sorter's
+  `auto` is read by `sorterOut` when a crate arrives, so mutating it in place is
+  honest, where `way` is read inside `conveyorFlow` — cached against its four
+  arrays by identity — so mutating in place hands every reader the map from
+  before you pressed the button until somebody builds something. A setting that
+  takes effect next Tuesday reads as a button that does nothing.
+- **…and a ROOF is a fact about the walls, which is `canKeep`'s bug rebuilt one
+  storey up.** That function exists because `where` is not a fact about a shelf:
+  knock a hole in your wall, un-enclose the building, and every fixture reads as
+  outdoors and is shed. The ceiling branch of `canPlace` skips everything about
+  the floor and keeps two rules, and both were written as though they were facts
+  about the duct. The roof is not one. Enclosure is shop-wide and
+  **all-or-nothing** — take enough of a wall out and `computeIndoor` answers
+  *zero* indoor cells rather than fewer — so one accidental delete failed "there
+  is no roof there" for every overhead cell in the building at once and `compose`
+  shed the lot. Refunded in full, so nothing is missing and nothing is logged;
+  what you lose is the build, and what you see is your entire ceiling gone for a
+  gesture the game called a warning. It is a **keeping** rule now (`!keeping`),
+  narrowed rather than deleted — you still cannot lay one under open sky. The
+  general shape, and it is this file's third time: **a rule phrased against
+  enclosure has a silent third state, and it is not "a bit less room", it is the
+  rule applying nowhere.** Worth asking of every test that survives a skip: is
+  this a fact about the thing, or about the shop around it?
 - **`repositionFixture` NAMES every field it keeps, so a setting left out is
   reset rather than merely not copied.** It builds a fresh placement — `boh`,
   `piece`, `tier`, `variant` — and then re-flows, and the re-flow rebuilds the

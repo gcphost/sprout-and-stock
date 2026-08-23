@@ -50,7 +50,7 @@ import {
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX,
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
-  shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces,
+  shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces, LIFT_WAYS,
   covers, footprintMid, footprint, paddockOf, pennedIn,
 } from '../../shared/build.js';
 import {
@@ -3268,6 +3268,14 @@ export class Game {
         // ...and which way it last sent one, which is what the roof marks draw.
         // Same shape and same terms as a loader's `move` — see `sorterSent`.
         ...(this.sorterMove(s.id) ? { move: this.sorterMove(s.id) } : {}),
+      })),
+      // ...and a shaft's own setting, on the WIRE for the reason the two above
+      // say: the menu is drawn from the snapshot, so a control whose state lives
+      // only in the layout is a row that never ticks — a dead button, which is
+      // indistinguishable from a control that does nothing.
+      lifts: (this.layout.lifts ?? []).map((l) => ({
+        id: l.id,
+        way: LIFT_WAYS.includes(l.way) ? l.way : null,
       })),
       cashDrops: this.cashDrops.map((d) => ({
         id: d.id, x: r2(d.x), z: r2(d.z), amount: d.amount,
@@ -11499,6 +11507,64 @@ export class Game {
   }
 
   /**
+   * Tell a shaft which way it carries — or hand the decision back.
+   *
+   * A lift has no `rot` and wants none: up and down are not quarter turns, and
+   * `rot` is the field the R key clears. So this is its own field on the
+   * placement, exactly as `auto` and `reject` are, and `repositionFixture`
+   * names it or R clears it through the back door.
+   *
+   * `null` is every shaft ever built and means *derive it* — a floor run
+   * arriving lifts, a duct arriving drops, nobody configures anything. That is
+   * better than a setting right up until two runs arrive on the same square,
+   * which is the ordinary way the two levels of one loop rejoin: there is no
+   * answer to derive, so `liftTo` takes the floor's arbitrarily, and half the
+   * shops that build it wanted the other one. What they get is a shaft lifting
+   * crates away from the run they were trying to merge into.
+   *
+   * The PASS-THROUGH comes with it and costs nothing. A shaft told DOWN hands
+   * to a floor cell beside it, so a crate that arrived along the floor carries
+   * straight on into that cell while one that arrived overhead descends the
+   * shaft into the same one. Two feeds, one exit, no second concept — which is
+   * why there is no third setting for it.
+   */
+  setLiftWay(playerId, id, way) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+    if (f.kind !== 'lift') return err('that is not a lift');
+    const cell = (this.layout.lifts ?? []).find((l) => l.id === id);
+    if (!cell) return err('that is not a lift');
+    const to = LIFT_WAYS.includes(way) ? way : null;
+    cell.way = to;
+    // ...onto the PLACEMENT as well, which is what `compose` re-reads — see
+    // `setSorterAuto` for why a setting written only to the layout switches
+    // itself back behind you while you are still drawing.
+    const placement = this.placements.find((p) => p.id === id);
+    if (placement) placement.way = to;
+    /**
+     * ...and this one has to RE-FLOW, which `auto` and `reject` do not.
+     *
+     * `conveyorFlow` is cached against the four arrays it is made of, by
+     * identity, and `way` is read inside it — `liftTo` is where a shaft's
+     * direction is decided. A sorter's `auto` is read by `sorterOut` at the
+     * moment a crate arrives, so mutating it in place is honest; mutate this
+     * one in place and every reader gets the map from before you pressed the
+     * button, for as long as nobody builds anything. Which is a setting that
+     * takes effect the next time you lay a belt, and reads as the button not
+     * working.
+     *
+     * `bulkFixtures` collapses these into the one re-flow that was always
+     * enough, so a whole loop's worth of shafts is still one.
+     */
+    this.regenerateLayout();
+    this.persist();
+    this.pushLog(to == null
+      ? 'That lift works out which way to carry again.'
+      : `That lift carries ${to} now.`);
+    return ok({ id, way: to });
+  }
+
+  /**
    * Which half of its job a loader does.
    *
    * One machine that both lifts and pours is the right default and it is what
@@ -15720,6 +15786,10 @@ export class Game {
       mode: from.mode,
       auto: from.auto,
       reject: from.reject,
+      // ...and a shaft's direction, which is the one setting on this list whose
+      // whole reason for not being `rot` is that R would clear it. Left out
+      // here, R clears it anyway through the back door.
+      way: from.way,
       // ...and which STOREY it is on, which is this trap's sharpest case yet:
       // R is the press, and a deck left out here does not un-copy, it resets —
       // so turning one cell of an overhead run would drop that cell to the

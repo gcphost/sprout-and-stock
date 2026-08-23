@@ -106,7 +106,7 @@ import { writeContent, refresh } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
 import {
-  canPlace, anchorTile, isWalkableTile, conveyorAt, conveyorNext, conveyorLines,
+  canPlace, anchorTile, isWalkableTile, edgeAt, conveyorAt, conveyorNext, conveyorLines,
   conveyorMeets, conveyorsOf, conveyorBranches, armReach, deckOf, CEILING,
 } from '../shared/build.js';
 import { lotTotal } from '../shared/lot.js';
@@ -429,6 +429,101 @@ for (const feeder of ['belt', 'arm']) {
 }
 
 // ---------------------------------------------------------------------------
+// 4b. …AND THE ONE CASE THE DERIVATION CANNOT GET RIGHT: fed from BOTH.
+//
+// A floor run and a duct arriving on the same square is how the two levels of
+// one loop rejoin, and there is no answer to derive there — `liftTo` takes the
+// floor's arbitrarily, so half the shops that build it get a shaft lifting
+// crates away from the run they were trying to merge into. Nothing is wrong on
+// screen: the lift is aimed correctly, because a lift is not aimed at all.
+//
+// So `way` is a setting on the placement, and it is NOT `rot`: up and down are
+// not quarter turns, and `rot` is the field R clears. Its control is the third
+// state — `null`, which is every shaft ever built and derives exactly as it did.
+//
+// The PASS-THROUGH is the half that costs nothing and is asserted here rather
+// than argued: a shaft told DOWN hands to a floor cell beside it, so a crate
+// that arrived along the floor carries straight on into that cell while one
+// that arrived overhead descends into the same one.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 5);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  // Two runs east into one shaft, and one run east out of it on the floor.
+  const lowIn = put(g, { kind: 'belt', x: x0, z, rot: 0 });
+  const highIn = put(g, { kind: 'belt', x: x0, z, rot: 0, deck: CEILING });
+  put(g, { kind: 'belt', x: x0 + 1, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 1, z, rot: 0, deck: CEILING });
+  const lift = put(g, { kind: 'lift', x: x0 + 2, z, rot: 0 });
+  const outLow = put(g, { kind: 'belt', x: x0 + 3, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 3, z, rot: 0, deck: CEILING });
+
+  eq((g.layout.lifts ?? [])[0]?.way ?? null, null, 'a new shaft is told nothing');
+  // The control. Fed from both, the derivation answers — whichever way it
+  // answers — and the assertion is that setting it CHANGES that, not that the
+  // default is any particular thing.
+  const derived = conveyorNext(g.layout, lift);
+  check(!!derived, 'and it still works something out');
+
+  const said = g.setLiftWay('me', lift.id, 'down');
+  check(said.ok, 'a shaft can be told to carry down', said.error ?? '');
+  const down = conveyorNext(g.layout, (g.layout.lifts ?? [])[0]);
+  eq(deckOf(down), 0, 'and it does');
+  eq(`${down?.x},${down?.z}`, `${outLow.x},${outLow.z}`, 'onto the floor run beside it');
+
+  // R IS STILL A DEAD KEY, and this is the trap the setting had to dodge:
+  // `repositionFixture` names every field it keeps, so a `way` left out of that
+  // list does not fail to copy — it RESETS, on the one press that is meant to
+  // do nothing to a shaft at all.
+  g.rotateFixture('me', (g.layout.lifts ?? [])[0].id);
+  eq((g.layout.lifts ?? [])[0]?.way ?? null, 'down', 'and turning it does not forget');
+  // ...nor does an ordinary re-flow, which fires on every wall segment of a drag.
+  g.regenerateLayout();
+  eq((g.layout.lifts ?? [])[0]?.way ?? null, 'down', 'nor does a re-flow');
+
+  // THE MERGE. One box down each run; both must come off on the floor, and
+  // neither may end up on the duct.
+  const held = units(g);
+  const fromLow = crateOn(g, lowIn, 2);
+  const fromHigh = crateOn(g, highIn, 3);
+  let strayed = 0;
+  for (let i = 0; i < 400; i++) {
+    g.step(0.1);
+    if ((fromLow.deck ?? 0) > 1e-6) strayed++;
+  }
+  eq(strayed, 0, 'a crate already on the floor never goes up through the shaft');
+  eq(spot(fromLow).deck, 0, 'it passes straight through onto the far run');
+  check(fromLow.x > lift.x, 'and out the other side', `at ${fromLow.x}`);
+  eq(spot(fromHigh).deck, 0, 'and the one off the duct comes down to join it');
+  check(fromHigh.x > lift.x, 'on the same run', `at ${fromHigh.x}`);
+  eq(units(g), held + 5, 'with nothing created or destroyed on either journey');
+
+  // ...and the other way, on its own shop, or "it obeys" is satisfied by a
+  // setting that happens to name what the derivation already said.
+  const g2 = fresh();
+  const row2 = roofRow(g2, 5);
+  const z2 = row2[0].z;
+  const x2 = row2[0].x;
+  put(g2, { kind: 'belt', x: x2, z: z2, rot: 0 });
+  put(g2, { kind: 'belt', x: x2, z: z2, rot: 0, deck: CEILING });
+  put(g2, { kind: 'belt', x: x2 + 1, z: z2, rot: 0 });
+  put(g2, { kind: 'belt', x: x2 + 1, z: z2, rot: 0, deck: CEILING });
+  const lift2 = put(g2, { kind: 'lift', x: x2 + 2, z: z2, rot: 0 });
+  put(g2, { kind: 'belt', x: x2 + 3, z: z2, rot: 0 });
+  const outHigh = put(g2, { kind: 'belt', x: x2 + 3, z: z2, rot: 0, deck: CEILING });
+  check(g2.setLiftWay('me', lift2.id, 'up').ok, 'a shaft can be told to carry up');
+  const up = conveyorNext(g2.layout, (g2.layout.lifts ?? [])[0]);
+  eq(`${up?.x},${up?.z},${deckOf(up)}`, `${outHigh.x},${outHigh.z},${CEILING}`,
+    'and it carries up whatever is feeding it');
+
+  // ...and handing the decision back puts it where it was.
+  check(g2.setLiftWay('me', (g2.layout.lifts ?? [])[0].id, null).ok, 'and it can be un-told');
+  eq((g2.layout.lifts ?? [])[0]?.way ?? null, null, 'which is the state every shaft starts in');
+}
+
+// ---------------------------------------------------------------------------
 // 5. …and the three ways a shaft is allowed to answer NOTHING.
 // ---------------------------------------------------------------------------
 {
@@ -748,6 +843,58 @@ for (const dir of ['up', 'down']) {
   eq(spot(crate).deck, CEILING, 'a box re-flowed at every step still gets to the top');
   eq(units(g2), held, 'and nothing is lost doing it');
   eq(g2.deliveries.filter((d) => d.id === crate.id).length, 1, 'and it is still one box');
+}
+
+// ---------------------------------------------------------------------------
+// 9b. KNOCKING A HOLE IN AN OUTSIDE WALL DOES NOT ERASE YOUR CEILING.
+//
+// `canKeep`'s own bug, one storey up, and it shipped with step 8 because both
+// rules that survive the ceiling branch's skip read as facts about the duct. A
+// roof is not one: it is a fact about the WALLS, and enclosure in this game is
+// shop-wide and all-or-nothing — take enough of a wall out and `computeIndoor`
+// answers zero indoor cells rather than fewer. So one accidental hole failed
+// "there is no roof there" for every overhead cell in the building at once, and
+// `compose` sheds what it cannot keep.
+//
+// The refund is why it does not read as theft, and it is also why it is
+// invisible: no money is missing, nothing is logged, and what you get is your
+// whole ceiling gone for a gesture the game called a warning. Reported from a
+// chair, which is the only place it could have been found.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 4);
+  const cells = row.map((c) => put(g, { kind: 'belt', x: c.x, z: c.z, rot: 0, deck: CEILING }));
+  put(g, { kind: 'arm', x: row[1].x, z: row[1].z, rot: 0, deck: CEILING });
+  const overhead = () => conveyorsOf(g.layout).filter((c) => deckOf(c) === CEILING).length;
+  const had = overhead();
+  eq(had, cells.length, 'the duct is up');
+
+  // Take the outside wall out — a long enough stretch that enclosure collapses
+  // entirely, which is the state the whole trap turns on and is one press away
+  // in build mode.
+  let knocked = 0;
+  for (let z = 0; z <= g.layout.h; z++) {
+    for (let x = 0; x <= g.layout.w; x++) {
+      for (const o of ['h', 'v']) {
+        if (edgeAt(g.layout, { o, x, z }) === 0) continue;
+        if (g.buildEdge('me', { o, x, z, kind: 0 })?.ok) knocked++;
+      }
+    }
+  }
+  check(knocked > 0, 'a wall can be knocked through', `${knocked} segments`);
+  eq((g.layout.indoor ?? []).reduce((n, v) => n + (v ? 1 : 0), 0), 0,
+    'and the shop has no indoor cells left at all');
+
+  // THE CLAIM. Not "most of it" and not "it came back with a refund".
+  g.regenerateLayout();
+  eq(overhead(), had, 'the duct is still there with the walls down');
+
+  // ...and the rule is not deleted, only narrowed: you still cannot LAY one
+  // where there is no roof, which is the control that says this is a keeping
+  // rule rather than a rule that stopped existing.
+  eq(canPlace(g.layout, { kind: 'belt', x: row[0].x, z: row[0].z + 2, rot: 0, deck: CEILING }).ok,
+    false, 'but you still cannot lay a new one under open sky');
 }
 
 // ---------------------------------------------------------------------------

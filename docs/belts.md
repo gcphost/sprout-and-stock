@@ -1304,7 +1304,7 @@ of it.
 
 ## Step 9 — up is a way OUT
 
-Built. `verify:ceiling`, 323 assertions.
+Built. `verify:ceiling`, 368 assertions.
 
 Step 8 gave the shop a second storey and then made reaching it cost a floor
 tile, which is the thing the storey was bought to stop. An aisle with shelving
@@ -1459,15 +1459,56 @@ answered the floor. So the decoy moved under the two **exits**, which are the
 squares those lookups name, and the hub has nothing below it. Both branches still
 have a floor cell waiting to catch a hand-off that forgot which deck it was on.
 
+### A shaft can be TOLD, and that is where the pass-through came from
+
+Deriving a lift's direction from its feeder is better than any setting right up
+until two runs arrive on the same square — which is how the two levels of one
+loop rejoin, and is the ordinary thing to build once a duct exists. There is
+nothing to derive there, so `liftTo` takes the floor's arbitrarily and half the
+shops that build it get a shaft lifting crates away from the run they were
+trying to merge into. Nothing on screen is wrong, because a lift is not aimed.
+
+`way` — `null` / `up` / `down` — is a field on the placement and deliberately
+**not** `rot`, for the reason a lift has no `rot` at all: R clears that field.
+`null` is every shaft ever built and derives exactly as before. It rides
+`compose` and `repositionFixture` the way `auto` and `reject` do, or R clears it
+through the back door.
+
+**The pass-through is free and is not a fourth setting.** A shaft told Down
+hands to a floor cell beside it, so a crate that arrived along the floor carries
+straight on into that cell and one that arrived overhead descends the shaft into
+the same one. Two feeds, one exit.
+
+One thing it needs that `auto` does not: the press **re-flows**. A sorter's
+`auto` is read by `sorterOut` at the moment a crate arrives, so mutating it in
+place is honest; `way` is read inside `conveyorFlow`, which is cached against
+the four arrays by identity — mutate it in place and every reader gets the map
+from before you pressed the button, until somebody builds something. Which is a
+setting that takes effect next Tuesday, and reads as the button not working.
+
+### The bug worth remembering: a roof is a fact about the WALLS
+
+`canKeep` exists because "where" is not a fact about a shelf — knock a hole in
+your wall, un-enclose the building, and every fixture in it reads as outdoors
+and gets shed. Step 8 rebuilt that bug one storey up. The ceiling branch skips
+everything about the floor and keeps two rules, and both were read as facts about
+the duct; the roof is not one. Enclosure here is shop-wide and **all-or-nothing**
+— take enough of a wall out and `computeIndoor` answers *zero* indoor cells
+rather than fewer — so one accidental delete failed "there is no roof there" for
+every overhead cell in the building at once and `compose` shed the lot.
+
+Refunded in full, which is why it does not read as theft and why nothing logs
+it: what you lose is the build, and what you see is your entire ceiling gone for
+a gesture the game called a warning. Reported from a chair, which is the only
+place it could have been found. The rule is narrowed rather than deleted — you
+still cannot *lay* a duct under open sky — and `verify:ceiling` §9b is both
+halves.
+
 ### What is not done
 
 - **Nothing routes a box to a storey.** A rise is taken because there is nowhere
   else or because a junction split onto it, never because anything wanted to be
   upstairs. There is no "send this up".
-- **A sorter cannot be told to reject upward.** `reject` is a quarter turn and up
-  is not one. What you get instead is the alternation: a duct that serves nothing
-  is never keen, so it collects its share of what nothing wants, which is most of
-  the way there and is not the same sentence.
 - **A floor junction sealed on all four sides is a hood with a box going through
   it.** The housing's open sides are cut from the x,z set the walls are, and a
   rise contributes none — so a junction whose only exit is upward is panelled

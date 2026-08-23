@@ -10,7 +10,7 @@
  * the snapshot and sends messages, not part of the HUD's own state.
  */
 
-import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, holdsGoods, shelfKind } from '../shared/build.js';
+import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, holdsGoods, shelfKind, sameFixture } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
 import { homeKind } from '../shared/tags.js';
 import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
@@ -1302,6 +1302,40 @@ function rejectRows(ui, f, live, { lives = [live] } = {}) {
   });
 }
 
+/**
+ * Which way a shaft carries.
+ *
+ * Three rows and the first is every lift ever built: a shaft with one run on it
+ * reads which way the goods already are, and telling it would be ceremony
+ * around an answer it has. The other two exist for the shop where two runs
+ * arrive on the same square, which is how the levels of one loop rejoin — there
+ * is nothing to derive there, so the derivation takes the floor's arbitrarily
+ * and half the time that is the wrong way round.
+ *
+ * The pass-through is deliberately NOT a fourth row. A shaft told Down hands to
+ * a floor cell beside it, so a crate arriving along the floor carries straight
+ * on into that cell while one arriving overhead descends into the same one — a
+ * row for it would be a second name for a setting you already pressed.
+ */
+function liftRows(ui, f, live, { lives = [live] } = {}) {
+  return [
+    { set: null, name: 'Work it out', sub: 'Carries away from whichever run feeds it — up off the floor, down off a duct.' },
+    { set: 'up', name: 'Always up', sub: 'Everything that reaches it goes to the ceiling run beside it.' },
+    { set: 'down', name: 'Always down', sub: 'Everything goes to the floor run beside it, including a crate already on the floor.' },
+  ].map((r) => {
+    const at = allSay(lives, (l) => (l?.way ?? null) === r.set);
+    return {
+      icon: ICONS.stocker,
+      name: r.name,
+      sub: r.sub,
+      picked: at,
+      run: at ? null : () => ui.withBuildMode(
+        () => ui.net.send('lift-way', { ids: aimAt(ui, f), way: r.set }),
+      ),
+    };
+  });
+}
+
 function handRows(ui, f, live, { lives = [live] } = {}) {
   return HANDS.map((h) => {
     // Ticked only when they all say it — see `allSay`. A selection that
@@ -1366,6 +1400,9 @@ function settingRows(ui, f, live, sel = {}) {
   if (many.every((g) => g.kind === 'sorter')) {
     under('Which way it sends things', sortRows(ui, f, live, sel));
     under('What nothing wants', rejectRows(ui, f, live, sel));
+  }
+  if (many.every((g) => g.kind === 'lift')) {
+    under('Which way it carries', liftRows(ui, f, live, sel));
   }
   under('Set up', modifierRows(ui, f, live, sel));
   return rows;
@@ -1463,7 +1500,9 @@ export function refreshFixture(ui, fixtures) {
   // name for a completely different shelf. Looking up by id would quietly
   // re-point this menu at that other shelf, which is the exact bug this whole
   // screen exists to kill.
-  const found = fixtures.find((f) => f.x === at.x && f.z === at.z && f.kind === at.kind)
+  // ...and `sameFixture` rather than a fourth copy of "same tile, same kind",
+  // because a duct over a belt is both — see `shared/build.js`.
+  const found = fixtures.find((f) => sameFixture(f, at))
     ?? fixtures.find((f) => f.id === at.id);
   if (!found) { ui.closePanel(); return; }
   showFixture(ui, found);
@@ -1480,6 +1519,7 @@ export function liveFixture(ui, f) {
   if (f.kind === 'checkout') return s.queues?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'sorter') return s.sorters?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'arm') return s.arms?.find((x) => x.id === f.id) ?? null;
+  if (f.kind === 'lift') return s.lifts?.find((x) => x.id === f.id) ?? null;
   return null;
 }
 

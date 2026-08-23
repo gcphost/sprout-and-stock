@@ -27,7 +27,7 @@ import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
   FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
-  footprint, sizeOf, deckOf, CEILING,
+  footprint, sizeOf, deckOf, CEILING, LIFT_WAYS,
 } from '../shared/build.js';
 
 export { T };
@@ -906,7 +906,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // like the housing it is — you cannot walk through the column.
       occupy(p.x, p.z);
       set(p.x, p.z, T.BELT);
-      const lift = makeLift(p.id, p.x, p.z);
+      const lift = makeLift(p.id, p.x, p.z, LIFT_WAYS.includes(p.way) ? p.way : null);
       lift.tier = p.tier ?? 1;
       lift.variant = p.variant ?? '';
       lift.piece = p.piece ?? null;
@@ -1530,7 +1530,18 @@ function makeBelt(id, x, z, rot) {
  * No `rot`: which way it carries is read off the deck it is on, so there is
  * nothing here for the R key to clear. See `FIXTURES.lift`.
  */
-function makeLift(id, x, z) {
+/**
+ * One shaft.
+ *
+ * `way` is the only field a belt has not got, and it is deliberately NOT `rot`:
+ * up and down are not quarter turns, and `rot` is the field the R key clears.
+ * `null` is every shaft ever built and means *derive it* — a floor run arriving
+ * lifts, a duct arriving drops — which is right until two runs arrive, when the
+ * derivation has to pick one arbitrarily and half the time picks the other one.
+ * Set, it is the answer, and the crates that were already going that way simply
+ * pass through.
+ */
+function makeLift(id, x, z, way = null) {
   return {
     tier: 1,
     variant: '',
@@ -1540,6 +1551,7 @@ function makeLift(id, x, z) {
     z,
     rot: 0,
     deck: 0,
+    way,
   };
 }
 

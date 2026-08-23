@@ -21532,6 +21532,32 @@
         "heads": 1,
         "emits": null,
         "open": null
+      },
+      {
+        "name": "Quick hoist",
+        "cost": 60,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1.8,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "heads": 1,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Maglev hoist",
+        "cost": 150,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 3,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "heads": 1,
+        "emits": null,
+        "open": null
       }
     ],
     "variants": [],

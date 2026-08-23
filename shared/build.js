@@ -2197,9 +2197,44 @@ const stepFrom = (c, r) => ({ ...anchorTile(c.x, c.z, r), deck: deckOf(c) });
  * with nowhere else to hand on. A plain belt never asks: it points where it
  * points, and a run laid under a duct is still a run laid under a duct.
  */
+/**
+ * The two things you can tell a shaft, beside letting it work itself out.
+ *
+ * A closed set for `sorter.auto`'s reason — three readers have to agree, and a
+ * typo would be a lift that silently went back to deriving. `null` is the third
+ * state and is every shaft ever built.
+ */
+export const LIFT_WAYS = ['up', 'down'];
+
 export const acrossFrom = (c) => ({
   x: c.x, z: c.z, deck: deckOf(c) === CEILING ? 0 : CEILING,
 });
+
+/**
+ * IS THIS THE SAME FIXTURE — asked of a held reference against the shop as it
+ * now stands, and never by id.
+ *
+ * An id is not durable. `repositionFixture` re-mints one on every turn, and the
+ * generator mints `shelf-p0`, `shelf-p1`… positionally and re-mints those on
+ * every re-flow — so an id lookup can quietly land on a *different* shelf. Tile
+ * and kind is what the client has always fallen back to, and it was right for
+ * exactly as long as a square was one place.
+ *
+ * A duct over a belt matches on both. Three call sites held their own copy of
+ * this test — the open menu following its fixture, the teal selection following
+ * the same fixture with no menu up, and a bulk pick's held refs — and all three
+ * re-pointed at whichever of the pair `fixturesIn` happened to list first. What
+ * that reads as is the R key deselecting you: turn the duct, the re-flow moves
+ * the re-minted placement to the end of the list, the selection lands on the
+ * FLOOR cell, and the next press turns that instead. Then it swaps back, for
+ * the same reason, forever.
+ *
+ * So it is one function, here rather than in `client/`, because the answer has
+ * to be identical in all three or the ring is drawn round one fixture while the
+ * menu is open on another.
+ */
+export const sameFixture = (a, b) => !!a && !!b
+  && a.x === b.x && a.z === b.z && a.kind === b.kind && deckOf(a) === deckOf(b);
 
 /**
  * The tiles a loader can reach — four beside it, or the ONE beneath it.
@@ -2588,6 +2623,37 @@ function conveyorFlow(L) {
    * are known now. Then the walk runs again, from the lifts, so an overhead
    * run's own loaders are derived off the storey the shaft actually chose.
    */
+  /**
+   * A shaft's exit on a named storey — a cell BESIDE it up there, never its own
+   * square.
+   *
+   * Its own square on the far deck is the lift again — it answers `conveyorAt`
+   * on both storeys, which is what lets a run on either one hand to it — so
+   * "straight up" would be a cell whose `next` is its own id. Nothing errors
+   * and the box arrives where it already is, for ever.
+   *
+   * Lifted out of `liftTo` because a shaft you SET has to pick its exit exactly
+   * as a derived one does; written twice, an authored direction would be a
+   * direction with its own idea of where the box goes, and the pair would
+   * disagree in a shop with two candidate cells.
+   */
+  const liftOut = (f, deck) => {
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(f.x, f.z, r);
+      const other = at.get(`${n.x},${n.z},${deck}`);
+      if (!other || other.id === f.id || other.kind === 'lift') continue;
+      // Never back onto a feeder, which is a two-cell tug of war. Derived cells
+      // downstream of this shaft have no answer yet, so they cannot look like
+      // one; the ones that do are genuinely pointing in.
+      const back = map.get(other.id);
+      if (back && back.x === f.x && back.z === f.z && deckOf(back) === deck) continue;
+      return { x: n.x, z: n.z, deck };
+    }
+    // A shaft with nothing beside it on the far deck is an ordinary thing to
+    // have half-built, so it is a TERMINUS rather than a hang.
+    return null;
+  };
+
   const liftTo = (f) => {
     /** Where this neighbour hands its crate, without asking anybody. */
     const goes = (o) => {
@@ -2600,6 +2666,26 @@ function conveyorFlow(L) {
     // the floor's answer, arbitrarily and on purpose: some answer beats none,
     // and the second feeder is a run the player can see is joined to the wrong
     // end.
+    /**
+     * ...unless you SAID, which is the one case the derivation cannot get
+     * right and knows it.
+     *
+     * Fed from one side, reading the feeder is better than any setting: build
+     * a shaft at the end of an aisle and it lifts, one at the end of a duct and
+     * it drops, and nobody configures anything. Fed from BOTH — a floor run and
+     * a duct arriving on the same square, which is the ordinary way two levels
+     * of one loop rejoin — there is no answer to derive, so the note below
+     * takes the floor's arbitrarily. Arbitrary is fine as a fallback and is not
+     * fine as the only option: half the shops that build it want the other one,
+     * and what they get is a shaft that lifts crates away from the run they
+     * were trying to merge into.
+     *
+     * Which also gives the pass-through for nothing. A shaft told DOWN hands to
+     * a floor cell beside it, so a crate that arrived along the floor simply
+     * carries on into that cell and a crate that arrived overhead descends the
+     * shaft into the same one — two feeds, one exit, no second concept.
+     */
+    if (LIFT_WAYS.includes(f.way)) return liftOut(f, f.way === 'up' ? CEILING : 0);
     let from = null;
     for (const d of [0, CEILING]) {
       for (const r of [0, 1, 2, 3]) {
@@ -2623,28 +2709,7 @@ function conveyorFlow(L) {
     const deck = from === null
       ? (deckOf(f) === CEILING ? 0 : CEILING)
       : (from === CEILING ? 0 : CEILING);
-    /**
-     * ...and it hands to a cell BESIDE it up there, never to its own square.
-     *
-     * Its own square on the far deck is the lift again — it answers
-     * `conveyorAt` on both storeys, which is what lets a run on either one hand
-     * to it — so "straight up" would be a cell whose `next` is its own id.
-     * Nothing errors and the box arrives where it already is, for ever.
-     */
-    for (const r of [0, 1, 2, 3]) {
-      const n = anchorTile(f.x, f.z, r);
-      const other = at.get(`${n.x},${n.z},${deck}`);
-      if (!other || other.id === f.id || other.kind === 'lift') continue;
-      // Never back onto a feeder, which is a two-cell tug of war. Derived cells
-      // downstream of this shaft have no answer yet, so they cannot look like
-      // one; the ones that do are genuinely pointing in.
-      const back = map.get(other.id);
-      if (back && back.x === f.x && back.z === f.z && deckOf(back) === deck) continue;
-      return { x: n.x, z: n.z, deck };
-    }
-    // A shaft with nothing beside it on the far deck is an ordinary thing to
-    // have half-built, so it is a TERMINUS rather than a hang.
-    return null;
+    return liftOut(f, deck);
   };
   for (const f of lifts) {
     map.set(f.id, liftTo(f));
@@ -3477,7 +3542,26 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
    */
   if (deckOf(spec) === CEILING) {
     if (!def.flow) return no('only a conveyor can go on the ceiling');
-    if (!cells.every((c) => insideStore(L, c.x, c.z))) return no('there is no roof there');
+    /**
+     * ...and the roof is a PLACEMENT rule, never a keeping one.
+     *
+     * This is `canKeep`'s own bug, one storey up, and it shipped with step 8
+     * because the two rules that survived the skip above were both read as
+     * facts about the duct. A roof is not: it is a fact about the walls, and
+     * enclosure in this game is shop-wide and ALL-OR-NOTHING — take enough of a
+     * wall out and `computeIndoor` answers zero indoor cells, not fewer. So one
+     * accidental hole in an outside wall failed this test for every overhead
+     * cell in the building at once, and `compose` sheds what it cannot keep:
+     * the entire duct dropped and refunded on one press.
+     *
+     * A full refund is why it does not read as theft. What you lose is the
+     * build, and what you see is your whole ceiling disappearing for a gesture
+     * the game called a warning — the same sentence `canKeep` is already
+     * written on the floor half of the shop.
+     */
+    if (!keeping && !cells.every((c) => insideStore(L, c.x, c.z))) {
+      return no('there is no roof there');
+    }
     const swapUp = conveyorSwap(L, def, spec, T.BELT, x, z, ignoreId, keeping);
     if (swapUp) return swapUp;
     if (conveyorAt(L, x, z, CEILING)) return no('there is already a run overhead');
